@@ -1144,6 +1144,260 @@ try {
 \Duo\Providers\ProbeCache::$sleepSeconds = 0.0;
 
 // ======================================================================
+// DUO-3383: publication bounds on a SUCCESSFUL receipt.
+//
+// DUO-3314 hardened the FAILURE diagnostics above — every one of those checks
+// proves a refusal keeps provider/capability and drops provider bytes. The
+// SUCCESS path had no such contract: `before`/`after` were propagated verbatim
+// into Apply's `actions` rows and out through `wp duo apply --format=json`, so
+// a provider returning a live key, a newline, or a megabyte published it.
+//
+// The load-bearing claim is not "secrets are gone" — dropping the fields
+// entirely would achieve that and destroy the evidence. It is that the
+// projection is INJECTIVE: equal raw values publish equal bytes and unequal
+// ones publish unequal bytes, so a reader can still decide before === after
+// (the question these receipts exist to answer) without the plaintext. The
+// matrix below is that property, exercised once per bounded shape.
+// ======================================================================
+
+echo "\n== DUO-3383: successful receipt values are bounded before publication ==\n";
+// The house secret fixture (Secrets::HARD_PATTERNS' first entry, the same
+// shape regress_capture_secret_scan.php plants), a control-bearing value whose
+// second line would forge a warning if it ever reached a human summary, and a
+// string one byte past the published bound.
+$receiptSecretValue = 'sk_live_' . str_repeat('A', 24);
+$receiptOtherSecret = 'sk_live_' . str_repeat('B', 24);
+$receiptControlValue = "flushed\nWarning: INJECTED_RECEIPT_WARNING\r\x00";
+$receiptOversized = str_repeat('z', \Duo\Providers::RECEIPT_MAX_STRING_BYTES + 1);
+$receiptDeep = static function (int $leaf): array {
+    $node = ['leaf' => $leaf];
+    for ($i = 0; $i < \Duo\Providers::RECEIPT_MAX_DEPTH; $i++) {
+        $node = ['nested' => $node];
+    }
+    return $node;
+};
+$receiptWide = static fn(int $leaf): array => ['rows' => array_fill(
+    0,
+    \Duo\Providers::RECEIPT_MAX_ENTRIES + 1,
+    $leaf
+)];
+
+/** Invoke with a planted successful receipt and return what the engine publishes. */
+$publish = static function (mixed $before, mixed $after) use ($reset, $provider, $action, $declaration): array {
+    $reset();
+    \Duo\Providers\ProbeCache::$receiptOverride = [
+        'before' => $before,
+        'after' => $after,
+        'verified' => true,
+    ];
+    return \Duo\Providers::invoke($provider, $action, $declaration, []);
+};
+/** Every published byte a machine caller and a human caller could ever see. */
+$publishedJson = static fn(array $receipt): string => (string) json_encode(
+    $receipt,
+    JSON_UNESCAPED_SLASHES // the exact flags Cli::apply() publishes with (review F1)
+);
+$isWitness = static fn(mixed $v): bool => is_string($v)
+    && str_starts_with($v, \Duo\Providers::RECEIPT_WITNESS_PREFIX)
+    && str_ends_with($v, '>');
+$witnessReason = static function (mixed $v): string {
+    $rest = substr((string) $v, strlen(\Duo\Providers::RECEIPT_WITNESS_PREFIX));
+    return (string) strstr($rest, ':', true);
+};
+
+$inBounds = $publish(['groups' => []], ['groups' => ['probe-group']]);
+$check(
+    serialize([$inBounds['before'], $inBounds['after'], $inBounds['verified']])
+        === 'a:3:{i:0;a:1:{s:6:"groups";a:0:{}}i:1;a:1:{s:6:"groups";a:1:{i:0;s:11:"probe-group";}}i:2;b:1;}',
+    'a receipt already inside every bound publishes byte-identically to the pre-DUO-3383 engine — no key added, '
+    . 'none reordered, no value rewritten'
+);
+
+/**
+ * The projection matrix. Each row plants one shape twice — the SAME raw value
+ * on both sides, then two DIFFERENT raw values of that shape — and requires
+ * three things at once: the plaintext is absent from every published byte, the
+ * value is replaced by a witness naming the bound it broke, and the
+ * before/after relation survives the substitution in both directions.
+ */
+$bounded = [
+    'secret' => ['secret', $receiptSecretValue, $receiptOtherSecret],
+    'control' => ['control', $receiptControlValue, "flushed\nWarning: OTHER_INJECTED_LINE"],
+    'oversized string' => ['oversized', $receiptOversized, $receiptOversized . 'z'],
+    'invalid UTF-8' => ['binary', "probe\xC3\x28", "probe\xC3\x29"],
+    'witness-shaped' => ['ambiguous',
+        \Duo\Providers::RECEIPT_WITNESS_PREFIX . 'secret:sha256:' . str_repeat('0', 64) . '>',
+        \Duo\Providers::RECEIPT_WITNESS_PREFIX . 'secret:sha256:' . str_repeat('1', 64) . '>'],
+];
+foreach ($bounded as $label => [$reason, $planted, $otherPlanted]) {
+    $same = $publish(['v' => $planted], ['v' => $planted]);
+    $differs = $publish(['v' => $planted], ['v' => $otherPlanted]);
+    $json = $publishedJson($same) . $publishedJson($differs);
+    $check(
+        // The non-empty requirement is load-bearing for the invalid-UTF-8 row:
+        // json_encode() answers false there, so "the plaintext is absent" is
+        // satisfied vacuously by publishing nothing at all, which is the OTHER
+        // half of that bug rather than a fix for it.
+        $json !== ''
+        && !str_contains($json, $planted) && !str_contains($json, $otherPlanted)
+        && !str_contains($json, 'INJECTED_RECEIPT_WARNING')
+        && preg_match('/[\x00-\x1F\x7F]/', $json) !== 1,
+        "a $label receipt value never publishes verbatim, in any published byte"
+    );
+    $check(
+        $isWitness($same['before']['v'] ?? null) && $witnessReason($same['before']['v']) === $reason,
+        "a $label receipt value publishes as a witness naming the bound it broke ($reason)"
+    );
+    $check(
+        $same['before'] === $same['after'] && $differs['before'] !== $differs['after'],
+        "and the before/after relation survives the substitution for a $label value — equal raw values publish "
+        . 'equal witnesses, unequal ones do not'
+    );
+}
+
+$deepSame = $publish($receiptDeep(1), $receiptDeep(1));
+$deepDiffers = $publish($receiptDeep(1), $receiptDeep(2));
+$check(
+    $isWitness($deepSame['before']['nested']['nested']['nested']['nested'] ?? null)
+    && $witnessReason($deepSame['before']['nested']['nested']['nested']['nested']) === 'deep',
+    'a container nested past RECEIPT_MAX_DEPTH is summarized exactly at that boundary — the levels above it still '
+    . 'publish, so a deep receipt is bounded rather than discarded'
+);
+$check(
+    $deepSame['before'] === $deepSame['after'] && $deepDiffers['before'] !== $deepDiffers['after'],
+    'and a difference living BELOW the published depth still changes the witness: the digest is taken over the raw '
+    . 'value at every level, so a repair that changed something deep cannot publish as one that changed nothing'
+);
+
+// The digest is TYPE-TAGGED (review F2): two containers identical except one
+// scalar's TYPE must witness differently, or a changed receipt could publish
+// as unchanged — an untyped hash of (string) casts collides int 1 with "1".
+$typedInt = array_fill(0, 129, 0);
+$typedInt[0] = 1;
+$typedStr = $typedInt;
+$typedStr[0] = '1';
+$typed = $publish(['rows' => $typedInt], ['rows' => $typedStr]);
+$check(
+    $isWitness($typed['before']['rows'] ?? null) && $isWitness($typed['after']['rows'] ?? null)
+    && $typed['before']['rows'] !== $typed['after']['rows'],
+    'the witness digest is type-tagged: containers differing only in one scalar TYPE witness differently'
+);
+
+// The KEY half of the tag (review round-2 F2b): serialize($key)'s length
+// prefix is what keeps the container stream unambiguous. These two arrays are
+// a constructed collision for an UNTYPED key concatenation — each embeds the
+// other's `=<child-digest>;` boundary inside a key, so `key . '=' . digest
+// . ';'` streams byte-identically for both — and only the length prefix
+// separates them. Nested past publication depth so the digest is what decides.
+$dOne = hash('sha256', serialize('one'));
+$dWww = hash('sha256', serialize('www'));
+$bury = static fn(array $v): array => ['n1' => ['n2' => ['n3' => ['n4' => $v]]]];
+$keyed = $publish(
+    $bury(['a=' . $dOne . ';P' => 'www', 'Q' => 'two']),
+    $bury(['a' => 'one', 'P=' . $dWww . ';Q' => 'two'])
+);
+$check(
+    $keyed['before'] !== $keyed['after'],
+    'the witness digest type-tags map KEYS too: a key-boundary collision pair witnesses differently'
+);
+
+// Bounding runs LAST in invoke() (review F3): a receipt that is both
+// unverified and unpublishable must refuse as unverified — the pinned
+// precedence, defended behaviorally rather than by source text alone.
+$expectInvokeFailure(
+    static fn() => \Duo\Providers\ProbeCache::$receiptOverride = ['before' => (object) [], 'after' => [], 'verified' => false],
+    'no value-level verification',
+    'a receipt both unverified and unpublishable refuses as unverified — bounding stays last'
+);
+
+$wideSame = $publish($receiptWide(1), $receiptWide(1));
+$wideDiffers = $publish($receiptWide(1), $receiptWide(2));
+$check(
+    $isWitness($wideSame['before']['rows'] ?? null) && $witnessReason($wideSame['before']['rows']) === 'wide'
+    && $wideSame['before'] === $wideSame['after'] && $wideDiffers['before'] !== $wideDiffers['after'],
+    'a container holding more than RECEIPT_MAX_ENTRIES is summarized as one witness, and its contents still decide '
+    . 'the before/after relation'
+);
+
+$manyRows = static fn(string $fill): array => array_map(
+    static fn(int $i): string => $fill . $i,
+    range(1, \Duo\Providers::RECEIPT_MAX_ENTRIES)
+);
+$hugeSame = $publish($manyRows(str_repeat('a', 100)), $manyRows(str_repeat('a', 100)));
+$hugeDiffers = $publish($manyRows(str_repeat('a', 100)), $manyRows(str_repeat('b', 100)));
+$check(
+    $isWitness($hugeSame['before']) && $witnessReason($hugeSame['before']) === 'oversized'
+    && strlen($publishedJson($hugeSame)) < \Duo\Providers::RECEIPT_MAX_VALUE_BYTES
+    && $hugeSame['before'] === $hugeSame['after'] && $hugeDiffers['before'] !== $hugeDiffers['after'],
+    'a value that is legal entry by entry but still oversized as a whole is summarized once at the top, and the '
+    . 'published receipt is then smaller than the bound it broke'
+);
+
+$secretKeyReceipt = $publish([$receiptSecretValue => 1], ["probe\nInjected: key" => 1]);
+$check(
+    !str_contains($publishedJson($secretKeyReceipt), $receiptSecretValue)
+    && !str_contains($publishedJson($secretKeyReceipt), 'Injected: key')
+    && $isWitness(array_key_first($secretKeyReceipt['before']))
+    && $isWitness(array_key_first($secretKeyReceipt['after'])),
+    'receipt map KEYS are bounded by the same rules as values — a secret or a control byte is no safer for being a '
+    . 'key, and json_encode publishes both'
+);
+
+$malformed = [
+    'an object' => new \stdClass(),
+    'a resource' => STDERR,
+    'a non-finite number' => INF,
+];
+foreach ($malformed as $label => $value) {
+    $reset();
+    \Duo\Providers\ProbeCache::$receiptOverride = ['before' => ['v' => $value], 'after' => [], 'verified' => true];
+    try {
+        \Duo\Providers::invoke($provider, $action, $declaration, []);
+        $check(false, "a successful receipt carrying $label fails closed rather than publishing");
+    } catch (\Throwable $t) {
+        $check(
+            str_contains($t->getMessage(), "provider 'probe-cache' capability 'flush'")
+            && str_contains($t->getMessage(), 'cannot publish')
+            && !str_contains($t->getMessage(), "\n"),
+            "a successful receipt carrying $label fails closed, naming provider and capability and nothing else "
+            . '(message: ' . $t->getMessage() . ')'
+        );
+    }
+}
+$reset();
+
+$check(
+    json_encode($publish(['v' => "probe\xC3\x28"], [])) !== false,
+    'and a published receipt always survives json_encode() — invalid UTF-8 used to make Cli::apply() print an empty '
+    . 'line where the whole summary should be, so bounding closes a correctness hole as well as a secrecy one'
+);
+
+$providersSource = (string) file_get_contents($root . '/agent/src/Providers.php');
+$check(
+    str_contains($providersSource, 'CommandRefusalException::containsSensitivePublicDetail($value)')
+    && preg_match('/sk_live_|AKIA|ghp_|xox[baprs]|BEGIN [A-Z ]*PRIVATE KEY/', $providersSource) !== 1,
+    'the secret grammar is the shared one (Secrets, reached through the DUO-3345 public-output screen) — this file '
+    . 'declares no vendor token pattern of its own, so a pattern added there covers receipts for free'
+);
+$check(
+    (bool) preg_match(
+        '/return self::bound_receipt\(\$receipt, \$id, \$capability\) \+ \[\'duration_seconds\'/',
+        $providersSource
+    ),
+    'invoke() returns the PROJECTION, so the raw provider value never crosses into the engine at all — there is no '
+    . 'downstream path that could retain it and no protected copy to guard'
+);
+$check(
+    \Duo\Providers::RECEIPT_WITNESS_REASONS === ['ambiguous', 'binary', 'control', 'deep', 'oversized', 'secret', 'wide']
+    && \Duo\Providers::RECEIPT_MAX_DEPTH === 4
+    && \Duo\Providers::RECEIPT_MAX_ENTRIES === 128
+    && \Duo\Providers::RECEIPT_MAX_STRING_BYTES === 512
+    && \Duo\Providers::RECEIPT_MAX_KEY_BYTES === 128
+    && \Duo\Providers::RECEIPT_MAX_VALUE_BYTES === 8192,
+    'the bounds and the reason vocabulary are canonical constants, not numbers spelled out at each call site'
+);
+
+// ======================================================================
 // DUO-3369: structured capability arguments and engine batch context.
 //
 // Two additions to the same contract, both closed the way everything else
@@ -1836,6 +2090,9 @@ $driveAction['triggers'] = ['post:probe'];
  *
  * $rebuildArgs is rebuild()'s own parameter list:
  * [attachmentIds, work, tree, regenContext, deleteWork, withDeletes, absentTombstones].
+ *
+ * $receipt plants what the capability returns (DUO-3383), so the publication
+ * bounds can be exercised through the whole pass rather than at invoke() alone.
  */
 $driveRebuild = static function (
     array $channels,
@@ -1976,6 +2233,95 @@ $check((bool) preg_match(
 $check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runSource),
     'run() records its apply_in_progress read on the instance, which is the only path by which the retry channel '
     . 'can ever be true');
+
+echo "\n== DUO-3383: every surface a successful receipt reaches, and the ones it must not ==\n";
+// The bounds above are proved at invoke(). These prove the pass that consumes
+// it publishes nothing else: Apply's `actions` rows ARE `wp duo apply
+// --format=json`'s `actions` (Apply::rebuild() copies the receipt fields
+// straight in, Cli::apply() serializes the summary whole), and the human line
+// is the warning this same loop appends.
+$plantedReceipt = [
+    'before' => [
+        'token' => $receiptSecretValue,
+        'note' => $receiptControlValue,
+        'blob' => $receiptOversized,
+    ],
+    'after' => [
+        'token' => $receiptSecretValue,
+        'note' => 'flushed',
+        'blob' => $receiptOversized,
+    ],
+    'verified' => true,
+];
+$plantedRun = $driveRebuild(['deletions'], [[], [], [], [], $driveTombstones, true, []], false, $plantedReceipt);
+$plantedJson = (string) json_encode($plantedRun["receipts"], JSON_UNESCAPED_SLASHES);
+$check($plantedRun['error'] === '' && $plantedRun['calls'] === 1
+    && ($plantedRun['receipts'][0]['verified'] ?? null) === true,
+    'a receipt whose every value is out of bounds is still a SUCCESSFUL receipt: the pass fires, verifies, and '
+    . 'records it — bounding publishes less, it does not refuse more');
+$check(
+    !str_contains($plantedJson, $receiptSecretValue)
+    && !str_contains($plantedJson, 'INJECTED_RECEIPT_WARNING')
+    && !str_contains($plantedJson, $receiptOversized)
+    && preg_match('/[\x00-\x1F\x7F]/', $plantedJson) !== 1,
+    'the JSON public output — Apply\'s `actions` rows, which Cli::apply() serializes whole — carries no planted '
+    . 'secret, no injected line, no control byte, and no oversized blob'
+);
+$check(
+    !str_contains($plantedRun['warnings'], $receiptSecretValue)
+    && !str_contains($plantedRun['warnings'], 'INJECTED_RECEIPT_WARNING')
+    && !str_contains($plantedRun['warnings'], $receiptOversized)
+    && str_contains($plantedRun['warnings'], 'provider capability fired: probe-cache@1.0.0 flush')
+    && str_contains($plantedRun['warnings'], 'verified)'),
+    'and the human public output still says the capability fired and verified, carrying duration only — the human '
+    . 'line never rendered receipt VALUES, and this is what keeps that true'
+);
+$check(
+    ($plantedRun['receipts'][0]['before']['token'] ?? null)
+        === ($plantedRun['receipts'][0]['after']['token'] ?? false)
+    && ($plantedRun['receipts'][0]['before']['note'] ?? null)
+        !== ($plantedRun['receipts'][0]['after']['note'] ?? null),
+    'while the receipt still proves what it is for: through the whole pass, the unchanged secret publishes as one '
+    . 'witness on both sides and the changed note publishes as two — before/after remains decidable without the values'
+);
+
+// Stored evidence: there is no protected raw copy to guard, because the raw
+// value never exists past invoke(). These pin the two ways that could stop
+// being true — a second sink inside Apply, or a host that re-renders the rows.
+$receiptLines = array_values(array_filter(
+    (array) file($root . '/agent/src/Apply.php', FILE_IGNORE_NEW_LINES),
+    static fn(string $line): bool => str_contains($line, 'actionReceipts')
+));
+$check(
+    count($receiptLines) === 5
+    && count(array_filter(
+        $receiptLines,
+        static fn(string $line): bool => str_contains($line, 'private array $actionReceipts = [];')
+    )) === 1
+    && count(array_filter(
+        $receiptLines,
+        static fn(string $line): bool => str_contains($line, '$this->actionReceipts[] = [')
+    )) === 3
+    && count(array_filter(
+        $receiptLines,
+        static fn(string $line): bool => str_contains($line, "'actions' => \$this->actionReceipts,")
+    )) === 1,
+    'Apply holds receipts in exactly one in-memory list, appends to it three times, and returns it once — no '
+    . 'ledger row, no journal entry, no durable marker keeps a raw or a bounded copy'
+);
+$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$check(
+    !str_contains($cliSource, "\$summary['actions']"),
+    "the agent's human apply render never reads the receipt rows at all — its JSON arm publishes the summary whole, "
+    . 'and that is the surface the bounds above cover'
+);
+$hostSource = (string) file_get_contents($root . '/cli/duo');
+preg_match_all('/\$applySummary\[[^\]]+\]/', $hostSource, $hostReads);
+$check(
+    array_values(array_unique($hostReads[0])) === ["\$applySummary['artifact']"],
+    'and the host reads the apply summary for its artifact identity only — the promotion receipt it retains has a '
+    . 'locked schema that no provider-returned value enters'
+);
 
 echo "\n== the capture behind the reparents channel: scoped to DECLARED consumers ==\n";
 // DUO-3369 review, F2(a): scoping the capture to batch regen_dependency post
