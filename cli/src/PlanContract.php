@@ -28,10 +28,20 @@ namespace Duo\Orchestrator;
  * bucket without teaching this list about it fails that suite loudly rather
  * than silently widening what a truth-critical caller will trust.
  *
- * Row SHAPES stay out of scope on purpose. Buckets carry deliberately
- * different row shapes (see PlanSummary's own docblock), and `ok` is
- * computed from counts, so "the bucket exists and is a list" is exactly the
- * property that makes a count trustworthy.
+ * Row FIELD shapes stay out of scope on purpose: buckets carry deliberately
+ * different row shapes (see PlanSummary's own docblock), and `ok` is computed
+ * from counts, so no field-level schema is validated here — "the bucket exists
+ * and is a list" is what makes a count trustworthy. There is one cheap floor
+ * BENEATH the field shapes, though (DUO-3388): every required bucket except
+ * `warnings` is a list of row OBJECTS, and PlanSummary::label() and its
+ * render() peers dereference those rows as arrays, so a non-array row such as
+ * `"conflict": [true]` would raise an uncaught TypeError the instant a trust
+ * boundary rendered the envelope. requireComplete() therefore also asserts
+ * is_array() per row — not a schema, only "each row is an object" — and turns a
+ * malformed row into the same house-style refusal a missing or non-list bucket
+ * produces, naming the bucket and the offending index. `warnings` is the sole
+ * exemption: it is a `list<string>` (agent/src/Apply.php's plan() entry point),
+ * so its rows are legitimately not objects.
  */
 final class PlanContract {
     private const CATEGORY_SUMMARY_FORMAT = 'duo-plan-category-summary/v1';
@@ -138,6 +148,18 @@ final class PlanContract {
         'warnings',
     ];
 
+    /**
+     * Required buckets whose rows are legitimately NOT JSON objects, so the
+     * per-row object floor in violations() skips them. `warnings` is the only
+     * one: agent/src/Apply.php's plan() entry point attaches it as a plain
+     * `list<string>`. Flooring it would refuse a well-formed plan that merely
+     * carries a warning line; every OTHER required bucket is a list of row
+     * objects, where a non-array row is always malformed.
+     *
+     * @var list<string>
+     */
+    private const NON_OBJECT_ROW_BUCKETS = ['warnings'];
+
     /** @return list<string> */
     public static function requiredBuckets(): array {
         return self::REQUIRED_BUCKETS;
@@ -215,7 +237,8 @@ final class PlanContract {
      * Name every way this document falls short of the complete envelope.
      *
      * @return list<string> empty means complete; otherwise a deterministic,
-     *   bounded list naming exactly which buckets are absent or non-list.
+     *   bounded list naming exactly which buckets are absent, non-list, or
+     *   (except warnings) carry a non-object row, with that row's index.
      */
     public static function violations(mixed $plan): array {
         // json_decode() renders both `{}` and `[]` as PHP's empty array, so
@@ -232,6 +255,23 @@ final class PlanContract {
             }
             if (!is_array($plan[$bucket]) || !array_is_list($plan[$bucket])) {
                 $violations[] = "$bucket is not a list";
+                continue;
+            }
+            // DUO-3388 row-shape FLOOR. Every required bucket except the
+            // non-object-row ones (warnings) is a list of row OBJECTS;
+            // PlanSummary::label()/render() dereference those rows as arrays, so
+            // a non-array row would TypeError the instant a trust boundary
+            // rendered the envelope. Naming the first offending index keeps this
+            // list bounded and deterministic like the checks above; it is a
+            // floor, not a schema — only "each row is an object" is asserted.
+            if (in_array($bucket, self::NON_OBJECT_ROW_BUCKETS, true)) {
+                continue;
+            }
+            foreach ($plan[$bucket] as $index => $row) {
+                if (!is_array($row)) {
+                    $violations[] = "$bucket row $index is not a JSON object";
+                    break;
+                }
             }
         }
         return $violations;
