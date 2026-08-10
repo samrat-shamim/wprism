@@ -229,6 +229,15 @@ namespace {
     require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
     require __DIR__ . '/../../agent/src/Cli.php';
 
+    // This suite certifies public failure output. A PHP warning is itself an
+    // unclassified output channel, so it must make the regression non-green.
+    set_error_handler(
+        static function (int $severity, string $message, string $file, int $line): bool {
+            throw new ErrorException($message, 0, $severity, $file, $line);
+        },
+        E_WARNING | E_USER_WARNING
+    );
+
     $failures = 0;
     function check(bool $condition, string $message): void {
         global $failures;
@@ -851,6 +860,19 @@ namespace {
             && !$cliReflection->hasMethod('publishable_refusal'),
         'the prefix publication constant and helper are absent'
     );
+    $testSource = file_get_contents(__FILE__);
+    $retiredCommandVariableTokens = is_string($testSource)
+        ? array_values(array_filter(
+            token_get_all($testSource),
+            static fn($token): bool => is_array($token)
+                && $token[0] === T_VARIABLE
+                && $token[1] === '$publicRefusalCommands'
+        ))
+        : [['test source unreadable']];
+    check(
+        $retiredCommandVariableTokens === [],
+        'the regression source does not recreate the retired command-allowlist variable'
+    );
     // Live coverage on two additional command paths proves the rule is not a
     // plan/capture special case. The message is deliberately value-free and
     // `duo: `-prefixed, so only the absence of prefix authority keeps it out.
@@ -873,17 +895,17 @@ namespace {
     echo "\n== DUO-3421: publication by reviewed CLASS, on the same #180 terms ==\n";
     // #180's rule, one axis over. halt_json_failure() also admits a refusal
     // whose CLASS has a closed, audited message vocabulary, independent of the
-    // command allowlist — because the vocabulary, not the command, is what
+    // command or its prose — because the class, not the command, is what
     // makes those messages safe to publish. The motivating one: init's
     // bound-copy digest boundary ("copy source digest changed") is the whole
     // operator answer when code changes underneath a confirmed baseline, and
     // it was arriving as "init refused at an unclassified safety gate". `init`
-    // itself stays OFF the command allowlist, so its injected-fault and
+    // has no command-level publication authority, so its injected-fault and
     // ownership internals keep redacting — they are ordinary Throwables.
     //
     // Every half is pinned here: the membership itself, that an admitted class
-    // publishes on a command that is NOT on the allowlist, that the identical
-    // message from an ordinary Throwable on the SAME command still redacts
+    // publishes across commands, that the identical message from an ordinary
+    // Throwable on the SAME command still redacts
     // (so the class is doing the work, not the wording), and that the
     // sensitivity screen still governs an admitted class — a boundary refusal
     // carrying an absolute path goes back to the redacted envelope.
@@ -903,13 +925,6 @@ namespace {
         ),
         'the admitted class is the one agent/src/Publish.php declares'
     );
-    check(
-        array_values(array_intersect(
-            ['lint', 'capabilities'],
-            (array) $publicRefusalCommands
-        )) === [],
-        'the commands used below are still absent from the command allowlist'
-    );
     foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
         $boundary = 'duo: initial ' . $command . ' staging file refused at its inode-bound parent: copy source digest changed';
         \Duo\Policy::$failure = new \Duo\InitialStateBoundaryException($boundary);
@@ -918,7 +933,7 @@ namespace {
             ($published['error'] ?? null) === 'initial_state_boundary'
                 && ($published['message'] ?? null) === $boundary
                 && !array_key_exists('details_redacted', $published),
-            "$command publishes an admitted-class boundary refusal verbatim although the command is not allowlisted"
+            "$command publishes an admitted-class boundary refusal through class authority alone"
         );
         // Same sentence, ordinary class: still redacted. The class admission
         // is the only difference between these two answers.
