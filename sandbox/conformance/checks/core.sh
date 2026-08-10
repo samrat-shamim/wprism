@@ -605,10 +605,15 @@ ROLL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=a
 # exists so a dead invocation reports itself instead of reporting green.
 require_duo_answered "conf2 duo apply --with-deletes (injected FK rollback probe)" human "$ROLL_OUT"
 [ "$ROLL_RC" -ne 0 ] || fail "injected second-row deletion failure unexpectedly applied"
+# The two post-conditions below read the TARGET, not $ROLL_OUT, so the broad
+# answered-marker above cannot protect them: a `wp post list` that itself dies
+# at the docker layer returns an empty id and accuses the engine of losing a
+# page it never looked at. Paste the apply capture so a wp-cli-framed
+# infrastructure error at least self-identifies in the sweep log.
 [ "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')" = "$ROLL_A2" ] \
-  || fail "partial deletion failure did not roll back the first page"
+  || fail "partial deletion failure did not roll back the first page: $ROLL_OUT"
 [ "$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')" = "$ROLL_B2" ] \
-  || fail "partial deletion failure lost the blocked page"
+  || fail "partial deletion failure lost the blocked page: $ROLL_OUT"
 wp_conf2 db query 'DROP TABLE wp_duo_delete_block' >/dev/null
 wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
 [ -z "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID)" ] \

@@ -76,13 +76,14 @@ require_fixture_state() { # require_fixture_state <what> <expected> <actual>
 # an accusation against Duo. No engine assertion is reworded or weakened, and
 # an invocation that was answered sees no behavior change at all.
 #
-# The marker of "answered" is deliberately BROAD: wp-cli's own framing of any
-# answer it gives (Success:/Error:/Warning:), duo's own `duo:` message prefix,
-# or PHP's own fatal framing. A NARROW marker would be the dangerous one — it
-# could demote a real but differently-worded engine failure into an
-# infrastructure signal, i.e. weaken an engine assertion. Broad, the helper
-# can only ever fire on the case it exists for: nothing came back from the
-# containerized process at all.
+# The marker of "answered" is deliberately BROAD in both modes: human accepts
+# wp-cli's own framing of any answer it gives (Success:/Error:/Warning:), duo's
+# own `duo:` message prefix, or PHP's own fatal framing; json accepts any JSON
+# value duo's machine contract can legitimately be (an object or an array — see
+# the mode itself). A NARROW marker would be the dangerous one — it could demote
+# a real but differently-worded engine failure into an infrastructure signal,
+# i.e. weaken an engine assertion. Broad, the helper can only ever fire on the
+# case it exists for: nothing came back from the containerized process at all.
 require_duo_answered() { # require_duo_answered <what> <human|json> <captured output>
   local what="$1" mode="$2" out="$3" last
   case "$mode" in
@@ -92,10 +93,17 @@ require_duo_answered() { # require_duo_answered <what> <human|json> <captured ou
         || fail "infrastructure failure: $what was never answered — the capture carries no wp-cli Success:/Error:/Warning: line, no 'duo:' message, no PHP error, so this invocation died at the docker/compose layer and nothing after it is testing the engine: ${out:-<empty>}"
       ;;
     json)
-      # --format=json capture: one JSON envelope on stdout, success summary
-      # or duo-command-refusal/v1 alike, read exactly as the assertions do.
+      # --format=json capture: one JSON value on stdout, success summary or
+      # duo-command-refusal/v1 alike, read exactly as the assertions do (last
+      # non-empty line). Object OR array: `duo pending --format=json`
+      # legitimately answers `[]`, and pinning this to objects would make the
+      # NEXT array-answering site report a healthy engine as an infrastructure
+      # failure — the same narrowness the human marker is written to avoid.
+      # Widening cannot weaken an existing site: every json caller asserts a
+      # top-level object field downstream, so an array still fails there, as
+      # the accusation it belongs to.
       last=$(awk 'NF { line=$0 } END { print line }' <<<"$out")
-      jq -e 'type == "object"' >/dev/null 2>&1 <<<"$last" \
+      jq -e 'type == "object" or type == "array"' >/dev/null 2>&1 <<<"$last" \
         || fail "infrastructure failure: $what was never answered — the capture's last non-empty line is not a JSON envelope, so this invocation died at the docker/compose layer and nothing after it is testing the engine: ${out:-<empty>}"
       ;;
     *)
