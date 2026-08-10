@@ -439,6 +439,15 @@ regress-actions-providers:
 regress-provider-contract-live:
 	bash sandbox/tests/regress_provider_contract_live.sh
 
+# DUO-3345 (#189): value-free plan category summaries, live. Its own pair +
+# PLAN_CATEGORY_SUMMARY_PAIR/PORT1/PORT2. Live/pair suite — belongs in
+# regress-live-list, not the offline count.
+regress-plan-category-summary:
+	php sandbox/tests/regress_plan_category_summary.php
+
+regress-plan-category-summary-live:
+	bash sandbox/tests/regress_plan_category_summary_live.sh
+
 # DUO-3317 live counterpart: a provider whose declared `requires` names an
 # environment this target does not have refuses before the first mutation, then
 # the identical apply against the shipped adapter (which declares no such
@@ -493,6 +502,12 @@ regress-conformance-asserts:
 # architectural claim of the split by comparing each reported refusal against
 # the message AdapterSources::discover() throws for the same fixture, byte for
 # byte. Offline: file I/O and pure PHP only.
+# DUO-3339 slice B2 (#187): the plugin adapter source. Its Makefile target was
+# dropped in a #151 Makefile conflict resolution (DUO-3417); the suite is
+# offline and belongs in regress-offline-all.
+regress-plugin-adapter-source:
+	bash sandbox/tests/regress_plugin_adapter_source.sh
+
 regress-adapter-catalog:
 	bash sandbox/tests/regress_adapter_catalog.sh
 
@@ -922,8 +937,9 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts
-	@echo "regress-offline-all: 98 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
+	regress-plugin-adapter-source regress-plan-category-summary
+	@echo "regress-offline-all: 100 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -948,6 +964,7 @@ regress-live-list:
 	@echo "  regress-multisite-refusal                 own disposable pair (parameterized: MULTISITE_PAIR/PORT1/PORT2)"
 	@echo "  regress-adapter-theme-range               pair asub3222tr 8918/8919"
 	@echo "  regress-provider-contract-live            pair claudemacb3338 8930/8931"
+	@echo "  regress-plan-category-summary-live        pair codexsma3345 9060/9061 (parameterized: PLAN_CATEGORY_SUMMARY_PAIR/PLAN_CATEGORY_SUMMARY_PORT1/PLAN_CATEGORY_SUMMARY_PORT2)"
 	@echo "  regress-provider-requirements-live        pair claudemacb3317 8930/8931 (parameterized: PROVIDER_REQUIREMENTS_PAIR/PROVIDER_REQUIREMENTS_PORT1/PROVIDER_REQUIREMENTS_PORT2)"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
