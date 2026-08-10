@@ -2070,6 +2070,13 @@ final class Cli {
      * site.duo.json is left untouched; promoting rules into a real manifest
      * file upstream is a deliberate, separate human act.
      *
+     * This emits ONLY facts and has no proposers by a reviewed decision. Its
+     * generator sibling is the host verb `duo adapter-draft` (DUO-3325), which
+     * reuses THIS export as its facts core (Policy::export_manifest, verbatim) and
+     * adds offline proposers that observe captured state/** into an inert `_draft`
+     * sidecar — never applied, never auto-promoted. This command's facts-only,
+     * one-document-on-stdout contract stays exactly as-is.
+     *
      * ## OPTIONS
      * --repo=<path>
      * --match=<regex>   : PCRE body (no delimiters), tested against each key.

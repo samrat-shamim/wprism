@@ -34,6 +34,7 @@ require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/Triage.php';
 require __DIR__ . '/src/ClassificationBatch.php';
 require __DIR__ . '/src/ManifestValidate.php';
+require __DIR__ . '/src/AdapterDraft.php';
 require __DIR__ . '/src/AdapterCatalog.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
@@ -68,6 +69,7 @@ use Duo\Orchestrator\PlanViewException;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\ManifestValidate;
+use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
@@ -90,6 +92,8 @@ Usage:
                         [--pins=<name>[,...]|--all] [--site=<site-repo>]
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
+  duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
+                    [--evidence=<live-evidence.json>] [--format=json] [--check-proposals]
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
@@ -163,6 +167,22 @@ Verbs:
                           vocabularies at emission time (with a `coverage` note
                           stating what it does NOT publish). Exit 0 all valid,
                           1 any invalid, 2 usage/IO.
+  adapter-draft           Safe adapter-DRAFT generator: reuses policy-to-manifest's
+    <site-repo>           facts core (Policy::export_manifest) and adds OFFLINE
+    --name=<n>            proposers over the site repo's captured state/**, emitting
+    [--match=<regex>]     grammar-shaped CANDIDATES a human ratifies by hand. Facts
+    [--evidence=<file>]   land in real classification sections; proposals and
+    [--format=json]       unsupported surfaces nest INERT under a `_draft` sidecar
+    [--check-proposals]   (trigger keys renamed so no validator mis-collects them),
+                          each carrying status/confidence/evidence/questions. Every
+                          fact needing a live target (column types, real PK, id
+                          resolution, natural-key uniqueness) stays a proposal with a
+                          question; --evidence is the deferred live seam, accepted and
+                          ignored in this offline slice. --check-proposals lifts each
+                          candidate into a throwaway manifest and runs the REAL
+                          validators, writing nothing live. WordPress-free, no
+                          environment, no transport; the generator never applies or
+                          promotes a proposal and never emits PHP.
   adapter list            The installed adapter catalog, from the two sources
     [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
     [--format=json]       manifest library and, with --repo, that site
@@ -515,6 +535,15 @@ function main(array $argv): int {
     // on this machine and drives the engine's own offline validators over them.
     if ($verb === 'manifest-validate') {
         return ManifestValidate::run($rest);
+    }
+
+    // Same shape, same reason (DUO-3325): the safe adapter-DRAFT generator reuses
+    // policy-to-manifest's facts core (Policy::export_manifest) and adds offline
+    // proposers over a site repo's captured state/**, emitting inert `_draft`
+    // candidates a human ratifies by hand. WordPress-free, no environment, no
+    // transport — it observes files on this machine and writes nothing live.
+    if ($verb === 'adapter-draft') {
+        return AdapterDraft::run($rest);
     }
 
     // Same shape, same reason (DUO-3339): the adapter catalog reports what is
