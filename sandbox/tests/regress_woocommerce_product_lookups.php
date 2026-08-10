@@ -150,7 +150,7 @@ $needles = [
     'refresh_grouped_children_for_sync' => 'grouped children are reloaded after variable price synthesis',
     "meta_key = '_children'" => 'grouped parent discovery is restricted to the _children meta relation',
     'find_grouped_parent_ids' => 'changed children discover grouped roots through a bounded reverse lookup',
-    '$wpdb->get_col' => 'grouped reverse discovery reads only candidate parent ids',
+    '\\Duo\\ProviderSdk::checked_get_col' => 'grouped reverse discovery reads only candidate parent ids through the generic provider SDK',
     '$wpdb->posts' => 'grouped reverse discovery validates product post candidates in SQL',
     'delete_from_lookup_table' => 'product lookup deletion uses the public delete API',
     'wc_get_attribute_taxonomies' => 'Woo attribute definitions are refreshed through the public API',
