@@ -17,6 +17,9 @@ $root = dirname(__DIR__, 2);
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
+if (!defined('ARRAY_A')) {
+    define('ARRAY_A', 'ARRAY_A');
+}
 
 foreach ([
     'Canon', 'Uuid', 'OrderPreserved', 'OptionState', 'UserMetaState', 'Db',
@@ -75,8 +78,10 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
 /** Minimal options/cache target for the real operation-bound effect seams. */
 final class ScopedRecoveryEffectWpdb {
     public string $options = 'wp_options';
+    public string $term_taxonomy = 'wp_term_taxonomy';
     public string $prefix = 'wp_';
     public string $last_error = '';
+    public bool $failResults = false;
     /** @var array<string,string> */
     public array $optionRows = [];
     /** @var array<string,string> */
@@ -113,7 +118,11 @@ final class ScopedRecoveryEffectWpdb {
         return 0;
     }
 
-    public function get_results(string $query, mixed $output = null): array {
+    public function get_results(string $query, mixed $output = null): mixed {
+        if ($this->failResults) {
+            $this->last_error = 'DATABASE_SECRET_MUST_NOT_LEAK';
+            return false;
+        }
         $this->last_error = '';
         return [];
     }
@@ -392,6 +401,54 @@ $check(
         && ScopedApply::authored_state($actualDesired, $compiled, $policy, $contract, $selectedBeforeRoot) === 'desired',
     'the exact before boundary permits one authored transaction and desired readback'
 );
+$desiredBeforeRows = [[
+    'identity_hash' => $hash($selectedId),
+    'type' => 'post',
+    'content_hash' => $desiredHash,
+    'state' => 'live',
+]];
+$check(
+    ScopedApply::authored_state(
+        $actualDesired,
+        $compiled,
+        $policy,
+        $contract,
+        ScopedApply::hash_rows($desiredBeforeRows)
+    ) === 'desired',
+    'a selected state that is both before and desired is a clean no-op, not an empty authored transaction'
+);
+
+$cleanCodePlan = ['code_mismatch' => [], 'code_drift' => []];
+$changedCodePlan = [
+    'code_mismatch' => [['code' => 'inactive_in_environment']],
+    'code_drift' => [],
+];
+$check(
+    !hash_equals(
+        ScopedApply::code_witness_hash($cleanCodePlan, $compiled),
+        ScopedApply::code_witness_hash($changedCodePlan, $compiled)
+    ),
+    'scoped code witness changes when the target code/lifecycle observation changes'
+);
+
+$applyReflection = new ReflectionClass(\Duo\Apply::class);
+$applyForReadback = $applyReflection->newInstanceWithoutConstructor();
+$policyProperty = $applyReflection->getProperty('policy');
+$policyProperty->setValue($applyForReadback, $policy);
+$coreReadbackMethod = $applyReflection->getMethod('scoped_core_readback_hash');
+$GLOBALS['wpdb']->failResults = true;
+try {
+    $coreReadbackMethod->invoke($applyForReadback, [], []);
+    $check(false, 'a failed taxonomy-count read cannot mint an engine-effect receipt');
+} catch (Throwable $failure) {
+    $check(
+        str_contains($failure->getMessage(), 'taxonomy-count readback failed')
+            && str_contains($failure->getMessage(), 'recovery_required')
+            && !str_contains($failure->getMessage(), 'DATABASE_SECRET_MUST_NOT_LEAK'),
+        'a failed taxonomy-count read is recovery_required and redacts database detail'
+    );
+}
+$GLOBALS['wpdb']->failResults = false;
 
 // Simulate process/response loss after the DB transaction committed. The
 // durable session is still authoring and has an intent but no receipt; the
@@ -788,6 +845,15 @@ $check(
         && str_contains($applySource, "provider channel '\$channel'")
         && str_contains($applySource, 'durable environment-local recovery input'),
     'scoped preflight refuses provider context channels whose local-id payload cannot be reconstructed after a crash'
+);
+$codeWitnessCheckAt = strpos($applySource, "'duo:scoped-code-witness-changed'");
+$sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
+$check(
+    substr_count($applySource, 'ScopedApply::code_witness_hash(') === 2
+        && $codeWitnessCheckAt !== false
+        && $sessionBeginAt !== false
+        && $codeWitnessCheckAt < $sessionBeginAt,
+    'recovery re-proves the sealed code/lifecycle witness before opening or advancing target mutation state'
 );
 
 if ($failures !== 0) {

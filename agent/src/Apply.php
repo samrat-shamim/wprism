@@ -3187,6 +3187,17 @@ final class Apply {
                 throw new \RuntimeException('duo: scoped apply recovery authority no longer matches the frozen source and live lease');
             }
             if (!hash_equals(
+                (string) ($authority['code_witness_hash'] ?? ''),
+                ScopedApply::code_witness_hash($freshPlan, $compiled)
+            )) {
+                if ($this->scopedSession !== null && !$this->scopedSession->is_recovery_required()) {
+                    $this->scopedSession->recover(hash('sha256', 'duo:scoped-code-witness-changed'));
+                }
+                throw new \RuntimeException(
+                    'duo: scoped apply recovery code/lifecycle witness changed; no target effect was replayed'
+                );
+            }
+            if (!hash_equals(
                 (string) ($authority['target']['protected_out_of_scope_hash'] ?? ''),
                 (string) $this->scopedObservation['protected_out_of_scope_root']
             ) || !hash_equals(
@@ -3897,11 +3908,7 @@ final class Apply {
                 'effects_hash' => hash('sha256', Canon::encode($effectRows)),
                 'effect_items' => $effectRows,
             ],
-            hash('sha256', Canon::encode([
-                'code_revision' => $compiled->code_revision(),
-                'code_mismatch' => (array) ($plan['code_mismatch'] ?? []),
-                'code_drift' => (array) ($plan['code_drift'] ?? []),
-            ]))
+            ScopedApply::code_witness_hash($plan, $compiled)
         );
     }
 
@@ -4098,10 +4105,16 @@ final class Apply {
         $taxonomies = array_values(array_unique(array_merge($this->policy->taxonomies(), ['nav_menu'])));
         sort($taxonomies, SORT_STRING);
         foreach ($taxonomies as $taxonomy) {
+            $wpdb->last_error = '';
             $rows = $wpdb->get_results($wpdb->prepare(
                 "SELECT term_taxonomy_id, count FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s ORDER BY term_taxonomy_id",
                 $taxonomy
-            ), ARRAY_A) ?: [];
+            ), ARRAY_A);
+            if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException(
+                    'duo: scoped engine-effect taxonomy-count readback failed; recovery_required'
+                );
+            }
             foreach ($rows as $row) {
                 $counts[] = [
                     'taxonomy_hash' => hash('sha256', (string) $taxonomy),

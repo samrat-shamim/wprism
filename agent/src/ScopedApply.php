@@ -353,10 +353,9 @@ final class ScopedApply {
             }
         }
         ksort($rows, SORT_STRING);
-        if (hash_equals($selectedBeforeRoot, self::hash_rows(array_values($rows)))) {
-            return 'before';
-        }
+        $matchesBefore = hash_equals($selectedBeforeRoot, self::hash_rows(array_values($rows)));
 
+        $matchesDesired = true;
         foreach (array_keys($selected) as $identity) {
             $expected = $compiled->tree()[$identity] ?? null;
             $observed = $actual[$identity] ?? null;
@@ -366,10 +365,12 @@ final class ScopedApply {
                         && $policy->user_meta_missing_behavior((array) ($expected['data']['meta'] ?? [])) === 'warn') {
                         continue;
                     }
-                    return 'mixed';
+                    $matchesDesired = false;
+                    break;
                 }
                 if (!hash_equals((string) ($expected['type'] ?? ''), (string) ($observed['type'] ?? ''))) {
-                    return 'mixed';
+                    $matchesDesired = false;
+                    break;
                 }
                 $expectedHash = ($expected['type'] ?? '') === 'post'
                     ? (string) ($expected['hash'] ?? '')
@@ -379,21 +380,41 @@ final class ScopedApply {
                         ? (string) ($observed['hash'] ?? '')
                         : hash('sha256', Canon::encode(Canon::decode((string) ($observed['content'] ?? ''))));
                 } catch (\Throwable $failure) {
-                    return 'mixed';
+                    $matchesDesired = false;
+                    break;
                 }
                 if (!hash_equals($expectedHash, $observedHash)) {
-                    return 'mixed';
+                    $matchesDesired = false;
+                    break;
                 }
                 continue;
             }
             if (isset($compiled->deletions()[$identity])) {
                 if (is_array($observed)) {
-                    return 'mixed';
+                    $matchesDesired = false;
+                    break;
                 }
                 continue;
             }
-            return 'mixed';
+            $matchesDesired = false;
+            break;
         }
-        return 'desired';
+        if ($matchesDesired) {
+            // When selected before-state and desired-state are identical, the
+            // operation is a genuine no-op. Classify it as converged so the
+            // session records an authored receipt without opening an empty
+            // transaction and then falsely demanding a changed readback.
+            return 'desired';
+        }
+        return $matchesBefore ? 'before' : 'mixed';
+    }
+
+    /** Hash the exact target code/lifecycle observation sealed by scoped authority. */
+    public static function code_witness_hash(array $plan, CompiledRepository $compiled): string {
+        return hash('sha256', Canon::encode([
+            'code_revision' => $compiled->code_revision(),
+            'code_mismatch' => (array) ($plan['code_mismatch'] ?? []),
+            'code_drift' => (array) ($plan['code_drift'] ?? []),
+        ]));
     }
 }

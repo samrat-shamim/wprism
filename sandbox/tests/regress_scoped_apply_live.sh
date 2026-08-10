@@ -431,6 +431,25 @@ GENERIC_DEBT_BEFORE="$(generic_debt_snapshot)"
 [ "$(target_kv apply_in_progress)" = '__DUO_NULL__' ] || fail "ordinary baseline left generic apply debt"
 pass "baseline is converged; generic revision/debt witnesses are captured for scoped-boundary checks"
 
+say "apply a clean scoped no-op without opening an empty authored transaction"
+NOOP_CONTRACT="$TMP/noop.scope.json"
+run_duo_json noop-scope "$NOOP_CONTRACT" scope source "--roots=post:${UPDATE_UUID}" --contract --format=json
+run_duo_json noop-apply "$TMP/noop-apply.json" apply target "--scope-contract=$NOOP_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .applied == 0
+  and (.actions | length == 0)
+  and .verification.format == "duo-scoped-convergence/v1"
+  and .verification.result == "pass"
+  and .scoped_receipt.phase == "complete"
+' "$TMP/noop-apply.json" >/dev/null || fail "clean scoped no-op did not converge as a terminal no-mutation result"
+UPDATE_TARGET_ID="$(target_project_id "$UPDATE_UUID")"
+[ -n "$UPDATE_TARGET_ID" ] || fail "baseline target lacks the selected no-op project"
+[ "$(target_title "$UPDATE_TARGET_ID")" = "$UPDATE_TITLE_BEFORE" ] \
+  || fail "clean scoped no-op changed the selected authored state"
+assert_generic_scoped_boundary "clean scoped no-op"
+pass "clean scoped no-op terminalized without authored/provider/native work or global revision debt"
+
 say "publish one update plus one tombstone, then preserve a target-only out-of-scope edit"
 source_wp post update "$UPDATE_SOURCE_ID" --post_title="$UPDATE_TITLE_AFTER" >/dev/null
 source_wp post delete "$DELETE_SOURCE_ID" --force >/dev/null
