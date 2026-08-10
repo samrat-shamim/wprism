@@ -33,6 +33,7 @@ duo manifest-validate --emit-schema
 duo adapter list [--repo=<site-repo>] [--format=json]
 duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
 duo adapter doctor [--repo=<site-repo>] [--format=json]
+duo adapter-observe <env> [--out=<local-file>|--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
@@ -96,6 +97,26 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   half under `--no-code`, listed as `deferred`.
   See
   [docs/guides/adapter-authoring.md](../docs/guides/adapter-authoring.md#checking-the-grammar-offline).
+
+- **`duo adapter-observe <env>`** — asks the configured target exactly once
+  for a closed, canonical `duo-adapter-observation/v1` proposal-evidence
+  projection. The host supplies only that environment's configured
+  `repo_path`; there is no host-local `--repo` escape. The response is strict
+  JSON with a recomputed observation hash, value redaction, and no target IDs,
+  titles, paths, messages, SQL, credentials, or authored values. `--out=`
+  retains the already-validated canonical document only at a new local path:
+  it refuses an existing file, symlink, FIFO, or other directory entry rather
+  than replacing evidence.
+  The nested `catalog` is a deliberately lossy projection of the target's
+  `duo-adapter-sources/v2` survey, not a claim to preserve the full
+  `duo-adapter-catalog/v2` contract. This evidence is never authoritative
+  AdapterDraft input and does not alter certification or registry claims.
+  Normal plugin/provider registration and capability negotiation remain
+  enabled so installed adapters are observable; third-party callbacks may have
+  side effects before or during collection. Duo invokes no provider action and
+  performs no explicit mutation after observer entry, while the report itself
+  defers table semantics, apply/rollback, lifecycle changes, publication, and
+  certification.
 
 - **`duo adapter list|inspect|doctor`** — the installed-adapter catalog, and
   the other verb here that needs no environment. It reports what is installed

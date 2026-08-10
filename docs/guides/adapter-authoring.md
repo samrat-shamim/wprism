@@ -759,6 +759,25 @@ and no command breaks in between. Run `wp duo adapter-survey [--repo=<path>]`
 on the target to see all three sources, since the host-side `duo adapter`
 commands are WordPress-free and cannot reach the plugin directory.
 
+For redacted live proposal evidence, use `duo adapter-observe <env>
+[--out=<local-file>|--format=json]`; its target half is `wp duo
+adapter-observe --repo=<target-site-repo> --format=json`. The host calls the
+configured target repository once and accepts only the canonical,
+hash-validated `duo-adapter-observation/v1` projection. It never exposes
+target values, IDs, titles, paths, messages, SQL, or credentials; `--out` is
+create-only. The embedded adapter-source rows are a bounded projection of
+`duo-adapter-sources/v2`, not a claim to preserve the full
+`duo-adapter-catalog/v2` catalog. This is proposal evidence, not authoritative
+`adapter-draft --evidence` input, and it does not certify an adapter or alter
+registry claims.
+
+Normal plugin/provider registration and capability negotiation remain enabled
+so the target can report installed runtime facts. Third-party callbacks may
+have side effects before or during collection; Duo itself invokes no provider
+action and makes no explicit mutation after observer entry. The document
+defers table semantics, apply/rollback, version lifecycle, publication, and
+certification.
+
 ## Planned: what an adapter cannot express yet
 
 Four shipped channels cover what a plugin needs to *do*: **native actions** for

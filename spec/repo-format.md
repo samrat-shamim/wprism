@@ -1176,18 +1176,27 @@ evidence.
 
 Deploy and apply also share one target-authoritative lease in the target
 database. The `duo_kv.promotion_lock` record names a random orchestrator owner,
-the compiled artifact hash, current phase, and bounded expiry. Only
-`promotion-begin` may create or recover it and records the latest begun
-owner/artifact session durably; explicit later phases are strict continuations
-of both that session and its exact still-live row, so an absent row never
-authorizes—or advertises recovery for—an obsolete checkpoint. Each live mutation process additionally
+the compiled artifact hash, current phase, and bounded expiry. In an
+orchestrated multi-process promotion, only `promotion-begin` may create or
+recover that sequence's row and it records the latest begun owner/artifact
+session durably; explicit later phases are strict continuations of both that
+session and its exact still-live row, so an absent row never authorizes—or
+advertises recovery for—an obsolete checkpoint. Each live mutation process additionally
 holds a connection-scoped database advisory fence. That fence covers unbounded
 plugin/theme hooks and filesystem work: a second process cannot recover an
 expired row while the original is still running, and the continuously fenced
 owner renews when control returns. A crashed process drops the advisory fence
 automatically and its row becomes recoverable by a different owner after
 expiry. Direct `wp duo deploy` and `wp duo apply` calls acquire their own
-single-phase row plus process fence too.
+single-phase row plus process fence too. Direct deploy begins its durable
+session with that lease. Direct apply first acquires an `apply-preflight`
+lease without replacing `promotion_session`, negotiates only the provider
+actions selected by its exact plan, and completes the locked optimistic
+recheck. A refusal releases that transient lease with the prior session bytes
+unchanged. Only after those pre-mutation gates pass does direct apply publish
+its own session immediately before `apply_in_progress` and authored mutation;
+runtime provider negotiation remains under the lease and no earlier plan
+report authorizes it.
 
 Under that lease, apply computes the live plan a second time immediately before
 the first write and hashes only mutation-authorizing facts: live entity state,

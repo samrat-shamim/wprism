@@ -76,6 +76,18 @@ final class Capture {
      */
     private array $planObservations = ['menus_by_term_id' => []];
 
+    /**
+     * Adapter observation's strictly read-only gate walk installs this
+     * callback only for its own SQL reads.  wpdb overwrites last_error on a
+     * later successful query, so each reachable query boundary must give the
+     * observer a chance to refuse before the next read can erase a failure.
+     * Ordinary capture and ordinary pending leave this null and retain their
+     * historical behavior.
+     *
+     * @var null|callable():void
+     */
+    private $observationReadCheckpoint = null;
+
     private function __construct(string $repo, Policy $policy) {
         $this->repo = rtrim($repo, '/');
         $this->policy = $policy;
@@ -87,6 +99,13 @@ final class Capture {
         // concern, not just style) — set once, here, guaranteed to exist
         // for every tokenize_text() call this Capture instance ever makes.
         $this->tokens->policy = $policy;
+    }
+
+    /** Invoke the adapter-observation error checkpoint immediately after a read. */
+    private function checkpoint_observation_read(): void {
+        if ($this->observationReadCheckpoint !== null) {
+            ($this->observationReadCheckpoint)();
+        }
     }
 
     /**
@@ -1321,7 +1340,33 @@ final class Capture {
      * menu_item_meta key.)
      */
     public static function gate_scan(string $repo): array {
-        $c = new self($repo, Policy::load($repo));
+        return self::gate_scan_read_only($repo, Policy::load($repo));
+    }
+
+    /**
+     * The collect-only half of gate_scan(), with an already loaded policy.
+     *
+     * This is intentionally narrower than Capture::run(): it has no output
+     * directory, publication state, ledger, or write path.  Pending's bounded
+     * adapter observation passes the policy it already loaded so observation
+     * cannot accidentally acquire a second policy/repair path just to inspect
+     * the same read-only gate facts.
+     *
+     * @return array{
+     *   scope: array<string, array{entities:int}>,
+     *   options: array<string, array{entities:int, owner_candidates:string[], value_shapes:string[], reason:string}>,
+     *   post_meta: array<string, array{entities:int, post_types: string[]}>,
+     *   term_meta: array<string, array{entities:int, taxonomies:string[], value_shapes:string[], reason:string}>,
+     *   user_meta: array<string, array{entities:int, users:string[], value_shapes:string[], reason:string}>
+     * }
+     */
+    public static function gate_scan_read_only(
+        string $repo,
+        Policy $policy,
+        ?callable $observationReadCheckpoint = null
+    ): array {
+        $c = new self($repo, $policy);
+        $c->observationReadCheckpoint = $observationReadCheckpoint;
         $scope = $c->scope_gaps();
 
         // A plugin manifest claims only its own option namespace. That
@@ -1336,6 +1381,7 @@ final class Capture {
             "SELECT option_name, option_value FROM {$wpdb->options} ORDER BY option_name ASC",
             ARRAY_A
         ) ?: [];
+        $c->checkpoint_observation_read();
         // DUO-3263: same option_name=>value map an interpreter's option_rule()
         // needs (a shadow-key lookup, exactly like post/term meta) — built
         // once from the rows already fetched above, not a second query.
@@ -1497,6 +1543,7 @@ final class Capture {
              JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
              WHERE tt.taxonomy = 'nav_menu' AND p.post_type = 'nav_menu_item' AND p.post_status = 'publish'"
         ) ?: [];
+        $c->checkpoint_observation_read();
         foreach ($menuItemIds as $iid) {
             $flatMeta = $c->post_meta_map((int) $iid);
             foreach ($flatMeta as $key => $_) {
@@ -2486,9 +2533,11 @@ final class Capture {
         if (!$conds) {
             return [];
         }
-        return $wpdb->get_results(
+        $rows = $wpdb->get_results(
             "SELECT * FROM {$wpdb->posts} WHERE " . implode(' OR ', $conds) . " ORDER BY ID ASC"
         ) ?: [];
+        $this->checkpoint_observation_read();
+        return $rows;
     }
 
     /**
@@ -2515,6 +2564,7 @@ final class Capture {
              GROUP BY post_type",
             ARRAY_A
         ) ?: [];
+        $this->checkpoint_observation_read();
 
         $out = [];
         foreach ($postCounts as $row) {
@@ -2538,6 +2588,7 @@ final class Capture {
             "SELECT taxonomy, COUNT(*) AS entities FROM {$wpdb->term_taxonomy} GROUP BY taxonomy",
             ARRAY_A
         ) ?: [];
+        $this->checkpoint_observation_read();
         foreach ($taxCounts as $row) {
             $name = (string) $row['taxonomy'];
             if (!isset($taxCandidates[$name]) || isset($scopedTaxonomies[$name])) {
@@ -2561,11 +2612,13 @@ final class Capture {
             return [];
         }
         $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        return $wpdb->get_results(
+        $rows = $wpdb->get_results(
             "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent
              FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
              WHERE tt.taxonomy IN ($in) ORDER BY t.term_id ASC"
         ) ?: [];
+        $this->checkpoint_observation_read();
+        return $rows;
     }
 
     /**
@@ -3324,6 +3377,7 @@ final class Capture {
             "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
             $postId
         ), ARRAY_A) ?: [];
+        $this->checkpoint_observation_read();
         $out = [];
         foreach ($rows as $r) {
             if (!isset($out[$r['meta_key']])) {
@@ -3446,6 +3500,7 @@ final class Capture {
             "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_id ASC",
             $termId
         ), ARRAY_A) ?: [];
+        $this->checkpoint_observation_read();
         $out = [];
         foreach ($rows as $r) {
             if (!isset($out[$r['meta_key']])) {

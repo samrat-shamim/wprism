@@ -9,11 +9,13 @@ namespace Duo;
  * lifecycle boundary. The lease therefore lives in the target database's
  * duo_kv table. Acquisition is one INSERT ... ON DUPLICATE KEY UPDATE whose
  * conditional assignment admits a still-live current owner or a different
- * owner recovering an expired lease; readback proves who won the race. Only
- * promotion-begin may create/recover that row and it also records the latest
- * begun owner/artifact session durably. Every explicit orchestrator phase is
- * a continuation of both that session and its exact still-live row, so an
- * obsolete checkpoint cannot restart—or advertise recovery—after another run.
+ * owner recovering an expired lease; readback proves who won the race. The
+ * host's promotion-begin records its session at checkpoint time. A standalone
+ * direct apply instead fences its read-only preflight first, then records the
+ * session only after every pre-mutation gate passes. Every explicit
+ * orchestrator phase is a continuation of both its host-begun session and its
+ * exact still-live row, so an obsolete checkpoint cannot restart—or advertise
+ * recovery—after another run.
  *
  * The database row spans separate WP-CLI processes. Each live mutation
  * process additionally holds a connection-scoped MariaDB/MySQL advisory
@@ -36,7 +38,7 @@ final class PromotionLock {
     private static ?string $leaseSessionOwner = null;
     private static ?string $leaseSessionArtifact = null;
 
-    /** Begin a new host session. Only this entry point may create/recover. */
+    /** Begin a new multi-process host session; later host phases only continue it. */
     public static function begin(string $owner, string $artifactHash, ?int $ttl = null): array {
         return self::acquire($owner, $artifactHash, 'checkpoint', $ttl, false);
     }
@@ -48,6 +50,109 @@ final class PromotionLock {
         string $phase,
         ?int $ttl = null,
         bool $requireExisting = false
+    ): array {
+        return self::acquire_internal(
+            $owner,
+            $artifactHash,
+            $phase,
+            $ttl,
+            $requireExisting,
+            true
+        );
+    }
+
+    /**
+     * Fence a direct apply while its exact selected provider capabilities and
+     * final optimistic plan are checked, without yet claiming that a durable
+     * promotion session began.  A refusal releases this transient lease and
+     * leaves the previous promotion_session byte-for-byte intact.  Apply must
+     * call begin_apply_session() before its first durable mutation.
+     *
+     * @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool}
+     */
+    public static function acquire_apply_preflight(
+        string $owner,
+        string $artifactHash,
+        ?int $ttl = null
+    ): array {
+        return self::acquire_internal(
+            $owner,
+            $artifactHash,
+            'apply-preflight',
+            $ttl,
+            false,
+            false
+        );
+    }
+
+    /**
+     * Publish the direct-apply session only after every locked pre-mutation
+     * gate has passed.  The continuously held lease/process fence proves no
+     * other Duo writer can replace the boundary between preflight and this
+     * write.  Continuation applies already carry a host-begun session and may
+     * not call this entry point.
+     */
+    public static function begin_apply_session(string $owner, string $artifactHash): void {
+        self::assert_identity($owner, $artifactHash);
+        $current = self::current();
+        if (!self::process_fence_is_continuous()
+            || self::$leaseSessionOwner === null
+            || !hash_equals(self::$leaseSessionOwner, $owner)
+            || self::$leaseSessionArtifact === null
+            || !hash_equals(self::$leaseSessionArtifact, $artifactHash)
+            || $current === null
+            || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException(
+                'duo: direct apply lost its preflight lease before the promotion session began'
+            );
+        }
+        $existingSession = self::current_session();
+        if ($existingSession !== null
+            && hash_equals($owner, (string) ($existingSession['owner'] ?? ''))
+            && hash_equals($artifactHash, (string) ($existingSession['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: direct apply promotion session was already begun');
+        }
+        if (self::session_lifecycle_attempt($existingSession) !== null) {
+            throw new \RuntimeException(
+                'duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
+            );
+        }
+        // Planning/provider code may legitimately run longer than the row
+        // TTL while this process continuously owns the advisory fence. Match
+        // heartbeat()'s established rule: that holder may renew when control
+        // returns, whereas a disconnected/changed holder may not revive it.
+        self::heartbeat($owner, $artifactHash, 'apply-session-begin');
+        $now = time();
+        $current = self::current();
+        if (!self::process_fence_is_continuous()
+            || self::$leaseSessionOwner === null
+            || !hash_equals(self::$leaseSessionOwner, $owner)
+            || self::$leaseSessionArtifact === null
+            || !hash_equals(self::$leaseSessionArtifact, $artifactHash)
+            || $current === null
+            || !hash_equals($owner, (string) ($current['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($current['artifact_hash'] ?? ''))
+            || (int) ($current['expires_at'] ?? 0) <= $now) {
+            throw new \RuntimeException(
+                'duo: direct apply lost its preflight lease before the promotion session began'
+            );
+        }
+        Ledger::kv_set(self::SESSION_KEY, wp_json_encode([
+            'owner' => $owner,
+            'artifact_hash' => $artifactHash,
+            'begun_at' => $now,
+        ]));
+    }
+
+    /** @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool} */
+    private static function acquire_internal(
+        string $owner,
+        string $artifactHash,
+        string $phase,
+        ?int $ttl,
+        bool $requireExisting,
+        bool $publishSession
     ): array {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
@@ -150,7 +255,7 @@ final class PromotionLock {
                 && (string) ($before['owner'] ?? '') !== $owner;
             self::$leaseSessionOwner = $owner;
             self::$leaseSessionArtifact = $artifactHash;
-            if (!$requireExisting && !$preserveRecoverySession) {
+            if ($publishSession && !$requireExisting && !$preserveRecoverySession) {
                 Ledger::kv_set(self::SESSION_KEY, wp_json_encode([
                     'owner' => $owner,
                     'artifact_hash' => $artifactHash,

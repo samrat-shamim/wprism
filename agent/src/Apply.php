@@ -2393,7 +2393,15 @@ final class Apply {
         $promotionArtifact = $compiled->artifact_hash();
         $continuation = (string) ($opts['promotion_owner'] ?? '') !== '';
         self::assert_expected_artifact($promotionArtifact, $opts, $continuation);
-        PromotionLock::acquire($promotionOwner, $promotionArtifact, 'apply', null, $continuation);
+        if ($continuation) {
+            PromotionLock::acquire($promotionOwner, $promotionArtifact, 'apply', null, true);
+        } else {
+            // A direct apply still takes the target-authoritative lease before
+            // planning, but it must not overwrite durable session evidence
+            // merely to report a pre-mutation refusal. run() publishes the
+            // session after provider negotiation and the locked recheck.
+            PromotionLock::acquire_apply_preflight($promotionOwner, $promotionArtifact);
+        }
         $a = null;
         try {
             // The artifact was first validated before target contact. Repeat
@@ -2405,11 +2413,13 @@ final class Apply {
             if (!hash_equals($promotionArtifact, $lockedCompiled->artifact_hash())) {
                 throw new \RuntimeException('duo: compiled artifact changed before locked apply');
             }
-            PromotionLock::assert_no_lifecycle_attempt(
-                $promotionOwner,
-                $promotionArtifact,
-                'apply'
-            );
+            if ($continuation) {
+                PromotionLock::assert_no_lifecycle_attempt(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    'apply'
+                );
+            }
             $a = new self($repo, $lockedPolicy, $lockedCompiled);
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;
@@ -2754,6 +2764,16 @@ final class Apply {
             throw new \RuntimeException(
                 'duo: promotion preconditions changed after planning; no target mutation attempted — recompile and retry'
             );
+        }
+
+        // A host continuation already owns its checkpoint-begun session.
+        // Direct apply deliberately delays this durable row until the exact
+        // selected provider and final locked plan have both passed.  From
+        // here onward apply_in_progress and authored mutations may follow, so
+        // the session becomes truthful recovery evidence rather than residue
+        // from a refused preflight.
+        if ((string) ($opts['promotion_owner'] ?? '') === '') {
+            PromotionLock::begin_apply_session($this->promotionOwner, $this->promotionArtifact);
         }
 
         // Written before the first target mutation and cleared only after

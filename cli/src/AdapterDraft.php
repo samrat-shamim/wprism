@@ -4,6 +4,8 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\Canon;
+use Duo\AdapterSources;
+use Duo\Deletion;
 use Duo\NativeActions;
 use Duo\Policy;
 use Duo\Secrets;
@@ -13,11 +15,12 @@ use Duo\Secrets;
  *
  * `duo policy-to-manifest` promotes a site's ALREADY-classified policy rules into
  * a manifest and emits ONLY facts; it is human-only by a reviewed decision and has
- * no proposers. This verb is its generator sibling: it reuses that exact facts core
- * (`Policy::export_manifest()`, VERBATIM, so facts never diverge from what
- * policy-to-manifest promotes), then adds OFFLINE proposers that observe a site
- * repo's captured `state/**` and emit grammar-shaped CANDIDATES the author can
- * ratify by hand. It writes nothing live and promotes nothing automatically.
+ * no proposers. This verb is its generator sibling: it starts from that exact facts
+ * core (`Policy::export_manifest()`), then conservatively merges a prior draft so
+ * a later policy export cannot silently erase a human's classification decision or
+ * any non-generator-owned manifest declaration. It also adds OFFLINE proposers that
+ * observe a site repo's captured `state/**` and emit grammar-shaped CANDIDATES the
+ * author can ratify by hand. It writes nothing live and promotes nothing automatically.
  *
  * Like `duo manifest-validate` this is a HOST verb, not a `wp duo` subcommand: it
  * boots the pure engine (Canon/OptionState/ManifestDispositions/CapabilityRegistry/
@@ -91,6 +94,25 @@ final class AdapterDraft {
      * grammar — it needs executable semantics).
      */
     private const BUCKETS = ['tables', 'references', 'deletions', 'block_paths', 'shortcode_paths', 'actions', 'providers'];
+
+    /**
+     * The whole ownership contract for regeneration. This is intentionally a
+     * closed list rather than "everything Policy::export_manifest() returned": a
+     * future exporter key must be consciously assigned an owner before this command
+     * can replace an author's top-level intent.
+     */
+    private const OWNED_TOP_LEVEL = [
+        'name' => true,
+        'spec_version' => true,
+        'options' => true,
+        'post_meta' => true,
+        'term_meta' => true,
+        'user_meta' => true,
+        '_draft' => true,
+    ];
+
+    /** The classification sections Policy::export_manifest() owns as facts. */
+    private const FACT_SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
 
     /**
      * @param list<string> $args everything after the verb
@@ -180,17 +202,22 @@ final class AdapterDraft {
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
         }
-
-        // Facts core, reused VERBATIM so a draft's facts are byte-for-byte what
-        // policy-to-manifest would promote from the same site + --match.
         try {
-            $manifest = Policy::export_manifest($resolved, $match, $name);
-        } catch (\Throwable $t) {
-            return self::fail($t->getMessage());
+            AdapterSources::assert_name($name, 'adapter-draft --name');
+        } catch (\Throwable) {
+            return self::fail('--name must use the canonical lowercase adapter-name grammar');
         }
 
         try {
-            $manifest['_draft'] = self::build_draft($resolved, $name, $evidenceNote);
+            $prior = self::read_prior_manifest($resolved, $name);
+            if ($prior !== null) {
+                self::validate_prior_manifest($resolved, $name);
+            }
+            $exported = Policy::export_manifest($resolved, $match, $name);
+            [$manifest, $factConflicts] = self::merge_prior_manifest_intent($exported, $prior);
+            $priorDraft = $prior === null ? null : ($prior['_draft'] ?? null);
+            $manifest['_draft'] = self::build_draft($resolved, $name, $evidenceNote, $priorDraft, $factConflicts);
+            self::assert_output_is_safe($manifest);
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
         }
@@ -235,9 +262,256 @@ final class AdapterDraft {
             }
             define('DUO_SPEC_VERSION', (int) $m[1]);
         }
-        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry', 'Policy', 'Secrets'] as $class) {
+        foreach (['Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry', 'Policy', 'Deletion', 'Secrets'] as $class) {
             require_once $repo . "/agent/src/$class.php";
         }
+    }
+
+    // -------------------------------------------------------- prior-artifact merge
+
+    /**
+     * Read the optional saved adapter once, before any regeneration work. A prior
+     * artifact is input to preservation, not a best-effort hint: unreadable,
+     * malformed, or name-mismatched input cannot be safely merged, so refusing is
+     * safer than returning an output that silently dropped its author's intent.
+     *
+     * @return array<string,mixed>|null
+     */
+    private static function read_prior_manifest(string $repo, string $name): ?array {
+        $path = $repo . '/adapters/' . $name . '.json';
+        // file_exists() is false for a dangling symlink. Treat one as a prior
+        // artifact that cannot be read, not as an absent file whose intent may
+        // be silently discarded.
+        if (!file_exists($path) && !is_link($path)) {
+            return null;
+        }
+        if (!is_file($path) || !is_readable($path)) {
+            throw new \RuntimeException("adapter-draft: prior adapter '$path' is not a readable regular file");
+        }
+        $prior = Canon::decode(Canon::read_file($path));
+        if (!is_array($prior) || array_is_list($prior)) {
+            throw new \RuntimeException("adapter-draft: prior adapter '$path' must be a JSON object");
+        }
+        if (!isset($prior['name']) || !is_string($prior['name']) || $prior['name'] !== $name) {
+            throw new \RuntimeException(
+                "adapter-draft: prior adapter '$path' must declare name '$name' exactly; refusing to merge a different adapter"
+            );
+        }
+        foreach (self::FACT_SECTIONS as $section) {
+            if (array_key_exists($section, $prior)
+                && (!is_array($prior[$section]) || ($prior[$section] !== [] && array_is_list($prior[$section])))) {
+                throw new \RuntimeException(
+                    "adapter-draft: prior adapter '$path' $section must be an object when present"
+                );
+            }
+        }
+        if (array_key_exists('_draft', $prior)
+            && (!is_array($prior['_draft']) || ($prior['_draft'] !== [] && array_is_list($prior['_draft'])))) {
+            throw new \RuntimeException("adapter-draft: prior adapter '$path' _draft must be an object when present");
+        }
+        return $prior;
+    }
+
+    /**
+     * Validate the saved artifact through the real Policy grammar before it can be
+     * preserved. `Policy::export_manifest()` loads only the site's currently pinned
+     * manifests, whereas the prior file can legitimately be the adapter currently
+     * being drafted and not pinned yet. Start with the site's raw pins so their
+     * declared digest/source constraints and normal source precedence are retained,
+     * then append the prior name as an explicitly site-sourced pin only when it is
+     * absent. Policy::load() consequently checks this exact on-disk artifact in its
+     * actual dependency context (actions, providers, classifications, ref kinds,
+     * and cross-manifest invariants) rather than treating a JSON-shaped file as
+     * preservation-safe.
+     */
+    private static function validate_prior_manifest(string $repo, string $name): void {
+        $site = self::read_json($repo . '/site.duo.json');
+        $pins = $site['manifests'] ?? ['core'];
+        if (!is_array($pins) || !array_is_list($pins)) {
+            throw new \RuntimeException(
+                'adapter-draft: site.duo.json manifests must be a JSON list before a prior adapter can be validated'
+            );
+        }
+
+        $alreadyPinned = false;
+        foreach ($pins as $pin) {
+            if ($pin === $name) {
+                $alreadyPinned = true;
+                break;
+            }
+            if (is_array($pin) && (($pin['name'] ?? null) === $name)) {
+                $alreadyPinned = true;
+                break;
+            }
+        }
+        if (!$alreadyPinned) {
+            // A prior file lives in the site repo. Naming its source explicitly
+            // prevents any lower-precedence shipped/plugin artifact from being
+            // silently validated in its place; no digest is fabricated because it
+            // is not a current site pin.
+            $pins[] = ['name' => $name, 'source' => 'site'];
+        }
+        Policy::load($repo, $pins);
+    }
+
+    /**
+     * Merge a fresh policy export with a saved artifact under the closed ownership
+     * rule above. Non-owned top-level declarations are copied as whole values; they
+     * are never deep-merged or normalized by this command. Fact rules are more
+     * conservative: a fresh rule adds only when absent/equal, while a differing
+     * prior rule stays authoritative and gets a redacted, inert conflict record.
+     *
+     * @param array<string,mixed> $fresh
+     * @param array<string,mixed>|null $prior
+     * @return array{0:array<string,mixed>,1:list<array<string,mixed>>}
+     */
+    private static function merge_prior_manifest_intent(array $fresh, ?array $prior): array {
+        foreach (array_keys($fresh) as $key) {
+            if (!is_string($key) || !isset(self::OWNED_TOP_LEVEL[$key])) {
+                throw new \RuntimeException(
+                    "adapter-draft: Policy::export_manifest() returned unowned top-level key '"
+                    . (string) $key . "'; assign explicit generator ownership before regeneration"
+                );
+            }
+        }
+        if ($prior === null) {
+            return [$fresh, []];
+        }
+
+        $out = $fresh;
+        $conflicts = [];
+        foreach (self::FACT_SECTIONS as $section) {
+            $freshRules = (array) ($fresh[$section] ?? []);
+            $priorRules = (array) ($prior[$section] ?? []);
+            foreach ($priorRules as $key => $priorRule) {
+                if (!is_string($key)) {
+                    throw new \RuntimeException(
+                        "adapter-draft: prior adapter $section has a non-string rule key; refusing an ambiguous merge"
+                    );
+                }
+                if (!array_key_exists($key, $freshRules)) {
+                    // A graduated decision must not disappear merely because a
+                    // later site's local policy no longer echoes it.
+                    $freshRules[$key] = $priorRule;
+                    continue;
+                }
+                if (self::semantic_hash($priorRule) === self::semantic_hash($freshRules[$key])) {
+                    continue;
+                }
+
+                // The prior artifact is the human-edited source at this surface.
+                // Keep it and expose the competing export only as hashes: a rule
+                // must never be copied under _draft where `ref`/etc. could wake a
+                // blind validator walk, and values have no place in conflict prose.
+                $freshRule = $freshRules[$key];
+                $freshRules[$key] = $priorRule;
+                $conflict = self::fact_conflict($section, $key, $priorRule, $freshRule);
+                $target = (string) $conflict['target'];
+                if (isset($conflicts[$target])) {
+                    throw new \RuntimeException(
+                        "adapter-draft: classification conflict identity '$target' is ambiguous; refusing to overwrite either rule"
+                    );
+                }
+                $conflicts[$target] = $conflict;
+            }
+            $out[$section] = (object) $freshRules;
+        }
+
+        foreach ($prior as $key => $value) {
+            if (!is_string($key)) {
+                throw new \RuntimeException('adapter-draft: prior adapter has a non-string top-level key');
+            }
+            if (isset(self::OWNED_TOP_LEVEL[$key])) {
+                continue;
+            }
+            // Fresh was checked against the closed ownership list above, so this
+            // assignment cannot overwrite a newly generated declaration.
+            $out[$key] = $value;
+        }
+        ksort($conflicts, SORT_STRING);
+        return [$out, array_values($conflicts)];
+    }
+
+    /** A stable, redacted conflict record whose key cannot collide by concatenation. */
+    private static function fact_conflict(string $section, string $key, mixed $prior, mixed $fresh): array {
+        $surface = ['kind' => 'classification', 'section' => $section, 'key' => $key];
+        $target = 'conflicts.classification.' . hash('sha256', Canon::encode($surface));
+        return [
+            'target' => $target,
+            'status' => 'conflict',
+            'surface' => $section . '.' . $key,
+            'prior_hash' => self::semantic_hash($prior),
+            'export_hash' => self::semantic_hash($fresh),
+            'questions' => [
+                'the current policy export differs from an existing hand-authored classification; the existing '
+                    . 'rule was preserved and the competing rule remains only this inert, redacted conflict. '
+                    . 'Reconcile the two declarations by hand before changing either source of truth',
+            ],
+        ];
+    }
+
+    /** Canonical semantic equality/hash, deliberately never a raw-byte claim. */
+    private static function semantic_hash(mixed $value): string {
+        return hash('sha256', Canon::encode($value));
+    }
+
+    /**
+     * The candidate-level screen cannot cover preserved top-level intent: `notes`,
+     * a provider argument, or a future non-generator-owned declaration is copied
+     * deliberately and exactly. Before emitting the complete regenerated artifact,
+     * scan every key and value for a high-confidence secret pattern. Refuse rather
+     * than redact: changing a semantic declaration silently would violate the
+     * ownership contract, while printing it would violate the secret boundary.
+     *
+     * The existing candidate screen remains more conservative (it also flags the
+     * name-aware heuristic); this final gate is hard-pattern-only so ordinary human
+     * prose cannot become an unreviewable false-positive preservation loss.
+     *
+     * @param array<string,mixed> $manifest
+     */
+    private static function assert_output_is_safe(array $manifest): void {
+        $label = self::output_hard_secret_label($manifest);
+        if ($label !== null) {
+            throw new \RuntimeException(
+                "adapter-draft: regenerated artifact contains a possible secret ($label); refusing to emit or silently redact semantic intent"
+            );
+        }
+        if (self::contains_executable_stub($manifest)) {
+            throw new \RuntimeException(
+                'adapter-draft: regenerated artifact contains executable/interpreter semantics; refusing to emit or silently alter semantic intent'
+            );
+        }
+        if (self::contains_entity_local_coordinate($manifest)) {
+            throw new \RuntimeException(
+                'adapter-draft: regenerated artifact contains an entity-local UUID/path; refusing to emit or silently alter semantic intent'
+            );
+        }
+    }
+
+    /** Walk both map keys and leaves; fresh export sections use stdClass for `{}`. */
+    private static function output_hard_secret_label(mixed $value): ?string {
+        if (is_string($value)) {
+            return Secrets::hard_match($value);
+        }
+        if (is_object($value)) {
+            $value = get_object_vars($value);
+        }
+        if (!is_array($value)) {
+            return null;
+        }
+        foreach ($value as $key => $child) {
+            if (is_string($key)) {
+                $keyLabel = Secrets::hard_match($key);
+                if ($keyLabel !== null) {
+                    return $keyLabel;
+                }
+            }
+            $label = self::output_hard_secret_label($child);
+            if ($label !== null) {
+                return $label;
+            }
+        }
+        return null;
     }
 
     // -------------------------------------------------------------- draft build
@@ -250,9 +524,14 @@ final class AdapterDraft {
      *
      * @return array<string,mixed>
      */
-    private static function build_draft(string $repo, string $name, ?string $evidenceNote): array {
+    private static function build_draft(
+        string $repo,
+        string $name,
+        ?string $evidenceNote,
+        ?array $priorDraft,
+        array $factConflicts
+    ): array {
         $stateDir = $repo . '/state';
-        $site = self::read_json($repo . '/site.duo.json');
 
         // Each proposer returns a flat list of raw candidates
         // {target, candidate, status, confidence, evidence[], questions[]} — before
@@ -279,12 +558,24 @@ final class AdapterDraft {
             // Constraint B: rename trigger keys in the fragment so the blind walk
             // cannot collect an inert proposal.
             $candidate['candidate'] = self::rename_triggers($candidate['candidate'], self::RENAME);
-            $candidates[$candidate['target']] = $candidate;
+            $target = (string) ($candidate['target'] ?? '');
+            if ($target === '') {
+                throw new \RuntimeException('adapter-draft: proposer emitted a candidate with no target');
+            }
+            // Every proposal identity is structural. A duplicate here is an
+            // ambiguous attachment, never a safe last-wins replacement.
+            if (isset($candidates[$target])) {
+                throw new \RuntimeException(
+                    "adapter-draft: proposal identity '$target' collided; refusing to attach either observation"
+                );
+            }
+            $candidates[$target] = $candidate;
         }
 
         // Human-edit preservation across re-observation (Decision 4), computed
-        // against the prior artifact if one was saved to the site adapter overlay.
-        [$candidates, $meta] = self::preserve_human_edits($repo, $name, $candidates, !empty($evidenceNote));
+        // against the one already-validated prior artifact, if one was saved.
+        [$candidates, $meta] = self::preserve_human_edits($priorDraft, $candidates);
+        ksort($candidates, SORT_STRING);
 
         $proposals = array_fill_keys(self::BUCKETS, []);
         $unsupported = [];
@@ -306,6 +597,12 @@ final class AdapterDraft {
             'unsupported' => $unsupported,
             '_meta' => (object) $meta,
         ];
+        if ($factConflicts !== []) {
+            // These records contain only a stable surface label and canonical
+            // hashes. In particular they never mirror a live `ref`/`refs` key
+            // into _draft, so the sidecar remains inert under Policy's blind walk.
+            $draft['classification_conflicts'] = $factConflicts;
+        }
         // The single deferred-slice seam, recorded (nested — not a reserved
         // top-level key) so a reader sees the flag was honored and ignored.
         $draft['evidence_seam'] = $evidenceNote
@@ -324,11 +621,44 @@ final class AdapterDraft {
         if ($head === 'shortcode_paths') {
             return 'shortcode_paths';
         }
-        if (in_array($head, self::BUCKETS, true)) {
+        if (in_array($head, ['tables', 'block_paths', 'deletions', 'actions', 'providers'], true)) {
             return $head;
         }
-        // meta-ref candidates carry a section-shaped head (post_meta/term_meta/…).
-        return 'references';
+        // Meta-ref candidates carry a section-shaped head
+        // (post_meta/term_meta/options/user_meta), not a generic catch-all.
+        if (in_array($head, ['options', 'post_meta', 'term_meta', 'user_meta'], true)) {
+            return 'references';
+        }
+        throw new \RuntimeException(
+            "adapter-draft: proposal target '$target' has no supported v1 target family"
+        );
+    }
+
+    /**
+     * One block/shortcode can expose several independent reference-bearing
+     * attributes. Bind each proposal identity to the owner plus attribute path
+     * so neither PHP/JSON iteration order nor a newly observed sibling can make
+     * one candidate overwrite another.
+     */
+    private static function attribute_target(string $kind, string $owner, string $path): string {
+        $surface = ['kind' => $kind, 'owner' => $owner, 'path' => $path];
+        return $kind . '.' . $owner . '.attrs.' . hash('sha256', Canon::encode($surface));
+    }
+
+    /** Resolve and authenticate a new structural attribute target; accept v1 legacy targets. */
+    private static function attribute_owner(string $kind, string $tail, mixed $fragment): ?string {
+        $marker = '.attrs.';
+        if (!str_contains($tail, $marker)) {
+            return $tail === '' ? null : $tail;
+        }
+        [$owner, $digest] = explode($marker, $tail, 2);
+        if ($owner === '' || preg_match('/^[a-f0-9]{64}$/D', $digest) !== 1
+            || !is_array($fragment) || !is_string($fragment['path'] ?? null)) {
+            return null;
+        }
+        return hash_equals(self::attribute_target($kind, $owner, $fragment['path']), $kind . '.' . $tail)
+            ? $owner
+            : null;
     }
 
     // --------------------------------------------------------- typed-table proposer
@@ -498,14 +828,14 @@ final class AdapterDraft {
         $blockSeen = [];
         $shortcodeSeen = [];
         $out = [];
-        foreach (glob($stateDir . '/posts/*/*.md') ?: [] as $file) {
+        $postFiles = glob($stateDir . '/posts/*/*.md') ?: [];
+        sort($postFiles, SORT_STRING);
+        foreach ($postFiles as $file) {
             try {
                 [, $body] = Canon::parse_post_file(Canon::read_file($file));
             } catch (\Throwable) {
                 continue;
             }
-            $rel = 'posts/' . basename(dirname($file)) . '/' . basename($file);
-
             // Blocks: <!-- wp:core/image {"id":42} --> (self-closing or paired).
             if (preg_match_all('/<!--\s*wp:([a-zA-Z0-9\/_-]+)\s*(\{.*?\})?\s*\/?-->/s', $body, $m, PREG_SET_ORDER)) {
                 foreach ($m as $hit) {
@@ -521,18 +851,27 @@ final class AdapterDraft {
                         }
                         $key = $block . '::' . $attr;
                         if (isset($blockSeen[$key])) {
+                            $index = $blockSeen[$key];
+                            self::merge_id_shape_observation(
+                                $out[$index],
+                                $type,
+                                "block '$block' attribute '$attr'"
+                            );
+                            $out[$index]['_screen'][] = [(string) $attr, $value];
                             continue;
                         }
-                        $blockSeen[$key] = true;
+                        $blockSeen[$key] = count($out);
                         $out[] = [
-                            'target' => 'block_paths.' . $block,
+                            'target' => self::attribute_target('block_paths', $block, (string) $attr),
                             'candidate' => ['path' => (string) $attr, 'type' => $type, 'kind' => 'post'],
                             'status' => 'proposal',
                             'confidence' => 0.35,
                             'evidence' => [[
-                                'source' => $rel,
+                                'count' => 1,
+                                'shapes' => [$type],
+                                'source' => 'state/posts',
                                 'locator' => 'blocks.' . $block . '.attrs.' . $attr,
-                                'observation' => 'id-shaped attribute value ' . self::short_value($value),
+                                'observation' => 'id-shaped block attribute observed; shape=' . $type . '; values omitted',
                             ]],
                             'questions' => [
                                 "ref kind for block '$block' attribute '$attr' (defaulted to post; may be term/tt/user) "
@@ -557,18 +896,27 @@ final class AdapterDraft {
                             }
                             $key = $tag . '::' . $attrName;
                             if (isset($shortcodeSeen[$key])) {
+                                $index = $shortcodeSeen[$key];
+                                self::merge_id_shape_observation(
+                                    $out[$index],
+                                    $type,
+                                    "shortcode '$tag' attribute '$attrName'"
+                                );
+                                $out[$index]['_screen'][] = [$attrName, $attrVal];
                                 continue;
                             }
-                            $shortcodeSeen[$key] = true;
+                            $shortcodeSeen[$key] = count($out);
                             $out[] = [
-                                'target' => 'shortcode_paths.' . $tag,
+                                'target' => self::attribute_target('shortcode_paths', $tag, $attrName),
                                 'candidate' => ['path' => $attrName, 'type' => $type, 'kind' => 'post'],
                                 'status' => 'proposal',
                                 'confidence' => 0.3,
                                 'evidence' => [[
-                                    'source' => $rel,
+                                    'count' => 1,
+                                    'shapes' => [$type],
+                                    'source' => 'state/posts',
                                     'locator' => 'shortcodes.' . $tag . '.' . $attrName,
-                                    'observation' => 'id-shaped shortcode attribute value "' . self::short_value($attrVal) . '"',
+                                    'observation' => 'id-shaped shortcode attribute observed; shape=' . $type . '; values omitted',
                                 ]],
                                 'questions' => [
                                     "ref kind for shortcode '$tag' attribute '$attrName' (defaulted to post) and live "
@@ -582,6 +930,40 @@ final class AdapterDraft {
             }
         }
         return $out;
+    }
+
+    /**
+     * Aggregate one redacted id-shaped observation without allowing iteration
+     * order to decide a scalar-vs-list rule. Once both shapes are observed there
+     * is no safe default: emit an empty inert fragment, zero confidence, and an
+     * explicit reconciliation question. Raw observed values remain only in the
+     * private `_screen` input consumed by screen_secrets().
+     *
+     * @param array<string,mixed> $candidate
+     */
+    private static function merge_id_shape_observation(array &$candidate, string $shape, string $surface): void {
+        $evidence = (array) ($candidate['evidence'][0] ?? []);
+        $shapes = array_values(array_unique(array_merge(
+            array_map('strval', (array) ($evidence['shapes'] ?? [])),
+            [$shape]
+        )));
+        sort($shapes, SORT_STRING);
+        $candidate['evidence'][0]['count'] = ((int) ($evidence['count'] ?? 0)) + 1;
+        $candidate['evidence'][0]['shapes'] = $shapes;
+        if (count($shapes) < 2) {
+            return;
+        }
+        $candidate['candidate'] = (object) [];
+        $candidate['confidence'] = 0.0;
+        $candidate['evidence'][0]['observation'] = 'ambiguous id-shaped ' . $surface
+            . ' observed; shapes=' . implode(',', $shapes) . '; values omitted';
+        $question = 'both scalar and list id shapes were observed for ' . $surface
+            . '; no reference rule is proposed until a human reconciles the structural ambiguity';
+        $questions = (array) ($candidate['questions'] ?? []);
+        if (!in_array($question, $questions, true)) {
+            $questions[] = $question;
+        }
+        $candidate['questions'] = $questions;
     }
 
     // ---------------------------------------------------------- reference proposer
@@ -602,13 +984,22 @@ final class AdapterDraft {
             } catch (\Throwable) {
                 continue;
             }
-            $rel = 'posts/' . basename(dirname($file)) . '/' . basename($file);
             foreach ((array) ($front['meta'] ?? []) as $metaKey => $value) {
                 $type = self::id_attr_type($value);
-                if ($type === null || isset($seen[$metaKey])) {
+                if ($type === null) {
                     continue;
                 }
-                $seen[$metaKey] = true;
+                if (isset($seen[$metaKey])) {
+                    $index = $seen[$metaKey];
+                    self::merge_id_shape_observation(
+                        $out[$index],
+                        $type,
+                        "post_meta key '$metaKey'"
+                    );
+                    $out[$index]['_screen'][] = [(string) $metaKey, $value];
+                    continue;
+                }
+                $seen[$metaKey] = count($out);
                 // A meta ref rule names its keyspace as a STRING kind (`ref: "post"`
                 // or `"post[]"`), not an object — see ReferenceRules::value_rule().
                 $ref = $type === 'int[]' ? 'post[]' : 'post';
@@ -618,9 +1009,12 @@ final class AdapterDraft {
                     'status' => 'proposal',
                     'confidence' => 0.3,
                     'evidence' => [[
-                        'source' => $rel,
+                        'count' => 1,
+                        'shapes' => [$type],
+                        'source' => 'state/post_meta',
                         'locator' => 'meta.' . $metaKey,
-                        'observation' => 'id-shaped meta value ' . self::short_value($value) . ' with no declared ref',
+                        'observation' => 'id-shaped meta value observed; shape=' . $type
+                            . '; value omitted; no declared ref',
                     ]],
                     'questions' => [
                         "does meta key '$metaKey' hold a post id (vs term/tt/user, or an unrelated count)? live id "
@@ -722,45 +1116,65 @@ final class AdapterDraft {
      * @return list<array<string,mixed>>
      */
     private static function propose_generated_surfaces(string $stateDir): array {
-        $out = [];
-        $index = 0;
-        $emit = function (string $rel, string $locator, $value) use (&$out, &$index): void {
+        /**
+         * Keyed by a hash of ONLY the structural surface. The values are never
+         * used to name a candidate: one observed row/post must not change which
+         * saved human edit belongs to another row/post, and row filenames often
+         * carry entity UUIDs that do not belong in an adapter artifact.
+         *
+         * @var array<string,array{surface:array<string,string>,id:string,capability:string,shapes:array<string,true>,screen:list<array{0:string,1:mixed}>,count:int}>
+         */
+        $observed = [];
+        /** @var array<string,string> $providerIds provider id => generated target */
+        $providerIds = [];
+        /** @var array<string,string> $capabilities capability => generated target */
+        $capabilities = [];
+        $emit = function (array $surface, string $screenName, mixed $value) use (&$observed, &$providerIds, &$capabilities): void {
             if (!self::looks_generated($value)) {
                 return;
             }
-            // The name is the observed KEY (meta key / column name), never the
-            // value — a generated payload may EMBED a secret, so its bytes never
-            // reach evidence (see shape_descriptor()); only its shape is described.
-            $name = str_contains($locator, '.') ? substr($locator, strrpos($locator, '.') + 1) : $locator;
-            $slug = self::slug(basename($rel) . '_' . $locator);
-            $out[] = [
-                'target' => 'unsupported.' . $index,
-                'candidate' => [
-                    // A capability DECLARATION, not code. `source: plugin` keeps the
-                    // installed plugin the trust anchor; no interpreter/regenerator.
-                    'id' => 'gen-' . substr($slug, 0, 40),
-                    'plugin' => 'observed-plugin/observed-plugin.php',
-                    'source' => 'plugin',
-                    'version' => '0.0.0',
-                    'capabilities' => ['regenerate_' . substr($slug, 0, 48)],
-                ],
-                'status' => 'unsupported',
-                'confidence' => 0.2,
-                'evidence' => [[
-                    'source' => $rel,
-                    'locator' => $locator,
-                    // SHAPE only — never the observed bytes (a generated blob can
-                    // embed a credential no hard_match pattern would catch).
-                    'observation' => self::shape_descriptor($value) . ' — looks plugin-generated (bytes withheld)',
-                ]],
-                'questions' => [
-                    'is this actually plugin-generated? the LIVE journal WHY-signal is needed to confirm — deferred',
-                    'executable regeneration is a plugin capability declaration or a native action from the closed '
-                        . 'vocabulary (' . implode(', ', NativeActions::vocabulary()) . '), NEVER engine code',
-                ],
-                '_screen' => [[$name, $value]],
-            ];
-            $index++;
+            $encodedSurface = Canon::encode($surface);
+            $digest = hash('sha256', $encodedSurface);
+            $target = 'unsupported.generated.' . $digest;
+            // Both names fit the grammar of the declaration they illustrate.
+            // The target keeps the full digest, while these shorter names are
+            // separately collision-checked before any artifact is emitted.
+            $providerId = 'gen-' . substr($digest, 0, 60);
+            $capability = 'regenerate_' . substr($digest, 0, 53);
+            foreach ([[$providerIds, $providerId, 'provider id'], [$capabilities, $capability, 'capability']] as [$seen, $name, $kind]) {
+                if (isset($seen[$name]) && $seen[$name] !== $target) {
+                    throw new \RuntimeException(
+                        "adapter-draft: generated-surface $kind '$name' collides between structural surfaces; refusing to merge them"
+                    );
+                }
+            }
+            $providerIds[$providerId] = $target;
+            $capabilities[$capability] = $target;
+
+            if (isset($observed[$target])) {
+                if (Canon::encode($observed[$target]['surface']) !== $encodedSurface) {
+                    // A full target digest collision is fantastically unlikely,
+                    // but treating it as impossible would turn it into last-wins.
+                    throw new \RuntimeException(
+                        "adapter-draft: generated-surface identity '$target' collides between structural surfaces; refusing to merge them"
+                    );
+                }
+            } else {
+                $observed[$target] = [
+                    'surface' => $surface,
+                    'id' => $providerId,
+                    'capability' => $capability,
+                    'shapes' => [],
+                    'screen' => [],
+                    'count' => 0,
+                ];
+            }
+            // SHAPE only — never the observed bytes (a generated blob can embed
+            // a credential no hard_match pattern would catch). Every raw value
+            // still reaches screen_secrets() under its real surface-key name.
+            $observed[$target]['shapes'][self::shape_descriptor($value)] = true;
+            $observed[$target]['screen'][] = [$screenName, $value];
+            $observed[$target]['count']++;
         };
         foreach (glob($stateDir . '/posts/*/*.md') ?: [] as $file) {
             try {
@@ -768,19 +1182,70 @@ final class AdapterDraft {
             } catch (\Throwable) {
                 continue;
             }
-            $rel = 'posts/' . basename(dirname($file)) . '/' . basename($file);
             foreach ((array) ($front['meta'] ?? []) as $metaKey => $value) {
-                $emit($rel, 'meta.' . $metaKey, $value);
+                $emit(['kind' => 'post_meta', 'key' => (string) $metaKey], (string) $metaKey, $value);
             }
         }
-        foreach (glob($stateDir . '/tables/*/*.json') ?: [] as $file) {
+        $tableFiles = glob($stateDir . '/tables/*/*.json') ?: [];
+        sort($tableFiles, SORT_STRING);
+        foreach ($tableFiles as $file) {
             $row = self::read_json($file);
-            $rel = 'tables/' . basename(dirname($file)) . '/' . basename($file);
+            $table = basename(dirname($file));
             foreach ((array) ($row['columns'] ?? []) as $col => $value) {
-                $emit($rel, 'columns.' . $col, $value);
+                $emit(
+                    ['kind' => 'table_column', 'table' => $table, 'column' => (string) $col],
+                    (string) $col,
+                    $value
+                );
             }
+        }
+        ksort($observed, SORT_STRING);
+        $out = [];
+        foreach ($observed as $target => $record) {
+            $shapes = array_keys($record['shapes']);
+            sort($shapes, SORT_STRING);
+            $out[] = [
+                'target' => $target,
+                'candidate' => [
+                    // A capability DECLARATION, not code. `source: plugin` keeps the
+                    // installed plugin the trust anchor; no interpreter/regenerator.
+                    'id' => $record['id'],
+                    'plugin' => 'observed-plugin/observed-plugin.php',
+                    'source' => 'plugin',
+                    'version' => '0.0.0',
+                    'capabilities' => [$record['capability']],
+                ],
+                'status' => 'unsupported',
+                'confidence' => 0.2,
+                'evidence' => [[
+                    'source' => self::generated_surface_source($record['surface']),
+                    'locator' => self::generated_surface_locator($record['surface']),
+                    'observation' => $record['count'] . ' redacted observation(s): ' . implode('; ', $shapes)
+                        . ' — looks plugin-generated (bytes withheld)',
+                ]],
+                'questions' => [
+                    'is this actually plugin-generated? the LIVE journal WHY-signal is needed to confirm — deferred',
+                    'executable regeneration is a plugin capability declaration or a native action from the closed '
+                        . 'vocabulary (' . implode(', ', NativeActions::vocabulary()) . '), NEVER engine code',
+                ],
+                '_screen' => $record['screen'],
+            ];
         }
         return $out;
+    }
+
+    /** Structural evidence only: a captured entity file name never belongs here. */
+    private static function generated_surface_source(array $surface): string {
+        return ($surface['kind'] ?? '') === 'table_column'
+            ? 'state/tables/' . $surface['table'] . '/columns'
+            : 'state/post_meta';
+    }
+
+    /** The stable locator that drives identity, review, and aggregation. */
+    private static function generated_surface_locator(array $surface): string {
+        return ($surface['kind'] ?? '') === 'table_column'
+            ? 'tables.' . $surface['table'] . '.columns.' . $surface['column']
+            : 'post_meta.' . $surface['key'];
     }
 
     // -------------------------------------------------------- secret screen
@@ -824,7 +1289,12 @@ final class AdapterDraft {
             return $candidate;
         }
         $candidate['candidate'] = (object) [];
-        $candidate['status'] = 'proposal';
+        // An unsupported observation has no liftable target family by design.
+        // Screening its bytes must make it *more* inert, never recast it as a
+        // proposal that bucket_for_target() then cannot route.
+        if (($candidate['status'] ?? null) !== 'unsupported') {
+            $candidate['status'] = 'proposal';
+        }
         $candidate['confidence'] = 0.0;
         $candidate['evidence'] = [];
         $candidate['questions'] = array_merge($candidate['questions'] ?? [], [
@@ -852,6 +1322,12 @@ final class AdapterDraft {
         $out = [];
         foreach ($node as $key => $value) {
             $newKey = (!$isList && is_string($key) && isset($map[$key])) ? $map[$key] : $key;
+            if (array_key_exists($newKey, $out)) {
+                throw new \RuntimeException(
+                    'adapter-draft: candidate fragment contains colliding live/inert trigger keys; '
+                        . 'reconcile the declaration manually before regeneration'
+                );
+            }
             $out[$newKey] = self::rename_triggers($value, $map);
         }
         return $out;
@@ -860,102 +1336,505 @@ final class AdapterDraft {
     // ---------------------------------------------- human-edit preservation (_meta)
 
     /**
-     * Per-candidate content hash + ratified/edited markers, preserved across
-     * re-observation against the prior artifact if the author saved one to the site
-     * adapter overlay (`<repo>/adapters/<name>.json`):
-     *   - ratified:true  → the human lifted it into a live section; carried verbatim,
-     *     never regenerated.
-     *   - the prior fragment's hash disagrees with the stored generated_hash → the
-     *     human edited it; the edit is PRESERVED, edited:true, and the fresh
-     *     observation recorded as drift under evidence/questions (never overwritten).
-     *   - otherwise → refreshed in place with a fresh generated_hash.
+     * Preserve a saved candidate whenever the generator cannot prove that a fresh
+     * observation is its machine-owned replacement. That includes legacy ordinal
+     * `unsupported.N` targets: they are deliberately NOT mapped by position to a
+     * new structural identity, because a newly inserted observation would make
+     * that attachment wrong. They remain inert with an explicit reconciliation
+     * question instead.
      *
+     * @param array<string,mixed>|null $priorDraft
      * @param array<string,array<string,mixed>> $fresh keyed by target
      * @return array{0:array<string,array<string,mixed>>,1:array<string,mixed>}
      */
-    private static function preserve_human_edits(string $repo, string $name, array $fresh, bool $hasEvidence): array {
-        $priorDraft = null;
-        $priorFile = $repo . '/adapters/' . $name . '.json';
-        if (is_file($priorFile) && is_readable($priorFile)) {
-            try {
-                $priorDraft = self::read_json($priorFile)['_draft'] ?? null;
-            } catch (\Throwable) {
-                $priorDraft = null;
-            }
-        }
-        $priorIndex = [];
-        $priorMeta = [];
-        if (is_array($priorDraft)) {
-            $priorMeta = (array) ($priorDraft['_meta'] ?? []);
-            foreach ((array) ($priorDraft['proposals'] ?? []) as $list) {
-                foreach ((array) $list as $candidate) {
-                    if (is_array($candidate) && isset($candidate['target'])) {
-                        $priorIndex[(string) $candidate['target']] = $candidate;
-                    }
-                }
-            }
-            foreach ((array) ($priorDraft['unsupported'] ?? []) as $candidate) {
-                if (is_array($candidate) && isset($candidate['target'])) {
-                    $priorIndex[(string) $candidate['target']] = $candidate;
-                }
-            }
-        }
-
+    private static function preserve_human_edits(?array $priorDraft, array $fresh): array {
+        [$priorIndex, $priorMeta] = self::index_prior_draft($priorDraft);
         $out = [];
         $meta = [];
-        foreach ($fresh as $target => $candidate) {
-            $priorEntry = $priorMeta[$target] ?? null;
 
-            if (is_array($priorEntry) && ($priorEntry['ratified'] ?? false) === true) {
-                // Ratified: the generator NEVER touches it.
-                $out[$target] = $priorIndex[$target] ?? $candidate;
+        foreach ($fresh as $target => $candidate) {
+            $priorCandidate = $priorIndex[$target] ?? null;
+            $priorEntry = $priorMeta[$target] ?? null;
+            $freshHash = self::generated_hash($candidate['candidate'] ?? null);
+
+            if ($priorCandidate === null) {
+                // A meta record without its fragment has no safe object to
+                // preserve. index_prior_draft() has already refused that shape.
+                $out[$target] = $candidate;
+                $meta[$target] = ['generated_hash' => $freshHash, 'ratified' => false, 'edited' => false];
+                continue;
+            }
+            if (($priorEntry['ratified'] ?? false) === true) {
+                // Ratified: the generator NEVER touches it, even if this is a
+                // legacy record that predates generated_hash bookkeeping.
+                $out[$target] = $priorCandidate;
                 $meta[$target] = $priorEntry;
                 continue;
             }
-
-            $freshHash = self::generated_hash($candidate['candidate']);
-            if (is_array($priorEntry) && isset($priorIndex[$target])) {
-                $priorHash = self::generated_hash($priorIndex[$target]['candidate'] ?? null);
-                $stored = (string) ($priorEntry['generated_hash'] ?? '');
-                if ($stored !== '' && $priorHash !== $stored) {
-                    // Human edited the prior fragment: preserve it, record drift.
-                    $preserved = $priorIndex[$target];
-                    $preserved['evidence'] = array_merge((array) ($preserved['evidence'] ?? []), [[
-                        'source' => 'regeneration-drift',
-                        'locator' => (string) $target,
-                        'observation' => 'the generator re-observed the source and would now write a different '
-                            . 'fragment (fresh hash ' . substr($freshHash, 0, 12) . '); the human edit is preserved, '
-                            . 'not overwritten',
-                    ]]);
-                    $preserved['questions'] = array_merge((array) ($preserved['questions'] ?? []), [
-                        'a human-edited candidate was preserved across regeneration; reconcile it with the fresh '
-                            . 'observation above if the underlying source changed',
-                    ]);
-                    $out[$target] = $preserved;
-                    $meta[$target] = ['generated_hash' => $stored, 'ratified' => false, 'edited' => true];
-                    continue;
-                }
+            if ($priorEntry === null
+                || ($priorEntry['legacy_untracked'] ?? false) === true
+                || !array_key_exists('generated_hash', $priorEntry)) {
+                $preserved = self::add_draft_question(
+                    $priorCandidate,
+                    'the prior candidate has no trustworthy generated_hash, so it was retained inert rather than '
+                        . 'risking an overwrite; reconcile or ratify it by hand before accepting a fresh observation'
+                );
+                $out[$target] = $preserved;
+                $meta[$target] = $priorEntry ?? [];
+                $meta[$target]['generated_hash'] = self::generated_hash($priorCandidate['candidate'] ?? null);
+                $meta[$target]['ratified'] = false;
+                $meta[$target]['edited'] = true;
+                $meta[$target]['legacy_untracked'] = true;
+                continue;
+            }
+            if (self::prior_candidate_edited($priorCandidate, $priorEntry)) {
+                // Human edited the prior fragment: preserve it, record drift.
+                $preserved = self::add_draft_evidence($priorCandidate, [
+                    'source' => 'regeneration-drift',
+                    'locator' => (string) $target,
+                    'observation' => 'the generator re-observed the source and would now write a different '
+                        . 'fragment (fresh hash ' . substr($freshHash, 0, 12) . '); the human edit is preserved, '
+                        . 'not overwritten',
+                ]);
+                $preserved = self::add_draft_question(
+                    $preserved,
+                    'a human-edited candidate was preserved across regeneration; reconcile it with the fresh '
+                        . 'observation above if the underlying source changed'
+                );
+                $out[$target] = $preserved;
+                $meta[$target] = $priorEntry;
+                $meta[$target]['edited'] = true;
+                continue;
             }
 
-            // New, or unedited and unratified: refresh in place.
+            // Unedited and unratified: refresh in place.
             $out[$target] = $candidate;
             $meta[$target] = ['generated_hash' => $freshHash, 'ratified' => false, 'edited' => false];
         }
 
-        // Preserve ratified records for targets no longer observed (already lifted).
-        foreach ($priorMeta as $target => $entry) {
+        // A prior candidate with no matching structural target is ambiguous: it
+        // might be a removed source, or it might be the legacy ordinal identity.
+        // In either case retaining it inert is the only no-data-loss outcome.
+        foreach ($priorIndex as $target => $priorCandidate) {
             if (isset($out[$target])) {
                 continue;
             }
-            if (is_array($entry) && ($entry['ratified'] ?? false) === true) {
-                $meta[$target] = $entry;
-                if (isset($priorIndex[$target])) {
-                    $out[$target] = $priorIndex[$target];
-                }
-            }
+            $legacy = preg_match('/^unsupported\.[0-9]+$/D', $target) === 1;
+            $question = $legacy
+                ? 'this candidate uses a legacy ordinal generated-surface identity and cannot be safely attached to '
+                    . 'a fresh structural surface; it was retained inert for manual reconciliation'
+                : 'this prior candidate was not re-observed at the same structural target; it was retained inert '
+                    . 'rather than silently dropping possible hand-authored intent';
+            $preserved = self::add_draft_question($priorCandidate, $question);
+            $out[$target] = $preserved;
+            $meta[$target] = $priorMeta[$target] ?? [
+                'generated_hash' => self::generated_hash($priorCandidate['candidate'] ?? null),
+                'ratified' => false,
+                'edited' => true,
+                'legacy_untracked' => true,
+            ];
         }
 
+        ksort($out, SORT_STRING);
+        ksort($meta, SORT_STRING);
         return [$out, $meta];
+    }
+
+    /**
+     * Build collision-refusing indexes from a prior sidecar. A duplicate target
+     * cannot be attached to a fresh observation by any deterministic rule, so this
+     * is deliberately a loud refusal rather than the old assignment-last-wins map.
+     *
+     * @param array<string,mixed>|null $priorDraft
+     * @return array{0:array<string,array<string,mixed>>,1:array<string,array<string,mixed>>}
+     */
+    private static function index_prior_draft(?array $priorDraft): array {
+        if ($priorDraft === null) {
+            return [[], []];
+        }
+        if (($priorDraft['format'] ?? null) !== self::FORMAT) {
+            throw new \RuntimeException(
+                'adapter-draft: prior _draft.format must be ' . self::FORMAT
+                    . '; refusing to interpret an unknown draft contract'
+            );
+        }
+        $unknownRoot = array_values(array_diff(
+            array_keys($priorDraft),
+            ['format', 'proposals', 'unsupported', '_meta', 'classification_conflicts', 'evidence_seam']
+        ));
+        if ($unknownRoot !== []) {
+            throw new \RuntimeException(
+                'adapter-draft: prior _draft contains unrecognized v1 field(s); '
+                    . 'refusing to ignore data outside the closed sidecar schema'
+            );
+        }
+        if (array_key_exists('classification_conflicts', $priorDraft)
+            && (!is_array($priorDraft['classification_conflicts'])
+                || !array_is_list($priorDraft['classification_conflicts']))) {
+            throw new \RuntimeException('adapter-draft: prior _draft.classification_conflicts must be a list');
+        }
+        if (array_key_exists('evidence_seam', $priorDraft) && !is_string($priorDraft['evidence_seam'])) {
+            throw new \RuntimeException('adapter-draft: prior _draft.evidence_seam must be a string');
+        }
+        $priorIndex = [];
+        $priorMeta = [];
+        $rawMeta = $priorDraft['_meta'] ?? [];
+        if (!is_array($rawMeta) || ($rawMeta !== [] && array_is_list($rawMeta))) {
+            throw new \RuntimeException('adapter-draft: prior _draft._meta must be an object');
+        }
+        foreach ($rawMeta as $target => $entry) {
+            if (!is_string($target) || $target === '' || !is_array($entry) || ($entry !== [] && array_is_list($entry))) {
+                throw new \RuntimeException('adapter-draft: prior _draft._meta contains a malformed target record');
+            }
+            self::assert_safe_prior_target($target);
+            self::validate_prior_meta_entry($entry);
+            // `_meta` is machine authority, not an extension point. Retain only
+            // its validated closed vocabulary so an old auxiliary field cannot
+            // reappear in the regenerated artifact as a secret or local trace.
+            $priorMeta[$target] = self::normalized_prior_meta_entry($entry);
+        }
+
+        $proposals = $priorDraft['proposals'] ?? [];
+        if (!is_array($proposals) || ($proposals !== [] && array_is_list($proposals))) {
+            throw new \RuntimeException('adapter-draft: prior _draft.proposals must be an object');
+        }
+        foreach ($proposals as $bucket => $list) {
+            if (!is_string($bucket) || !in_array($bucket, self::BUCKETS, true)) {
+                throw new \RuntimeException('adapter-draft: prior _draft.proposals contains an unknown v1 bucket');
+            }
+            if (!is_array($list) || ($list !== [] && !array_is_list($list))) {
+                throw new \RuntimeException("adapter-draft: prior _draft.proposals.$bucket must be a list");
+            }
+            foreach ($list as $candidate) {
+                self::index_prior_candidate(
+                    $priorIndex,
+                    $candidate,
+                    '_draft.proposals.' . $bucket,
+                    $bucket,
+                    'proposal'
+                );
+            }
+        }
+        $unsupported = $priorDraft['unsupported'] ?? [];
+        if (!is_array($unsupported) || ($unsupported !== [] && !array_is_list($unsupported))) {
+            throw new \RuntimeException('adapter-draft: prior _draft.unsupported must be a list');
+        }
+        foreach ($unsupported as $candidate) {
+            self::index_prior_candidate($priorIndex, $candidate, '_draft.unsupported', null, 'unsupported');
+        }
+        foreach ($priorMeta as $target => $_) {
+            if (!isset($priorIndex[$target])) {
+                throw new \RuntimeException(
+                    "adapter-draft: prior _draft._meta target '$target' has no candidate; refusing to attach its marker elsewhere"
+                );
+            }
+        }
+        ksort($priorIndex, SORT_STRING);
+        ksort($priorMeta, SORT_STRING);
+        return [$priorIndex, $priorMeta];
+    }
+
+    /** @param array<string,array<string,mixed>> $index */
+    private static function index_prior_candidate(
+        array &$index,
+        mixed $candidate,
+        string $where,
+        ?string $expectedBucket,
+        string $expectedStatus
+    ): void {
+        if (!is_array($candidate) || !isset($candidate['target']) || !is_string($candidate['target'])
+            || $candidate['target'] === '') {
+            throw new \RuntimeException("adapter-draft: prior $where contains a candidate with no string target");
+        }
+        $target = $candidate['target'];
+        self::assert_safe_prior_target($target);
+        if (($candidate['status'] ?? null) !== $expectedStatus) {
+            throw new \RuntimeException(
+                "adapter-draft: prior $where candidate status must be '$expectedStatus'"
+            );
+        }
+        $confidence = $candidate['confidence'] ?? null;
+        if (!(is_int($confidence) || is_float($confidence)) || $confidence < 0 || $confidence > 1) {
+            throw new \RuntimeException(
+                "adapter-draft: prior $where candidate confidence must be a number from 0 through 1"
+            );
+        }
+        if (!array_key_exists('candidate', $candidate)
+            || !(is_object($candidate['candidate'])
+                || (is_array($candidate['candidate'])
+                    && ($candidate['candidate'] === [] || !array_is_list($candidate['candidate']))))) {
+            throw new \RuntimeException(
+                "adapter-draft: prior $where candidate declaration must be an object"
+            );
+        }
+        if ($expectedBucket === null) {
+            if (preg_match('/^unsupported\.(?:[0-9]+|generated\.[a-f0-9]{64})$/D', $target) !== 1) {
+                throw new \RuntimeException(
+                    'adapter-draft: prior _draft.unsupported candidate target has no supported v1 identity'
+                );
+            }
+        } elseif (self::bucket_for_target($target) !== $expectedBucket) {
+            throw new \RuntimeException(
+                "adapter-draft: prior $where candidate target belongs to a different v1 proposal bucket"
+            );
+        }
+        if (isset($index[$target])) {
+            throw new \RuntimeException(
+                "adapter-draft: prior _draft repeats target '$target'; refusing a last-wins preservation merge"
+            );
+        }
+        $index[$target] = self::sanitize_prior_candidate($candidate);
+    }
+
+    /**
+     * `_meta` is machine authority for a preservation decision. A malformed
+     * marker must not quietly read as false/absent and let a fresh observation
+     * overwrite a fragment whose ownership this command cannot establish.
+     *
+     * @param array<string,mixed> $entry
+     */
+    private static function validate_prior_meta_entry(array $entry): void {
+        $unknown = array_diff(array_keys($entry), ['generated_hash', 'ratified', 'edited', 'legacy_untracked']);
+        if ($unknown !== []) {
+            throw new \RuntimeException(
+                'adapter-draft: prior _draft._meta contains unrecognized authority field(s): '
+                . implode(',', $unknown) . '; refusing to ignore a preservation marker'
+            );
+        }
+        if (array_key_exists('generated_hash', $entry)
+            && (!is_string($entry['generated_hash']) || preg_match('/^[a-f0-9]{64}$/D', $entry['generated_hash']) !== 1)) {
+            throw new \RuntimeException('adapter-draft: prior _draft._meta.generated_hash must be a lowercase sha256 string');
+        }
+        foreach (['ratified', 'edited', 'legacy_untracked'] as $marker) {
+            if (array_key_exists($marker, $entry) && !is_bool($entry[$marker])) {
+                throw new \RuntimeException("adapter-draft: prior _draft._meta.$marker must be a boolean");
+            }
+        }
+    }
+
+    /** @return array<string,mixed> only the validated, authority-bearing fields. */
+    private static function normalized_prior_meta_entry(array $entry): array {
+        $out = [];
+        foreach (['generated_hash', 'ratified', 'edited', 'legacy_untracked'] as $key) {
+            if (array_key_exists($key, $entry)) {
+                $out[$key] = $entry[$key];
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * A previous draft is untrusted input for output safety. Candidate fragments
+     * carry the only semantic declaration worth preserving; machine evidence and
+     * free-form questions may contain a captured value, row filename, or UUID, so
+     * they are never replayed. The replacement row names no entity and contains no
+     * observed bytes. A secret or entity-local coordinate inside the declaration
+     * itself cannot be safely redacted without changing its meaning, so it refuses.
+     *
+     * @param array<string,mixed> $candidate
+     * @return array<string,mixed>
+     */
+    private static function sanitize_prior_candidate(array $candidate): array {
+        $fragment = $candidate['candidate'] ?? null;
+        // Canon::decode() uses associative arrays, so a JSON object `{}` and
+        // list `[]` otherwise collapse to the same PHP value. Candidate
+        // declarations are maps; restore the empty-map shape before computing
+        // preservation hashes so a redacted `{}` candidate does not acquire a
+        // false human edit on its second generation.
+        if ($fragment === []) {
+            $fragment = (object) [];
+        }
+        if (self::contains_executable_stub($fragment)) {
+            throw new \RuntimeException(
+                'adapter-draft: prior _draft candidate contains executable/interpreter semantics; '
+                    . 'move plugin behavior into a plugin-owned provider or a structured native action'
+            );
+        }
+        $secret = self::prior_fragment_secret_label($fragment);
+        if ($secret !== null) {
+            throw new \RuntimeException(
+                "adapter-draft: prior _draft candidate contains a possible secret ($secret); refusing to emit or overwrite it"
+            );
+        }
+        if (self::contains_entity_local_coordinate($fragment)) {
+            throw new \RuntimeException(
+                'adapter-draft: prior _draft candidate contains an entity-local UUID/path; redact and reconcile it manually before regeneration'
+            );
+        }
+        // A hand-crafted old sidecar can carry literal trigger keys even though
+        // this generator never writes them. Reapply the structural inertness
+        // transform before the declaration can reach the output blind walk.
+        // Rebuild (rather than mutate) the envelope: target + declaration are
+        // the human semantic intent; evidence, questions, `_screen`, and every
+        // unknown auxiliary field are untrusted machine context and must never
+        // be replayed verbatim into a new artifact.
+        // index_prior_candidate() already validated these closed v1 fields.
+        // Preserve them exactly; never turn malformed saved authority into a
+        // plausible-looking proposal/default confidence.
+        $status = (string) $candidate['status'];
+        $confidence = $candidate['confidence'];
+        return [
+            'target' => (string) $candidate['target'],
+            'candidate' => self::rename_triggers($fragment, self::RENAME),
+            'status' => $status,
+            'confidence' => (float) $confidence,
+            'evidence' => [[
+                'source' => 'prior-artifact-redacted',
+                'locator' => self::prior_redacted_locator($candidate),
+                'observation' => 'prior evidence was redacted during regeneration; no observed value, entity filename, or UUID was replayed',
+            ]],
+            'questions' => [
+                'prior evidence and free-form questions were redacted during regeneration; re-derive review context from a redacted source if needed',
+            ],
+        ];
+    }
+
+    /**
+     * Preserve only a known-safe structural locator from prior machine evidence.
+     * It helps a reviewer recognize a retained candidate without replaying a row
+     * filename. Everything else becomes a bounded hash coordinate.
+     */
+    private static function prior_redacted_locator(array $candidate): string {
+        foreach ((array) ($candidate['evidence'] ?? []) as $evidence) {
+            $locator = is_array($evidence) ? ($evidence['locator'] ?? null) : null;
+            if (is_string($locator) && self::safe_surface_locator($locator)) {
+                return $locator;
+            }
+        }
+        return 'candidate:' . substr(self::semantic_hash($candidate['candidate'] ?? null), 0, 12);
+    }
+
+    private static function safe_surface_locator(string $locator): bool {
+        if (Secrets::hard_match($locator) !== null || self::contains_entity_local_coordinate($locator)) {
+            return false;
+        }
+        return preg_match('/^(?:options|post_meta|term_meta|user_meta)\.[A-Za-z0-9_.-]{1,191}$/D', $locator) === 1
+            || preg_match('/^tables\.[A-Za-z0-9_.-]{1,128}\.columns\.[A-Za-z0-9_.-]{1,128}$/D', $locator) === 1;
+    }
+
+    /** Hard patterns plus the name-aware heuristic, recursively over a fragment. */
+    private static function prior_fragment_secret_label(mixed $fragment): ?string {
+        $hard = Secrets::hard_match_deep($fragment);
+        if ($hard !== null) {
+            return $hard;
+        }
+        return self::fragment_is_suspicious($fragment, 'candidate')
+            ? 'suspicious credential-shaped value'
+            : null;
+    }
+
+    private static function fragment_is_suspicious(mixed $value, string $key): bool {
+        if (is_string($value)) {
+            return Secrets::suspicious($key, $value);
+        }
+        if (is_object($value)) {
+            $value = (array) $value;
+        }
+        if (!is_array($value)) {
+            return false;
+        }
+        foreach ($value as $childKey => $child) {
+            $name = is_string($childKey) ? $childKey : $key;
+            if (self::fragment_is_suspicious($child, $name)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A draft candidate is data-only. Prior artifacts are untrusted and may
+     * predate that boundary, so refuse the explicit executable seams rather than
+     * preserving them under an inert-looking sidecar. The PHP opening token is
+     * also refused at any value depth without echoing the offending bytes.
+     */
+    private static function contains_executable_stub(mixed $value): bool {
+        if (is_string($value)) {
+            return str_contains($value, '<?');
+        }
+        if (is_object($value)) {
+            $value = (array) $value;
+        }
+        if (!is_array($value)) {
+            return false;
+        }
+        foreach ($value as $key => $child) {
+            if (is_string($key)
+                && in_array(strtolower($key), ['interpreter', 'rebuilders', 'regenerator', 'regen_dependency'], true)) {
+                return true;
+            }
+            if (self::contains_executable_stub($child)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Reject raw entity coordinates in a target without echoing the unsafe text. */
+    private static function assert_safe_prior_target(string $target): void {
+        if (Secrets::hard_match($target) !== null || self::contains_entity_local_coordinate($target)) {
+            throw new \RuntimeException(
+                'adapter-draft: prior _draft target contains a secret or entity-local coordinate; redact it manually before regeneration'
+            );
+        }
+    }
+
+    /**
+     * UUIDs and captured state-file paths are local observations, not adapter
+     * identity. This intentionally does not treat ordinary numeric declarations
+     * as local ids: whether an integer is a true entity reference is live-only and
+     * removing it here would silently change a human declaration's semantics.
+     */
+    private static function contains_entity_local_coordinate(mixed $value): bool {
+        if (is_object($value)) {
+            $value = (array) $value;
+        }
+        if (is_array($value)) {
+            foreach ($value as $key => $child) {
+                if ((is_string($key) && self::contains_entity_local_coordinate($key))
+                    || self::contains_entity_local_coordinate($child)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!is_string($value)) {
+            return false;
+        }
+        if (preg_match('/(?<![a-z0-9])[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}(?![a-z0-9])/i', $value) === 1) {
+            return true;
+        }
+        return preg_match('~(?:^|/)(?:state/)?(?:posts|terms|tables)/[^/]+/[^/]+\.(?:md|json)(?:$|[?#])~', $value) === 1;
+    }
+
+    /** Does a saved marker prove that its candidate fragment was hand-edited? */
+    private static function prior_candidate_edited(array $candidate, array $entry): bool {
+        $stored = $entry['generated_hash'] ?? null;
+        return is_string($stored) && $stored !== ''
+            && !hash_equals($stored, self::generated_hash($candidate['candidate'] ?? null));
+    }
+
+    /** Add a question once so stable re-observation does not churn the artifact. */
+    private static function add_draft_question(array $candidate, string $question): array {
+        $questions = (array) ($candidate['questions'] ?? []);
+        if (!in_array($question, $questions, true)) {
+            $questions[] = $question;
+        }
+        $candidate['questions'] = $questions;
+        return $candidate;
+    }
+
+    /** Add one redacted drift evidence record without duplicating it on the next run. */
+    private static function add_draft_evidence(array $candidate, array $record): array {
+        $evidence = (array) ($candidate['evidence'] ?? []);
+        foreach ($evidence as $existing) {
+            if (is_array($existing) && self::semantic_hash($existing) === self::semantic_hash($record)) {
+                return $candidate;
+            }
+        }
+        $evidence[] = $record;
+        $candidate['evidence'] = $evidence;
+        return $candidate;
     }
 
     /** The engine's content-hash idiom: sha256 over the canonical encoding. */
@@ -976,24 +1855,27 @@ final class AdapterDraft {
         $proposals = (array) ($draft['proposals'] ?? []);
         $results = [];
         $tmp = null;
-        foreach (self::BUCKETS as $bucket) {
-            foreach ((array) ($proposals[$bucket] ?? []) as $candidate) {
-                if (!is_array($candidate) || !isset($candidate['target'])) {
-                    continue;
+        try {
+            foreach (self::BUCKETS as $bucket) {
+                foreach ((array) ($proposals[$bucket] ?? []) as $candidate) {
+                    if (!is_array($candidate) || !isset($candidate['target'])) {
+                        continue;
+                    }
+                    $target = (string) $candidate['target'];
+                    $section = self::lift_section($target, self::rename_triggers($candidate['candidate'] ?? null, array_flip(self::RENAME)));
+                    if ($section === null) {
+                        $results[] = ['target' => $target, 'liftable' => false, 'message' => 'no live section maps this target'];
+                        continue;
+                    }
+                    $tmp = $tmp ?? self::make_tmp_library();
+                    [$ok, $message] = self::validate_lifted($tmp, $section);
+                    $results[] = ['target' => $target, 'liftable' => $ok, 'message' => $message];
                 }
-                $target = (string) $candidate['target'];
-                $section = self::lift_section($target, self::rename_triggers($candidate['candidate'] ?? null, array_flip(self::RENAME)));
-                if ($section === null) {
-                    $results[] = ['target' => $target, 'liftable' => false, 'message' => 'no live section maps this target'];
-                    continue;
-                }
-                $tmp = $tmp ?? self::make_tmp_library();
-                [$ok, $message] = self::validate_lifted($tmp, $section);
-                $results[] = ['target' => $target, 'liftable' => $ok, 'message' => $message];
             }
-        }
-        if ($tmp !== null) {
-            self::rrmdir($tmp);
+        } finally {
+            if ($tmp !== null) {
+                self::rrmdir($tmp);
+            }
         }
 
         $liftable = 0;
@@ -1029,17 +1911,24 @@ final class AdapterDraft {
      * @return array<string,mixed>|null
      */
     private static function lift_section(string $target, mixed $fragment): ?array {
-        $head = explode('.', $target, 2)[0];
-        $tail = substr($target, strlen($head) + 1);
+        $headToken = explode('.', $target, 2)[0];
+        $head = explode('[', $headToken, 2)[0];
+        $tail = str_contains($target, '.') ? substr($target, strpos($target, '.') + 1) : '';
         switch ($head) {
             case 'tables':
                 return ['tables' => [$tail => $fragment]];
-            case 'block_paths':
-                return ['block_attrs' => [$tail => [$fragment]]];
-            case 'shortcode_paths':
-                return ['shortcode_attrs' => [$tail => [$fragment]]];
+            case 'block_paths': {
+                $owner = self::attribute_owner($head, $tail, $fragment);
+                return $owner === null ? null : ['block_attrs' => [$owner => [$fragment]]];
+            }
+            case 'shortcode_paths': {
+                $owner = self::attribute_owner($head, $tail, $fragment);
+                return $owner === null ? null : ['shortcode_attrs' => [$owner => [$fragment]]];
+            }
             case 'deletions':
                 return ['deletions' => [$tail => $fragment]];
+            case 'actions':
+                return ['actions' => [$fragment]];
             case 'providers':
                 return ['providers' => [$fragment]];
             case 'options':
@@ -1063,11 +1952,38 @@ final class AdapterDraft {
     private static function validate_lifted(string $library, array $section): array {
         $checkName = 'duo-adapter-draft-check';
         $manifest = array_merge(['name' => $checkName, 'spec_version' => DUO_SPEC_VERSION], $section);
-        Canon::write_file($library . '/' . $checkName . '.json', Canon::encode($manifest));
+        // The eventual artifact lives under a site's adapters/ directory, not
+        // the shipped manifest library used for this isolated grammar load.
+        // Apply the exact out-of-tree source boundary first so a manifest-code
+        // provider cannot be misreported as liftable merely because the temp
+        // file itself is loaded with shipped precedence.
         $prev = getenv('DUO_MANIFESTS_DIR');
-        putenv('DUO_MANIFESTS_DIR=' . $library);
         try {
-            Policy::load(null, [$checkName]);
+            AdapterSources::assert_out_of_tree_contract(
+                $manifest,
+                $checkName,
+                'adapters/' . $checkName . '.json'
+            );
+            Canon::write_file($library . '/' . $checkName . '.json', Canon::encode($manifest));
+            putenv('DUO_MANIFESTS_DIR=' . $library);
+            $policy = Policy::load(null, [$checkName]);
+            foreach ((array) ($section['deletions'] ?? []) as $selector => $_) {
+                if (!is_string($selector) || !str_contains($selector, ':')) {
+                    throw new \RuntimeException('duo: deletion proposal has an invalid selector');
+                }
+                [$kind, $type] = explode(':', $selector, 2);
+                if ($type === '') {
+                    throw new \RuntimeException('duo: deletion proposal has an invalid selector');
+                }
+                if ($kind === 'table') {
+                    return [
+                        false,
+                        'table deletion cascade completeness is live-policy conditional (attached-meta ownership); '
+                            . 'this offline one-candidate check deliberately defers that decision',
+                    ];
+                }
+                Deletion::capability($policy, $kind, $type);
+            }
             return [true, 'grammar-valid — liftable into its live section by a human'];
         } catch (\Throwable $t) {
             return [false, $t->getMessage()];
@@ -1082,15 +1998,29 @@ final class AdapterDraft {
 
     /** A temp manifest library carrying a minimal `core` for the throwaway loads. */
     private static function make_tmp_library(): string {
-        $dir = sys_get_temp_dir() . '/duo_adapter_draft_check_' . bin2hex(random_bytes(4));
-        mkdir($dir, 0777, true);
-        Canon::write_file($dir . '/core.json', Canon::encode([
-            'name' => 'core',
-            'spec_version' => DUO_SPEC_VERSION,
-            'options' => (object) [],
-            'post_meta' => (object) [],
-            'term_meta' => (object) [],
-        ]));
+        $dir = null;
+        for ($attempt = 0; $attempt < 32; $attempt++) {
+            $candidate = sys_get_temp_dir() . '/duo_adapter_draft_check_' . bin2hex(random_bytes(16));
+            if (@mkdir($candidate, 0700, false)) {
+                $dir = $candidate;
+                break;
+            }
+        }
+        if ($dir === null) {
+            throw new \RuntimeException('adapter-draft: could not create a private proposal-check directory');
+        }
+        try {
+            Canon::write_file($dir . '/core.json', Canon::encode([
+                'name' => 'core',
+                'spec_version' => DUO_SPEC_VERSION,
+                'options' => (object) [],
+                'post_meta' => (object) [],
+                'term_meta' => (object) [],
+            ]));
+        } catch (\Throwable $t) {
+            self::rrmdir($dir);
+            throw $t;
+        }
         return $dir;
     }
 
@@ -1103,7 +2033,7 @@ final class AdapterDraft {
         echo "adapter name: {$manifest['name']}\n";
         echo "spec_version: {$manifest['spec_version']}\n";
         $facts = 0;
-        foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
+        foreach (self::FACT_SECTIONS as $section) {
             $facts += count((array) ($manifest[$section] ?? []));
         }
         echo "\nfacts (validated, applied — real classification sections): $facts rule(s)\n";
@@ -1138,16 +2068,28 @@ final class AdapterDraft {
             echo "  (none observed offline)\n";
         }
 
+        $conflicts = (array) ($draft['classification_conflicts'] ?? []);
+        if ($conflicts !== []) {
+            echo "\nclassification conflicts (INERT — existing hand-authored facts were preserved):\n";
+            foreach ($conflicts as $conflict) {
+                echo '  [conflict] ' . ($conflict['surface'] ?? $conflict['target'] ?? '?') . "\n";
+                foreach ((array) ($conflict['questions'] ?? []) as $q) {
+                    echo "          ? $q\n";
+                }
+            }
+        }
+
         echo "\nevidence seam: " . ($draft['evidence_seam'] ?? '') . "\n";
         echo "\nsummary: $facts fact(s) validated; $pCount proposal(s) + " . count($unsupported)
-            . " unsupported are INERT and unvalidated here — run 'duo adapter-draft --check-proposals' or "
+            . ' unsupported + ' . count($conflicts)
+            . " conflict record(s) are INERT and unvalidated here — run 'duo adapter-draft --check-proposals' or "
             . "install the draft and 'duo manifest-validate <dir>'. --format=json prints the draft artifact.\n";
     }
 
     /** @param array<string,mixed> $manifest */
     private static function fact_counts(array $manifest): string {
         $parts = [];
-        foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
+        foreach (self::FACT_SECTIONS as $section) {
             $parts[] = $section . '=' . count((array) ($manifest[$section] ?? []));
         }
         return implode(', ', $parts);
@@ -1229,12 +2171,6 @@ final class AdapterDraft {
         return false;
     }
 
-    private static function short_value(mixed $value): string {
-        $s = is_string($value) ? $value : json_encode($value);
-        $s = (string) $s;
-        return strlen($s) > 80 ? substr($s, 0, 77) . '...' : $s;
-    }
-
     /**
      * A byte-free description of a generated/derived value's SHAPE — its size and
      * encoding family, never its content. A generated payload may embed a
@@ -1252,12 +2188,6 @@ final class AdapterDraft {
         return 'derived-looking ' . gettype($value) . ' value';
     }
 
-    private static function slug(string $s): string {
-        $s = strtolower(preg_replace('/[^a-z0-9]+/i', '_', $s) ?? '');
-        $s = trim($s, '_');
-        return $s === '' ? 'x' : $s;
-    }
-
     private static function rrmdir(string $dir): void {
         if (!is_dir($dir)) {
             return;
@@ -1267,7 +2197,7 @@ final class AdapterDraft {
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($it as $f) {
-            $f->isDir() ? rmdir($f->getPathname()) : unlink($f->getPathname());
+            ($f->isLink() || !$f->isDir()) ? unlink($f->getPathname()) : rmdir($f->getPathname());
         }
         rmdir($dir);
     }

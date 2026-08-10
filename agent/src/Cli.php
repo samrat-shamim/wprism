@@ -9,7 +9,7 @@ require_once __DIR__ . '/PlanView.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-survey|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -237,6 +237,7 @@ final class Cli {
             'classify' => 'inspect the rejected --set spec and the repository policy file, then correct its section, key, class, or secret override before writing rules again',
             'lint' => 'inspect the repository policy and the captured state tree, then capture or correct the policy before linting again',
             'capabilities' => 'inspect the manifest disposition registry, the generated capability registry, and this repository\'s manifest pins, then correct that evidence before reporting capabilities again',
+            'adapter-observe' => 'inspect private target evidence and restore the existing provenance-journal prerequisite or policy inputs before collecting a new adapter observation',
             'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",
         };
@@ -2142,6 +2143,81 @@ final class Cli {
             WP_CLI::error($t->getMessage());
         }
         WP_CLI::line(rtrim(Canon::encode($pin)));
+    }
+
+    /**
+     * Closed, redacted proposal evidence from the currently booted target.
+     *
+     * This is intentionally neither capture nor adapter certification. It
+     * retains ordinary WordPress/plugin bootstrap so the installed provider
+     * and bundled-adapter registrations are observable, then uses only the
+     * observer-owned read paths. A plugin can have written during bootstrap;
+     * the emitted deferred row states that boundary rather than pretending a
+     * whole WP-CLI process is immutable.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Target-local site repository configured for this environment.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+    * @subcommand adapter-observe
+    */
+    public function adapter_observe($args, $assoc) {
+        // This must happen at command entry, including malformed/refused
+        // invocations. Normal plugin bootstrap may have already buffered a
+        // query observation; leaving the shutdown hook attached on an early
+        // argument refusal would still turn this supposedly non-mutating
+        // command request into a later Duo INSERT.
+        Journal::suspend_for_observation();
+        try {
+            if ($args !== [] || array_diff(array_keys($assoc), ['repo', 'format']) !== []) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-observe accepts only --repo=<target-site-repo> and optional --format=json',
+                    'supply the configured target repository and optional JSON format, then rerun adapter-observe',
+                    [],
+                    'adapter-observe received unsupported positional arguments or flags'
+                );
+            }
+            if (!is_string($assoc['repo'] ?? null) || $assoc['repo'] === '') {
+                throw CommandRefusalException::invalidArgument('adapter-observe', '--repo');
+            }
+            if (array_key_exists('format', $assoc) && $assoc['format'] !== 'json') {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'adapter-observe accepts only --format=json',
+                    'omit --format for the redacted human summary, or use --format=json for the closed document',
+                    [],
+                    'adapter-observe received an unsupported output format'
+                );
+            }
+            $document = AdapterObservation::report($assoc['repo']);
+        } catch (\Throwable $t) {
+            // JSON callers receive the existing typed refusal envelope.  For
+            // the optional human form, never surface arbitrary plugin or
+            // filesystem Throwable text: it may contain target-local bytes.
+            self::halt_json_failure($t, $assoc, 'adapter-observe');
+            if ($t instanceof CommandRefusalException) {
+                WP_CLI::error($t->publicMessage);
+            }
+            WP_CLI::error('adapter observation refused; inspect private target evidence before retrying');
+        }
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+
+        // The human summary is deliberately narrower than the schema: no
+        // key, path, adapter-name, source-refusal, or target identity enters
+        // a terminal by accident. The JSON form is the sole transport form.
+        WP_CLI::line('adapter observation');
+        WP_CLI::line('format: ' . AdapterObservation::FORMAT);
+        WP_CLI::line('authority: false; redaction: values_omitted');
+        WP_CLI::line('journal observations: ' . $document['journal']['summary']['observations']);
+        WP_CLI::line('pending structural items: ' . $document['pending']['summary']['items']);
+        WP_CLI::line('policy readiness: ' . $document['policy']['readiness']);
+        WP_CLI::line('observation hash: ' . $document['observation_hash']);
+        WP_CLI::line('deferred: proposal evidence only; see --format=json for the closed limitations');
     }
 
     /**
