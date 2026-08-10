@@ -1451,8 +1451,22 @@ final class Init {
                     $retainPublicationLock = true;
                     throw $recoveryFailure;
                 }
-                throw new \RuntimeException(
-                    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal'
+                // DUO-3421: this is a SUCCESSFUL outcome delivered as a
+                // non-zero exit -- the interrupted attempt was proven and
+                // rolled back, and the operator's next step is simply to
+                // rerun. As a bare RuntimeException on a command that is
+                // (rightly) absent from Cli::PUBLIC_REFUSAL_COMMANDS, it
+                // reached JSON callers as "init refused at an unclassified
+                // safety gate" with details_redacted, sending the operator to
+                // private evidence for an answer that IS the public one -- the
+                // DUO-3398 shape again, on the recovery path this time. It has
+                // an entirely reviewable shape, so it gets one, per DUO-3399's
+                // rule that the generic arm is only for failures that genuinely
+                // have none.
+                throw new CommandRefusalException(
+                    'interrupted_init_rolled_back',
+                    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal',
+                    'rerun duo init and confirm the fresh proposal it prints'
                 );
             }
             $attemptRecord = [

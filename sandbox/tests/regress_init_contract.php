@@ -916,6 +916,34 @@ check(
     'neither owned-file arm refuses an artifact the journal never planned; both require the plan they compensate against'
 );
 
+// DUO-3421: the pre-COMMIT rollback is a SUCCESSFUL outcome delivered as a
+// non-zero exit — the interrupted attempt was proven and undone, and the
+// operator simply reruns. Thrown as a bare RuntimeException on a command that
+// is rightly absent from Cli::PUBLIC_REFUSAL_COMMANDS, it reached JSON callers
+// as "init refused at an unclassified safety gate" with details_redacted:
+// DUO-3398's shape on the recovery path. It has a reviewable shape, so per
+// DUO-3399 it carries one.
+require_once __DIR__ . '/../../agent/src/CommandRefusal.php';
+check(
+    str_contains($initCompensationSource, "throw new CommandRefusalException(\n                    'interrupted_init_rolled_back',")
+        && !str_contains(
+            $initCompensationSource,
+            "throw new \\RuntimeException(\n                    'duo: interrupted pre-COMMIT init was safely rolled back"
+        ),
+    'the proven pre-COMMIT rollback answers with a reviewed reason code, not the unclassified arm'
+);
+$rolledBack = new \Duo\CommandRefusalException(
+    'interrupted_init_rolled_back',
+    'duo: interrupted pre-COMMIT init was safely rolled back; rerun duo init and confirm the fresh proposal',
+    'rerun duo init and confirm the fresh proposal it prints'
+);
+check(
+    $rolledBack->reasonCode === 'interrupted_init_rolled_back'
+        && str_contains($rolledBack->publicMessage, 'safely rolled back')
+        && $rolledBack->detailsRedacted === false,
+    'the rollback outcome survives the refusal class own sensitivity screen as a public answer'
+);
+
 // DUO-3421: init must be able to STAGE the payload it is certified to manage.
 // The staging walk applied safe_component()'s identifier charset — the one for
 // slugs Duo selects — to directory names the SITE owns, so WooCommerce
