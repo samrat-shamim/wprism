@@ -167,6 +167,16 @@ final class Policy {
             // refused the same disagreement against the frozen pin; this is the
             // live path's half of that, and AdapterSources owns the sentence so
             // the site source (DUO-3314) and the shipped source say it once.
+            //
+            // DUO-3339/B2: for the PLUGIN source this is a TAUTOLOGY, and
+            // deliberately kept. Identity inverts there — every bundle is
+            // named `duo-adapter.json`, so the file name carries none and the
+            // scan keys the origin off the DECLARED name — which makes
+            // $key === $manifest['name'] true by construction. It stays
+            // because it is only true by construction while that remains how
+            // the plugin scan keys an origin: the day something keys it off
+            // anything else, this line is what notices, and the alternative
+            // (skipping the source) would be the silence it exists to remove.
             AdapterSources::assert_declared_name(
                 $manifest,
                 $key,
@@ -174,11 +184,11 @@ final class Policy {
                 (string) $p->adapterSources->path($key)
             );
             if ($p->adapterSources->is_out_of_tree($key)) {
-                AdapterSources::assert_out_of_tree_contract(
-                    $manifest,
-                    $key,
-                    (string) $p->adapterSources->path($key)
-                );
+                // The instance picks the noun and the path from the origin it
+                // actually resolved: with three sources, a hardcoded "site
+                // adapter" would have named the wrong directory to go fix for
+                // every plugin-bundled manifest.
+                $p->adapterSources->assert_installed_contract($key, $manifest);
             }
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
@@ -677,11 +687,23 @@ self::validate_post_type_children($manifest);
                 );
             }
             $source = $raw['source'] ?? null;
-            if ($source !== null && !in_array($source, [AdapterSources::SHIPPED, AdapterSources::SITE], true)) {
+            // DUO-3339 adds the third source word. It is accepted in a pin for
+            // the same reason the other two are: validate_manifest_sources()
+            // below refuses a pin whose named source stops answering, which is
+            // the only thing that makes writing one down worth anything. A
+            // `plugin` pin is a deliberate statement that this site runs a
+            // definition a plugin bundles — and because precedence ranks the
+            // sources, a site or shipped adapter later claiming that name makes
+            // the pin refuse loudly rather than silently swapping the winner.
+            if ($source !== null && !in_array(
+                $source,
+                [AdapterSources::SHIPPED, AdapterSources::SITE, AdapterSources::PLUGIN],
+                true
+            )) {
                 throw new \RuntimeException(
                     "duo: site.duo.json manifest '{$raw['name']}' declares source " . var_export($source, true)
-                    . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '" and "'
-                    . AdapterSources::SITE . '"'
+                    . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '", "'
+                    . AdapterSources::SITE . '", and "' . AdapterSources::PLUGIN . '"'
                 );
             }
             $pins[] = ['name' => $raw['name'], 'digest' => $digest, 'source' => $source];
@@ -700,6 +722,16 @@ self::validate_post_type_children($manifest);
     private static function validate_manifest_sources(array $pins, AdapterSources $sources): void {
         foreach ($pins as $pin) {
             if ($pin['source'] === null) {
+                continue;
+            }
+            // A name nothing installed has no source to disagree with, and
+            // source() answers `shipped` by default. Reporting that as "you
+            // pinned plugin but it resolves from the shipped source" describes
+            // a shipped adapter that does not exist, and — since DUO-3339 —
+            // hides the honest answer: file() below throws the plugin
+            // source's own recorded refusal for exactly this name, with its
+            // remediation, or a not-found naming every source searched.
+            if ($sources->path($pin['name']) === null) {
                 continue;
             }
             $actual = $sources->source($pin['name']);

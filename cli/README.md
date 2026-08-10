@@ -97,11 +97,19 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 
 - **`duo adapter list|inspect|doctor`** — the installed-adapter catalog, and
   the other verb here that needs no environment. It reports what is installed
-  across the two adapter sources the engine has — the agent's own manifest
-  library and, with `--repo=<site-repo>`, that repository's own `adapters/`
-  overlay — where each adapter came from, the executable authority its own
-  declarations reach, and what is wrong with any of it. No WordPress, no
-  database, no transport.
+  across the two adapter sources a WordPress-free process can reach — the
+  agent's own manifest library and, with `--repo=<site-repo>`, that
+  repository's own `adapters/` overlay — where each adapter came from, the
+  executable authority its own declarations reach, and what is wrong with any
+  of it. No WordPress, no database, no transport.
+  The engine has a THIRD source: one `duo-adapter.json` at the root of each
+  ACTIVE plugin that bundles one. It lives in `WP_PLUGIN_DIR`, so only the
+  target can see it — every report here carries a `sources` block marking each
+  of the three scanned or not scanned and why, and `wp duo adapter-survey
+  [--repo=<path>] [--format=json]` is the same survey run ON the target,
+  emitting the same document with `command: "survey"`. An empty catalog is
+  never a claim that no adapter is installed, only that none is installed in
+  the sources this process could reach.
   `list` is one row per adapter: name, source, derived trust tier
   (`declarative_manifest`, `native_action`, `plugin_provider`,
   `compatibility_shim`) with `tier_basis` naming the exact declaration that
@@ -122,8 +130,14 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   a reserved name — each as a ROW carrying the engine's own message, a stable
   code, and its remediation. That is the point of the verb: `duo adapter
   doctor` is what you can still run when the repository is in one of those
-  states, because every other command refuses first. The report format is
-  `duo-adapter-catalog/v1`.
+  states, because every other command refuses first. Every refusal row also
+  names the source it is about and whether it refused that whole source or one
+  adapter, and a separate `not_installed` block lists adapters that are on the
+  machine and lost to a higher-precedence definition (sources rank
+  `shipped > site > plugin`) — those print on every run and deliberately never
+  change the exit code, because a correctly resolved shadow is precedence
+  working rather than a fault. The report format is
+  `duo-adapter-catalog/v2`.
   Exit 0 healthy, 1 anything surfaced, 2 usage/IO. Every run, passing or
   failing, ends with a `deferred` list: what needs a live target (plugin/theme
   state, provider negotiation, certification against one environment), the

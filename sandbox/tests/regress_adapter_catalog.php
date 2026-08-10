@@ -227,10 +227,38 @@ $listReport = report($list);
 check($list['exit'] === 0, 'duo adapter list over the shipped library exits 0');
 check($list['stderr'] === '', 'a clean run writes nothing to stderr (message: ' . trim($list['stderr']) . ')');
 check(
-    is_array($listReport) && ($listReport['format'] ?? null) === 'duo-adapter-catalog/v1'
+    is_array($listReport) && ($listReport['format'] ?? null) === 'duo-adapter-catalog/v2'
     && ($listReport['command'] ?? null) === 'list'
     && ($listReport['spec_version'] ?? null) === DUO_SPEC_VERSION,
-    'the JSON report parses and carries the duo-adapter-catalog/v1 envelope'
+    'the JSON report parses and carries the duo-adapter-catalog/v2 envelope'
+);
+// DUO-3339/B2: v2 is not a courtesy bump. A consumer written against v1 that
+// read a v2 report would believe it had seen every installed adapter while an
+// entire SOURCE was missing from its world, so the two new top-level keys are
+// asserted as part of the envelope rather than as a nice-to-have.
+check(
+    is_array($listReport['sources'] ?? null) && count($listReport['sources']) === 3
+    && array_column($listReport['sources'], 'source') === ['shipped', 'site', 'plugin']
+    && array_key_exists('not_installed', $listReport),
+    'v2 carries the three-source inventory and the not_installed list at the top level'
+);
+$pluginSourceRow = null;
+foreach ($listReport['sources'] as $sourceRow) {
+    if ($sourceRow['source'] === 'plugin') {
+        $pluginSourceRow = $sourceRow;
+    }
+}
+check(
+    is_array($pluginSourceRow) && $pluginSourceRow['scanned'] === false
+    && $pluginSourceRow['path'] === null
+    && str_contains((string) $pluginSourceRow['note'], 'WP_PLUGIN_DIR'),
+    'and this WordPress-free host command reports the plugin source as NOT SCANNED with the reason, rather '
+    . 'than omitting a source it cannot see'
+);
+check(
+    ($listReport['summary']['plugin'] ?? null) === 0
+    && ($listReport['summary']['not_installed'] ?? null) === 0,
+    'the summary counts the third source and the not-loaded rows, so a zero is a measured zero'
 );
 
 $shippedFiles = [];
@@ -531,6 +559,18 @@ foreach ($refusalCases as $code => $fixture) {
         . 'used to be reported twice, the second time as an ambiguous identity nobody claimed (rows: '
         . implode(', ', array_column($rows, 'code')) . ')'
     );
+    // DUO-3339/B2: every row states which source it is about and how far it
+    // reaches. Both are load-bearing rather than decoration — grammar_verdict()
+    // stops judging site adapters on `scope: source`, and
+    // AdapterCatalog::blockers() attributes a pin-set failure from `source`
+    // instead of sniffing `paths` for a leading `adapters/`.
+    check(
+        ($matching[0]['source'] ?? null) === 'site'
+        && ($matching[0]['scope'] ?? null) === 'source',
+        "$code carries source=site scope=source — every condition in the operator's OWN source is still "
+        . 'whole-directory (found: ' . (string) ($matching[0]['source'] ?? '(absent)') . '/'
+        . (string) ($matching[0]['scope'] ?? '(absent)') . ')'
+    );
     check($result['exit'] === 1, "$code makes the run non-zero (exit {$result['exit']})");
     check(
         is_array($parsed) && ($parsed['adapters'] ?? []) !== [],
@@ -759,9 +799,32 @@ check(
     str_contains($deferredSurfaces, 'the pinned SET'),
     'and that each grammar verdict is an isolated load, so a pin set is a different question'
 );
+// DUO-3339/B2 replaced this row's claim outright. It used to say the engine
+// had "exactly two adapter sources" and that a plugin-bundled manifest "is
+// discovered by nothing" — both true when it was written and both false the
+// moment the plugin source landed. The replacement is rendered FROM
+// survey()['sources'] rather than restated in prose, which is what stops the
+// two CLIs from drifting into two descriptions of one scan, so the assertion
+// checks the RENDERED source words, not a sentence.
 check(
-    str_contains($deferredSurfaces, 'discovered by nothing'),
-    'and that the two sources it surveys are the only two that exist, so an empty catalog is not a claim about the world'
+    !str_contains($deferredSurfaces, 'discovered by nothing')
+    && !str_contains($deferredSurfaces, 'exactly two adapter sources'),
+    'the deferred list no longer claims two sources and a manifest discovered by nothing — both went false in B2'
+);
+check(
+    str_contains($deferredSurfaces, 'THREE adapter sources')
+    && str_contains($deferredSurfaces, 'duo-adapter.json')
+    && str_contains($deferredSurfaces, 'wp duo adapter-survey'),
+    'it names the third source, its conventional file, and the command that reports it on the target'
+);
+check(
+    str_contains($deferredSurfaces, 'This process scanned shipped (site, plugin not scanned)'),
+    'and the sentence is BUILT from this run\'s own source inventory, so it cannot describe a scan that did not happen'
+);
+check(
+    str_contains($deferredSurfaces, 'not a fourth source')
+    && str_contains($deferredSurfaces, 'adapters/certifications/<name>.json'),
+    'and it restates the package decision: a distributed package installs INTO the site source, certificate included'
 );
 
 // ======================================================================
@@ -1029,6 +1092,31 @@ check(
     && !str_contains((string) $shapeRefusals[0]['remediation'], 'parses as JSON'),
     'and the remediation matches the actual failure — "make it an object", not "make it parse", which it already does'
 );
+check(
+    ($shapeRefusals[0]['source'] ?? null) === 'shipped'
+    && ($shapeRefusals[0]['scope'] ?? null) === 'source',
+    'a SHIPPED-library refusal says so on the row — the source word is not a site/plugin-only field'
+);
+// The blocker attribution this replaced. `blockers()` used to sniff `paths`
+// for a leading `adapters/` or a trailing `/site.duo.json`, so a refusal about
+// the SHIPPED library — whose paths are absolute — fell through to `unknown`,
+// and a `plugins/<dir>/duo-adapter.json` path would have too. It now reads the
+// row's own `source`, which is why this fixture (a broken shipped library plus
+// a repository pinning one of its manifests) can assert `shipped` at all.
+$brokenLibraryRepo = site_repo(['listy'], []);
+$brokenDoctor = report(duo(['doctor', '--repo=' . $brokenLibraryRepo, '--format=json'], $plainLibrary));
+$pinBlocker = null;
+foreach ($brokenDoctor['blockers'] ?? [] as $blocker) {
+    if (($blocker['code'] ?? null) === 'pin_set_unloadable') {
+        $pinBlocker = $blocker;
+    }
+}
+check(
+    is_array($pinBlocker) && ($pinBlocker['source'] ?? null) === 'shipped',
+    'and a pin set that will not load is attributed to the source whose refusal stopped it, read off that '
+    . 'refusal rather than guessed from its path (found: '
+    . (string) ($pinBlocker['source'] ?? '(no pin_set_unloadable row)') . ')'
+);
 $soloRow = $plainReport['adapters'][0] ?? [];
 check(
     array_key_exists('certification', $soloRow) && $soloRow['certification'] === null,
@@ -1122,6 +1210,56 @@ foreach ([
     );
     check($result['stdout'] === '', 'and it writes no report to stdout, so a consumer cannot half-parse it');
 }
+
+// ======================================================================
+echo "\n== a refused file's own NAME cannot rewrite this report ==\n";
+// ======================================================================
+// Refusal `paths` are DATA, kept exactly as the file is spelled so the row
+// still names something an operator can go delete — and this renderer imploded
+// them straight into the terminal. A site adapter file whose name carries ANSI
+// escapes reaches that list through the ordinary identity refusal, so the
+// bytes are third-party here too even in the operator's own directory: the
+// engine never authored that filename.
+$escapeName = "evil\x1b[2J\x1b[1;1Hok: everything is certified";
+$escapeRepo = site_repo(['keeper'], ['keeper' => site_adapter('keeper')]);
+file_put_contents("$escapeRepo/adapters/$escapeName.json", "{}\n");
+if (in_array("$escapeName.json", scandir("$escapeRepo/adapters") ?: [], true)) {
+    $escapeText = duo(['doctor', '--repo=' . $escapeRepo]);
+    $escapeJson = report(duo(['doctor', '--repo=' . $escapeRepo, '--format=json']));
+    check(
+        strcspn($escapeText['stdout'], "\x1b\x00\x07") === strlen($escapeText['stdout'])
+        && str_contains($escapeText['stdout'], 'hex '),
+        'the rendered report carries no escape byte, and keeps the hex receipt that makes the refusal '
+        . 'actionable'
+    );
+    check(
+        in_array(
+            AdapterSources::SITE_DIR . "/$escapeName.json",
+            (array) (refusals_of($escapeJson)[0]['paths'] ?? []),
+            true
+        ),
+        'while the document still spells the path exactly as the file is spelled — the rendered line and the '
+        . 'machine record must not disagree about which file to delete'
+    );
+} else {
+    check(false, "fixture '$escapeName.json' could not be created as its own entry on this filesystem");
+}
+// The not-installed renderer takes the same values through the same rule, but
+// a WordPress-free host process never populates that block: `not_installed`
+// rows come from the plugin source, which needs WP_PLUGIN_DIR. So its
+// protection is asserted against the SOURCE — the wiring precedent
+// regress_provider_contract.php:1082-1090 sets for a branch that cannot be
+// reached from here — while `wp duo adapter-survey` drives it for real in
+// regress_plugin_adapter_source.php.
+$catalogSource = (string) file_get_contents(dirname(__DIR__, 2) . '/cli/src/AdapterCatalog.php');
+preg_match('/private static function render_not_installed.*?\n    \}/s', $catalogSource, $notInstalledRenderer);
+check(
+    isset($notInstalledRenderer[0])
+    && substr_count($notInstalledRenderer[0], 'AdapterSources::render_untrusted(') === 3
+    && !preg_match('/\$row\[.name.\] \?\? .\(name unreadable\).\)\n/', $notInstalledRenderer[0]),
+    'and the not-installed renderer routes its three untrusted fields (name, path, winner path) through the '
+    . 'same shared renderer, which is checkable here even though only the target-side survey can populate it'
+);
 
 // ======================================================================
 echo "\n== the human renderer says the same things the document does ==\n";

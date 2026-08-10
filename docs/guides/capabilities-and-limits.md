@@ -190,11 +190,33 @@ Three offline verbs answer that, with no environment and no WordPress:
 duo adapter list    [--repo=<site-repo>] [--format=json]
 duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
 duo adapter doctor  [--repo=<site-repo>] [--format=json]
+wp duo adapter-survey [--repo=<path>] [--format=json]     # on the target
 ```
 
-There are exactly **two adapter sources**: the agent's own manifest library,
-and — with `--repo` — that site repository's `adapters/` overlay. Nothing else
-is discovered, and pinning any other source is refused.
+There are **three adapter sources**: the agent's own manifest library, a site
+repository's `adapters/` overlay (with `--repo`), and one `duo-adapter.json` at
+the root of each ACTIVE plugin that bundles one. Nothing else is discovered,
+and pinning any other source is refused.
+
+The host commands run WordPress-free, so they cannot see the plugin source at
+all — it lives in `WP_PLUGIN_DIR`, which only the target has. They say so on
+every run in a `sources` block that marks each source scanned or not scanned
+and why; `wp duo adapter-survey` is the same survey running ON the target and
+is where the plugin source is reported. An empty result never means "no adapter
+is installed", only "none in the sources this process could reach".
+
+Adapter sources rank `shipped > site > plugin`. The two you author refuse
+outright if both could answer one name. A plugin-bundled name that a shipped or
+site definition already answers to is resolved instead: the reviewed definition
+wins, and the bundled one prints on every run as an installed-but-not-loaded
+row naming its winner. That row is deliberately not an error — nothing is
+broken, the plugin stays active, and a permanently red doctor on every site
+running a colliding plugin would make the exit code meaningless. A plugin
+bundles at most one adapter, must name the plugin that owns it, and can never
+be certified in place; certifying one means installing it as a repository
+package (`adapters/<name>.json` plus a signed
+`adapters/certifications/<name>.json`), which the precedence rule makes safe to
+do with the bundling plugin still active.
 
 Every adapter carries a **derived trust tier**, computed from the privileges
 its own declarations actually reach, never self-declared:
@@ -297,15 +319,19 @@ rather than working around it.
 
 - One-command bootstrap of a fresh site — **Planned (DUO-3336)** — not yet shipped.
   Today: adopt over SSH, or hand-write `site.duo.json`.
-- Discovery of adapters you do not already have — **Planned (DUO-3339)** — not yet shipped.
-  The engine has exactly two adapter sources: its own manifest library, and a
-  site repository's `adapters/` overlay. A manifest a plugin ships inside its
-  own directory, or one installed as a versioned package, is discovered by
-  nothing, and pinning any other source is refused.
-  Trust tiers and the installed-adapter catalog over those two sources HAVE
-  shipped — see "Which adapters are installed, and what may they do?" above,
-  plus
+- Discovery of adapters from a REMOTE source — a registry, an index, a URL you
+  do not already have a copy of — **Planned** — not yet shipped. Every adapter
+  Duo runs is a file already on the machine, in one of three local sources: the
+  agent's own manifest library, a site repository's `adapters/` overlay, and one
+  `duo-adapter.json` bundled by an active plugin. Pinning any other source is
+  refused, and nothing fetches, resolves, or updates an adapter for you.
+  An independently distributed adapter PACKAGE is not a missing source: it
+  installs into the site source as `adapters/<name>.json` plus a signed
+  `adapters/certifications/<name>.json`, and that path is shipped today —
+  see "Which adapters are installed, and what may they do?" above, plus
   [adapter-authoring.md](adapter-authoring.md#declaring-repair-work-actions-and-providers).
+  What is absent is the step BEFORE installation: finding out that such a
+  package exists.
 - Scoped promotion and synchronization with dependency closure — **Partially shipped (DUO-3344)**.
   Resolving and previewing a scope has shipped: `duo scope <env> --roots=<selectors>`
   names the roots you asked for, everything pulled in by a declared dependency

@@ -31,7 +31,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract regress-conformance-asserts \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-scope-contract regress-conformance-asserts regress-plugin-adapter-source \
 	capability-registry-generate release-gate
 
 up:
@@ -483,6 +483,16 @@ regress-conformance-asserts:
 regress-adapter-catalog:
 	bash sandbox/tests/regress_adapter_catalog.sh
 
+# DUO-3339 slice B2: the third adapter source -- <plugin-dir>/duo-adapter.json,
+# bundled by an ACTIVE plugin. Proves the two decisions that went AGAINST the
+# obvious implementation: precedence (shipped > site > plugin) reports a
+# plugin-side name collision instead of refusing the scan, and every
+# plugin-source condition is refused per-adapter rather than whole-directory,
+# becoming fatal only when a pin names it. WP_PLUGIN_DIR is a define(), so each
+# fixture runs in a clean PHP child. Offline: file I/O and pure PHP only.
+regress-plugin-adapter-source:
+	bash sandbox/tests/regress_plugin_adapter_source.sh
+
 # DUO-3318 live counterpart: the parent-scoped natural key through capture,
 # deploy, apply, rename, and independent recapture across two environments
 # whose local ids genuinely differ. Own pair, so it is live-list material,
@@ -909,8 +919,8 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts
-	@echo "regress-offline-all: 96 offline suites green"
+	regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-plugin-adapter-source
+	@echo "regress-offline-all: 97 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

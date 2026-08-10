@@ -40,6 +40,15 @@ use Duo\Policy;
  * dispositions beside it, the generated capability registry, and (with
  * `--repo`) one site repository's `adapters/` source and its pins.
  *
+ * That is also the exact reason this command cannot be the whole answer. The
+ * engine has THREE adapter sources since DUO-3339, and the third —
+ * `<plugin-dir>/duo-adapter.json`, bundled by an active plugin — lives in
+ * WP_PLUGIN_DIR, which a WordPress-free host process does not have and must
+ * not invent. So the `sources` block of every report says which of the three
+ * this run actually reached, rendered FROM the survey rather than asserted in
+ * prose here, and the deferred list points at `wp duo adapter-survey`, which
+ * is the same survey running ON the target where that source exists.
+ *
  * Two boundaries it states rather than hides, both in the always-emitted
  * `deferred` list:
  *
@@ -61,8 +70,17 @@ use Duo\Policy;
  * silence read as "everything about these adapters is verified".
  */
 final class AdapterCatalog {
-    /** Envelope of the catalog report (both output modes carry it). */
-    public const FORMAT = 'duo-adapter-catalog/v1';
+    /**
+     * Envelope of the catalog report (both output modes carry it).
+     *
+     * v2 is DUO-3339's plugin source: the document gained `sources` (which of
+     * the three this process could reach) and `not_installed` (an adapter that
+     * is on this disk and lost to a higher-precedence definition), and every
+     * refusal row gained `source` and `scope`. A consumer written against v1
+     * would read a v2 report as complete while missing an entire source, so
+     * the generation moves.
+     */
+    public const FORMAT = 'duo-adapter-catalog/v2';
 
     private const VERBS = ['list', 'inspect', 'doctor'];
 
@@ -77,9 +95,16 @@ final class AdapterCatalog {
      * code had been contract-checked and the pin set co-validated. Neither is
      * true here.
      *
+     * @param list<array<string,mixed>> $sources the survey's own source inventory
      * @return list<array{status:string, surface:string, check:string, why:string}>
      */
-    private static function deferred(?string $repo, bool $sourceRefused): array {
+    private static function deferred(?string $repo, bool $sourceRefused, array $sources): array {
+        $unscanned = [];
+        foreach ($sources as $source) {
+            if (empty($source['scanned'])) {
+                $unscanned[(string) $source['source']] = (string) ($source['note'] ?? '');
+            }
+        }
         $rows = [
             [
                 'surface' => 'interpreter / post_types[].regen_dependency.regenerator / providers[].source=manifest',
@@ -139,20 +164,56 @@ final class AdapterCatalog {
                     . '`duo capabilities <env>` for that',
             ],
             [
-                'surface' => 'adapter sources other than the shipped library and <site-repo>/adapters/',
-                'check' => 'AdapterSources::SHIPPED / AdapterSources::SITE',
-                'why' => 'the engine has exactly two adapter sources and this command surveys both of them. A '
-                    . 'manifest a plugin ships inside its own directory, or one installed as a versioned '
-                    . 'package, is discovered by nothing — not by this command and not by any other — and '
-                    . 'Policy::normalize_manifest_pins() refuses a pin naming any source but those two. An '
-                    . 'empty result from this command means "no adapter is installed in either source", never '
-                    . '"no adapter is installed"',
+                'surface' => 'the ' . AdapterSources::PLUGIN . ' adapter source ('
+                    . AdapterSources::PLUGIN_PATH_PREFIX . '/<plugin-dir>/' . AdapterSources::PLUGIN_FILE . ')',
+                'check' => 'AdapterSources::survey() on the target — `wp duo adapter-survey`',
+                // Rendered FROM the survey's own source inventory rather than
+                // restated here. Two CLIs describing one scan in two hand-
+                // written paragraphs is exactly how a catalog ends up
+                // describing an engine that no longer exists — which is what
+                // this row itself was, until DUO-3339: it said the engine had
+                // "exactly two adapter sources" and that a plugin-bundled
+                // manifest "is discovered by nothing".
+                'why' => 'the engine has THREE adapter sources: the shipped library, <site-repo>/'
+                    . AdapterSources::SITE_DIR . '/, and one ' . AdapterSources::PLUGIN_FILE
+                    . ' at the root of each ACTIVE plugin that bundles one. This process scanned '
+                    . self::source_summary($sources) . '. A bundled adapter is discoverable only where '
+                    . 'WP_PLUGIN_DIR exists, so run `wp duo adapter-survey [--repo=<path>]` on the target for '
+                    . 'that source'
+                    . (isset($unscanned[AdapterSources::PLUGIN])
+                        ? ' — ' . $unscanned[AdapterSources::PLUGIN]
+                        : '')
+                    . '. An independently distributed adapter PACKAGE is not a fourth source: it installs into '
+                    . 'the site source as ' . AdapterSources::SITE_DIR . '/<name>.json plus '
+                    . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . '/<name>.json, which '
+                    . 'this command already surveys with --repo',
             ],
         ];
         foreach ($rows as $i => $row) {
             $rows[$i] = ['status' => 'deferred'] + $row;
         }
         return $rows;
+    }
+
+    /**
+     * "shipped and site (plugin not scanned)" — one clause, built from the
+     * survey's own rows so it cannot say something the scan did not do.
+     *
+     * @param list<array<string,mixed>> $sources
+     */
+    private static function source_summary(array $sources): string {
+        $scanned = [];
+        $skipped = [];
+        foreach ($sources as $source) {
+            $name = (string) $source['source'];
+            if (!empty($source['scanned'])) {
+                $scanned[] = $name;
+            } else {
+                $skipped[] = $name;
+            }
+        }
+        return ($scanned === [] ? 'no source' : implode(' and ', $scanned))
+            . ($skipped === [] ? '' : ' (' . implode(', ', $skipped) . ' not scanned)');
     }
 
     /**
@@ -255,8 +316,10 @@ final class AdapterCatalog {
             'command' => $verb,
             'manifests_dir' => $manifestDir,
             'repo' => $repo,
+            'sources' => $survey['sources'],
+            'not_installed' => $survey['not_installed'],
             'refusals' => $survey['refusals'],
-            'deferred' => self::deferred($repo, $survey['refusals'] !== []),
+            'deferred' => self::deferred($repo, self::source_refused($survey['refusals']), $survey['sources']),
         ];
 
         if ($verb === 'inspect') {
@@ -286,6 +349,31 @@ final class AdapterCatalog {
                         true
                     )
                 ));
+                // A shadowed adapter is a third answer again, and the one an
+                // operator is most likely to be confused by: the file IS
+                // installed, it is not refused, and the name resolves to
+                // somebody else. Saying "no adapter named x is installed"
+                // there would contradict the row `list` prints on every run.
+                $shadowed = array_values(array_filter(
+                    $survey['not_installed'],
+                    static fn(array $r): bool => ($r['name'] ?? null) === $name
+                ));
+                if ($about === [] && $shadowed !== []) {
+                    $report['adapter'] = null;
+                    $report['status'] = 'ok';
+                    if ($json) {
+                        echo self::encode($report) . "\n";
+                    } else {
+                        echo "manifests dir: {$report['manifests_dir']}\n";
+                        echo 'site repo:     ' . ($report['repo'] ?? '(none)') . "\n";
+                        echo "\nADAPTER $name — INSTALLED, NOT LOADED. Another definition answers to this name:\n";
+                        self::render_not_installed($shadowed);
+                        echo "\nInspect the definition that WON to see what this site actually runs.\n";
+                    }
+                    // Not an error: the engine resolved a collision by the
+                    // rule it exists to apply, and reported it. See render().
+                    return 0;
+                }
                 if ($about === []) {
                     return self::fail(
                         "no adapter named '$name' is installed in $manifestDir"
@@ -347,6 +435,13 @@ final class AdapterCatalog {
                     $survey['adapters'],
                     static fn(array $r): bool => $r['source'] === AdapterSources::SITE
                 )),
+                'plugin' => count(array_filter(
+                    $survey['adapters'],
+                    static fn(array $r): bool => $r['source'] === AdapterSources::PLUGIN
+                )),
+                // Counted, printed, and deliberately NOT folded into the exit
+                // code — see render().
+                'not_installed' => count($survey['not_installed']),
                 'grammar_error' => $grammarErrors,
                 // Counted apart from grammar_error on purpose: these adapters
                 // were not judged, so folding them in would inflate the number
@@ -464,6 +559,23 @@ final class AdapterCatalog {
             }
         }
 
+        // A site adapter's version story does not live in the shipped registry
+        // and never can: `CapabilityRegistry::load()` is handed the SHIPPED
+        // subset only (Policy::load() does the same, for the reason its own
+        // comment gives), so `$registry->claim($name)` answers null for every
+        // out-of-tree row — and this command printed "registry claim: (none)"
+        // for an adapter carrying a complete, verified signed envelope. Its
+        // evidence comes from the survey row instead, unmodified: the
+        // authority that signed, the certificate/statement/platform digests
+        // the signature covers, the evidence bundle with its git revision and
+        // named tests, the artifacts[] rows naming what was exercised at which
+        // version, and the supported_versions the signed ratification forced
+        // to equal the manifest's own. Reported next to `claim`, never merged
+        // into it: one is a reviewed shipped registry entry and the other is a
+        // third party's signed statement, and a reader has to be able to tell
+        // which one they are looking at.
+        $out['certification_evidence'] = $row['certification_evidence'] ?? null;
+
         if ($repo !== null) {
             try {
                 $report = Policy::load($repo, [$name], true)->capability_report(['operation' => 'promote']);
@@ -543,23 +655,28 @@ final class AdapterCatalog {
             // `source` is ATTRIBUTED rather than assumed. Hardcoding `shipped`
             // here sent an operator whose site adapter shadowed a shipped one
             // to the wrong directory — the exact failure DUO-3314 put `source`
-            // on these rows to prevent. When this run refused something in the
-            // site source, that is what stopped the pin set from loading and
-            // the row says so. With nothing attributable it reports `unknown`,
-            // which is deliberately not one of the two source words for the
-            // same reason `trust_tier` below is not one of the four tiers:
-            // this row is about a pin SET spanning both sources, not about one
-            // adapter, so borrowing either word would be a guess printed as a
-            // fact. The engine's own message on `reason` already names the
-            // exact file in every attributable case.
+            // on these rows to prevent. With nothing attributable it reports
+            // `unknown`, which is deliberately not one of the three source
+            // words for the same reason `trust_tier` below is not one of the
+            // four tiers: this row is about a pin SET spanning every source,
+            // not about one adapter, so borrowing a word would be a guess
+            // printed as a fact. The engine's own message on `reason` already
+            // names the exact file in every attributable case.
+            //
+            // Read off the refusal's own `source` since DUO-3339. The previous
+            // implementation sniffed `paths` for a leading `adapters/`, which
+            // a `plugins/<dir>/duo-adapter.json` path silently fell out of —
+            // and only whole-SOURCE refusals can stop a pin set from loading
+            // at all, so a per-adapter plugin refusal is not a candidate here
+            // in the first place.
             $source = 'unknown';
             foreach ($refusals as $refusal) {
-                foreach ((array) ($refusal['paths'] ?? []) as $path) {
-                    if (str_starts_with((string) $path, AdapterSources::SITE_DIR . '/')
-                        || str_ends_with((string) $path, '/site.duo.json')) {
-                        $source = AdapterSources::SITE;
-                        break 2;
-                    }
+                if (($refusal['scope'] ?? AdapterSources::SCOPE_SOURCE) !== AdapterSources::SCOPE_SOURCE) {
+                    continue;
+                }
+                if (is_string($refusal['source'] ?? null)) {
+                    $source = (string) $refusal['source'];
+                    break;
                 }
             }
             return [[
@@ -583,6 +700,17 @@ final class AdapterCatalog {
                 . AdapterSources::SITE_DIR . '/ source is not part of it. Pass --repo=<site-repo>)') . "\n";
         echo "spec_version:  {$report['spec_version']}\n";
 
+        echo "\nadapter sources (the engine has three; this run reached the ones marked scanned):\n";
+        foreach ($report['sources'] as $source) {
+            echo sprintf(
+                "  [%s] %-8s %s\n",
+                empty($source['scanned']) ? 'not scanned' : '  scanned  ',
+                (string) $source['source'],
+                (string) ($source['path'] ?? '(none)')
+            );
+            echo '          ' . (string) ($source['note'] ?? '') . "\n";
+        }
+
         if (isset($report['adapter'])) {
             self::render_adapter($report['adapter']);
         } else {
@@ -599,11 +727,11 @@ final class AdapterCatalog {
                         : (string) ($row['disposition_status'] ?? ($row['certification'] === null
                             ? 'no-registry'
                             : 'unreviewed')),
-                    $row['path']
+                    AdapterSources::render_untrusted($row['path'])
                 );
-                echo '          tier basis: ' . $row['tier_basis'] . "\n";
+                echo '          tier basis: ' . AdapterSources::render_untrusted($row['tier_basis']) . "\n";
                 if ($row['grammar']['message'] !== null) {
-                    echo '          ' . $row['grammar']['message'] . "\n";
+                    echo '          ' . AdapterSources::render_untrusted($row['grammar']['message']) . "\n";
                 }
             }
             if ($report['adapters'] === []) {
@@ -611,6 +739,7 @@ final class AdapterCatalog {
             }
         }
 
+        self::render_not_installed($report['not_installed']);
         self::render_refusals($report['refusals']);
 
         if (isset($report['blockers'])) {
@@ -640,7 +769,8 @@ final class AdapterCatalog {
 
         if (isset($report['summary'])) {
             $s = $report['summary'];
-            echo "\nsummary: {$s['adapters']} adapter(s) installed ({$s['shipped']} shipped, {$s['site']} site), "
+            echo "\nsummary: {$s['adapters']} adapter(s) installed ({$s['shipped']} shipped, {$s['site']} site, "
+                . "{$s['plugin']} plugin), {$s['not_installed']} installed but not loaded, "
                 . "{$s['grammar_error']} grammar error(s), {$s['grammar_unjudged']} unjudged "
                 . '(their source is refused, so their own manifests were never read), '
                 . "{$s['refusals']} refusal(s)"
@@ -657,25 +787,75 @@ final class AdapterCatalog {
             return;
         }
         foreach ($refusals as $refusal) {
-            echo '  [' . $refusal['code'] . '] ' . implode(', ', $refusal['paths']) . "\n";
+            // The scope is printed because the two are different sizes of
+            // problem and the message alone does not say which: `source` means
+            // nothing in that directory was judged and the pin set will not
+            // load; `adapter` means one adapter was dropped and the rest of
+            // its source is unaffected.
+            echo '  [' . $refusal['code'] . '] [' . ($refusal['source'] ?? '?') . ' source, '
+                . ($refusal['scope'] ?? '?') . ' scope] ' . implode(', ', array_map(
+                    static fn($path): string => AdapterSources::render_untrusted($path),
+                    (array) $refusal['paths']
+                )) . "\n";
             echo '          ' . $refusal['message'] . "\n";
             echo '          remediation: ' . $refusal['remediation'] . "\n";
+        }
+    }
+
+    /**
+     * Adapters that are on this machine and did not load.
+     *
+     * These print on EVERY run and do not flip the exit code, which is a
+     * deliberate and load-bearing choice. A shadowed adapter is not a blocker
+     * and not a break: it is the precedence rule working, reported so nobody
+     * has to guess which of two definitions their site runs. The likely
+     * collision is a popular plugin bundling an adapter this project also
+     * ships, so making it red would leave a permanently failing `doctor` on
+     * every such site — and an exit code that is always 1 stops meaning
+     * anything at all, including on the day something is genuinely wrong.
+     *
+     * @param list<array<string,mixed>> $rows
+     */
+    private static function render_not_installed(array $rows): void {
+        echo "\ninstalled, NOT loaded — on this machine, and something else answers to the name\n"
+            . "  (reported on every run; NOT an error and never the exit code — this is precedence working):\n";
+        if ($rows === []) {
+            echo "  (none)\n";
+            return;
+        }
+        foreach ($rows as $row) {
+            $winner = is_array($row['winner'] ?? null) ? $row['winner'] : null;
+            // Rendered at the point of PRINT, never in the document: `name` is
+            // a declared name out of a third party's manifest and `path`
+            // carries a plugin directory name, so both can hold bytes that
+            // rewrite a terminal. The JSON keeps them exact — a report whose
+            // rendered line and machine record disagreed about a filename
+            // would be worse than either.
+            echo '  [' . (string) $row['reason_code'] . '] ' . ($row['name'] === null
+                    ? '(name unreadable)'
+                    : AdapterSources::render_untrusted($row['name']))
+                . ' — ' . AdapterSources::render_untrusted($row['path'])
+                . ($winner === null
+                    ? "\n"
+                    : ' — ' . (string) $winner['source'] . ' answers to this name ('
+                        . AdapterSources::render_untrusted($winner['path']) . ")\n");
+            echo '          ' . (string) $row['message'] . "\n";
         }
     }
 
     /** @param array<string,mixed> $row */
     private static function render_adapter(array $row): void {
         echo "\nADAPTER {$row['name']}\n";
-        echo "  source:            {$row['source']} ({$row['path']})\n";
+        echo '  source:            ' . $row['source'] . ' (' . AdapterSources::render_untrusted($row['path']) . ")\n";
         echo "  sha256:            {$row['sha256']}\n";
         echo "  trust_tier:        {$row['trust_tier']}\n";
-        echo "  tier_basis:        {$row['tier_basis']}\n";
+        echo '  tier_basis:        ' . AdapterSources::render_untrusted($row['tier_basis']) . "\n";
         echo '  certification:     ' . ($row['certification']
             ?? '(none — this manifest library carries no reviewed dispositions and no generated registry, '
                 . 'so it makes no product claim)') . "\n";
         echo '  disposition:       ' . ($row['disposition_status'] ?? '(no reviewed entry)') . "\n";
         echo '  grammar:           ' . $row['grammar']['status']
-            . ($row['grammar']['message'] === null ? '' : ' — ' . $row['grammar']['message']) . "\n";
+            . ($row['grammar']['message'] === null ? '' : ' — ' . AdapterSources::render_untrusted($row['grammar']['message'])) . "\n";
 
         $surfaces = $row['executable_surfaces'];
         echo '  interpreter:       ' . ($surfaces['interpreter'] ?? '(none)') . "\n";
@@ -700,7 +880,17 @@ final class AdapterCatalog {
 
         $claim = $row['claim'];
         if (!is_array($claim)) {
-            echo "  registry claim:    (none — this adapter has no generated capability claim)\n";
+            // A site adapter has no SHIPPED-registry claim by construction —
+            // `CapabilityRegistry::load()` is handed the shipped subset only.
+            // Saying just "(none)" beside a complete signed envelope read as
+            // "nothing is known about this adapter", which was the whole
+            // complaint: the operator has to be told the claim is absent for a
+            // structural reason and that the real evidence is a few lines
+            // down, not left to infer it.
+            echo '  registry claim:    (none — ' . (($row['certification_evidence'] ?? null) !== null
+                ? 'a non-shipped adapter never has a generated registry claim; its own signed certification '
+                    . 'evidence is reported below'
+                : 'this adapter has no generated capability claim') . ")\n";
         } else {
             echo "  registry claim:\n";
             echo '    status:              ' . ($claim['status'] ?? '?') . "\n";
@@ -717,6 +907,37 @@ final class AdapterCatalog {
                     . ($unsupported['operation'] ?? '?') . ' — ' . ($unsupported['reason'] ?? '') . "\n";
             }
             echo '    evidence bundle:     ' . ($claim['evidence']['bundle_digest'] ?? 'none') . "\n";
+        }
+
+        $evidence = $row['certification_evidence'] ?? null;
+        if (is_array($evidence)) {
+            echo "  signed certification evidence (this adapter's OWN envelope, not the shipped registry):\n";
+            echo '    authority:           ' . self::inline($evidence['authority'] ?? null) . "\n";
+            echo '    certificate_sha256:  ' . ($evidence['certificate_sha256'] ?? 'none') . "\n";
+            echo '    statement_sha256:    ' . ($evidence['statement_sha256'] ?? 'none') . "\n";
+            echo '    platform_sha256:     ' . ($evidence['platform_sha256'] ?? 'none') . "\n";
+            echo '    supported_versions:  ' . self::inline($evidence['supported_versions'] ?? null) . "\n";
+            $bundle = is_array($evidence['bundle'] ?? null) ? $evidence['bundle'] : [];
+            echo '    bundle:              ' . ($bundle['digest'] ?? 'none')
+                . ' (' . ($bundle['schema'] ?? '?') . ' @ ' . ($bundle['git_revision'] ?? '?') . ")\n";
+            echo '    bundle tests:        ' . (($bundle['tests'] ?? []) === []
+                ? '(none)'
+                : implode(', ', array_map('strval', (array) $bundle['tests']))) . "\n";
+            // Three answers, not two: a bundle that exercised no named
+            // artifact and a certificate whose artifact list could not be
+            // decoded are different facts, and only one of them is a clean
+            // report.
+            if (($evidence['artifacts'] ?? null) === null) {
+                echo "    artifacts:           (UNREADABLE — this certificate's artifact list could not be "
+                    . "decoded)\n";
+            } elseif ($evidence['artifacts'] === []) {
+                echo "    artifacts:           (none)\n";
+            }
+            foreach ((array) ($evidence['artifacts'] ?? []) as $artifact) {
+                echo '    artifact:            ' . ($artifact['name'] ?? '?') . ' v'
+                    . ($artifact['version'] ?? '?') . ' [' . ($artifact['role'] ?? '?') . '] '
+                    . ($artifact['sha256'] ?? '') . "\n";
+            }
         }
 
         $verification = $row['verification'];
@@ -801,6 +1022,22 @@ final class AdapterCatalog {
         foreach (['Canon', 'OptionState', 'ManifestDispositions', 'CapabilityRegistry', 'Policy'] as $class) {
             require_once $repo . "/agent/src/$class.php";
         }
+    }
+
+    /**
+     * Whether this run refused a whole SOURCE, which is what the deferred
+     * list's site-policy row is about. A per-adapter plugin refusal is not one
+     * of those: the site half of policy was still used for every verdict.
+     *
+     * @param list<array<string,mixed>> $refusals
+     */
+    private static function source_refused(array $refusals): bool {
+        foreach ($refusals as $refusal) {
+            if (($refusal['scope'] ?? AdapterSources::SCOPE_SOURCE) === AdapterSources::SCOPE_SOURCE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** Fail closed on this command's own paths: usage, a bad dir, an unreadable library. */

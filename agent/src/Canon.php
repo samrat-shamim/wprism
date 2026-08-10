@@ -202,8 +202,22 @@ final class Canon {
         }
     }
 
+    /**
+     * The `@` suppresses only the PHP WARNING; the failure itself is still
+     * loud, one line down, as this engine's own exception.
+     *
+     * An unreadable file (mode 0000, a permission an ordinary hardened host
+     * produces) made `file_get_contents()` emit a warning to output BEFORE
+     * returning false. Every caller here already handles the false — but the
+     * warning had already been printed by then, into the middle of whatever
+     * document the caller was building, which is how a `--format=json`
+     * answer became unparseable over a file the engine was about to refuse
+     * cleanly anyway. Since DUO-3339 that path is reached on every
+     * `Policy::load()` for a plugin-bundled adapter, i.e. over a file no
+     * operator authored.
+     */
     public static function read_file(string $path): string {
-        $c = file_get_contents($path);
+        $c = @file_get_contents($path);
         if ($c === false) {
             throw new \RuntimeException("duo: cannot read $path");
         }
