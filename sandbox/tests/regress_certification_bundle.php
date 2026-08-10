@@ -145,53 +145,67 @@ if ($enumeration === '' || $gitWorkTree !== 0) {
 }
 
 
-echo "\n== DUO-3421: the two init legs are descoped by default, loudly, and reversibly ==\n";
+echo "\n== DUO-3427/DUO-3428: the two init legs are certified by default, with a loud opt-out ==\n";
 // A certified set may only contain legs that have passed end to end. #151 put
-// both init legs in it before either ever had, so they are gated OFF until
-// DUO-3427 (init interrupted-recovery subsystem) and the golden-path clock
-// defect land. Three things must stay true, and each is pinned: the default
-// really is off and the leg arithmetic stays honest; the legs are DESCOPED,
-// not deleted, and still run under the documented opt-in; and a skipped run
-// SAYS SO — a certified set that quietly lost two legs is the failure this
-// gate exists to prevent.
+// both init legs in it before either ever had; DUO-3421 took them out for
+// exactly that reason and DUO-3427/DUO-3428 earned them back, so the same rule
+// now says they belong IN. Three things must stay true, and each is pinned:
+// the default really is ON and the leg arithmetic stays honest; the emergency
+// opt-out still works, so a failing leg can be isolated without editing this
+// file mid-incident; and an opted-out run SAYS SO and claims neither leg — a
+// certified set that quietly lost two legs is the failure this gate exists to
+// prevent, in either direction.
 $gateOpen = strpos($referenceRunner, 'if [ "$INCLUDE_INIT_LEGS" = 1 ]; then');
 $initContractRun = strpos($referenceRunner, 'php tests/regress_init_contract.php > "$INIT_CONTRACT_LOG"');
 $initGoldenRun = strpos($referenceRunner, 'bash tests/regress_duo_init.sh > "$INIT_GOLDEN_LOG"');
-$gateElse = strpos($referenceRunner, 'say "reference legs: init platform contract + public duo init golden path are DESCOPED"');
+$gateElse = strpos($referenceRunner, 'say "reference legs: init platform contract + public duo init golden path are OPTED OUT"');
 check(
-    str_contains($referenceRunner, 'INCLUDE_INIT_LEGS=0')
+    str_contains($referenceRunner, "\nINCLUDE_INIT_LEGS=1\n")
         && str_contains($referenceRunner, 'case "${CERT_BUNDLE_INCLUDE_INIT_LEGS:-}" in')
-        && str_contains($referenceRunner, "''|0|false|no) INCLUDE_INIT_LEGS=0 ;;")
-        && str_contains($referenceRunner, '1|true|yes) INCLUDE_INIT_LEGS=1 ;;')
-        && str_contains($referenceRunner, 'fail "CERT_BUNDLE_INCLUDE_INIT_LEGS must be'),
-    'the init legs are gated on an explicit opt-in that defaults off and refuses an unreadable value'
+        && str_contains($referenceRunner, "''|1|true|yes) INCLUDE_INIT_LEGS=1 ;;")
+        && str_contains($referenceRunner, '0|false|no) INCLUDE_INIT_LEGS=0 ;;')
+        && str_contains($referenceRunner, 'fail "CERT_BUNDLE_INCLUDE_INIT_LEGS must be')
+        && !str_contains($referenceRunner, "''|0|false|no) INCLUDE_INIT_LEGS=0 ;;"),
+    'the init legs run by default — an absent variable certifies them, and an unreadable value is still refused'
+);
+check(
+    str_contains($referenceRunner, '0|false|no) INCLUDE_INIT_LEGS=0 ;;'),
+    'the emergency opt-out still works, so a failing leg can be isolated without editing the runner'
 );
 check(
     str_contains(
         $referenceRunner,
         'total_legs=$((${#CONFORMANCE_MANIFESTS[@]} + 2 + INCLUDE_INIT_LEGS * 2))'
     ),
-    'leg numbering counts the init legs only when they are actually going to run'
+    'leg numbering counts the init legs exactly when they are going to run — fourteen by default, twelve opted out'
 );
 check(
     $gateOpen !== false && $initContractRun !== false && $initGoldenRun !== false
         && $gateOpen < $initContractRun && $initContractRun < $initGoldenRun
         && $gateElse !== false && $initGoldenRun < $gateElse,
-    'both init legs are descoped rather than deleted: each still runs, inside the opt-in gate'
+    'both init legs run inside the gate, in order: platform contract, then the live golden path'
 );
 check(
-    str_contains($referenceRunner, 'SKIPPED (not certified, not claimed)')
-        && str_contains($referenceRunner, 'DUO-3427')
-        && str_contains($referenceRunner, 'CERT_BUNDLE_INCLUDE_INIT_LEGS=1 once both land')
+    str_contains($referenceRunner, 'SKIPPED (not certified, not claimed) by CERT_BUNDLE_INCLUDE_INIT_LEGS=%s')
+        && str_contains($referenceRunner, 'is NOT a complete reference')
+        && str_contains($referenceRunner, 'Unset CERT_BUNDLE_INCLUDE_INIT_LEGS to certify them')
         && $gateElse !== false,
-    'a default run announces the descoped legs and names what must land before they return'
+    'an opted-out run announces the missing legs and says plainly that its bundle is not complete'
 );
 check(
     substr_count($referenceRunner, 'append_fragment "$WORK_ROOT/init-contract.fragment.json"') === 1
         && substr_count($referenceRunner, 'append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') === 1
         && strpos($referenceRunner, 'append_fragment "$WORK_ROOT/init-contract.fragment.json"') > $gateOpen
         && strpos($referenceRunner, 'append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') < $gateElse,
-    'a gated-off bundle carries no init test fragment, so it claims neither leg'
+    'an opted-out bundle carries no init test fragment, so it claims neither leg'
+);
+// DUO-3428: the certified assertion name is unchanged and now means what it
+// says. Pinned here because this file is the fragment writer's contract
+// reader: if the exported member is ever renamed, both sides move together.
+check(
+    str_contains($referenceRunner, '"completed_within_fifteen_minutes"]\'')
+        && str_contains($referenceRunner, 'init_golden_result_assertions="$init_golden_assertions"'),
+    'the golden-path leg still exports completed_within_fifteen_minutes as a certified assertion'
 );
 
 echo "\n== Contact Form 7 checker does not race Docker output against an early reader ==\n";
