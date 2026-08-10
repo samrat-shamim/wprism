@@ -51,6 +51,21 @@ require_fixture_state() { # require_fixture_state <what> <expected> <actual>
   [ "$2" = "$3" ] \
     || fail "fixture manufacture failed: $1 — expected '$2', got '${3:-<empty>}'"
 }
+# DUO-3413: the observation-stream sibling of require_duo_answered. A hook that
+# HASHES a live observation (e.g. `wp db export - | shasum`) and then asserts on
+# the digest is exposed to the DUO-3381 signature: a load-starved `docker
+# compose run` that returns EMPTY at exit 0 hashes to the empty-string digest
+# `e3b0c442…`, and an equality check against a real before-digest then reports a
+# spurious engine mutation ("… changed the target database") printing neither
+# hash nor diff. Premise-assert the observation carried bytes BEFORE hashing, so
+# an empty stream is named as infrastructure — the "infrastructure failure:"
+# domain of require_duo_answered, never an accusation against Duo. Call this at
+# TOP LEVEL (not inside $(...)) so `fail`'s message reaches the log; pass the
+# already-captured value, not a pipe.
+require_observed_nonempty() { # require_observed_nonempty <what> <captured value>
+  [ -n "$2" ] \
+    || fail "infrastructure failure: $1 returned no bytes — a load-starved docker compose run can exit 0 with empty stdout, which hashes to the empty-string digest e3b0c442… and would falsely accuse the engine of mutating the target; nothing here is measuring the engine"
+}
 
 # DUO-3391: the sibling failure domain, and the residual path DUO-3381
 # deliberately did not cover. The three helpers above assert that a hook's own

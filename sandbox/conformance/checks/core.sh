@@ -288,15 +288,29 @@ $COMPOSE exec -T --user root wp2 sh -c \
   'printf "%s\n" "<?php" "add_filter(\"duo_attachment_capture_source\", static function () { throw new RuntimeException(\"DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });" > /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php'
 [ "$(wp_conf2 eval 'echo has_filter("duo_attachment_capture_source") ? "registered" : "missing";')" = 'registered' ] \
   || fail "the throwing attachment-offload premise hook was not registered"
-EXPLAIN_DB_BEFORE=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null | shasum -a 256 | awk '{print $1}')
+# DUO-3413: premise-assert the before-export carried bytes BEFORE hashing, so an
+# empty-at-exit-0 compose run is named as infrastructure rather than silently
+# hashing to the empty-string digest and later reading as an engine mutation.
+EXPLAIN_DB_BEFORE_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
+require_observed_nonempty "conf2 db export (before strict explain)" "$EXPLAIN_DB_BEFORE_SQL"
+EXPLAIN_DB_BEFORE=$(printf '%s' "$EXPLAIN_DB_BEFORE_SQL" | shasum -a 256 | awk '{print $1}')
 EXPLAIN_REPO_BEFORE=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
 EXPLAIN_RC=0
-EXPLAIN_JSON=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" --format=json 2>/dev/null) \
+# DUO-3413: capture each explain invocation's stderr (into the DUO-3409 per-run
+# registry dir, cleaned below) and read it into a var immediately, so the
+# refusal accusation can paste rc+stdout+stderr instead of dropping stderr to
+# /dev/null. The human invocation's refusals land ONLY on stderr (its healthy
+# framing is `EXPLAIN CONFLICT …`, not wp-cli's), so without this a refusal is
+# undiagnosable from the sweep log.
+EXPLAIN_JSON=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" --format=json 2>"$EXPLAIN_REGISTRY_DIR/json.stderr") \
   || EXPLAIN_RC=$?
+EXPLAIN_JSON_ERR=$(cat "$EXPLAIN_REGISTRY_DIR/json.stderr" 2>/dev/null || true)
 EXPLAIN_HUMAN=''
+EXPLAIN_HUMAN_ERR=''
 if [ "$EXPLAIN_RC" -eq 0 ]; then
-  EXPLAIN_HUMAN=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" 2>/dev/null) \
+  EXPLAIN_HUMAN=$(php ../cli/duo --envs-file="$EXPLAIN_REGISTRY" explain target "$EXPLAIN_SELECTOR" 2>"$EXPLAIN_REGISTRY_DIR/human.stderr") \
     || EXPLAIN_RC=$?
+  EXPLAIN_HUMAN_ERR=$(cat "$EXPLAIN_REGISTRY_DIR/human.stderr" 2>/dev/null || true)
 fi
 $COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php
 rm -rf -- "$EXPLAIN_REGISTRY_DIR"
@@ -308,7 +322,10 @@ trap - EXIT
 # its healthy framing is `EXPLAIN CONFLICT …`, not wp-cli's, and its refusals
 # land on the dropped stderr (DUO-3413 owns capturing that).
 require_duo_answered "host duo explain (json envelope)" json "$EXPLAIN_JSON"
-[ "$EXPLAIN_RC" -eq 0 ] || fail "public host duo explain refused a valid current selector"
+# DUO-3413: paste rc + both streams of both invocations so a refusal is
+# diagnosable from the sweep log (the human refusal lands on stderr).
+[ "$EXPLAIN_RC" -eq 0 ] \
+  || fail "public host duo explain refused a valid current selector (rc=$EXPLAIN_RC) -- json=${EXPLAIN_JSON:-<empty>} | json-stderr=${EXPLAIN_JSON_ERR:-<empty>} | human=${EXPLAIN_HUMAN:-<empty>} | human-stderr=${EXPLAIN_HUMAN_ERR:-<empty>}"
 jq -e --arg selector "$EXPLAIN_SELECTOR" --arg entity_hash "$EXPLAIN_ENTITY_HASH" '
   .format == "duo-explain/v1"
   and .ok == true
@@ -350,11 +367,16 @@ for NEEDLE in \
   grep -Fq "$NEEDLE" <<<"$EXPLAIN_HUMAN" \
     || fail "human explain is missing '$NEEDLE': $EXPLAIN_HUMAN"
 done
-EXPLAIN_DB_AFTER=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null | shasum -a 256 | awk '{print $1}')
+# DUO-3413: same premise before the after-hash, and paste both digests into the
+# mutation accusation so it is diagnosable (was neither hash nor diff).
+EXPLAIN_DB_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
+require_observed_nonempty "conf2 db export (after strict explain)" "$EXPLAIN_DB_AFTER_SQL"
+EXPLAIN_DB_AFTER=$(printf '%s' "$EXPLAIN_DB_AFTER_SQL" | shasum -a 256 | awk '{print $1}')
 [ "$EXPLAIN_DB_AFTER" = "$EXPLAIN_DB_BEFORE" ] \
-  || fail "strict explain changed the target database"
-[ "$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)" = "$EXPLAIN_REPO_BEFORE" ] \
-  || fail "strict explain changed the target repository"
+  || fail "strict explain changed the target database: before=$EXPLAIN_DB_BEFORE after=$EXPLAIN_DB_AFTER"
+EXPLAIN_REPO_AFTER=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=all)
+[ "$EXPLAIN_REPO_AFTER" = "$EXPLAIN_REPO_BEFORE" ] \
+  || fail "strict explain changed the target repository: $(diff <(printf '%s\n' "$EXPLAIN_REPO_BEFORE") <(printf '%s\n' "$EXPLAIN_REPO_AFTER") | tr '\n' ' ')"
 pass "public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation"
 
 CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)
