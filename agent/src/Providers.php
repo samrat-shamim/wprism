@@ -1,6 +1,7 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Canon.php';
 // DUO-3383: receipt bounding screens provider strings through the same
 // public-output authority the JSON refusal envelope uses, so there is one
 // secret grammar in this engine rather than a second one written here. Pulled
@@ -29,6 +30,19 @@ require_once __DIR__ . '/CommandRefusal.php';
  * target with a warning attached.
  */
 final class Providers {
+    /**
+     * Operation-bound scoped effects deliberately use a smaller envelope than
+     * a session record.  The session owns authority construction; this seam
+     * only proves that a particular opaque effect was asked to carry the exact
+     * authority, lease session, input, and declared effect witnesses the
+     * caller sealed.  Do not add free-form provider fields here: the envelope
+     * is persisted verbatim in a target-owned receipt and is therefore a
+     * durable protocol boundary.
+     */
+    public const SCOPED_OPERATION_FORMAT = 'duo-scoped-effect-operation/v1';
+    public const SCOPED_RECEIPT_FORMAT = 'duo-scoped-effect-receipt/v1';
+    public const SCOPED_OPERATION_RECEIPT_FORMAT = 'duo-scoped-provider-operation-receipt/v1';
+
     /**
      * Reserved argument key the engine injects for `scope: entity`
      * capabilities. It is engine-supplied, so a manifest may not pass it and a
@@ -209,6 +223,13 @@ final class Providers {
     private const ID_PATTERN = '/^[a-z][a-z0-9-]{0,63}$/D';
     private const CAPABILITY_PATTERN = '/^[a-z0-9_]{1,64}$/D';
     private const ARG_NAME_PATTERN = '/^[a-z][a-z0-9_]{0,63}$/D';
+    private const SCOPED_OPERATION_NAME_PATTERN = '/^[a-z][a-z0-9._-]{0,63}$/D';
+    private const SCOPED_HASH_PATTERN = '/^[a-f0-9]{64}$/D';
+    private const SCOPED_TOKEN_PATTERN = '/^[A-Za-z0-9._:-]{8,128}$/D';
+    private const MAX_SCOPED_EVIDENCE_BYTES = 65536;
+    private const MAX_SCOPED_EVIDENCE_DEPTH = 12;
+    private const MAX_SCOPED_EVIDENCE_NODES = 2048;
+    private const SCOPED_SECRET_KEY_PATTERN = '/(?:api[_-]?key|authorization|credential|password|passphrase|private[_-]?key|secret|token)/i';
     private const ARG_TYPES = ['bool', 'int', 'list<object>', 'list<string>', 'string'];
     /**
      * Types a `list<object>` row FIELD may declare. Deliberately the scalars
@@ -256,6 +277,82 @@ final class Providers {
      */
     public static function negotiate(Policy $policy, array $selectedActions): array {
         return self::diagnose($policy, $selectedActions);
+    }
+
+    /**
+     * Scoped-effect negotiation is deliberately additive to negotiate().
+     *
+     * Legacy plan/status/full-apply callers continue to negotiate only the
+     * long-standing identity/capability/invoke contract.  A bounded apply is
+     * the one caller that needs at-most-once recovery, so it separately
+     * requires the opt-in declaration and the two scoped hooks here, before
+     * any authored target mutation.  This keeps an already-installed provider
+     * usable on ordinary applies while making a scoped selection fail closed
+     * until its adapter explicitly supports operation receipts.
+     *
+     * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
+     * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, scoped_capabilities:array<string,array<string,array{operation_envelope:string,receipt_format:string,capability_digest:string}>>}
+     */
+    public static function negotiate_scoped(Policy $policy, array $selectedActions): array {
+        $negotiated = self::negotiate($policy, $selectedActions);
+        $scopedCapabilities = [];
+        foreach ($selectedActions as $action) {
+            if (($action['kind'] ?? '') !== 'provider') {
+                continue;
+            }
+            $id = (string) ($action['provider'] ?? '');
+            $capability = (string) ($action['capability'] ?? '');
+            $provider = $negotiated['providers'][$id] ?? null;
+            $decl = $negotiated['capabilities'][$id][$capability] ?? null;
+            // Ordinary negotiation already emitted the actionable problem for
+            // any unbound action. Do not manufacture a second, less useful
+            // scoped-contract symptom on top of it.
+            if (!is_object($provider) || !is_array($decl)) {
+                continue;
+            }
+            $manifest = (string) ($action['manifest'] ?? '?');
+            $providerDeclaration = $policy->provider_declarations()[$id] ?? [];
+            $plugin = is_array($providerDeclaration) && is_string($providerDeclaration['plugin'] ?? null)
+                ? $providerDeclaration['plugin']
+                : '?';
+            try {
+                self::validate_scoped_capability_declaration(
+                    $decl,
+                    "provider '$id' capability '$capability'"
+                );
+            } catch (\Throwable $t) {
+                $negotiated['problems'][] = self::problem(
+                    $id,
+                    $manifest,
+                    $plugin,
+                    'missing_scoped_capability',
+                    'scoped operation_envelope: ' . self::SCOPED_OPERATION_FORMAT . ' and reconcile: true',
+                    'provider did not advertise the scoped operation-receipt contract',
+                    'upgrade the provider to an adapter that supports operation-bound scoped apply'
+                );
+                continue;
+            }
+            foreach (['invoke_scoped', 'reconcile_scoped'] as $method) {
+                if (!is_callable([$provider, $method])) {
+                    $negotiated['problems'][] = self::problem(
+                        $id,
+                        $manifest,
+                        $plugin,
+                        'scoped_contract_shape',
+                        'public invoke_scoped(string, array, array): array and reconcile_scoped(string, array, array): array',
+                        "provider lacks required public $method()",
+                        'upgrade the provider to an adapter that supports operation-bound scoped apply'
+                    );
+                    continue 2;
+                }
+            }
+            $scopedCapabilities[$id][$capability] = [
+                'operation_envelope' => self::SCOPED_OPERATION_FORMAT,
+                'receipt_format' => self::SCOPED_RECEIPT_FORMAT,
+                'capability_digest' => self::scoped_capability_digest($id, $capability, $decl),
+            ];
+        }
+        return $negotiated + ['scoped_capabilities' => $scopedCapabilities];
     }
 
     /**
@@ -1012,6 +1109,717 @@ final class Providers {
     }
 
     /**
+     * Hash the exact provider input a scoped call will receive.  This is not a
+     * hash of a manifest row: entity batches and declared context channels are
+     * engine-assembled evidence, so they must be inside the same binding that
+     * invoke_scoped() recomputes before it crosses into plugin code.
+     *
+     * @param array<string,mixed> $actionEntry
+     * @param array<string,mixed> $capabilityDecl
+     * @param list<array{kind:string,id:int}> $entities
+     * @param array<string,mixed> $context
+     */
+    public static function scoped_input_hash(
+        array $actionEntry,
+        array $capabilityDecl,
+        array $entities = [],
+        array $context = []
+    ): string {
+        $id = (string) ($actionEntry['provider'] ?? '');
+        $capability = (string) ($actionEntry['capability'] ?? '');
+        if (preg_match(self::ID_PATTERN, $id) !== 1
+            || preg_match(self::CAPABILITY_PATTERN, $capability) !== 1) {
+            throw new \RuntimeException('duo: scoped provider input has an invalid provider or capability identity');
+        }
+        return self::scoped_hash([
+            'kind' => 'provider',
+            'provider' => $id,
+            'capability' => $capability,
+            'args' => self::scoped_invocation_args($actionEntry, $capabilityDecl, $entities, $context),
+        ]);
+    }
+
+    /**
+     * A capability digest binds the adapter's advertised behavioral surface to
+     * scoped authority without serializing that declaration into a durable
+     * session.  It intentionally covers the whole declaration, including the
+     * ordinary argument/scope contract: changing either changes the exact
+     * input/effect meaning an authority approved.
+     *
+     * @param array<string,mixed> $capabilityDecl
+     */
+    public static function scoped_capability_digest(
+        string $providerId,
+        string $capability,
+        array $capabilityDecl
+    ): string {
+        if (preg_match(self::ID_PATTERN, $providerId) !== 1
+            || preg_match(self::CAPABILITY_PATTERN, $capability) !== 1) {
+            throw new \RuntimeException('duo: scoped capability digest has an invalid provider or capability identity');
+        }
+        self::validate_capability_declaration(
+            $capabilityDecl,
+            "provider '$providerId' capability '$capability'"
+        );
+        self::validate_scoped_capability_declaration(
+            $capabilityDecl,
+            "provider '$providerId' capability '$capability'"
+        );
+        return self::scoped_hash([
+            'format' => self::SCOPED_OPERATION_FORMAT,
+            'provider' => $providerId,
+            'capability' => $capability,
+            'declaration' => $capabilityDecl,
+        ]);
+    }
+
+    /**
+     * Canonically screen and hash one internal receipt value without exposing
+     * it. NativeActions uses this same gate so every scoped effect has one
+     * bounded/secret-safe evidence rule.
+     */
+    public static function scoped_evidence_digest(mixed $evidence): string {
+        return self::scoped_evidence_hash($evidence);
+    }
+
+    /**
+     * Validate and return the closed operation envelope in its protocol key
+     * order.  Keeping this public lets the native action boundary use the
+     * identical witness grammar without copying a second subtly-drifting
+     * validator into NativeActions.
+     *
+     * @param array<string,mixed> $operation
+     * @return array{authority_hash:string,lease_session_id:string,operation_id:string,input_hash:string,effect_hash:string}
+     */
+    public static function validate_scoped_operation(array $operation): array {
+        $keys = array_keys($operation);
+        sort($keys, SORT_STRING);
+        $expected = ['authority_hash', 'effect_hash', 'input_hash', 'lease_session_id', 'operation_id'];
+        if ($keys !== $expected) {
+            throw new \RuntimeException(
+                'duo: scoped effect operation envelope must contain exactly authority_hash, lease_session_id, operation_id, input_hash, and effect_hash'
+            );
+        }
+        foreach (['authority_hash', 'input_hash', 'effect_hash'] as $field) {
+            if (!is_string($operation[$field] ?? null)
+                || preg_match(self::SCOPED_HASH_PATTERN, $operation[$field]) !== 1) {
+                throw new \RuntimeException("duo: scoped effect operation $field must be a lowercase SHA-256 hash");
+            }
+        }
+        foreach (['lease_session_id', 'operation_id'] as $field) {
+            if (!is_string($operation[$field] ?? null)
+                || preg_match(self::SCOPED_TOKEN_PATTERN, $operation[$field]) !== 1) {
+                throw new \RuntimeException("duo: scoped effect operation $field is not a bounded identity token");
+            }
+        }
+        return [
+            'authority_hash' => $operation['authority_hash'],
+            'lease_session_id' => $operation['lease_session_id'],
+            'operation_id' => $operation['operation_id'],
+            'input_hash' => $operation['input_hash'],
+            'effect_hash' => $operation['effect_hash'],
+        ];
+    }
+
+    /**
+     * Invoke one provider capability under a durable operation intent.
+     *
+     * The intent is committed before the opaque provider call.  A crash or a
+     * malformed response after that point is deliberately recovery_required,
+     * not an excuse to call the provider a second time.  Only once reviewed
+     * raw evidence has been bounded, screened, and hashed is the intent
+     * upgraded to a verified receipt.  The return value is closed, contains no
+     * provider evidence values, and is safe for a session/public receipt.
+     *
+     * @param array<string,mixed> $actionEntry
+     * @param array<string,mixed> $capabilityDecl
+     * @param array<string,mixed> $operation
+     * @param list<array{kind:string,id:int}> $entities
+     * @param array<string,mixed> $context
+     * @return array{format:string,operation:array{authority_hash:string,lease_session_id:string,operation_id:string,input_hash:string,effect_hash:string},capability_digest:string,before_hash:string,after_hash:string,verified:true,status:'verified'}
+     */
+    public static function invoke_scoped(
+        object $provider,
+        array $actionEntry,
+        array $capabilityDecl,
+        array $operation,
+        array $entities = [],
+        array $context = []
+    ): array {
+        [$id, $capability, $args, $operation, $digest] = self::scoped_call_context(
+            $actionEntry,
+            $capabilityDecl,
+            $operation,
+            $entities,
+            $context
+        );
+        if (!is_callable([$provider, 'invoke_scoped'])) {
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' lacks scoped invocation support");
+        }
+        self::begin_scoped_operation($id, $capability, $operation);
+        $started = microtime(true);
+        try {
+            $raw = $provider->invoke_scoped($capability, $args, $operation);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' scoped invocation failed");
+        }
+        $elapsed = microtime(true) - $started;
+        self::assert_scoped_budget($id, $capability, $capabilityDecl, $elapsed);
+        $evidence = self::review_scoped_invoke_response($id, $capability, $operation, $raw);
+        $stored = self::complete_scoped_operation(
+            $id,
+            $capability,
+            $operation,
+            $evidence['before'],
+            $evidence['after']
+        );
+        if (!hash_equals($evidence['before_hash'], $stored['before_hash'])
+            || !hash_equals($evidence['after_hash'], $stored['after_hash'])) {
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' scoped receipt readback did not bind reviewed evidence");
+        }
+        return self::reviewed_scoped_result($operation, $digest, $stored, true);
+    }
+
+    /**
+     * Read-only recovery for an exact operation.  Absence of an operation row
+     * is the sole not_started result: an intent without a completed receipt is
+     * unknowable, and a completed receipt whose checked postcondition differs
+     * is a recovery-required refusal.  Neither case may re-invoke the effect.
+     *
+     * @param array<string,mixed> $actionEntry
+     * @param array<string,mixed> $capabilityDecl
+     * @param array<string,mixed> $operation
+     * @param list<array{kind:string,id:int}> $entities
+     * @param array<string,mixed> $context
+     * @return array{format:string,operation:array{authority_hash:string,lease_session_id:string,operation_id:string,input_hash:string,effect_hash:string},capability_digest:string,before_hash:?string,after_hash:?string,verified:bool,status:'verified'|'not_started'}
+     */
+    public static function reconcile_scoped(
+        object $provider,
+        array $actionEntry,
+        array $capabilityDecl,
+        array $operation,
+        array $entities = [],
+        array $context = []
+    ): array {
+        [$id, $capability, $args, $operation, $digest] = self::scoped_call_context(
+            $actionEntry,
+            $capabilityDecl,
+            $operation,
+            $entities,
+            $context
+        );
+        $stored = self::scoped_operation_state($id, $capability, $operation);
+        if ($stored['status'] === 'not_started') {
+            return self::reviewed_scoped_result($operation, $digest, $stored, false);
+        }
+        if (!is_callable([$provider, 'reconcile_scoped'])) {
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' lacks scoped reconciliation support");
+        }
+        try {
+            $raw = $provider->reconcile_scoped($capability, $args, $operation);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException("duo: provider '$id' capability '$capability' scoped reconciliation failed");
+        }
+        $after = self::review_scoped_reconcile_response($id, $capability, $operation, $raw);
+        $afterHash = self::scoped_evidence_hash($after);
+        if (!hash_equals($stored['after_hash'], $afterHash)) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' scoped effect readback does not match its durable operation receipt; recovery_required"
+            );
+        }
+        return self::reviewed_scoped_result($operation, $digest, $stored, true);
+    }
+
+    /**
+     * Begin an owner-namespaced operation receipt.  This is public for the
+     * closed native action vocabulary; plugin adapters themselves never need
+     * to implement persistence plumbing or expose raw evidence in an option.
+     *
+     * @param array<string,mixed> $operation
+     */
+    public static function begin_scoped_operation(string $owner, string $operationName, array $operation): void {
+        $operation = self::validate_scoped_operation($operation);
+        self::assert_scoped_operation_owner($owner, $operationName);
+        $key = self::scoped_operation_option_name($owner, $operationName, $operation);
+        $existing = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
+        if ($existing !== null) {
+            throw new \RuntimeException(
+                "duo: scoped operation '$owner/$operationName' already has a durable intent or receipt; reconcile that exact operation instead"
+            );
+        }
+        $record = [
+            'format' => self::SCOPED_OPERATION_RECEIPT_FORMAT,
+            'owner' => $owner,
+            'operation_name' => $operationName,
+            'operation' => $operation,
+            'state' => 'intent',
+        ];
+        $record['receipt_hash'] = self::scoped_hash($record);
+        if (!function_exists('add_option')) {
+            throw new \RuntimeException('duo: scoped operation receipt storage requires add_option()');
+        }
+        $encoded = Canon::encode($record);
+        $added = add_option($key, $encoded, '', 'no');
+        $readback = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
+        if (!$added) {
+            if ($readback === null) {
+                throw new \RuntimeException("duo: scoped operation '$owner/$operationName' intent was not durable");
+            }
+            throw new \RuntimeException(
+                "duo: scoped operation '$owner/$operationName' collided with another durable operation; reconcile before retrying"
+            );
+        }
+        if ($readback === null || $readback['state'] !== 'intent') {
+            throw new \RuntimeException(
+                "duo: scoped operation '$owner/$operationName' collided with another durable operation; reconcile before retrying"
+            );
+        }
+    }
+
+    /**
+     * Complete an existing intent with hashes of reviewed evidence only.
+     *
+     * @param array<string,mixed> $operation
+     * @return array{status:'verified',before_hash:string,after_hash:string}
+     */
+    public static function complete_scoped_operation(
+        string $owner,
+        string $operationName,
+        array $operation,
+        mixed $before,
+        mixed $after
+    ): array {
+        $operation = self::validate_scoped_operation($operation);
+        self::assert_scoped_operation_owner($owner, $operationName);
+        $key = self::scoped_operation_option_name($owner, $operationName, $operation);
+        $current = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
+        if ($current === null || $current['state'] !== 'intent') {
+            throw new \RuntimeException(
+                "duo: scoped operation '$owner/$operationName' cannot complete without its exact durable intent; recovery_required"
+            );
+        }
+        $record = [
+            'format' => self::SCOPED_OPERATION_RECEIPT_FORMAT,
+            'owner' => $owner,
+            'operation_name' => $operationName,
+            'operation' => $operation,
+            'state' => 'verified',
+            'before_hash' => self::scoped_evidence_hash($before),
+            'after_hash' => self::scoped_evidence_hash($after),
+        ];
+        $record['receipt_hash'] = self::scoped_hash($record);
+        self::write_scoped_operation_record($key, $record, $owner, $operationName, $operation);
+        $stored = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
+        if ($stored === null || $stored['state'] !== 'verified') {
+            throw new \RuntimeException("duo: scoped operation '$owner/$operationName' verified receipt was not durable");
+        }
+        return [
+            'status' => 'verified',
+            'before_hash' => $stored['before_hash'],
+            'after_hash' => $stored['after_hash'],
+        ];
+    }
+
+    /**
+     * Read one receipt without exposing its storage representation.  An intent
+     * is intentionally an exception, not a third returned status: allowing a
+     * caller to interpret it as not_started is how a crash would duplicate a
+     * provider effect.
+     *
+     * @param array<string,mixed> $operation
+     * @return array{status:'not_started',before_hash?:null,after_hash?:null}|array{status:'verified',before_hash:string,after_hash:string}
+     */
+    public static function scoped_operation_state(string $owner, string $operationName, array $operation): array {
+        $operation = self::validate_scoped_operation($operation);
+        self::assert_scoped_operation_owner($owner, $operationName);
+        $record = self::read_scoped_operation_record(
+            self::scoped_operation_option_name($owner, $operationName, $operation),
+            $owner,
+            $operationName,
+            $operation
+        );
+        if ($record === null) {
+            return ['status' => 'not_started'];
+        }
+        if ($record['state'] !== 'verified') {
+            throw new \RuntimeException(
+                "duo: scoped operation '$owner/$operationName' has a durable intent without a verified receipt; recovery_required"
+            );
+        }
+        return [
+            'status' => 'verified',
+            'before_hash' => $record['before_hash'],
+            'after_hash' => $record['after_hash'],
+        ];
+    }
+
+    /**
+     * Prepare and bind the exact arguments for one scoped provider call.
+     *
+     * @return array{0:string,1:string,2:array<string,mixed>,3:array{authority_hash:string,lease_session_id:string,operation_id:string,input_hash:string,effect_hash:string},4:string}
+     */
+    private static function scoped_call_context(
+        array $actionEntry,
+        array $capabilityDecl,
+        array $operation,
+        array $entities,
+        array $context
+    ): array {
+        $id = (string) ($actionEntry['provider'] ?? '');
+        $capability = (string) ($actionEntry['capability'] ?? '');
+        if (preg_match(self::ID_PATTERN, $id) !== 1
+            || preg_match(self::CAPABILITY_PATTERN, $capability) !== 1) {
+            throw new \RuntimeException('duo: scoped provider invocation has an invalid provider or capability identity');
+        }
+        self::validate_capability_declaration($capabilityDecl, "provider '$id' capability '$capability'");
+        self::validate_scoped_capability_declaration($capabilityDecl, "provider '$id' capability '$capability'");
+        $args = self::scoped_invocation_args($actionEntry, $capabilityDecl, $entities, $context);
+        $operation = self::validate_scoped_operation($operation);
+        $expectedInput = self::scoped_hash([
+            'kind' => 'provider',
+            'provider' => $id,
+            'capability' => $capability,
+            'args' => $args,
+        ]);
+        if (!hash_equals($expectedInput, $operation['input_hash'])) {
+            throw new \RuntimeException(
+                "duo: scoped provider '$id' capability '$capability' operation input_hash does not bind the exact prepared invocation"
+            );
+        }
+        return [
+            $id,
+            $capability,
+            $args,
+            $operation,
+            self::scoped_capability_digest($id, $capability, $capabilityDecl),
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private static function scoped_invocation_args(
+        array $actionEntry,
+        array $capabilityDecl,
+        array $entities,
+        array $context
+    ): array {
+        $id = (string) ($actionEntry['provider'] ?? '');
+        $capability = (string) ($actionEntry['capability'] ?? '');
+        $args = (array) ($actionEntry['args'] ?? []);
+        if (($capabilityDecl['scope'] ?? '') === 'entity') {
+            $args[self::ENTITIES_ARG] = self::batch_payload($id, $capability, $capabilityDecl, $entities, $context);
+        } elseif ($context !== []) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' is scope: site but was handed engine batch "
+                . 'context (' . implode(', ', array_keys($context)) . ') — only scope: entity capabilities '
+                . 'receive a batch'
+            );
+        }
+        return $args;
+    }
+
+    /** @param array<string,mixed> $capabilityDecl */
+    private static function assert_scoped_budget(
+        string $id,
+        string $capability,
+        array $capabilityDecl,
+        float $elapsed
+    ): void {
+        $budget = (int) $capabilityDecl['timeout_seconds'];
+        if ($elapsed > $budget) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' scoped invocation overran its declared budget ("
+                . round($elapsed, 3) . "s > {$budget}s)"
+            );
+        }
+    }
+
+    /**
+     * @param mixed $raw
+     * @return array{before:mixed,after:mixed,before_hash:string,after_hash:string}
+     */
+    private static function review_scoped_invoke_response(
+        string $id,
+        string $capability,
+        array $operation,
+        mixed $raw
+    ): array {
+        $keys = is_array($raw) ? array_keys($raw) : [];
+        sort($keys, SORT_STRING);
+        if ($keys !== ['after', 'before', 'operation', 'verified']) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' returned a malformed scoped invocation receipt"
+            );
+        }
+        if (($raw['verified'] ?? null) !== true || !is_array($raw['operation'] ?? null)) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' returned an unverified scoped invocation receipt"
+            );
+        }
+        self::assert_same_scoped_operation($operation, self::validate_scoped_operation($raw['operation']));
+        return [
+            'before' => $raw['before'],
+            'after' => $raw['after'],
+            'before_hash' => self::scoped_evidence_hash($raw['before']),
+            'after_hash' => self::scoped_evidence_hash($raw['after']),
+        ];
+    }
+
+    /** @return mixed */
+    private static function review_scoped_reconcile_response(
+        string $id,
+        string $capability,
+        array $operation,
+        mixed $raw
+    ): mixed {
+        $keys = is_array($raw) ? array_keys($raw) : [];
+        sort($keys, SORT_STRING);
+        if ($keys !== ['after', 'operation', 'verified']) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' returned a malformed scoped reconciliation receipt"
+            );
+        }
+        if (($raw['verified'] ?? null) !== true || !is_array($raw['operation'] ?? null)) {
+            throw new \RuntimeException(
+                "duo: provider '$id' capability '$capability' returned an unverified scoped reconciliation receipt"
+            );
+        }
+        self::assert_same_scoped_operation($operation, self::validate_scoped_operation($raw['operation']));
+        // Hashing screens/bounds the readback before any value reaches a
+        // durable/public result. The caller hashes again only to compare with
+        // the completed receipt; no raw evidence escapes this stack frame.
+        self::scoped_evidence_hash($raw['after']);
+        return $raw['after'];
+    }
+
+    /**
+     * @param array{authority_hash:string,lease_session_id:string,operation_id:string,input_hash:string,effect_hash:string} $operation
+     * @param array<string,mixed> $state
+     * @return array<string,mixed>
+     */
+    private static function reviewed_scoped_result(
+        array $operation,
+        string $capabilityDigest,
+        array $state,
+        bool $verified
+    ): array {
+        if (!$verified) {
+            if (($state['status'] ?? null) !== 'not_started') {
+                throw new \RuntimeException('duo: scoped effect receipt has an invalid not_started state');
+            }
+            return [
+                'format' => self::SCOPED_RECEIPT_FORMAT,
+                'operation' => $operation,
+                'capability_digest' => $capabilityDigest,
+                'before_hash' => null,
+                'after_hash' => null,
+                'verified' => false,
+                'status' => 'not_started',
+            ];
+        }
+        if (($state['status'] ?? null) !== 'verified'
+            || !is_string($state['before_hash'] ?? null)
+            || !is_string($state['after_hash'] ?? null)
+            || preg_match(self::SCOPED_HASH_PATTERN, $state['before_hash']) !== 1
+            || preg_match(self::SCOPED_HASH_PATTERN, $state['after_hash']) !== 1) {
+            throw new \RuntimeException('duo: scoped effect receipt has an invalid verified state');
+        }
+        return [
+            'format' => self::SCOPED_RECEIPT_FORMAT,
+            'operation' => $operation,
+            'capability_digest' => $capabilityDigest,
+            'before_hash' => $state['before_hash'],
+            'after_hash' => $state['after_hash'],
+            'verified' => true,
+            'status' => 'verified',
+        ];
+    }
+
+    /** @param array<string,mixed> $left @param array<string,mixed> $right */
+    private static function assert_same_scoped_operation(array $left, array $right): void {
+        foreach (['authority_hash', 'lease_session_id', 'operation_id', 'input_hash', 'effect_hash'] as $field) {
+            if (!hash_equals((string) $left[$field], (string) $right[$field])) {
+                throw new \RuntimeException('duo: scoped provider receipt does not bind the exact operation envelope');
+            }
+        }
+    }
+
+    private static function assert_scoped_operation_owner(string $owner, string $operationName): void {
+        if (preg_match(self::ID_PATTERN, $owner) !== 1
+            || preg_match(self::SCOPED_OPERATION_NAME_PATTERN, $operationName) !== 1) {
+            throw new \RuntimeException('duo: scoped operation receipt owner or operation name is outside the closed vocabulary');
+        }
+    }
+
+    /** @param array<string,mixed> $operation */
+    private static function scoped_operation_option_name(string $owner, string $operationName, array $operation): string {
+        return 'duo_scoped_effect_' . self::scoped_hash([
+            'owner' => $owner,
+            'operation_name' => $operationName,
+            'operation_id' => $operation['operation_id'],
+        ]);
+    }
+
+    /**
+     * @param array<string,mixed> $operation
+     * @return array<string,mixed>|null
+     */
+    private static function read_scoped_operation_record(
+        string $key,
+        string $owner,
+        string $operationName,
+        array $operation
+    ): ?array {
+        global $wpdb;
+        if (!is_object($wpdb) || !isset($wpdb->options) || !is_callable([$wpdb, 'prepare']) || !is_callable([$wpdb, 'get_var'])) {
+            throw new \RuntimeException('duo: scoped operation receipt storage requires a readable WordPress options table');
+        }
+        $wpdb->last_error = '';
+        $raw = $wpdb->get_var($wpdb->prepare(
+            "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+            $key
+        ));
+        if ($raw === false || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException('duo: scoped operation receipt read failed');
+        }
+        if ($raw === null) {
+            return null;
+        }
+        if (!is_string($raw)) {
+            throw new \RuntimeException('duo: scoped operation receipt is not a canonical string');
+        }
+        try {
+            $record = Canon::decode($raw);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException('duo: scoped operation receipt is malformed; recovery_required');
+        }
+        return self::assert_scoped_operation_record($record, $owner, $operationName, $operation);
+    }
+
+    /**
+     * @param array<string,mixed> $record
+     * @param array<string,mixed> $operation
+     */
+    private static function write_scoped_operation_record(
+        string $key,
+        array $record,
+        string $owner,
+        string $operationName,
+        array $operation
+    ): void {
+        if (!function_exists('update_option')) {
+            throw new \RuntimeException('duo: scoped operation receipt storage requires update_option()');
+        }
+        update_option($key, Canon::encode($record), false);
+        $readback = self::read_scoped_operation_record($key, $owner, $operationName, $operation);
+        if ($readback === null || !hash_equals((string) $record['receipt_hash'], (string) $readback['receipt_hash'])) {
+            throw new \RuntimeException('duo: scoped operation receipt write was not durable');
+        }
+    }
+
+    /**
+     * @param mixed $record
+     * @param array<string,mixed> $operation
+     * @return array<string,mixed>
+     */
+    private static function assert_scoped_operation_record(
+        mixed $record,
+        string $owner,
+        string $operationName,
+        array $operation
+    ): array {
+        if (!is_array($record) || (array_is_list($record) && $record !== [])) {
+            throw new \RuntimeException('duo: scoped operation receipt has an invalid schema; recovery_required');
+        }
+        $state = $record['state'] ?? null;
+        $keys = array_keys($record);
+        sort($keys, SORT_STRING);
+        $expected = $state === 'intent'
+            ? ['format', 'operation', 'operation_name', 'owner', 'receipt_hash', 'state']
+            : ['after_hash', 'before_hash', 'format', 'operation', 'operation_name', 'owner', 'receipt_hash', 'state'];
+        if ($keys !== $expected || !in_array($state, ['intent', 'verified'], true)
+            || ($record['format'] ?? null) !== self::SCOPED_OPERATION_RECEIPT_FORMAT
+            || ($record['owner'] ?? null) !== $owner
+            || ($record['operation_name'] ?? null) !== $operationName
+            || !is_array($record['operation'] ?? null)
+            || !is_string($record['receipt_hash'] ?? null)
+            || preg_match(self::SCOPED_HASH_PATTERN, $record['receipt_hash']) !== 1) {
+            throw new \RuntimeException('duo: scoped operation receipt has an invalid schema; recovery_required');
+        }
+        self::assert_same_scoped_operation($operation, self::validate_scoped_operation($record['operation']));
+        if ($state === 'verified') {
+            foreach (['before_hash', 'after_hash'] as $field) {
+                if (!is_string($record[$field]) || preg_match(self::SCOPED_HASH_PATTERN, $record[$field]) !== 1) {
+                    throw new \RuntimeException('duo: scoped operation receipt evidence hash is malformed; recovery_required');
+                }
+            }
+        }
+        $withoutHash = $record;
+        unset($withoutHash['receipt_hash']);
+        if (!hash_equals(self::scoped_hash($withoutHash), $record['receipt_hash'])) {
+            throw new \RuntimeException('duo: scoped operation receipt hash does not verify; recovery_required');
+        }
+        return $record;
+    }
+
+    /** @param mixed $evidence */
+    private static function scoped_evidence_hash(mixed $evidence): string {
+        $bytes = 0;
+        $nodes = 0;
+        self::assert_scoped_evidence($evidence, $bytes, $nodes, 0);
+        try {
+            return self::scoped_hash($evidence);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException('duo: scoped effect evidence could not be canonically encoded');
+        }
+    }
+
+    /** @param mixed $value */
+    private static function assert_scoped_evidence(mixed $value, int &$bytes, int &$nodes, int $depth): void {
+        $nodes++;
+        if ($nodes > self::MAX_SCOPED_EVIDENCE_NODES || $depth > self::MAX_SCOPED_EVIDENCE_DEPTH) {
+            throw new \RuntimeException('duo: scoped effect evidence exceeds the bounded receipt grammar');
+        }
+        if (is_array($value)) {
+            foreach ($value as $key => $child) {
+                if (!is_int($key) && !is_string($key)) {
+                    throw new \RuntimeException('duo: scoped effect evidence has a non-scalar key');
+                }
+                if (is_string($key)) {
+                    $bytes += strlen($key);
+                    if (strlen($key) > 128 || preg_match(self::SCOPED_SECRET_KEY_PATTERN, $key) === 1) {
+                        throw new \RuntimeException('duo: scoped effect evidence contains a sensitive or unbounded field name');
+                    }
+                }
+                if ($bytes > self::MAX_SCOPED_EVIDENCE_BYTES) {
+                    throw new \RuntimeException('duo: scoped effect evidence exceeds the bounded receipt grammar');
+                }
+                self::assert_scoped_evidence($child, $bytes, $nodes, $depth + 1);
+            }
+            return;
+        }
+        if (is_string($value)) {
+            $bytes += strlen($value);
+            if (CommandRefusalException::containsSensitivePublicDetail($value)) {
+                throw new \RuntimeException('duo: scoped effect evidence contains a secret-shaped value');
+            }
+        } elseif (is_int($value) || is_bool($value) || $value === null) {
+            $bytes += strlen((string) $value);
+        } elseif (is_float($value) && is_finite($value)) {
+            $bytes += strlen((string) $value);
+        } else {
+            throw new \RuntimeException('duo: scoped effect evidence contains an unsupported value type');
+        }
+        if ($bytes > self::MAX_SCOPED_EVIDENCE_BYTES) {
+            throw new \RuntimeException('duo: scoped effect evidence exceeds the bounded receipt grammar');
+        }
+    }
+
+    /** @param mixed $value */
+    private static function scoped_hash(mixed $value): string {
+        return hash('sha256', Canon::encode($value));
+    }
+
+    /**
      * Does this negotiated declaration opt into one engine batch channel?
      *
      * The lookup is the engine's own, not a string comparison scattered across
@@ -1513,13 +2321,18 @@ final class Providers {
         $keys = array_keys($decl);
         sort($keys, SORT_STRING);
         $required = ['args', 'idempotent', 'reads', 'scope', 'timeout_seconds', 'writes'];
-        $optional = ['context'];
+        // `scoped` is intentionally accepted but NOT interpreted on the
+        // ordinary negotiation path. Existing full applies retain their
+        // contract byte-for-byte; only negotiate_scoped() asks the extra
+        // declaration to make an at-most-once claim.
+        $optional = ['context', 'scoped'];
         $missing = array_diff($required, $keys);
         $unknown = array_diff($keys, $required, $optional);
         if ($missing !== [] || $unknown !== []) {
+            $shownOptional = array_key_exists('scoped', $decl) ? $optional : ['context'];
             throw new \RuntimeException(
                 "$where must declare exactly " . implode(', ', $required)
-                . ' (optional: ' . implode(', ', $optional) . ')'
+                . ' (optional: ' . implode(', ', $shownOptional) . ')'
                 . ' (found: ' . ($keys === [] ? 'nothing' : implode(', ', $keys)) . ')'
             );
         }
@@ -1627,6 +2440,30 @@ final class Providers {
             if ($objectList) {
                 self::validate_field_declarations($rule['fields'], "$where.args.$arg");
             }
+        }
+    }
+
+    /**
+     * Scoped operation recovery opt-in. This validator is purposefully not
+     * called from validate_capability_declaration(): an ordinary apply neither
+     * needs nor is authorized to require a recovery implementation.
+     *
+     * @param array<string,mixed> $decl
+     */
+    private static function validate_scoped_capability_declaration(array $decl, string $where): void {
+        $scoped = $decl['scoped'] ?? null;
+        if (!is_array($scoped) || (array_is_list($scoped) && $scoped !== [])) {
+            throw new \RuntimeException("$where.scoped must declare the operation-bound recovery contract");
+        }
+        $keys = array_keys($scoped);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['operation_envelope', 'reconcile']
+            || ($scoped['operation_envelope'] ?? null) !== self::SCOPED_OPERATION_FORMAT
+            || ($scoped['reconcile'] ?? null) !== true) {
+            throw new \RuntimeException(
+                "$where.scoped must declare exactly operation_envelope: " . self::SCOPED_OPERATION_FORMAT
+                . ' and reconcile: true'
+            );
         }
     }
 

@@ -119,6 +119,10 @@ final class WoocommerceProductLookups {
                 'idempotent' => true,
                 'timeout_seconds' => 300,
                 'context' => ['always_on_write', 'deletions', 'reparents', 'retry'],
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -194,6 +198,74 @@ final class WoocommerceProductLookups {
             'after' => $this->observe_lookup_state($observed),
             'verified' => true,
         ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => $this->scoped_postcondition($args),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== self::CAPABILITY) {
+            throw new \RuntimeException(
+                "duo: WooCommerce product lookup provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => $this->scoped_postcondition($args),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @return array{scoped_products:int,meta_lookup_rows:int,attribute_lookup_rows:int} */
+    private function scoped_postcondition(array $args): array {
+        $this->assert_runtime_contract();
+        return $this->observe_lookup_state($this->scoped_observed_ids($args));
+    }
+
+    /** @param array<string,mixed> $args @return list<int> */
+    private function scoped_observed_ids(array $args): array {
+        $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
+        if (!is_array($envelope) || !array_key_exists('entities', $envelope)
+            || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
+            throw new \RuntimeException(
+                'duo: WooCommerce product lookup reconciliation received no engine batch envelope; expected the '
+                . 'entities/deletions/reparents channels its capability declares'
+            );
+        }
+        $liveIds = [];
+        foreach ((array) $envelope['entities'] as $entity) {
+            $id = (int) ($entity['id'] ?? 0);
+            if ($id > 0) {
+                $liveIds[$id] = $id;
+            }
+        }
+        $observed = array_values($liveIds);
+        foreach ($this->deletion_context_from_channels(
+            (array) $envelope['deletions'],
+            (array) $envelope['reparents']
+        ) as $context) {
+            foreach (array_merge(
+                [(int) ($context['id'] ?? 0)],
+                array_map('intval', (array) ($context['child_ids'] ?? [])),
+                array_map('intval', (array) ($context['root_ids'] ?? []))
+            ) as $id) {
+                if ($id > 0) {
+                    $observed[] = $id;
+                }
+            }
+        }
+        $observed = array_values(array_unique($observed));
+        sort($observed, SORT_NUMERIC);
+        return $observed;
     }
 
     /**

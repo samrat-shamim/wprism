@@ -52,6 +52,10 @@ final class YoastIndex {
                 'scope' => 'site',
                 'idempotent' => true,
                 'timeout_seconds' => 600,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -64,6 +68,54 @@ final class YoastIndex {
                 "duo: Yoast index provider does not implement capability '$capability'"
             ),
         };
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== 'reindex') {
+            throw new \RuntimeException(
+                "duo: Yoast index provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @return array{environment_type:string,public_posts:int,indexables:int,outcome:string} */
+    private function scoped_postcondition(): array {
+        $environment = function_exists('wp_get_environment_type')
+            ? (string) wp_get_environment_type()
+            : 'unknown';
+        $publicPosts = $this->public_post_count();
+        $indexables = $this->indexable_count();
+        $indexingEnabled = $environment === 'production';
+        if ($indexingEnabled && $publicPosts > 0 && $indexables === 0) {
+            throw new \RuntimeException(
+                'duo: Yoast indexable readback is empty while public posts exist; recovery_required'
+            );
+        }
+        return [
+            'environment_type' => $environment,
+            'public_posts' => $publicPosts,
+            'indexables' => $indexables,
+            'outcome' => $indexingEnabled
+                ? 'reindexed'
+                : 'no-op (Yoast 15.1+ builds indexables only on a production environment type)',
+        ];
     }
 
     /**

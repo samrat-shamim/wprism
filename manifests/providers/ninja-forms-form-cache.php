@@ -57,6 +57,10 @@ final class NinjaFormsFormCache {
                 'scope' => 'site',
                 'idempotent' => true,
                 'timeout_seconds' => 120,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -69,6 +73,55 @@ final class NinjaFormsFormCache {
                 "duo: Ninja Forms form-cache provider does not implement capability '$capability'"
             ),
         };
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== 'rebuild_form_caches') {
+            throw new \RuntimeException(
+                "duo: Ninja Forms form-cache provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @return array{form_ids:list<int>,cached_form_ids:list<int>} */
+    private function scoped_postcondition(): array {
+        if (!function_exists('Ninja_Forms')) {
+            throw new \RuntimeException('duo: Ninja Forms 3.x form API is unavailable (Ninja_Forms())');
+        }
+        $forms = (array) (\Ninja_Forms()->form()->get_forms() ?: []);
+        $ids = [];
+        foreach ($forms as $form) {
+            if (!is_object($form) || !is_callable([$form, 'get_id'])) {
+                throw new \RuntimeException(
+                    'duo: Ninja Forms returned a form object without a public get_id(); '
+                    . 'the installed version is outside this provider contract'
+                );
+            }
+            $id = (int) $form->get_id();
+            if ($id > 0) {
+                $ids[$id] = $id;
+            }
+        }
+        ksort($ids, SORT_NUMERIC);
+        $ids = array_values($ids);
+        return ['form_ids' => $ids, 'cached_form_ids' => $this->cached_form_ids($ids)];
     }
 
     /**

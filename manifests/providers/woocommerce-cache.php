@@ -64,6 +64,10 @@ final class WoocommerceCache {
                 'scope' => 'site',
                 'idempotent' => true,
                 'timeout_seconds' => 60,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -78,6 +82,48 @@ final class WoocommerceCache {
                 "duo: WooCommerce cache provider does not implement capability '$capability'"
             ),
         };
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => $this->scoped_postcondition(
+                array_map('strval', (array) ($args['groups'] ?? []))
+            ),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== 'invalidate_cache_groups') {
+            throw new \RuntimeException(
+                "duo: WooCommerce cache provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => $this->scoped_postcondition(
+                array_map('strval', (array) ($args['groups'] ?? []))
+            ),
+            'verified' => true,
+        ];
+    }
+
+    /** @param list<string> $groups @return array{groups:list<string>,shipping_transient_version:?string} */
+    private function scoped_postcondition(array $groups): array {
+        if ($groups === []) {
+            throw new \RuntimeException(
+                'duo: WooCommerce cache reconciliation was asked for an empty group list; recovery_required'
+            );
+        }
+        return [
+            'groups' => $groups,
+            'shipping_transient_version' => $this->observe_shipping_version(),
+        ];
     }
 
     /**
