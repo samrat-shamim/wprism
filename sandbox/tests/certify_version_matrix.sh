@@ -36,6 +36,12 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
+# The conformance seeds/postdeploy hooks this harness sources call the shared
+# premise/answer assertion helpers (DUO-3381/DUO-3391); they live in one
+# fragment precisely so this second harness cannot strand them (DUO-3408 —
+# leg 12 died `require_fixture_state: command not found` on pristine main).
+. conformance/asserts.sh
+
 command -v jq >/dev/null || fail "jq required"
 
 PAIR="${VMATRIX_PAIR:-vmatrix}"
