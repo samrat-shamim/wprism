@@ -4618,12 +4618,31 @@ self::validate_post_type_children($manifest);
      * sub_keys' own per-sub-key class validation rule (same self::CLASSES
      * set) since that inner shape genuinely is identical once you are past
      * the top-level prefix/resolver fields.
+     *
+     * DUO-3375: a top-level `class` on a dynamic_options declaration is a
+     * DEAD field — resolve_dynamic_option()/dynamic_option_rule_for_name()
+     * hardwire the resolved row's class to 'env' regardless of what the
+     * manifest wrote, so an operator's ownership claim (e.g. class:authored)
+     * used to LOAD and then be silently discarded with no signal. Refuse it
+     * here at load (and, via the identical from_snapshot() call site, when a
+     * frozen snapshot is re-validated) rather than accept-then-override: name
+     * the field, say it is not consumed, and name what the engine forces.
+     * This does NOT widen the schema — a declaration with no top-level class
+     * (the only shape any manifest ships) is untouched and loads unchanged.
      */
     private static function validate_dynamic_options(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
         foreach ($manifest['dynamic_options'] ?? [] as $key => $decl) {
             if (!is_array($decl)) {
                 throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key that is not an object");
+            }
+            if (array_key_exists('class', $decl)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares dynamic_options.$key.class="
+                    . var_export($decl['class'], true) . ' but a dynamic_options declaration carries no top-level '
+                    . "class; the resolver owns the resolved row's class, which the engine forces to 'env' (only the "
+                    . 'named sub_keys are authored). It is never consumed and would be silently discarded; remove it'
+                );
             }
             $prefix = $decl['prefix'] ?? null;
             if (!is_string($prefix) || $prefix === '') {
