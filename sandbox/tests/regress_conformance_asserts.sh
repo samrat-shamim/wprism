@@ -42,4 +42,77 @@ DUPES=$(grep -rlE '^require_[a-z_]+\(\) \{' conformance/ tests/ | grep -v "^$FRA
 [ -z "$DUPES" ] || fail "helper definitions exist outside the fragment (one owner per grammar):$DUPES"
 pass "the fragment is the single definition home"
 
+# DUO-3391: wiring is necessary but not sufficient for require_duo_answered.
+# Its whole safety argument is that the "answered" marker is BROAD — a narrow
+# marker demotes a real, differently-shaped engine answer into an
+# "infrastructure failure:" signal, which silently weakens the engine assertion
+# the call site exists to make. Pin that breadth here, in the fragment's own
+# suite, by sourcing the real fragment with a non-exiting fail() and running
+# both modes over real capture shapes. No docker, no pair.
+probe() { # probe <mode> <capture> — prints the helper's verdict; exit 1 = it failed
+  (
+    fail() { printf '%s\n' "$*"; exit 1; }
+    . "$FRAGMENT"
+    require_duo_answered 'unit probe' "$1" "$2"
+    printf 'ANSWERED\n'
+  )
+}
+expect_answered() { # expect_answered <label> <mode> <capture>
+  local out rc=0
+  out=$(probe "$2" "$3") || rc=$?
+  [ "$rc" -eq 0 ] && [ "$out" = ANSWERED ] \
+    || fail "require_duo_answered $2 mode rejected $1 — a narrow marker turns a healthy engine answer into an infrastructure signal: $out"
+}
+expect_infrastructure() { # expect_infrastructure <label> <mode> <capture>
+  local out rc=0
+  out=$(probe "$2" "$3") || rc=$?
+  [ "$rc" -ne 0 ] \
+    || fail "require_duo_answered $2 mode accepted $1 as an answer — a dead invocation would still reach the engine accusation"
+  case "$out" in
+    'infrastructure failure: '*) : ;;
+    *) fail "require_duo_answered $2 mode failed on $1 without the grep-able 'infrastructure failure:' prefix: $out" ;;
+  esac
+}
+
+REFUSAL_ENVELOPE='{"format":"duo-command-refusal/v1","ok":false,"command":"capture","reason_code":"unsupported_deletion"}'
+COMPOSE_DEATH=' Container duo-pair-cli1-1  Creating
+Error response from daemon: could not create container: context deadline exceeded'
+
+expect_answered 'a duo-command-refusal/v1 envelope' json "$REFUSAL_ENVELOPE"
+expect_answered 'a plan success summary object' json '{"create":[],"update":[],"conflict":[]}'
+# The widening this pins: `wp duo pending --format=json` answers with a LIST,
+# and empty is its healthy answer (conformance/checks/core.sh asserts exactly
+# `[]`). Object-only would report that engine as dead infrastructure.
+expect_answered 'an empty JSON array (duo pending answers [] when clean)' json '[]'
+expect_answered 'a populated JSON array' json '[{"section":"widgets","key":"regress_fake_type"}]'
+# ...without changing the mode's read: still the LAST non-empty line.
+expect_answered 'an envelope followed by blank lines' json "$REFUSAL_ENVELOPE
+
+"
+expect_infrastructure 'an envelope followed by non-JSON output' json "$REFUSAL_ENVELOPE
+not json at all"
+expect_infrastructure 'compose container-creation chatter' json "$COMPOSE_DEATH"
+expect_infrastructure 'an empty capture' json ''
+expect_infrastructure 'a bare JSON scalar' json '"refused"'
+
+expect_answered "wp-cli's Error: framing" human 'Error: duo: deletion intent for table:nf3_forms is unsupported'
+expect_answered "wp-cli's Success: framing" human 'Success: captured 12 posts, 4 terms -> /siterepo/state'
+expect_answered "wp-cli's Warning: framing" human 'Warning: regen_pending markers outstanding'
+expect_answered "duo's own message prefix without wp-cli framing" human 'duo: mapped identity history is missing'
+expect_answered "PHP's own fatal framing" human 'PHP Fatal error:  Uncaught RuntimeException'
+expect_infrastructure 'compose container-creation chatter' human "$COMPOSE_DEATH"
+expect_infrastructure 'an empty capture' human ''
+pass "require_duo_answered accepts every shape a live duo answer takes (json: object OR array; human: wp-cli/duo/PHP framing) and only fires on a capture with no answer in it"
+
+# A mode typo must be a caller bug, never an infrastructure verdict: it may not
+# borrow the prefix operators grep to route a failure away from the engine.
+TYPO_OUT=$(probe jsonn "$REFUSAL_ENVELOPE") && TYPO_RC=0 || TYPO_RC=$?
+[ "$TYPO_RC" -ne 0 ] || fail "require_duo_answered accepted an unknown mode silently"
+case "$TYPO_OUT" in
+  'infrastructure failure: '*) fail "an unknown mode reported itself as an infrastructure failure: $TYPO_OUT" ;;
+esac
+grep -q "^require_duo_answered: unknown mode 'jsonn' (expected human|json)$" <<<"$TYPO_OUT" \
+  || fail "an unknown mode did not name itself as a caller bug: $TYPO_OUT"
+pass "an unknown mode fails loudly as a caller bug, outside the infrastructure-failure grammar"
+
 printf '\033[1;32m✔ REGRESS_CONFORMANCE_ASSERTS PASSED\033[0m\n'

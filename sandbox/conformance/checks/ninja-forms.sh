@@ -61,6 +61,14 @@ EXPECTED_REV=$(jq -r '.applied_revision' "$CONF_REPO2/.tmp-identity-ledger.json"
 wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state; DELETE FROM wp_duo_kv;' >/dev/null
 PLAN_RC=0
 PLAN_OUT=$(wp_conf2 duo plan --repo=/siterepo 2>&1) || PLAN_RC=$?
+# DUO-3391: `|| PLAN_RC=$?` is what lets the two assertions below read
+# $PLAN_OUT, and it is also what stops `set -e` from firing when this `docker
+# compose run` dies at the docker layer with nothing but container-creation
+# chatter in $PLAN_OUT — the exit-status assertion then passes VACUOUSLY and
+# the grep accuses the engine over that chatter. Every identity probe in this
+# file has that shape: assert the invocation was answered before asserting
+# what the answer was.
+require_duo_answered "conf2 duo plan (missing mapped identity probe)" human "$PLAN_OUT"
 [ "$PLAN_RC" -ne 0 ] || fail "restored populated Ninja Forms DB planned successfully without identity metadata"
 grep -q "mapped identity missing.*nf3_forms" <<<"$PLAN_OUT" \
   || fail "missing mapped identity failed for the wrong reason: $PLAN_OUT"
@@ -82,6 +90,7 @@ RESTORED_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { lin
 wp_conf2 db query "UPDATE wp_nf3_forms SET title='Stale Restore' WHERE id=$CONF2_FORM_ID; TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state; DELETE FROM wp_duo_kv;" >/dev/null
 STALE_RC=0
 STALE_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" 2>&1) || STALE_RC=$?
+require_duo_answered "conf2 duo identity-import (stale database/sidecar pairing probe)" human "$STALE_OUT"
 [ "$STALE_RC" -ne 0 ] && grep -q 'witness mismatch' <<<"$STALE_OUT" \
   || fail "stale database/sidecar pairing was not rejected: $STALE_OUT"
 [ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_map' --skip-column-names | tr -d '[:space:]')" = 0 ] \
@@ -92,6 +101,7 @@ wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
 wp_conf2 db query "UPDATE wp_duo_map SET uuid='00000000-0000-4000-8000-000000000999' WHERE id_kind='nf3_form' AND local_id=$CONF2_FORM_ID" >/dev/null
 CONFLICT_RC=0
 CONFLICT_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" 2>&1) || CONFLICT_RC=$?
+require_duo_answered "conf2 duo identity-import (conflicting live ledger probe)" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -q 'current identity ledger conflicts' <<<"$CONFLICT_OUT" \
   || fail "conflicting live ledger was not rejected: $CONFLICT_OUT"
 [ "$(wp_conf2 db query "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_form' AND local_id=$CONF2_FORM_ID" --skip-column-names | tr -d '[:space:]')" = '00000000-0000-4000-8000-000000000999' ] \
@@ -102,6 +112,7 @@ wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
 jq '.applied_revision = "tampered"' "$CONF_REPO2/.tmp-identity-ledger.json" > "$CONF_REPO2/.tmp-identity-tampered.json"
 TAMPER_RC=0
 TAMPER_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-identity-tampered.json 2>&1) || TAMPER_RC=$?
+require_duo_answered "conf2 duo identity-import (tampered sidecar probe)" human "$TAMPER_OUT"
 [ "$TAMPER_RC" -ne 0 ] && grep -q 'integrity hash does not verify' <<<"$TAMPER_OUT" \
   || fail "tampered identity sidecar was not rejected: $TAMPER_OUT"
 
@@ -111,6 +122,7 @@ wp_conf1 duo identity-export --repo=/siterepo --out="$SIDE" >/dev/null
 wp_conf1 db query "DELETE FROM wp_duo_map WHERE id_kind IN ('nf3_form','nf3_field','nf3_action')" >/dev/null
 CAPTURE_RC=0
 CAPTURE_OUT=$(wp_conf1 duo capture --repo=/siterepo --out=/siterepo/.tmp-lost-ledger-state 2>&1) || CAPTURE_RC=$?
+require_duo_answered "conf1 duo capture (lost mapped identity history probe)" human "$CAPTURE_OUT"
 [ "$CAPTURE_RC" -ne 0 ] && grep -q 'mapped identity history is missing' <<<"$CAPTURE_OUT" \
   || fail "source capture minted replacements after mapped identity loss: $CAPTURE_OUT"
 wp_conf1 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
