@@ -21,7 +21,9 @@
 # cannot demonstrate). It serves those bytes from a scratch copy whose
 # certification evidence is re-sealed against the working tree (DUO-3379), so
 # the suite's verdict does not depend on where the branch sits in the
-# certification cycle. It writes only to scratch directories.
+# certification cycle. It writes only to scratch directories. The re-seal lives
+# in sandbox/tests/certification_fixture.php since DUO-3421, shared with the
+# live init suite, which mounts the identical library into its Docker pair.
 set -euo pipefail
 cd "$(dirname "$0")"   # -> sandbox/tests/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -32,6 +34,7 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (harness + every engine file it exercises)"
 php -l regress_adapter_sources.php >/dev/null || fail "regress_adapter_sources.php has a syntax error"
+php -l certification_fixture.php >/dev/null || fail "certification_fixture.php has a syntax error"
 php -l ../../agent/src/AdapterSources.php >/dev/null || fail "agent/src/AdapterSources.php has a syntax error"
 php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
 php -l ../../agent/src/CapabilityRegistry.php >/dev/null || fail "agent/src/CapabilityRegistry.php has a syntax error"
