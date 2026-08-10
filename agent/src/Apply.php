@@ -3098,10 +3098,36 @@ final class Apply {
                 usleep($pauseMs * 1000);
             }
         }
+        // build_plan() also projects selected actions for plan/status output.
+        // Under a scope contract that intermediate projection is deliberately
+        // still full-repository until project_plan() narrows its rows. Preserve
+        // the exact action set negotiated above, then independently rederive
+        // it from the projected fresh plan. Otherwise the fresh recheck can
+        // overwrite $this->selectedActions with an out-of-scope declaration
+        // after negotiation and make rebuild either invoke an unauthorized
+        // effect or fail only after the authored transaction begins.
+        $negotiatedSelectedActions = $this->selectedActions;
         $freshPlan = $this->build_plan($opts, $compiled, $scoped, !$scoped);
         if ($scoped) {
             $freshPlan = ScopedApply::project_plan($freshPlan, $this->scopeContract);
+            $freshRebuildWork = $this->rebuild_work(
+                $freshPlan,
+                $tree,
+                $opts,
+                $retryingIncompleteApply
+            );
+            $freshSelectedActions = $this->policy->actions_for($this->rebuild_surfaces(
+                $freshRebuildWork['work'],
+                $tree,
+                $freshRebuildWork['rebuild_delete_work']
+            ));
+            if (Canon::encode($freshSelectedActions) !== Canon::encode($negotiatedSelectedActions)) {
+                throw new \RuntimeException(
+                    'duo: scoped action selection changed after planning; no target mutation attempted'
+                );
+            }
         }
+        $this->selectedActions = $negotiatedSelectedActions;
         if (!hash_equals($this->plan_precondition_hash($plan), $this->plan_precondition_hash($freshPlan))) {
             throw new \RuntimeException(
                 'duo: promotion preconditions changed after planning; no target mutation attempted — recompile and retry'
