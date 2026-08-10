@@ -793,7 +793,10 @@ final class AdapterCatalog {
             // load; `adapter` means one adapter was dropped and the rest of
             // its source is unaffected.
             echo '  [' . $refusal['code'] . '] [' . ($refusal['source'] ?? '?') . ' source, '
-                . ($refusal['scope'] ?? '?') . " scope] " . implode(', ', $refusal['paths']) . "\n";
+                . ($refusal['scope'] ?? '?') . ' scope] ' . implode(', ', array_map(
+                    static fn($path): string => AdapterSources::render_untrusted($path),
+                    (array) $refusal['paths']
+                )) . "\n";
             echo '          ' . $refusal['message'] . "\n";
             echo '          remediation: ' . $refusal['remediation'] . "\n";
         }
@@ -822,12 +825,20 @@ final class AdapterCatalog {
         }
         foreach ($rows as $row) {
             $winner = is_array($row['winner'] ?? null) ? $row['winner'] : null;
-            echo '  [' . (string) $row['reason_code'] . '] ' . (string) ($row['name'] ?? '(name unreadable)')
-                . ' — ' . (string) $row['path']
+            // Rendered at the point of PRINT, never in the document: `name` is
+            // a declared name out of a third party's manifest and `path`
+            // carries a plugin directory name, so both can hold bytes that
+            // rewrite a terminal. The JSON keeps them exact — a report whose
+            // rendered line and machine record disagreed about a filename
+            // would be worse than either.
+            echo '  [' . (string) $row['reason_code'] . '] ' . ($row['name'] === null
+                    ? '(name unreadable)'
+                    : AdapterSources::render_untrusted($row['name']))
+                . ' — ' . AdapterSources::render_untrusted($row['path'])
                 . ($winner === null
                     ? "\n"
-                    : ' — ' . (string) $winner['source'] . ' answers to this name (' . (string) $winner['path']
-                        . ")\n");
+                    : ' — ' . (string) $winner['source'] . ' answers to this name ('
+                        . AdapterSources::render_untrusted($winner['path']) . ")\n");
             echo '          ' . (string) $row['message'] . "\n";
         }
     }

@@ -1394,6 +1394,57 @@ if (@chmod($lockedPluginsRoot, 0311) && !is_readable($lockedPluginsRoot)) {
 }
 
 // ======================================================================
+echo "\n== an UNREADABLE bundle refuses cleanly, on the active path ==\n";
+// ======================================================================
+// The directory-level twin of the group above, one level down and on the path
+// every Policy::load() takes. read_manifest() already caught the exception
+// half, but Canon::read_file()'s file_get_contents() emitted a PHP warning
+// BEFORE returning false — printed into the middle of whatever document the
+// caller was building, which is how a --format=json answer became unparseable
+// over a file the engine was about to refuse cleanly anyway.
+$unreadableBundle = plugins_dir('unreadable', [
+    'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
+    'good' => ['bundle' => bundle('other-widget', 'good/good.php')],
+]);
+if (@chmod($unreadableBundle . '/acme/duo-adapter.json', 0000)
+    && !is_readable($unreadableBundle . '/acme/duo-adapter.json')) {
+    foreach ([false, true] as $strictRead) {
+        $readLabel = $strictRead ? 'with a warnings-as-exceptions handler' : 'with ordinary PHP error handling';
+        $unreadable = child([
+            'plugins' => $unreadableBundle,
+            'active' => ['acme/acme.php', 'good/good.php'],
+            'name' => 'acme-widget',
+            'strict_errors' => $strictRead,
+            'tolerate_junk' => true,
+        ]);
+        check(
+            !array_key_exists('__unparseable', $unreadable)
+            && ($unreadable['__stderr'] ?? '') === '',
+            "an unreadable bundle leaves the scan's output a parseable document with an empty diagnostic "
+            . "stream, $readLabel (junk: " . substr((string) ($unreadable['__unparseable'] ?? ''), 0, 160)
+            . ' | stderr: ' . substr((string) ($unreadable['__stderr'] ?? ''), 0, 160) . ')'
+        );
+        $unreadableRows = rows_with($unreadable['discover']['plugin_refusals'] ?? [], 'code', 'malformed_manifest');
+        check(
+            count($unreadableRows) === 1
+            && str_contains((string) $unreadableRows[0]['message'], 'cannot be read')
+            && str_contains((string) $unreadableRows[0]['remediation'], 'readable by the user running duo')
+            && ($unreadable['discover']['source'] ?? null) === null,
+            "and refuses it as one clean row telling the operator what to fix, $readLabel (rows: "
+            . implode(', ', array_column($unreadable['discover']['plugin_refusals'] ?? [], 'code')) . ')'
+        );
+        check(
+            rows_with($unreadable['survey']['adapters'] ?? [], 'name', 'other-widget') !== [],
+            "while the readable bundle beside it still installs, $readLabel"
+        );
+    }
+    @chmod($unreadableBundle . '/acme/duo-adapter.json', 0644);
+} else {
+    check(true, '(SKIPPED: this harness cannot create an unreadable file on this filesystem/uid)');
+    @chmod($unreadableBundle . '/acme/duo-adapter.json', 0644);
+}
+
+// ======================================================================
 echo "\n== a bundle is CONTAINED before it is read — inactive plugins included ==\n";
 // ======================================================================
 // The inactive path used to read first and test containment never: a bundle
@@ -1491,6 +1542,85 @@ check(
 // Long AND refusable: `assert_name()` has no length cap of its own (a
 // 4000-character lowercase slug is a legal identity), so an uppercase byte is
 // what makes this reach a refusal message at all.
+// The rendered TEXT, not just the row fields. render() sanitizes what the scan
+// puts in a message, but `name` and `paths` are DATA — deliberately kept raw so
+// a rendered line and a --format=json document describe the same bytes — and
+// both renderers printed them straight to the terminal. Two vectors, one per
+// field, driven end to end through the real renderers.
+$inactiveNameVector = child([
+    'plugins' => plugins_dir('render-name', [
+        'sleeping' => ['bundle' => adapter($escape, [
+            'plugin' => 'sleeping/sleeping.php',
+            'version_range' => ['max' => '9.0.0', 'min' => '1.0.0'],
+        ])],
+    ]),
+    'active' => [],
+    'repo' => null,
+    'mode' => 'survey_cli',
+]);
+check(
+    str_contains((string) ($inactiveNameVector['text'] ?? ''), 'hex ')
+    && strcspn((string) ($inactiveNameVector['text'] ?? ''), "\x1b\x00\x07")
+        === strlen((string) ($inactiveNameVector['text'] ?? '')),
+    'the RENDERED not-installed block carries no escape byte for an inactive bundle whose declared name is an '
+    . 'ANSI sequence — the `name` field reaches the terminal through the renderer, not only through a message'
+);
+check(
+    ($inactiveNameVector['document']['not_installed'][0]['name'] ?? null) === $escape,
+    'while the DOCUMENT keeps that name exactly as the bundle declared it — a report whose rendered line and '
+    . 'machine record disagreed about an identity would be worse than either (JSON transport escapes it as '
+    . '\\u001b, which is a transport encoding rather than a sanitization)'
+);
+$pathVector = plugins_dir('render-path', [
+    'acme' => ['bundle' => bundle('acme-widget', 'acme/acme.php')],
+]);
+write_file($pathVector . '/acme/' . "duo-adapters\x1b[2J.json", "{}\n");
+$pathRendered = child([
+    'plugins' => $pathVector,
+    'active' => ['acme/acme.php'],
+    'repo' => null,
+    'mode' => 'survey_cli',
+]);
+check(
+    str_contains((string) ($pathRendered['text'] ?? ''), 'hex ')
+    && strcspn((string) ($pathRendered['text'] ?? ''), "\x1b\x00\x07")
+        === strlen((string) ($pathRendered['text'] ?? '')),
+    'and an ACTIVE plugin shipping a near-miss FILE whose name carries ESC bytes cannot inject through the '
+    . 'refusal `paths` list either, which the renderer used to implode straight into the terminal'
+);
+check(
+    ($pathRendered['document']['refusals'][0]['paths'][0] ?? null) === "plugins/acme/duo-adapters\x1b[2J.json",
+    'and that path is likewise exact in the document, so it still names the file an operator has to go delete'
+);
+
+// The third channel, and the one the other two do not reach: a plugin
+// DIRECTORY whose own name carries ESC bytes puts them in the middle of every
+// repo-relative path this scan builds — including the paths interpolated into
+// the shared privilege message, which is engine prose rather than a data field.
+$dirEscape = "acme\x1b[2Jx";
+$dirEscapeRoot = plugins_dir('render-dir', []);
+write_file($dirEscapeRoot . '/' . $dirEscape . '/' . $dirEscape . '.php', "<?php\n");
+write_file(
+    $dirEscapeRoot . '/' . $dirEscape . '/duo-adapter.json',
+    Canon::encode(bundle('acme-widget', $dirEscape . '/' . $dirEscape . '.php', ['interpreter' => 'acf']))
+);
+$dirEscaped = child([
+    'plugins' => $dirEscapeRoot,
+    'active' => [$dirEscape . '/' . $dirEscape . '.php'],
+    'repo' => null,
+    'mode' => 'survey_cli',
+]);
+$dirEscapedRefusals = $dirEscaped['document']['refusals'] ?? [];
+check(
+    rows_with($dirEscapedRefusals, 'code', 'out_of_tree_privilege') !== []
+    && strcspn((string) ($dirEscaped['text'] ?? ''), "\x1b\x00\x07")
+        === strlen((string) ($dirEscaped['text'] ?? ''))
+    && str_contains((string) ($dirEscaped['text'] ?? ''), 'hex '),
+    'a plugin DIRECTORY whose name carries ESC bytes cannot inject through the shared privilege refusal either '
+    . '— that message is engine prose interpolating a path, so rendering the data fields alone would have left '
+    . 'it open (codes: ' . implode(', ', array_column($dirEscapedRefusals, 'code')) . ')'
+);
+
 $longName = str_repeat('A', 4000);
 $capped = child([
     'plugins' => plugins_dir('longname', [
@@ -1545,6 +1675,44 @@ check(
     && ($bothActive['discover']['path'] ?? null) === 'plugins/acme/duo-adapter.json',
     'while a directory whose SECOND plugin file is also active accepts the manifest that names it — exact '
     . 'equality against every active basename in that directory, not against whichever one sorts first'
+);
+// IDENTITY, not just acceptance. The anchored basename enters the §5
+// provenance reason, the reason enters the disposition, and the disposition
+// enters the adapter digest a pin binds — so taking the alphabetically-first
+// active basename instead of the PROVEN one made the adapter's identity depend
+// on which SIBLING plugin happened to be active. Deactivating an unrelated
+// plugin then silently moved the digest, and the pin failed with a mismatch
+// pointing at nothing the operator had touched.
+$bothActivePin = child([
+    'plugins' => $multiHeader,
+    'active' => ['acme/acme.php', 'acme/other.php'],
+    'repo' => site_repo([['name' => 'acme-widget', 'source' => 'plugin']]),
+    'name' => 'acme-widget',
+    'mode' => 'pin',
+]);
+$siblingGonePin = child([
+    'plugins' => $multiHeader,
+    'active' => ['acme/other.php'],
+    'repo' => site_repo([['name' => 'acme-widget', 'source' => 'plugin']]),
+    'name' => 'acme-widget',
+    'mode' => 'pin',
+]);
+check(
+    is_string($bothActivePin['pin']['digest'] ?? null)
+    && ($bothActivePin['pin']['digest'] ?? null) === ($siblingGonePin['pin']['digest'] ?? null),
+    'and the adapter\'s DIGEST is unchanged when an unrelated sibling plugin in the same directory is '
+    . 'deactivated — its identity is a function of its own bytes and its own path, never of which neighbour '
+    . 'happens to be running (both active: ' . substr((string) ($bothActivePin['pin']['digest'] ?? '?'), 0, 12)
+    . ', sibling off: ' . substr((string) ($siblingGonePin['pin']['digest'] ?? '?'), 0, 12) . ')'
+);
+check(
+    str_contains(
+        (string) ($bothActivePin['discover']['provenance']['reason'] ?? ''),
+        "bundled by the active plugin 'acme/other.php'"
+    ),
+    'because the digest-bearing reason names the plugin the manifest ANCHORED to, which is the one the version '
+    . 'and activation verdicts will be answered against (reason: '
+    . substr((string) ($bothActivePin['discover']['provenance']['reason'] ?? '(none)'), 0, 110) . '...)'
 );
 
 // ======================================================================
@@ -1614,6 +1782,97 @@ check(
     . 'it correctly says nothing at all (plugin: '
     . var_export($barePluginRow['certification'] ?? '(absent)', true) . ', shipped: '
     . var_export($bareShippedRow['certification'] ?? '(absent)', true) . ')'
+);
+
+// The DISCRIMINATING fixture, and the check above is not it: against a
+// registry-less library `site_certification()` would answer `uncertified` for
+// a plugin row anyway, so routing plugin rows through it is indistinguishable
+// there. What separates the two is a live `certification_source` refusal —
+// which B2 made reachable from the PLUGIN source, by a plugin shipping a
+// `duo-adapter.certification.json` beside its bundle.
+//
+// Two independent bugs are pinned here at once. Routing a plugin row through
+// the site branch answers `certification_unjudged` about a certificate that
+// cannot exist for this source at all; and letting that refusal set the
+// unjudged flag WITHOUT filtering on `source` lets one third party's stray
+// file re-judge every adapter in the operator's own repository.
+$strayCertPlugins = plugins_dir('straycert', [
+    'acme' => [
+        'bundle' => bundle('acme-widget', 'acme/acme.php'),
+        'files' => ['duo-adapter.certification.json' => "{}\n"],
+    ],
+    'good' => ['bundle' => bundle('other-widget', 'good/good.php')],
+]);
+$strayCertRepo = site_repo(
+    [['name' => 'keeper', 'source' => 'site']],
+    ['keeper' => adapter('keeper')]
+);
+$strayCert = child([
+    'plugins' => $strayCertPlugins,
+    'active' => ['acme/acme.php', 'good/good.php'],
+    'repo' => $strayCertRepo,
+    'name' => 'other-widget',
+]);
+$strayRows = $strayCert['survey']['adapters'] ?? [];
+$strayPluginRow = rows_with($strayRows, 'name', 'other-widget')[0] ?? [];
+$straySiteRow = rows_with($strayRows, 'name', 'keeper')[0] ?? [];
+check(
+    rows_with($strayCert['survey']['refusals'] ?? [], 'code', 'certification_source') !== []
+    && array_values(array_unique(array_column(
+        rows_with($strayCert['survey']['refusals'] ?? [], 'code', 'certification_source'),
+        'source'
+    ))) === ['plugin'],
+    'a plugin shipping a certificate-shaped companion draws a certification_source refusal attributed to the '
+    . 'PLUGIN source (rows: '
+    . implode(', ', array_column($strayCert['survey']['refusals'] ?? [], 'code')) . ')'
+);
+check(
+    array_key_exists('certification', $strayPluginRow)
+    && $strayPluginRow['certification'] === 'uncertified',
+    'the healthy plugin row beside it still says exactly `uncertified` — never `certification_unjudged`, which '
+    . 'would be a verdict about certificate evidence this source cannot carry in the first place (found: '
+    . var_export($strayPluginRow['certification'] ?? '(absent)', true) . ')'
+);
+check(
+    array_key_exists('certification', $straySiteRow)
+    && $straySiteRow['certification'] === 'uncertified',
+    'and the operator\'s OWN site adapter is untouched by it: one third party\'s stray file must not re-judge '
+    . 'every adapter in this repository, which is grammar_verdict()\'s rule applied to the same two fields '
+    . '(found: ' . var_export($straySiteRow['certification'] ?? '(absent)', true) . ')'
+);
+// The filter has to hold in BOTH directions, and this is the half that also
+// discriminates "plugin rows are flatly uncertified" from "plugin rows go
+// through site_certification()". A genuine SITE certification-source refusal
+// DOES set the unjudged flag — correctly, for site rows, whose companion
+// certificates really were never paired. A plugin row must not inherit it:
+// `certification_unjudged` would be a verdict about evidence that cannot exist
+// for this source at all, which is a different false statement from the one
+// above and needs its own fixture to see.
+$siteStrayRepo = site_repo(
+    [['name' => 'keeper', 'source' => 'site']],
+    ['keeper' => adapter('keeper')]
+);
+write_file($siteStrayRepo . '/adapters/certifications/README', "notes\n");
+$siteStray = child([
+    'plugins' => $happyPlugins,
+    'active' => ['acme/acme.php'],
+    'repo' => $siteStrayRepo,
+    'name' => 'acme-widget',
+]);
+$siteStrayRefusals = rows_with($siteStray['survey']['refusals'] ?? [], 'code', 'certification_source');
+$siteStrayPluginRow = rows_with($siteStray['survey']['adapters'] ?? [], 'name', 'acme-widget')[0] ?? [];
+check(
+    $siteStrayRefusals !== []
+    && ($siteStrayRefusals[0]['source'] ?? null) === 'site',
+    'a malformed SITE certification directory still draws its own certification_source refusal, attributed to '
+    . 'the site source'
+);
+check(
+    array_key_exists('certification', $siteStrayPluginRow)
+    && $siteStrayPluginRow['certification'] === 'uncertified',
+    'and a plugin row beside it is still exactly `uncertified` — it does not inherit the site source\'s '
+    . '`certification_unjudged`, which would report unexamined certificate evidence for a source that can '
+    . 'carry none (found: ' . var_export($siteStrayPluginRow['certification'] ?? '(absent)', true) . ')'
 );
 
 // ======================================================================

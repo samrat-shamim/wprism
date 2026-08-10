@@ -801,7 +801,10 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    check(count($advertised) === 21, 'every one of the 21 --format=json commands was scanned (' . count($advertised) . ')');
+    // 22 since DUO-3339/B2 added `adapter-survey`, the target-side half of the
+    // adapter catalog. It advertises --format=json, so the contract sentence
+    // covers it and this count moves with the set rather than around it.
+    check(count($advertised) === 22, 'every one of the 22 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

@@ -685,7 +685,7 @@ final class AdapterSources {
                 self::REFUSAL_INVALID_NAME,
                 [$relative],
                 'rename the file to a canonical lowercase ASCII slug',
-                static fn() => self::assert_name($name, "site adapter '$relative'")
+                static fn() => self::assert_name($name, 'site adapter ' . self::render($relative))
             )) {
                 continue;
             }
@@ -701,7 +701,8 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_SHADOWS_SHIPPED,
                     [$relative, (string) $collision['path']],
-                    "duo: site adapter '$relative' shadows the shipped adapter '$name' ({$collision['file']}) — "
+                    'duo: site adapter ' . self::render($relative) . " shadows the shipped adapter '$name' "
+                    . "({$collision['file']}) — "
                     . 'an out-of-tree adapter overlays the shipped set, it never replaces a member of it. Rename the '
                     . 'site adapter, or remove it and pin the shipped adapter',
                     "rename the site adapter, or remove it and pin the shipped '$name'"
@@ -740,7 +741,8 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_MALFORMED_MANIFEST,
                     [$relative],
-                    "duo: site adapter '$relative' cannot be read as a manifest: " . $read['error'],
+                    'duo: site adapter ' . self::render($relative) . ' cannot be read as a manifest: '
+                    . $read['error'],
                     self::repair_advice($read['stage']) . ', or remove it from ' . self::SITE_DIR . '/'
                 );
                 continue;
@@ -766,7 +768,8 @@ final class AdapterSources {
                     self::SITE,
                     self::REFUSAL_NAME_COLLISION,
                     [$relative, self::SHIPPED . ':' . $shippedNames[$name]],
-                    "duo: site adapter '$relative' claims the name '$name', already declared by the shipped manifest "
+                    'duo: site adapter ' . self::render($relative) . " claims the name '$name', already "
+                    . 'declared by the shipped manifest '
                     . "'{$shippedNames[$name]}' — two adapters cannot answer to one name",
                     "choose a name no shipped manifest declares, or pin the shipped '{$shippedNames[$name]}' instead"
                 );
@@ -1046,7 +1049,8 @@ final class AdapterSources {
                 $declared = $read['stage'] === 'ok' ? ($read['manifest']['name'] ?? null) : null;
                 $notInstalled[] = [
                     'message' => 'adapter ' . (is_string($declared) ? self::render($declared) . ' ' : '')
-                        . "is bundled at $relative, but the plugin " . self::render($candidate['plugin'])
+                        . 'is bundled at ' . self::render($relative) . ', but the plugin '
+                        . self::render($candidate['plugin'])
                         . ' that owns it is not active — activation is the consent that installs a bundled adapter'
                         . (is_string($declared) ? '' : ', and this bundle\'s declared name could not be read'),
                     'name' => is_string($declared) ? $declared : null,
@@ -1058,12 +1062,30 @@ final class AdapterSources {
                 ];
                 continue;
             }
-            $manifest = self::plugin_candidate_manifest($candidate, $relative, $refusals, $refusedNames);
+            $anchored = null;
+            $manifest = self::plugin_candidate_manifest(
+                $candidate,
+                $relative,
+                $refusals,
+                $refusedNames,
+                $anchored
+            );
             if ($manifest === null) {
                 continue;
             }
             $name = (string) $manifest['name'];
             $candidates[$name][] = [
+                // The basename the anchor rule PROVED this manifest names, not
+                // whichever of the directory's active plugins sorted first.
+                // The distinction is identity-bearing: this string enters the
+                // §5 provenance reason, the reason enters the disposition, and
+                // the disposition enters the adapter digest a pin binds. With
+                // the first-sorted basename, a directory running two plugins
+                // gave the adapter a digest that depended on which SIBLING was
+                // active — so deactivating an unrelated plugin silently moved
+                // the adapter's identity and the pin failed with a digest
+                // mismatch pointing at nothing the operator had touched.
+                'anchored' => $anchored,
                 'file' => $candidate['file'],
                 'manifest' => $manifest,
                 'path' => $relative,
@@ -1089,7 +1111,10 @@ final class AdapterSources {
                     'duo: the active plugins ' . implode(' and ', array_map(
                         static fn(string $p): string => self::render($p),
                         $plugins
-                    )) . " each bundle an adapter named '$name' (" . implode(', ', $paths) . ') — precedence '
+                    )) . " each bundle an adapter named '$name' (" . implode(', ', array_map(
+                        static fn(string $path): string => self::render($path),
+                        $paths
+                    )) . ') — precedence '
                     . 'ranks adapter SOURCES, and these are the same source, so there is no rule that could '
                     . 'decide which definition this site runs. Neither is installed',
                     'deactivate one of the colliding plugins, or install the definition this site intends to run '
@@ -1155,7 +1180,8 @@ final class AdapterSources {
                     self::PLUGIN,
                     self::REFUSAL_CASE_COLLISION,
                     [(string) $claimant['path'], (string) $confusable['path']],
-                    "duo: plugin adapter '{$claimant['path']}' claims the name " . self::render($name)
+                    'duo: plugin adapter ' . self::render((string) $claimant['path']) . ' claims the name '
+                    . self::render($name)
                     . ', which differs only by letter case from the ' . $confusable['source'] . ' adapter ('
                     . $confusable['path'] . ') — one name on a case-insensitive filesystem, two on a '
                     . 'case-sensitive one. Choose a name that is distinct without relying on case',
@@ -1176,7 +1202,7 @@ final class AdapterSources {
                 (string) $claimant['path'],
                 $claimant['manifest'],
                 self::PLUGIN,
-                (string) $claimant['plugin']
+                (string) $claimant['anchored']
             );
         }
     }
@@ -1328,7 +1354,8 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_SYMLINK_SOURCE,
                 [$relative],
-                'duo: the plugin ' . self::render($candidate['plugin']) . " bundles $relative as "
+                'duo: the plugin ' . self::render($candidate['plugin']) . ' bundles '
+                . self::render($relative) . ' as '
                 . (is_link($file)
                     ? 'a symbolic link (-> ' . self::render(readlink($file) ?: '?') . ')'
                     : (is_dir($file)
@@ -1356,15 +1383,19 @@ final class AdapterSources {
      * to bundle an adapter that the engine would otherwise silently never
      * load.
      *
-     * @param array{active:bool, dir:string, file:string, plugin:string} $candidate
+     * @param array{active:bool, dir:string, file:string, plugin:string, plugins:list<string>} $candidate
      * @param list<array<string,mixed>> $refusals
+     * @param ?string $anchored set to the ACTIVE plugin basename this manifest
+     *        proved it belongs to — the caller needs the proven one, not a
+     *        guess, because it is identity-bearing
      * @return ?array<string,mixed> the decoded manifest, with a validated `name`
      */
     private static function plugin_candidate_manifest(
         array $candidate,
         string $relative,
         array &$refusals,
-        array &$refusedNames
+        array &$refusedNames,
+        ?string &$anchored = null
     ): ?array {
         $pluginDir = dirname($candidate['file']);
         $ok = true;
@@ -1470,7 +1501,8 @@ final class AdapterSources {
                 self::PLUGIN,
                 self::REFUSAL_MALFORMED_MANIFEST,
                 [$relative],
-                "duo: plugin adapter '$relative' cannot be read as a manifest: " . $read['error'],
+                'duo: plugin adapter ' . self::render($relative) . ' cannot be read as a manifest: '
+                . $read['error'],
                 self::repair_advice($read['stage']) . ', or remove it from the plugin'
             );
             return null;
@@ -1493,7 +1525,8 @@ final class AdapterSources {
             static function () use ($declared, $relative): void {
                 if (!is_string($declared)) {
                     throw new \RuntimeException(
-                        "duo: plugin adapter '$relative' declares name " . self::render($declared)
+                        'duo: plugin adapter ' . self::render($relative) . ' declares name '
+                        . self::render($declared)
                         . ' — a bundled adapter is named by its manifest, never by its file name (every bundle is '
                         . 'called ' . self::PLUGIN_FILE . '), so a missing or non-string `name` leaves it with no '
                         . 'identity at all'
@@ -1501,11 +1534,12 @@ final class AdapterSources {
                 }
                 if ($declared === 'dispositions') {
                     throw new \RuntimeException(
-                        "duo: plugin adapter '$relative' declares the reserved name 'dispositions', which names "
-                        . "the shipped library's reviewed certification data rather than an adapter"
+                        'duo: plugin adapter ' . self::render($relative) . ' declares the reserved name '
+                        . "'dispositions', which names the shipped library's reviewed certification data "
+                        . 'rather than an adapter'
                     );
                 }
-                self::assert_name($declared, "plugin adapter '$relative' declared name");
+                self::assert_name($declared, 'plugin adapter ' . self::render($relative) . ' declared name');
             }
         )) {
             return null;
@@ -1518,7 +1552,6 @@ final class AdapterSources {
         // already refuses a providers[].plugin that disagrees with the
         // manifest's own `plugin`, so binding this one claim closes the
         // provider story for this source for free.
-        $anchored = null;
         $anchorRow = null;
         if (!self::guarded(
             true,
@@ -1530,7 +1563,8 @@ final class AdapterSources {
             static function () use ($manifest, $candidate, $relative, &$anchored): void {
                 if (!array_key_exists('plugin', $manifest)) {
                     throw new \RuntimeException(
-                        "duo: plugin adapter '$relative' declares no `plugin` — a bundled adapter must name the "
+                        'duo: plugin adapter ' . self::render($relative) . ' declares no `plugin` — a bundled '
+                        . 'adapter must name the '
                         . 'plugin that owns it (' . self::render($candidate['plugin']) . '), because that claim '
                         . 'is the only thing anchoring the manifest to the code it ships with, and it is what a '
                         . 'frozen policy rebuilds this adapter\'s provenance path from'
@@ -1538,7 +1572,7 @@ final class AdapterSources {
                 }
                 $anchored = self::assert_plugin_basename(
                     $manifest['plugin'],
-                    "plugin adapter '$relative' plugin"
+                    'plugin adapter ' . self::render($relative) . ' plugin'
                 );
                 // EXACT basename equality, not merely the same directory. The
                 // claim is what every version check reads: a manifest in
@@ -1553,7 +1587,8 @@ final class AdapterSources {
                 // first.
                 if (!in_array($anchored, $candidate['plugins'], true)) {
                     throw new \RuntimeException(
-                        "duo: plugin adapter '$relative' declares plugin " . self::render($anchored)
+                        'duo: plugin adapter ' . self::render($relative) . ' declares plugin '
+                        . self::render($anchored)
                         . ', but it is bundled by ' . implode(' / ', array_map(
                             static fn(string $p): string => self::render($p),
                             $candidate['plugins']
@@ -1582,7 +1617,8 @@ final class AdapterSources {
                 $manifest,
                 (string) $declared,
                 $relative,
-                'plugin adapter'
+                'plugin adapter',
+                true
             ),
             $privilegeRow
         )) {
@@ -1880,12 +1916,25 @@ final class AdapterSources {
         $hasRegistry = $dispositions !== null
             && is_file(rtrim($manifestDir, '/') . '/capabilities/registry.json');
 
-        // A refused certification SOURCE means certification_files() returned
-        // nothing, so not one companion certificate was paired or opened. Every
-        // site row in this run is therefore unjudged rather than unsigned.
+        // A refused SITE certification source means certification_files()
+        // returned nothing, so not one companion certificate was paired or
+        // opened. Every site row in this run is therefore unjudged rather than
+        // unsigned.
+        //
+        // Filtered on `source`, and that filter is load-bearing since DUO-3339
+        // made `certification_source` reachable from the PLUGIN source too (a
+        // plugin shipping a `duo-adapter.certification.json` beside its
+        // bundle). Unfiltered, one third party's stray file re-judged every
+        // adapter in the operator's OWN repository: a genuinely uncertified
+        // site adapter flipped to `certification_unjudged`, and — worse — a
+        // signed, pinned `third_party_signed` one was masked behind the same
+        // word, reporting reviewed evidence as unexamined. This is
+        // grammar_verdict()'s twin, and `source`/`scope` exist on the row for
+        // exactly these two questions.
         $certificationUnjudged = false;
         foreach ($refusals as $refusal) {
-            if ($refusal['code'] === self::REFUSAL_CERTIFICATION_SOURCE) {
+            if (($refusal['code'] ?? null) === self::REFUSAL_CERTIFICATION_SOURCE
+                && ($refusal['source'] ?? null) === self::SITE) {
                 $certificationUnjudged = true;
                 break;
             }
@@ -2133,7 +2182,10 @@ final class AdapterSources {
             return [
                 'message' => "this adapter's own grammar was not judged: its source carries "
                     . count($blocking) . ' unresolved refusal(s) (first: ' . (string) $first['code'] . ' — '
-                    . implode(', ', (array) $first['paths']) . '), and the engine refuses an adapter source '
+                    . implode(', ', array_map(
+                        static fn($path): string => self::render($path),
+                        (array) $first['paths']
+                    )) . '), and the engine refuses an adapter source '
                     . 'whole-directory before any manifest in it is validated. Resolve the refusals in this '
                     . 'report, then re-run',
                 'status' => self::GRAMMAR_BLOCKED,
@@ -2294,7 +2346,8 @@ final class AdapterSources {
                     self::REFUSAL_INVALID_NAME,
                     [self::SITE_DIR . '/' . $entry],
                     'rename the file to a canonical lowercase ASCII slug',
-                    static fn() => self::assert_name(basename($entry, '.json'), "site adapter '$entry'")
+                    static fn() => self::assert_name(basename($entry, '.json'), 'site adapter '
+                        . self::render($entry))
                 );
             }
         }
@@ -2334,7 +2387,9 @@ final class AdapterSources {
             }
             self::assert_name(
                 basename($entry, '.json'),
-                "site adapter certificate '" . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$entry'"
+                'site adapter certificate ' . self::render(
+                    self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$entry"
+                )
             );
         }
     }
@@ -2448,6 +2503,22 @@ final class AdapterSources {
      * unaffected: it already fired for exactly these values, and it is what
      * keeps the refusal actionable after the substitution.
      */
+    /**
+     * render(), for the two CLI renderers.
+     *
+     * They print the SAME third-party strings this scan quotes — a bundled
+     * adapter's declared `name`, and paths whose middle segment is a plugin
+     * directory name — straight out of the report's data fields, which are
+     * deliberately kept raw so a rendered line and a `--format=json` document
+     * still describe the same bytes. Sanitizing a value at every place it is
+     * PRINTED, rather than where it is stored, is what keeps those two true at
+     * once; sharing the one implementation is what stops the terminal-safety
+     * rule from acquiring a second, weaker copy in each renderer.
+     */
+    public static function render_untrusted($value): string {
+        return self::render($value);
+    }
+
     private static function render($value, int $limit = 256): string {
         if (!is_string($value)) {
             return var_export($value, true);
@@ -2771,7 +2842,7 @@ final class AdapterSources {
         $declared,
         string $name
     ): string {
-        return "duo: $source adapter '$path' declares name " . self::render($declared)
+        return "duo: $source adapter " . self::render($path) . ' declares name ' . self::render($declared)
             . ' but its file name is ' . self::render($name) . ' — a pin names the file while every '
             . 'downstream identity (dispositions, digests, diagnostics) keys off the declared name, so the '
             . 'two disagreeing is ambiguous identity. Make the declared name match the file name';
@@ -2794,8 +2865,16 @@ final class AdapterSources {
         array $manifest,
         string $name,
         string $relativePath,
-        string $label = 'site adapter'
+        string $label = 'site adapter',
+        bool $renderPath = false
     ): void {
+        // The path is a message field here, and for the PLUGIN source its
+        // middle segment is a third party's directory name, which can hold
+        // bytes that rewrite a terminal. Rendering is opt-in rather than
+        // unconditional so every site-source message stays byte-identical —
+        // those paths are `adapters/<slug>.json` and this project's
+        // regressions compare them exactly.
+        $shown = $renderPath ? self::render($relativePath) : "'$relativePath'";
         $remedy = "install the adapter into the agent's own manifest library (where its code ships, digest-binds, and "
             . 'is reviewed with it), or declare a plugin-owned provider whose code the installed plugin already owns';
         foreach ([
@@ -2804,7 +2883,7 @@ final class AdapterSources {
         ] as $reserved) {
             if (array_key_exists($reserved, $manifest)) {
                 throw new \RuntimeException(
-                    "duo: $label '$relativePath' declares reserved authority field '$reserved' — a data-only "
+                    "duo: $label $shown declares reserved authority field '$reserved' — a data-only "
                     . 'manifest cannot certify itself or carry a trust root. Put an externally signed companion at '
                     . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . "/$name.json instead"
                 );
@@ -2817,7 +2896,7 @@ final class AdapterSources {
         // Policy::validate_adapter_contract()'s job, for every source.)
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
             throw new \RuntimeException(
-                "duo: $label '$relativePath' declares interpreter "
+                "duo: $label $shown declares interpreter "
                 . var_export($manifest['interpreter'], true) . ", but interpreter code loads only from the agent's "
                 . 'manifest library — an out-of-tree manifest is data and acquires no executable privileges. '
                 . "Remediation: $remedy"
@@ -2827,7 +2906,7 @@ final class AdapterSources {
             $regenerator = is_array($declaration) ? ($declaration['regen_dependency']['regenerator'] ?? null) : null;
             if ($regenerator !== null) {
                 throw new \RuntimeException(
-                    "duo: $label '$relativePath' post_types.$postType declares regenerator "
+                    "duo: $label $shown post_types.$postType declares regenerator "
                     . var_export($regenerator, true) . ", but regenerator code loads only from the agent's manifest "
                     . "library — an out-of-tree manifest is data and acquires no executable privileges. "
                     . "Remediation: $remedy"
@@ -2838,12 +2917,12 @@ final class AdapterSources {
             if (is_array($declaration) && ($declaration['source'] ?? null) === 'plugin') {
                 self::assert_plugin_basename(
                     $declaration['plugin'] ?? null,
-                    "$label '$relativePath' providers[$i].plugin"
+                    "$label $shown providers[$i].plugin"
                 );
             }
             if (is_array($declaration) && ($declaration['source'] ?? null) === 'manifest') {
                 throw new \RuntimeException(
-                    "duo: $label '$relativePath' providers[$i] declares source \"manifest\", which resolves to "
+                    "duo: $label $shown providers[$i] declares source \"manifest\", which resolves to "
                     . "the agent's own manifests/providers/ tree — an out-of-tree manifest cannot supply provider "
                     . "code. Use source \"plugin\" so the installed plugin remains the code's trust anchor, or: $remedy"
                 );
@@ -2856,7 +2935,7 @@ final class AdapterSources {
         $tier = self::trust_tier($manifest);
         if ($tier === self::TIER_COMPATIBILITY_SHIM) {
             throw new \RuntimeException(
-                "duo: $label '$relativePath' reaches the $tier trust tier, which an out-of-tree adapter cannot "
+                "duo: $label $shown reaches the $tier trust tier, which an out-of-tree adapter cannot "
                 . "hold. Remediation: $remedy"
             );
         }

@@ -1212,6 +1212,56 @@ foreach ([
 }
 
 // ======================================================================
+echo "\n== a refused file's own NAME cannot rewrite this report ==\n";
+// ======================================================================
+// Refusal `paths` are DATA, kept exactly as the file is spelled so the row
+// still names something an operator can go delete — and this renderer imploded
+// them straight into the terminal. A site adapter file whose name carries ANSI
+// escapes reaches that list through the ordinary identity refusal, so the
+// bytes are third-party here too even in the operator's own directory: the
+// engine never authored that filename.
+$escapeName = "evil\x1b[2J\x1b[1;1Hok: everything is certified";
+$escapeRepo = site_repo(['keeper'], ['keeper' => site_adapter('keeper')]);
+file_put_contents("$escapeRepo/adapters/$escapeName.json", "{}\n");
+if (in_array("$escapeName.json", scandir("$escapeRepo/adapters") ?: [], true)) {
+    $escapeText = duo(['doctor', '--repo=' . $escapeRepo]);
+    $escapeJson = report(duo(['doctor', '--repo=' . $escapeRepo, '--format=json']));
+    check(
+        strcspn($escapeText['stdout'], "\x1b\x00\x07") === strlen($escapeText['stdout'])
+        && str_contains($escapeText['stdout'], 'hex '),
+        'the rendered report carries no escape byte, and keeps the hex receipt that makes the refusal '
+        . 'actionable'
+    );
+    check(
+        in_array(
+            AdapterSources::SITE_DIR . "/$escapeName.json",
+            (array) (refusals_of($escapeJson)[0]['paths'] ?? []),
+            true
+        ),
+        'while the document still spells the path exactly as the file is spelled — the rendered line and the '
+        . 'machine record must not disagree about which file to delete'
+    );
+} else {
+    check(false, "fixture '$escapeName.json' could not be created as its own entry on this filesystem");
+}
+// The not-installed renderer takes the same values through the same rule, but
+// a WordPress-free host process never populates that block: `not_installed`
+// rows come from the plugin source, which needs WP_PLUGIN_DIR. So its
+// protection is asserted against the SOURCE — the wiring precedent
+// regress_provider_contract.php:1082-1090 sets for a branch that cannot be
+// reached from here — while `wp duo adapter-survey` drives it for real in
+// regress_plugin_adapter_source.php.
+$catalogSource = (string) file_get_contents(dirname(__DIR__, 2) . '/cli/src/AdapterCatalog.php');
+preg_match('/private static function render_not_installed.*?\n    \}/s', $catalogSource, $notInstalledRenderer);
+check(
+    isset($notInstalledRenderer[0])
+    && substr_count($notInstalledRenderer[0], 'AdapterSources::render_untrusted(') === 3
+    && !preg_match('/\$row\[.name.\] \?\? .\(name unreadable\).\)\n/', $notInstalledRenderer[0]),
+    'and the not-installed renderer routes its three untrusted fields (name, path, winner path) through the '
+    . 'same shared renderer, which is checkable here even though only the target-side survey can populate it'
+);
+
+// ======================================================================
 echo "\n== the human renderer says the same things the document does ==\n";
 // ======================================================================
 $text = duo(['list', '--repo=' . $refusalCases['shadows_shipped']]);

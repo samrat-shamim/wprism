@@ -248,6 +248,7 @@ final class Cli {
             'classify' => 'inspect the rejected --set spec and the repository policy file, then correct its section, key, class, or secret override before writing rules again',
             'lint' => 'inspect the repository policy and the captured state tree, then capture or correct the policy before linting again',
             'capabilities' => 'inspect the manifest disposition registry, the generated capability registry, and this repository\'s manifest pins, then correct that evidence before reporting capabilities again',
+            'adapter-survey' => 'inspect the agent manifest library and, if --repo was given, that repository\'s site.duo.json and adapters/ source, then correct the unreadable or malformed input before surveying again',
             default => "correct the named $command blocker, then retry the command",
         };
     }
@@ -2084,8 +2085,17 @@ final class Cli {
     public function adapter_survey($args, $assoc) {
         $repo = isset($assoc['repo']) ? (string) $assoc['repo'] : null;
         try {
+            // This command advertises --format=json, so its refusals belong
+            // inside DUO-3399's common envelope like every other one that
+            // does: an orchestrator polling the target's adapter inventory
+            // must not get human stderr and no record when the manifest
+            // library itself is unreadable. survey() reports rather than
+            // throws by construction, so reaching here means an IO fault
+            // about this command's own inputs — which is exactly the shape
+            // the envelope exists to make machine-readable.
             $survey = AdapterSources::survey($repo);
         } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'adapter-survey');
             WP_CLI::error($t->getMessage());
         }
         $grammarErrors = 0;
@@ -2171,10 +2181,16 @@ final class Cli {
         WP_CLI::line('installed, NOT loaded (reported every run; never the exit code — this is precedence working):');
         foreach ($survey['not_installed'] as $row) {
             $winner = is_array($row['winner'] ?? null) ? $row['winner'] : null;
-            WP_CLI::line('  [' . $row['reason_code'] . '] ' . ($row['name'] ?? '(name unreadable)')
-                . ' — ' . $row['path']
+            // `name` and `path` are third-party bytes — a declared name out of
+            // a bundled manifest, and a path whose middle segment is a plugin
+            // directory name. The document keeps them raw so it still
+            // describes the file on disk; the TERMINAL gets them rendered.
+            WP_CLI::line('  [' . $row['reason_code'] . '] ' . ($row['name'] === null
+                    ? '(name unreadable)'
+                    : AdapterSources::render_untrusted($row['name']))
+                . ' — ' . AdapterSources::render_untrusted($row['path'])
                 . ($winner === null ? '' : ' — ' . $winner['source'] . ' answers to this name ('
-                    . $winner['path'] . ')'));
+                    . AdapterSources::render_untrusted($winner['path']) . ')'));
             WP_CLI::line('          ' . $row['message']);
         }
         if ($survey['not_installed'] === []) {
@@ -2184,7 +2200,10 @@ final class Cli {
         WP_CLI::line('refusals — installed files the engine will not load, and why:');
         foreach ($survey['refusals'] as $refusal) {
             WP_CLI::line('  [' . $refusal['code'] . '] [' . ($refusal['source'] ?? '?') . ' source, '
-                . ($refusal['scope'] ?? '?') . ' scope] ' . implode(', ', (array) $refusal['paths']));
+                . ($refusal['scope'] ?? '?') . ' scope] ' . implode(', ', array_map(
+                    static fn($path): string => AdapterSources::render_untrusted($path),
+                    (array) $refusal['paths']
+                )));
             WP_CLI::line('          ' . $refusal['message']);
             WP_CLI::line('          remediation: ' . $refusal['remediation']);
         }
