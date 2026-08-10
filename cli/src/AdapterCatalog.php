@@ -849,13 +849,13 @@ final class AdapterCatalog {
         echo '  source:            ' . $row['source'] . ' (' . AdapterSources::render_untrusted($row['path']) . ")\n";
         echo "  sha256:            {$row['sha256']}\n";
         echo "  trust_tier:        {$row['trust_tier']}\n";
-        echo "  tier_basis:        {$row['tier_basis']}\n";
+        echo '  tier_basis:        ' . AdapterSources::render_untrusted($row['tier_basis']) . "\n";
         echo '  certification:     ' . ($row['certification']
             ?? '(none — this manifest library carries no reviewed dispositions and no generated registry, '
                 . 'so it makes no product claim)') . "\n";
         echo '  disposition:       ' . ($row['disposition_status'] ?? '(no reviewed entry)') . "\n";
         echo '  grammar:           ' . $row['grammar']['status']
-            . ($row['grammar']['message'] === null ? '' : ' — ' . $row['grammar']['message']) . "\n";
+            . ($row['grammar']['message'] === null ? '' : ' — ' . AdapterSources::render_untrusted($row['grammar']['message'])) . "\n";
 
         $surfaces = $row['executable_surfaces'];
         echo '  interpreter:       ' . ($surfaces['interpreter'] ?? '(none)') . "\n";
