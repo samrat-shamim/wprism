@@ -36,6 +36,7 @@ duo adapter doctor [--repo=<site-repo>] [--format=json]
 duo doctor <env>
 duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
+duo init   <env> [--yes]
 duo status <env>
 duo capabilities <env> [--format=json]
 duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
@@ -250,9 +251,21 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   core-only `site.duo.json` only when that file is absent, verifies
   the exact installed agent version and policy load in fresh wp-cli processes,
   then runs `duo doctor`. Existing site policy is retained. The target needs
-  no Git and the install does not rely on `DUO_MANIFESTS_DIR` surviving into
-  an SSH login. See the operator procedure and safety/update contract in
-  [docs/adoption.md](../docs/adoption.md).
+  no Git for adoption itself and the install does not rely on
+  `DUO_MANIFESTS_DIR` surviving into an SSH login. The separate `duo init`
+  workflow does require target Git. See the operator procedure and
+  safety/update contract in [docs/adoption.md](../docs/adoption.md).
+
+- **`duo init <env> [--yes]`** — asks the reachable target agent for a
+  deterministic, read-only proposal covering platform facts, active code,
+  certified adapters, authored scope, media availability, and value-redacted
+  risk surfaces. It refuses unsupported boundaries before mutation. On
+  confirmation it rechecks the proposal digest under the target's init and
+  publication locks, verifies or creates a target-owned Git worktree, and
+  publishes separate code and canonical state/media baselines. The final
+  status proof is limited to selected managed scope. Init does not install
+  WordPress or deliver the agent; SSH uses `duo adopt` first, while local and
+  Docker targets must already expose the agent through their control plane.
 
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher
@@ -1050,9 +1063,9 @@ and covers only that one environment). It ships in
 check (a tracked secrets file is a blocking failure, not an advisory
 one). That check runs *inside* the target environment, so it needs a
 `git` binary there to inspect tracked status with — most environments
-materializing `wp duo` commands have no structural reason to carry one
-(the agent itself never shells out to git), and this project's own
-sandbox images verifiably don't, so the check degrades to an honest
+materializing ordinary `wp duo` commands have no structural reason to carry
+one, while the `duo init` workflow explicitly requires it. This project's
+base sandbox images verifiably omit Git, so outside init the check degrades to an honest
 advisory "could not verify" in that case rather than a false-clean PASS
 — see `cli/src/Doctor.php`.
 

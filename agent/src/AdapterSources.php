@@ -548,12 +548,38 @@ final class AdapterSources {
         }
         $siteDir = rtrim($repo, '/') . '/' . self::SITE_DIR;
         if (!is_dir($siteDir)) {
+            if (file_exists($siteDir) || is_link($siteDir)) {
+                self::refuse(
+                    $collect,
+                    $refusals,
+                    self::SITE,
+                    self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                    [$siteDir],
+                    "duo: site adapter source $siteDir exists but is not a real directory — "
+                    . 'the repository-owned adapters boundary must be absent or an ordinary directory; '
+                    . 'move the foreign entry before loading policy',
+                    'remove the foreign adapters entry or replace it with an ordinary repository directory'
+                );
+            }
             $sources[] = [
                 'note' => "this repository has no $siteDir directory, so it installs no site adapter",
                 'path' => null,
                 'scanned' => false,
                 'source' => self::SITE,
             ];
+            return;
+        }
+        if (!is_readable($siteDir)) {
+            self::refuse(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
+                "duo: site adapter source $siteDir is not readable — "
+                . 'Duo cannot prove which repository-owned adapters are installed; restore directory read access',
+                'restore directory read access before loading site adapters'
+            );
             return;
         }
         // is_dir() FOLLOWS symlinks, so the source directory itself has to be
@@ -649,7 +675,20 @@ final class AdapterSources {
         self::assert_flat_json_source($siteDir, $collect, $refusals);
 
         $shippedNames = $declaredNames();
-        $siteFiles = glob($siteDir . '/*.json') ?: [];
+        $siteFiles = glob($siteDir . '/*.json');
+        if ($siteFiles === false) {
+            self::refuse(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
+                "duo: site adapter source $siteDir could not be enumerated — "
+                . 'Duo refuses to treat an unreadable repository-owned adapter source as empty',
+                'restore directory enumeration/read access before loading site adapters'
+            );
+            return;
+        }
         // `dispositions.json` was already refused above as a reserved name, and
         // it is the one reserved entry this glob can also match. Reachable only
         // in collect mode — throw mode never gets past that refusal — but there
@@ -2277,7 +2316,20 @@ final class AdapterSources {
      * they assert nothing about adapters and refusing them would be noise.
      */
     private static function assert_flat_json_source(string $siteDir, bool $collect, array &$refusals): void {
-        foreach (scandir($siteDir) ?: [] as $entry) {
+        $entries = @scandir($siteDir);
+        if ($entries === false) {
+            self::refuse(
+                $collect,
+                $refusals,
+                self::REFUSAL_SOURCE_NOT_IN_REPOSITORY,
+                [$siteDir],
+                "duo: site adapter source $siteDir could not be enumerated — "
+                . 'Duo refuses to treat an unreadable repository-owned adapter source as empty',
+                'restore directory enumeration/read access before loading site adapters'
+            );
+            return;
+        }
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
@@ -2368,7 +2420,18 @@ final class AdapterSources {
                 . self::SITE_DIR . '/' . self::CERTIFICATION_DIR . ' directory'
             );
         }
-        foreach (scandir($dir) ?: [] as $entry) {
+        if (!is_readable($dir)) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir is not readable — authority-bearing bytes cannot be treated as absent"
+            );
+        }
+        $entries = @scandir($dir);
+        if ($entries === false) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
+            );
+        }
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
@@ -2411,7 +2474,13 @@ final class AdapterSources {
             $adapterNames[basename($file, '.json')] = true;
         }
         $out = [];
-        foreach (glob($dir . '/*.json') ?: [] as $file) {
+        $files = glob($dir . '/*.json');
+        if ($files === false) {
+            throw new \RuntimeException(
+                "duo: site adapter certification source $dir could not be enumerated — authority-bearing bytes cannot be treated as absent"
+            );
+        }
+        foreach ($files as $file) {
             $name = basename($file, '.json');
             if (!isset($adapterNames[$name])) {
                 $folded = self::casefold($name);
@@ -2455,7 +2524,14 @@ final class AdapterSources {
      * @return ?string
      */
     private static function first_nested_json(string $dir): ?string {
-        foreach (scandir($dir) ?: [] as $entry) {
+        $entries = @scandir($dir);
+        if ($entries === false) {
+            throw new \RuntimeException(
+                "duo: nested site adapter source $dir could not be enumerated — "
+                . 'Duo refuses to treat unreadable repository-owned adapter content as empty'
+            );
+        }
+        foreach ($entries as $entry) {
             if ($entry === '.' || $entry === '..') {
                 continue;
             }
@@ -3087,6 +3163,13 @@ final class AdapterSources {
      */
     public function sources(): array {
         return $this->scanReport['sources'];
+    }
+
+    /** @return list<string> every unambiguous installed adapter identity */
+    public function names(): array {
+        $names = array_keys($this->origins);
+        sort($names, SORT_STRING);
+        return $names;
     }
 
     /** The synthesized disposition for an out-of-tree adapter; null for shipped. */

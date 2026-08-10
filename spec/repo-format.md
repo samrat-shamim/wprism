@@ -950,10 +950,30 @@ and `code_revision` while removing all temporary stage markers in one database
 transaction; statement/commit failure rolls the entire ledger transition back
 to its retryable staged form.
 
+Capture's sealed `state.capture-intent` and `state.capture-receipt` records use
+fixed sibling transition slots (`.previous` and `.next`) for ordinary phase
+replacement and removal. Recovery resolves those finite slots before it reads
+either canonical record: it restores a proven prior phase, completes a proven
+next phase, or retains all observed protocol artifacts and refuses an ambiguous
+shape. The slots are protocol artifacts, not repository state, and the
+canonical site-repository ignore template excludes them together with
+intent/receipt temporary files. The capture lock serializes Duo writers only;
+every capture and recovery therefore requires non-Duo tools to leave the
+complete `state.capture*` protocol namespace untouched for its duration. The v0
+PHP implementation detects stable type/hash anomalies but does not claim an
+adversarial namespace-race sandbox for these siblings.
+While `.duo-init-attempt` or its transition slot exists, ordinary capture
+refuses before and after publication-lock acquisition; only confirmed init
+recovery may reconcile that first-publication tuple. This prevents a later
+capture from replacing the receipt that the sealed init journal must verify.
+
 The target database lease serializes Duo promotions; it cannot exclude a
 package manager, self-updater, shell user, or compromised process that writes
 the code tree directly. Code stage/finalize therefore require operational
 exclusion of every non-Duo writer from `WP_CONTENT_DIR` for their duration.
+The same contract applies to first initialization across the complete site
+repository namespace (`.git`, `code/`, `media/`, `state/`, and every
+`state.capture*` sibling) until init or retained recovery completes.
 The v0 PHP materializer refuses stable symlinks, unsafe paths, type changes,
 and hash-changed removals and publishes each file by temporary rename, but does
 not claim `openat(O_NOFOLLOW)`-grade safety against an adversarial concurrent

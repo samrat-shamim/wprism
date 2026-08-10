@@ -282,12 +282,16 @@ function cert_build(string $specPath, string $outputRoot): never {
         if (!is_array($forceHatches) || !array_is_list($forceHatches)) {
             throw new RuntimeException('force_hatches must be an array');
         }
+        $gitRevision = $spec['git_revision'] ?? null;
+        if (!is_string($gitRevision) || preg_match('/^[0-9a-f]{40}$/D', $gitRevision) !== 1) {
+            throw new RuntimeException('git_revision must be one full lowercase 40-hex commit id');
+        }
 
         $manifest = [
             'schema_version' => DUO_CERT_SCHEMA,
             'verdict' => $overall,
             'created_at' => $createdAt,
-            'git_revision' => (string) ($spec['git_revision'] ?? ''),
+            'git_revision' => $gitRevision,
             'harness' => $harness,
             'force_hatches' => $forceHatches,
             'artifacts' => $artifacts,
@@ -341,6 +345,10 @@ function cert_verify(string $bundleDir, string $repoRoot): never {
         $manifest = cert_read_json("$bundleDir/bundle.json");
         if (($manifest['schema_version'] ?? null) !== DUO_CERT_SCHEMA) {
             throw new RuntimeException('unsupported certification bundle schema');
+        }
+        if (!is_string($manifest['git_revision'] ?? null)
+            || preg_match('/^[0-9a-f]{40}$/D', $manifest['git_revision']) !== 1) {
+            throw new RuntimeException('bundle git_revision is absent or malformed');
         }
         $claimed = (string) ($manifest['bundle_digest'] ?? '');
         if (!preg_match('/^[0-9a-f]{64}$/', $claimed)) {

@@ -215,6 +215,32 @@ $spec = [
 ];
 write_json("$inputs/spec.json", $spec);
 
+echo "\n== git revision identity is canonical before evidence can be sealed ==\n";
+foreach ([
+    'missing' => null,
+    'empty' => '',
+    'short' => str_repeat('a', 39),
+    'uppercase' => str_repeat('A', 40),
+] as $label => $revision) {
+    $invalidRevisionSpec = $spec;
+    if ($revision === null) {
+        unset($invalidRevisionSpec['git_revision']);
+    } else {
+        $invalidRevisionSpec['git_revision'] = $revision;
+    }
+    write_json("$inputs/$label-revision-spec.json", $invalidRevisionSpec);
+    $invalidRevision = run_bundle([
+        'build',
+        "$inputs/$label-revision-spec.json",
+        "$root/$label-revision-bundles",
+    ]);
+    check($invalidRevision['exit'] === 1, "$label git revision cannot produce a certification bundle");
+    check(
+        str_contains((string) ($invalidRevision['json']['diagnostic'] ?? ''), 'git_revision'),
+        "$label git revision refusal names the source-identity field"
+    );
+}
+
 echo "\n== valid bundle: content-addressed, self-verifying, machine-readable ==\n";
 $build = run_bundle(['build', "$inputs/spec.json", $bundles]);
 check($build['exit'] === 0, 'valid checker result builds with exit 0');

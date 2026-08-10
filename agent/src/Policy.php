@@ -115,7 +115,8 @@ final class Policy {
     public static function load(
         ?string $repo,
         ?array $manifestNames = null,
-        bool $allowUnsupportedSiteForReadOnlyCapabilities = false
+        bool $allowUnsupportedSiteForReadOnlyCapabilities = false,
+        ?string $adapterRepo = null
     ): self {
         if (!$allowUnsupportedSiteForReadOnlyCapabilities) {
             self::assert_single_site();
@@ -142,7 +143,10 @@ final class Policy {
         // DUO-3314: every installed source is scanned, and ambiguous identity or
         // shadowing refused, before the first pin resolves — a broken adapter
         // installation must not wait for a pin to reveal itself.
-        $p->adapterSources = AdapterSources::discover($dir, $repo);
+        // Init needs source-aware validation before site.duo.json exists. Its
+        // fourth argument supplies only the repository-owned adapter source;
+        // ordinary loads continue to derive both config and source from $repo.
+        $p->adapterSources = AdapterSources::discover($dir, $adapterRepo ?? $repo);
         self::validate_manifest_sources($pins, $p->adapterSources);
         $p->manifestDispositions = class_exists(ManifestDispositions::class)
             ? ManifestDispositions::load($dir)

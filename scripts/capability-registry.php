@@ -88,6 +88,48 @@ function cap_bundle_digest(array $bundle): string {
     return hash('sha256', $json . "\n");
 }
 
+/** @return array{exit:int,stdout:string} */
+function cap_git_read(string $repo, array $args): array {
+    $command = array_merge(['git', '--no-optional-locks', '-C', $repo], $args);
+    $pipes = [];
+    $process = proc_open($command, [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('could not start the Git source-identity probe');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return ['exit' => proc_close($process), 'stdout' => is_string($stdout) ? $stdout : ''];
+}
+
+function cap_assert_clean_import_revision(string $repo, string $revision): void {
+    if (preg_match('/^[0-9a-f]{40}$/D', $revision) !== 1) {
+        throw new RuntimeException('bundle git_revision is absent or malformed');
+    }
+    $headBefore = cap_git_read($repo, ['rev-parse', '--verify', 'HEAD^{commit}']);
+    $status = cap_git_read($repo, ['status', '--porcelain=v1', '--untracked-files=all']);
+    $headAfter = cap_git_read($repo, ['rev-parse', '--verify', 'HEAD^{commit}']);
+    $before = trim($headBefore['stdout']);
+    $after = trim($headAfter['stdout']);
+    if ($headBefore['exit'] !== 0 || $headAfter['exit'] !== 0
+        || preg_match('/^[0-9a-f]{40}$/D', $before) !== 1
+        || !hash_equals($before, $after)) {
+        throw new RuntimeException('bundle import requires one stable repository HEAD');
+    }
+    if ($status['exit'] !== 0 || trim($status['stdout']) !== '') {
+        throw new RuntimeException('bundle import requires a clean repository checkout');
+    }
+    if (!hash_equals($before, $revision)) {
+        throw new RuntimeException('bundle git_revision does not match the clean importing checkout HEAD');
+    }
+}
+
 function cap_import_bundle(string $repo, string $input): void {
     $file = is_dir($input) ? rtrim($input, '/') . '/bundle.json' : $input;
     $bundle = cap_read_json($file);
@@ -98,6 +140,11 @@ function cap_import_bundle(string $repo, string $input): void {
         || ($bundle['verdict'] ?? null) !== 'pass') {
         throw new RuntimeException('bundle is malformed, failed, or has a mismatched digest');
     }
+    $revision = $bundle['git_revision'] ?? null;
+    if (!is_string($revision)) {
+        throw new RuntimeException('bundle git_revision is absent or malformed');
+    }
+    cap_assert_clean_import_revision($repo, $revision);
     foreach (($bundle['tests'] ?? []) as $test) {
         if (!is_array($test) || ($test['verdict'] ?? null) !== 'pass') {
             throw new RuntimeException('bundle has an absent or non-passing test');
@@ -199,7 +246,9 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
     }
     $bundle = is_array($evidence['bundle'] ?? null) ? $evidence['bundle'] : $evidence;
     if (($bundle['schema_version'] ?? $bundle['bundle_schema'] ?? null) !== ManifestDispositions::BUNDLE_SCHEMA
-        || !preg_match('/^[0-9a-f]{64}$/', (string) ($bundle['bundle_digest'] ?? ''))) {
+        || !preg_match('/^[0-9a-f]{64}$/', (string) ($bundle['bundle_digest'] ?? ''))
+        || !is_string($bundle['git_revision'] ?? null)
+        || preg_match('/^[0-9a-f]{40}$/D', $bundle['git_revision']) !== 1) {
         throw new RuntimeException('capability evidence bundle identity is malformed');
     }
     if (($evidence['status'] ?? null) === 'current'

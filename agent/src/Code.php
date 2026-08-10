@@ -237,6 +237,15 @@ final class Code {
         }
     }
 
+    /**
+     * Read-only preflight for first-run code capture. Initialization may
+     * observe only the same standard roots the materializer can later own;
+     * exposing this narrow check keeps that layout contract single-sourced.
+     */
+    public static function assert_initial_capture_layout(): void {
+        self::assert_target_layout();
+    }
+
     /** Validate a descriptor loaded from a compiled artifact or ledger. */
     public static function assert_descriptor(array $descriptor): void {
         // The first released duo-code/v1 descriptor had no theme_templates
@@ -482,6 +491,103 @@ final class Code {
     }
 
     /**
+     * Complete the first code baseline from bytes already executing on the
+     * target. This is deliberately narrower than stage/finalize: init has
+     * just copied and compiled those exact live bytes into the repository,
+     * so materializing them back onto the same source environment would add
+     * no safety. Refuse any pre-existing lifecycle state rather than turning
+     * bootstrap into an overwrite/recovery path.
+     *
+     * @return array{enabled:bool,completed:bool,code_revision:?string,files:int}
+     */
+    public static function complete_initial_baseline(string $repo, CompiledRepository $compiled): array {
+        $descriptor = self::validated_initial_baseline($repo, $compiled, true);
+        if ($descriptor === null) {
+            return ['enabled' => false, 'completed' => false, 'code_revision' => null, 'files' => 0];
+        }
+        self::publish_completed_descriptor($descriptor);
+        return self::initial_baseline_summary($descriptor);
+    }
+
+    /**
+     * Complete the same narrow first baseline inside Capture's already-open
+     * consistent-snapshot transaction. The caller owns commit/rollback, so
+     * this method must never start a nested transaction: descriptor markers,
+     * state hashes, identity minting, and the publication receipt either all
+     * commit together or all roll back together.
+     *
+     * @return array{enabled:bool,completed:bool,code_revision:?string,files:int}
+     */
+    public static function complete_initial_baseline_in_active_transaction(
+        string $repo,
+        CompiledRepository $compiled
+    ): array {
+        $descriptor = self::validated_initial_baseline($repo, $compiled, false);
+        if ($descriptor === null) {
+            return ['enabled' => false, 'completed' => false, 'code_revision' => null, 'files' => 0];
+        }
+        self::write_completed_descriptor($descriptor);
+        return self::initial_baseline_summary($descriptor);
+    }
+
+    /** @return ?array<string,mixed> */
+    private static function validated_initial_baseline(
+        string $repo,
+        CompiledRepository $compiled,
+        bool $ensureLedger
+    ): ?array {
+        $descriptor = $compiled->code_descriptor();
+        if ($descriptor === null) {
+            return null;
+        }
+        self::assert_descriptor($descriptor);
+        self::assert_target_layout($descriptor);
+        CodeStateContract::validate($compiled, $descriptor);
+        self::assert_source_matches($repo, $descriptor);
+        self::assert_source_compatibility($repo, $compiled, $descriptor);
+        if ($ensureLedger) {
+            Ledger::ensure();
+        }
+
+        foreach ([
+            self::CODE_REVISION_KEY,
+            self::CODE_DESCRIPTOR_KEY,
+            self::CODE_STAGE_REVISION_KEY,
+            self::CODE_STAGE_DESCRIPTOR_KEY,
+            self::CODE_STAGE_ARTIFACT_KEY,
+            self::CODE_STAGE_HISTORY_KEY,
+            self::CODE_STAGE_CREATED_PATHS_KEY,
+        ] as $key) {
+            if (($existing = Ledger::kv_get($key)) !== null && $existing !== '') {
+                throw new \RuntimeException(
+                    "duo: initial code baseline refused — lifecycle metadata '$key' already exists; use the ordinary deploy recovery workflow"
+                );
+            }
+        }
+
+        self::verify_payload($descriptor);
+        $extras = self::owned_extra_files($descriptor);
+        if ($extras) {
+            throw new \RuntimeException(
+                'duo: initial code baseline found unrecorded file(s) in a managed component: '
+                . implode(', ', array_slice($extras, 0, 8))
+            );
+        }
+        return $descriptor;
+    }
+
+    /** @param array<string,mixed> $descriptor
+     *  @return array{enabled:bool,completed:bool,code_revision:?string,files:int} */
+    private static function initial_baseline_summary(array $descriptor): array {
+        return [
+            'enabled' => true,
+            'completed' => true,
+            'code_revision' => $descriptor['code_revision'],
+            'files' => count($descriptor['files']),
+        ];
+    }
+
+    /**
      * Stage all desired files with per-file temp+rename atomicity. Completed
      * code is never removed; the bounded staged-only MU recovery documented
      * above may remove one prior abandoned path. The promotion lease remains
@@ -713,13 +819,7 @@ final class Code {
         try {
             Db::start('code ledger transaction start');
             $transactionStarted = true;
-            Ledger::kv_set(self::CODE_DESCRIPTOR_KEY, Canon::encode($descriptor));
-            Ledger::kv_delete(self::CODE_STAGE_DESCRIPTOR_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_ARTIFACT_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_HISTORY_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_CREATED_PATHS_KEY);
-            Ledger::kv_delete(self::CODE_STAGE_REVISION_KEY);
-            Ledger::kv_set(self::CODE_REVISION_KEY, $descriptor['code_revision']);
+            self::write_completed_descriptor($descriptor);
             Db::commit('code ledger transaction commit');
             $transactionStarted = false;
         } catch (\Throwable $t) {
@@ -737,6 +837,17 @@ final class Code {
             }
             throw $t;
         }
+    }
+
+    /** Write completed lifecycle rows inside the caller's transaction. */
+    private static function write_completed_descriptor(array $descriptor): void {
+        Ledger::kv_set(self::CODE_DESCRIPTOR_KEY, Canon::encode($descriptor));
+        Ledger::kv_delete(self::CODE_STAGE_DESCRIPTOR_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_ARTIFACT_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_HISTORY_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_CREATED_PATHS_KEY);
+        Ledger::kv_delete(self::CODE_STAGE_REVISION_KEY);
+        Ledger::kv_set(self::CODE_REVISION_KEY, $descriptor['code_revision']);
     }
 
     /** @return ?array<string,mixed> */

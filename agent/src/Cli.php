@@ -457,6 +457,41 @@ final class Cli {
     }
 
     /**
+     * Discover and initialize an existing WordPress site through a reviewed,
+     * digest-bound proposal. Without --confirm this command is read-only.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repository to propose or initialize.
+     * [--confirm=<sha256>] : Recompute and apply exactly this proposal digest.
+     * [--format=<format>] : Output format. Accepts json.
+     */
+    public function init($args, $assoc) {
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
+            $result = isset($assoc['confirm'])
+                ? Init::confirm((string) $repo, (string) $assoc['confirm'])
+                : Init::proposal((string) $repo);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'init');
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($result, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        if (($result['format'] ?? null) === Init::FORMAT) {
+            WP_CLI::line('INIT ' . (!empty($result['ready']) ? 'READY' : 'BLOCKED') . ' ' . $result['digest']);
+            WP_CLI::line('  state repository: ' . $result['state']['repository']);
+            WP_CLI::line('  code management: ' . $result['code']['management']);
+            foreach ($result['unsupported'] as $row) {
+                WP_CLI::line('  unsupported: ' . $row['kind'] . ' ' . $row['extension'] . ' — ' . $row['reason']);
+            }
+            return;
+        }
+        WP_CLI::success('initialized state baseline ' . $result['baseline']['revision_hash']);
+    }
+
+    /**
      * Capture this environment's authored state into the site repo.
      *
      * ## OPTIONS

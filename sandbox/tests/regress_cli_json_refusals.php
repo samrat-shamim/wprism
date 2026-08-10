@@ -250,6 +250,8 @@ namespace {
         'compile' => 'compile',
         'code_stage' => 'code-stage',
         'code_finalize' => 'code-finalize',
+        'init' => 'init',
+        'scope' => 'scope',
         'capture' => 'capture',
         'plan' => 'plan',
         'explain' => 'explain',
@@ -297,6 +299,14 @@ namespace {
         check(($payload['message'] ?? null) === "$missing is required for $command", "$command refusal identifies the missing argument");
         check(is_string($payload['remediation'] ?? null) && $payload['remediation'] !== '', "$command refusal carries remediation");
     }
+
+    $scopeRoots = invoke_json(static fn() => $cli->scope([], [
+        'repo' => '/fixture',
+        'format' => 'json',
+    ]));
+    check(($scopeRoots['command'] ?? null) === 'scope', 'scope secondary argument refusal stays on the scope contract');
+    check(($scopeRoots['error'] ?? null) === 'invalid_arguments', 'scope missing roots has a stable argument error code');
+    check(($scopeRoots['message'] ?? null) === '--roots is required for scope', 'scope refusal identifies the missing roots argument');
 
     echo "\n== deliberately public gates keep stable diagnostics ==\n";
     \Duo\Capture::$failure = new \Duo\CommandRefusalException(
@@ -801,10 +811,9 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    // 22 since DUO-3339/B2 added `adapter-survey`, the target-side half of the
-    // adapter catalog. It advertises --format=json, so the contract sentence
-    // covers it and this count moves with the set rather than around it.
-    check(count($advertised) === 22, 'every one of the 22 --format=json commands was scanned (' . count($advertised) . ')');
+    // 23 since the current CLI surface added its latest JSON-capable command;
+    // each advertised handler is covered by the envelope contract below.
+    check(count($advertised) === 23, 'every one of the 23 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

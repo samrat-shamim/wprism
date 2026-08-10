@@ -78,6 +78,31 @@ final class PlanSummary {
         'collision', 'delete', 'delete_conflict', 'deleted',
     ];
 
+    private const REQUIRED_LISTS = [
+        'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
+        'collision', 'delete', 'delete_conflict', 'deleted',
+        'code_mismatch', 'code_drift', 'incomplete_apply',
+        'incomplete_lifecycle', 'regen_pending', 'env_missing',
+        'missing_user', 'skipped_user_meta', 'uploads_inventory',
+        'effects_inventory', 'adapter_dispositions', 'warnings',
+    ];
+
+    /** Refuse valid JSON which is not the complete agent plan contract. */
+    public static function assertContract(array $plan): void {
+        foreach (self::REQUIRED_LISTS as $key) {
+            if (!array_key_exists($key, $plan)
+                || !is_array($plan[$key])
+                || !array_is_list($plan[$key])) {
+                throw new \RuntimeException("incomplete plan contract: missing list bucket '$key'");
+            }
+        }
+        foreach ($plan['warnings'] as $warning) {
+            if (!is_string($warning)) {
+                throw new \RuntimeException('incomplete plan contract: warnings must be strings');
+            }
+        }
+    }
+
     /** @return array{lines: list<string>, ok: bool} */
     public static function render(array $plan): array {
         $lines = [];

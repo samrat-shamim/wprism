@@ -23,6 +23,7 @@ require_once __DIR__ . '/../../agent/src/ManifestDispositions.php';
 require_once __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
 require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Init.php';
 require_once __DIR__ . '/../../agent/src/AdapterCertification.php';
 require_once __DIR__ . '/../../agent/src/Deploy.php';
 require_once __DIR__ . '/../../agent/src/Providers.php';
@@ -78,6 +79,7 @@ require_once __DIR__ . '/../../agent/src/Cli.php';
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
 use Duo\Canon;
+use Duo\Init;
 use Duo\Policy;
 use Duo\Providers;
 use Duo\RepositoryCompiler;
@@ -319,7 +321,7 @@ $ratification = [
                 'entity_sections' => ['post_types'],
                 'field_sections' => [],
                 'lifecycle_phases' => [],
-                'operations' => ['apply', 'deploy'],
+                'operations' => ['apply', 'capture', 'deploy'],
             ],
             'default_authored_keyspaces' => [],
             'evidence' => [
@@ -1467,6 +1469,17 @@ try {
             === 'third_party_signed',
         'the exact {name,source:site,digest} pin elevates only that signed adapter to certified readiness'
     );
+    $loadInitSelection = new ReflectionMethod(Init::class, 'load_selected_policy');
+    [$initPolicy, $initPins] = $loadInitSelection->invoke(null, ['site-demo'], $site);
+    $initReport = $initPolicy->capability_report(['operation' => 'capture']);
+    cert_check(
+        $initPins === [$exactPin]
+        && ($initReport['ready'] ?? null) === true
+        && ($initReport['blockers'] ?? null) === []
+        && ($initPolicy->adapter_sources()->diagnostics($initPolicy->manifests)['site-demo']['certification'] ?? null)
+            === 'third_party_signed',
+        'init turns signed discovery into the exact source/digest pin used for capture readiness and its generated config'
+    );
     cert_check(
         CodeDeploy::dispositionBlockers(['resolved_adapters' => $pinnedResolved]) === [],
         'host promotion accepts the exact pinned current external claim'
@@ -2033,6 +2046,22 @@ cert_expect_throw(
     'nested certificate paths are fatal rather than ignored'
 );
 cert_remove_tree($site . '/adapters/certifications/nested');
+
+chmod($site . '/adapters/certifications', 0000);
+try {
+    cert_expect_throw(
+        static fn() => \Duo\AdapterSources::discover(dirname(__DIR__, 2) . '/manifests', $site),
+        'not readable',
+        'adapter discovery cannot launder an unreadable authority directory into an uncertified absence'
+    );
+    cert_expect_throw(
+        static fn() => AdapterCertification::verifyDirectory($agent, $site),
+        'not readable',
+        'direct certificate verification cannot report an unreadable authority directory as empty'
+    );
+} finally {
+    chmod($site . '/adapters/certifications', 0777);
+}
 
 $emptySite = $root . '/empty-site';
 mkdir($emptySite, 0777, true);

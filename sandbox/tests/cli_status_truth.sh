@@ -161,7 +161,7 @@ cat > "$FAKEBIN/wp" <<'EOF'
 # without needing a real agent to ever misbehave.
 for a in "$@"; do
   if [ "$a" = "plan" ]; then
-    echo 'not valid json'
+    printf '%s\n' "${FAKE_PLAN_JSON:-not valid json}"
     exit 0
   fi
 done
@@ -178,9 +178,16 @@ cat > "$FAKE_ENVS" <<EOF
 EOF
 if OUT=$(PATH="$FAKEBIN:$PATH" "$DUO" --envs-file="$FAKE_ENVS" status malformed 2>&1); then CODE=0; else CODE=$?; fi
 echo "$OUT"
-rm -rf "$FAKEBIN"
 [ "$CODE" -ne 0 ] || fail "duo status malformed: expected non-zero exit on malformed JSON, got 0"
 grep -qi 'could not parse plan JSON' <<<"$OUT" || fail "expected the malformed-JSON error message"
 pass "malformed JSON from the agent still fails duo status (exit $CODE)"
+
+say "(e) valid JSON without the complete plan contract fails closed"
+if OUT=$(FAKE_PLAN_JSON='{}' PATH="$FAKEBIN:$PATH" "$DUO" --envs-file="$FAKE_ENVS" status malformed 2>&1); then CODE=0; else CODE=$?; fi
+echo "$OUT"
+rm -rf "$FAKEBIN"
+[ "$CODE" -ne 0 ] || fail "duo status empty object: expected non-zero exit, got 0"
+grep -qi 'incomplete plan contract' <<<"$OUT" || fail "expected the incomplete-plan-contract diagnostic"
+pass "schema-empty plan JSON cannot become a clean status (exit $CODE)"
 
 printf '\n\033[1;32m✔ CLI STATUS TRUTH PASSED\033[0m\n'

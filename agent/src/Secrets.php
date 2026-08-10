@@ -33,15 +33,26 @@ final class Secrets {
 
     /** @var array<string,string> PCRE body (no delimiters) => short label */
     private const HARD_PATTERNS = [
-        '\bsk_live_[A-Za-z0-9]{10,}\b' => 'stripe key',
-        '\brk_live_[A-Za-z0-9]{10,}\b' => 'stripe key',
+        '\bsk_live_[A-Za-z0-9]{4097}' => 'stripe key',
+        '\bsk_live_[A-Za-z0-9]{10,4096}\b' => 'stripe key',
+        '\brk_live_[A-Za-z0-9]{4097}' => 'stripe key',
+        '\brk_live_[A-Za-z0-9]{10,4096}\b' => 'stripe key',
         '\b(AKIA|ASIA)[A-Z0-9]{16}\b' => 'aws key',
-        '\bghp_[A-Za-z0-9]{20,}\b' => 'github token',
-        '\bgho_[A-Za-z0-9]{20,}\b' => 'github token',
-        '\bgithub_pat_[A-Za-z0-9_]{20,}\b' => 'github token',
-        '\bxox[baprs]-[A-Za-z0-9-]{10,}\b' => 'slack token',
-        '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' => 'private key',
-        '\beyJ[A-Za-z0-9_-]{4,}\.eyJ[A-Za-z0-9_-]{4,}(?:\.[A-Za-z0-9_-]+)?\b' => 'jwt',
+        '\bghp_[A-Za-z0-9]{4097}' => 'github token',
+        '\bghp_[A-Za-z0-9]{20,4096}\b' => 'github token',
+        '\bgho_[A-Za-z0-9]{4097}' => 'github token',
+        '\bgho_[A-Za-z0-9]{20,4096}\b' => 'github token',
+        '\bgithub_pat_[A-Za-z0-9_]{4097}' => 'github token',
+        '\bgithub_pat_[A-Za-z0-9_]{20,4096}\b' => 'github token',
+        '\bxox[baprs]-[A-Za-z0-9-]{4097}' => 'slack token',
+        '\bxox[baprs]-[A-Za-z0-9-]{10,4096}\b' => 'slack token',
+        '-----BEGIN [A-Z0-9 ]{0,64}PRIVATE KEY-----' => 'private key',
+        // A JWT is the complete three-segment compact form. A bare overlong
+        // base64url blob beginning `eyJ` is common in bundled JavaScript and
+        // is not a credential fact; blocking it would reject certified plugin
+        // bytes without ever observing the JWT separators. Keep each segment
+        // bounded so streaming callers can prove a finite overlap.
+        '\beyJ[A-Za-z0-9_-]{4,8192}\.eyJ[A-Za-z0-9_-]{4,8192}\.[A-Za-z0-9_-]{1,8192}\b' => 'jwt',
     ];
 
     /** Key-name signal for the heuristic tier (never sufficient alone). */

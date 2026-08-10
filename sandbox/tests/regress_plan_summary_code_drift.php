@@ -23,6 +23,31 @@ $empty = array_fill_keys([
 ], []);
 $empty['code_mismatch'] = [];
 
+$complete = $empty + array_fill_keys([
+    'code_drift', 'incomplete_apply', 'incomplete_lifecycle',
+    'regen_pending', 'env_missing', 'missing_user', 'skipped_user_meta',
+    'uploads_inventory', 'effects_inventory', 'adapter_dispositions', 'warnings',
+], []);
+try {
+    PlanSummary::assertContract($complete);
+    $check(true, 'the complete agent plan envelope is accepted');
+} catch (RuntimeException $error) {
+    $check(false, 'the complete agent plan envelope is accepted: ' . $error->getMessage());
+}
+foreach ([
+    'empty JSON object' => [],
+    'missing required bucket' => array_diff_key($complete, ['warnings' => true]),
+    'non-list bucket' => array_replace($complete, ['create' => ['uuid' => 'not-a-list']]),
+    'non-string warning' => array_replace($complete, ['warnings' => [['message' => 'not-a-string']]]),
+] as $label => $invalid) {
+    try {
+        PlanSummary::assertContract($invalid);
+        $check(false, "$label must fail the plan contract");
+    } catch (RuntimeException $error) {
+        $check(str_contains($error->getMessage(), 'incomplete plan contract'), "$label fails closed");
+    }
+}
+
 $drifted = $empty;
 $drifted['code_drift'] = [[
     'issue' => 'code_drift',
@@ -44,7 +69,7 @@ $check(
     'summary must explain the same code_drift escape hatch as apply'
 );
 
-$clean = PlanSummary::render($empty + ['code_drift' => []]);
+$clean = PlanSummary::render($complete);
 $check($clean['ok'] === true, 'a clean plan must remain safe to promote');
 $check(str_contains($clean['lines'][0] ?? '', '0 code_drift'), 'clean summary must report zero code_drift');
 

@@ -826,6 +826,190 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
 }
 
 // ======================================================================
+// P12 — generic intent CAS remains crash-recoverable without broadening
+// init's external-writer exclusion to ordinary capture.
+// ======================================================================
+echo "\n== P12: generic intent transition crash recovery ==\n";
+{
+    if (!function_exists('pcntl_fork')) {
+        check(true, 'P12: pcntl unavailable; generic transition SIGKILL case skipped');
+    } else {
+        foreach (['record-transition-next', 'record-transition-previous', 'record-transition-canonical'] as $phase) {
+            $root = fresh_root('generic_record_transition_' . str_replace('-', '_', $phase));
+            $stateDir = "$root/state";
+            mkdir($stateDir);
+            Canon::write_file("$stateDir/revision.txt", "stable\n");
+            $staging = Publish::stage_dir($stateDir);
+            mkdir($staging);
+            Canon::write_file("$staging/revision.txt", "candidate\n");
+            $intent = Publish::begin_intent($stateDir, $staging);
+            Publish::swap($stateDir, true);
+
+            $pid = pcntl_fork();
+            if ($pid === 0) {
+                putenv('DUO_TEST_MODE=1');
+                putenv("DUO_TEST_PUBLISH_KILL_PHASE=$phase");
+                Publish::mark_swapped($stateDir, $intent);
+                exit(97);
+            }
+            check($pid > 0, "P12a $phase: generic transition crash child spawned");
+            pcntl_waitpid($pid, $status);
+            check(
+                pcntl_wifsignaled($status) && pcntl_wtermsig($status) === 9,
+                "P12b $phase: child died at the durable transition checkpoint"
+            );
+            if ($phase === 'record-transition-previous') {
+                $recoveryPid = pcntl_fork();
+                if ($recoveryPid === 0) {
+                    putenv('DUO_TEST_MODE=1');
+                    putenv('DUO_TEST_PUBLISH_KILL_PHASE=record-transition-recover-prior');
+                    Publish::recover($stateDir, static fn(array $found): bool => false);
+                    exit(98);
+                }
+                check($recoveryPid > 0, 'P12c: interrupted-recovery child spawned');
+                pcntl_waitpid($recoveryPid, $recoveryStatus);
+                check(
+                    pcntl_wifsignaled($recoveryStatus) && pcntl_wtermsig($recoveryStatus) === 9,
+                    'P12c: recovery child died after restoring the prior canonical record'
+                );
+            }
+            $notes = Publish::recover($stateDir, static fn(array $found): bool => false);
+            check(
+                str_contains(implode("\n", $notes), 'transition'),
+                "P12d $phase: recovery reports the interrupted record transition"
+            );
+            check(
+                file_get_contents("$stateDir/revision.txt") === "stable\n",
+                "P12e $phase: fresh recovery restores the old tree after resolving the record transition"
+            );
+            check(
+                !is_file(Publish::intent_path($stateDir))
+                    && !file_exists(Publish::intent_path($stateDir) . '.previous')
+                    && !file_exists(Publish::intent_path($stateDir) . '.next'),
+                "P12f $phase: recovery consumes only its sealed transition artifacts"
+            );
+        }
+
+        $root = fresh_root('generic_record_nonfile_slot');
+        $stateDir = "$root/state";
+        mkdir($stateDir);
+        Canon::write_file("$stateDir/revision.txt", "stable\n");
+        $staging = Publish::stage_dir($stateDir);
+        mkdir($staging);
+        Canon::write_file("$staging/revision.txt", "candidate\n");
+        Publish::begin_intent($stateDir, $staging);
+        mkdir(Publish::intent_path($stateDir) . '.next');
+        $slotFailure = null;
+        try {
+            Publish::recover($stateDir, static fn(array $found): bool => false);
+        } catch (Throwable $t) {
+            $slotFailure = $t;
+        }
+        check(
+            $slotFailure instanceof CommandRefusalException
+                && $slotFailure->reasonCode === 'capture_recovery_ambiguous',
+            'P12g: a non-file transition slot fails closed with the stable recovery refusal'
+        );
+        check(
+            is_dir(Publish::intent_path($stateDir) . '.next')
+                && is_file(Publish::intent_path($stateDir))
+                && is_dir($staging),
+            'P12h: non-file transition evidence and candidate bytes are preserved'
+        );
+
+        foreach (['intent', 'receipt'] as $label) {
+            $root = fresh_root('generic_fresh_previous_' . $label);
+            $stateDir = "$root/state";
+            mkdir($stateDir);
+            Canon::write_file("$stateDir/revision.txt", "stable\n");
+            $staging = Publish::stage_dir($stateDir);
+            mkdir($staging);
+            Canon::write_file("$staging/revision.txt", "candidate\n");
+            if ($label === 'intent') {
+                $path = Publish::intent_path($stateDir);
+                Canon::write_file($path . '.previous', "foreign\n");
+                $freshFailure = null;
+                try {
+                    Publish::begin_intent($stateDir, $staging);
+                } catch (Throwable $t) {
+                    $freshFailure = $t;
+                }
+            } else {
+                $intent = Publish::begin_intent($stateDir, $staging);
+                Publish::swap($stateDir, true);
+                $intent = Publish::mark_swapped($stateDir, $intent, true);
+                $intent = Publish::mark_commit_ready($stateDir, $intent, true);
+                $intent = Publish::mark_committing($stateDir, $intent, true);
+                $path = Publish::receipt_path($stateDir);
+                Canon::write_file($path . '.previous', "foreign\n");
+                $freshFailure = null;
+                try {
+                    Publish::write_receipt($stateDir, $intent, true);
+                } catch (Throwable $t) {
+                    $freshFailure = $t;
+                }
+            }
+            check(
+                $freshFailure instanceof RuntimeException,
+                "P12i $label: a pre-existing previous slot refuses fresh canonical record publication"
+            );
+            check(
+                !file_exists($path) && file_get_contents($path . '.previous') === "foreign\n",
+                "P12j $label: fresh refusal preserves the previous slot and creates no canonical record"
+            );
+        }
+
+        foreach (['record-removal-next', 'record-removal-previous', 'record-removal-next-only'] as $phase) {
+            $root = fresh_root('generic_record_removal_' . str_replace('-', '_', $phase));
+            $stateDir = "$root/state";
+            mkdir($stateDir);
+            Canon::write_file("$stateDir/revision.txt", "stable\n");
+            $staging = Publish::stage_dir($stateDir);
+            mkdir($staging);
+            Canon::write_file("$staging/revision.txt", "candidate\n");
+            $intent = Publish::begin_intent($stateDir, $staging);
+            Publish::swap($stateDir, true);
+            $intent = Publish::mark_swapped($stateDir, $intent);
+            $intent = Publish::mark_commit_ready($stateDir, $intent);
+            $intent = Publish::mark_committing($stateDir, $intent);
+            $receipt = Publish::write_receipt($stateDir, $intent);
+
+            $pid = pcntl_fork();
+            if ($pid === 0) {
+                putenv('DUO_TEST_MODE=1');
+                putenv("DUO_TEST_PUBLISH_KILL_PHASE=$phase");
+                Publish::cleanup_committed($stateDir, $receipt);
+                exit(99);
+            }
+            check($pid > 0, "P12k $phase: generic removal crash child spawned");
+            pcntl_waitpid($pid, $status);
+            check(
+                pcntl_wifsignaled($status) && pcntl_wtermsig($status) === 9,
+                "P12l $phase: child died at the durable removal checkpoint"
+            );
+            $notes = Publish::recover($stateDir, static fn(array $found): bool => true);
+            check(
+                file_get_contents("$stateDir/revision.txt") === "candidate\n",
+                "P12m $phase: committed candidate survives interrupted record removal"
+            );
+            check(
+                !file_exists(Publish::intent_path($stateDir))
+                    && !file_exists(Publish::intent_path($stateDir) . '.previous')
+                    && !file_exists(Publish::intent_path($stateDir) . '.next')
+                    && is_file(Publish::receipt_path($stateDir)),
+                "P12n $phase: recovery completes intent removal and retains its audit receipt"
+            );
+            check(
+                str_contains(implode("\n", $notes), 'transition')
+                    || str_contains(implode("\n", $notes), 'record removal')
+                    || str_contains(implode("\n", $notes), 'retained capture artifacts'),
+                "P12o $phase: recovery reports the interrupted removal outcome"
+            );
+        }
+    }
+}
+
+// ======================================================================
 echo "\n";
 
 // ======================================================================
@@ -913,6 +1097,191 @@ echo "\n== P10: symlinked publication roots fail closed ==\n";
     check(is_file("$outside/keep.txt"), 'P10c: cleanup refusal never deletes the external target');
     check(is_link(Publish::backup_dir($stateDir)) && is_file(Publish::intent_path($stateDir)), 'P10c: retained backup link and matching intent remain for inspection/retry');
     unlink(Publish::backup_dir($stateDir));
+}
+
+// ======================================================================
+echo "\n";
+
+// ======================================================================
+// P11 — strict first-publication ownership and compensation
+// ======================================================================
+echo "\n== P11: strict first-publication ownership ==\n";
+{
+    $root = fresh_root('initial_lock_identity');
+    $stateDir = "$root/state";
+    $lock = Publish::lock_new($stateDir);
+    Publish::assert_lock_path($lock, $stateDir);
+    unlink(Publish::lock_path($stateDir));
+    Canon::write_file(Publish::lock_path($stateDir), "foreign-lock\n");
+    $lockFailure = null;
+    try {
+        Publish::assert_lock_path($lock, $stateDir);
+    } catch (Throwable $t) {
+        $lockFailure = $t;
+    }
+    check($lockFailure instanceof RuntimeException, 'P11a: detached flock inode is refused before publication');
+    check(file_get_contents(Publish::lock_path($stateDir)) === "foreign-lock\n", 'P11a: replacement lock bytes are preserved');
+    Publish::unlock($lock);
+
+    $root = fresh_root('initial_stage_manifest');
+    $stateDir = "$root/state";
+    $staging = Publish::stage_dir($stateDir);
+    $manifest = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+        ['path' => 'posts/a.json', 'content' => "{\"a\":1}\n"],
+    ]);
+    Publish::assert_owned_tree($staging, $manifest, 'strict staging fixture');
+    $original = "$staging/options/core.json.original";
+    rename("$staging/options/core.json", $original);
+    Canon::write_file("$staging/options/core.json", "{}\n");
+    $replaceFailure = null;
+    try {
+        Publish::remove_owned_tree($staging, $manifest, 'strict staging fixture');
+    } catch (Throwable $t) {
+        $replaceFailure = $t;
+    }
+    check($replaceFailure instanceof RuntimeException, 'P11b: same-byte inode replacement blocks recursive compensation');
+    check(is_file("$staging/options/core.json") && is_file($original), 'P11b: both replacement and retained evidence survive refusal');
+
+    $root = fresh_root('initial_stage_injection');
+    $stateDir = "$root/state";
+    $staging = Publish::stage_dir($stateDir);
+    $manifest = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+    ]);
+    Canon::write_file("$staging/foreign-sentinel", "must-survive\n");
+    $injectFailure = null;
+    try {
+        Publish::remove_owned_tree($staging, $manifest, 'strict staging fixture');
+    } catch (Throwable $t) {
+        $injectFailure = $t;
+    }
+    check($injectFailure instanceof RuntimeException, 'P11c: injected child blocks recursive compensation');
+    check(file_get_contents("$staging/foreign-sentinel") === "must-survive\n", 'P11c: injected child is never deleted');
+
+    $root = fresh_root('initial_media_parent');
+    $media = "$root/media";
+    mkdir($media);
+    $mediaManifest = Publish::tree_ownership_manifest($media);
+    rename($media, "$root/original-media");
+    mkdir($media);
+    Canon::write_file("$media/sentinel", "must-survive\n");
+    $mediaFailure = null;
+    try {
+        Publish::write_file_fresh("$media/blob", "blob\n", 'media fixture', $mediaManifest['root']);
+    } catch (Throwable $t) {
+        $mediaFailure = $t;
+    }
+    check($mediaFailure instanceof RuntimeException, 'P11d: replacement media root refuses before writing a blob');
+    check(!file_exists("$media/blob") && file_get_contents("$media/sentinel") === "must-survive\n", 'P11d: replacement media root receives no Duo bytes');
+
+    $root = fresh_root('initial_state_swap');
+    $stateDir = "$root/state";
+    mkdir($stateDir);
+    $stateManifest = Publish::tree_ownership_manifest($stateDir);
+    $staging = Publish::stage_dir($stateDir);
+    $stagingManifest = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+    ]);
+    rename($stateDir, "$root/original-state");
+    mkdir($stateDir);
+    Canon::write_file("$stateDir/foreign-sentinel", "must-survive\n");
+    $swapFailure = null;
+    try {
+        Publish::swap_initial($stateDir, $stateManifest, $stagingManifest);
+    } catch (Throwable $t) {
+        $swapFailure = $t;
+    }
+    check($swapFailure instanceof RuntimeException, 'P11e: foreign state substitution blocks the initial swap');
+    check(file_get_contents("$stateDir/foreign-sentinel") === "must-survive\n", 'P11e: foreign state remains at its canonical path');
+    check(is_dir($staging), 'P11e: verified candidate remains staged for inspection');
+
+    $root = fresh_root('initial_copy_digest_change');
+    $source = "$root/source.txt";
+    $destinationRoot = "$root/destination";
+    Canon::write_file($source, "reviewed source bytes\n");
+    mkdir($destinationRoot);
+    $copyFailure = null;
+    try {
+        Publish::copy_file_fresh(
+            $source,
+            "$destinationRoot/copied.txt",
+            str_repeat('0', 64),
+            0644,
+            'changed source fixture',
+            Publish::directory_ownership_identity($destinationRoot)
+        );
+    } catch (Throwable $t) {
+        $copyFailure = $t;
+    }
+    check(
+        $copyFailure instanceof RuntimeException
+            && str_contains($copyFailure->getMessage(), 'copy source digest changed'),
+        'P11f: a source digest change is detected after the bound destination write'
+    );
+    check(
+        !file_exists("$destinationRoot/copied.txt")
+            && file_get_contents($source) === "reviewed source bytes\n",
+        'P11f: the helper removes only its still-owned partial destination after source change'
+    );
+
+    $root = fresh_root('initial_lock_acquire_failure');
+    $stateDir = "$root/state";
+    putenv('DUO_TEST_MODE=1');
+    putenv('DUO_TEST_INIT_FAIL_PHASE=lock-acquire-after-create');
+    $lockCreateFailure = null;
+    try {
+        Publish::lock_new($stateDir);
+    } catch (Throwable $t) {
+        $lockCreateFailure = $t;
+    } finally {
+        putenv('DUO_TEST_INIT_FAIL_PHASE');
+        putenv('DUO_TEST_MODE');
+    }
+    check(
+        $lockCreateFailure instanceof RuntimeException,
+        'P11g: post-create first-lock acquisition failure is observable'
+    );
+    check(
+        !file_exists(Publish::lock_path($stateDir)) && !is_link(Publish::lock_path($stateDir)),
+        'P11g: failed acquisition removes only the exact lock inode it just created'
+    );
+
+    $root = fresh_root('initial_contradictory_receipt');
+    $stateDir = "$root/state";
+    mkdir($stateDir);
+    $reservation = Publish::tree_ownership_manifest($stateDir);
+    $staging = Publish::stage_dir($stateDir);
+    $candidate = Publish::write_entities_fresh($staging, [
+        ['path' => 'options/core.json', 'content' => "{}\n"],
+    ]);
+    $intent = Publish::begin_intent($stateDir, $staging, true);
+    Publish::swap_initial($stateDir, $reservation, $candidate);
+    $intent = Publish::mark_swapped($stateDir, $intent, true);
+    $intent = Publish::mark_commit_ready($stateDir, $intent, true);
+    $intent = Publish::mark_committing($stateDir, $intent, true);
+    Publish::write_receipt($stateDir, $intent, true);
+    $receiptPath = Publish::receipt_path($stateDir);
+    $receipt = Canon::decode(Canon::read_file($receiptPath));
+    $receipt['candidate_sha256'] = str_repeat('f', 64);
+    unset($receipt['record_sha256']);
+    $receipt['record_sha256'] = hash('sha256', Canon::encode($receipt));
+    Canon::write_file($receiptPath, Canon::encode($receipt));
+    $receiptFailure = null;
+    try {
+        Publish::recover_initial($stateDir, $reservation, $candidate, static fn(array $row): bool => true);
+    } catch (Throwable $t) {
+        $receiptFailure = $t;
+    }
+    check(
+        $receiptFailure instanceof RuntimeException
+            && str_contains($receiptFailure->getMessage(), 'receipt contradicts'),
+        'P11h: a sealed contradictory initial receipt fails before cleanup'
+    );
+    check(
+        is_dir(Publish::backup_dir($stateDir)) && is_file(Publish::intent_path($stateDir)),
+        'P11h: contradictory receipt preserves the exact reservation and intent evidence'
+    );
 }
 
 // ======================================================================
