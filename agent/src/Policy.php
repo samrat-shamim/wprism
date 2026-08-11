@@ -4637,7 +4637,8 @@ self::validate_post_type_children($manifest);
         $seen = [];
         foreach ($declaredTables as $table => $decl) {
             // The literal, not Snapshot::CLASS_ROW: this file must stay
-            // loadable with no other engine class present (see TABLE_CLASSES).
+            // loadable with no other engine class present (see
+            // ManifestGrammar::TABLE_CLASSES).
             if (!is_array($decl) || ($decl['class'] ?? '') !== 'authored_snapshot') {
                 continue;
             }
@@ -4687,10 +4688,11 @@ self::validate_post_type_children($manifest);
      */
     private static function validate_ledger_kind_claims(array $manifests, array $declaredIdKinds): void {
         // ENGINE_LEDGER_KINDS repeats Ledger::KIND_POST/KIND_TERM/KIND_TT
-        // rather than referencing them, for the same reason TABLE_CLASSES
-        // repeats Snapshot's two class names: this file must stay loadable with
-        // no other engine class present, and these spellings are wire format a
-        // manifest already carries, not an internal name either side may change.
+        // rather than referencing them, for the same reason
+        // ManifestGrammar::TABLE_CLASSES repeats Snapshot's two class names:
+        // this file must stay loadable with no other engine class present, and
+        // these spellings are wire format a manifest already carries, not an
+        // internal name either side may change.
         $ledgerKinds = array_merge(self::ENGINE_LEDGER_KINDS, $declaredIdKinds);
         sort($ledgerKinds, SORT_STRING);
         sort($declaredIdKinds, SORT_STRING);

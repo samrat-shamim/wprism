@@ -156,6 +156,13 @@ $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
 ]), 'identity.columns != exactly 2 entries', 'table: composite_ref with 1 identity column');
 $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
     'class' => 'authored_snapshot',
+    'columns' => [], 'refs' => [
+        ['column' => 'a', 'kind' => 'post'], ['column' => 'b', 'kind' => 'post'], ['column' => 'c', 'kind' => 'post'],
+    ],
+    'identity' => ['mode' => 'composite_ref', 'columns' => ['a', 'b', 'c']],
+]), 'identity.columns != exactly 2 entries', 'table: composite_ref with 3 identity columns');
+$assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
+    'class' => 'authored_snapshot',
     'columns' => [], 'refs' => [['column' => 'a', 'kind' => 'post'], ['column' => 'b', 'kind' => 'post']],
     'identity' => ['mode' => 'composite_ref', 'columns' => ['a', 'c']],
 ]), 'must be EXACTLY its refs[] columns', 'table: composite_ref identity.columns mismatches refs columns');
@@ -206,6 +213,10 @@ $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
 ]), 'invalidate must be a non-empty list', 'table: invalidate not a list');
 $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
     'class' => 'authored_snapshot', 'pk' => 'id', 'columns' => [], 'refs' => [],
+    'identity' => ['mode' => 'mapped'], 'invalidate' => ['not-an-object'],
+]), 'invalidate[0] must be an object', 'table: invalidate entry not an object');
+$assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
+    'class' => 'authored_snapshot', 'pk' => 'id', 'columns' => [], 'refs' => [],
     'identity' => ['mode' => 'mapped'], 'invalidate' => [['table' => 'x']],
 ]), 'declares [table] but the invalidation vocabulary is closed', 'table: invalidate entry with unclosed key shape');
 $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
@@ -218,6 +229,9 @@ $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
 $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
     'class' => 'authored_snapshot', 'pk' => ['id'], 'columns' => [], 'refs' => [], 'identity' => ['mode' => 'mapped'],
 ]), 'pk must be a non-empty string', 'table: pk not a string');
+$assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
+    'class' => 'authored_snapshot', 'pk' => '', 'columns' => [], 'refs' => [], 'identity' => ['mode' => 'mapped'],
+]), 'pk must be a non-empty string', 'table: pk explicitly empty string');
 $assertThrows(fn() => ManifestGrammar::assert_table_grammar('t', [
     'class' => 'authored_snapshot', 'pk' => 'id', 'columns' => [], 'refs' => 'not-a-list', 'identity' => ['mode' => 'mapped'],
 ]), 'refs must be a LIST', 'table: refs not a list');

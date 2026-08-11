@@ -544,13 +544,6 @@ final class ManifestGrammar {
      * ^[a-z0-9_-]+$ rule legally admits it after string coercion, so a
      * mixed int/string key map loads — a syntactically legal id_base,
      * not a validation gap.
-     *
-     * `codec`/`ref` stay deliberately narrow: 'blocks' is the only settings
-     * codec the engine implements, and 'term' the only ref kind a core widget
-     * setting has ever carried. Both are engine-owned — a widget setting's
-     * value passes through engine codecs, not adapter code — so widening
-     * either is an engine change with a spec bump, not a manifest
-     * declaration.
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         $where = ($source === null ? '' : "$source ") . "widgets.$type";
