@@ -73,13 +73,14 @@ The provider reads one canonical JSON object plus a newline from stdin and
 writes one canonical JSON object plus a newline to stdout. It implements
 `probe`, `acquire`, `verify`, `keepalive`, `adopt`, and `release`.
 
-Requests use `format: duo-exclusion-provider-request/v1`, carry the exact
+Requests use `format: duo-exclusion-provider-request/v2`, carry the exact
 target/receipt/generation/owner/artifact/claimant identity (nullable only for
 `probe`), and require all scopes:
 
 ```json
 {
   "background_jobs": true,
+  "database_writers": true,
   "filesystem_writers": true,
   "package_updates": true,
   "public_traffic": true
@@ -88,10 +89,19 @@ target/receipt/generation/owner/artifact/claimant identity (nullable only for
 
 Responses contain exactly `available`, `disconnect_behavior`, `format`,
 `provider_id`, `provider_version`, `scopes`, `state`, `target_id`, and `token`.
-They use `format: duo-exclusion-provider-response/v1`, attest
-`disconnect_behavior: remain_excluded`, and repeat all four true scopes.
+They use `format: duo-exclusion-provider-response/v2`, attest
+`disconnect_behavior: remain_excluded`, and repeat all five true scopes.
 `probe` returns `state: ready` and a null token; acquire/verify/keepalive/adopt
 return `held`; release returns `released`.
+
+`database_writers` is a separate, whole-target attestation: it means the
+provider has excluded every non-Duo path that can write the target database,
+including direct database clients, application and integration writers,
+cron/queue and CLI workers, and deployment or migration tooling. It is not
+satisfied merely by stopping public HTTP traffic or the WordPress scheduler.
+The v2 provider protocol deliberately replaces v1: a v1 request or response
+is non-green, so operators must upgrade the provider before a new recovery
+generation can be probed or claimed.
 
 A disconnect or failed keepalive must leave all scopes excluded indefinitely.
 The provider must never use lease expiry to reopen the site. `adopt` transfers

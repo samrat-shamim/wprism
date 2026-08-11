@@ -92,9 +92,9 @@ $exclusionSource = <<<'PHP'
 <?php
 declare(strict_types=1);
 function ec(array $v): string { ksort($v,SORT_STRING); foreach($v as $k=>$x) if(is_array($x)) $v[$k]=json_decode(ec($x),true); return json_encode($v,JSON_UNESCAPED_SLASHES|JSON_THROW_ON_ERROR); }
-$r=json_decode((string)stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR); $p=$argv[1]; $a=$r['action']; $s=is_file($p)?json_decode((string)file_get_contents($p),true):null;
+$r=json_decode((string)stream_get_contents(STDIN),true,512,JSON_THROW_ON_ERROR); if(($r['format']??'')!=='duo-exclusion-provider-request/v2')exit(42); $p=$argv[1]; $a=$r['action']; $s=is_file($p)?json_decode((string)file_get_contents($p),true):null;
 if($a==='probe'){ $token=null;$state='ready'; } elseif($a==='acquire'){ $token=$s['token']??('held-'.hash('sha256',ec($r)));$state='held';file_put_contents($p,ec(['state'=>'held','token'=>$token])."\n"); } else { if(!is_array($s)||$s['state']!=='held'||$s['token']!==$r['token'])exit(41);$token=$s['token'];$state=$a==='release'?'released':'held'; }
-echo ec(['available'=>true,'disconnect_behavior'=>'remain_excluded','format'=>'duo-exclusion-provider-response/v1','provider_id'=>'checkpoint-exclusion','provider_version'=>'1.0.0','scopes'=>['background_jobs'=>true,'filesystem_writers'=>true,'package_updates'=>true,'public_traffic'=>true],'state'=>$state,'target_id'=>$r['target_id'],'token'=>$token])."\n";
+echo ec(['available'=>true,'disconnect_behavior'=>'remain_excluded','format'=>'duo-exclusion-provider-response/v2','provider_id'=>'checkpoint-exclusion','provider_version'=>'1.0.0','scopes'=>['background_jobs'=>true,'database_writers'=>true,'filesystem_writers'=>true,'package_updates'=>true,'public_traffic'=>true],'state'=>$state,'target_id'=>$r['target_id'],'token'=>$token])."\n";
 PHP;
 
 $adapterSource = <<<'PHP'

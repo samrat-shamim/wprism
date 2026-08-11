@@ -15,12 +15,18 @@ final class RecoveryExecutor {
     private const CONFIG_FORMAT = 'duo-recovery-config/v1';
     private const EXCLUSION_FORMAT = 'duo-exclusion-record/v1';
     private const REQUEST_FORMAT = 'duo-exclusion-request/v1';
-    private const PROVIDER_REQUEST_FORMAT = 'duo-exclusion-provider-request/v1';
-    private const PROVIDER_RESPONSE_FORMAT = 'duo-exclusion-provider-response/v1';
+    private const PROVIDER_REQUEST_FORMAT = 'duo-exclusion-provider-request/v2';
+    private const PROVIDER_RESPONSE_FORMAT = 'duo-exclusion-provider-response/v2';
     private const ADAPTER_REQUEST_FORMAT = 'duo-recovery-adapter-request/v1';
     private const ADAPTER_RESPONSE_FORMAT = 'duo-recovery-adapter-response/v1';
     /** @var list<string> */
-    private const SCOPES = ['background_jobs', 'filesystem_writers', 'package_updates', 'public_traffic'];
+    private const SCOPES = [
+        'background_jobs',
+        'database_writers',
+        'filesystem_writers',
+        'package_updates',
+        'public_traffic',
+    ];
     /** @var list<string> */
     private const ADAPTERS = ['code_restore', 'database_restore', 'prior_verify', 'storage_restore'];
 
@@ -668,12 +674,7 @@ final class RecoveryExecutor {
 
     /** @return array<string,bool> */
     private static function scopeMap(): array {
-        return [
-            'background_jobs' => true,
-            'filesystem_writers' => true,
-            'package_updates' => true,
-            'public_traffic' => true,
-        ];
+        return array_fill_keys(self::SCOPES, true);
     }
 
     private static function assertRequestIdentity(array $payload, array $status): void {

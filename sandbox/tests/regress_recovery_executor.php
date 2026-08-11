@@ -187,6 +187,7 @@ function canon(array $v): string { ksort($v, SORT_STRING); foreach ($v as $k => 
 $request = json_decode((string) stream_get_contents(STDIN), true, 512, JSON_THROW_ON_ERROR);
 $statePath = $argv[1];
 $action = (string) ($request['action'] ?? '');
+if (($request['format'] ?? '') !== 'duo-exclusion-provider-request/v2') { fwrite(STDERR, "provider requires request v2\n"); exit(44); }
 if ($action === 'keepalive' && is_file($statePath . '.fail-keepalive')) { fwrite(STDERR, "keepalive failed closed\n"); exit(41); }
 $state = is_file($statePath) ? json_decode((string) file_get_contents($statePath), true, 512, JSON_THROW_ON_ERROR) : null;
 if ($action === 'probe') { $token = null; $providerState = 'ready'; }
@@ -204,9 +205,10 @@ elseif ($action === 'acquire') {
     if ($action === 'release') { $state['state'] = 'released'; $providerState = 'released'; } else { $providerState = 'held'; }
     file_put_contents($statePath, canon($state) . "\n"); chmod($statePath, 0600);
 }
-$scopes = ['background_jobs' => true, 'filesystem_writers' => true, 'package_updates' => true, 'public_traffic' => true];
-if (is_file($statePath . '.bad-scopes')) { $scopes['public_traffic'] = false; }
-$response = ['available' => true, 'disconnect_behavior' => 'remain_excluded', 'format' => 'duo-exclusion-provider-response/v1', 'provider_id' => 'fixture-provider', 'provider_version' => '1.0.0', 'scopes' => $scopes, 'state' => $providerState, 'target_id' => $request['target_id'], 'token' => $token];
+$scopes = ['background_jobs' => true, 'database_writers' => true, 'filesystem_writers' => true, 'package_updates' => true, 'public_traffic' => true];
+if (is_file($statePath . '.bad-scopes')) { unset($scopes['database_writers']); }
+$responseFormat = is_file($statePath . '.legacy-provider-format') ? 'duo-exclusion-provider-response/v1' : 'duo-exclusion-provider-response/v2';
+$response = ['available' => true, 'disconnect_behavior' => 'remain_excluded', 'format' => $responseFormat, 'provider_id' => 'fixture-provider', 'provider_version' => '1.0.0', 'scopes' => $scopes, 'state' => $providerState, 'target_id' => $request['target_id'], 'token' => $token];
 echo canon($response) . "\n";
 PHP;
 
@@ -242,11 +244,14 @@ try {
     recovery_write($configPath, RollbackControl::canonical($config) . "\n");
     RecoveryExecutor::configureFromFile($root, $configPath);
     $probe = RecoveryExecutor::probe($root);
-    recovery_ok($probe['scopes'] === ['background_jobs' => true, 'filesystem_writers' => true, 'package_updates' => true, 'public_traffic' => true], 'preflight attests traffic, jobs, package updates, and filesystem writers');
+    recovery_ok($probe['scopes'] === ['background_jobs' => true, 'database_writers' => true, 'filesystem_writers' => true, 'package_updates' => true, 'public_traffic' => true], 'preflight attests traffic, every database writer, jobs, package updates, and filesystem writers');
     recovery_ok(count($probe['adapters']) === 4, 'preflight probes every named raw recovery adapter');
 
+    touch($providerState . '.legacy-provider-format');
+    recovery_refuses(fn() => RecoveryExecutor::probe($root), 'legacy v1 provider evidence is rejected before generation mutation');
+    unlink($providerState . '.legacy-provider-format');
     touch($providerState . '.bad-scopes');
-    recovery_refuses(fn() => RecoveryExecutor::probe($root), 'incomplete provider scope blocks before generation mutation');
+    recovery_refuses(fn() => RecoveryExecutor::probe($root), 'missing database-writer attestation blocks before generation mutation');
     unlink($providerState . '.bad-scopes');
     recovery_ok(RollbackControl::status($root)['generation'] === 0, 'failed preflight leaves rollback authority unmodified');
 
