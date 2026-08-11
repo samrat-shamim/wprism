@@ -451,12 +451,16 @@ rather than working around it.
   evidence only through a separate target-observation and lease-bound mutation
   authority. The durable session retains hash-safe original work/action
   identities plus an opaque sealed membership set for nested widget/menu-item
-  map rows owned by selected sidebar/menu files, journals authored/effect phases, reconciles provider/native
-  response loss by exact operation id, verifies selected intent plus protected
-  out-of-scope roots in a fresh process, and advances selected ledger rows
-  without claiming a global applied revision. A nonterminal scoped session
-  interlocks full plan/apply. Triggerless actions, legacy regenerators, and
-  attachment metadata generation refuse rather than widen authority.
+  map rows owned by selected sidebar/menu files. Selected map rows must be
+  backed by the exact strict target observation before authority and on every
+  recovery/verifier read; stale selected mappings refuse without pruning
+  unselected rows. The session journals authored/effect phases, reconciles
+  provider/native response loss by exact operation id, verifies selected
+  intent plus protected out-of-scope roots in a fresh process, and advances
+  selected ledger rows without claiming a global applied revision. A
+  nonterminal scoped session interlocks full plan/apply. Triggerless actions,
+  legacy regenerators, and attachment metadata generation refuse rather than
+  widen authority.
   Per-option capture, code dependency movement, scoped promote/code lifecycle,
   and scoped rollback remain planned rather than inferred.
 - Redacted field-level refresh diff and interactive conflict resolver —

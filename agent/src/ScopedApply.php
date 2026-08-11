@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CommandRefusal.php';
+
 /** Atomic duo_kv adapter for the generic scoped-session protocol. */
 final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage {
     private static function assert_key(string $key): void {
@@ -234,7 +236,15 @@ final class ScopedApply {
         $ledgerMapIdentityHashes = $sealedLedgerMapIdentityHashes === null
             ? self::ledger_map_identity_hashes($contract, $compiled, $actual)
             : self::normalize_ledger_map_identity_hashes($sealedLedgerMapIdentityHashes);
-        $mapRoots = self::ledger_map_roots($ledgerMapIdentityHashes);
+        $map = Ledger::all_map();
+        self::assert_selected_ledger_map_observation_from_rows(
+            $policy,
+            $contract,
+            $actual,
+            $ledgerMapIdentityHashes,
+            $map
+        );
+        $mapRoots = self::ledger_map_roots($ledgerMapIdentityHashes, $map);
         $roots = [
             'selected_before_root' => self::hash_rows(array_values($selectedRows)),
             'protected_out_of_scope_root' => self::hash_rows($protectedRows),
@@ -297,9 +307,9 @@ final class ScopedApply {
      *
      * @return array{ledger_map_root:string,protected_ledger_map_root:string,selected_ledger_map_root:string}
      */
-    public static function ledger_map_roots(array $ledgerMapIdentityHashes): array {
+    public static function ledger_map_roots(array $ledgerMapIdentityHashes, ?array $map = null): array {
         $selected = array_fill_keys(self::normalize_ledger_map_identity_hashes($ledgerMapIdentityHashes), true);
-        $map = Ledger::all_map();
+        $map ??= Ledger::all_map();
         usort($map, static fn(array $a, array $b): int => [
             (string) ($a['uuid'] ?? ''), (string) ($a['id_kind'] ?? ''), (int) ($a['local_id'] ?? 0),
         ] <=> [
@@ -318,6 +328,378 @@ final class ScopedApply {
             'protected_ledger_map_root' => hash('sha256', Canon::encode($protectedMap)),
             'selected_ledger_map_root' => hash('sha256', Canon::encode($selectedMap)),
         ];
+    }
+
+    /**
+     * Refuse selected ledger rows which a strict target capture did not prove.
+     *
+     * Capture::snapshot_read_only() already proves, without DML, the physical
+     * row, embedded UUID, entity type, id_kind, and local id for every live
+     * canonical identity it returns. This check closes the inverse: every
+     * existing row in the sealed selected ledger partition must correspond to
+     * one of those exact observed direct or nested identities, and every
+     * observed selected identity must remain in the sealed partition. A
+     * source-new identity may have no target map yet; if a stale map bearing
+     * that UUID exists, it is refused instead of being trusted as a live id.
+     * Unselected map rows are deliberately neither inspected nor pruned.
+     *
+     * @param array<string,array{type:string,hash:string,content:string,path:string}> $actual
+     * @param list<string> $ledgerMapIdentityHashes
+     */
+    public static function assert_selected_ledger_map_observation(
+        Policy $policy,
+        array $contract,
+        array $actual,
+        array $ledgerMapIdentityHashes
+    ): void {
+        self::assert_selected_ledger_map_observation_from_rows(
+            $policy,
+            $contract,
+            $actual,
+            $ledgerMapIdentityHashes,
+            Ledger::all_map()
+        );
+    }
+
+    /**
+     * @param array<string,array{type:string,hash:string,content:string,path:string}> $actual
+     * @param list<string> $ledgerMapIdentityHashes
+     * @param list<array{uuid:string,entity_type:string,id_kind:string,local_id:int}> $map
+     */
+    private static function assert_selected_ledger_map_observation_from_rows(
+        Policy $policy,
+        array $contract,
+        array $actual,
+        array $ledgerMapIdentityHashes,
+        array $map
+    ): void {
+        $selectedEntities = self::selected_set($contract);
+        $sealed = array_fill_keys(self::normalize_ledger_map_identity_hashes($ledgerMapIdentityHashes), true);
+        $expected = [];
+        $addExpected = static function (
+            string $uuid,
+            string $kind,
+            string $entityType,
+            array $details = []
+        ) use (&$expected): void {
+            if (!Uuid::is($uuid) || $kind === '' || $entityType === '') {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            $evidence = ['entity_type' => $entityType] + $details;
+            if (isset($expected[$uuid][$kind])
+                && Canon::encode($expected[$uuid][$kind]) !== Canon::encode($evidence)) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            $expected[$uuid][$kind] = $evidence;
+        };
+
+        $rowTables = Snapshot::row_tables($policy);
+        foreach ($actual as $identity => $row) {
+            $identity = (string) $identity;
+            if (!isset($selectedEntities[$identity]) || !Uuid::is($identity)) {
+                continue;
+            }
+            $type = (string) ($row['type'] ?? '');
+            try {
+                $data = Canon::decode((string) ($row['content'] ?? ''));
+            } catch (\Throwable $failure) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+            }
+            if (!is_array($data)) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            if ($type === 'post') {
+                $addExpected($identity, Ledger::KIND_POST, 'post', [
+                    'post_type' => (string) ($data['type'] ?? ''),
+                ]);
+            } elseif ($type === 'term' || $type === 'menu') {
+                $taxonomy = $type === 'menu' ? 'nav_menu' : (string) ($data['taxonomy'] ?? '');
+                $addExpected($identity, Ledger::KIND_TERM, $type, ['taxonomy' => $taxonomy]);
+                $addExpected($identity, Ledger::KIND_TT, $type, ['taxonomy' => $taxonomy]);
+            } elseif (isset($rowTables[$type])) {
+                $addExpected(
+                    $identity,
+                    (string) ($rowTables[$type]['id_kind'] ?? ''),
+                    $type,
+                    ['table' => $type]
+                );
+            }
+        }
+
+        foreach (self::selected_observed_owner_tree($actual, $selectedEntities) as $ownerIdentity => $owner) {
+            $type = (string) ($owner['type'] ?? '');
+            if ($type === 'menu') {
+                foreach ((array) ($owner['data']['items'] ?? []) as $item) {
+                    $addExpected(
+                        (string) ($item['uuid'] ?? ''),
+                        Ledger::KIND_POST,
+                        'menu_item',
+                        ['owner' => (string) $ownerIdentity, 'post_type' => 'nav_menu_item']
+                    );
+                }
+            } elseif ($type === SidebarState::ENTITY_TYPE) {
+                $sidebar = str_starts_with((string) $ownerIdentity, 'sidebar/')
+                    ? substr((string) $ownerIdentity, strlen('sidebar/'))
+                    : '';
+                foreach ((array) ($owner['data']['widgets'] ?? []) as $widget) {
+                    $widgetType = (string) ($widget['type'] ?? '');
+                    $addExpected(
+                        (string) ($widget['uuid'] ?? ''),
+                        SidebarState::kind($widgetType),
+                        'widget',
+                        ['owner' => $sidebar, 'widget_type' => $widgetType]
+                    );
+                }
+            }
+        }
+
+        $tombstones = [];
+        foreach ((array) ($contract['tombstones'] ?? []) as $tombstone) {
+            $uuid = (string) ($tombstone['uuid'] ?? '');
+            if (Uuid::is($uuid) && isset($selectedEntities[$uuid])) {
+                $tombstones[$uuid] = (array) ($tombstone['deletion'] ?? []);
+            }
+        }
+        $mapByIdentityKind = [];
+        foreach ($map as $row) {
+            $mapByIdentityKind[(string) ($row['uuid'] ?? '')][(string) ($row['id_kind'] ?? '')] = $row;
+        }
+        $observed = [];
+        foreach ($expected as $uuid => $kinds) {
+            if (!isset($sealed[hash('sha256', $uuid)])) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            foreach ($kinds as $kind => $_evidence) {
+                $observed[$uuid][$kind] = false;
+            }
+        }
+        foreach ($map as $row) {
+            $uuid = (string) ($row['uuid'] ?? '');
+            if (!isset($sealed[hash('sha256', $uuid)])) {
+                continue;
+            }
+            $kind = (string) ($row['id_kind'] ?? '');
+            $entityType = (string) ($row['entity_type'] ?? '');
+            if (!isset($expected[$uuid][$kind])) {
+                if (!isset($expected[$uuid])
+                    && isset($tombstones[$uuid])
+                    && self::settled_tombstone_map_row_is_absent($policy, $tombstones[$uuid], $row)) {
+                    continue;
+                }
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            if ((string) ($expected[$uuid][$kind]['entity_type'] ?? '') !== $entityType) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            self::assert_selected_map_row_physical(
+                $policy,
+                $uuid,
+                $kind,
+                $row,
+                $expected[$uuid][$kind],
+                $mapByIdentityKind
+            );
+            $observed[$uuid][$kind] = true;
+        }
+        foreach ($observed as $kinds) {
+            if (in_array(false, $kinds, true)) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+        }
+    }
+
+    /**
+     * Re-bind one selected tuple's exact local_id to the current physical row
+     * after the strict snapshot transaction has closed.
+     *
+     * @param array{uuid:string,entity_type:string,id_kind:string,local_id:int} $row
+     * @param array<string,mixed> $evidence
+     * @param array<string,array<string,array<string,mixed>>> $mapByIdentityKind
+     */
+    private static function assert_selected_map_row_physical(
+        Policy $policy,
+        string $uuid,
+        string $kind,
+        array $row,
+        array $evidence,
+        array $mapByIdentityKind
+    ): void {
+        global $wpdb;
+        $localId = (int) ($row['local_id'] ?? 0);
+        $entityType = (string) ($evidence['entity_type'] ?? '');
+        if ($localId <= 0) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        if ($entityType === 'post' || $entityType === 'menu_item') {
+            if ($entityType === 'menu_item') {
+                $owner = (string) ($evidence['owner'] ?? '');
+                $ownerTt = (int) ($mapByIdentityKind[$owner][Ledger::KIND_TT]['local_id'] ?? 0);
+                if ($ownerTt <= 0) {
+                    throw CommandRefusalException::scopedIdentityRecoveryRequired();
+                }
+                $query = $wpdb->prepare(
+                    "SELECT p.ID, p.post_type, pm.meta_value AS duo_uuid FROM {$wpdb->posts} p"
+                    . " LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = %s"
+                    . " JOIN {$wpdb->term_relationships} tr"
+                    . ' ON tr.object_id = p.ID AND tr.term_taxonomy_id = %d'
+                    . ' WHERE p.ID = %d ORDER BY pm.meta_id ASC LIMIT 1',
+                    '_duo_uuid',
+                    $ownerTt,
+                    $localId
+                );
+            } else {
+                $query = $wpdb->prepare(
+                    "SELECT p.ID, p.post_type, pm.meta_value AS duo_uuid FROM {$wpdb->posts} p"
+                    . " LEFT JOIN {$wpdb->postmeta} pm ON pm.post_id = p.ID AND pm.meta_key = %s"
+                    . ' WHERE p.ID = %d ORDER BY pm.meta_id ASC LIMIT 1',
+                    '_duo_uuid',
+                    $localId
+                );
+            }
+            $physical = self::checked_target_row($query);
+            if ($physical === null
+                || (int) ($physical['ID'] ?? 0) !== $localId
+                || (string) ($physical['duo_uuid'] ?? '') !== $uuid
+                || (string) ($physical['post_type'] ?? '') !== (string) ($evidence['post_type'] ?? '')) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            try {
+                Ledger::require_read_only_mapping($uuid, $entityType, $kind, $localId, 'selected post identity');
+            } catch (\Throwable $failure) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+            }
+            return;
+        }
+        if ($entityType === 'term' || $entityType === 'menu') {
+            $termMap = $mapByIdentityKind[$uuid][Ledger::KIND_TERM] ?? null;
+            $ttMap = $mapByIdentityKind[$uuid][Ledger::KIND_TT] ?? null;
+            $termId = (int) ($termMap['local_id'] ?? 0);
+            $ttId = (int) ($ttMap['local_id'] ?? 0);
+            if ($termId <= 0 || $ttId <= 0) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            $physical = self::checked_target_row($wpdb->prepare(
+                "SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid"
+                . " FROM {$wpdb->terms} t"
+                . " JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id"
+                . " LEFT JOIN {$wpdb->termmeta} tm ON tm.term_id = t.term_id AND tm.meta_key = %s"
+                . ' WHERE t.term_id = %d AND tt.term_taxonomy_id = %d'
+                . ' ORDER BY tm.meta_id ASC LIMIT 1',
+                '_duo_uuid',
+                $termId,
+                $ttId
+            ));
+            if ($physical === null
+                || (int) ($physical['term_id'] ?? 0) !== $termId
+                || (int) ($physical['term_taxonomy_id'] ?? 0) !== $ttId
+                || (string) ($physical['taxonomy'] ?? '') !== (string) ($evidence['taxonomy'] ?? '')
+                || (string) ($physical['duo_uuid'] ?? '') !== $uuid) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            try {
+                Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_TERM, $termId, 'selected term identity');
+                Ledger::require_read_only_mapping($uuid, $entityType, Ledger::KIND_TT, $ttId, 'selected taxonomy identity');
+            } catch (\Throwable $failure) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+            }
+            return;
+        }
+        if ($entityType === 'widget') {
+            SidebarState::assert_read_only_selected_mapping(
+                $policy,
+                $uuid,
+                (string) ($evidence['widget_type'] ?? ''),
+                $localId,
+                (string) ($evidence['owner'] ?? '')
+            );
+            return;
+        }
+        if (($evidence['table'] ?? null) === $entityType) {
+            Snapshot::assert_read_only_selected_mapping($policy, $entityType, $uuid, $kind, $localId);
+            return;
+        }
+        throw CommandRefusalException::scopedIdentityRecoveryRequired();
+    }
+
+    /**
+     * Selected tombstones which are already physically settled may retain
+     * their direct map rows until the final selected ledger transaction calls
+     * Ledger::forget(). Any surviving physical row is partial deletion state,
+     * not permission to trust the stale tuple.
+     *
+     * @param array<string,mixed> $deletion
+     * @param array{uuid:string,entity_type:string,id_kind:string,local_id:int} $row
+     */
+    private static function settled_tombstone_map_row_is_absent(
+        Policy $policy,
+        array $deletion,
+        array $row
+    ): bool {
+        global $wpdb;
+        $kind = (string) ($row['id_kind'] ?? '');
+        $entityType = (string) ($row['entity_type'] ?? '');
+        $localId = (int) ($row['local_id'] ?? 0);
+        $deletionKind = (string) ($deletion['kind'] ?? '');
+        $deletionType = (string) ($deletion['type'] ?? '');
+        if ($localId <= 0) {
+            return false;
+        }
+        if ($deletionKind === 'post') {
+            return $kind === Ledger::KIND_POST
+                && $entityType === 'post'
+                && !self::checked_target_exists($wpdb->prepare(
+                    "SELECT 1 FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
+                    $localId
+                ));
+        }
+        if ($deletionKind === 'term' || $deletionKind === 'menu') {
+            $expectedType = $deletionKind === 'menu' ? 'menu' : 'term';
+            if ($entityType !== $expectedType || !in_array($kind, [Ledger::KIND_TERM, Ledger::KIND_TT], true)) {
+                return false;
+            }
+            if ($kind === Ledger::KIND_TERM) {
+                return !self::checked_target_exists($wpdb->prepare(
+                    "SELECT 1 FROM {$wpdb->terms} WHERE term_id = %d LIMIT 1",
+                    $localId
+                )) && !self::checked_target_exists($wpdb->prepare(
+                    "SELECT 1 FROM {$wpdb->term_taxonomy} WHERE term_id = %d LIMIT 1",
+                    $localId
+                ));
+            }
+            return !self::checked_target_exists($wpdb->prepare(
+                "SELECT 1 FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id = %d LIMIT 1",
+                $localId
+            ));
+        }
+        if ($deletionKind === 'table') {
+            $decl = Snapshot::row_tables($policy)[$deletionType] ?? null;
+            return is_array($decl)
+                && (string) ($decl['id_kind'] ?? '') === $kind
+                && $entityType === $deletionType
+                && !Snapshot::read_only_mapped_row_exists($policy, $deletionType, $localId);
+        }
+        return false;
+    }
+
+    /** @return array<string,mixed>|null */
+    private static function checked_target_row(string $sql): ?array {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $row = $wpdb->get_row($sql, ARRAY_A);
+        if ($row === false || !empty($wpdb->last_error)) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        return is_array($row) ? $row : null;
+    }
+
+    private static function checked_target_exists(string $sql): bool {
+        global $wpdb;
+        $wpdb->last_error = '';
+        $value = $wpdb->get_var($sql);
+        if ($value === false || !empty($wpdb->last_error)) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        return $value !== null;
     }
 
     /**

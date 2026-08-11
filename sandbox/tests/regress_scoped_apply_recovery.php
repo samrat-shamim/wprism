@@ -29,7 +29,7 @@ foreach ([
     'ReferenceGraph', 'CodeCompatibility', 'RepositoryCompiler',
     'ScopeClosure', 'CanonicalSurfaces', 'Deletion', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'Tokens', 'ScopeContract',
-    'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply', 'Providers',
+    'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'Providers',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
     require_once "$root/agent/src/$file.php";
@@ -80,7 +80,12 @@ final class ScopedRecoveryMemoryStore implements ScopedApplySessionStorage {
 /** Minimal options/cache target for the real operation-bound effect seams. */
 final class ScopedRecoveryEffectWpdb {
     public string $options = 'wp_options';
+    public string $posts = 'wp_posts';
+    public string $postmeta = 'wp_postmeta';
+    public string $terms = 'wp_terms';
+    public string $termmeta = 'wp_termmeta';
     public string $term_taxonomy = 'wp_term_taxonomy';
+    public string $term_relationships = 'wp_term_relationships';
     public string $prefix = 'wp_';
     public string $last_error = '';
     public bool $failResults = false;
@@ -90,6 +95,12 @@ final class ScopedRecoveryEffectWpdb {
     public array $kvRows = [];
     /** @var list<array{uuid:string,entity_type:string,id_kind:string,local_id:int}> */
     public array $mapRows = [];
+    /** @var array<int,array{post_type:string,uuid:string,term_taxonomy_ids:list<int>}> */
+    public array $postRows = [];
+    /** @var array<int,string> */
+    public array $termRows = [];
+    /** @var array<int,array{term_id:int,taxonomy:string}> */
+    public array $taxonomyRows = [];
 
     public function get_charset_collate(): string {
         return '';
@@ -114,6 +125,64 @@ final class ScopedRecoveryEffectWpdb {
         if (preg_match("/option_name = '([^']*)'/", $query, $match) === 1) {
             return $this->optionRows[$match[1]] ?? null;
         }
+        if (preg_match('/SELECT 1 FROM wp_posts WHERE ID = ([0-9]+)/', $query, $match) === 1) {
+            return isset($this->postRows[(int) $match[1]]) ? '1' : null;
+        }
+        if (preg_match('/SELECT 1 FROM wp_terms WHERE term_id = ([0-9]+)/', $query, $match) === 1) {
+            return isset($this->termRows[(int) $match[1]]) ? '1' : null;
+        }
+        if (preg_match('/SELECT 1 FROM wp_term_taxonomy WHERE term_id = ([0-9]+)/', $query, $match) === 1) {
+            foreach ($this->taxonomyRows as $row) {
+                if ($row['term_id'] === (int) $match[1]) return '1';
+            }
+            return null;
+        }
+        if (preg_match('/SELECT 1 FROM wp_term_taxonomy WHERE term_taxonomy_id = ([0-9]+)/', $query, $match) === 1) {
+            return isset($this->taxonomyRows[(int) $match[1]]) ? '1' : null;
+        }
+        return null;
+    }
+
+    public function get_row(string $query, mixed $output = null): array|false|null {
+        $this->last_error = '';
+        if (preg_match("/FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $match) === 1) {
+            foreach ($this->mapRows as $row) {
+                if ($row['uuid'] === $match[1] && $row['id_kind'] === $match[2]) {
+                    return ['entity_type' => $row['entity_type'], 'local_id' => $row['local_id']];
+                }
+            }
+            return null;
+        }
+        if (preg_match("/FROM wp_duo_map WHERE id_kind = '([^']+)' AND local_id = ([0-9]+)/", $query, $match) === 1) {
+            foreach ($this->mapRows as $row) {
+                if ($row['id_kind'] === $match[1] && $row['local_id'] === (int) $match[2]) {
+                    return ['uuid' => $row['uuid'], 'entity_type' => $row['entity_type']];
+                }
+            }
+            return null;
+        }
+        if (preg_match('/WHERE p.ID = ([0-9]+)/', $query, $match) === 1) {
+            $id = (int) $match[1];
+            $row = $this->postRows[$id] ?? null;
+            if ($row === null) return null;
+            if (preg_match('/tr.term_taxonomy_id = ([0-9]+)/', $query, $tt) === 1
+                && !in_array((int) $tt[1], $row['term_taxonomy_ids'], true)) {
+                return null;
+            }
+            return ['ID' => $id, 'post_type' => $row['post_type'], 'duo_uuid' => $row['uuid']];
+        }
+        if (preg_match('/WHERE t.term_id = ([0-9]+) AND tt.term_taxonomy_id = ([0-9]+)/', $query, $match) === 1) {
+            $termId = (int) $match[1];
+            $ttId = (int) $match[2];
+            $tt = $this->taxonomyRows[$ttId] ?? null;
+            if ($tt === null || $tt['term_id'] !== $termId || !isset($this->termRows[$termId])) return null;
+            return [
+                'term_id' => $termId,
+                'term_taxonomy_id' => $ttId,
+                'taxonomy' => $tt['taxonomy'],
+                'duo_uuid' => $this->termRows[$termId],
+            ];
+        }
         return null;
     }
 
@@ -130,6 +199,15 @@ final class ScopedRecoveryEffectWpdb {
         $this->last_error = '';
         if (str_contains($query, 'FROM wp_duo_map')) {
             return $this->mapRows;
+        }
+        if (str_contains($query, "option_name LIKE 'widget")) {
+            $rows = [];
+            foreach ($this->optionRows as $name => $value) {
+                if (str_starts_with($name, 'widget_')) {
+                    $rows[] = ['option_name' => $name, 'option_value' => $value];
+                }
+            }
+            return $rows;
         }
         return [];
     }
@@ -737,6 +815,145 @@ $check(
         && count($expectedProtectedMapRows) === 1,
     'ledger partition keeps every id_kind row for selected owners together and protects unselected owner rows'
 );
+$GLOBALS['wpdb']->mapRows = [
+    ['uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 20],
+    ['uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 120],
+    ['uuid' => $targetWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 4],
+    ['uuid' => $targetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 24],
+    // An unselected stale row is outside this authority and must remain
+    // untouched rather than making a selected observation prune globally.
+    ['uuid' => $protectedWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_block', 'local_id' => 9],
+];
+$GLOBALS['wpdb']->termRows = [20 => $selectedMenu];
+$GLOBALS['wpdb']->taxonomyRows = [120 => ['term_id' => 20, 'taxonomy' => 'nav_menu']];
+$GLOBALS['wpdb']->postRows = [24 => [
+    'post_type' => 'nav_menu_item',
+    'uuid' => $targetMenuItem,
+    'term_taxonomy_ids' => [120],
+]];
+$GLOBALS['wpdb']->optionRows['widget_text'] = serialize([
+    4 => ['title' => 'selected'],
+    '_multiwidget' => 1,
+]);
+$GLOBALS['wpdb']->optionRows['sidebars_widgets'] = serialize([
+    'selected' => ['text-4'],
+    'protected' => [],
+    'wp_inactive_widgets' => [],
+    'array_version' => 3,
+]);
+$nestedPolicy = clone $policy;
+$nestedPolicy->manifests = [[
+    'name' => 'scoped-recovery-fixture',
+    'widgets' => ['text' => ['settings' => []]],
+]];
+ScopedApply::assert_selected_ledger_map_observation(
+    $nestedPolicy,
+    $nestedContract,
+    $nestedActual,
+    $nestedIdentityHashes
+);
+$check(true, 'strict selected map observation accepts exact target-backed nested rows and ignores unselected stale rows');
+
+$GLOBALS['wpdb']->mapRows[3]['local_id'] = 25;
+try {
+    ScopedApply::assert_selected_ledger_map_observation(
+        $nestedPolicy,
+        $nestedContract,
+        $nestedActual,
+        $nestedIdentityHashes
+    );
+    $check(false, 'a same-kind selected map rebound to a different local id must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'selected map validation rebinds the exact local id to its physical sidecar and menu owner'
+    );
+}
+$GLOBALS['wpdb']->mapRows[3]['local_id'] = 24;
+
+// Source-new I is absent from the selected target menu. A lingering post map
+// for I must not make finalize_menu trust a dead/reused local id and skip the
+// insert; refuse before authority or authored mutation instead.
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $sourceMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 230,
+];
+try {
+    ScopedApply::assert_selected_ledger_map_observation(
+        $nestedPolicy,
+        $nestedContract,
+        $nestedActual,
+        $nestedIdentityHashes
+    );
+    $check(false, 'a stale selected source-new menu-item map must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required'
+            && !str_contains($failure->publicMessage, $sourceMenuItem)
+            && !str_contains($failure->remediation, $sourceMenuItem),
+        'a stale selected menu-item map refuses through a value-free typed recovery contract before mutation'
+    );
+}
+
+// The same boundary protects a top-level source entity: a deleted target menu
+// with surviving term/term-taxonomy map rows must not make ensure_term_row()
+// skip creation or make finalize_menu() write through dead ids.
+$missingSelectedMenuActual = $nestedActual;
+unset($missingSelectedMenuActual[$selectedMenu], $missingSelectedMenuActual[$selectedSidebar]);
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $selectedMenu,
+    'entity_type' => 'menu',
+    'id_kind' => 'term',
+    'local_id' => 20,
+], [
+    'uuid' => $selectedMenu,
+    'entity_type' => 'menu',
+    'id_kind' => 'term_taxonomy',
+    'local_id' => 120,
+]];
+try {
+    ScopedApply::assert_selected_ledger_map_observation(
+        $nestedPolicy,
+        $nestedContract,
+        $missingSelectedMenuActual,
+        $nestedIdentityHashes
+    );
+    $check(false, 'a stale selected top-level menu map must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'a stale selected top-level map refuses before create/finalize can trust dead term ids'
+    );
+}
+
+$settledTombstoneCheck = \Closure::bind(
+    static fn(Policy $p, array $deletion, array $row): bool =>
+        ScopedApply::settled_tombstone_map_row_is_absent($p, $deletion, $row),
+    null,
+    ScopedApply::class
+);
+$GLOBALS['wpdb']->termRows = [];
+$GLOBALS['wpdb']->taxonomyRows = [];
+$settledMenuRow = [
+    'uuid' => $selectedMenu,
+    'entity_type' => 'menu',
+    'id_kind' => 'term',
+    'local_id' => 20,
+];
+$check(
+    $settledTombstoneCheck($policy, ['kind' => 'menu', 'type' => 'nav_menu'], $settledMenuRow),
+    'an already-absent selected tombstone may retain its direct map until terminal ledger finalization'
+);
+$GLOBALS['wpdb']->termRows = [20 => $selectedMenu];
+$check(
+    !$settledTombstoneCheck($policy, ['kind' => 'menu', 'type' => 'nav_menu'], $settledMenuRow),
+    'a partially-settled tombstone with a surviving physical row refuses instead of being called absent'
+);
+$GLOBALS['wpdb']->termRows = [];
+$GLOBALS['wpdb']->postRows = [];
+$GLOBALS['wpdb']->optionRows = [];
 $GLOBALS['wpdb']->mapRows = [];
 
 // Operation-bound provider response loss: invocation is durable exactly once,

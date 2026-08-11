@@ -85,6 +85,23 @@ final class CommandRefusalException extends \RuntimeException {
         );
     }
 
+    /**
+     * A scoped target read found selected ledger identities which are not
+     * backed by the same strict canonical observation. Keep the public
+     * contract value-free: exact UUIDs, local ids, tables, and target rows
+     * stay private while the operator gets the existing repair route.
+     */
+    public static function scopedIdentityRecoveryRequired(?\Throwable $previous = null): self {
+        return new self(
+            'scoped_identity_recovery_required',
+            'scoped target observation found selected identity mappings that are stale, missing, or inconsistent; bounded mutation was refused',
+            'run the existing capture or identity-recovery gate, rebuild the scoped plan, and reconcile any retained scoped session before retrying',
+            [],
+            'duo: scoped target selected ledger identities are not backed by the exact strict target observation',
+            $previous
+        );
+    }
+
     /** Stable public boundary for explain's deliberately non-repairing read. */
     public static function explainObservationPrecondition(\Throwable $previous): self {
         return new self(

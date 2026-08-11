@@ -787,11 +787,16 @@ the selected ledger-map partition. The set includes direct selected UUIDs,
 source-new nested UUIDs, and target-old nested UUIDs observed under selected
 owners; every recovery, verifier, and terminal read reuses that exact set
 rather than reclassifying identities after a create, move, or removal. Raw
-UUIDs never enter the durable authority or compact scope wire. A stale or
-tampered contract, changed source, replaced lease, changed selected/protected
-target, changed guard, missing capability, triggerless global action, legacy
-unreconciled regenerator, or attachment metadata rebuild refuses before the
-first authored write.
+UUIDs never enter the durable authority or compact scope wire. Before sealing
+authority, every existing selected map row must be backed by the same strict
+target observation, including its direct entity or nested owner kind; a stale
+selected map refuses through the identity-recovery route while unselected stale
+rows remain untouched. Recovery, verification, and terminal replay repeat that
+check, so a dead or reused local id can never become selected write authority.
+A stale or tampered contract, changed source, replaced lease, changed
+selected/protected target, changed guard, missing capability, triggerless
+global action, legacy unreconciled regenerator, or attachment metadata rebuild
+refuses before the first authored write.
 
 Execution is journaled in one append-only `duo-scoped-apply-session/v1` with
 the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,

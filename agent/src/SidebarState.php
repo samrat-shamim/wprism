@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/CommandRefusal.php';
 
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
 final class SidebarState {
@@ -130,6 +131,52 @@ final class SidebarState {
             ];
         }
         return ['entities' => $entities, 'warnings' => $warnings];
+    }
+
+    /**
+     * Bind one selected widget ledger tuple to the exact live option instance
+     * and selected sidebar assignment. This is read-only and deliberately
+     * separate from global dead-map pruning: unselected widget rows are not
+     * this scoped authority's evidence to repair or reinterpret.
+     */
+    public static function assert_read_only_selected_mapping(
+        Policy $policy,
+        string $uuid,
+        string $type,
+        int $localId,
+        string $sidebar
+    ): void {
+        $declared = $policy->widget_types();
+        if (!isset($declared[$type]) || $localId <= 0 || $sidebar === '') {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        try {
+            $options = self::load_widget_options($policy, $declared, false);
+            $sidebars = self::load_sidebars_option();
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+        }
+        $key = "$type-$localId";
+        if (!isset($options[$type][$localId])
+            || !in_array($key, (array) ($sidebars[$sidebar] ?? []), true)) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        foreach ($sidebars as $owner => $keys) {
+            if ((string) $owner !== $sidebar && in_array($key, (array) $keys, true)) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+        }
+        try {
+            Ledger::require_read_only_mapping(
+                $uuid,
+                'widget',
+                self::kind($type),
+                $localId,
+                "selected widget '$key'"
+            );
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+        }
     }
 
     /** Validate the multi-instance family before any row is used. */
