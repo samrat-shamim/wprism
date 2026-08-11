@@ -1,31 +1,22 @@
 # Dispatch Loop (`LINEAR-LOOP`) — duo-wp
 
-Simplified adaptation of genesis-monorepo's `docs/agents/dispatch-loop.md` for
-this repo. It applies only when the dispatch prompt contains the literal token
+Applies only when the dispatch prompt contains the literal token
 `LINEAR-LOOP` (accept `LINEAR_LOOP` as the same token). Re-read this file at
 the start of the run, after every close, and at every polling resume. If the
 dispatch prompt conflicts with this file, prompt parameters win; this
 procedure still wins over improvisation.
 
-Two shipping modes:
-
-- **Distributed (default for dispatched agents):** branch per issue → PR →
-  squash-merge → verified close gate. Assume this mode unless the prompt says
-  otherwise. Repo: `github.com/duotronic-ai/duo-wp` (squash-only merges;
-  branches auto-delete on merge).
-- **Owner-session:** direct commits to `main`. Reserved for sessions the
-  project owner drives interactively on the primary machine — never for a
-  dispatched agent. Owner sessions work in a dedicated worktree pinned to
-  `main` (`git worktree add ../duo-wp-main main`), never in a checkout an
-  agent may be using.
+Shipping model: branch per issue → PR → squash-merge → verified close gate,
+against `github.com/duotronic-ai/duo-wp` (squash-only merges; branches
+auto-delete on merge).
 
 **One checkout per actor, no exceptions:** every agent and session operates in
 its own clone or its own `git worktree` — never in a working copy anything
 else uses. A shared checkout means one actor's branch switch or reset lands
 under another actor's feet mid-edit (this rule exists because it happened).
 
-Genesis's "no partial ships" becomes "no *silent* partial ships" — slices are
-legitimate in this project only with an owner scope note (Close Gate step 6).
+No *silent* partial ships: slices are legitimate only with an owner scope
+note (Close gate step 6).
 
 ## The loop at a glance
 
@@ -46,7 +37,7 @@ glance is a map, not the procedure — the sections below govern.
 - `PROJECT_URL(s)` — default when omitted: the "Duo WP Branchability —
   Correctness Closure" project.
 - Poll cadence and limit. Default: every 10 minutes, up to 60 minutes.
-- `PORT_BASE` (distributed hosts sharing a VM) — a per-agent even port base
+- `PORT_BASE` (hosts sharing a VM) — a per-agent even port base
   ≥ 8900 for sandbox pairs; default 8900 when the agent is alone on the host.
 
 Ask before claiming if a required parameter is genuinely ambiguous.
@@ -89,8 +80,8 @@ Sandbox discipline (see `docs/sandbox.md`):
 
 - Envs come from `sandbox/bin/pair.sh`. Name pairs `<AGENT_NAME><issue-no>`
   (e.g. `a73213`) and allocate ports from your `PORT_BASE` so co-hosted agents
-  never collide. **Destroy your pairs when done.** Heed the >2-live-pairs
-  warning; check `pair.sh list` before adding load.
+  never collide. **Destroy your pairs when done.** Heed `pair.sh`'s
+  over-budget warning; check `pair.sh list` before adding load.
 - Never run `docker compose down`/`make clean` against stacks you did not
   create; never touch another agent's pair.
 - **Conformance sweeps run on your own pair** — never queue behind the
@@ -108,22 +99,26 @@ Sandbox discipline (see `docs/sandbox.md`):
 
 **Resource lifecycle (mandatory):**
 
-- **Budget:** at most **one running pair per agent** at a time, relaxing to
-  two only while both are actively executing independent live suites on
-  DISTINCT pairs — never while idle. (This bullet is the single home of the
-  budget rule; the single-writer rule applies only to two writers on ONE
-  pair.) The host-wide budget is dynamic — **1 docker core per running
-  pair**, RAM-guarded (~2 GiB per actively-verifying pair), computed from
+- **Budget:** run as many pairs as are ACTIVELY executing independent live
+  suites on DISTINCT pairs — parallel verification is encouraged whenever it
+  genuinely shortens the wall clock — and none while idle. (This bullet is
+  the single home of the per-agent rule; the single-writer rule applies only
+  to two writers on ONE pair.) The host-wide budget is dynamic — **2 pairs
+  per docker core** (after a 2-core reserve for the shared MariaDB and
+  daemon churn; pairs are DB/PHP-boot-bound, not CPU-bound), RAM-guarded at
+  ~1 GiB per actively-verifying pair (typical active use; the per-container
+  `mem_limit`s in `pair.yml` remain the worst-case backstop), computed from
   the machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
   and **enforced by `pair.sh up`**: a new pair over budget refuses, with
   `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
   never set it unless the dispatch prompt explicitly says so. Check
-  `pair.sh list` before every `up`; need a second env outside the
-  active-parallel-suites case? Stop or destroy your first. One exemption:
-  the pair recorded by a HELD host certification lock is already budgeted —
-  a bundle destroys and recreates that one pair per leg across ~50 minutes
-  and must not lose the slot it reserved mid-run (DUO-3396). The name is
-  matched exactly; a crashed bundle's leftover record grants nothing.
+  `pair.sh list` before every `up`; a pair with no suite actively running
+  against it does not qualify — stop it (Release when idle, below). One
+  exemption: the pair recorded by a HELD host certification lock is already
+  budgeted — a bundle destroys and recreates that one pair per leg across
+  ~50 minutes and must not lose the slot it reserved mid-run (DUO-3396).
+  The name is matched exactly; a crashed bundle's leftover record grants
+  nothing.
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
@@ -144,13 +139,7 @@ Sandbox discipline (see `docs/sandbox.md`):
    anything not Backlog, already assigned/claimed/prefixed by another agent,
    blocked by an open issue, or a parent with unfinished children. No
    relation-capable read = not claimable.
-3. **Shared-working-copy check:** when operating in a working copy you share
-   with other sessions (owner-session hosts), run `git status` — if the
-   issue's likely files carry uncommitted changes you don't own, the issue is
-   not claimable here; report it. Never edit/commit/revert another session's
-   in-flight files. (Distributed clones are isolated by construction; this
-   rule then applies only to the pair/`conf` contention above.)
-4. Re-fetch the issue immediately before claiming. If anything changed or a
+3. Re-fetch the issue immediately before claiming. If anything changed or a
    blocker appeared, drop it and pick again.
 
 ## Claim gate
@@ -322,7 +311,7 @@ branch or edit files before this passes.
   (engine + six manifests, DUO-3338) is ~2 h serial; a typical bounded
   issue is 15–25 min.
 
-## Close gate (distributed mode — strict order)
+## Close gate (strict order)
 
 1. Push the branch; open a PR titled `DUO-XXXX: {summary}` whose body carries
    the evidence: what changed (file:line), test tails (paste, don't
@@ -360,10 +349,6 @@ branch or edit files before this passes.
    `git worktree remove ../duo-wp-wt-DUO-XXXX`, and `git branch -D {branch}`
    (the remote branch auto-deletes on merge). Then re-read this file before
    selecting the next issue.
-
-(Owner-session mode replaces steps 1–3 with a direct commit to `main`
-referencing `DUO-XXXX`, and step 5's evidence comment quotes the commit SHA
-instead of a PR.)
 
 ## Stale claim release
 
