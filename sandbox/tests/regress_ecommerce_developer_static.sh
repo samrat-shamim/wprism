@@ -737,8 +737,6 @@ assert_helper_contracts live-checkout "$LIVE_CHECKOUT_HELPER_BLOCK" "$LIVE_CHECK
 block_contains prelude "$PRELUDE_BLOCK" '[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]' 'invalid-name probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do' 'pre-existing-root probe disappeared before live checkout mutation'
 block_contains prelude "$PRELUDE_BLOCK" 'refusing to reuse pre-existing pair path' 'pre-existing-root refusal disappeared before live checkout mutation'
-PRELUDE_GUARD_CALL=$'assert_clean_live_checkout\nENVS_FILE='
-block_contains prelude "$PRELUDE_BLOCK" "$PRELUDE_GUARD_CALL" 'live checkout guard is not invoked before temporary mutation inputs'
 ordered_contract prelude "$PRELUDE_BLOCK" \
   '[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]]' \
   'for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do' \
@@ -994,6 +992,11 @@ ROLLBACK_INIT_LINE="$(grep -n -m1 '^ROLLBACK_MAINTENANCE_HELD=0$' "$SCRIPT" | cu
 TRAP_LINE="$(grep -n -m1 '^trap cleanup EXIT$' "$SCRIPT" | cut -d: -f1)"
 [ -n "$ROLLBACK_INIT_LINE" ] && [ -n "$TRAP_LINE" ] && [ "$ROLLBACK_INIT_LINE" -lt "$TRAP_LINE" ] \
   || fail 'rollback cleanup flags are not initialized before the EXIT trap'
+EARLY_SEAM_LINE="$(grep -n -m1 '^if \[ "\${ECOMMERCE_TEST_EARLY_REFUSAL:-0}" = 1 \]; then$' "$SCRIPT" | cut -d: -f1)"
+GUARD_CALL_LINE="$(grep -n -m1 '^assert_clean_live_checkout$' "$SCRIPT" | cut -d: -f1)"
+[ -n "$EARLY_SEAM_LINE" ] && [ -n "$GUARD_CALL_LINE" ] \
+  && [ "$TRAP_LINE" -lt "$EARLY_SEAM_LINE" ] && [ "$EARLY_SEAM_LINE" -lt "$GUARD_CALL_LINE" ] \
+  || fail 'pre-pair refusal seam and live checkout guard are not ordered after the EXIT trap'
 
 if ECOMMERCE_TEST_EARLY_REFUSAL=1 ECOMMERCE_PAIR="ecomearly${BASHPID}" bash "$SCRIPT" >"$STATIC_EARLY_OUT" 2>&1; then
   fail 'simulated pre-pair refusal unexpectedly succeeded'
