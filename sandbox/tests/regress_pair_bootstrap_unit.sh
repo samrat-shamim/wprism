@@ -86,6 +86,15 @@ if [ -n "${DUO_PAIR_TEST_ARTIFACT_CACHE:-}" ]; then
   done
 fi
 
+if [ "${DUO_PAIR_TEST_FAIL_REPO_HANDOFF:-0}" = 1 ]; then
+  case " $* " in
+    *" run --rm -u root --mount "*)
+      printf 'fake exact-root ownership handback failure\n' >&2
+      exit 47
+      ;;
+  esac
+fi
+
 # Optional theme state makes the real pair bootstrap's retry contract
 # fault-injectable without Docker or WordPress.org. The fake records an
 # installed/active theme only after the configured number of exact install
@@ -1280,7 +1289,80 @@ run_reset_inode_preservation_case() {
   [ ! -e "$root/code" ] || fail "$label retained old site-repo content"
   [ ! -e "$case_root/sandbox/siterepo/origin-${pair}.git" ] \
     || fail "$label retained the origin repository"
+  assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${case_root}/sandbox/siterepo/${pair}1,dst=/siterepo>" \
+    "$label did not hand side 1 back through its exact resolved root mount"
+  assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${case_root}/sandbox/siterepo/${pair}2,dst=/siterepo>" \
+    "$label did not hand side 2 back through its exact resolved root mount"
+  assert_before "$log" "<type=bind,src=${case_root}/sandbox/siterepo/${pair}1,dst=/siterepo>" "<-p> <duo-db>"
   pass "$label: ordinary reset clears contents while preserving bind-root inode"
+}
+
+run_repo_host_scope_case() {
+  local label=repo_host_scope pair=handoff
+  local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
+    log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root1 root2 inode_before inode_after
+  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
+  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  chmod +x "$case_root/sandbox/bin/pair.sh"
+  root1="$case_root/sandbox/siterepo/${pair}1"
+  root2="$case_root/sandbox/siterepo/${pair}2"
+  mkdir -p "$root1/state/nested" "$root2/state/other"
+  printf 'uid-bound fixture\n' > "$root1/state/nested/record.json"
+  printf 'other side must survive\n' > "$root2/state/other/marker"
+  inode_before="$(inode_of "$root1")"
+  write_fake_docker "$fake_bin"
+  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
+    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
+    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
+    PATH="$fake_bin:$ORIGINAL_PATH"
+
+  "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1 \
+    || { cat "$output" >&2; fail "$label exact-side handback failed"; }
+  inode_after="$(inode_of "$root1")"
+  [ "$inode_before" = "$inode_after" ] || fail "$label replaced the pair root inode"
+  [ -f "$root1/state/nested/record.json" ] || fail "$label deleted pair content during handback"
+  [ -f "$root2/state/other/marker" ] || fail "$label touched the unselected peer root"
+  [ "$(grep -cF "<type=bind,src=${case_root}/sandbox/siterepo/${pair}1,dst=/siterepo>" "$log")" = 1 ] \
+    || fail "$label did not use exactly one side-1 root container"
+  [ "$(grep -cF "<type=bind,src=${case_root}/sandbox/siterepo/${pair}2,dst=/siterepo>" "$log" 2>/dev/null || true)" = 0 ] \
+    || fail "$label touched side 2 while only side 1 was selected"
+  pass "$label: one exact pair side is handed back without inode/content/peer mutation"
+}
+
+run_repo_host_refusal_case() {
+  local label=repo_host_refusal pair=handofffail
+  local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
+    log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root
+  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
+  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  chmod +x "$case_root/sandbox/bin/pair.sh"
+  root="$case_root/sandbox/siterepo/${pair}1"
+  mkdir -p "$root/state/nested" "$case_root/sandbox/siterepo/${pair}2"
+  printf 'must survive handback refusal\n' > "$root/state/nested/record.json"
+  write_fake_docker "$fake_bin"
+  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
+    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
+    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_TEST_FAIL_REPO_HANDOFF=1 \
+    PATH="$fake_bin:$ORIGINAL_PATH"
+
+  if "$case_root/sandbox/bin/pair.sh" reset "$pair" >"$output" 2>&1; then
+    fail "$label reset continued after ownership handback failure"
+  fi
+  assert_file_contains "$output" "could not return exact pair repository" \
+    "$label did not report the exact-root handback refusal"
+  [ -f "$root/state/nested/record.json" ] \
+    || fail "$label changed repository content after handback refusal"
+  if grep -F '<-p> <duo-db>' "$log" >/dev/null; then
+    fail "$label touched the database after handback refusal"
+  fi
+  export DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0
+  pass "$label: failed ownership handback refuses before database or repository mutation"
 }
 
 # --- DUO-3412: the needs-install marker's whole lifecycle --------------------
@@ -1531,6 +1613,12 @@ run_destroy_clears_marker_case() {
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
+grep -Fq 'GIT_CONFIG_KEY_0: safe.directory' "$ROOT/sandbox/pair.yml" \
+  || fail "pair CLI services do not declare the exact Git trust key"
+grep -Fq 'GIT_CONFIG_VALUE_0: /siterepo' "$ROOT/sandbox/pair.yml" \
+  || fail "pair CLI services do not scope Git trust to exact /siterepo"
+! grep -Fq 'safe.directory=*' "$ROOT/sandbox/pair.yml" \
+  || fail "pair Git trust widened to a wildcard"
 pass "pair launcher and offline regression parse cleanly"
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
@@ -1618,6 +1706,12 @@ run_reset_container_query_failure_case inspect
 
 say "ordinary reset preserves bind-root inode (fake compose; no Docker/DB)"
 run_reset_inode_preservation_case
+
+say "exact side ownership handback preserves inode/content/peer isolation"
+run_repo_host_scope_case
+
+say "ownership handback failure refuses before reset mutation"
+run_repo_host_refusal_case
 
 say "DUO-3412: reset records a needs-install marker for both sides"
 run_reset_marks_needs_install_case

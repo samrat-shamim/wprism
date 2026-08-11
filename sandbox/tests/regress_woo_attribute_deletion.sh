@@ -33,6 +33,7 @@ export DUO_PAIR="$PAIR"
 
 wp1() { $COMPOSE run --rm -T cli1 wp "$@"; }
 wp2() { $COMPOSE run --rm -T cli2 wp "$@"; }
+repo_host() { bash bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
@@ -81,11 +82,18 @@ wp1 wc product_variation create "$PRODUCT1" \
   --attributes="[{\"id\":$ATTR1,\"option\":\"Red\"}]" \
   --regular_price=19.99 --sku=DUO-ATTR-DELETE-PROBE --user=admin >/dev/null
 wp1 duo capture --repo=/siterepo >/dev/null
+# Capture writes as uid 33. Return this exact root before host Git indexes the
+# resulting tree; the handback also makes later target backup removal writable.
+repo_host 1
 "${GIT1[@]}" add -A
 "${GIT1[@]}" commit -qm "baseline: Woo attribute deletion refusal fixture"
 "${GIT1[@]}" push -qu origin main
 
 git clone -q "$ORIGIN" "$HOST2"
+# The host clone recreates canonical state with host umask (directories 0755).
+# Normalize this exact peer root before target apply/recapture can rotate that
+# tree into state.capture-backup and ask uid 33 to remove its descendants.
+repo_host 2
 # WordPress/Woo activation creates the same starter posts and terms on both
 # sides independently. Remove target copies before apply so this deletion
 # regression does not need an unrelated adopt flow (and therefore cannot hide

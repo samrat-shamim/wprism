@@ -7,6 +7,7 @@
 # Subcommands:
 #   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
 #   pair.sh reset <name>
+#   pair.sh repo-host <name> [1|2|both]
 #   pair.sh destroy <name>
 #   pair.sh list
 #
@@ -491,6 +492,82 @@ prepare_siterepo_roots() { # prepare_siterepo_roots <name>
   # could acquire state.capture.lock. Keep this deliberately scoped to the two
   # throwaway sandbox roots; it is not a production permission recommendation.
   chmod 0777 "siterepo/${name}1" "siterepo/${name}2"
+}
+
+# DUO-3420: return one pair-owned bind root to the host user after uid 33 has
+# created capture/state trees in it. The path is never accepted from argv: it
+# is derived only from an already validated pair name and a closed side value.
+# A one-shot root container bind-mounts precisely that resolved directory at
+# /siterepo, crossing the uid boundary without sudo or granting host cleanup
+# authority over another pair or the canonical checkout. Direct `docker run`
+# also keeps reset's established non-Git-copy behavior: no agent/manifests
+# source resolution or pair service/volume creation is needed for a handback.
+#
+# The root inode is preserved. Missing roots are a no-op (destroy of a pair
+# that never reached repository creation stays a no-op); a symlink or other
+# non-directory refuses instead of following/replacing it. chown/chmod and the
+# host-side ownership readback are all checked so reset/destroy fail before
+# database/container mutation when the handback cannot be proved.
+repo_host_one() { # repo_host_one <name> <side (1|2)>
+  local name="$1" side="$2" root root_abs host_uid host_gid owner cli_image
+  root="siterepo/${name}${side}"
+  case "$side" in
+    1|2) ;;
+    *) fail "repository side '$side' invalid — expected 1 or 2" ;;
+  esac
+  if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
+    fail "pair '$name' repository root is not an ordinary directory: $root — refusing ownership handback"
+  fi
+  [ -d "$root" ] || return 0
+
+  host_uid="$(id -u)" || fail "could not resolve the host uid for repository handback"
+  host_gid="$(id -g)" || fail "could not resolve the host gid for repository handback"
+  [[ "$host_uid" =~ ^[0-9]+$ ]] && [[ "$host_gid" =~ ^[0-9]+$ ]] \
+    || fail "host uid/gid must be decimal integers for repository handback (got ${host_uid}:${host_gid})"
+
+  root_abs="$(cd "$(dirname "$root")" && pwd -P)/$(basename "$root")" \
+    || fail "could not resolve exact pair repository path for ownership handback: $root"
+  cli_image="${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
+  docker run --rm -u root \
+    --mount "type=bind,src=${root_abs},dst=/siterepo" \
+    --entrypoint sh "$cli_image" -ceu '
+uid="$1"; gid="$2"
+chown -R "$uid:$gid" /siterepo
+chmod -R ugo+rwX /siterepo
+chmod 0777 /siterepo
+' sh "$host_uid" "$host_gid" \
+    || fail "could not return exact pair repository $root from container uid 33 to host ${host_uid}:${host_gid}"
+
+  if owner="$(stat -c '%u:%g' "$root" 2>/dev/null)"; then
+    : # GNU stat (the native-Linux evidence host).
+  elif owner="$(stat -f '%u:%g' "$root" 2>/dev/null)"; then
+    : # BSD stat (Docker Desktop hosts).
+  else
+    fail "could not verify host ownership of exact pair repository $root after handback"
+  fi
+  [ "$owner" = "${host_uid}:${host_gid}" ] \
+    || fail "exact pair repository $root still has owner $owner after handback (expected ${host_uid}:${host_gid})"
+}
+
+repo_host() { # repo_host <name> [1|2|both]
+  local name="$1" selector="${2:-both}"
+  validate_name "$name"
+  case "$selector" in
+    1|2) repo_host_one "$name" "$selector" ;;
+    both)
+      # Validate both exact roots before mutating either one, so a malformed
+      # peer path cannot leave a half-transition behind.
+      local root
+      for root in "siterepo/${name}1" "siterepo/${name}2"; do
+        if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
+          fail "pair '$name' repository root is not an ordinary directory: $root — refusing ownership handback"
+        fi
+      done
+      repo_host_one "$name" 1
+      repo_host_one "$name" 2
+      ;;
+    *) fail "repository side '$selector' invalid — expected 1, 2, or both" ;;
+  esac
 }
 
 # DUO-3412: the "this side's database was dropped out from under it" record —
@@ -1396,7 +1473,7 @@ clear_siterepo_root() { # clear_siterepo_root <path>
     rm -rf -- "$root"
   fi
   mkdir -p -- "$root"
-  chmod -R ugo+rwX "$root" 2>/dev/null || true
+  chmod -R ugo+rwX "$root"
   find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
   chmod 0777 "$root"
 }
@@ -1442,6 +1519,9 @@ cmd_reset() {
   # queries too, since the source question is answerable without them.
   assert_candidate_source reset
   refuse_codebind_reset "$name"
+  # Refuse before DROP/CREATE if uid-33 descendants cannot be returned to the
+  # host process that clears them. The helper preserves both bind-root inodes.
+  repo_host "$name" both
   ensure_db_up
 
   say "pair '$name': reset"
@@ -1538,6 +1618,10 @@ cmd_destroy() {
   validate_name "$name"
 
   say "pair '$name': destroy"
+  # Cleanup callers remove the pair roots after destroy. Return uid-33 capture
+  # descendants first, while the exact cli mounts still exist and before any
+  # container/volume/database mutation. Missing roots remain a no-op.
+  repo_host "$name" both
   pair_compose "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
@@ -1594,6 +1678,7 @@ usage() {
 usage:
   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
   pair.sh reset <name>
+  pair.sh repo-host <name> [1|2|both]
   pair.sh stop <name>
   pair.sh start <name>
   pair.sh destroy <name>
@@ -1626,6 +1711,12 @@ usage:
            live/stopped codebind mount is detected (destroy + up --codebind
            is the safe clean-room path). Does NOT touch webroot volumes,
            restart containers, or reinstall WordPress.
+
+  repo-host
+           Return one or both exact pair-owned siterepo roots from container
+           uid 33 to the invoking host uid/gid, recursively, without replacing
+           the bind-root inode. Used at host-Git/cleanup transitions; refuses
+           symlinks, non-directories, invalid sides, or an unproved handback.
 
   stop     Free the pair's RAM/CPU without losing anything: containers
            stopped, webroot volumes and databases untouched. Use while
@@ -1676,6 +1767,7 @@ USAGE
 case "${1:-}" in
   up)      shift; cmd_up "$@" ;;
   reset)   shift; cmd_reset "$@" ;;
+  repo-host) shift; repo_host "$@" ;;
   stop)    shift; cmd_stop "$@" ;;
   start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;

@@ -49,6 +49,7 @@ wp2()  { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 # adapter bytes, which is what keeps the shipped manifest honest.
 wp1m() { "${COMPOSE[@]}" run --rm -T -e "DUO_MANIFESTS_DIR=/siterepo/$OVERLAY" cli1 wp "$@"; }
 wp2m() { "${COMPOSE[@]}" run --rm -T -e "DUO_MANIFESTS_DIR=/siterepo/$OVERLAY" cli2 wp "$@"; }
+repo_host() { bash bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-3318-a -c user.email=a1@example.test)
 GIT2=(git -C "siterepo/${PAIR}2" -c user.name=duo-3318-b -c user.email=a2@example.test)
 
@@ -182,6 +183,7 @@ pass "side 1 seeded: rooms $ROOM_ONE_1/$ROOM_TWO_1, three slots, two of them BOT
 
 say "(1) capture on side 1 — the parent-scoped key derives, and the two 'morning' slots are different identities"
 wp1m duo capture --repo=/siterepo
+repo_host 1
 SLOT_DIR="siterepo/${PAIR}1/state/tables/duo_agency_room_slots"
 ROOM_DIR="siterepo/${PAIR}1/state/tables/duo_agency_rooms"
 [ "$(ls "$ROOM_DIR"/*.json | wc -l | tr -d ' ')" = "2" ] || fail "expected 2 captured room files"
@@ -230,6 +232,7 @@ echo "side 1 rooms: $ROOM_ONE_1/$ROOM_TWO_1   |   side 2 rooms: $ROOM_ONE_2/$ROO
 [ "$ROOM_ONE_1" != "$ROOM_ONE_2" ] \
   || fail "the two sides ended up with the SAME local room id — the auto-increment offset above did not take, so this run cannot prove portability"
 wp2m duo capture --repo=/siterepo --out=/siterepo/.tmp-side2state >/dev/null
+repo_host 2
 diff -r "siterepo/${PAIR}1/state/tables" "siterepo/${PAIR}2/.tmp-side2state/tables" \
   || fail "side 2's independent recapture diverged from side 1 — same authored facts, different bytes or filenames"
 pass "identical UUIDs, identical bytes, identical filenames — derived independently on each side from ITS OWN local ids"
@@ -268,6 +271,7 @@ EVENING_UUID=$(jq -r '.uuid' "$EVENING_FILE")
 SLOT_ID_2=$(q2 "SELECT slot_id FROM wp_duo_agency_room_slots WHERE slot_code='evening'")
 wp2 db query "UPDATE wp_duo_agency_room_slots SET slot_code='twilight' WHERE slot_id=$SLOT_ID_2" >/dev/null
 wp2m duo capture --repo=/siterepo
+repo_host 2
 RENAMED_FILE=$(grep -l '"slot_code": "twilight"' "siterepo/${PAIR}2/state/tables/duo_agency_room_slots"/*.json)
 [ -n "$RENAMED_FILE" ] || fail "the renamed slot was not captured"
 [ "$(jq -r '.uuid' "$RENAMED_FILE")" = "$EVENING_UUID" ] \
@@ -285,6 +289,7 @@ pass "a renamed component keeps its identity through the ledger, exactly like a 
 
 say "(5) a second capture is byte-identical (determinism), and lint is clean"
 wp2m duo capture --repo=/siterepo --out=/siterepo/.tmp-side2again >/dev/null
+repo_host 2
 diff -r "siterepo/${PAIR}2/state/tables" "siterepo/${PAIR}2/.tmp-side2again/tables" \
   || fail "a second capture of unchanged state produced different bytes"
 LINT_RC=0
