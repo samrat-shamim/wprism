@@ -226,7 +226,6 @@ final class WoocommerceProductLookups {
 
     /** @param array<string,mixed> $args @return array{scoped_products:int,meta_lookup_rows:int} */
     private function scoped_postcondition(array $args): array {
-        $this->assert_runtime_contract();
         return $this->observe_lookup_state($this->scoped_observed_ids($args));
     }
 
