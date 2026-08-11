@@ -44,6 +44,15 @@ final class PromotionSessionRecord {
                 throw new \InvalidArgumentException("malformed promotion $key");
             }
         }
+        if (array_key_exists('profile', $payload)) {
+            self::assertScoped($payload);
+        } else {
+            foreach (['scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id', 'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id'] as $key) {
+                if (array_key_exists($key, $payload)) {
+                    throw new \InvalidArgumentException('malformed promotion scoped session metadata');
+                }
+            }
+        }
         return new self($payload);
     }
 
@@ -79,6 +88,38 @@ final class PromotionSessionRecord {
             && preg_match('/^[a-f0-9]{64}$/D', $transition['before_hash']) === 1
             && is_string($transition['after_hash'] ?? null)
             && preg_match('/^[a-f0-9]{64}$/D', $transition['after_hash']) === 1;
+    }
+
+    /** @param array<string,mixed> $payload */
+    private static function assertScoped(array $payload): void {
+        $allowed = [
+            'owner', 'artifact_hash', 'begun_at', 'session_id', 'profile',
+            'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
+            'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id',
+            'scoped_target_id', 'lifecycle_attempt', 'pending_state_transition',
+            'state_transition', 'lifecycle_phases',
+        ];
+        foreach (array_keys($payload) as $key) {
+            if (!is_string($key) || !in_array($key, $allowed, true)) {
+                throw new \InvalidArgumentException('malformed promotion scoped session metadata');
+            }
+        }
+        if ($payload['profile'] !== 'scoped-checkpoint-v1'
+            || !is_bool($payload['scoped_allow_deletes'] ?? null)
+            || !is_int($payload['scoped_generation'] ?? null)
+            || $payload['scoped_generation'] < 1
+            || !is_string($payload['scoped_receipt_id'] ?? null)
+            || $payload['scoped_receipt_id'] === ''
+            || !is_string($payload['scoped_receipt_sha256'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $payload['scoped_receipt_sha256']) !== 1
+            || !is_string($payload['scoped_scope_hash'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $payload['scoped_scope_hash']) !== 1
+            || !is_string($payload['scoped_signing_key_id'] ?? null)
+            || $payload['scoped_signing_key_id'] === ''
+            || !is_string($payload['scoped_target_id'] ?? null)
+            || $payload['scoped_target_id'] === '') {
+            throw new \InvalidArgumentException('malformed promotion scoped session metadata');
+        }
     }
 }
 
@@ -142,7 +183,8 @@ final class PromotionSessionJournal {
         string $owner,
         string $artifactHash,
         int $begunAt,
-        ?string $sessionId = null
+        ?string $sessionId = null,
+        ?array $metadata = null
     ): PromotionSessionRecord {
         if ($owner === '' || !preg_match('/^[a-f0-9]{64}$/D', $artifactHash) || $begunAt < 1) {
             throw new \InvalidArgumentException('malformed promotion session identity');
@@ -154,6 +196,14 @@ final class PromotionSessionJournal {
         ];
         if ($sessionId !== null) {
             $payload['session_id'] = $sessionId;
+        }
+        if ($metadata !== null) {
+            foreach ($metadata as $key => $value) {
+                if (!is_string($key) || array_key_exists($key, $payload)) {
+                    throw new \InvalidArgumentException('malformed promotion session scoped metadata');
+                }
+                $payload[$key] = $value;
+            }
         }
         $record = PromotionSessionRecord::fromArray($payload);
         self::write($record);

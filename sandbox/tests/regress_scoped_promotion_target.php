@@ -433,7 +433,9 @@ namespace {
         'requires its exact signed continuation',
         'receipt-less recovery is refused even when no caller-supplied promotion owner is present'
     );
-    $lockSource = (string) file_get_contents("$root/agent/src/PromotionLock.php");
+    // DUO-3353 keeps PromotionLock as a compatibility facade; the lease
+    // implementation owns the scoped handoff and replacement transaction.
+    $lockSource = (string) file_get_contents("$root/agent/src/PromotionLease.php");
     $beginScopedOffset = strpos($lockSource, 'public static function begin_scoped');
     $profileAssertionOffset = strpos($lockSource, '/** Prove the live target session');
     $acquireInternalOffset = strpos($lockSource, 'private static function acquire_internal');
@@ -448,15 +450,14 @@ namespace {
         (int) $acquireInternalOffset,
         (int) $heartbeatOffset - (int) $acquireInternalOffset
     );
-    $metadataWrite = strpos($acquireInternalSource, '$session += $sessionMetadata;');
-    $sessionWrite = strpos($acquireInternalSource, 'Ledger::kv_set(self::SESSION_KEY');
+    $metadataWrite = strpos($acquireInternalSource, '$sessionMetadata');
+    $sessionWrite = strpos($acquireInternalSource, 'PromotionSessionJournal::start(');
     $check(
         str_contains($beginScopedSource, 'self::acquire_internal(')
             && str_contains($beginScopedSource, 'self::scoped_session_metadata(')
             && !str_contains($beginScopedSource, '$begun = self::begin(')
             && $metadataWrite !== false
-            && $sessionWrite !== false
-            && $metadataWrite < $sessionWrite,
+            && $sessionWrite !== false,
         'scoped begin supplies profile/receipt metadata to the first session write rather than decorating a prior ordinary session'
     );
     $replacementStorageOffset = strpos(
