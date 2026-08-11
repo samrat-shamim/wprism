@@ -256,7 +256,7 @@ final class Capture {
             self::verify_engine_support($policy);
 
             // DUO-3223 (concurrency-scenario harness): the SAME deterministic
-            // test-pause idiom DUO-3217 established for PromotionLock
+            // test-gate idiom DUO-3217 established for PromotionLock
             // (agent/src/Apply.php's own DUO_TEST_MODE/DUO_TEST_PROMOTION_
             // PAUSE_MS), applied to the capture lock instead — a live test
             // driving two real `wp duo capture` processes against the same
@@ -268,8 +268,7 @@ final class Capture {
             // observable from another wp-cli invocation's own process) —
             // the same reason PromotionLock's phase marker is DB-backed
             // rather than in-memory. No effect at all unless a caller
-            // explicitly opts into both env vars; production capture is
-            // unchanged.
+            // explicitly opts into test mode. Production capture is unchanged.
             if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1') {
                 // This marker is intentionally outside the consistent
                 // snapshot: a second process must be able to observe it
@@ -278,9 +277,23 @@ final class Capture {
                 // capture cannot leave a duo_kv residue behind.
                 $testPhaseMarked = true;
                 Ledger::kv_set('capture_test_phase', 'locked');
-                $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
-                if ($pauseMs > 0 && $pauseMs <= 10000) {
-                    usleep($pauseMs * 1000);
+                if (getenv('DUO_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1') {
+                    $released = false;
+                    for ($attempt = 0; $attempt < 1200; $attempt++) {
+                        if ((string) Ledger::kv_get('capture_test_phase') === 'release') {
+                            $released = true;
+                            break;
+                        }
+                        usleep(100000);
+                    }
+                    if (!$released) {
+                        throw new \RuntimeException('duo: test capture release marker was not received');
+                    }
+                } else {
+                    $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
+                    if ($pauseMs > 0 && $pauseMs <= 10000) {
+                        usleep($pauseMs * 1000);
+                    }
                 }
             }
             // Deterministic recovery of whatever a prior crashed run left
