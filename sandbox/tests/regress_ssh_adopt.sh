@@ -42,6 +42,9 @@ SCOPED_PLAN_EXIT=""
 SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
+SCOPED_SUCCESS_PROMOTE_STDOUT=""
+SCOPED_SUCCESS_PROMOTE_STDERR=""
+SCOPED_SUCCESS_PROMOTE_EXIT=""
 AUTHORITY_STATUS_STDOUT=""
 AUTHORITY_STATUS_STDERR=""
 AUTHORITY_STATUS_EXIT=""
@@ -200,10 +203,13 @@ SCOPED_PLAN_EXIT="$DIAG_DIR/scoped-plan.exit"
 SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
+SCOPED_SUCCESS_PROMOTE_STDOUT="$DIAG_DIR/scoped-success-promote.stdout"
+SCOPED_SUCCESS_PROMOTE_STDERR="$DIAG_DIR/scoped-success-promote.stderr"
+SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
 AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -624,11 +630,16 @@ ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-
   || fail "could not mint the successful scoped-promotion contract"
 ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-success --autoload=no >/dev/null'
 
-if SUCCESS_JSON="$("$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json" --format=json 2>"$TMP/duo3344-success.err")"; then
+# Keep the committed retry's bounded public result private when it fails or
+# its receipt cannot be parsed. TMP remains exclusively secret-bearing
+# scratch, so cleanup always erases it while retaining only this controlled
+# promote transcript, numeric exit, and the earlier failure observations.
+if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json" --format=json >"$SCOPED_SUCCESS_PROMOTE_STDOUT" 2>"$SCOPED_SUCCESS_PROMOTE_STDERR"; then
   SUCCESS_CODE=0
 else
   SUCCESS_CODE=$?
 fi
+printf '%s\n' "$SUCCESS_CODE" >"$SCOPED_SUCCESS_PROMOTE_EXIT"
 [ "$SUCCESS_CODE" -eq 0 ] \
   || fail "public SSH scoped promote did not complete"
 jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDOUT")" '
@@ -638,7 +649,7 @@ jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDO
   and .rollback.automatic_window_closed == true and .rollback.later_rollback_supported == false
   and .scoped_apply.format == "duo-scoped-apply-result/v1"
   and .scoped_apply.scoped_receipt.phase == "complete"
-' <<<"$SUCCESS_JSON" >/dev/null \
+' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null \
   || fail "successful scoped promotion did not return its receipt-bound terminal result"
 SUCCESS_STATUS="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
 jq -e '

@@ -5,13 +5,13 @@ declare(strict_types=1);
  * Offline source contract for the SSH adoption/scoped-promotion live harness.
  *
  * The deliberate post-begin promote fault is the one live failure where the
- * exact pre-promote scoped plan plus promote stdout/stderr are essential to
- * distinguish an engine regression from a fixture or transport problem. They
- * used to live only in FAILURE_OUT, inside a secret-bearing scratch tree that
- * the EXIT trap always deleted. This check proves the repair keeps a separate
- * private, bounded evidence directory while still destroying SSH keys,
- * environment config, and DB credentials on every exit. It reads source only:
- * no Docker, SSH host, WordPress, or live target.
+ * exact pre-promote scoped plan plus failure and success promote stdout/stderr
+ * are essential to distinguish an engine regression from a fixture or
+ * transport problem. They used to live only in transient values inside a
+ * secret-bearing scratch tree that the EXIT trap always deleted. This check
+ * proves the repair keeps a separate private, bounded evidence directory while
+ * still destroying SSH keys, environment config, and DB credentials on every
+ * exit. It reads source only: no Docker, SSH host, WordPress, or live target.
  */
 
 $root = dirname(__DIR__, 2);
@@ -67,6 +67,9 @@ $diagnosticAssignments = [
     'SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"',
     'SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"',
     'SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"',
+    'SCOPED_SUCCESS_PROMOTE_STDOUT="$DIAG_DIR/scoped-success-promote.stdout"',
+    'SCOPED_SUCCESS_PROMOTE_STDERR="$DIAG_DIR/scoped-success-promote.stderr"',
+    'SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"',
     'AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"',
     'AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"',
     'AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"',
@@ -77,10 +80,10 @@ $check(
         static fn(bool $ok, string $assignment): bool => $ok && str_contains($harness, $assignment),
         true
     )
-        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
+        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
         && str_contains($harness, '( umask 077; : >"$diagnostic_file" )')
         && str_contains($harness, 'chmod 0600 "$diagnostic_file"'),
-    'only the bounded plan/promote/status streams and numeric exits are precreated mode 0600'
+    'only the bounded plan, promote, and authority-status streams and numeric exits are precreated mode 0600'
 );
 preg_match_all('/\$DIAG_DIR\/([A-Za-z0-9._-]+)/', $harness, $diagnosticNames);
 $actualDiagnosticNames = array_values(array_unique($diagnosticNames[1] ?? []));
@@ -95,6 +98,9 @@ $expectedDiagnosticNames = [
     'scoped-promote.exit',
     'scoped-promote.stderr',
     'scoped-promote.stdout',
+    'scoped-success-promote.exit',
+    'scoped-success-promote.stderr',
+    'scoped-success-promote.stdout',
 ];
 $check(
     $actualDiagnosticNames === $expectedDiagnosticNames,
@@ -181,7 +187,30 @@ $check(
         && str_contains($harness, "jq -e '.state == \"released\"' <<<\"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')\""),
     'raw authority-status proves the signed terminal receipt while the existing provider-state assertion independently proves exclusion release'
 );
-foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
+
+$successPromoteStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json"');
+$successStatusStart = strpos($harness, 'SUCCESS_STATUS=', is_int($successPromoteStart) ? $successPromoteStart : 0);
+$check(
+    is_int($successPromoteStart) && is_int($successStatusStart) && $successPromoteStart < $successStatusStart,
+    'the committed scoped-promote retry has a bounded private capture segment'
+);
+if (!is_int($successPromoteStart) || !is_int($successStatusStart) || $successPromoteStart >= $successStatusStart) {
+    exit(1);
+}
+$successCapture = substr($harness, $successPromoteStart, $successStatusStart - $successPromoteStart);
+$successPromoteRedirect = '"$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json" --format=json >"$SCOPED_SUCCESS_PROMOTE_STDOUT" 2>"$SCOPED_SUCCESS_PROMOTE_STDERR"';
+$successPromoteExit = 'printf \'%s\n\' "$SUCCESS_CODE" >"$SCOPED_SUCCESS_PROMOTE_EXIT"';
+$successReceiptInput = '\' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null';
+$check(
+    str_contains($successCapture, $successPromoteRedirect)
+        && str_contains($successCapture, $successPromoteExit)
+        && str_contains($successCapture, '[ "$SUCCESS_CODE" -eq 0 ]')
+        && str_contains($successCapture, $successReceiptInput)
+        && !str_contains($successCapture, 'SUCCESS_JSON=')
+        && !str_contains($successCapture, '$TMP/duo3344-success.err'),
+    'the committed scoped-promote retry retains private stdout, stderr, and exit before parsing its receipt directly from stdout'
+);
+foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
     $check(
         preg_match('/(?:\\bcat\\b|\\becho\\b|\\bprintf\\b)[^\\n]*\\$' . $diagnosticVariable . '\\b/', $harness) !== 1,
         "$diagnosticVariable is never printed or catted into terminal/CI output"
@@ -189,8 +218,10 @@ foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_PROMOTE_STDOUT', '
 }
 $check(
     !str_contains($harness, 'cat "$TMP/driver-adopt.err"')
-        && !str_contains($harness, 'cat "$TMP/duo3344-success.err"'),
-    'other local command diagnostics are likewise not catted into terminal/CI output'
+        && !str_contains($harness, 'cat "$TMP/duo3344-success.err"')
+        && !str_contains($harness, '$TMP/duo3344-success.err')
+        && !str_contains($harness, 'SUCCESS_JSON='),
+    'other local command diagnostics are likewise not catted into terminal/CI output or retained in secret scratch'
 );
 
 $tmpRemoval = 'rm -rf -- "$TMP" || cleanup_failed=1';
