@@ -22,9 +22,9 @@ docker info >/dev/null 2>&1 || fail "docker daemon not running/reachable"
 docker compose version >/dev/null 2>&1 || fail "docker compose v2 plugin not available"
 ok "host prerequisites present (git, jq, php, curl, docker + compose v2)"
 
-# gh is needed only for the distributed close gate (PR merge verification).
+# gh is needed only for the close gate (PR merge verification).
 if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
-    ok "gh authenticated (distributed close gate available)"
+    ok "gh authenticated (close gate available)"
 else
     printf '\033[1;33mwarn: gh missing or unauthenticated — required before any PR/close-gate step, not for local verification\033[0m\n'
 fi

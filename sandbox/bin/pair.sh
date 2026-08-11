@@ -556,10 +556,11 @@ pair_budget() {
   #     1GiB mem_limits; cli bursts are ephemeral), so also cap at
   #     (docker mem - 3GiB reserve for the db's 2GiB cap + overhead) / 1GiB
   #     per pair, and take the smaller of the two budgets. This sizes
-  #     admission to typical active use rather than the summed worst-case
-  #     caps the old /2GiB rule charged (same ruling); the per-container
-  #     mem_limits in pair.yml stay the hard backstop for a runaway
-  #     container.
+  #     admission to typical active use rather than the wp1+wp2 cap sum the
+  #     old /2GiB rule charged (same ruling); the per-container mem_limits
+  #     in pair.yml stay the backstop for a runaway container (per
+  #     container, not an aggregate host guarantee — admission is a soft
+  #     control sized to typical concurrency).
   # Floor of 1: a tiny VM still gets one pair (nothing works otherwise).
   local cores mem_bytes mem_gib cpu_budget ram_budget budget
   cores="$(docker info -f '{{.NCPU}}' 2>/dev/null)" || return 1

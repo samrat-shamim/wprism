@@ -106,8 +106,9 @@ Sandbox discipline (see `docs/sandbox.md`):
   to two writers on ONE pair.) The host-wide budget is dynamic — **2 pairs
   per docker core** (after a 2-core reserve for the shared MariaDB and
   daemon churn; pairs are DB/PHP-boot-bound, not CPU-bound), RAM-guarded at
-  ~1 GiB per actively-verifying pair (typical active use; the per-container
-  `mem_limit`s in `pair.yml` remain the worst-case backstop), computed from
+  ~1 GiB per actively-verifying pair (typical active use; the `mem_limit`s
+  in `pair.yml` remain the per-container backstop for a runaway container,
+  not an aggregate host guarantee), computed from
   the machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
   and **enforced by `pair.sh up`**: a new pair over budget refuses, with
   `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
