@@ -20,7 +20,8 @@ source "$(dirname "${BASH_SOURCE[0]}")/_explain_registry.sh"
 # after conf1's own recapture correctly stopped reporting them), so this
 # block intentionally runs against the fully-populated, pre-deletion state
 # rather than duplicating that proof.
-CONF2_MODS=$(wp_conf2 option get theme_mods_twentytwentyfive --format=json)
+CONF2_MODS=$(wp_conf2 option get theme_mods_twentytwentyfive --format=json) || true
+require_observed_nonempty "conf2 theme_mods_twentytwentyfive (target observation)" "$CONF2_MODS"
 echo "$CONF2_MODS" | jq -e '.background_color == "3c8c3c"' >/dev/null \
   || fail "theme_mods_twentytwentyfive.background_color did not apply correctly on conf2: $CONF2_MODS"
 echo "$CONF2_MODS" | jq -e '.custom_logo | type == "number"' >/dev/null \
@@ -141,14 +142,20 @@ jq -e '
 
 for TYPE in block text nav_menu; do
   UUID=$(jq -r --arg type "$TYPE" '.widgets[] | select(.type == $type) | .uuid' "$SIDEBAR_FILE")
-  SOURCE_LOCAL=$(wp_conf1 eval "echo \\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE');")
-  TARGET_LOCAL=$(wp_conf2 eval "echo \\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE');")
-  [ -n "$SOURCE_LOCAL" ] && [ -n "$TARGET_LOCAL" ] \
+  # Ledger::id_for() legitimately returns null for a missing mapping. Emit a
+  # non-empty engine sentinel for that case so an exit-0 empty from a dead
+  # compose invocation remains distinguishable and routes to infrastructure.
+  SOURCE_LOCAL=$(wp_conf1 eval "echo (\\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE') ?? '__duo_missing__');") || true
+  require_observed_nonempty "conf1 widget_$TYPE identity ledger" "$SOURCE_LOCAL"
+  TARGET_LOCAL=$(wp_conf2 eval "echo (\\Duo\\Ledger::id_for('$UUID', 'widget_$TYPE') ?? '__duo_missing__');") || true
+  require_observed_nonempty "conf2 widget_$TYPE identity ledger" "$TARGET_LOCAL"
+  [ "$SOURCE_LOCAL" != '__duo_missing__' ] && [ "$TARGET_LOCAL" != '__duo_missing__' ] \
     || fail "widget_$TYPE identity is absent from one environment's ledger"
   [ "$SOURCE_LOCAL" != "$TARGET_LOCAL" ] \
     || fail "widget_$TYPE copied source counter $SOURCE_LOCAL instead of allocating target-locally"
 done
-TARGET_KEYS=$(wp_conf2 eval '$sidebars=get_option("sidebars_widgets"); echo implode(",", $sidebars["sidebar-1"]);')
+TARGET_KEYS=$(wp_conf2 eval '$sidebars=get_option("sidebars_widgets"); echo implode(",", $sidebars["sidebar-1"]);') || true
+require_observed_nonempty "conf2 sidebar-1 widget keys (target observation)" "$TARGET_KEYS"
 [[ "$TARGET_KEYS" != *-21* ]] || fail "colliding target widget defaults survived apply: $TARGET_KEYS"
 wp_conf2 eval '
 foreach (["block","text","nav_menu"] as $type) {
@@ -438,8 +445,10 @@ EXPLAIN_REPO_AFTER=$(git -C "$CONF_REPO2" status --porcelain --untracked-files=a
   || fail "DUO-3410 mutation-tooth regression: under the SAME async-churn quiescing this proof uses, a real durable write to a non-transient option no longer moves the whole-database fingerprint — the SELECT-only tooth is gone, and a genuine explain write could pass unseen"
 pass "public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)"
 
-CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title)
-CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]')
+CONFLICT_TARGET_BEFORE=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title) || true
+require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target baseline)" "$CONFLICT_TARGET_BEFORE"
+CONFLICT_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$UA'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base baseline)" "$CONFLICT_BASE_BEFORE"
 CONFLICT_RC=0
 CONFLICT_OUT=$(wp_conf2 duo apply --repo=/siterepo --default-author=admin 2>&1) || CONFLICT_RC=$?
 require_duo_answered "conf2 duo apply (unforced three-way conflict probe)" human "$CONFLICT_OUT"
@@ -543,8 +552,10 @@ jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
 BLOCKED_LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
 ! grep -Fq 'DESTRUCTIVE OVERRIDE apply_repository' <<<"$BLOCKED_LOCAL_HUMAN" \
   || fail "guard-blocked deletion conflict advertised a destructive override in human output: $BLOCKED_LOCAL_HUMAN"
-BLOCKED_CONTENT_BEFORE=$(wp_conf2 post get "$HELLO2" --field=post_content)
-BLOCKED_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')
+BLOCKED_CONTENT_BEFORE=$(wp_conf2 post get "$HELLO2" --field=post_content) || true
+require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target baseline)" "$BLOCKED_CONTENT_BEFORE"
+BLOCKED_BASE_BEFORE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base baseline)" "$BLOCKED_BASE_BEFORE"
 BLOCKED_FORCE_RC=0
 BLOCKED_FORCE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json 2>/dev/null) \
   || BLOCKED_FORCE_RC=$?
@@ -621,8 +632,10 @@ for NEEDLE in \
   grep -Fq "$NEEDLE" <<<"$LOCAL_HUMAN" \
     || fail "human deletion-conflict view is missing '$NEEDLE': $LOCAL_HUMAN"
 done
-LOCAL_FORCE_ONLY_CONTENT=$(wp_conf2 post get "$HELLO2" --field=post_content)
-LOCAL_FORCE_ONLY_BASE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]')
+LOCAL_FORCE_ONLY_CONTENT=$(wp_conf2 post get "$HELLO2" --field=post_content) || true
+require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target baseline)" "$LOCAL_FORCE_ONLY_CONTENT"
+LOCAL_FORCE_ONLY_BASE=$(wp_conf2 db query "SELECT content_hash FROM wp_duo_state WHERE uuid = '$HELLO_UUID'" --skip-column-names | tr -d '[:space:]') || true
+require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base baseline)" "$LOCAL_FORCE_ONLY_BASE"
 LOCAL_FORCE_ONLY_RC=0
 LOCAL_FORCE_ONLY_OUT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json 2>/dev/null) \
   || LOCAL_FORCE_ONLY_RC=$?
