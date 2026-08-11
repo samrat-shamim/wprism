@@ -273,19 +273,45 @@ $lookupAction = $actions[2] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 106 && count(array_unique($effectIds)) === 106,
-    'both post types\' supported effect lists remain distinct (53 + 53) after the unsupported attribute-table effects are removed — the manifest note '
+check(count($effectIds) === 110 && count(array_unique($effectIds)) === 110,
+    'both post types\' supported effect lists remain distinct (55 + 55), including the bounded late taxonomy registration filters — the manifest note '
     . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 53
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 53,
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 55
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 55,
     'and neither half was dropped or renamed on the way');
+$registrationFilterSelector = [
+    'scope' => 'external',
+    'type' => 'provider_resource',
+    'value' => 'woocommerce-attribute-taxonomy-registration-filters:v1',
+    'members' => [
+        'exact' => [],
+        'templates' => [
+            'woocommerce_taxonomy_objects_pa_{slug}',
+            'woocommerce_taxonomy_args_pa_{slug}',
+        ],
+    ],
+];
+foreach (['product', 'variation'] as $kind) {
+    $byId = [];
+    foreach ((array) ($lookupAction['effects'] ?? []) as $effect) {
+        $byId[(string) ($effect['id'] ?? '')] = $effect;
+    }
+    check(($byId["woocommerce-$kind-attribute-nav-menu-filter"]['selector'] ?? null) === [
+        'scope' => 'external',
+        'type' => 'hook',
+        'value' => 'woocommerce_attribute_show_in_nav_menus',
+    ], "the $kind action declares Woo's exact public attribute nav-menu filter callback");
+    check(($byId["woocommerce-$kind-attribute-taxonomy-registration-filters"]['selector'] ?? null)
+        === $registrationFilterSelector,
+        "the $kind action bounds dynamic pa_* taxonomy object/args filters through typed slug members");
+}
 $inventory = $policy->effects_inventory();
 check(array_filter($inventory, static fn(array $row): bool =>
     $row['manifest'] === 'woocommerce' && $row['phase'] === 'regenerator') === [],
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 106,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 110,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {

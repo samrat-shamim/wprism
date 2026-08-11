@@ -513,6 +513,39 @@ woo_effect_check(
     'the migrated lookup action names the provider capability and stays bounded to the two post types its '
         . 'retired regen_dependency declarations covered'
 );
+$lookupEffectsById = [];
+foreach ((array) ($wooManifest['actions'][2]['effects'] ?? []) as $effect) {
+    $lookupEffectsById[(string) ($effect['id'] ?? '')] = $effect;
+}
+$registrationFilterSelector = [
+    'scope' => 'external',
+    'type' => 'provider_resource',
+    'value' => 'woocommerce-attribute-taxonomy-registration-filters:v1',
+    'members' => [
+        'exact' => [],
+        'templates' => [
+            'woocommerce_taxonomy_objects_pa_{slug}',
+            'woocommerce_taxonomy_args_pa_{slug}',
+        ],
+    ],
+];
+woo_effect_check(
+    ($lookupEffectsById['woocommerce-product-attribute-nav-menu-filter']['selector'] ?? null) === [
+        'scope' => 'external',
+        'type' => 'hook',
+        'value' => 'woocommerce_attribute_show_in_nav_menus',
+    ]
+        && ($lookupEffectsById['woocommerce-variation-attribute-nav-menu-filter']['selector'] ?? null) === [
+            'scope' => 'external',
+            'type' => 'hook',
+            'value' => 'woocommerce_attribute_show_in_nav_menus',
+        ]
+        && ($lookupEffectsById['woocommerce-product-attribute-taxonomy-registration-filters']['selector'] ?? null)
+            === $registrationFilterSelector
+        && ($lookupEffectsById['woocommerce-variation-attribute-taxonomy-registration-filters']['selector'] ?? null)
+            === $registrationFilterSelector,
+    'late Woo attribute registration declares the exact nav callback and bounded dynamic pa_* object/args filter family for both trigger halves'
+);
 woo_effect_check(
     !array_key_exists('regen_dependency', (array) ($wooManifest['post_types']['product'] ?? []))
         && !array_key_exists('regen_dependency', (array) ($wooManifest['post_types']['product_variation'] ?? [])),
