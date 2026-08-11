@@ -83,7 +83,6 @@ assert_clean_live_checkout() {
   [ -d "$expected_agent" ] || fail "refusing live mutation: canonical agent mount source is absent: $expected_agent"
   [ -d "$expected_manifests" ] || fail "refusing live mutation: canonical manifest mount source is absent: $expected_manifests"
 }
-assert_clean_live_checkout
 ENVS_FILE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-envs.XXXXXX")"
 V1_INPUTS="$(mktemp -d "${TMPDIR:-/tmp}/duo-ecommerce-v1.XXXXXX")"
 V1_DB_DUMP="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-db.XXXXXX")"
@@ -94,6 +93,9 @@ TARGET_RUNTIME_IDENTITY_BASELINE=""
 TARGET_ORDER_ITEM_IDS=""
 PAIR_UP=0
 PAIR_PATHS_OWNED=0
+PAIR_COMPOSE=()
+ROLLBACK_MAINTENANCE_HELD=0
+ROLLBACK_PROMOTION_SUCCEEDED=0
 
 WOO_SLUG="woocommerce"
 WOO_VERSION="11.0.0"
@@ -190,6 +192,14 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+
+# Exercise the cleanup trap without touching Docker or pair state.  This is a
+# deterministic offline seam for pre-pair refusals: the flags consumed by
+# cleanup must already exist, and the trap must preserve the simulated status.
+if [ "${ECOMMERCE_TEST_EARLY_REFUSAL:-0}" = 1 ]; then
+  fail 'simulated pre-pair refusal'
+fi
+assert_clean_live_checkout
 
 assert_eq() {
   local expected="$1" actual="$2" label="$3"
