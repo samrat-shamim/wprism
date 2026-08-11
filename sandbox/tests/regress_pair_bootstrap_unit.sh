@@ -52,6 +52,17 @@ inode_of() {
   printf '%s\n' "$inode"
 }
 
+physical_path() {
+  # pair.sh resolves a bind source with `pwd -P`, rather than preserving the
+  # caller's lexical spelling. On macOS /tmp is /private/tmp, so assertions
+  # against a mktemp path must name the physical directory Docker receives.
+  local path="$1" directory base
+  directory="$(cd -P "$(dirname "$path")" && pwd -P)" \
+    || fail "cannot resolve physical path for $path"
+  base="$(basename "$path")"
+  printf '%s/%s\n' "$directory" "$base"
+}
+
 assert_file_contains() {
   local file="$1" needle="$2" message="$3"
   grep -F -- "$needle" "$file" >/dev/null || fail "$message (missing: $needle)"
@@ -1278,7 +1289,7 @@ run_reset_inode_preservation_case() {
   local label=reset_inode_preservation pair=resetplain
   local case_root="$TMP/$label" \
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
-    output="$TMP/$label/output.log" root inode_before inode_after
+    output="$TMP/$label/output.log" root root1_abs root2_abs inode_before inode_after
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
   cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
   chmod +x "$case_root/sandbox/bin/pair.sh"
@@ -1286,6 +1297,8 @@ run_reset_inode_preservation_case() {
   mkdir -p "$root/code/wp-content/plugins/demo-plugin" "$case_root/sandbox/siterepo/${pair}2"
   printf 'old state\n' > "$root/code/wp-content/plugins/demo-plugin/marker.php"
   mkdir -p "$case_root/sandbox/siterepo/origin-${pair}.git"
+  root1_abs="$(physical_path "$root")"
+  root2_abs="$(physical_path "$case_root/sandbox/siterepo/${pair}2")"
   inode_before="$(inode_of "$root")"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -1303,18 +1316,18 @@ run_reset_inode_preservation_case() {
   [ ! -e "$root/code" ] || fail "$label retained old site-repo content"
   [ ! -e "$case_root/sandbox/siterepo/origin-${pair}.git" ] \
     || fail "$label retained the origin repository"
-  assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${case_root}/sandbox/siterepo/${pair}1,dst=/siterepo>" \
+  assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${root1_abs},dst=/siterepo>" \
     "$label did not hand side 1 back through its exact resolved root mount"
-  assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${case_root}/sandbox/siterepo/${pair}2,dst=/siterepo>" \
+  assert_file_contains "$log" "<run> <--rm> <-u> <root> <--mount> <type=bind,src=${root2_abs},dst=/siterepo>" \
     "$label did not hand side 2 back through its exact resolved root mount"
-  assert_before "$log" "<type=bind,src=${case_root}/sandbox/siterepo/${pair}1,dst=/siterepo>" "<-p> <duo-db>"
+  assert_before "$log" "<type=bind,src=${root1_abs},dst=/siterepo>" "<-p> <duo-db>"
   pass "$label: ordinary reset clears contents while preserving bind-root inode"
 }
 
 run_repo_host_scope_case() {
   local label=repo_host_scope pair=handoff
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
-    log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root1 root2 inode_before inode_after
+    log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root1 root2 root1_abs root2_abs inode_before inode_after
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
   cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
   chmod +x "$case_root/sandbox/bin/pair.sh"
@@ -1323,6 +1336,8 @@ run_repo_host_scope_case() {
   mkdir -p "$root1/state/nested" "$root2/state/other"
   printf 'uid-bound fixture\n' > "$root1/state/nested/record.json"
   printf 'other side must survive\n' > "$root2/state/other/marker"
+  root1_abs="$(physical_path "$root1")"
+  root2_abs="$(physical_path "$root2")"
   inode_before="$(inode_of "$root1")"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -1339,9 +1354,9 @@ run_repo_host_scope_case() {
   [ "$inode_before" = "$inode_after" ] || fail "$label replaced the pair root inode"
   [ -f "$root1/state/nested/record.json" ] || fail "$label deleted pair content during handback"
   [ -f "$root2/state/other/marker" ] || fail "$label touched the unselected peer root"
-  [ "$(grep -cF "<type=bind,src=${case_root}/sandbox/siterepo/${pair}1,dst=/siterepo>" "$log")" = 1 ] \
+  [ "$(grep -cF "<type=bind,src=${root1_abs},dst=/siterepo>" "$log")" = 1 ] \
     || fail "$label did not use exactly one side-1 root container"
-  [ "$(grep -cF "<type=bind,src=${case_root}/sandbox/siterepo/${pair}2,dst=/siterepo>" "$log" 2>/dev/null || true)" = 0 ] \
+  [ "$(grep -cF "<type=bind,src=${root2_abs},dst=/siterepo>" "$log" 2>/dev/null || true)" = 0 ] \
     || fail "$label touched side 2 while only side 1 was selected"
   pass "$label: one exact pair side is handed back without inode/content/peer mutation"
 }
