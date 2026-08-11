@@ -183,45 +183,80 @@ branch or edit files before this passes.
    defect (a `sandbox/tests/regress_*.sh` or a conformance fixture — read an
    existing one for the idiom). Tests use the product path, not shortcuts.
 4. Verify per the issue's Evidence section, plus mechanically: `php -l` every
-   touched PHP file, `bash -n` every touched script. Anything touching
-   `agent/src`, `manifests/`, or the harness needs conformance evidence:
-   run `bash sandbox/conformance/run.sh <manifest>` locally for every
-   affected manifest **before** opening the PR (PR CI runs the full
-   9-manifest matrix as confirmation, not as your first test). Warnings are
-   not green: human output, machine output, and exit status must agree.
-   `make regress-offline-all` green is part of this bar too (DUO-3285) —
-   the full offline (no-docker) suite corpus, cheap enough to run every
-   time; a change to `agent/src`/`Policy.php`/a manifest can break a
-   mechanism whose own proof exists but sits outside the specific
-   suite you happened to think to run by name.
+   touched PHP file, `bash -n` every touched script, and — first and densest,
+   because there is NO CI and local evidence is the whole merge gate — `make
+   regress-offline-all` green (DUO-3285): the full offline (no-docker) corpus,
+   cheap enough to run every time, catching mechanisms whose own proof sits
+   outside the suite you'd think to run by name. Live conformance is then
+   scoped to the MINIMAL reasonably-safe set per Evidence scoping below —
+   usually zero or one sweep, never the full manifest matrix by habit.
+   Warnings are not green: human output, machine output, and exit status must
+   agree.
 5. Out-of-scope discoveries: report on the issue (or file a new one), never
    fix silently.
 
 ### Evidence scoping
 
-- **Layer triggers, by diff.** `make regress-offline-all` (~5 min) is
-  unconditional for every issue (DUO-3285). Live-pair regressions run only
-  for suites whose covered mechanism the diff touches — consult each
-  suite's header, not habit. Conformance sweeps run for CHANGED manifests
-  and for harness changes (`sandbox/conformance/`, `sandbox/bin/` — the
-  code that produces the evidence needs at least one real sweep of its
-  own); a change to `agent/src`/`Policy.php` engine internals with no
-  manifest edit still needs at least one representative sweep, using the
-  cheapest affected manifest — and never fewer sweeps than Work and
-  verify step 4 already requires where manifests or the harness changed
-  (this subsection scopes WHEN layers apply; it never lowers step 4's
-  bar). The reference certification bundle
-  (`make certify-reference-bundle`) is REQUIRED per-issue only when
-  manifest/adapter bytes changed (`manifests/*.json`, `providers/`,
-  `interpreters/`, `regenerators/`, dispositions): those digests are what
-  Policy load-time validation binds, so a stale registry refuses at
-  runtime. The certification ATTESTATION additionally binds ~120 other
-  inputs (engine, cli, spec, harness bytes — see
-  `manifests/capabilities/evidence.json`), which such changes expire
-  WITHOUT any runtime refusal; refreshing that is batched maintenance
-  (run `php scripts/capability-registry.php check`; refresh when it
-  reports expiry), not a per-issue gate — that batching is the ratified
-  scoping decision this subsection records, not an oversight.
+- **Minimal reasonably-safe live set, by diff — scope it, never run the matrix
+  by habit.** `make regress-offline-all` (~5 min) is unconditional (DUO-3285);
+  nothing below reduces it. The unit of scoping is the set of live surfaces
+  that actually EXECUTE the changed code — that set can be empty, one, or
+  several, and the cases below are how you compute it. Run that smallest set,
+  before the PR; it is a requirement, not a suggestion:
+  - **Every changed code path executes offline** (`docs/`, `Makefile`, offline
+    suites and their fixtures) → **no sweep**; the offline corpus is the gate.
+    The DIRECTORY is not the test: `sandbox/tests/` also holds LIVE-only
+    scripts (grinds, certify, live `regress_*`), and an edit to one of those
+    executes nowhere offline — prove its edited logic offline instead (a
+    static pin or a simulated input driving the same jq/shell logic, the
+    DUO-3362/DUO-3406 pattern) or run the edited script's own path once.
+  - **`agent/src`/`Policy.php` engine internals** → **one sweep of the
+    cheapest manifest that executes the changed path** (`core` for generic
+    capture/apply/publish/lint paths; a plugin's manifest when the change is
+    that plugin's surface — typed tables → woocommerce, json_refs/blobs →
+    elementor, serialization → polylang). If independent review PROVES no live
+    path reaches the change (a direct-call-only surface, a WordPress-free host
+    verb), the affected set is empty: no sweep, with that proof recorded in
+    the PR.
+  - **A `sandbox/conformance/` / `sandbox/bin/` harness change** → one real
+    sweep that EXECUTES the edited file: for a per-manifest check/seed/
+    postdeploy that means THAT manifest's own sweep (an unrelated sweep never
+    runs the edited file); for shared harness (`run.sh`, `asserts.sh`,
+    `pair.sh`) any cheapest sweep exercises it. The code that produces
+    evidence needs at least one real run of itself.
+  - **A `manifests/*.json` / `providers/` / `interpreters/` / `regenerators/` /
+    dispositions EDIT** → one sweep of EACH changed adapter's own fixture —
+    minimality means skipping unaffected adapters, never skipping changed ones.
+  - **A flaky / timing-sensitive assertion** → N-consecutive sweeps (typically
+    3) of the ONE relevant manifest — not the matrix.
+  - **A live-pair `regress-*` suite** runs only when the diff touches the
+    mechanism its own header names — not by habit.
+  - **The reference certification bundle** (`make certify-reference-bundle`) is
+    a per-issue gate ONLY when manifest/adapter **digest** bytes changed (the
+    edits above): those digests are what Policy load-time validation binds, so a
+    stale registry refuses at runtime. (The ATTESTATION additionally binds ~120
+    other inputs — engine/cli/spec/harness bytes, `manifests/capabilities/evidence.json`
+    — that such changes expire WITHOUT a runtime refusal; refreshing that is
+    batched maintenance, `php scripts/capability-registry.php check` and refresh
+    on reported expiry, not a per-issue gate — the ratified scoping decision this
+    records, not an oversight.) Otherwise the bundle is the operator's
+    release-time certification — and because every certification-byte issue
+    re-runs it anyway, the full matrix already keeps a rolling cadence at no
+    added per-issue cost. It is NOT a per-issue gate and is never run "to be
+    safe."
+  - **Safety floor:** an engine change you genuinely cannot bound to specific
+    surfaces gets a small representative SUBSET — `core` plus the richest
+    affected adapter surface(s) — never a silent skip, and never the
+    bundle-as-guess. Unknown → conservative subset, and say so in the PR.
+- **Reproduce the mechanism offline first — the highest-leverage habit, and
+  what keeps "one sweep" reasonably safe.** Where the mechanism admits one, a
+  deterministic, mutation-proven offline reproduction of the exact failure
+  (e.g. priming PHP's stat cache to force the stale-stat path; a stubbed
+  compose-death to force the infrastructure-vs-engine branch) is the PRIMARY
+  proof. Once that pin bites,
+  the live sweep only CONFIRMS the real environment still passes — so ONE
+  representative sweep suffices instead of a matrix, and the proof holds even
+  when a shared, contended docker host makes live runs slow or flaky.
 - **Exact-source gate: bind every live run to its commit (DUO-3377).** A
   pair's `agent`/`manifests` bind mounts resolve to the CANONICAL checkout,
   not to whichever checkout ran `pair.sh` (DUO-3277, so a persistent pair
@@ -261,9 +296,10 @@ branch or edit files before this passes.
   order). Never clear the way by killing — see the pattern-kill field note
   below (DUO-3382). "The independent
   review" here is the dispatch protocol's pre-merge review-only subagent
-  pass in its own checkout, recorded in the PR. Sequence: implement →
-  offline-all → targeted live suites → targeted sweeps → review → fixes +
-  registry regenerate → rebase onto fresh `origin/main` → bundle (clean
+  pass in its own checkout, recorded in the PR. Sequence (maximal — the
+  live/sweep/bundle steps each apply only per Evidence scoping's minimal set):
+  implement → offline-all → targeted live suites → targeted sweeps → review →
+  fixes + registry regenerate → rebase onto fresh `origin/main` → bundle (clean
   clone) → generated-evidence commit → merge promptly (Close gate order
   unchanged).
 - **Registry regenerate after ANY manifest/provider/regenerator byte change**
