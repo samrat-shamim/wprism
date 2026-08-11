@@ -1199,7 +1199,7 @@ regress-live-list:
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
-	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
+	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281/DUO-3344 scoped-promotion path"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"

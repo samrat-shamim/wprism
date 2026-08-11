@@ -909,7 +909,6 @@ final class Cli {
      *   agent accepts the local evidence; host transports replace it with a compact request.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
-     * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
      * [--category=<ids>] : Comma-separated closed plan-view categories; requests a bounded display view.
      * [--action=<buckets>] : Comma-separated closed plan-view action buckets; requests a bounded display view.
@@ -1482,6 +1481,7 @@ final class Cli {
      * [--revision=<rev>]
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
+     * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */

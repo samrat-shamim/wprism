@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# DUO-3281: prove the product adoption path against a standalone WordPress
-# host reached only over SSH. This deliberately uses docker run, not compose,
-# pair.sh, shared volumes with the source checkout, or docker exec for any
-# product operation. Docker is only the disposable host boundary; every
-# install/verification action after boot travels through cli/duo's SSH path.
+# DUO-3281/DUO-3344: prove the product adoption path and scoped-promotion
+# checkpoint recovery against a standalone WordPress host reached only over
+# SSH. This deliberately uses docker run, not compose, pair.sh, shared volumes
+# with the source checkout, or docker exec for any product operation. Docker is
+# only the disposable host boundary; every install/verification action after
+# boot travels through cli/duo's SSH path.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -35,6 +36,15 @@ cleanup
 mkdir -p "$TMP"
 
 ssh_fixture() { ssh -F "$TMP/ssh_config" duo-adopt-fixture "$@"; }
+
+target_ledger_value() {
+  local key="$1"
+  ssh_fixture "cd /var/www/html && wp db query \"SELECT v FROM wp_duo_kv WHERE k = '$key'\" --skip-column-names"
+}
+
+target_checkpoint_state() {
+  ssh_fixture "cd /var/www/html && wp db query \"SELECT value FROM duo_cert_state WHERE id = 1\" --skip-column-names"
+}
 
 say "build a standalone SSH WordPress host image"
 docker build -q -t "$IMAGE" -f sandbox/tests/fixtures/ssh-adopt.Dockerfile . >/dev/null
@@ -93,6 +103,7 @@ pass "fresh SSH login is reachable and does not inherit the container-only DUO_M
 say "install WordPress through the SSH boundary"
 ssh_fixture "cd /var/www/html && wp config create --dbname=wordpress --dbuser=wordpress --dbpass=wordpress-pass --dbhost=$DB --skip-check --quiet"
 ssh_fixture "cd /var/www/html && wp core install --url=http://adopt.example.test --title='Adopt Fixture' --admin_user=admin --admin_password=admin-pass --admin_email=admin@example.test --skip-email --quiet"
+ssh_fixture "cd /var/www/html && wp db query \"CREATE TABLE duo_cert_state (id bigint primary key, value varchar(191) not null); INSERT INTO duo_cert_state VALUES (1,'prior-db'); CREATE TABLE duo_cert_lease (id bigint primary key, owner varchar(191) not null);\""
 if ssh_fixture "cd /var/www/html && wp eval 'echo class_exists(\"\\Duo\\Capture\") ? \"present\" : \"absent\";'" | grep -qx present; then
   fail "fixture unexpectedly started with Duo installed"
 fi
@@ -100,10 +111,16 @@ pass "pre-existing WordPress target starts without Duo"
 
 php -r '$pair=sodium_crypto_sign_keypair(); file_put_contents($argv[1], base64_encode(sodium_crypto_sign_secretkey($pair))."\n");' "$TMP/rollback-signing.key"
 chmod 0600 "$TMP/rollback-signing.key"
-ssh_fixture 'mkdir -p /home/duo/recovery-fixture && chmod 700 /home/duo/recovery-fixture'
-scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php \
+openssl rand 32 >"$TMP/checkpoint.key"
+chmod 0600 "$TMP/checkpoint.key"
+jq -n --arg host "$DB" '{host:$host,port:3306,database:"wordpress",user:"wordpress",password:"wordpress-pass",admin_user:"root",admin_password:"root-pass",code_pointer:"/home/duo/recovery-fixture/code-pointer",effect_target:"/home/duo/recovery-fixture/effect-target"}' >"$TMP/checkpoint-db.json"
+ssh_fixture 'mkdir -p /home/duo/recovery-fixture /home/duo/recovery-fixture/checkpoint && chmod 700 /home/duo/recovery-fixture /home/duo/recovery-fixture/checkpoint && printf "adopt-code\\n" > /home/duo/recovery-fixture/code-pointer && printf "adopt-effect\\n" > /home/duo/recovery-fixture/effect-target'
+scp -F "$TMP/ssh_config" sandbox/tests/fixtures/recovery-exclusion-provider.php sandbox/tests/fixtures/recovery-adapter.php sandbox/tests/fixtures/ssh-rollback-checkpoint-provider.php sandbox/tests/fixtures/code-release-provider.php \
+  duo-adopt-fixture:/home/duo/recovery-fixture/ >/dev/null
+scp -F "$TMP/ssh_config" "$TMP/checkpoint.key" "$TMP/checkpoint-db.json" \
   duo-adopt-fixture:/home/duo/recovery-fixture/ >/dev/null
 ssh_fixture 'chmod 700 /home/duo/recovery-fixture/*.php'
+ssh_fixture 'chmod 600 /home/duo/recovery-fixture/checkpoint.key /home/duo/recovery-fixture/checkpoint-db.json'
 
 cat >"$TMP/envs.json" <<EOF
 {
@@ -114,6 +131,11 @@ cat >"$TMP/envs.json" <<EOF
       "ssh_config": "$TMP/ssh_config",
       "rollback_key_id": "fixture-key-1",
       "rollback_signing_key": "$TMP/rollback-signing.key",
+      "verified_rollback": {
+        "claim_ttl_seconds": 120,
+        "encryption_key_id": "ssh-adopt-scoped-kms",
+        "retention_seconds": 86400
+      },
       "rollback_recovery": {
         "adapters": {
           "code_restore": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-adapter.php"],
@@ -121,10 +143,10 @@ cat >"$TMP/envs.json" <<EOF
           "prior_verify": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-adapter.php"],
           "storage_restore": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-adapter.php"]
         },
-        "checkpoint_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/checkpoint-provider.php"],
+        "checkpoint_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/ssh-rollback-checkpoint-provider.php", "/home/duo/recovery-fixture/checkpoint", "/home/duo/recovery-fixture/checkpoint-db.json", "/home/duo/recovery-fixture/checkpoint.key"],
         "code_release_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/code-release-provider.php", "/home/duo/recovery-fixture/code-release-state", "/home/duo/code-releases", "/home/duo/code-current"],
         "exclusion_provider": ["/usr/local/bin/php", "/home/duo/recovery-fixture/recovery-exclusion-provider.php", "/home/duo/recovery-fixture/provider-state.json"],
-        "timeout_seconds": 5
+        "timeout_seconds": 30
       },
       "wp_path": "/var/www/html",
       "repo_path": "/home/duo/site"
@@ -191,7 +213,7 @@ ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.p
   | grep -q '"provider_id":"ssh-fixture-provider"' \
   || fail "raw recovery probe depended on the WordPress bootstrap"
 ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
-  | grep -q '"provider_id":"ssh-checkpoint-fixture"' \
+  | grep -q '"provider_id":"ssh-mariadb-checkpoint"' \
   || fail "raw checkpoint probe depended on the WordPress bootstrap"
 ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php recovery-probe --root=/home/duo/site/.duo/control' \
   | grep -q '"provider_id":"ssh-release-fixture"' \
@@ -271,5 +293,159 @@ grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/manif
   || fail "symlink refusal changed site.duo.json"
 ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && mv manifests-real manifests'
 pass "unsafe destination is a loud failure with agent and site policy unchanged"
+
+say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
+ssh_fixture 'php -r '\''$p="/home/duo/site/site.duo.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["duo3344_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
+ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-failure --autoload=no >/dev/null'
+"$DUO" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/duo3344-failure-capture.json" \
+  || fail "could not capture the desired scoped-promotion source state"
+"$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-failure-scope.json" \
+  || fail "could not mint the desired scoped-promotion contract"
+ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-failure --autoload=no >/dev/null'
+
+# Begin and abort an ordinary promotion first. The target deliberately retains
+# its completed ordinary session record, exercising the scoped begin reclaim
+# boundary rather than assuming a newly adopted target is session-empty.
+ORDINARY_OWNER="ordinary-duo3344-completed"
+ORDINARY_ARTIFACT="$(printf %s duo3344-ordinary-completed | shasum -a 256 | awk '{print $1}')"
+ssh_fixture "cd /var/www/html && wp duo promotion-begin --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/duo3344-ordinary-begin.json" \
+  || fail "could not establish the completed ordinary-session precondition"
+ssh_fixture "cd /var/www/html && wp duo promotion-abort --promotion-owner=$ORDINARY_OWNER --artifact-hash=$ORDINARY_ARTIFACT --format=json" >"$TMP/duo3344-ordinary-abort.json" \
+  || fail "could not retire the ordinary promotion lock"
+[ -z "$(target_ledger_value promotion_lock)" ] \
+  || fail "ordinary promotion left an active target lock"
+ORDINARY_SESSION="$(target_ledger_value promotion_session)"
+jq -e --arg owner "$ORDINARY_OWNER" --arg artifact "$ORDINARY_ARTIFACT" '
+  .owner == $owner and .artifact_hash == $artifact
+  and ((.profile // "") != "scoped-checkpoint-v1") and (.lifecycle_attempt? | not)
+' <<<"$ORDINARY_SESSION" >/dev/null \
+  || fail "target did not retain the safely completed ordinary session precondition"
+
+cat >"$TMP/duo3344-scoped-promotion-fault.php" <<'PHP'
+<?php
+declare(strict_types=1);
+
+if (defined('WP_CLI') && WP_CLI
+    && is_file('/home/duo/recovery-fixture/duo3344-scoped-fault-active')) {
+    $argv = $GLOBALS['argv'] ?? [];
+    if (is_array($argv) && in_array('duo', $argv, true) && in_array('apply', $argv, true)) {
+        add_action('plugins_loaded', static function (): void {
+            global $wpdb;
+            if ($wpdb->query("UPDATE duo_cert_state SET value = 'mutated-after-checkpoint' WHERE id = 1") !== 1) {
+                throw new RuntimeException('DUO-3344 test fixture could not mutate the checkpoint probe');
+            }
+            if (!update_option('duo3344_scoped_restore_probe', 'mutated-after-checkpoint', false)) {
+                throw new RuntimeException('DUO-3344 test fixture could not mutate the WordPress restore probe');
+            }
+            putenv('DUO_TEST_MODE=1');
+            putenv('DUO_TEST_FAIL_DB_CONTEXT=rebuild object cache');
+        }, PHP_INT_MAX);
+    }
+}
+PHP
+scp -F "$TMP/ssh_config" "$TMP/duo3344-scoped-promotion-fault.php" \
+  duo-adopt-fixture:/var/www/html/wp-content/mu-plugins/duo3344-scoped-promotion-fault.php >/dev/null
+ssh_fixture 'touch /home/duo/recovery-fixture/duo3344-scoped-fault-active'
+
+if FAILURE_OUT="$("$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json" 2>&1)"; then
+  FAILURE_CODE=0
+else
+  FAILURE_CODE=$?
+fi
+ssh_fixture 'rm -f /home/duo/recovery-fixture/duo3344-scoped-fault-active /var/www/html/wp-content/mu-plugins/duo3344-scoped-promotion-fault.php'
+[ "$FAILURE_CODE" -ne 0 ] || fail "post-begin scoped fault unexpectedly promoted"
+grep -q 'scoped promote phase: promotion-begin-scoped' <<<"$FAILURE_OUT" \
+  || fail "controlled scoped fault did not cross target promotion-begin-scoped"
+grep -q 'scoped promote phase: apply' <<<"$FAILURE_OUT" \
+  || fail "controlled scoped fault did not enter the receipt-bound target apply"
+grep -q 'prior database verified; generation .* rolled_back and exclusion released' <<<"$FAILURE_OUT" \
+  || fail "controlled scoped fault did not report verified pre-commit rollback"
+
+FAIL_STATUS="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
+jq -e '
+  .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
+  and .state == "rolled_back" and .terminal == true and .exclusion_state == "released"
+' <<<"$FAIL_STATUS" >/dev/null \
+  || fail "scoped failure did not leave a signed rolled_back terminal receipt with v2 exclusion released"
+FAIL_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
+jq -e '
+  .status.state == "rolled_back"
+  and .completed_operations.database_restore.operation_status == "completed"
+  and .completed_operations.prior_verify.operation_status == "completed"
+' <<<"$FAIL_EVIDENCE" >/dev/null \
+  || fail "signed failure evidence did not bind encrypted database_restore and prior_verify"
+FAIL_RECEIPT="$(jq -r '.receipt_id' <<<"$FAIL_STATUS")"
+ssh_fixture "test -s /home/duo/site/.duo/rollback/$FAIL_RECEIPT/artifacts/checkpoint.enc" \
+  || fail "rolled-back scoped generation did not retain its real encrypted database checkpoint"
+[ "$(target_checkpoint_state)" = "prior-db" ] \
+  || fail "encrypted scoped rollback did not restore the prior database value"
+[ "$(ssh_fixture 'cd /var/www/html && wp option get duo3344_scoped_option')" = "prior-failure" ] \
+  || fail "encrypted scoped rollback did not restore the prior authored option"
+if ssh_fixture 'cd /var/www/html && wp option get duo3344_scoped_restore_probe' >/dev/null 2>&1; then
+  fail "encrypted scoped rollback retained the post-checkpoint restore probe"
+fi
+[ -z "$(target_ledger_value promotion_lock)" ] \
+  || fail "rolled-back scoped promotion left an active target lock"
+ROLLED_BACK_SESSION="$(target_ledger_value promotion_session)"
+jq -e --arg owner "$ORDINARY_OWNER" --arg artifact "$ORDINARY_ARTIFACT" '
+  .owner == $owner and .artifact_hash == $artifact
+  and ((.profile // "") != "scoped-checkpoint-v1") and (.lifecycle_attempt? | not)
+' <<<"$ROLLED_BACK_SESSION" >/dev/null \
+  || fail "rolled-back scoped promotion retained a scoped target session"
+jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')" >/dev/null \
+  || fail "v2 exclusion provider did not release after scoped rollback"
+
+ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-success --autoload=no >/dev/null'
+"$DUO" --envs-file="$TMP/envs.json" capture target --format=json >"$TMP/duo3344-success-capture.json" \
+  || fail "could not capture the successful scoped-promotion source state"
+"$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-success-scope.json" \
+  || fail "could not mint the successful scoped-promotion contract"
+ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-success --autoload=no >/dev/null'
+
+if SUCCESS_JSON="$("$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-success-scope.json" --format=json 2>"$TMP/duo3344-success.err")"; then
+  SUCCESS_CODE=0
+else
+  SUCCESS_CODE=$?
+fi
+[ "$SUCCESS_CODE" -eq 0 ] \
+  || fail "public SSH scoped promote did not complete: $(cat "$TMP/duo3344-success.err")"
+jq -e --argjson failed_generation "$(jq -r '.generation' <<<"$FAIL_STATUS")" '
+  .format == "duo-scoped-promotion-result/v1" and .state == "committed"
+  and (.generation > $failed_generation)
+  and .rollback.format == "duo-scoped-promotion-receipt/v1"
+  and .rollback.automatic_window_closed == true and .rollback.later_rollback_supported == false
+  and .scoped_apply.format == "duo-scoped-apply-result/v1"
+  and .scoped_apply.scoped_receipt.phase == "complete"
+' <<<"$SUCCESS_JSON" >/dev/null \
+  || fail "successful scoped promotion did not return its receipt-bound terminal result"
+SUCCESS_STATUS="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
+jq -e '
+  .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
+  and .state == "committed" and .terminal == true and .exclusion_state == "released"
+' <<<"$SUCCESS_STATUS" >/dev/null \
+  || fail "successful scoped promotion did not leave a signed committed terminal receipt with v2 exclusion released"
+SUCCESS_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
+jq -e '
+  .status.state == "committed"
+  and .completed_operations.scoped_apply.operation_status == "completed"
+' <<<"$SUCCESS_EVIDENCE" >/dev/null \
+  || fail "successful scoped promotion did not bind the terminal target Apply receipt into signed evidence"
+[ "$(ssh_fixture 'cd /var/www/html && wp option get duo3344_scoped_option')" = "desired-success" ] \
+  || fail "successful scoped promotion did not converge the target authored option"
+"$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-success-scope.json" --format=json >"$TMP/duo3344-success-plan.json" \
+  || fail "successful scoped promotion did not permit a converged public scoped plan"
+jq -e '
+  .format == "duo-scoped-plan/v1"
+  and .create == [] and .update == [] and .drift == [] and .conflict == []
+  and .delete == [] and .delete_conflict == []
+' "$TMP/duo3344-success-plan.json" >/dev/null \
+  || fail "successful scoped promotion target did not converge"
+[ -z "$(target_ledger_value promotion_lock)" ] \
+  || fail "successful scoped promotion left an active target lock"
+[ -z "$(target_ledger_value promotion_session)" ] \
+  || fail "successful scoped promotion did not execute target promotion-complete-scoped"
+jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')" >/dev/null \
+  || fail "v2 exclusion provider did not release after scoped commit"
+pass "public scoped promotion restores a real encrypted DB checkpoint on failure, then commits a receipt-bound target Apply and retires its scoped session"
 
 printf '\n\033[1;32m✔ REGRESS_SSH_ADOPT PASSED\033[0m\n'
