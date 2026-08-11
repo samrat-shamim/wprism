@@ -1028,7 +1028,12 @@ adding a `members` object to its selector:
 lists. Exact entries are non-empty literal values. Templates must contain at
 least one typed placeholder; the only placeholders in spec v1 are
 `{positive_uint}` (canonical decimal `1`–`19` digits, first digit non-zero)
-and `{slug}` (lower-case `[a-z0-9][a-z0-9_-]{0,63}`). Control characters,
+and `{slug}` — a WordPress-style identifier, not an ASCII-only one:
+`[\p{Ll}\p{Lo}\p{Nd}][\p{Ll}\p{Lo}\p{Nd}_-]{0,63}` (lower-case or
+case-lacking Unicode letters — Latin, Cyrillic, CJK, Arabic, Hebrew, and
+similar — plus decimal digits; upper/titlecase letters and non-decimal
+numerics such as Roman numerals stay excluded, matching what
+`sanitize_title()`-family sanitizers actually emit, DUO-3437). Control characters,
 wildcards, angle brackets, unmatched/unknown placeholders, duplicate entries,
 secret-shaped values, empty member lists, and extra selector/member keys are
 refused during policy compilation and effect-inventory validation. An exact
