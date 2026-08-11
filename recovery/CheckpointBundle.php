@@ -252,7 +252,7 @@ final class CheckpointBundle {
             'temporary_plaintext_cleaned' => true,
         ];
         self::validateMetadata($metadata);
-        self::publishExact($metadataPath, RollbackControl::canonical($metadata) . "\n", 0600, 'checkpoint metadata');
+        self::publishExact($metadataPath, CanonicalJson::encode($metadata) . "\n", 0600, 'checkpoint metadata');
         return self::publicMetadata($metadata);
     }
 
@@ -297,7 +297,7 @@ final class CheckpointBundle {
         } elseif (!is_file($intentPath)) {
             throw new \RuntimeException('duo checkpoint: ciphertext disappeared before authorized deletion');
         }
-        self::publishExact($intentPath, RollbackControl::canonical($intent) . "\n", 0600, 'checkpoint deletion intent');
+        self::publishExact($intentPath, CanonicalJson::encode($intent) . "\n", 0600, 'checkpoint deletion intent');
         $config = RecoveryExecutor::configuration($root);
         $response = self::call($config, self::providerOperationRequest(
             $root,
@@ -334,7 +334,7 @@ final class CheckpointBundle {
             'retention_until' => (string) $metadata['retention_until'],
             'target_id' => (string) $metadata['target_id'],
         ];
-        self::publishExact($tombstonePath, RollbackControl::canonical($tombstone) . "\n", 0600, 'checkpoint tombstone');
+        self::publishExact($tombstonePath, CanonicalJson::encode($tombstone) . "\n", 0600, 'checkpoint tombstone');
         self::removeExpiredMetadata($dir);
         return $tombstone + ['ok' => true];
     }
@@ -648,7 +648,7 @@ final class CheckpointBundle {
     }
 
     private static function metadataHash(array $metadata): string {
-        return hash('sha256', RollbackControl::canonical($metadata));
+        return hash('sha256', CanonicalJson::encode($metadata));
     }
 
     private static function assertIdentity(array $left, array $right, bool $includeClaim): void {
@@ -678,30 +678,21 @@ final class CheckpointBundle {
         $dir = dirname($root) . '/rollback';
         self::ensureDirectory($dir, 0700);
         $path = $dir . '/checkpoint.lock';
-        if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException('duo checkpoint: unsafe checkpoint lock');
-        }
-        $lock = @fopen($path, 'c+');
-        if (!is_resource($lock)) {
-            throw new \RuntimeException('duo checkpoint: could not open checkpoint lock');
-        }
-        @chmod($path, 0600);
-        try {
-            if (!flock($lock, LOCK_EX)) {
-                throw new \RuntimeException('duo checkpoint: could not acquire checkpoint lock');
-            }
-            return $callback();
-        } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        return ProtocolLock::withExclusive(
+            $path,
+            $callback,
+            'duo checkpoint: unsafe checkpoint lock',
+            'duo checkpoint: could not open checkpoint lock',
+            'duo checkpoint: could not acquire checkpoint lock',
+            0600
+        );
     }
 
     private static function writeAttemptReport(string $root, array $metadata, string $action, array $response): void {
         $dir = self::receiptDirectory($root, (string) $metadata['receipt_id']) . '/reports';
         self::ensureDirectory($dir, 0700);
-        $hash = hash('sha256', RollbackControl::canonical($response));
-        self::publishExact($dir . '/' . $action . '-' . $hash . '.json', RollbackControl::canonical($response) . "\n", 0600, 'checkpoint report');
+        $hash = hash('sha256', CanonicalJson::encode($response));
+        self::publishExact($dir . '/' . $action . '-' . $hash . '.json', CanonicalJson::encode($response) . "\n", 0600, 'checkpoint report');
     }
 
     private static function removeExpiredMetadata(string $dir): void {
@@ -724,162 +715,41 @@ final class CheckpointBundle {
         if (!is_array($command)) {
             throw new \RuntimeException('duo checkpoint: checkpoint provider is unavailable');
         }
-        $pipes = [];
-        $process = @proc_open(
+        return ProviderClient::request(
             $command,
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            null,
-            null,
-            ['bypass_shell' => true]
+            $request,
+            (int) $config['timeout_seconds'],
+            'duo checkpoint',
+            'duo checkpoint: could not start checkpoint provider',
+            'duo checkpoint: provider timed out; exclusion remains held',
+            'duo checkpoint: provider output exceeded the redacted evidence limit',
+            'duo checkpoint: provider failed; provider output is redacted',
+            false,
+            'duo checkpoint: provider returned malformed JSON',
+            'duo checkpoint: provider returned noncanonical evidence',
+            'duo checkpoint: could not send provider request'
         );
-        if (!is_resource($process)) {
-            throw new \RuntimeException('duo checkpoint: could not start checkpoint provider');
-        }
-        $requestBytes = RollbackControl::canonical($request) . "\n";
-        if (fwrite($pipes[0], $requestBytes) !== strlen($requestBytes)) {
-            self::stopProvider($process, $pipes);
-            throw new \RuntimeException('duo checkpoint: could not send provider request');
-        }
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        $deadline = microtime(true) + (int) $config['timeout_seconds'];
-        $observedExit = null;
-        while (true) {
-            $stdout .= (string) stream_get_contents($pipes[1]);
-            $stderr .= (string) stream_get_contents($pipes[2]);
-            if (strlen($stdout) + strlen($stderr) > 1048576) {
-                self::stopProvider($process, $pipes);
-                throw new \RuntimeException('duo checkpoint: provider output exceeded the redacted evidence limit');
-            }
-            $state = proc_get_status($process);
-            if (!$state['running']) {
-                $observedExit = (int) $state['exitcode'];
-                break;
-            }
-            if (microtime(true) >= $deadline) {
-                self::stopProvider($process, $pipes);
-                throw new \RuntimeException('duo checkpoint: provider timed out; exclusion remains held');
-            }
-            usleep(10000);
-        }
-        $stdout .= (string) stream_get_contents($pipes[1]);
-        $stderr .= (string) stream_get_contents($pipes[2]);
-        if (strlen($stdout) + strlen($stderr) > 1048576) {
-            self::stopProvider($process, $pipes);
-            throw new \RuntimeException('duo checkpoint: provider output exceeded the redacted evidence limit');
-        }
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $closed = proc_close($process);
-        $exit = $observedExit ?? $closed;
-        if ($exit !== 0) {
-            throw new \RuntimeException('duo checkpoint: provider failed; provider output is redacted');
-        }
-        try {
-            $decoded = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            throw new \RuntimeException('duo checkpoint: provider returned malformed JSON');
-        }
-        if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $stdout) {
-            throw new \RuntimeException('duo checkpoint: provider returned noncanonical evidence');
-        }
-        return $decoded;
-    }
-
-    /** @param resource $process @param array<int,mixed> $pipes */
-    private static function stopProvider($process, array $pipes): void {
-        @proc_terminate($process, 9);
-        foreach ($pipes as $pipe) {
-            if (is_resource($pipe)) {
-                @fclose($pipe);
-            }
-        }
-        @proc_close($process);
     }
 
     /** @return array<string,mixed> */
     private static function readCanonical(string $path, string $label): array {
-        self::assertAbsoluteRegularFile($path, $label);
-        $raw = file_get_contents($path);
-        try {
-            $decoded = json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            throw new \RuntimeException("duo checkpoint: $label is malformed JSON");
-        }
-        if (!is_array($decoded) || array_is_list($decoded)
-            || RollbackControl::canonical($decoded) . "\n" !== $raw) {
-            throw new \RuntimeException("duo checkpoint: $label must be canonical JSON");
-        }
-        return $decoded;
+        return AtomicStore::readCanonical($path, $label, 'duo checkpoint');
     }
 
     private static function publishExact(string $path, string $bytes, int $mode, string $label): void {
-        if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException("duo checkpoint: unsafe $label path");
-        }
-        if (is_file($path)) {
-            $actual = file_get_contents($path);
-            if (!is_string($actual) || !hash_equals(hash('sha256', $bytes), hash('sha256', $actual))) {
-                throw new \RuntimeException("duo checkpoint: immutable $label already differs");
-            }
-            return;
-        }
-        $dir = dirname($path);
-        self::ensureDirectory($dir, 0700);
-        $tmp = tempnam($dir, '.checkpoint-');
-        if ($tmp === false) {
-            throw new \RuntimeException("duo checkpoint: could not allocate $label temp file");
-        }
-        try {
-            @chmod($tmp, $mode);
-            $handle = fopen($tmp, 'wb');
-            if (!is_resource($handle) || fwrite($handle, $bytes) !== strlen($bytes)
-                || !fflush($handle) || !fsync($handle)) {
-                throw new \RuntimeException("duo checkpoint: could not durably write $label");
-            }
-            fclose($handle);
-            if (!rename($tmp, $path)) {
-                throw new \RuntimeException("duo checkpoint: could not publish $label");
-            }
-            @chmod($path, $mode);
-            $parent = fopen($dir, 'r');
-            if (!is_resource($parent) || !fsync($parent)) {
-                throw new \RuntimeException("duo checkpoint: could not fsync $label directory");
-            }
-            fclose($parent);
-            if (file_get_contents($path) !== $bytes) {
-                throw new \RuntimeException("duo checkpoint: $label readback mismatch");
-            }
-        } finally {
-            if (is_file($tmp)) {
-                @unlink($tmp);
-            }
-        }
+        AtomicStore::publishExact($path, $bytes, $mode, $label, 'duo checkpoint', true);
     }
 
     private static function ensureDirectory(string $path, int $mode): void {
-        if (is_link($path) || (!is_dir($path) && !@mkdir($path, $mode, true) && !is_dir($path))) {
-            throw new \RuntimeException("duo checkpoint: unsafe directory '$path'");
-        }
-        @chmod($path, $mode);
+        AtomicStore::ensureDirectory($path, $mode, 'duo checkpoint');
     }
 
     private static function syncDirectory(string $path): void {
-        $handle = @fopen($path, 'r');
-        if (!is_resource($handle) || !fsync($handle)) {
-            throw new \RuntimeException('duo checkpoint: could not fsync checkpoint directory');
-        }
-        fclose($handle);
+        AtomicStore::syncDirectory($path, 'checkpoint directory', 'duo checkpoint');
     }
 
     private static function assertAbsoluteRegularFile(string $path, string $label): void {
-        if ($path === '' || $path[0] !== '/' || is_link($path) || !is_file($path)) {
-            throw new \RuntimeException("duo checkpoint: $label must be an absolute regular file");
-        }
+        AtomicStore::assertAbsoluteRegularFile($path, $label, 'duo checkpoint');
     }
 
     /** @param list<string> $expected */

@@ -44,6 +44,10 @@ final class Adopt {
         $agentDir = rtrim($sourceRoot, '/') . '/agent';
         $manifestsDir = rtrim($sourceRoot, '/') . '/manifests';
         $version = self::agentVersion($agentDir . '/duo.php');
+        $canonical = rtrim($sourceRoot, '/') . '/recovery/CanonicalJson.php';
+        $atomic = rtrim($sourceRoot, '/') . '/recovery/AtomicStore.php';
+        $protocolLock = rtrim($sourceRoot, '/') . '/recovery/ProtocolLock.php';
+        $providerClient = rtrim($sourceRoot, '/') . '/recovery/ProviderClient.php';
         $runtime = rtrim($sourceRoot, '/') . '/recovery/rollback-control.php';
         $executor = rtrim($sourceRoot, '/') . '/recovery/RecoveryExecutor.php';
         $checkpoint = rtrim($sourceRoot, '/') . '/recovery/CheckpointBundle.php';
@@ -51,6 +55,7 @@ final class Adopt {
         $uploadBundle = rtrim($sourceRoot, '/') . '/recovery/UploadBundle.php';
         $effectBundle = rtrim($sourceRoot, '/') . '/recovery/EffectBundle.php';
         if ($version === null || !is_file($agentDir . '/duo-loader.php') || !is_dir($manifestsDir)
+            || !is_file($canonical) || !is_file($atomic) || !is_file($protocolLock) || !is_file($providerClient)
             || !is_file($runtime) || !is_file($executor) || !is_file($checkpoint) || !is_file($codeRelease)
             || !is_file($uploadBundle) || !is_file($effectBundle)) {
             return self::failure('local artifact', 'Duo source tree is incomplete: expected agent/, manifests/, and the complete recovery runtime', $version ?? 'unknown');
@@ -410,7 +415,7 @@ final class Adopt {
             . "special=\$(find \"\$stage\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'duo adopt: staged artifact could not be inspected' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'duo adopt: staged artifact contains a link or special node' >&2; exit 1; }\n"
             . "unreadable=\$(find \"\$stage\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'duo adopt: staged artifact could not be inspected' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'duo adopt: staged artifact contains an unreadable file' >&2; exit 1; }\n"
             . "[ -f \"\$stage/agent/duo.php\" ] && [ -f \"\$stage/agent/duo-loader.php\" ] && [ -f \"\$stage/manifests/core.json\" ] || { echo 'duo adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
-            . "[ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
+            . "[ -f \"\$stage/recovery/CanonicalJson.php\" ] && [ -f \"\$stage/recovery/AtomicStore.php\" ] && [ -f \"\$stage/recovery/ProtocolLock.php\" ] && [ -f \"\$stage/recovery/ProviderClient.php\" ] && [ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "mkdir \"\$agent_new\"; agent_new_created=1; record_identity \"\$agent_new\" \"\$txn/agent_new.id\"; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
             . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'duo adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new.id\"; cp \"\$stage/agent/duo-loader.php\" \"\$loader_new\"\n"
             . "mkdir \"\$manifest_new\"; manifest_new_created=1; record_identity \"\$manifest_new\" \"\$txn/manifest_new.id\"; cp -R \"\$stage/manifests/.\" \"\$manifest_new/\"\n"

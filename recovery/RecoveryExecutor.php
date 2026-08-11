@@ -50,7 +50,7 @@ final class RecoveryExecutor {
         if ($record !== null && ($record['state'] ?? '') === 'held') {
             throw new \RuntimeException('duo recovery: cannot replace configuration while exclusion is held');
         }
-        self::atomicWrite(self::configPath($root), RollbackControl::canonical($config) . "\n", 0600, 'configuration');
+        self::atomicWrite(self::configPath($root), CanonicalJson::encode($config) . "\n", 0600, 'configuration');
         return ['configured' => true, 'format' => self::CONFIG_FORMAT, 'ok' => true];
     }
 
@@ -463,7 +463,7 @@ final class RecoveryExecutor {
                 'token_sha256' => hash('sha256', $token),
                 'updated_at' => (string) $payload['timestamp'],
             ];
-            self::atomicWrite(self::exclusionPath($root), RollbackControl::canonical($record) . "\n", 0600, 'exclusion record');
+            self::atomicWrite(self::exclusionPath($root), CanonicalJson::encode($record) . "\n", 0600, 'exclusion record');
             return self::publicRecord($record);
         });
     }
@@ -488,7 +488,7 @@ final class RecoveryExecutor {
             if ($action === 'release') {
                 $record['state'] = 'released';
             }
-            self::atomicWrite(self::exclusionPath($root), RollbackControl::canonical($record) . "\n", 0600, 'exclusion record');
+            self::atomicWrite(self::exclusionPath($root), CanonicalJson::encode($record) . "\n", 0600, 'exclusion record');
             return self::publicRecord($record);
         });
     }
@@ -497,7 +497,7 @@ final class RecoveryExecutor {
     private static function verifyHeld(string $root, array $record, string $action): array {
         return self::withLock($root, function () use ($root, $record, $action): array {
             $current = self::requiredHeld($root);
-            if (!hash_equals(RollbackControl::canonical($record), RollbackControl::canonical($current))) {
+            if (!hash_equals(CanonicalJson::encode($record), CanonicalJson::encode($current))) {
                 throw new \RuntimeException('duo recovery: exclusion record changed concurrently');
             }
             return self::callProviderForRecord(self::config($root), $current, $action);
@@ -567,60 +567,19 @@ final class RecoveryExecutor {
 
     /** @return array<string,mixed> */
     private static function runProtocol(array $command, array $request, int $timeout, string $label): array {
-        $pipes = [];
-        $process = @proc_open(
+        return ProviderClient::request(
             $command,
-            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-            $pipes,
-            null,
-            null,
-            ['bypass_shell' => true]
+            $request,
+            $timeout,
+            'duo recovery',
+            "duo recovery: could not start $label",
+            "duo recovery: $label timed out; exclusion remains held",
+            "duo recovery: $label output exceeded the redacted evidence limit",
+            "duo recovery: $label failed",
+            true,
+            "duo recovery: $label returned malformed JSON",
+            "duo recovery: $label returned non-canonical evidence"
         );
-        if (!is_resource($process)) {
-            throw new \RuntimeException("duo recovery: could not start $label");
-        }
-        $input = RollbackControl::canonical($request) . "\n";
-        fwrite($pipes[0], $input);
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $stdout = '';
-        $stderr = '';
-        $observedExit = null;
-        $deadline = microtime(true) + $timeout;
-        do {
-            $stdout .= (string) stream_get_contents($pipes[1]);
-            $stderr .= (string) stream_get_contents($pipes[2]);
-            $state = proc_get_status($process);
-            if (!$state['running']) {
-                $observedExit = (int) $state['exitcode'];
-                break;
-            }
-            if (microtime(true) >= $deadline) {
-                proc_terminate($process, 9);
-                throw new \RuntimeException("duo recovery: $label timed out; exclusion remains held");
-            }
-            usleep(10000);
-        } while (true);
-        $stdout .= (string) stream_get_contents($pipes[1]);
-        $stderr .= (string) stream_get_contents($pipes[2]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        $closedExit = proc_close($process);
-        $exit = $observedExit ?? $closedExit;
-        if ($exit !== 0) {
-            $detail = trim($stderr !== '' ? $stderr : $stdout);
-            throw new \RuntimeException("duo recovery: $label failed" . ($detail !== '' ? ': ' . substr($detail, 0, 1000) : ''));
-        }
-        try {
-            $decoded = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            throw new \RuntimeException("duo recovery: $label returned malformed JSON");
-        }
-        if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $stdout) {
-            throw new \RuntimeException("duo recovery: $label returned non-canonical evidence");
-        }
-        return $decoded;
     }
 
     /** @return array<string,mixed> */
@@ -829,84 +788,28 @@ final class RecoveryExecutor {
 
     /** @return array<string,mixed> */
     private static function readCanonical(string $path, string $label): array {
-        self::assertAbsoluteRegularFile($path, $label);
-        $raw = file_get_contents($path);
-        try {
-            $decoded = json_decode((string) $raw, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable $e) {
-            throw new \RuntimeException("duo recovery: $label is malformed JSON");
-        }
-        if (!is_array($decoded) || array_is_list($decoded)
-            || RollbackControl::canonical($decoded) . "\n" !== $raw) {
-            throw new \RuntimeException("duo recovery: $label must be canonical JSON with one trailing newline");
-        }
-        return $decoded;
+        return AtomicStore::readCanonical($path, $label, 'duo recovery');
     }
 
     /** @return array<string,mixed> */
     private static function withLock(string $root, callable $callback): array {
         $path = $root . '/recovery.lock';
-        if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException('duo recovery: recovery lock path is unsafe');
-        }
-        $lock = @fopen($path, 'c+');
-        if (!is_resource($lock)) {
-            throw new \RuntimeException('duo recovery: could not open recovery lock');
-        }
-        @chmod($path, 0600);
-        try {
-            if (!flock($lock, LOCK_EX)) {
-                throw new \RuntimeException('duo recovery: could not acquire recovery lock');
-            }
-            return $callback();
-        } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        return ProtocolLock::withExclusive(
+            $path,
+            $callback,
+            'duo recovery: recovery lock path is unsafe',
+            'duo recovery: could not open recovery lock',
+            'duo recovery: could not acquire recovery lock',
+            0600
+        );
     }
 
     private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void {
-        $dir = dirname($path);
-        if (!is_dir($dir) || is_link($dir)) {
-            throw new \RuntimeException("duo recovery: unsafe $label directory");
-        }
-        if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException("duo recovery: unsafe $label path");
-        }
-        $tmp = tempnam($dir, '.duo-recovery-');
-        if ($tmp === false) {
-            throw new \RuntimeException("duo recovery: could not allocate $label temp file");
-        }
-        try {
-            @chmod($tmp, $mode);
-            $handle = fopen($tmp, 'wb');
-            if (!is_resource($handle) || fwrite($handle, $bytes) !== strlen($bytes) || !fflush($handle) || !fsync($handle)) {
-                throw new \RuntimeException("duo recovery: could not durably write $label");
-            }
-            fclose($handle);
-            if (!rename($tmp, $path)) {
-                throw new \RuntimeException("duo recovery: could not publish $label");
-            }
-            @chmod($path, $mode);
-            $dirHandle = fopen($dir, 'r');
-            if (!is_resource($dirHandle) || !fsync($dirHandle)) {
-                throw new \RuntimeException("duo recovery: could not fsync $label directory");
-            }
-            fclose($dirHandle);
-            if (file_get_contents($path) !== $bytes) {
-                throw new \RuntimeException("duo recovery: $label readback mismatch");
-            }
-        } finally {
-            if (is_file($tmp)) {
-                @unlink($tmp);
-            }
-        }
+        AtomicStore::atomicWrite($path, $bytes, $mode, $label, 'duo recovery');
     }
 
     private static function assertAbsoluteRegularFile(string $path, string $label): void {
-        if ($path === '' || $path[0] !== '/' || is_link($path) || !is_file($path)) {
-            throw new \RuntimeException("duo recovery: $label must be an absolute regular file");
-        }
+        AtomicStore::assertAbsoluteRegularFile($path, $label, 'duo recovery');
     }
 
     /** @param list<string> $expected */

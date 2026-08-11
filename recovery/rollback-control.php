@@ -296,6 +296,10 @@ final class RollbackControl {
             'CodeRelease.php',
             'UploadBundle.php',
             'EffectBundle.php',
+            'CanonicalJson.php',
+            'AtomicStore.php',
+            'ProtocolLock.php',
+            'ProviderClient.php',
         ] as $runtimeFile) {
             self::assertRegularFile($root . '/recovery-runtime/' . $runtimeFile, 'recovery runtime file');
         }
@@ -1046,32 +1050,8 @@ final class RollbackControl {
         return $decoded;
     }
 
-    /** @return mixed */
-    private static function canonicalize($value) {
-        if (!is_array($value)) {
-            if (is_float($value) || is_resource($value) || is_object($value)) {
-                throw new \RuntimeException('duo rollback: canonical JSON contains unsupported value');
-            }
-            return $value;
-        }
-        if (array_is_list($value)) {
-            return array_map([self::class, 'canonicalize'], $value);
-        }
-        ksort($value, SORT_STRING);
-        foreach ($value as $key => $item) {
-            if (!is_string($key)) {
-                throw new \RuntimeException('duo rollback: canonical JSON object keys must be strings');
-            }
-            $value[$key] = self::canonicalize($item);
-        }
-        return $value;
-    }
-
     public static function canonical(array $value): string {
-        return json_encode(
-            self::canonicalize($value),
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
-        );
+        return CanonicalJson::encode($value, 'duo rollback');
     }
 
     /** @return array{key_id:string,payload:array<string,mixed>,signature:string} */
@@ -1090,21 +1070,14 @@ final class RollbackControl {
     /** @param callable():array<string,mixed> $callback @return array<string,mixed> */
     private static function withLock(string $root, callable $callback): array {
         self::ensureDirectory($root, 0700);
-        self::assertRegularOrAbsent($root . '/target.lock', 'target lock');
-        $lock = @fopen($root . '/target.lock', 'c+');
-        if (!is_resource($lock)) {
-            throw new \RuntimeException('duo rollback: could not open target lock');
-        }
-        @chmod($root . '/target.lock', 0600);
-        try {
-            if (!flock($lock, LOCK_EX)) {
-                throw new \RuntimeException('duo rollback: could not acquire target lock');
-            }
-            return $callback();
-        } finally {
-            flock($lock, LOCK_UN);
-            fclose($lock);
-        }
+        return ProtocolLock::withExclusive(
+            $root . '/target.lock',
+            $callback,
+            'duo rollback: target lock path is not a regular file',
+            'duo rollback: could not open target lock',
+            'duo rollback: could not acquire target lock',
+            0600
+        );
     }
 
     private static function publishExactOrVerify(
@@ -1132,51 +1105,21 @@ final class RollbackControl {
         int $mode,
         string $label
     ): void {
-        $dir = dirname($path);
-        self::ensureDirectory($dir, 0700);
-        self::assertRegularOrAbsent($path, $label);
-        $tmp = $dir . '/.' . basename($path) . '.tmp-' . bin2hex(random_bytes(8));
-        self::crashPoint($root, "$label:before-write");
-        $handle = @fopen($tmp, 'x+b');
-        if (!is_resource($handle)) {
-            throw new \RuntimeException("duo rollback: could not create temporary $label");
-        }
-        try {
-            @chmod($tmp, $mode);
-            $written = fwrite($handle, $bytes);
-            if ($written !== strlen($bytes) || !fflush($handle) || !fsync($handle)) {
-                throw new \RuntimeException("duo rollback: could not durably write temporary $label");
+        AtomicStore::atomicWrite(
+            $path,
+            $bytes,
+            $mode,
+            $label,
+            'duo rollback',
+            true,
+            static function (string $stage) use ($root, $label): void {
+                self::crashPoint($root, "$label:$stage");
             }
-            self::crashPoint($root, "$label:after-file-fsync");
-        } finally {
-            fclose($handle);
-        }
-        if (!@rename($tmp, $path)) {
-            @unlink($tmp);
-            throw new \RuntimeException("duo rollback: could not atomically publish $label");
-        }
-        @chmod($path, $mode);
-        self::crashPoint($root, "$label:after-rename");
-        self::fsyncDirectory($dir, $label);
-        self::crashPoint($root, "$label:after-dir-fsync");
-        $actual = file_get_contents($path);
-        if (!is_string($actual) || !hash_equals(hash('sha256', $bytes), hash('sha256', $actual))) {
-            throw new \RuntimeException("duo rollback: $label readback did not match published bytes");
-        }
+        );
     }
 
     private static function fsyncDirectory(string $dir, string $label): void {
-        $handle = @fopen($dir, 'r');
-        if (!is_resource($handle)) {
-            throw new \RuntimeException("duo rollback: could not open $label parent directory for fsync");
-        }
-        try {
-            if (!fsync($handle)) {
-                throw new \RuntimeException("duo rollback: could not fsync $label parent directory");
-            }
-        } finally {
-            fclose($handle);
-        }
+        AtomicStore::syncDirectory($dir, "$label parent directory", 'duo rollback');
     }
 
     /**
@@ -1366,6 +1309,10 @@ function rollback_control_main(array $argv): int {
     }
 }
 
+require_once __DIR__ . '/CanonicalJson.php';
+require_once __DIR__ . '/AtomicStore.php';
+require_once __DIR__ . '/ProtocolLock.php';
+require_once __DIR__ . '/ProviderClient.php';
 require_once __DIR__ . '/RecoveryExecutor.php';
 require_once __DIR__ . '/CheckpointBundle.php';
 require_once __DIR__ . '/CodeRelease.php';

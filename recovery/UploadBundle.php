@@ -221,7 +221,7 @@ final class UploadBundle {
         $metadataPath = $dir . '/upload-bundle-metadata.json';
         $desired = ['format' => 'duo-upload-compile-inventory/v1', 'uploads' => $payload['inventory']];
         self::validateDesiredInventory($desired);
-        $desiredBytes = RollbackControl::canonical($desired) . "\n";
+        $desiredBytes = CanonicalJson::encode($desired) . "\n";
         $desiredHash = hash('sha256', $desiredBytes);
         if (is_file($metadataPath)) {
             $metadata = self::readCanonical($metadataPath, 'upload bundle metadata');
@@ -304,7 +304,7 @@ final class UploadBundle {
             'target_id' => (string) $payload['target_id'],
         ];
         self::validateMetadata($metadata);
-        self::publishExact($metadataPath, RollbackControl::canonical($metadata) . "\n", 0600, 'upload bundle metadata');
+        self::publishExact($metadataPath, CanonicalJson::encode($metadata) . "\n", 0600, 'upload bundle metadata');
         return self::publicMetadata($metadata);
     }
 
@@ -328,7 +328,7 @@ final class UploadBundle {
         }
         self::validateMutationReport($report, self::desired($root, $metadata));
         self::rejectSecrets($report, 'mutation report');
-        $result = hash('sha256', RollbackControl::canonical($report));
+        $result = hash('sha256', CanonicalJson::encode($report));
         if (!hash_equals($result, (string) ($response['result_sha256'] ?? ''))) {
             throw new \RuntimeException('duo uploads: provider result does not bind the verified mutation report');
         }
@@ -387,7 +387,7 @@ final class UploadBundle {
             'provider_version' => (string) $metadata['provider_version'],
             'receipt_id' => (string) $status['receipt_id'],
         ];
-        self::publishExact($tombstonePath, RollbackControl::canonical($tombstone) . "\n", 0600, 'upload bundle tombstone');
+        self::publishExact($tombstonePath, CanonicalJson::encode($tombstone) . "\n", 0600, 'upload bundle tombstone');
         self::cleanupDeletedBundle($dir);
         return ['deleted' => true, 'ok' => true, 'receipt_id' => (string) $status['receipt_id']];
     }
@@ -588,21 +588,25 @@ final class UploadBundle {
 
     /** @return array<string,mixed> */
     private static function publicMetadata(array $m): array { return ['before_images_sha256'=>$m['before_images_sha256'],'desired_inventory_sha256'=>$m['desired_inventory_sha256'],'ok'=>true,'prior_inventory_sha256'=>$m['prior_inventory_sha256'],'provider_id'=>$m['provider_id'],'provider_version'=>$m['provider_version'],'uploads_inventory_sha256'=>self::metadataHash($m)]; }
-    private static function metadataHash(array $m): string { return hash('sha256', RollbackControl::canonical($m)); }
+    private static function metadataHash(array $m): string { return hash('sha256', CanonicalJson::encode($m)); }
 
     /** @return array<string,mixed> */
     private static function call(array $config, array $request): array {
         $command = $config['upload_provider'] ?? null;
         if (!is_array($command) || $command === []) throw new \RuntimeException('duo uploads: provider is unavailable');
-        $spec = [['pipe','r'],['pipe','w'],['pipe','w']]; $pipes=[]; $process=@proc_open($command,$spec,$pipes,null,[]);
-        if (!is_resource($process)) throw new \RuntimeException('duo uploads: could not start provider');
-        fwrite($pipes[0], RollbackControl::canonical($request) . "\n"); fclose($pipes[0]); stream_set_blocking($pipes[1],false); stream_set_blocking($pipes[2],false);
-        $stdout='';$stderr='';$deadline=microtime(true)+(int)$config['timeout_seconds'];$exit=null;
-        while (true) { $stdout.=(string)stream_get_contents($pipes[1]);$stderr.=(string)stream_get_contents($pipes[2]);if(strlen($stdout)+strlen($stderr)>1048576){@proc_terminate($process,9);throw new \RuntimeException('duo uploads: provider output exceeded redacted limit');}$state=proc_get_status($process);if(!$state['running']){$exit=(int)$state['exitcode'];break;}if(microtime(true)>=$deadline){@proc_terminate($process,9);throw new \RuntimeException('duo uploads: provider timed out; exclusion remains held');}usleep(10000);}
-        $stdout.=(string)stream_get_contents($pipes[1]);$stderr.=(string)stream_get_contents($pipes[2]);fclose($pipes[1]);fclose($pipes[2]);$closed=proc_close($process);$exit=$exit??$closed;
-        if($exit!==0) throw new \RuntimeException('duo uploads: provider failed; provider output is redacted');
-        try{$decoded=json_decode($stdout,true,512,JSON_THROW_ON_ERROR);}catch(\Throwable $e){throw new \RuntimeException('duo uploads: provider returned malformed JSON');}
-        if(!is_array($decoded)||array_is_list($decoded)||RollbackControl::canonical($decoded)."\n"!==$stdout) throw new \RuntimeException('duo uploads: provider returned noncanonical evidence');
+        $decoded = ProviderClient::request(
+            $command,
+            $request,
+            (int) $config['timeout_seconds'],
+            'duo uploads',
+            'duo uploads: could not start provider',
+            'duo uploads: provider timed out; exclusion remains held',
+            'duo uploads: provider output exceeded redacted limit',
+            'duo uploads: provider failed; provider output is redacted',
+            false,
+            'duo uploads: provider returned malformed JSON',
+            'duo uploads: provider returned noncanonical evidence'
+        );
         self::rejectSecrets($decoded, 'provider response'); return $decoded;
     }
 
@@ -620,11 +624,11 @@ final class UploadBundle {
     private static function assertIdentifier(string $v,string $l,int $min,int $max): void { if(strlen($v)<$min||strlen($v)>$max||preg_match('/^[A-Za-z0-9._:-]+$/',$v)!==1)throw new \RuntimeException("duo uploads: $l is malformed"); }
     /** @param list<string> $expected */ private static function assertExactKeys(array $v,array $expected,string $l): void { $a=array_keys($v);sort($a,SORT_STRING);sort($expected,SORT_STRING);if($a!==$expected)throw new \RuntimeException("duo uploads: $l has missing or unknown fields"); }
     private static function timeValue(string $v): int { $t=\DateTimeImmutable::createFromFormat('!Y-m-d\TH:i:s\Z',$v,new \DateTimeZone('UTC'));if(!$t||$t->format('Y-m-d\TH:i:s\Z')!==$v)throw new \RuntimeException('duo uploads: timestamp must be canonical UTC seconds');return $t->getTimestamp(); }
-    /** @return array<string,mixed> */ private static function readCanonical(string $p,string $l): array { self::assertAbsoluteRegularFile($p,$l);$raw=file_get_contents($p);try{$v=json_decode((string)$raw,true,512,JSON_THROW_ON_ERROR);}catch(\Throwable $e){throw new \RuntimeException("duo uploads: $l is malformed JSON");}if(!is_array($v)||array_is_list($v)||RollbackControl::canonical($v)."\n"!==$raw)throw new \RuntimeException("duo uploads: $l must be canonical JSON");return $v; }
-    private static function assertAbsoluteRegularFile(string $p,string $l): void { if($p===''||$p[0]!=='/'||is_link($p)||!is_file($p))throw new \RuntimeException("duo uploads: $l must be an absolute regular file"); }
-    private static function ensureDirectory(string $p,int $m): void { if(is_link($p)||(!is_dir($p)&&!@mkdir($p,$m,true)&&!is_dir($p)))throw new \RuntimeException("duo uploads: unsafe directory '$p'");@chmod($p,$m); }
-    private static function syncDirectory(string $p): void { $h=@fopen($p,'r');if(!is_resource($h)||!fsync($h))throw new \RuntimeException('duo uploads: could not fsync directory');fclose($h); }
-    private static function publishExact(string $p,string $b,int $m,string $l): void { if(is_link($p)||(file_exists($p)&&!is_file($p)))throw new \RuntimeException("duo uploads: unsafe $l path");if(is_file($p)){if(file_get_contents($p)!==$b)throw new \RuntimeException("duo uploads: immutable $l differs");return;}self::ensureDirectory(dirname($p),0700);$tmp=$p.'.tmp-'.bin2hex(random_bytes(8));$h=@fopen($tmp,'x+b');if(!is_resource($h))throw new \RuntimeException("duo uploads: could not create $l");try{chmod($tmp,$m);if(fwrite($h,$b)!==strlen($b)||!fflush($h)||!fsync($h))throw new \RuntimeException("duo uploads: could not persist $l");fclose($h);$h=null;if(!rename($tmp,$p))throw new \RuntimeException("duo uploads: could not publish $l");self::syncDirectory(dirname($p));}finally{if(is_resource($h))fclose($h);@unlink($tmp);} }
+    /** @return array<string,mixed> */ private static function readCanonical(string $p,string $l): array { return AtomicStore::readCanonical($p,$l,'duo uploads'); }
+    private static function assertAbsoluteRegularFile(string $p,string $l): void { AtomicStore::assertAbsoluteRegularFile($p,$l,'duo uploads'); }
+    private static function ensureDirectory(string $p,int $m): void { AtomicStore::ensureDirectory($p,$m,'duo uploads'); }
+    private static function syncDirectory(string $p): void { AtomicStore::syncDirectory($p,'uploads directory','duo uploads'); }
+    private static function publishExact(string $p,string $b,int $m,string $l): void { AtomicStore::publishExact($p,$b,$m,$l,'duo uploads',true); }
     private static function receiptDirectory(string $root,string $id): string { self::assertIdentifier($id,'receipt id',32,64);return dirname($root).'/rollback/'.$id; }
-    /** @template T @param callable():T $callback @return T */ private static function withLock(string $root,callable $callback): mixed { $p=$root.'/upload-bundle.lock';if(is_link($p)||(file_exists($p)&&!is_file($p)))throw new \RuntimeException('duo uploads: lock path is unsafe');$h=@fopen($p,'c+b');if(!is_resource($h)||!flock($h,LOCK_EX))throw new \RuntimeException('duo uploads: could not acquire lock');try{return $callback();}finally{flock($h,LOCK_UN);fclose($h);} }
+    /** @template T @param callable():T $callback @return T */ private static function withLock(string $root,callable $callback): mixed { $p=$root.'/upload-bundle.lock';return ProtocolLock::withExclusive($p,$callback,'duo uploads: lock path is unsafe','duo uploads: could not acquire lock','duo uploads: could not acquire lock',0600); }
 }

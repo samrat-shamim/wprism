@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\Recovery\RollbackControl;
+use Duo\Recovery\CanonicalJson;
 
 /**
  * Controller-side client for the adopted rollback authority runtime.
@@ -98,7 +99,7 @@ final class RollbackAuthority {
             return ['active' => null, 'available' => true, 'error' => 'malformed authority status JSON', 'ok' => false];
         }
         if (!is_array($decoded)
-            || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']
+            || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
             || ($decoded['ok'] ?? null) !== true) {
             return ['active' => null, 'available' => true, 'error' => 'invalid authority status evidence', 'ok' => false];
         }
@@ -365,7 +366,7 @@ final class RollbackAuthority {
             1,
             $claimant,
             1,
-            hash('sha256', RollbackControl::canonical($receipt)),
+            hash('sha256', CanonicalJson::encode($receipt)),
             str_repeat('0', 64),
             $now,
             $ttl
@@ -483,7 +484,7 @@ final class RollbackAuthority {
                 "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
             );
         }
-        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
         $next = $this->append(
             $state,
             'prepared',
@@ -516,7 +517,7 @@ final class RollbackAuthority {
         $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
         try {
             @chmod($local, 0600);
-            $bytes = RollbackControl::canonical($input) . "\n";
+            $bytes = CanonicalJson::encode($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write operation handoff');
             }
@@ -546,7 +547,7 @@ final class RollbackAuthority {
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
             $inputHash = hash('sha256', $bytes);
             if (!is_array($decoded)
-                || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']
+                || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
                 || ($decoded['ok'] ?? null) !== true
                 || ($decoded['adapter'] ?? null) !== $adapter
                 || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
@@ -571,7 +572,7 @@ final class RollbackAuthority {
     ): array {
         $status = $this->requiredActiveStatus();
         self::assertOperationIdentity($adapter, $attempt);
-        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
         if (($execution['adapter'] ?? null) !== $adapter
             || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
             || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
@@ -848,7 +849,7 @@ final class RollbackAuthority {
         $remote = '/tmp/duo-rollback-request-' . $token . '.json';
         try {
             @chmod($local, 0600);
-            $bytes = RollbackControl::canonical($request) . "\n";
+            $bytes = CanonicalJson::encode($request) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write request handoff');
             }
@@ -870,7 +871,7 @@ final class RollbackAuthority {
             }
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
             if (!is_array($decoded)
-                || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']
+                || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
                 || ($decoded['ok'] ?? null) !== true) {
                 throw new \RuntimeException('duo rollback: target returned invalid request evidence');
             }

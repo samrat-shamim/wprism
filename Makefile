@@ -1,5 +1,6 @@
 COMPOSE = docker compose -f sandbox/docker-compose.yml
 
+.PHONY: regress-recovery-protocol
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
@@ -761,6 +762,11 @@ regress-promotion-lock:
 regress-control-plane-seams:
 	php sandbox/tests/regress_control_plane_seams.php
 
+# DUO-3352: shared canonical JSON, durable publication, exclusive locking,
+# and bounded provider transport used by the rollback/resource bundles.
+regress-recovery-protocol:
+	php sandbox/tests/regress_recovery_protocol.php
+
 # DUO-3223 (concurrency-scenario arm): a real `wp duo capture` lock holder
 # plus simultaneous contenders racing for that destination -- the SAME release-gate idiom
 # DUO-3217 established for live PromotionLock races, applied to the capture
@@ -1093,9 +1099,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-path-safety regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire \
-	regress-manifest-grammar
-	@echo "regress-offline-all: 121 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-manifest-grammar
+	@echo "regress-offline-all: 122 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
