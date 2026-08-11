@@ -113,7 +113,7 @@ class PromotionLease {
         }
         self::assert_scoped_authority_witness($authorityWitness, $owner, $artifactHash, $receiptHash, $scopeHash);
         $metadata = self::scoped_session_metadata($authorityWitness, $receiptHash, $scopeHash);
-        $session = self::current_session();
+        $session = self::current_session(true);
         if ($session === null) {
             $begun = self::acquire_internal(
                 $owner, $artifactHash, 'checkpoint', $ttl, false, true, $metadata, false, true
@@ -300,7 +300,7 @@ class PromotionLease {
             $now = time();
             $before = self::current();
             $preserveRecoverySession = false;
-            $existingSession = self::current_session();
+            $existingSession = self::current_session($replaceProfilelessOrdinarySession || $requireSessionAbsentAfterFence);
             if ($requireSessionAbsentAfterFence && $existingSession !== null) {
                 throw new \RuntimeException(
                     'duo: scoped promotion initial begin found a target promotion session after fencing; retry so its recovery contract can be classified'
@@ -984,7 +984,7 @@ class PromotionLease {
     }
 
     /** @return array<string,mixed>|null */
-    private static function current_session(): ?array {
+    private static function current_session(bool $allowMalformedOrdinaryFallback = false): ?array {
         $typedFailure = null;
         try {
             $record = PromotionSessionJournal::readAny();
@@ -993,6 +993,9 @@ class PromotionLease {
             }
             return null;
         } catch (\InvalidArgumentException $failure) {
+            if (!$allowMalformedOrdinaryFallback) {
+                throw $failure;
+            }
             // Scoped replacement must classify malformed ordinary recovery
             // receipts itself so it can refuse without erasing their bytes.
             // Preserve the journal as the normal reader; this narrow fallback

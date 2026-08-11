@@ -483,7 +483,7 @@ namespace {
         "Db::start('scoped ordinary session replacement transaction start')"
     );
     $replacementLockReadOffset = strpos($acquireInternalSource, '$before = self::current();');
-    $replacementSessionReadOffset = strpos($acquireInternalSource, '$existingSession = self::current_session();');
+    $replacementSessionReadOffset = strpos($acquireInternalSource, '$existingSession = self::current_session(');
     $check(
         $replacementStorageOffset !== false
             && $replacementTransactionStartOffset !== false
@@ -775,6 +775,20 @@ namespace {
         (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryMalformedSessionIdBytes
             && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
         'ordinary malformed session-generation refusal leaves the retained session and absent lock untouched'
+    );
+    $expect(
+        static fn() => PromotionLock::begin(
+            'ordinary-new-owner',
+            str_repeat('1', 64),
+            300
+        ),
+        'malformed promotion session generation',
+        'ordinary begin refuses a malformed retained session before acquiring a replacement lease'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryMalformedSessionIdBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary malformed-session refusal preserves exact bytes and absent lease'
     );
 
     $ordinaryLegacySessionId = $ordinaryCompletedSession;
