@@ -19,6 +19,71 @@ namespace Duo {
     final class ScopedPromotionTargetLedger {
         /** @var array<string,string> */
         public static array $values = [];
+        /** @var array<string,string>|null */
+        private static ?array $transactionValues = null;
+        public static bool $failNextPromotionSessionUpsert = false;
+        public static int $promotionLockWrites = 0;
+        public static int $transactionStarts = 0;
+
+        public static function get(string $key): ?string {
+            $values = self::$transactionValues ?? self::$values;
+            return $values[$key] ?? null;
+        }
+
+        public static function set(string $key, string $value): void {
+            if ($key === 'promotion_session' && self::$failNextPromotionSessionUpsert) {
+                self::$failNextPromotionSessionUpsert = false;
+                throw new \RuntimeException('injected scoped promotion session upsert failure');
+            }
+            if ($key === 'promotion_lock') {
+                self::$promotionLockWrites++;
+            }
+            if (self::$transactionValues !== null) {
+                self::$transactionValues[$key] = $value;
+                return;
+            }
+            self::$values[$key] = $value;
+        }
+
+        public static function delete(string $key): void {
+            if (self::$transactionValues !== null) {
+                unset(self::$transactionValues[$key]);
+                return;
+            }
+            unset(self::$values[$key]);
+        }
+
+        public static function has(string $key): bool {
+            $values = self::$transactionValues ?? self::$values;
+            return array_key_exists($key, $values);
+        }
+
+        public static function start(): void {
+            if (self::$transactionValues !== null) {
+                throw new \RuntimeException('fake scoped promotion transaction already open');
+            }
+            self::$transactionStarts++;
+            self::$transactionValues = self::$values;
+        }
+
+        public static function commit(): void {
+            if (self::$transactionValues === null) {
+                throw new \RuntimeException('fake scoped promotion transaction is absent at commit');
+            }
+            self::$values = self::$transactionValues;
+            self::$transactionValues = null;
+        }
+
+        public static function rollback(): void {
+            if (self::$transactionValues === null) {
+                throw new \RuntimeException('fake scoped promotion transaction is absent at rollback');
+            }
+            self::$transactionValues = null;
+        }
+
+        public static function transactionOpen(): bool {
+            return self::$transactionValues !== null;
+        }
     }
 
     // PromotionLock refers to these names directly. This file loads it before
@@ -26,17 +91,29 @@ namespace Duo {
     // than a WordPress database, is the exercised dependency.
     final class Ledger {
         public static function kv_get(string $key): ?string {
-            return ScopedPromotionTargetLedger::$values[$key] ?? null;
+            return ScopedPromotionTargetLedger::get($key);
         }
 
         public static function kv_set(string $key, string $value): void {
-            ScopedPromotionTargetLedger::$values[$key] = $value;
+            ScopedPromotionTargetLedger::set($key, $value);
         }
     }
 
     final class Db {
         public static function query(string $sql, string $context): int {
             return $GLOBALS['wpdb']->execute($sql);
+        }
+
+        public static function start(string $context = 'transaction start'): void {
+            ScopedPromotionTargetLedger::start();
+        }
+
+        public static function commit(string $context = 'transaction commit'): void {
+            ScopedPromotionTargetLedger::commit();
+        }
+
+        public static function rollback(string $context = 'transaction rollback'): void {
+            ScopedPromotionTargetLedger::rollback();
         }
     }
 
@@ -61,6 +138,7 @@ namespace {
     final class ScopedPromotionTargetFakeWpdb {
         public string $prefix = 'wp_';
         public string $dbname = 'duo_scoped_promotion_target_test';
+        public string|false|null $duoKvEngine = 'InnoDB';
         private int $connection = 4401;
         private bool $fenceHeld = false;
 
@@ -72,7 +150,13 @@ namespace {
             if ($query === 'SELECT CONNECTION_ID()') {
                 return (string) $this->connection;
             }
-            [$template] = $this->decode($query);
+            [$template, $args] = $this->decode($query);
+            if (str_contains($template, 'information_schema.TABLES')) {
+                if (($args[0] ?? null) !== $this->prefix . 'duo_kv') {
+                    throw new RuntimeException('unexpected promotion-lock engine table query');
+                }
+                return $this->duoKvEngine;
+            }
             if (str_contains($template, 'GET_LOCK')) {
                 $this->fenceHeld = true;
                 return '1';
@@ -99,7 +183,7 @@ namespace {
                         && (string) $current['owner'] === (string) $sameOwner
                         && (string) $current['artifact_hash'] === (string) $sameArtifact);
                 if ($replace) {
-                    ScopedPromotionTargetLedger::$values[(string) $key] = (string) $encoded;
+                    ScopedPromotionTargetLedger::set((string) $key, (string) $encoded);
                     return 1;
                 }
                 return 0;
@@ -111,17 +195,17 @@ namespace {
                     && (string) $current['owner'] === (string) $owner
                     && (string) $current['artifact_hash'] === (string) $artifact
                     && (int) $current['expires_at'] <= (int) $now) {
-                    unset(ScopedPromotionTargetLedger::$values[(string) $key]);
+                    ScopedPromotionTargetLedger::delete((string) $key);
                     return 1;
                 }
                 return 0;
             }
             if (str_contains($template, 'INSERT IGNORE INTO')) {
                 [$key, $encoded] = $args;
-                if (array_key_exists((string) $key, ScopedPromotionTargetLedger::$values)) {
+                if (ScopedPromotionTargetLedger::has((string) $key)) {
                     return 0;
                 }
-                ScopedPromotionTargetLedger::$values[(string) $key] = (string) $encoded;
+                ScopedPromotionTargetLedger::set((string) $key, (string) $encoded);
                 return 1;
             }
             if (str_contains($template, "JSON_EXTRACT(v, '$.profile')")) {
@@ -137,7 +221,7 @@ namespace {
                     && (string) ($current['scoped_receipt_id'] ?? '') === (string) $receiptId
                     && (int) ($current['scoped_generation'] ?? 0) === (int) $generation
                     && (string) ($current['scoped_target_id'] ?? '') === (string) $targetId) {
-                    unset(ScopedPromotionTargetLedger::$values[(string) $key]);
+                    ScopedPromotionTargetLedger::delete((string) $key);
                     return 1;
                 }
                 return 0;
@@ -148,7 +232,7 @@ namespace {
                 if ($current !== null
                     && (string) $current['owner'] === (string) $owner
                     && (string) $current['artifact_hash'] === (string) $artifact) {
-                    unset(ScopedPromotionTargetLedger::$values[(string) $key]);
+                    ScopedPromotionTargetLedger::delete((string) $key);
                     return 1;
                 }
                 return 0;
@@ -172,7 +256,7 @@ namespace {
 
         /** @return array<string,mixed>|null */
         private function current(string $key): ?array {
-            $raw = ScopedPromotionTargetLedger::$values[$key] ?? null;
+            $raw = ScopedPromotionTargetLedger::get($key);
             return $raw === null ? null : json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
         }
     }
@@ -335,6 +419,22 @@ namespace {
             && $metadataWrite < $sessionWrite,
         'scoped begin supplies profile/receipt metadata to the first session write rather than decorating a prior ordinary session'
     );
+    $replacementStorageOffset = strpos(
+        $acquireInternalSource,
+        'self::assert_transactional_replacement_storage();'
+    );
+    $replacementTransactionStartOffset = strpos(
+        $acquireInternalSource,
+        "Db::start('scoped ordinary session replacement transaction start')"
+    );
+    $check(
+        $replacementStorageOffset !== false
+            && $replacementTransactionStartOffset !== false
+            && $replacementStorageOffset < $replacementTransactionStartOffset
+            && str_contains($lockSource, 'information_schema.TABLES')
+            && str_contains($lockSource, "strcasecmp(\$engine, 'InnoDB')"),
+        'ordinary-session replacement proves the exact duo_kv storage is InnoDB before opening its atomic transaction'
+    );
     $second = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $check(
         ($second['session_id'] ?? null) === ($first['session_id'] ?? null)
@@ -379,16 +479,53 @@ namespace {
     $ordinaryCompletedOwner = 'ordinary-completed-owner';
     $ordinaryCompletedArtifact = str_repeat('b', 64);
     $ordinaryCompletedSessionId = 'ps-' . str_repeat('b', 32);
+    $ordinaryCompletedSession = [
+        'owner' => $ordinaryCompletedOwner,
+        'artifact_hash' => $ordinaryCompletedArtifact,
+        'begun_at' => time(),
+        'session_id' => $ordinaryCompletedSessionId,
+        'lifecycle_phases' => ['retire', 'activate'],
+        'state_transition' => [
+            'entity' => 'options/core',
+            'before_hash' => str_repeat('2', 64),
+            'after_hash' => str_repeat('3', 64),
+        ],
+    ];
     ScopedPromotionTargetLedger::$values = [
-        'promotion_session' => json_encode([
-            'owner' => $ordinaryCompletedOwner,
-            'artifact_hash' => $ordinaryCompletedArtifact,
-            'begun_at' => time(),
-            'session_id' => $ordinaryCompletedSessionId,
-            'lifecycle_phases' => ['retire', 'activate'],
-        ], JSON_THROW_ON_ERROR),
+        'promotion_session' => json_encode($ordinaryCompletedSession, JSON_THROW_ON_ERROR),
     ];
     $ordinaryCompletedBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $ordinaryReplacementTransactionStarts = ScopedPromotionTargetLedger::$transactionStarts;
+    $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
+    $GLOBALS['wpdb']->duoKvEngine = 'MyISAM';
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'requires an InnoDB duo_kv table',
+        'nontransactional duo_kv refuses ordinary-session replacement before any handoff mutation'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryCompletedBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
+            && !ScopedPromotionTargetLedger::transactionOpen()
+            && ScopedPromotionTargetLedger::$transactionStarts === $ordinaryReplacementTransactionStarts
+            && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites,
+        'nontransactional storage refusal leaves the exact ordinary session, lock state, and transaction boundary untouched'
+    );
+    $GLOBALS['wpdb']->duoKvEngine = 'InnoDB';
+    $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
+    ScopedPromotionTargetLedger::$failNextPromotionSessionUpsert = true;
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'injected scoped promotion session upsert failure',
+        'replacement session-upsert failure is raised after the provisional lock write'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryCompletedBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
+            && !ScopedPromotionTargetLedger::transactionOpen()
+            && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites + 1,
+        'replacement session-upsert failure rolls back its provisional lock and preserves the exact ordinary session bytes'
+    );
     $ordinaryReclaimed = PromotionLock::begin_scoped(
         $owner, $artifact, $receipt, $scopeHash, $witness, 300
     );
@@ -416,7 +553,105 @@ namespace {
             && ($ordinaryReclaimedLock['artifact_hash'] ?? null) === $artifact,
         'stale completed ordinary session without a lease is atomically replaced by one fresh receipt-bound scoped generation'
     );
+    $ordinaryReclaimedBytes = ScopedPromotionTargetLedger::$values['promotion_session'] ?? '';
+    $ordinaryReclaimedRetry = PromotionLock::begin_scoped(
+        $owner, $artifact, $receipt, $scopeHash, $witness, 300
+    );
+    $check(
+        ($ordinaryReclaimedRetry['session_id'] ?? null) === ($ordinaryReclaimed['session_id'] ?? null)
+            && (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryReclaimedBytes,
+        'exact scoped retry after a rolled-back replacement failure recovers the same fresh generation without rotation'
+    );
     PromotionLock::release($owner, $artifact);
+
+    $ordinaryPendingTransition = $ordinaryCompletedSession;
+    $ordinaryPendingTransition['pending_state_transition'] = [
+        'entity' => 'options/core',
+        'before_hash' => str_repeat('3', 64),
+        'after_hash' => str_repeat('4', 64),
+    ];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryPendingTransition, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryPendingTransitionBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'pending lifecycle state transition',
+        'ordinary pending lifecycle handoff refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryPendingTransitionBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary pending lifecycle handoff refusal leaves the retained session and absent lock untouched'
+    );
+
+    $ordinaryRetireOnly = $ordinaryCompletedSession;
+    $ordinaryRetireOnly['lifecycle_phases'] = ['retire'];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryRetireOnly, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryRetireOnlyBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'incomplete lifecycle phase receipt',
+        'ordinary retirement-only lifecycle receipt refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryRetireOnlyBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary retirement-only lifecycle refusal leaves the retained session and absent lock untouched'
+    );
+
+    $ordinaryMalformedPhases = $ordinaryCompletedSession;
+    $ordinaryMalformedPhases['lifecycle_phases'] = ['retire', 'activate', 'unexpected'];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryMalformedPhases, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryMalformedPhasesBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'malformed completed lifecycle phase receipt',
+        'ordinary malformed lifecycle phase receipt refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryMalformedPhasesBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary malformed lifecycle phase refusal leaves the retained session and absent lock untouched'
+    );
+
+    $ordinaryMalformedSessionId = $ordinaryCompletedSession;
+    $ordinaryMalformedSessionId['session_id'] = 'ordinary-session-id-without-ps-prefix';
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryMalformedSessionId, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryMalformedSessionIdBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'malformed promotion session generation',
+        'ordinary malformed session generation refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryMalformedSessionIdBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary malformed session-generation refusal leaves the retained session and absent lock untouched'
+    );
+
+    $ordinaryMalformedTransition = $ordinaryCompletedSession;
+    $ordinaryMalformedTransition['state_transition'] = ['entity' => 'options/core'];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryMalformedTransition, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryMalformedTransitionBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'malformed completed lifecycle state transition',
+        'ordinary malformed completed state transition refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryMalformedTransitionBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary malformed completed state-transition refusal leaves the retained session and absent lock untouched'
+    );
 
     $ordinaryAttempt = [
         'owner' => 'ordinary-ambiguous-owner',
