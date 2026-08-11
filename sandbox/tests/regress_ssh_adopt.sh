@@ -36,6 +36,9 @@ NETWORK_OWNED=0
 VOLUME_OWNED=0
 DATABASE_OWNED=0
 TARGET_OWNED=0
+SCOPED_PLAN_STDOUT=""
+SCOPED_PLAN_STDERR=""
+SCOPED_PLAN_EXIT=""
 SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
@@ -191,13 +194,16 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
 DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt-diagnostics.XXXXXX")"
 chmod 0700 "$DIAG_DIR"
+SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"
+SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"
+SCOPED_PLAN_EXIT="$DIAG_DIR/scoped-plan.exit"
 SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
 AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -537,6 +543,18 @@ scp -F "$TMP/ssh_config" "$TMP/duo3344-scoped-promotion-fault.php" \
   duo-adopt-fixture:/var/www/html/wp-content/mu-plugins/duo3344-scoped-promotion-fault.php >/dev/null
 ssh_fixture 'touch /home/duo/recovery-fixture/duo3344-scoped-fault-active'
 
+# Capture the exact read-only scoped plan for the pre-promote target state.
+# The controlled apply fault is active to prove this plan path does not run
+# target Apply; only the private, bounded diagnostic streams retain its result.
+if "$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-failure-scope.json" --format=json >"$SCOPED_PLAN_STDOUT" 2>"$SCOPED_PLAN_STDERR"; then
+  SCOPED_PLAN_CODE=0
+else
+  SCOPED_PLAN_CODE=$?
+fi
+printf '%s\n' "$SCOPED_PLAN_CODE" >"$SCOPED_PLAN_EXIT"
+[ "$SCOPED_PLAN_CODE" -eq 0 ] \
+  || fail "pre-promote scoped target plan did not complete"
+
 if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"; then
   FAILURE_CODE=0
 else
@@ -546,9 +564,9 @@ printf '%s\n' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"
 # Capture only the raw signed authority status before removing the injected
 # fault. The decorated `status` action probes recovery providers and therefore
 # is not observation-only. The separate diagnostic directory deliberately
-# contains only these bounded promote/authority observations, never the SSH
-# config, keys, or DB credentials from TMP. Its contents are private and must
-# not be printed into CI output.
+# contains only these bounded plan/promote/authority observations, never the
+# SSH config, keys, or DB credentials from TMP. Its contents are private and
+# must not be printed into CI output.
 if ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php authority-status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"; then
   AUTHORITY_STATUS_CODE=0
 else

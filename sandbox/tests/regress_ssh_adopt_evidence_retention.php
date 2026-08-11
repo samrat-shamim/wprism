@@ -5,12 +5,13 @@ declare(strict_types=1);
  * Offline source contract for the SSH adoption/scoped-promotion live harness.
  *
  * The deliberate post-begin promote fault is the one live failure where the
- * exact stdout/stderr is essential to distinguish an engine regression from a
- * fixture or transport problem. It used to live only in FAILURE_OUT, inside a
- * secret-bearing scratch tree that the EXIT trap always deleted. This check
- * proves the repair keeps a separate private, bounded evidence directory while
- * still destroying SSH keys, environment config, and DB credentials on every
- * exit. It reads source only: no Docker, SSH host, WordPress, or live target.
+ * exact pre-promote scoped plan plus promote stdout/stderr are essential to
+ * distinguish an engine regression from a fixture or transport problem. They
+ * used to live only in FAILURE_OUT, inside a secret-bearing scratch tree that
+ * the EXIT trap always deleted. This check proves the repair keeps a separate
+ * private, bounded evidence directory while still destroying SSH keys,
+ * environment config, and DB credentials on every exit. It reads source only:
+ * no Docker, SSH host, WordPress, or live target.
  */
 
 $root = dirname(__DIR__, 2);
@@ -60,6 +61,9 @@ $check(
 );
 
 $diagnosticAssignments = [
+    'SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"',
+    'SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"',
+    'SCOPED_PLAN_EXIT="$DIAG_DIR/scoped-plan.exit"',
     'SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"',
     'SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"',
     'SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"',
@@ -73,10 +77,10 @@ $check(
         static fn(bool $ok, string $assignment): bool => $ok && str_contains($harness, $assignment),
         true
     )
-        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
+        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
         && str_contains($harness, '( umask 077; : >"$diagnostic_file" )')
         && str_contains($harness, 'chmod 0600 "$diagnostic_file"'),
-    'only the bounded promote/status streams and numeric exits are precreated mode 0600'
+    'only the bounded plan/promote/status streams and numeric exits are precreated mode 0600'
 );
 preg_match_all('/\$DIAG_DIR\/([A-Za-z0-9._-]+)/', $harness, $diagnosticNames);
 $actualDiagnosticNames = array_values(array_unique($diagnosticNames[1] ?? []));
@@ -85,6 +89,9 @@ $expectedDiagnosticNames = [
     'authority-status.exit',
     'authority-status.stderr',
     'authority-status.stdout',
+    'scoped-plan.exit',
+    'scoped-plan.stderr',
+    'scoped-plan.stdout',
     'scoped-promote.exit',
     'scoped-promote.stderr',
     'scoped-promote.stdout',
@@ -92,6 +99,37 @@ $expectedDiagnosticNames = [
 $check(
     $actualDiagnosticNames === $expectedDiagnosticNames,
     'the diagnostic directory receives no key, config, credential, or unrelated evidence file'
+);
+
+$failureScopeMint = '"$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-failure-scope.json"';
+$priorFailure = "ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-failure --autoload=no >/dev/null'";
+$faultArm = "ssh_fixture 'touch /home/duo/recovery-fixture/duo3344-scoped-fault-active'";
+$planStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-failure-scope.json"');
+$promoteStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json"');
+$scopeMintAt = strpos($harness, $failureScopeMint);
+$priorFailureAt = strpos($harness, $priorFailure);
+$faultArmAt = strpos($harness, $faultArm);
+$check(
+    is_int($scopeMintAt) && is_int($priorFailureAt) && is_int($faultArmAt)
+        && is_int($planStart) && is_int($promoteStart)
+        && $scopeMintAt < $priorFailureAt && $priorFailureAt < $faultArmAt
+        && $faultArmAt < $planStart && $planStart < $promoteStart,
+    'the read-only diagnostic plan runs on the exact prior-failure target after scope minting and before promote'
+);
+if (!is_int($planStart) || !is_int($promoteStart) || $planStart >= $promoteStart) {
+    exit(1);
+}
+$planCapture = substr($harness, $planStart, $promoteStart - $planStart);
+$planRedirect = '"$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-failure-scope.json" --format=json >"$SCOPED_PLAN_STDOUT" 2>"$SCOPED_PLAN_STDERR"';
+$planExit = 'printf \'%s\\n\' "$SCOPED_PLAN_CODE" >"$SCOPED_PLAN_EXIT"';
+$check(
+    str_contains($planCapture, $planRedirect)
+        && str_contains($planCapture, $planExit)
+        && str_contains($planCapture, '[ "$SCOPED_PLAN_CODE" -eq 0 ]')
+        && !str_contains($planCapture, 'promote target')
+        && !str_contains($planCapture, 'capture target')
+        && !str_contains($planCapture, 'scope target'),
+    'the retained pre-promote plan uses only the public read-only scoped plan command and records its streams/exit'
 );
 
 $faultStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json"');
@@ -143,7 +181,7 @@ $check(
         && str_contains($harness, "jq -e '.state == \"released\"' <<<\"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')\""),
     'raw authority-status proves the signed terminal receipt while the existing provider-state assertion independently proves exclusion release'
 );
-foreach (['SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
+foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
     $check(
         preg_match('/(?:\\bcat\\b|\\becho\\b|\\bprintf\\b)[^\\n]*\\$' . $diagnosticVariable . '\\b/', $harness) !== 1,
         "$diagnosticVariable is never printed or catted into terminal/CI output"
