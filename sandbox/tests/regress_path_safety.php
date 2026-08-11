@@ -236,7 +236,7 @@ $crossCheck = static function (string $method, array $args) use ($codeReflection
     $rm = $codeReflection->getMethod($method);
     $rm->setAccessible(true);
     $viaCode = $rm->invokeArgs(null, $args);
-    $viaPathSafety = call_user_func_array(['Duo\\PathSafety', $method === 'safe_component_root' ? $method : $method], $args);
+    $viaPathSafety = call_user_func_array(['Duo\\PathSafety', $method], $args);
     if ($viaCode !== $viaPathSafety) {
         throw new \RuntimeException("Code::$method() and PathSafety::$method() disagree for the same input");
     }
@@ -249,21 +249,27 @@ try {
     $crossCheck('owned_path', ['plugins/foo/bar.php', $owned]);
     $crossCheck('reserved_path', ['mu-plugins/duo']);
     $crossCheck('same_target_path', ["$tmp/alias-target", "$tmp/real-target"]);
-    // safe_component_root takes an explicit second arg on PathSafety but not
-    // on Code's facade (which supplies self::ROOTS internally) -- checked
-    // separately rather than through the generic helper above.
-    $rm = $codeReflection->getMethod('safe_component_root');
-    $rm->setAccessible(true);
-    $viaCode = $rm->invoke(null, 'plugins/woocommerce');
-    $viaPathSafety = PathSafety::safe_component_root('plugins/woocommerce', ['mu-plugins', 'plugins', 'themes']);
-    $check(
-        $viaCode === true && $viaPathSafety === true && $viaCode === $viaPathSafety,
-        'Code::safe_component_root() (implicit ROOTS) and PathSafety::safe_component_root() (explicit roots) agree'
-    );
-    $check(true, 'Code facades and PathSafety agree on every cross-checked input');
+    $crossCheckOk = true;
 } catch (\RuntimeException $e) {
+    $crossCheckOk = false;
     $check(false, $e->getMessage());
 }
+$check(
+    $crossCheckOk,
+    'Code facades and PathSafety agree on safe_relative/safe_component/plugin_main_candidate/'
+        . 'has_current_path_at_or_below/owned_path/reserved_path/same_target_path for real inputs'
+);
+// safe_component_root takes an explicit second arg on PathSafety but not on
+// Code's facade (which supplies self::ROOTS internally) -- checked
+// separately rather than through the generic helper above.
+$rm = $codeReflection->getMethod('safe_component_root');
+$rm->setAccessible(true);
+$viaCode = $rm->invoke(null, 'plugins/woocommerce');
+$viaPathSafety = PathSafety::safe_component_root('plugins/woocommerce', ['mu-plugins', 'plugins', 'themes']);
+$check(
+    $viaCode === true && $viaPathSafety === true && $viaCode === $viaPathSafety,
+    'Code::safe_component_root() (implicit ROOTS) and PathSafety::safe_component_root() (explicit roots) agree'
+);
 
 // Cleanup.
 $rm = static function (string $path) use (&$rm): void {
