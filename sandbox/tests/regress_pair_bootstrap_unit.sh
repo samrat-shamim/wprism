@@ -10,16 +10,21 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-bootstrap.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT
 # DUO-3438: resolve to the physical path once, up front, the same way
 # DUO-3420's repo_host_one() resolves its own bind-mount source
-# (`cd "$(dirname "$root")" && pwd -P`). macOS's $TMPDIR sits under
+# (`cd "$(dirname "$root")" && pwd -P`) -- two independent mismatches this
+# collapses into one no-op comparison: macOS's $TMPDIR sits under
 # /var/folders, and /var -> /private/var is an OS-provided symlink (the same
-# class DUO-3432 hit for /tmp); every path this suite builds from $TMP must
-# already be canonical so a later `pwd -P` inside pair.sh is a no-op against
-# it, not a silent second resolution the fixed-string assertions below never
-# anticipated. A no-op on Linux, where no such alias exists.
+# class DUO-3432 hit for /tmp); separately, macOS's $TMPDIR carries a
+# trailing slash, so plain `mktemp -d "$TMPDIR/duo-pair-bootstrap.XXXXXX"`
+# above yields a doubled slash (".../T//duo-pair-bootstrap...", visible in
+# the pre-fix failure text) that `pwd -P` also normalizes away. Every path
+# this suite builds from $TMP must already be canonical so a later `pwd -P`
+# inside pair.sh is a no-op against it, not a silent second resolution the
+# fixed-string assertions below never anticipated. A no-op wherever $TMPDIR
+# has no symlink alias and no trailing slash to begin with.
 TMP="$(cd "$TMP" && pwd -P)"
-trap 'rm -rf "$TMP"' EXIT
 ORIGINAL_PATH="$PATH"
 # DUO-3396: pair.sh's budget refusal now consults the host certification
 # rendezvous (read-only) to see whether the candidate is the pair a HELD
