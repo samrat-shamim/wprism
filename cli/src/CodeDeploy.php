@@ -222,6 +222,43 @@ PHP;
     }
 
     /**
+     * Idempotent target handoff for the externally checkpointed scoped
+     * promotion profile. Exact retries reuse rather than rotate its ps-* id.
+     *
+     * @return array<int,string>
+     */
+    public static function beginScopedArgs(
+        string $owner,
+        string $artifactHash,
+        string $receiptHash,
+        string $scopeHash
+    ): array {
+        return self::controlArgs([
+            'duo', 'promotion-begin-scoped', '--promotion-owner=' . $owner,
+            '--artifact-hash=' . $artifactHash,
+            '--scoped-promotion-receipt=' . $receiptHash,
+            '--scope-hash=' . $scopeHash,
+            '--format=json',
+        ]);
+    }
+
+    /** @return array<int,string> */
+    public static function completeScopedArgs(
+        string $owner,
+        string $artifactHash,
+        string $receiptHash,
+        string $scopeHash
+    ): array {
+        return self::controlArgs([
+            'duo', 'promotion-complete-scoped', '--promotion-owner=' . $owner,
+            '--artifact-hash=' . $artifactHash,
+            '--scoped-promotion-receipt=' . $receiptHash,
+            '--scope-hash=' . $scopeHash,
+            '--format=json',
+        ]);
+    }
+
+    /**
      * Exact, idempotent cleanup. Hash rather than --compiled keeps recovery
      * available when a failed run's checkout/policy changes before cleanup.
      *

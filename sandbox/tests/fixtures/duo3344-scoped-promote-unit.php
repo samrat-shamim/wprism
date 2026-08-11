@@ -265,6 +265,11 @@ try {
 set -euo pipefail
 remote="${!#}"
 printf '%s\n' "$remote" >> "${DUO3344_SSH_LOG:?}"
+if [[ "${DUO3344_FAIL_AUTHORITY_STATUS:-0}" == 1 \
+  && "$remote" == *"authority-status"* ]]; then
+  printf '%s\n' 'PRIVATE_TARGET_PATH=/srv/secret; provider-token=do-not-publish' >&2
+  exit 47
+fi
 if [[ "${DUO3344_DROP_CLAIM_RESPONSE:-0}" == 1 \
   && ! -e "${DUO3344_DROP_MARKER:?}" \
   && "$remote" == *"rollback-control.php"* \
@@ -365,7 +370,7 @@ if ($sub === 'apply') {
         exit(95);
     }
     if ((string) getenv('DUO3344_FAKE_APPLY_FAIL') === '1') {
-        fwrite(STDERR, "fixture scoped apply failed before commit\n");
+        fwrite(STDERR, "PRIVATE_TARGET_PATH=/srv/target-secret; provider-token=apply-do-not-publish\n");
         exit(23);
     }
     echo file_get_contents((string) getenv('DUO3344_APPLY_RESULT'));
@@ -812,6 +817,11 @@ PHP
         'duplicate local contract' => ['--scope-contract=' . $contractPath, '--scope-contract=' . $contractPath, '--format=json'],
         'malformed split contract flag' => ['--scope-contract', '--format=json'],
         'unsupported scoped force flag' => ['--scope-contract=' . $contractPath, '--force-theirs', '--format=json'],
+        'unsupported secret-bearing argument' => [
+            '--scope-contract=' . $contractPath,
+            '--unexpected=sk_live_DO_NOT_ECHO',
+            '--format=json',
+        ],
         'tampered local contract' => ['--scope-contract=' . $badContractPath, '--format=json'],
     ];
     foreach ($noTargetCases as $label => $args) {
@@ -825,10 +835,26 @@ PHP
         scoped_host_ok(
             $refused['exit'] !== 0
                 && ($envelope['format'] ?? null) === 'duo-command-refusal/v1'
+                && !str_contains($refused['stdout'] . $refused['stderr'], 'sk_live_DO_NOT_ECHO')
                 && $noContact,
             "$label is rejected before SSH, SCP, WP, or recovery-provider contact"
         );
     }
+
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
+    $sensitiveStatus = scoped_host_promote($root, $envs, $contractPath, [], [
+        'DUO3344_FAIL_AUTHORITY_STATUS' => '1',
+    ]);
+    $sensitiveRefusal = scoped_host_json($sensitiveStatus['stdout'], 'sensitive authority preflight refusal');
+    $sensitivePublicBytes = $sensitiveStatus['stdout'] . $sensitiveStatus['stderr'];
+    scoped_host_ok(
+        $sensitiveStatus['exit'] !== 0
+            && ($sensitiveRefusal['reason_code'] ?? null) === 'scoped_promotion_preflight_failed'
+            && !str_contains($sensitivePublicBytes, 'PRIVATE_TARGET_PATH')
+            && !str_contains($sensitivePublicBytes, 'provider-token')
+            && !str_contains($sensitivePublicBytes, '/srv/secret'),
+        'public JSON redacts target/provider stderr from scoped authority preflight failures'
+    );
 
     scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
     $lost = scoped_host_promote($root, $envs, $contractPath, [], [
@@ -880,6 +906,7 @@ PHP
             && ($committed['state'] ?? null) === 'committed'
             && !empty($committed['terminal'])
             && ($committed['generation'] ?? null) === 1
+            && ($committed['allow_deletes'] ?? null) === true
             && ($committed['receipt_id'] ?? null) === $lostReceipt,
         'public retry resumes the exact response-lost generation and commits it once'
     );
@@ -904,6 +931,17 @@ PHP
                 && ($entry['wire']['scope_hash'] ?? null) === $contract['scope_hash']
                 && ($entry['wire']['selectors'] ?? null) === $contract['selectors'], true),
         'strict local contract becomes only the compact selectors-plus-hash request at plan and apply'
+    );
+    $successApply = array_values(array_filter(
+        $requests,
+        static function (array $args): bool {
+            $duo = array_search('duo', $args, true);
+            return $duo !== false && ($args[$duo + 1] ?? null) === 'apply';
+        }
+    ));
+    scoped_host_ok(
+        count($successApply) === 1 && in_array('--with-deletes', $successApply[0], true),
+        'public --with-deletes is immutable signed receipt authority and reaches only its exact target apply'
     );
     scoped_host_ok(
         !is_file($targetSession)
@@ -995,13 +1033,19 @@ PHP
     $failureRequests = scoped_host_wp_requests($wpLog);
     $failureSubcommands = scoped_host_wp_subcommands($failureRequests);
     $failedReceipt = (string) ($rolledBack['receipt_id'] ?? '');
+    $failedRefusal = scoped_host_json($failed['stdout'], 'precommit rollback refusal');
+    $failedPublicBytes = $failed['stdout'] . $failed['stderr'];
     scoped_host_ok(
         $failed['exit'] !== 0
             && ($rolledBack['state'] ?? null) === 'rolled_back'
             && !empty($rolledBack['terminal'])
             && ($rolledBack['generation'] ?? null) === 3
-            && str_contains($failed['stderr'], 'prior database verified'),
-        'pre-commit apply failure restores and verifies the prior checkpoint before reopening the scoped window'
+            && ($failedRefusal['reason_code'] ?? null) === 'scoped_promotion_rolled_back'
+            && $failed['stderr'] === ''
+            && !str_contains($failedPublicBytes, 'PRIVATE_TARGET_PATH')
+            && !str_contains($failedPublicBytes, 'provider-token')
+            && !str_contains($failedPublicBytes, '/srv/target-secret'),
+        'pre-commit apply failure restores/verifies the checkpoint and emits one redacted public JSON refusal'
     );
     scoped_host_ok(
         $failureSubcommands === ['compile', 'plan', 'promotion-begin-scoped', 'apply', 'promotion-abort'],
@@ -1036,7 +1080,7 @@ PHP
     foreach ([
         'DUO3344_APPLY_RESULT', 'DUO3344_COMPILED_ARTIFACT', 'DUO3344_COMPILE_SUMMARY',
         'DUO3344_CONTROL', 'DUO3344_DROP_COMPLETE_MARKER', 'DUO3344_DROP_MARKER',
-        'DUO3344_EXCLUSION_STATE', 'DUO3344_ORDER_LOG', 'DUO3344_PLAN', 'DUO3344_SCP_LOG',
+        'DUO3344_EXCLUSION_STATE', 'DUO3344_FAIL_AUTHORITY_STATUS', 'DUO3344_ORDER_LOG', 'DUO3344_PLAN', 'DUO3344_SCP_LOG',
         'DUO3344_SSH_LOG', 'DUO3344_TARGET_SESSION', 'DUO3344_WIRE_LOG', 'DUO3344_WP_LOG',
     ] as $name) {
         putenv($name);

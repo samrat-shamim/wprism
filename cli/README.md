@@ -465,8 +465,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   Full plan/apply refuse while that session is nonterminal.
   Triggerless actions, legacy regenerators, environment-local provider
   deletion/reparent context channels, attachment metadata generation,
-  code/lifecycle work, promote, and rollback are not silently widened into
-  this slice; they refuse or remain whole-revision operations.
+  code/lifecycle work, ordinary promotion, and rollback are not silently
+  widened into this slice; they refuse or remain whole-revision operations.
+  The narrow SSH checkpoint-only promotion profile below consumes this exact
+  scoped apply protocol without adding those excluded effects.
 
   stdout/stderr stream live (not buffered/reformatted) and the exit code is
   exactly the agent's exit code. When `--format=json` reaches the agent, every
@@ -614,8 +616,10 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   excluded state/tombstones/media byte-for-byte, and refuses closure outside
   the contract. It is deliberately state-only: W's code and ancestry remain
   unchanged. Plan/apply/verification accept this v1 evidence only by minting
-  the separate target-bound authority/session described above; promote,
-  lifecycle/code materialization, and rollback do not accept it.
+  the separate target-bound authority/session described above. Ordinary
+  promotion, lifecycle/code materialization, and rollback do not accept it;
+  the separate SSH checkpoint-only scoped-promotion profile is documented
+  below.
 
   The legacy whole-record `--strategy`/`--resolve` contract remains unchanged.
   Alternatively, an unscoped run may supply
@@ -717,6 +721,37 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   package managers, self-updaters, and other direct `WP_CONTENT_DIR` writers
   during stage/finalize; stable symlinks are refused, but this v0 PHP
   materializer is not an adversarial filesystem-race sandbox.
+
+- **`duo promote <ssh-env> --scope-contract=<local-path> [--with-deletes]`**
+  — a separate checkpoint-only scoped promotion profile. The host validates
+  the local contract, sends only compact selectors plus `scope_hash`, compiles
+  once, and requires a strict scoped plan. The first profile accepts only
+  options, declared snapshot tables, sidebars, user meta, and option/table
+  tombstones; posts, terms, menus, attachments, actions/providers, code and
+  lifecycle work, and every force flag refuse before authored mutation.
+
+  Before target apply, the SSH recovery runtime holds a v2 exclusion covering
+  public traffic, background jobs, package/filesystem writers, and every
+  database writer, then prepares an encrypted whole-database checkpoint and
+  prior-world verifier. Adoption pins the installed agent to that protected
+  control root. Target begin, apply, and completion independently verify the
+  active signed receipt, exact owner/artifact/scope/payload hash, and held
+  exclusion; a caller-supplied compact request or receipt hash is never
+  authority by itself. The target session is a random `ps-*` generation with
+  closed `scoped-checkpoint-v1` metadata. The signed receipt and target
+  mutation authority also bind the exact `--with-deletes` capability and a
+  hash-only external generation tuple, so a new receipt cannot replay an old
+  terminal for the same scope/artifact and a no-delete window cannot be
+  widened target-side.
+
+  Success records the scoped terminal receipt, seals the external generation
+  `committed` while exclusion remains held, retires the exact target handoff,
+  and only then releases the exclusion. Response-loss retries reuse that same
+  generation, delete capability, and terminal receipt. Before commit, failure can run only the
+  checkpoint `database_restore` and `prior_verify` path and finishes
+  `rolled_back`; after commit, rollback is never guessed and no later public
+  scoped rollback is offered. Local/Docker drivers and direct target-local
+  scope contracts refuse this host-only profile.
 
 - **`duo promote <env> [apply flags...]`** — the normal fail-closed
   code-and-state promotion path. It compiles the repository once into
@@ -1055,6 +1090,15 @@ non-green; only `committed` and `rolled_back` active generations are green.
 authority is invalid or nonterminal. A host adopted before this runtime emits
 a manual-recovery warning and retains the operator-directed behavior.
 
+When both the rollback verification key and recovery configuration are
+installed, adoption also writes a mode-`0600`
+`<mu-plugin-dir>/duo/scoped-promotion-control.json`. It contains only the
+absolute adopted control root and a closed format tag. Receipt-bearing target
+commands cannot choose another root: they run the installed raw recovery
+runtime, verify the signed active chain, and re-prove the live v2 exclusion
+before begin/apply/complete. Runtime/provider stderr and opaque exclusion
+tokens never enter public JSON.
+
 `rollback_recovery` configures a target-owned exclusion provider plus exact
 `code_restore`, `database_restore`, `prior_verify`, and `storage_restore` argv
 adapters. Its optional `checkpoint_provider` argv enables encrypted database
@@ -1081,6 +1125,13 @@ provider preparation and receipt v2,
 and uses the signed operation journal. Any missing capability produces a loud
 WARN and retains the operator-directed checkpoint path; a configured but
 failed preflight refuses instead of degrading.
+
+The SSH scoped-promotion profile uses the same policy, exclusion provider, and
+checkpoint provider but prepares no code/upload/effect release evidence. Its
+exclusion provider must attest the v2 `database_writers: true` scope in
+addition to the other four scopes. That is a whole-target promise covering
+direct database clients, workers, integrations, and migration tooling—not
+just public HTTP or WordPress cron.
 
 Adoption probes all configured capabilities. Provider tokens and key
 material never enter the registry or command line; only hashes and the

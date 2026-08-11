@@ -651,7 +651,7 @@ removes both handoff files after the child exits.
 
 ## Scope resolution (DUO-3344)
 
-`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by bounded capture/refresh/rebase and by the separately authorized scoped plan/apply/verification workflow below. Promote, rollback, and code lifecycle remain whole-revision operations at this spec version.
+`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by bounded capture/refresh/rebase, by the separately authorized scoped plan/apply/verification workflow, and by the narrow SSH-only checkpoint profile defined below. Ordinary promotion, user-invoked rollback, and code lifecycle remain whole-revision operations; the checkpoint profile does not make the contract itself mutation authority.
 
 A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
 
@@ -768,9 +768,9 @@ snapshot before the new ref is created. Because the contract excludes code and
 lifecycle effects, scoped rebase preserves W's code and ancestry and changes
 state/media only.
 
-Per-option capture, code dependency movement, scoped promote, and scoped
-rollback require later contracts. Scoped apply does not infer authority from
-this state-only overlay; it uses the separate target-bound protocol below.
+Per-option capture, code dependency movement, and user-invoked post-commit
+scoped rollback require later contracts. Scoped apply does not infer authority
+from this state-only overlay; it uses the separate target-bound protocol below.
 
 ### Scoped plan, apply, and verification
 
@@ -810,6 +810,14 @@ A stale or tampered contract, changed source, replaced lease, changed
 selected/protected target, changed guard, missing capability, triggerless
 global action, legacy unreconciled regenerator, or attachment metadata rebuild
 refuses before the first authored write.
+
+An externally checkpointed scoped promotion uses the closed
+`duo-scoped-mutation-authority/v2` extension. In addition to the v1 evidence,
+it seals the signed receipt payload hash and generation plus hash-only receipt,
+target, and signing-key identities and the exact `allow_deletes` capability.
+The raw external identifiers never enter the ledger. A legacy/v1 authority is
+valid only for ordinary scoped apply and is never a wildcard for checkpointed
+promotion replay.
 
 Execution is journaled in one append-only `duo-scoped-apply-session/v1` with
 the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
@@ -853,10 +861,71 @@ post/protected map roots are re-proved. Rotating a complete active slot writes
 an immutable terminal archive plus a hash-only index derived from the stable
 `scope_hash` and source `artifact_hash`; a later public retry can therefore
 locate and re-prove the archived receipt without guessing the old random lease
-session, while a missing, mismatched, or changed archive fails closed. Scoped
-promotion, code materialization, lifecycle, rollback, attachment derivative
-generation, legacy `regen_dependency`, triggerless actions, and per-option
-mutation remain explicitly outside this version.
+session, while a missing, mismatched, or changed archive fails closed.
+Externally checkpointed-promotion archives instead use a v2 index that additionally binds
+the sealed external-generation digest. A new signed generation for the same
+scope/artifact cannot discover or replay an older terminal. Exact committed
+response-loss recovery may recreate the short target `ps-*` handoff, but only
+the same signed external tuple and delete capability can reopen the archived
+terminal. Ordinary promotion, code materialization, lifecycle, user-invoked rollback, attachment
+derivative generation, legacy `regen_dependency`, triggerless actions, and
+per-option mutation remain explicitly outside this version. The one
+scoped-promotion exception is the externally checkpointed SSH profile below;
+it consumes this same apply protocol without widening it.
+
+### SSH scoped promotion checkpoint profile (v1)
+
+`duo promote <env> --scope-contract=<local-path>` selects a separate SSH-only
+protocol. It never enters ordinary promotion's code staging, lifecycle,
+upload, release, or effect-provider paths. The host validates the local
+contract, sends only its compact `duo-scope-request/v1`, compiles the frozen
+artifact, and obtains a strict `duo-scoped-plan/v1` before claiming recovery
+authority. Local/Docker drivers and direct agent contracts refuse this
+profile; the receipt-bearing agent apply accepts only the compact host wire.
+
+The first profile admits only DB-contained selected work: authored options,
+declared snapshot tables, sidebars, and user meta, plus option/table
+tombstones. Posts, terms, menus, attachments, code/lifecycle changes,
+provider/native actions, and every force flag refuse before authored mutation.
+Taxonomy recount callbacks are skipped when that bounded work cannot change
+their inputs. WordPress object-cache flush remains an allowed derived eviction,
+not persistent desired state; recovery restores the database and lets cache
+misses repopulate it.
+
+Before target apply, the SSH controller claims one signed
+`duo-scoped-promotion-receipt/v1`. Its exclusion provider must speak v2 and
+hold public traffic, background jobs, **every database writer**, filesystem
+writers, and package updates. Under that whole-target exclusion, the
+checkpoint provider prepares one encrypted full-database before-image and a
+prior-world verifier. The full checkpoint is intentionally wider than the
+selected authored scope: it is safe only because no unrelated database writer
+can run inside the window. This profile prepares no code, upload, lifecycle,
+or effect inverse.
+The receipt also carries the exact boolean delete capability. A run claimed
+without `--with-deletes` can never be widened by a direct target retry, while a
+delete-authorized retry must present that same signed intent.
+
+The target begins an exact random `ps-*` promotion session whose closed
+`profile: scoped-checkpoint-v1` and signed receipt-payload hash are published
+in its first durable write together with scope, generation, target, signing
+key, and delete capability. Exact retries reuse that session and cannot swap
+an ordinary session or another receipt into the profile. Scoped apply then
+mints its normal target-bound mutation authority/session, performs the bounded
+write, and returns its canonical terminal receipt. The host releases the
+short target lease, appends that receipt to the external signed generation,
+and seals `committed` while the database-writer exclusion is still held. Only
+then may it retire the exact target profile session and release the exclusion.
+
+Controller loss is idempotent at every boundary. A matching active or
+terminal-but-still-held generation resumes by immutable artifact, scope,
+owner, claimant, and delete capability; terminal apply replay must reproduce
+the same external tuple and receipt.
+Before signed commit, any failure advances only through `database_restore`
+and `prior_verify`, proves the prior world, records `rolled_back`, and releases
+the exclusion. After signed commit, rollback is never guessed: retry completes
+the target handoff and release. Once the exclusion is released, unrelated
+writes may resume, so this protocol deliberately offers no later public or
+automatic rollback.
 
 ### Host-only redacted refresh field relation (DUO-3345)
 

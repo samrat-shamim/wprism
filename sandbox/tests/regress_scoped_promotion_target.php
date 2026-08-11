@@ -48,6 +48,7 @@ namespace {
     use Duo\Apply;
     use Duo\CommandRefusalException;
     use Duo\PromotionLock;
+    use Duo\ScopedPromotionAuthority;
     use Duo\ScopedPromotionTargetLedger;
     use Duo\Orchestrator\CodeDeploy;
 
@@ -123,13 +124,18 @@ namespace {
                 return 1;
             }
             if (str_contains($template, "JSON_EXTRACT(v, '$.profile')")) {
-                [$key, $owner, $artifact, $profile, $receipt] = $args;
+                [$key, $owner, $artifact, $profile, $receipt, $scopeHash,
+                    $receiptId, $generation, $targetId] = $args;
                 $current = $this->current((string) $key);
                 if ($current !== null
                     && (string) $current['owner'] === (string) $owner
                     && (string) $current['artifact_hash'] === (string) $artifact
                     && (string) ($current['profile'] ?? '') === (string) $profile
-                    && (string) ($current['scoped_receipt_sha256'] ?? '') === (string) $receipt) {
+                    && (string) ($current['scoped_receipt_sha256'] ?? '') === (string) $receipt
+                    && (string) ($current['scoped_scope_hash'] ?? '') === (string) $scopeHash
+                    && (string) ($current['scoped_receipt_id'] ?? '') === (string) $receiptId
+                    && (int) ($current['scoped_generation'] ?? 0) === (int) $generation
+                    && (string) ($current['scoped_target_id'] ?? '') === (string) $targetId) {
                     unset(ScopedPromotionTargetLedger::$values[(string) $key]);
                     return 1;
                 }
@@ -182,6 +188,7 @@ namespace {
     $root = dirname(__DIR__, 2);
     $GLOBALS['wpdb'] = new ScopedPromotionTargetFakeWpdb();
     require_once "$root/agent/src/PromotionLock.php";
+    require_once "$root/agent/src/ScopedPromotionAuthority.php";
     require_once "$root/agent/src/Apply.php";
     require_once "$root/agent/src/Cli.php";
     require_once "$root/cli/src/CodeDeploy.php";
@@ -208,7 +215,79 @@ namespace {
     $artifact = str_repeat('a', 64);
     $receipt = str_repeat('c', 64);
     $otherReceipt = str_repeat('d', 64);
-    $first = PromotionLock::begin_scoped($owner, $artifact, $receipt, 300);
+    $scopeHash = str_repeat('e', 64);
+    $witness = [
+        'active' => true,
+        'allow_deletes' => false,
+        'artifact_hash' => $artifact,
+        'exclusion_state' => 'held',
+        'format' => 'duo-scoped-promotion-witness/v1',
+        'generation' => 7,
+        'ok' => true,
+        'owner' => $owner,
+        'receipt_format' => 'duo-scoped-promotion-receipt/v1',
+        'receipt_id' => str_repeat('r', 32),
+        'receipt_payload_sha256' => $receipt,
+        'recovery_ready' => true,
+        'scope_hash' => $scopeHash,
+        'signing_key_id' => 'offline-key-1',
+        'state' => 'promoting',
+        'target_id' => str_repeat('f', 32),
+        'terminal' => false,
+    ];
+    try {
+        ScopedPromotionAuthority::validate(
+            $witness, $owner, $artifact, $receipt, $scopeHash, ['promoting']
+        );
+        $check(true, 'closed external witness accepts the exact signed authority/exclusion tuple');
+    } catch (Throwable $failure) {
+        $check(false, 'valid external witness was refused (' . $failure->getMessage() . ')');
+    }
+    $expect(
+        static fn() => ScopedPromotionAuthority::validate(
+            array_replace($witness, ['scope_hash' => str_repeat('1', 64)]),
+            $owner, $artifact, $receipt, $scopeHash, ['promoting']
+        ),
+        'does not match the exact held checkpoint generation',
+        'a valid signed receipt cannot authorize a different compact scope'
+    );
+    foreach (['owner', 'artifact_hash', 'receipt_payload_sha256'] as $mismatchedField) {
+        $mismatched = $mismatchedField === 'owner' ? 'other-owner' : str_repeat('1', 64);
+        $expect(
+            static fn() => ScopedPromotionAuthority::validate(
+                array_replace($witness, [$mismatchedField => $mismatched]),
+                $owner, $artifact, $receipt, $scopeHash, ['promoting']
+            ),
+            'does not match the exact held checkpoint generation',
+            "a signed witness with mismatched $mismatchedField cannot authorize target mutation"
+        );
+    }
+    $expect(
+        static fn() => ScopedPromotionAuthority::validate(
+            $witness + ['unexpected_target_value' => 'must-refuse'],
+            $owner, $artifact, $receipt, $scopeHash, ['promoting']
+        ),
+        'does not match the exact held checkpoint generation',
+        'unknown witness fields are refused by the closed target authority schema'
+    );
+    $expect(
+        static fn() => ScopedPromotionAuthority::validate(
+            array_replace($witness, ['exclusion_state' => 'released']),
+            $owner, $artifact, $receipt, $scopeHash, ['promoting']
+        ),
+        'does not match the exact held checkpoint generation',
+        'a released exclusion cannot authorize target mutation'
+    );
+    try {
+        ScopedPromotionAuthority::validate(
+            array_replace($witness, ['state' => 'committed', 'terminal' => true]),
+            $owner, $artifact, $receipt, $scopeHash, ['committed']
+        );
+        $check(true, 'delayed target completion accepts the exact committed held-exclusion witness');
+    } catch (Throwable $failure) {
+        $check(false, 'valid committed completion witness was refused (' . $failure->getMessage() . ')');
+    }
+    $first = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $sessionBytes = ScopedPromotionTargetLedger::$values['promotion_session'] ?? '';
     $session = json_decode($sessionBytes, true, 512, JSON_THROW_ON_ERROR);
     $check(
@@ -218,8 +297,16 @@ namespace {
     $check(
         ($session['profile'] ?? null) === 'scoped-checkpoint-v1'
             && ($session['scoped_receipt_sha256'] ?? null) === $receipt
+            && ($session['scoped_scope_hash'] ?? null) === $scopeHash
+            && ($session['scoped_allow_deletes'] ?? null) === false
+            && ($session['scoped_generation'] ?? null) === 7
             && ($first['scoped_receipt_sha256'] ?? null) === $receipt,
-        'initial scoped begin persists the closed profile and exact signed receipt hash'
+        'initial scoped begin persists the closed profile and exact signed authority tuple'
+    );
+    $expect(
+        static fn() => PromotionLock::assert_no_unbound_scoped_continuation(),
+        'requires its exact signed continuation',
+        'receipt-less recovery is refused even when no caller-supplied promotion owner is present'
     );
     $lockSource = (string) file_get_contents("$root/agent/src/PromotionLock.php");
     $beginScopedOffset = strpos($lockSource, 'public static function begin_scoped');
@@ -240,14 +327,14 @@ namespace {
     $sessionWrite = strpos($acquireInternalSource, 'Ledger::kv_set(self::SESSION_KEY');
     $check(
         str_contains($beginScopedSource, 'self::acquire_internal(')
-            && str_contains($beginScopedSource, "'profile' => 'scoped-checkpoint-v1'")
+            && str_contains($beginScopedSource, 'self::scoped_session_metadata(')
             && !str_contains($beginScopedSource, '$begun = self::begin(')
             && $metadataWrite !== false
             && $sessionWrite !== false
             && $metadataWrite < $sessionWrite,
         'scoped begin supplies profile/receipt metadata to the first session write rather than decorating a prior ordinary session'
     );
-    $second = PromotionLock::begin_scoped($owner, $artifact, $receipt, 300);
+    $second = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $check(
         ($second['session_id'] ?? null) === ($first['session_id'] ?? null)
             && (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $sessionBytes
@@ -259,17 +346,26 @@ namespace {
         'same-generation retry uses the bounded scoped-recovery continuation rather than a new begin'
     );
     $expect(
-        static fn() => PromotionLock::begin_scoped('other-owner', $artifact, $receipt, 300),
+        static fn() => PromotionLock::begin_scoped(
+            'other-owner', $artifact, $receipt, $scopeHash,
+            array_replace($witness, ['owner' => 'other-owner']), 300
+        ),
         'different target promotion session',
         'different owner cannot replace a live scoped target generation'
     );
     $expect(
-        static fn() => PromotionLock::begin_scoped($owner, str_repeat('b', 64), $receipt, 300),
+        static fn() => PromotionLock::begin_scoped(
+            $owner, str_repeat('b', 64), $receipt, $scopeHash,
+            array_replace($witness, ['artifact_hash' => str_repeat('b', 64)]), 300
+        ),
         'different target promotion session',
         'different artifact cannot reuse a scoped target generation'
     );
     $expect(
-        static fn() => PromotionLock::begin_scoped($owner, $artifact, $otherReceipt, 300),
+        static fn() => PromotionLock::begin_scoped(
+            $owner, $artifact, $otherReceipt, $scopeHash,
+            array_replace($witness, ['receipt_payload_sha256' => $otherReceipt]), 300
+        ),
         'does not match its external signed receipt',
         'same owner/artifact cannot swap the external signed receipt on retry'
     );
@@ -287,7 +383,7 @@ namespace {
         ], JSON_THROW_ON_ERROR),
     ];
     $expect(
-        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, 300),
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
         'exact random promotion session generation',
         'legacy pre-random promotion sessions are refused instead of being silently upgraded'
     );
@@ -309,7 +405,7 @@ namespace {
             'expires_at' => $now + 300,
         ], JSON_THROW_ON_ERROR),
     ];
-    $crashRetry = PromotionLock::begin_scoped($owner, $artifact, $receipt, 300);
+    $crashRetry = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $crashSession = json_decode(
         (string) (ScopedPromotionTargetLedger::$values['promotion_session'] ?? ''),
         true,
@@ -323,7 +419,7 @@ namespace {
         'lock-without-session crash retry publishes the first scoped profile session with the exact receipt'
     );
     $expect(
-        static fn() => PromotionLock::complete_scoped($owner, $artifact, $receipt),
+        static fn() => PromotionLock::complete_scoped($owner, $artifact, $receipt, $scopeHash, $witness),
         'requires its target lease to be absent',
         'scoped completion refuses while the exact target lease is still live'
     );
@@ -334,18 +430,26 @@ namespace {
     );
     PromotionLock::release($owner, $artifact);
     $expect(
-        static fn() => PromotionLock::complete_scoped($owner, $artifact, $otherReceipt),
+        static fn() => PromotionLock::complete_scoped(
+            $owner, $artifact, $otherReceipt, $scopeHash,
+            array_replace($witness, ['receipt_payload_sha256' => $otherReceipt])
+        ),
         'does not match its external signed receipt',
         'scoped completion refuses a mismatched receipt and retains the target session'
     );
-    $completed = PromotionLock::complete_scoped($owner, $artifact, $receipt);
+    $committedWitness = array_replace($witness, ['state' => 'committed', 'terminal' => true]);
+    $completed = PromotionLock::complete_scoped(
+        $owner, $artifact, $receipt, $scopeHash, $committedWitness
+    );
     $check(
         ($completed['released'] ?? false) === true
             && ($completed['already_absent'] ?? true) === false
             && !array_key_exists('promotion_session', ScopedPromotionTargetLedger::$values),
         'exact scoped completion removes the retained scoped-profile target session after lease release'
     );
-    $completedReplay = PromotionLock::complete_scoped($owner, $artifact, $receipt);
+    $completedReplay = PromotionLock::complete_scoped(
+        $owner, $artifact, $receipt, $scopeHash, $committedWitness
+    );
     $check(
         ($completedReplay['released'] ?? true) === false
             && ($completedReplay['already_absent'] ?? false) === true,
@@ -354,27 +458,46 @@ namespace {
 
     // Restore an exact scoped profile session for Apply's pre-terminal gate.
     ScopedPromotionTargetLedger::$values = [];
-    PromotionLock::begin_scoped($owner, $artifact, $receipt, 300);
+    PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
 
     $applyReflection = new ReflectionClass(Apply::class);
     $requestGate = $applyReflection->getMethod('assert_scoped_promotion_request');
     $validScopedOpts = [
-        'scope_request' => ['format' => 'duo-scope-request/v1'],
+        'scope_request' => ['format' => 'duo-scope-request/v1', 'scope_hash' => $scopeHash],
         'promotion_owner' => $owner,
         'artifact_hash' => $artifact,
         'scoped_promotion_receipt' => $receipt,
     ];
+    $expect(
+        static fn() => $requestGate->invoke(null, [
+            'scope_request' => ['format' => 'duo-scope-request/v1', 'scope_hash' => $scopeHash],
+            'promotion_owner' => $owner,
+            'artifact_hash' => $artifact,
+        ], true),
+        'requires its exact signed continuation',
+        'receipt omission cannot fall through to generic full or scoped continuation'
+    );
     try {
-        $requestGate->invoke(null, $validScopedOpts, true);
+        $requestGate->invoke(null, $validScopedOpts, true, $witness);
         $check(true, 'structured scoped-promotion option accepts compact scope, owner, and exact receipt hash');
     } catch (Throwable $failure) {
         $check(false, 'valid structured scoped-promotion option was refused (' . $failure->getMessage() . ')');
     }
     $expect(
+        static fn() => $requestGate->invoke(
+            null,
+            $validScopedOpts + ['with_deletes' => true],
+            true,
+            $witness
+        ),
+        'deletion authority mismatch',
+        'a no-delete signed generation cannot be widened by target --with-deletes'
+    );
+    $expect(
         static fn() => $requestGate->invoke(null, [
             'promotion_owner' => $owner,
             'scoped_promotion_receipt' => $receipt,
-        ], false),
+        ], false, $witness),
         'invalid scoped promotion continuation',
         'receipt-only CLI injection is refused without a compact scope request'
     );
@@ -382,7 +505,7 @@ namespace {
         static fn() => $requestGate->invoke(null, [
             'scope_request' => ['format' => 'duo-scope-request/v1'],
             'scoped_promotion_receipt' => $receipt,
-        ], true),
+        ], true, $witness),
         'invalid scoped promotion continuation',
         'scoped receipt is refused without the host continuation owner'
     );
@@ -391,7 +514,7 @@ namespace {
             'scope_request' => ['format' => 'duo-scope-request/v1'],
             'promotion_owner' => $owner,
             'scoped_promotion_receipt' => 'not-a-sha256',
-        ], true),
+        ], true, $witness),
         'invalid scoped promotion continuation',
         'malformed scoped receipt identity is refused before mutation'
     );
@@ -399,34 +522,72 @@ namespace {
         static fn() => $requestGate->invoke(
             null,
             array_replace($validScopedOpts, ['scoped_promotion_receipt' => $otherReceipt]),
-            true
+            true,
+            array_replace($witness, ['receipt_payload_sha256' => $otherReceipt])
         ),
         'does not match its external signed receipt',
         'Apply proves the signed receipt against the target profile before terminal replay'
     );
     $expect(
-        static fn() => $requestGate->invoke(null, $validScopedOpts + ['force_theirs' => true], true),
+        static fn() => $requestGate->invoke(
+            null,
+            $validScopedOpts + ['force_theirs' => true],
+            true,
+            $witness
+        ),
         'scoped promotion force override refused',
         'structured scoped promotion refuses every widening force flag'
     );
 
     $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");
+    $applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+    $cliBeginStart = strpos($cliSource, 'public function promotion_begin_scoped');
+    $cliBeginEnd = strpos($cliSource, 'public function promotion_complete_scoped');
+    $cliBeginSource = substr($cliSource, (int) $cliBeginStart, (int) $cliBeginEnd - (int) $cliBeginStart);
     $check(
-        str_contains($cliSource, '@subcommand promotion-begin-scoped')
-            && preg_match(
-                '/PromotionLock::begin_scoped\(\s*\(string\) \$owner,\s*\(string\) \$artifactHash,\s*\(string\) \$receiptHash\s*\)/s',
-                $cliSource
-            ) === 1
+        str_contains($cliBeginSource, 'ScopedPromotionAuthority::require_installed(')
+            && str_contains($cliBeginSource, "['promoting', 'committed']")
+            && strpos($cliBeginSource, 'ScopedPromotionAuthority::require_installed(')
+                < strpos($cliBeginSource, 'Ledger::ensure();')
             && str_contains($cliSource, "'scoped_promotion_receipt' => \$assoc['scoped-promotion-receipt'] ?? ''"),
-        'CLI requires the receipt for scoped begin and maps that same receipt into the internal apply option'
+        'CLI verifies the adoption-pinned signed witness before begin can ensure ledger schema'
+    );
+    $authoritySource = (string) file_get_contents("$root/agent/src/ScopedPromotionAuthority.php");
+    $check(
+        str_contains($authoritySource, "& 0777) !== 0600")
+            && str_contains($authoritySource, 'scoped promotion control configuration is not protected mode 0600'),
+        'target witness refuses an installed trust-root file whose protected mode changed'
     );
     $check(
         str_contains($cliSource, '@subcommand promotion-complete-scoped')
-            && preg_match(
-                '/PromotionLock::complete_scoped\(\s*\(string\) \$owner,\s*\(string\) \$artifactHash,\s*\(string\) \$receiptHash\s*\)/s',
-                $cliSource
-            ) === 1,
-        'CLI exposes only the exact owner/artifact/receipt scoped-completion control boundary'
+            && str_contains($cliSource, "['committed']")
+            && str_contains($applySource, "['promoting']")
+            && substr_count($applySource, 'ScopedPromotionAuthority::require_installed(') >= 3,
+        'begin/apply/pre-write/complete all re-prove the fixed external authority state'
+    );
+    $check(
+        str_contains($applySource, '$currentGeneration <= $archivedGeneration')
+            && str_contains($applySource, 'external scoped terminal generation binding mismatch'),
+        'terminal replacement requires a strictly newer signed external generation'
+    );
+    $recoveringOffset = strpos($applySource, '$recoveringScopedSession = $scoped');
+    $unboundRecoveryOffset = strpos(
+        $applySource,
+        'PromotionLock::assert_no_unbound_scoped_continuation();',
+        (int) $recoveringOffset
+    );
+    $recoverSessionOffset = strpos(
+        $applySource,
+        'PromotionLock::recover_session(',
+        (int) $recoveringOffset
+    );
+    $check(
+        is_int($recoveringOffset)
+            && is_int($unboundRecoveryOffset)
+            && is_int($recoverSessionOffset)
+            && $recoveringOffset < $unboundRecoveryOffset
+            && $unboundRecoveryOffset < $recoverSessionOffset,
+        'stored scoped-apply recovery cannot derive a scoped profile lease before the exact receipt witness guard'
     );
     $check(
         str_contains($cliSource, "&& !array_key_exists('scope-request-b64', \$assoc)")
@@ -434,6 +595,16 @@ namespace {
         'CLI structurally refuses a receipt-bearing direct local contract unless the compact orchestrator wire is present'
     );
     $cli = new \Duo\Cli();
+    $expect(
+        static fn() => $cli->promotion_begin_scoped([], [
+            'promotion-owner' => $owner,
+            'artifact-hash' => $artifact,
+            'scoped-promotion-receipt' => $receipt,
+            'scope-hash' => $scopeHash,
+        ]),
+        'scoped promotion control configuration is absent or unsafe',
+        'a forged direct begin is refused by the adoption-pinned witness before ledger ensure'
+    );
     $expect(
         static fn() => $cli->apply([], [
             'repo' => '/never-read-before-provenance-gate',
@@ -445,13 +616,14 @@ namespace {
         'receipt-bearing direct agent apply is refused before compilation or target mutation without compact wire provenance'
     );
 
-    $beginArgs = CodeDeploy::beginScopedArgs($owner, $artifact, $receipt);
+    $beginArgs = CodeDeploy::beginScopedArgs($owner, $artifact, $receipt, $scopeHash);
     $check(
         in_array('duo', $beginArgs, true)
             && in_array('promotion-begin-scoped', $beginArgs, true)
             && in_array('--promotion-owner=' . $owner, $beginArgs, true)
             && in_array('--artifact-hash=' . $artifact, $beginArgs, true)
             && in_array('--scoped-promotion-receipt=' . $receipt, $beginArgs, true)
+            && in_array('--scope-hash=' . $scopeHash, $beginArgs, true)
             && in_array('--format=json', $beginArgs, true)
             && !array_filter($beginArgs, static fn(string $arg): bool => str_starts_with($arg, '--repo=')),
         'CodeDeploy scoped handoff emits a control-plane JSON command bound to owner, artifact, and signed receipt'
@@ -462,13 +634,14 @@ namespace {
             && in_array('--skip-themes', $beginArgs, true),
         'CodeDeploy scoped handoff remains reachable through the isolated control-plane bootstrap'
     );
-    $completeArgs = CodeDeploy::completeScopedArgs($owner, $artifact, $receipt);
+    $completeArgs = CodeDeploy::completeScopedArgs($owner, $artifact, $receipt, $scopeHash);
     $check(
         in_array('duo', $completeArgs, true)
             && in_array('promotion-complete-scoped', $completeArgs, true)
             && in_array('--promotion-owner=' . $owner, $completeArgs, true)
             && in_array('--artifact-hash=' . $artifact, $completeArgs, true)
             && in_array('--scoped-promotion-receipt=' . $receipt, $completeArgs, true)
+            && in_array('--scope-hash=' . $scopeHash, $completeArgs, true)
             && in_array('--format=json', $completeArgs, true)
             && !array_filter($completeArgs, static fn(string $arg): bool => str_starts_with($arg, '--repo=')),
         'CodeDeploy scoped completion emits the exact receipt-bound control-plane cleanup command'
@@ -484,12 +657,12 @@ namespace {
         ], JSON_THROW_ON_ERROR),
     ];
     $expect(
-        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, 300),
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
         'does not match its external signed receipt',
         'ordinary random promotion sessions cannot be reinterpreted as scoped-checkpoint generations'
     );
     $expect(
-        static fn() => $requestGate->invoke(null, $validScopedOpts, true),
+        static fn() => $requestGate->invoke(null, $validScopedOpts, true, $witness),
         'does not match its external signed receipt',
         'Apply rejects ordinary-profile session replay before it can return a terminal scoped result'
     );
@@ -553,6 +726,11 @@ namespace {
             ['deletion_kind' => 'option'], ['deletion_kind' => 'table'],
         ]) === false,
         'option/table/sidebar/user-meta scoped work skips taxonomy callbacks'
+    );
+    $check(
+        str_contains($applySource, '$needsTaxonomyRecount = !$suppressScopedExternalEffects')
+            && str_contains($applySource, '$scopedCoreComplete,' . "\n" . '            $scopedPromotion'),
+        'taxonomy callback suppression is explicit to scoped promotion and preserves ordinary scoped apply behavior'
     );
     foreach (['post', 'term', 'menu'] as $taxonomyType) {
         $check(

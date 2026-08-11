@@ -316,6 +316,12 @@ final class Adopt {
         $controlNew = $duoNew . '/control';
         $runtime = $control . '/recovery-runtime';
         $runtimeNew = $controlNew . '/recovery-runtime';
+        $scopedPromotionControl = $rollbackKeyId !== null && $recoveryConfig !== null
+            ? \Duo\Recovery\RollbackControl::canonical([
+                'control_root' => $control,
+                'format' => 'duo-scoped-promotion-control/v1',
+            ]) . "\n"
+            : null;
         $site = rtrim($repo, '/') . '/site.duo.json';
         $siteNew = rtrim($repo, '/') . '/.site.duo.new-' . $token;
         $txn = rtrim($muDir, '/') . '/.duo-adopt-txn-' . $token;
@@ -417,6 +423,10 @@ final class Adopt {
             . "[ -f \"\$stage/agent/duo.php\" ] && [ -f \"\$stage/agent/duo-loader.php\" ] && [ -f \"\$stage/manifests/core.json\" ] || { echo 'duo adopt: uploaded artifact is incomplete' >&2; exit 1; }\n"
             . "[ -f \"\$stage/recovery/CanonicalJson.php\" ] && [ -f \"\$stage/recovery/AtomicStore.php\" ] && [ -f \"\$stage/recovery/ProtocolLock.php\" ] && [ -f \"\$stage/recovery/ProviderClient.php\" ] && [ -f \"\$stage/recovery/rollback-control.php\" ] && [ -f \"\$stage/recovery/RecoveryExecutor.php\" ] && [ -f \"\$stage/recovery/CheckpointBundle.php\" ] && [ -f \"\$stage/recovery/CodeRelease.php\" ] && [ -f \"\$stage/recovery/UploadBundle.php\" ] && [ -f \"\$stage/recovery/EffectBundle.php\" ] || { echo 'duo adopt: recovery runtime is missing' >&2; exit 1; }\n"
             . "mkdir \"\$agent_new\"; agent_new_created=1; record_identity \"\$agent_new\" \"\$txn/agent_new.id\"; cp -R \"\$stage/agent/.\" \"\$agent_new/\"\n"
+            . "[ ! -e \"\$agent_new/scoped-promotion-control.json\" ] && [ ! -L \"\$agent_new/scoped-promotion-control.json\" ] || { echo 'duo adopt: source artifact contains target-local scoped promotion configuration' >&2; exit 1; }\n"
+            . ($scopedPromotionControl !== null
+                ? "printf '%s' " . $q($scopedPromotionControl) . " > \"\$agent_new/scoped-promotion-control.json\"; chmod 600 \"\$agent_new/scoped-promotion-control.json\"\n"
+                : '')
             . "if (set -C; umask 077; : > \"\$loader_new\"); then loader_new_created=1; else echo 'duo adopt: loader staging collision' >&2; exit 1; fi; record_identity \"\$loader_new\" \"\$txn/loader_new.id\"; cp \"\$stage/agent/duo-loader.php\" \"\$loader_new\"\n"
             . "mkdir \"\$manifest_new\"; manifest_new_created=1; record_identity \"\$manifest_new\" \"\$txn/manifest_new.id\"; cp -R \"\$stage/manifests/.\" \"\$manifest_new/\"\n"
             . "mkdir \"\$duo_new\"; duo_new_created=1; record_identity \"\$duo_new\" \"\$txn/duo_new.id\"; if [ -e \"\$duo_state\" ]; then special=\$(find \"\$duo_state\" ! -type d ! -type f -print -quit 2>/dev/null) || { echo 'duo adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$special\" ] || { echo 'duo adopt: prior authority contains a link or special node' >&2; exit 1; }; unreadable=\$(find \"\$duo_state\" -type f ! -exec test -r '{}' \; -print -quit 2>/dev/null) || { echo 'duo adopt: prior authority became unreadable' >&2; exit 1; }; [ -z \"\$unreadable\" ] || { echo 'duo adopt: prior authority became unreadable' >&2; exit 1; }; cp -Rp \"\$duo_state/.\" \"\$duo_new/\"; fi\n"

@@ -460,9 +460,22 @@ rather than working around it.
   selected ledger rows without claiming a global applied revision. A
   nonterminal scoped session interlocks full plan/apply. Triggerless actions,
   legacy regenerators, and attachment metadata generation refuse rather than
-  widen authority.
-  Per-option capture, code dependency movement, scoped promote/code lifecycle,
-  and scoped rollback remain planned rather than inferred.
+  widen authority. A narrow SSH-only scoped promotion profile is also shipped:
+  `duo promote <ssh-env> --scope-contract=<path>` accepts only selected
+  options, declared snapshot tables, sidebars, user meta, and option/table
+  tombstones. It first holds a v2 exclusion covering every database writer,
+  prepares an encrypted whole-database checkpoint, and binds target apply to
+  an adoption-pinned signed recovery witness. That receipt/session/terminal
+  binding includes the exact delete capability and external generation, so
+  target-local retries cannot add `--with-deletes` or reuse an older terminal.
+  It invokes no code, upload,
+  lifecycle, native/provider-action, or ordinary release path. A precommit
+  failure restores and verifies the checkpoint; after signed commit the host
+  may only finish the exact target handoff and release the exclusion—there is
+  no later scoped rollback.
+  Per-option capture, code dependency movement, scoped code lifecycle, and
+  user-invoked or post-commit scoped rollback remain planned rather than
+  inferred.
 - Redacted field-level refresh diff and interactive conflict resolver —
   **Bounded slice shipped (DUO-3345)**. `duo refresh --field-diff` emits a
   separate immutable, display-only/value-free `duo-refresh-field-diff/v1`

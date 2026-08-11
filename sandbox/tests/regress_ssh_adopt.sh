@@ -176,6 +176,8 @@ ssh_fixture "test -f /var/www/html/wp-content/mu-plugins/duo/duo.php && test -f 
 ssh_fixture 'test ! -e /duo-manifests' || fail "adopt unexpectedly required the root-owned fallback"
 ssh_fixture 'test -f /home/duo/site/.duo/control/recovery-runtime/rollback-control.php && test -f /home/duo/site/.duo/control/recovery-runtime/RecoveryExecutor.php && test -f /home/duo/site/.duo/control/recovery-runtime/CodeRelease.php && test -f /home/duo/site/.duo/control/recovery-config.json && test -f /home/duo/site/.duo/control/public-keys/fixture-key-1.pub && test -f /home/duo/site/.duo/control/target.json' \
   || fail "adopt did not provision the external rollback authority"
+ssh_fixture 'test -f /var/www/html/wp-content/mu-plugins/duo/scoped-promotion-control.json && test "$(stat -c %a /var/www/html/wp-content/mu-plugins/duo/scoped-promotion-control.json)" = 600 && php -r '\''$v=json_decode(file_get_contents($argv[1]),true,32,JSON_THROW_ON_ERROR); exit(($v["format"]??null)==="duo-scoped-promotion-control/v1" && ($v["control_root"]??null)==="/home/duo/site/.duo/control" ? 0 : 1);'\'' /var/www/html/wp-content/mu-plugins/duo/scoped-promotion-control.json' \
+  || fail "adopt did not pin the mode-0600 scoped-promotion recovery trust root"
 [ "$(ssh_fixture 'stat -c %a /home/duo/site/.duo/control')" = "700" ] \
   || fail "rollback control root is not protected mode 0700"
 TARGET_ID="$(ssh_fixture "php -r 'echo json_decode(file_get_contents(\"/home/duo/site/.duo/control/target.json\"),true)[\"target_id\"];'")"

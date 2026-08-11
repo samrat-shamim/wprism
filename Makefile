@@ -37,7 +37,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-capability-registry-import regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-conformance-asserts \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -1048,6 +1048,16 @@ regress-scoped-apply-recovery:
 regress-scoped-effect-reconciliation:
 	php sandbox/tests/regress_scoped_effect_reconciliation.php
 
+# DUO-3344 slice 5: target session/profile/receipt binding and the bounded
+# checkpoint-only selection gate. Pure fake-ledger/DB PHP; no target contact.
+regress-scoped-promotion-target:
+	php sandbox/tests/regress_scoped_promotion_target.php
+
+# DUO-3344 slice 5: public SSH host sequencing against fake SSH/SCP/WP plus a
+# real isolated rollback-control root. No Docker, pair, or live target.
+regress-scoped-promote-unit:
+	bash sandbox/tests/regress_scoped_promote_unit.sh
+
 # DUO-3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
 regress-scope-wire:
@@ -1141,8 +1151,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer
-	@echo "regress-offline-all: 128 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer
+	@echo "regress-offline-all: 132 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

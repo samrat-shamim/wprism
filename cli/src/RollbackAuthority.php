@@ -461,7 +461,8 @@ final class RollbackAuthority {
      * replay the same provider inputs and signed authority boundary.
      *
      * `$fields` is either the complete fresh-claim field set, or the three
-     * immutable resume identifiers (artifact_hash, owner, scope_hash).  The
+     * immutable resume identifiers (allow_deletes, artifact_hash, owner,
+     * scope_hash).  The
      * latter is intentional: after target Apply changes selected roots, a
      * restart must recover the already-signed generation rather than compare
      * its original witness inventory to a new live plan.
@@ -613,6 +614,7 @@ final class RollbackAuthority {
 
         $receipt = [
             'adapter_versions_sha256' => (string) $fields['adapter_versions_sha256'],
+            'allow_deletes' => (bool) $fields['allow_deletes'],
             'artifact_hash' => (string) $fields['artifact_hash'],
             'checkpoint_sha256' => (string) $checkpoint['checkpoint_sha256'],
             'claim_ttl_seconds' => (int) $fields['claim_ttl_seconds'],
@@ -1385,9 +1387,10 @@ final class RollbackAuthority {
     private static function validateScopedClaimIntent(array $fields, string $claimant): void {
         $keys = array_keys($fields);
         sort($keys, SORT_STRING);
-        $resume = ['artifact_hash', 'owner', 'scope_hash'];
+        $resume = ['allow_deletes', 'artifact_hash', 'owner', 'scope_hash'];
         $full = [
             'adapter_versions_sha256',
+            'allow_deletes',
             'artifact_hash',
             'claim_ttl_seconds',
             'encryption_key_id',
@@ -1404,6 +1407,9 @@ final class RollbackAuthority {
         foreach (['artifact_hash', 'scope_hash'] as $key) {
             self::assertSha256((string) $fields[$key], "scoped claim $key");
         }
+        if (!is_bool($fields['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo rollback: scoped claim allow_deletes must be boolean');
+        }
         self::assertActor((string) $fields['owner'], 'scoped promotion owner');
         self::assertActor($claimant, 'scoped claimant');
     }
@@ -1413,6 +1419,7 @@ final class RollbackAuthority {
         $actual = array_keys($fields);
         $expected = [
             'adapter_versions_sha256',
+            'allow_deletes',
             'artifact_hash',
             'claim_ttl_seconds',
             'encryption_key_id',
@@ -1436,6 +1443,9 @@ final class RollbackAuthority {
         ] as $key) {
             self::assertSha256((string) $fields[$key], "scoped claim $key");
         }
+        if (!is_bool($fields['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo rollback: scoped claim allow_deletes must be boolean');
+        }
         if (!is_int($fields['claim_ttl_seconds'])
             || $fields['claim_ttl_seconds'] < 30 || $fields['claim_ttl_seconds'] > 3600) {
             throw new \RuntimeException('duo rollback: scoped claim TTL must be 30..3600 seconds');
@@ -1455,6 +1465,7 @@ final class RollbackAuthority {
             throw new \RuntimeException('duo rollback: scoped claim target generation is malformed');
         }
         return hash('sha256', RollbackControl::canonical([
+            'allow_deletes' => (bool) $fields['allow_deletes'],
             'artifact_hash' => (string) $fields['artifact_hash'],
             'claimant' => $claimant,
             'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
@@ -1468,7 +1479,7 @@ final class RollbackAuthority {
     /** @param array<string,mixed> $status @return array<string,mixed> */
     private static function scopedReceiptFromStatus(array $status): array {
         $required = [
-            'adapter_versions_sha256', 'artifact_hash', 'checkpoint_sha256', 'claim_ttl_seconds',
+            'adapter_versions_sha256', 'allow_deletes', 'artifact_hash', 'checkpoint_sha256', 'claim_ttl_seconds',
             'created_at', 'encryption_key_id', 'exclusion_token_sha256', 'generation',
             'ledger_session_sha256', 'owner', 'prior_verifier_inputs_sha256', 'receipt_id',
             'resources_inventory_sha256', 'retention_until', 'runtime_fingerprints_sha256',
@@ -1479,8 +1490,12 @@ final class RollbackAuthority {
                 throw new \RuntimeException("duo rollback: scoped authority status omitted $key");
             }
         }
+        if (!is_bool($status['allow_deletes'])) {
+            throw new \RuntimeException('duo rollback: scoped authority status allow_deletes is malformed');
+        }
         $receipt = [
             'adapter_versions_sha256' => (string) $status['adapter_versions_sha256'],
+            'allow_deletes' => (bool) $status['allow_deletes'],
             'artifact_hash' => (string) $status['artifact_hash'],
             'checkpoint_sha256' => (string) $status['checkpoint_sha256'],
             'claim_ttl_seconds' => (int) $status['claim_ttl_seconds'],
@@ -1519,6 +1534,9 @@ final class RollbackAuthority {
             if ((string) $receipt[$key] !== (string) $fields[$key]) {
                 throw new \RuntimeException("duo rollback: active scoped receipt $key does not match this claim");
             }
+        }
+        if (($receipt['allow_deletes'] ?? null) !== ($fields['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo rollback: active scoped receipt allow_deletes does not match this claim');
         }
         if (!hash_equals($claimant, (string) ($status['claimant'] ?? ''))) {
             throw new \RuntimeException('duo rollback: active scoped authority claimant does not match this claim');

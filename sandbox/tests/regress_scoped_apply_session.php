@@ -329,6 +329,79 @@ $expectThrow(
     'a tampered public terminal index is refused before archived receipt replay'
 );
 $store->values[$requestIndexKey] = $requestIndexBytes;
+
+$externalWitness = [
+    'allow_deletes' => true,
+    'generation' => 9,
+    'receipt_id' => str_repeat('r', 32),
+    'receipt_payload_sha256' => $h('external-receipt'),
+    'signing_key_id' => 'offline-key-1',
+    'target_id' => str_repeat('t', 32),
+];
+$externalAuthorityInput = $authority;
+unset($externalAuthorityInput['authority_hash']);
+$externalAuthorityInput['format'] = ScopedApplySession::EXTERNAL_AUTHORITY_FORMAT;
+$externalAuthorityInput['promotion'] = ScopedApplySession::external_promotion_binding($externalWitness, true);
+$externalAuthority = ScopedApplySession::seal_authority($externalAuthorityInput);
+$expectThrow(
+    static fn() => ScopedApplySession::assert_external_promotion($authority, $externalWitness, true),
+    'does not match the current external checkpoint generation',
+    'legacy v1 ordinary authority is never wildcard replay authority for scoped promotion'
+);
+$check(
+    !str_contains(Canon::encode($externalAuthority), (string) $externalWitness['receipt_id'])
+        && !str_contains(Canon::encode($externalAuthority), (string) $externalWitness['target_id'])
+        && ($externalAuthority['promotion']['allow_deletes'] ?? null) === true,
+    'external authority seals exact generation/delete capability without raw receipt or target identities'
+);
+ScopedApplySession::assert_external_promotion($externalAuthority, $externalWitness, true);
+$expectThrow(
+    static fn() => ScopedApplySession::assert_external_promotion($externalAuthority, $externalWitness, false),
+    'deletion authority',
+    'external authority cannot be replayed with a different delete capability'
+);
+$externalStore = new ScopedApplySessionMemoryStore();
+$externalSession = ScopedApplySession::begin($externalStore, $externalAuthority);
+foreach ([
+    ScopedApplySession::PHASE_AUTHORING,
+    ScopedApplySession::PHASE_AUTHORED_COMMITTED,
+    ScopedApplySession::PHASE_EFFECTS_PENDING,
+    ScopedApplySession::PHASE_VERIFYING,
+] as $phase) {
+    $externalSession->transition($phase);
+}
+$externalSession->complete($h('external-convergence'), $terminalTarget);
+$externalSession->archive_terminal();
+$externalBindingHash = ScopedApplySession::external_promotion_binding_hash($externalWitness, true);
+$externalReopen = ScopedApplySession::open_terminal_for_request(
+    $externalStore,
+    (string) $externalAuthority['scope_hash'],
+    (string) $externalAuthority['source']['artifact_hash'],
+    $externalBindingHash
+);
+$check(
+    $externalReopen !== null
+        && $externalReopen->authority_hash_value() === $externalAuthority['authority_hash']
+        && ScopedApplySession::open_terminal_for_request(
+            $externalStore,
+            (string) $externalAuthority['scope_hash'],
+            (string) $externalAuthority['source']['artifact_hash']
+        ) === null,
+    'external terminal archive is discoverable only through its exact generation binding'
+);
+$changedWitness = $externalWitness;
+$changedWitness['generation'] = 10;
+$changedWitness['receipt_payload_sha256'] = $h('next-external-receipt');
+$check(
+    ScopedApplySession::open_terminal_for_request(
+        $externalStore,
+        (string) $externalAuthority['scope_hash'],
+        (string) $externalAuthority['source']['artifact_hash'],
+        ScopedApplySession::external_promotion_binding_hash($changedWitness, true)
+    ) === null,
+    'a fresh external generation cannot discover a prior scoped terminal archive'
+);
+
 $archivedReopen = ScopedApplySession::begin($store, $authority);
 $check(
     $archivedReopen->terminal_receipt_bytes() === $terminalBytes,

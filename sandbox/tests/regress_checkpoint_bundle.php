@@ -302,6 +302,7 @@ try {
     );
     $scopedReceipt = (array) $scopedClaim['receipt'];
     checkpoint_ok(($scopedReceipt['format'] ?? '') === RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+        && ($scopedReceipt['allow_deletes'] ?? null) === false
         && !array_key_exists('code_release_metadata_sha256', $scopedReceipt)
         && !array_key_exists('uploads_inventory_sha256', $scopedReceipt)
         && !array_key_exists('lifecycle_receipts_sha256', $scopedReceipt)
@@ -330,10 +331,32 @@ try {
         'active scoped retry refuses a different owner intent');
     checkpoint_refuses(fn() => $scopedProfile->claim($changedPlan, $scopeHash, $scopedOwner, 'scoped-other-worker'),
         'active scoped retry refuses a different claimant intent');
+    checkpoint_refuses(
+        fn() => $scopedProfile->claim(
+            $changedPlan,
+            $scopeHash,
+            $scopedOwner,
+            $scopedClaimant,
+            null,
+            true
+        ),
+        'active no-delete scoped receipt refuses a widened delete capability'
+    );
 
     $scopedProfile->startPromotion();
     checkpoint_ok(($scopedProfile->startPromotion()['state'] ?? '') === 'promoting',
         'scoped promotion start is state-idempotent');
+    $promotingWitness = RecoveryExecutor::scopedPromotionWitness($scopedRoot);
+    checkpoint_ok(($promotingWitness['format'] ?? '') === 'duo-scoped-promotion-witness/v1'
+        && ($promotingWitness['state'] ?? '') === 'promoting'
+        && ($promotingWitness['terminal'] ?? null) === false
+        && ($promotingWitness['allow_deletes'] ?? null) === false
+        && ($promotingWitness['exclusion_state'] ?? '') === 'held'
+        && ($promotingWitness['receipt_payload_sha256'] ?? '') === ($scopedClaim['receipt_payload_sha256'] ?? '')
+        && !array_key_exists('claimant', $promotingWitness)
+        && !array_key_exists('token', $promotingWitness)
+        && !array_key_exists('control_root', $promotingWitness),
+        'target witness re-verifies the signed scoped generation and live database-writer exclusion without publishing secrets');
     $scopedAuthority = new RollbackAuthority($scopedTransport);
     $beforeScopedGate = RollbackAuthority::scopedStatus($scopedTransport);
     checkpoint_refuses(fn() => $scopedAuthority->appendScoped(
@@ -362,6 +385,12 @@ try {
         'sealCommit commits only after exact scoped_apply while the independent exclusion remains held');
     checkpoint_ok(($scopedProfile->sealCommit()['state'] ?? '') === 'committed',
         'scoped commit sealing is idempotent after a lost response');
+    $committedWitness = RecoveryExecutor::scopedPromotionWitness($scopedRoot);
+    checkpoint_ok(($committedWitness['state'] ?? '') === 'committed'
+        && ($committedWitness['terminal'] ?? null) === true
+        && ($committedWitness['exclusion_state'] ?? '') === 'held'
+        && ($committedWitness['receipt_payload_sha256'] ?? '') === ($scopedClaim['receipt_payload_sha256'] ?? ''),
+        'delayed terminal completion retains an exact signed held-exclusion witness after the original claim TTL');
     $heldTerminalResume = $scopedProfile->claim($changedPlan, $scopeHash, $scopedOwner, $scopedClaimant);
     checkpoint_ok(($heldTerminalResume['receipt_payload_sha256'] ?? '') === ($scopedClaim['receipt_payload_sha256'] ?? '')
         && ($heldTerminalResume['status']['exclusion_state'] ?? '') === 'held',
@@ -388,11 +417,12 @@ try {
     checkpoint_ok(($scopedProfile->release()['state'] ?? '') === 'committed',
         'lost terminal release response retries against the durable released exclusion record');
     $nextScopedClaim = $scopedProfile->claim(
-        $scopedPlan, $scopeHash, $scopedOwner, $scopedClaimant, '2020-03-02T00:00:00Z'
+        $scopedPlan, $scopeHash, $scopedOwner, $scopedClaimant, '2020-03-02T00:00:00Z', true
     );
     checkpoint_ok(($nextScopedClaim['status']['generation'] ?? 0) === 2
+        && ($nextScopedClaim['receipt']['allow_deletes'] ?? null) === true
         && ($nextScopedClaim['receipt_payload_sha256'] ?? '') !== ($scopedClaim['receipt_payload_sha256'] ?? ''),
-        'terminal scoped receipt with released exclusion advances to a new generation');
+        'terminal scoped receipt with released exclusion advances to a newly signed delete capability');
     $scopedProfile->startPromotion();
     $scopedRolledBack = $scopedProfile->rollback();
     checkpoint_ok(($scopedRolledBack['state'] ?? '') === 'rolled_back'

@@ -117,6 +117,7 @@ final class RollbackControl {
     /** @var list<string> */
     private const SCOPED_PROMOTION_RECEIPT_KEYS = [
         'adapter_versions_sha256',
+        'allow_deletes',
         'artifact_hash',
         'checkpoint_sha256',
         'claim_ttl_seconds',
@@ -1005,6 +1006,7 @@ final class RollbackControl {
         return [
             'active' => true,
             'adapter_versions_sha256' => (string) $receipt['adapter_versions_sha256'],
+            'allow_deletes' => (bool) $receipt['allow_deletes'],
             'artifact_hash' => (string) $target['artifact_hash'],
             'claim_epoch' => (int) $target['claim_epoch'],
             'claim_expires_at' => (string) $target['claim_expires_at'],
@@ -1102,6 +1104,9 @@ final class RollbackControl {
             'exclusion_token_sha256',
         ];
         if ($format === self::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            if (!is_bool($receipt['allow_deletes'] ?? null)) {
+                throw new \RuntimeException('duo rollback: scoped receipt allow_deletes must be boolean');
+            }
             $hashes[] = 'scope_hash';
         } else {
             if ($format === self::RECEIPT_FORMAT) {
@@ -1475,6 +1480,7 @@ function rollback_control_main(array $argv): int {
             ),
             'active-evidence' => RollbackControl::activeEvidence($root),
             'authority-status' => RollbackControl::status($root),
+            'scoped-promotion-witness' => RecoveryExecutor::scopedPromotionWitness($root),
             'audit' => RollbackControl::auditEvidence($root),
             'status' => RecoveryExecutor::decorateStatus($root, RollbackControl::status($root)),
             default => throw new \RuntimeException("duo rollback: unknown action '$action'"),

@@ -12,6 +12,7 @@ declare(strict_types=1);
  */
 
 require dirname(__DIR__, 2) . '/cli/src/Transport.php';
+require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
 require dirname(__DIR__, 2) . '/cli/src/Adopt.php';
 
 use Duo\Orchestrator\AdoptionTransport;
@@ -131,6 +132,51 @@ function adopt_check(bool $condition, string $message): void {
     }
     echo "ok: $message\n";
 }
+
+$installScript = new ReflectionMethod(Adopt::class, 'installScript');
+$recoveryConfig = [
+    'adapters' => [],
+    'checkpoint_provider' => [PHP_BINARY, '/fixture/checkpoint-provider.php'],
+    'exclusion_provider' => [PHP_BINARY, '/fixture/exclusion-provider.php'],
+    'format' => 'duo-recovery-config/v1',
+    'timeout_seconds' => 5,
+];
+$authorityInstall = (string) $installScript->invoke(
+    null,
+    '/tmp/fixture-adopt.tar',
+    '/fixture/mu-plugins',
+    '/fixture/repo',
+    '0123456789abcdef01234567',
+    'fixture-key',
+    base64_encode(str_repeat('k', 32)),
+    $recoveryConfig,
+    null
+);
+$controlConfigOffset = strpos($authorityInstall, 'scoped-promotion-control.json');
+$agentSwapOffset = strpos($authorityInstall, 'mv "$agent_new" "$agent"');
+adopt_check(
+    is_int($controlConfigOffset) && is_int($agentSwapOffset) && $controlConfigOffset < $agentSwapOffset
+        && str_contains($authorityInstall, '"control_root":"/fixture/repo/.duo/control"')
+        && str_contains($authorityInstall, 'source artifact contains target-local scoped promotion configuration')
+        && str_contains($authorityInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
+    'adoption refuses source-supplied trust roots and stages its mode-0600 fixed configuration before publishing the agent'
+);
+$ordinaryInstall = (string) $installScript->invoke(
+    null,
+    '/tmp/fixture-adopt.tar',
+    '/fixture/mu-plugins',
+    '/fixture/repo',
+    '0123456789abcdef01234567',
+    null,
+    null,
+    null,
+    null
+);
+adopt_check(
+    !str_contains($ordinaryInstall, 'duo-scoped-promotion-control/v1')
+        && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
+    'adoption without a verified recovery configuration exposes no scoped-promotion trust root'
+);
 
 $transport = new AdoptDoubleFailureTransport();
 $caught = null;

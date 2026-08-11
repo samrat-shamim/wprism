@@ -33,6 +33,7 @@ final class ScopedRollbackProfile {
         SshTransport $transport,
         array $plan,
         string $scopeHash,
+        bool $allowDeletes = false,
         ?array $status = null
     ): array {
         $missing = [];
@@ -82,9 +83,10 @@ final class ScopedRollbackProfile {
         }
         if ($resuming) {
             try {
-                $intent = self::resumeIntent($plan, 'scope-select', $scopeHash);
+                $intent = self::resumeIntent($plan, 'scope-select', $scopeHash, $allowDeletes);
                 if (!hash_equals((string) $intent['artifact_hash'], (string) ($status['artifact_hash'] ?? ''))
-                    || !hash_equals((string) $intent['scope_hash'], (string) ($status['scope_hash'] ?? ''))) {
+                    || !hash_equals((string) $intent['scope_hash'], (string) ($status['scope_hash'] ?? ''))
+                    || ($intent['allow_deletes'] ?? null) !== ($status['allow_deletes'] ?? null)) {
                     return [
                         'automatic' => false,
                         'reason' => 'active scoped receipt does not match the requested scope/artifact',
@@ -113,6 +115,7 @@ final class ScopedRollbackProfile {
                 (array) $transport->verifiedRollbackConfig(),
                 'scope-select',
                 $scopeHash,
+                $allowDeletes,
                 '2026-01-01T00:00:00Z'
             );
         } catch (\Throwable $e) {
@@ -145,6 +148,7 @@ final class ScopedRollbackProfile {
         array $policy,
         string $owner,
         string $scopeHash,
+        bool $allowDeletes,
         string $createdAt
     ): array {
         self::assertHash($scopeHash, 'scope hash');
@@ -198,6 +202,7 @@ final class ScopedRollbackProfile {
         }
         self::assertActor($key, 'scoped encryption key id');
         $resources = [
+            'allow_deletes' => $allowDeletes,
             'format' => 'duo-scoped-promotion-resources/v1',
             'scope' => [
                 'scope_hash' => $scopeHash,
@@ -216,6 +221,7 @@ final class ScopedRollbackProfile {
         ];
         return [
             'adapter_versions_sha256' => hash('sha256', RollbackControl::canonical($adapters)),
+            'allow_deletes' => $allowDeletes,
             'artifact_hash' => $artifact,
             'claim_ttl_seconds' => $ttl,
             'encryption_key_id' => $key,
@@ -239,7 +245,8 @@ final class ScopedRollbackProfile {
         string $scopeHash,
         string $owner,
         string $claimant,
-        ?string $timestamp = null
+        ?string $timestamp = null,
+        bool $allowDeletes = false
     ): array {
         $resume = false;
         $current = RollbackAuthority::authorityStatus($this->transport);
@@ -264,7 +271,7 @@ final class ScopedRollbackProfile {
         }
         if ($resume) {
             $claim = $this->authority->claimScoped(
-                self::resumeIntent($plan, $owner, $scopeHash),
+                self::resumeIntent($plan, $owner, $scopeHash, $allowDeletes),
                 $claimant,
                 $timestamp
             );
@@ -275,7 +282,7 @@ final class ScopedRollbackProfile {
             }
             $now = $timestamp ?? self::timestamp();
             $claim = $this->authority->claimScoped(
-                self::claimFields($plan, $policy, $owner, $scopeHash, $now),
+                self::claimFields($plan, $policy, $owner, $scopeHash, $allowDeletes, $now),
                 $claimant,
                 $now
             );
@@ -579,12 +586,18 @@ final class ScopedRollbackProfile {
     }
 
     /** @param array<string,mixed> $plan @return array<string,mixed> */
-    private static function resumeIntent(array $plan, string $owner, string $scopeHash): array {
+    private static function resumeIntent(
+        array $plan,
+        string $owner,
+        string $scopeHash,
+        bool $allowDeletes
+    ): array {
         self::assertHash($scopeHash, 'scope hash');
         self::assertActor($owner, 'scoped promotion owner');
         $artifact = (string) ($plan['artifact_hash'] ?? '');
         self::assertHash($artifact, 'scoped compiled artifact hash');
         return [
+            'allow_deletes' => $allowDeletes,
             'artifact_hash' => $artifact,
             'owner' => $owner,
             'scope_hash' => $scopeHash,
