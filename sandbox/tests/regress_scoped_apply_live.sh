@@ -88,12 +88,16 @@ print_cleanup_excerpt() { # <label> <path>
 }
 
 cleanup() {
-  local status=$?
+  local incoming_status=$?
+  local status=$incoming_status
   local destroy_log="$TMP/pair-destroy.log"
   local list_log="$TMP/pair-list-after-destroy.log"
-  local cleanup_failed=0 destroy_failed=0 list_failed=0 pair_still_present=0 pair_absent=0
+  local cleanup_failed=0 body_incomplete=0 destroy_failed=0 list_failed=0 pair_still_present=0 pair_absent=0
   trap - EXIT INT TERM
   set +e
+  if [ "$incoming_status" -ne 0 ] || [ "$BODY_COMPLETE" -ne 1 ]; then
+    body_incomplete=1
+  fi
   if [ "$PAIR_OWNED" -eq 1 ]; then
     if [ "$PAIR_ATTEMPTED" -eq 1 ]; then
       if ! bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >"$destroy_log" 2>&1; then
@@ -121,8 +125,10 @@ cleanup() {
   # reaching compose down. Deleting the bind roots after that failure would
   # both erase its evidence and make a later retry take a different (missing
   # root) path. Only a successful destroy plus exact absence authorizes any
-  # root or scratch removal.
-  if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ]; then
+  # root or scratch removal. A failed or incomplete body is evidence too:
+  # even after a clean pair teardown it must remain inspectable rather than
+  # being misreported as a green run with no retained contract/receipt data.
+  if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ] && [ "$incoming_status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then
     if [ "$PAIR_OWNED" -eq 1 ]; then
       rm -rf -- "$SITE1" "$SITE2" "$ORIGIN" || cleanup_failed=1
       if [ -e "$SITE1" ] || [ -e "$SITE2" ] || [ -e "$ORIGIN" ]; then
@@ -139,8 +145,12 @@ cleanup() {
     fi
   fi
 
-  if [ "$cleanup_failed" -ne 0 ]; then
-    printf 'FAIL: scoped live cleanup did not complete; preserving owned roots and cleanup artifacts:\n' >&2
+  if [ "$cleanup_failed" -ne 0 ] || [ "$body_incomplete" -eq 1 ]; then
+    if [ "$cleanup_failed" -ne 0 ]; then
+      printf 'FAIL: scoped live cleanup did not complete; preserving owned roots and cleanup artifacts:\n' >&2
+    else
+      printf 'FAIL: scoped live body did not complete cleanly; preserving owned roots and cleanup artifacts:\n' >&2
+    fi
     printf '  pair: %s\n  roots: %s %s %s\n  destroy transcript: %s\n  post-destroy pair list: %s\n' \
       "$PAIR" "$SITE1" "$SITE2" "$ORIGIN" "$destroy_log" "$list_log" >&2
     if [ "$destroy_failed" -eq 1 ]; then
@@ -154,7 +164,7 @@ cleanup() {
     status=1
   fi
 
-  if [ "$cleanup_failed" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ] && [ "$status" -eq 0 ]; then
+  if [ "$cleanup_failed" -eq 0 ] && [ "$body_incomplete" -eq 0 ] && [ "$pair_absent" -eq 1 ] && [ "$incoming_status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then
     printf '\n✔ REGRESS_SCOPED_APPLY_LIVE PASSED (pair %s destroyed and cleanup verified)\n' "$PAIR"
   fi
   exit "$status"

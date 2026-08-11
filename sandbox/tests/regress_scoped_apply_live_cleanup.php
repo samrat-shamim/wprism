@@ -10,8 +10,9 @@ declare(strict_types=1);
  * pre-cleanup PASS. A later manual destroy could therefore take a different
  * missing-root path and hide the actual failure. This source contract pins
  * the teardown ordering without allocating Docker, a pair, or WordPress:
- * retain transcripts and roots unless exact pair absence is proved first,
- * and let only verified cleanup publish the final PASS.
+ * retain transcripts and roots unless exact pair absence is proved first and
+ * the incoming body completed cleanly, and let only verified cleanup publish
+ * the final PASS.
  */
 
 $root = dirname(__DIR__, 2);
@@ -61,7 +62,9 @@ $check(
 $destroyAt = strpos($cleanup, $destroyCall);
 $listAt = strpos($cleanup, $listCall);
 $absenceAt = strrpos($cleanup, 'pair_absent=1');
-$rootGate = 'if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ]; then';
+$bodyIncompleteGate = 'if [ "$incoming_status" -ne 0 ] || [ "$BODY_COMPLETE" -ne 1 ]; then';
+$bodyIncompleteAt = strpos($cleanup, $bodyIncompleteGate);
+$rootGate = 'if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ] && [ "$incoming_status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then';
 $rootGateAt = strpos($cleanup, $rootGate);
 $rootRemoval = 'rm -rf -- "$SITE1" "$SITE2" "$ORIGIN"';
 $rootRemovalAt = strpos($cleanup, $rootRemoval);
@@ -69,14 +72,23 @@ $tmpRemoval = 'rm -rf -- "$TMP"';
 $tmpRemovalAt = strpos($cleanup, $tmpRemoval);
 $preserveAt = strpos($cleanup, 'preserving owned roots and cleanup artifacts');
 $check(
-    is_int($destroyAt) && is_int($listAt) && is_int($absenceAt) && is_int($rootGateAt)
+    is_int($destroyAt) && is_int($listAt) && is_int($absenceAt) && is_int($bodyIncompleteAt) && is_int($rootGateAt)
         && is_int($rootRemovalAt) && is_int($tmpRemovalAt) && is_int($preserveAt)
         && $destroyAt < $listAt
         && $listAt < $absenceAt
+        && $bodyIncompleteAt < $rootGateAt
         && $absenceAt < $rootGateAt
         && $rootGateAt < $rootRemovalAt
         && $rootRemovalAt < $tmpRemovalAt,
-    'destroy and exact list absence precede every owned-root or scratch deletion, with a preservation failure path'
+    'destroy, exact list absence, and the clean incoming-body predicate precede every owned-root or scratch deletion'
+);
+$check(
+    !str_contains($cleanup, 'if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ]; then')
+        && str_contains($cleanup, 'body_incomplete=1')
+        && str_contains($cleanup, 'if [ "$cleanup_failed" -ne 0 ] || [ "$body_incomplete" -eq 1 ]; then')
+        && str_contains($cleanup, 'FAIL: scoped live body did not complete cleanly; preserving owned roots and cleanup artifacts:')
+        && str_contains($cleanup, 'status=1'),
+    'exact pair absence alone is insufficient: failed or incomplete bodies retain roots and scratch evidence with a nonzero exit'
 );
 $check(
     str_contains($cleanup, 'if [ "$destroy_failed" -eq 1 ]; then')
@@ -88,7 +100,7 @@ $check(
 
 $finalMarker = '✔ REGRESS_SCOPED_APPLY_LIVE PASSED';
 $finalAt = strpos($cleanup, $finalMarker);
-$finalGate = 'if [ "$cleanup_failed" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ] && [ "$status" -eq 0 ]; then';
+$finalGate = 'if [ "$cleanup_failed" -eq 0 ] && [ "$body_incomplete" -eq 0 ] && [ "$pair_absent" -eq 1 ] && [ "$incoming_status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then';
 $finalGateAt = strpos($cleanup, $finalGate);
 $bodyCompleteAt = strrpos($harness, 'BODY_COMPLETE=1');
 $check(
