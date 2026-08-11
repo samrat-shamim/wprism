@@ -50,9 +50,13 @@ before-fix/after-fix convergence path.
 The explicit gaps are initialization/adoption (DUO-3336), branch
 materialization (DUO-3324), authored-user synchronization (DUO-3344),
 refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), scoped promotion (DUO-3344), and provider-backed
-plugin/theme replacement (DUO-3357). Theme upgrade, downgrade refusal, and
-removal are routed to DUO-3358. Reproduced boundaries include unsupported Woo deletion (DUO-3338)
-and dependency refusal (DUO-3338). These
+plugin/theme replacement (DUO-3357). The proof now exercises a reviewed
+parent/child theme upgrade with failure/retry, a non-forceable incompatible
+downgrade, unsafe parent-removal refusal, dependency-safe child removal after
+a public theme switch, and exact rollback while preserving theme settings,
+navigation, and media. The separate WordPress-cron move is routed to DUO-3359.
+Reproduced boundaries include unsupported Woo deletion (DUO-3338),
+compatibility refusal (DUO-3326), and dependency refusal (DUO-3338). These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.
 
