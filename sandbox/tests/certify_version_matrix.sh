@@ -47,8 +47,20 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${VMATRIX_PAIR:-vmatrix}"
 PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
+WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+case "$WORDPRESS_OFFLINE" in
+  0|1) ;;
+  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+esac
 export DUO_PAIR="$PAIR"
 PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+PAIR_UP_FLAGS=(--artifacts)
+if [ "$WORDPRESS_OFFLINE" = 1 ]; then
+  PAIR_COMPOSE+=(-f pair.wordpress-offline.yml)
+  PAIR_UP_FLAGS+=(--wordpress-offline)
+fi
+export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix1@example.test)
@@ -86,7 +98,7 @@ clone_case_target() {
 say "boot pair $PAIR (${PAIR}1 :$PORT1 / ${PAIR}2 :$PORT2), idempotent"
 # Elementor's contract includes real frontend and generated-CSS checks, so
 # this matrix must publish its already-reserved ports rather than run headless.
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2"
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"
 pass "pair up"
 
 seed_acf_content() { # seed_acf_content <cli-fn>
@@ -172,7 +184,7 @@ seed_elementor_content() {
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF1_PORT="$PORT1"
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   . conformance/seeds/elementor.sh
   unset -f wp_conf1
 }
@@ -192,7 +204,7 @@ seed_ninja_forms_content() {
   # 3 actions plus a page containing the real block.
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   . conformance/seeds/ninja-forms.sh
   unset -f wp_conf1
 }
@@ -203,7 +215,7 @@ postdeploy_ninja_forms_content() {
   # environment-local activation side effect before apply.
   wp_conf2() { wp2 "$@"; }
   local CONF_REPO2="siterepo/${PAIR}2"
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   . conformance/postdeploy/ninja-forms.sh
   unset -f wp_conf2
 }
@@ -239,7 +251,7 @@ seed_polylang_content() {
   # apart so a stale-id implementation cannot pass by coincidence.
   wp_conf1() { wp1 "$@"; }
   local CONF_REPO1="siterepo/${PAIR}1"
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   . conformance/seeds/polylang.sh
   unset -f wp_conf1
 }
@@ -269,7 +281,7 @@ seed_woocommerce_content() {
     esac
   }
   local CONF_REPO1="siterepo/${PAIR}1"
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   . conformance/seeds/woocommerce.sh
   unset -f wp_conf1 wp_env
 }
@@ -281,7 +293,7 @@ postdeploy_woocommerce_content() {
 }
 
 check_woocommerce_content() {
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
   . conformance/checks/woocommerce.sh
@@ -303,13 +315,13 @@ seed_yoast_content() {
   }
   local CONF_REPO1="siterepo/${PAIR}1"
   local CONF1_PORT="$PORT1"
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   . conformance/seeds/yoast.sh
   unset -f wp_conf1 wp_env
 }
 
 check_yoast_content() {
-  local COMPOSE="docker compose -p duo-$PAIR -f pair.yml -f pair.artifacts.yml"
+  local COMPOSE="$PAIR_COMPOSE_STRING"
   local CONF1_PORT="$PORT1"
   local CONF2_PORT="$PORT2"
   . conformance/checks/yoast.sh
@@ -1060,6 +1072,8 @@ reset_case_repositories
 # negative control owns.
 IN_RANGE_ARTIFACT=$(fetch_artifact ninja-forms 3.14.11 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get ninja-forms --field=version)" = "3.14.11" ] \
+  || fail "negative control premise did not install exact ninja-forms 3.14.11 bytes"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "ninja-forms"],
@@ -1112,6 +1126,8 @@ reset_case_repositories
 # gate against a real Polylang state tree rather than an empty repository.
 IN_RANGE_ARTIFACT=$(fetch_artifact polylang 3.8.6 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get polylang --field=version)" = "3.8.6" ] \
+  || fail "negative control premise did not install exact polylang 3.8.6 bytes"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "polylang"],
@@ -1165,6 +1181,8 @@ reset_case_repositories
 # or old-schema behavior outside the manifest's claim.
 IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.0 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get woocommerce --field=version)" = "11.0.0" ] \
+  || fail "negative control premise did not install exact woocommerce 11.0.0 bytes"
 wp1 wc hpos enable >/dev/null
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
@@ -1218,6 +1236,8 @@ reset_case_repositories
 # seed/schema behavior and proves the manifest boundary itself is enforced.
 IN_RANGE_ARTIFACT=$(fetch_artifact wordpress-seo 28.0 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
+[ "$(wp1 plugin get wordpress-seo --field=version)" = "28.0" ] \
+  || fail "negative control premise did not install exact wordpress-seo 28.0 bytes"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "yoast"],

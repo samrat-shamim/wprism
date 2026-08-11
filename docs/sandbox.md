@@ -98,7 +98,7 @@ than `-p`, avoiding the "insecure password on command line" warning.
 ## `pair.sh`
 
 ```
-pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--http|--headless]
+pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
 pair.sh reset <name>
 pair.sh destroy <name>
 pair.sh list
@@ -202,6 +202,17 @@ it worked for real (hooks fired). `up --codebind` also passes
 `--force-recreate wp1 wp2` so an existing pair picks up a freshly re-authored
 `code/` tree on a repeat `up`, not a prior run's stale mount (same fix spike
 G's own script applies to itself).
+
+**`--artifacts`** layers `pair.artifacts.yml` and bootstraps the exact
+Twenty Twenty-One version in `conformance/artifacts.lock.json` from the shared
+digest-addressed ZIP cache. The typed cache identity is
+`<plugin|theme>-<slug>-<version>-<sha256>.zip`; a per-identity flock means
+concurrent cold callers perform one download, and every cache hit re-hashes
+the bytes before use. **`--wordpress-offline`** additionally maps the
+WordPress.org catalog/download hostnames to loopback and requires
+`--artifacts`; it also makes any artifact cache miss refuse before `curl`.
+This overlay is the warm-cache proof mode for reference certification, not a
+claim that ordinary WordPress itself is generally network-hermetic.
 
 Compose's multi-file merge for `volumes:` is by target path, not whole-list
 replacement — confirmed via `docker compose config` while authoring
@@ -419,10 +430,28 @@ the repository inputs that define the run. A Git revision is recorded for
 diagnostics, but verification is bound to the actual input bytes rather than a
 mutable branch name.
 
-Every exact plugin artifact is also labeled by purpose. `certified-boundary`
+The environment record also contains `duo-artifact-cache-usage/v1`: the typed
+slug, exact version and digest, digest-addressed cache path, resolution sources
+(`network-fetch` and/or `cache-hit`), and use count for every cache entry
+actually requested across all legs. It is display/evidence data
+(`authority:false`), checked against the bound lock before bundle creation.
+Under `DUO_WORDPRESS_ORG_OFFLINE=1`, bundle construction additionally requires
+every observation to be a cache hit; a missing entry refuses before a network
+attempt. This is how a warm-cache run proves that a transient catalog outage
+cannot burn the evidence run while still recording which source path ran.
+
+Every exact artifact is also labeled by purpose. `certified-boundary`
 means the artifact is an admitted supported version; `refusal-fixture` means it
-is deliberately below range and exists only to prove loud refusal. Missing or
-unknown roles make bundle construction fail closed.
+is deliberately below range and exists only to prove loud refusal;
+`exercise-fixture` means exact bytes used to execute a harness (currently PMPro
+and the bootstrap themes) but never promoted into the bundle's certified
+plugin-artifact claim. Plugin entries may use any of those three closed roles;
+theme entries must be `exercise-fixture` because the current bundle boundary
+inventory is plugin-only. A nonstandard ZIP may additionally pin `archive_root`;
+the harness then renames only that exact extracted directory to the typed slug
+before activation and still requires the installed version readback. Missing
+or unknown roles fail the closed lock validator before any resolver or bundle
+leg can execute; the bundle itself admits only the first two roles.
 
 The builder and verifier emit one JSON verdict on stdout and human diagnostics
 on stderr. Exit `0` means valid and green, `1` means a failed or corrupt bundle,

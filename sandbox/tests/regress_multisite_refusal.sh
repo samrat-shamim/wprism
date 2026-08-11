@@ -14,8 +14,23 @@ PAIR="${MULTISITE_PAIR:-msrefusal}"
 PORT1="${MULTISITE_PORT1:-8882}"
 PORT2="${MULTISITE_PORT2:-8883}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid MULTISITE_PAIR '$PAIR'"
+WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+case "$WORDPRESS_OFFLINE" in
+  0|1) ;;
+  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+esac
 export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
-COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
+COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml)
+PAIR_UP_FLAGS=(--artifacts)
+if [ "$WORDPRESS_OFFLINE" = 1 ]; then
+  COMPOSE+=(-f pair.wordpress-offline.yml)
+  PAIR_UP_FLAGS+=(--wordpress-offline)
+fi
+export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+# shellcheck source=../bin/fetch-artifact.sh
+. bin/fetch-artifact.sh
+validate_artifact_lock conformance/artifacts.lock.json \
+  || fail "artifact lock is malformed; multisite refusal proof stopped before pair reset"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 REPO="siterepo/${PAIR}1"
 
@@ -24,7 +39,7 @@ bash bin/pair.sh list
 
 say "fresh pair $PAIR"
 bash bin/pair.sh reset "$PAIR"
-bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2"
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"
 
 say "convert side 1 to a real WordPress multisite"
 wp1 core multisite-convert --title='Duo Multisite Refusal' >/dev/null

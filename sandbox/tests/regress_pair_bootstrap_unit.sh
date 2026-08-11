@@ -70,6 +70,22 @@ log="${DUO_PAIR_TEST_LOG:?}"
     "${DUO_AGENT_SRC:-}" "${DUO_MANIFESTS_SRC:-}"
 } >> "$log"
 
+# The artifact-cache branch intentionally executes the real bounded shell
+# command emitted by fetch-artifact.sh, but redirects its container mount to
+# this regression's private directory. Every other compose command remains a
+# no-op recorder below.
+if [ -n "${DUO_PAIR_TEST_ARTIFACT_CACHE:-}" ]; then
+  args=("$@")
+  for index in "${!args[@]}"; do
+    if [ "${args[$index]}" = sh ] && [[ "${args[$((index + 1))]:-}" == */artifact-cache-fetch.sh ]]; then
+      export DUO_ARTIFACT_TEST_MODE=1 DUO_ARTIFACT_TEST_CACHE_ROOT="$DUO_PAIR_TEST_ARTIFACT_CACHE"
+      args[$((index + 1))]="${DUO_PAIR_TEST_ARTIFACT_RUNNER:?}"
+      "${args[@]:$index}"
+      exit $?
+    fi
+  done
+fi
+
 # Optional theme state makes the real pair bootstrap's retry contract
 # fault-injectable without Docker or WordPress.org. The fake records an
 # installed/active theme only after the configured number of exact install
@@ -103,6 +119,11 @@ if [ -n "$theme_state_dir" ]; then
       : > "$theme_state_dir/active"
       exit 0
       ;;
+    *" wp theme install /artifacts-cache/theme-twentytwentyone-"*" --activate --force "*)
+      : > "$theme_state_dir/installed"
+      : > "$theme_state_dir/active"
+      exit 0
+      ;;
     *" wp theme activate twentytwentyone "*)
       [ -f "$theme_state_dir/installed" ] || {
         printf 'fake theme is not installed\n' >&2
@@ -113,6 +134,10 @@ if [ -n "$theme_state_dir" ]; then
       ;;
     *" wp theme list --status=active --field=name "*)
       [ ! -f "$theme_state_dir/active" ] || printf 'twentytwentyone\n'
+      exit 0
+      ;;
+    *" wp theme get twentytwentyone --field=version "*)
+      printf '2.8\n'
       exit 0
       ;;
   esac
@@ -251,11 +276,18 @@ abort_lock_cancellation_case() {
 
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
+  local artifacts="${5:-0}" wordpress_offline="${6:-0}"
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log"
   local output="$TMP/$label/output.log" web cli mount1 mount2 compose_prefix canonical_root
-  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
+  local up_args=(up "$pair" 9911 9912 --headless)
+  mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   canonical_root="$case_root/canonical"
   cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+  cp "$ROOT/sandbox/conformance/artifacts.lock.json" "$case_root/sandbox/conformance/artifacts.lock.json"
+  if [ -n "${DUO_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
+    cp "$DUO_PAIR_TEST_LOCK_OVERRIDE" "$case_root/sandbox/conformance/artifacts.lock.json"
+  fi
   chmod +x "$case_root/sandbox/bin/pair.sh"
 
   # The fake has no side effects beyond its log. Its successful health/info
@@ -272,15 +304,20 @@ run_case() {
     write_fake_git "$fake_bin"
   fi
 
+  [ "$artifacts" = 0 ] || up_args+=(--artifacts)
+  [ "$wordpress_offline" = 0 ] || up_args+=(--wordpress-offline)
   if [ -n "$codebind" ]; then
-    "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless --codebind "$codebind" \
+    up_args+=(--codebind "$codebind")
+    "$case_root/sandbox/bin/pair.sh" "${up_args[@]}" \
       >"$output" 2>&1 || { cat "$output" >&2; fail "$label pair bootstrap failed"; }
   else
-    "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
+    "$case_root/sandbox/bin/pair.sh" "${up_args[@]}" \
       >"$output" 2>&1 || { cat "$output" >&2; fail "$label pair bootstrap failed"; }
   fi
 
   compose_prefix="docker <compose> <-p> <duo-$pair> <-f> <pair.yml>"
+  [ "$artifacts" = 0 ] || compose_prefix="$compose_prefix <-f> <pair.artifacts.yml>"
+  [ "$wordpress_offline" = 0 ] || compose_prefix="$compose_prefix <-f> <pair.wordpress-offline.yml>"
   if [ -n "$codebind" ]; then
     compose_prefix="$compose_prefix <-f> <pair.codebind.yml>"
     web="$compose_prefix <up> <-d> <--force-recreate> <wp1> <wp2>"
@@ -332,6 +369,127 @@ run_theme_retry_case() {
   [ "$(grep -cF 'wp> <theme> <list> <--status=active> <--field=name>' "$TMP/$label/docker.log")" = 2 ] \
     || fail "$label did not verify the exact active theme on both sides"
   pass "$label: one transient lookup retries, both sides prove the exact active theme"
+}
+
+run_artifact_theme_case() {
+  local label=artifact_theme pair=pairartifact case_root="$TMP/artifact_theme"
+  local state_dir="$case_root/theme-state" cache_dir="$case_root/cache"
+  local payload="$case_root/twentytwentyone.zip" digest cache_file
+  mkdir -p "$state_dir" "$cache_dir"
+  printf 'exact pinned theme fixture\n' > "$payload"
+  digest="$(sha256sum "$payload" | awk '{print $1}')"
+  cache_file="$cache_dir/theme-twentytwentyone-2.8-$digest.zip"
+  cp "$payload" "$cache_file"
+  export DUO_PAIR_TEST_THEME_STATE_DIR="$state_dir" DUO_PAIR_TEST_THEME_FAILURES=0
+  export DUO_PAIR_TEST_ARTIFACT_CACHE="$cache_dir"
+  export DUO_PAIR_TEST_ARTIFACT_RUNNER="$ROOT/sandbox/bin/artifact-cache-fetch.sh"
+
+  # run_case copies the shipped lock before launching; replace only this
+  # private copy with a same-shaped deterministic fixture matching the warm
+  # cache bytes above.
+  mkdir -p "$case_root/sandbox/conformance"
+  printf '{"plugins":{},"themes":{"twentytwentyone":{"2.8":{"url":"https://fixture.invalid/theme.zip","sha256":"%s","role":"exercise-fixture"}}}}\n' \
+    "$digest" > "$case_root/sandbox/conformance/artifacts.lock.json.override"
+  DUO_PAIR_TEST_LOCK_OVERRIDE="$case_root/sandbox/conformance/artifacts.lock.json.override"
+  export DUO_PAIR_TEST_LOCK_OVERRIDE
+  run_case "$label" "$pair" "" canonical 1 1
+  unset DUO_PAIR_TEST_THEME_STATE_DIR DUO_PAIR_TEST_THEME_FAILURES \
+    DUO_PAIR_TEST_ARTIFACT_CACHE DUO_PAIR_TEST_LOCK_OVERRIDE
+  unset DUO_PAIR_TEST_ARTIFACT_RUNNER
+
+  [ -f "$state_dir/active" ] || fail "$label did not activate the cached exact theme"
+  assert_file_contains "$case_root/output.log" 'source=cache-hit' \
+    "$label did not report the warm-cache source path"
+  assert_file_contains "$case_root/docker.log" '<-f> <pair.artifacts.yml> <-f> <pair.wordpress-offline.yml>' \
+    "$label did not layer both artifact and WordPress.org-offline controls"
+  if grep -F '<theme> <install> <twentytwentyone>' "$case_root/docker.log" >/dev/null; then
+    fail "$label fell back to a bare WordPress.org theme install"
+  fi
+  pass "$label: offline bootstrap consumes only the exact warm cached theme and verifies its version"
+}
+
+run_invalid_artifact_lock_preflight_case() {
+  local label=invalid_artifact_lock_preflight pair=pairinvalid
+  local case_root="$TMP/$label"
+  local fake_bin="$case_root/fake-bin"
+  local log="$case_root/docker.log" output="$case_root/output.log"
+  local canonical_root="$case_root/canonical"
+  mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
+  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+  jq '.plugins.woocommerce["11.0.0"].role = "unknown-role"' \
+    "$ROOT/sandbox/conformance/artifacts.lock.json" \
+    > "$case_root/sandbox/conformance/artifacts.lock.json"
+  chmod +x "$case_root/sandbox/bin/pair.sh"
+  write_fake_docker "$fake_bin"
+  write_fake_git "$fake_bin"
+  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
+    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+    PATH="$fake_bin:$ORIGINAL_PATH"
+
+  if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless --artifacts \
+      >"$output" 2>&1; then
+    fail "$label accepted an artifact lock with an unknown role"
+  fi
+  assert_file_contains "$output" 'artifact lock is malformed' \
+    "$label did not return the bounded preflight refusal"
+  [ ! -e "$log" ] || [ ! -s "$log" ] \
+    || fail "$label contacted Docker before refusing the malformed lock"
+  [ ! -e "$case_root/sandbox/siterepo" ] \
+    || fail "$label created pair state before refusing the malformed lock"
+  pass "$label: malformed typed lock refuses before Docker, DB, or pair-root mutation"
+}
+
+run_invalid_bootstrap_theme_preflight_case() {
+  local variant case_root fake_bin log output canonical_root
+  for variant in missing ambiguous; do
+    case_root="$TMP/bootstrap_theme_$variant"
+    fake_bin="$case_root/fake-bin"
+    log="$case_root/docker.log"
+    output="$case_root/output.log"
+    canonical_root="$case_root/canonical"
+    mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
+    cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+    cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+    case "$variant" in
+      missing)
+        jq 'del(.themes.twentytwentyone)' \
+          "$ROOT/sandbox/conformance/artifacts.lock.json" \
+          > "$case_root/sandbox/conformance/artifacts.lock.json"
+        ;;
+      ambiguous)
+        jq '.themes.twentytwentyone["2.9"] = .themes.twentytwentyone["2.8"]' \
+          "$ROOT/sandbox/conformance/artifacts.lock.json" \
+          > "$case_root/sandbox/conformance/artifacts.lock.json"
+        ;;
+    esac
+    chmod +x "$case_root/sandbox/bin/pair.sh"
+    write_fake_docker "$fake_bin"
+    write_fake_git "$fake_bin"
+    export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+      DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+      DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
+      DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+      DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+      PATH="$fake_bin:$ORIGINAL_PATH"
+
+    if "$case_root/sandbox/bin/pair.sh" up "pair${variant}" 9911 9912 --headless --artifacts \
+        >"$output" 2>&1; then
+      fail "bootstrap_theme_$variant accepted a non-singleton twentytwentyone pin"
+    fi
+    assert_file_contains "$output" 'bootstrap-theme registry entry is missing or ambiguous' \
+      "bootstrap_theme_$variant did not return the bounded preflight refusal"
+    [ ! -e "$log" ] || [ ! -s "$log" ] \
+      || fail "bootstrap_theme_$variant contacted Docker before refusing"
+    [ ! -e "$canonical_root/sandbox/siterepo" ] \
+      || fail "bootstrap_theme_$variant created the shared budget-lock root before refusing"
+    [ ! -e "$case_root/sandbox/siterepo" ] \
+      || fail "bootstrap_theme_$variant created pair state before refusing"
+  done
+  pass "missing and ambiguous bootstrap-theme pins refuse before budget, Docker, DB, or pair-root mutation"
 }
 
 run_python_lock_fallback_case() {
@@ -1380,6 +1538,15 @@ run_case default pairunit "" canonical
 
 say "--codebind pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case codebind pairbind demo-plugin canonical
+
+say "warm-cache WordPress.org-offline bootstrap (fake compose; no Docker/DB)"
+run_artifact_theme_case
+
+say "malformed artifact-lock preflight (fake compose; no Docker/DB)"
+run_invalid_artifact_lock_preflight_case
+
+say "bootstrap-theme singleton preflight (fake compose; no Docker/DB)"
+run_invalid_bootstrap_theme_preflight_case
 
 say "bounded theme lookup retry + exact active-state proof (fake compose; no Docker/DB)"
 run_theme_retry_case

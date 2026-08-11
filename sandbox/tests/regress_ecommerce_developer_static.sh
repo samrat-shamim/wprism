@@ -400,7 +400,7 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=b5fa253532ef4e4ae36dadb06060cdd49dcb97bfbc9de6b91753df72391e109e
+RECEIPT_HELPER_GOLDEN_HASH=012e44c96f4da73ce556a69f7f4915e45abd89c0024f092b84d235c93e9774bb
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
@@ -1068,7 +1068,8 @@ grep -Fq '.duo-woocommerce-next' "$SCRIPT" || fail 'Woo downgrade is not staged 
 grep -Fq 'test "$version" = "$expected_version"' "$SCRIPT" || fail 'staged Woo downgrade header is not version-verified'
 grep -Fq 'mv "$current" "$previous"' "$SCRIPT" || fail 'Woo downgrade does not preserve the prior tree before atomic swap'
 grep -Fq 'command -v unzip >/dev/null' "$SCRIPT" || fail 'container unzip prerequisite is not checked up front'
-grep -Fq 'run --rm -T -u root "$cli"' bin/fetch-artifact.sh || fail 'shared artifact cache writes are not isolated to the root fetch command'
+grep -Fq '"${PAIR_COMPOSE[@]}" run --rm -T -u root \' bin/fetch-artifact.sh || fail 'shared artifact cache writes are not isolated to the root fetch command'
+grep -Fq '"$cli" sh "$runner"' bin/fetch-artifact.sh || fail 'shared artifact cache writes do not execute the fixed mounted resolver'
 if grep -Eq 'db import .*--porcelain' "$SCRIPT"; then
   fail 'wp db import uses unsupported --porcelain'
 fi

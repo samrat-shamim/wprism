@@ -18,6 +18,11 @@ PORT1="${CERT_BUNDLE_PORT1:-8880}"
 PORT2="${CERT_BUNDLE_PORT2:-8881}"
 OUT_ROOT="${CERT_BUNDLE_OUT:-$PWD/certification-bundles}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CERT_BUNDLE_PAIR '$PAIR'"
+case "${DUO_WORDPRESS_ORG_OFFLINE:-0}" in
+  0) ;;
+  1) export DUO_ARTIFACT_OFFLINE=1 ;;
+  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+esac
 
 # DUO-3427/DUO-3428: the two init legs -- the platform init contract and the
 # public existing-site `duo init` golden path -- are back IN the certified set
@@ -56,6 +61,8 @@ esac
 command -v jq >/dev/null || fail "jq required"
 command -v php >/dev/null || fail "php required"
 command -v git >/dev/null || fail "git required"
+# shellcheck source=../bin/fetch-artifact.sh
+source bin/fetch-artifact.sh
 
 # DUO-3382: per-host advisory lock around the whole run.
 #
@@ -483,6 +490,8 @@ if [ -n "${CERT_BUNDLE_LOCK_LIB_ONLY:-}" ]; then
 fi
 
 certbundle_lock_acquire
+validate_artifact_lock conformance/artifacts.lock.json \
+  || fail "reference certification requires a closed typed artifact lock"
 
 # pair.sh intentionally resolves agent/manifests bind mounts through Git's
 # common directory so a long-lived pair never depends on an ephemeral linked
@@ -574,6 +583,9 @@ cleanup_run() {
 trap cleanup_run EXIT   # replaces the release-only trap armed by certbundle_lock_acquire
 
 ENV_FILE="$WORK_ROOT/environment.json"
+ARTIFACT_USAGE_LOG="$WORK_ROOT/artifact-cache-usage.ndjson"
+: > "$ARTIFACT_USAGE_LOG"
+export DUO_ARTIFACT_USAGE_LOG="$ARTIFACT_USAGE_LOG"
 MULTISITE_LOG="$WORK_ROOT/multisite-refusal.log"
 MATRIX_LOG="$WORK_ROOT/exact-artifact-version-matrix.log"
 INIT_CONTRACT_LOG="$WORK_ROOT/init-contract.log"
@@ -917,6 +929,48 @@ bundle. Unset CERT_BUNDLE_INCLUDE_INIT_LEGS to certify them.\033[0m\n' \
 fi
 
 assert_exact_source_unchanged
+
+# DUO-3431: the immutable environment record names the exact cache entries
+# actually requested by every successful bundle leg, not merely every pin
+# that happens to exist in the lock. Each helper observation is checked back
+# against the bound typed lock before it is reduced to deterministic evidence.
+[ -s "$ARTIFACT_USAGE_LOG" ] \
+  || fail "reference certification recorded no pinned artifact-cache usage"
+jq -s -e --slurpfile lock conformance/artifacts.lock.json '
+  length > 0 and all(.[];
+    type == "object" and
+    keys == ["kind","path","sha256","slug","source","version"] and
+    (.kind == "plugin" or .kind == "theme") and
+    (.source == "cache-hit" or .source == "network-fetch") and
+    (.sha256 | test("^[0-9a-f]{64}$")) and
+    .path == ("/artifacts-cache/" + .kind + "-" + .slug + "-" + .version + "-" + .sha256 + ".zip") and
+    $lock[0][(.kind + "s")][.slug][.version].sha256 == .sha256)
+' "$ARTIFACT_USAGE_LOG" >/dev/null \
+  || fail "artifact-cache usage log is malformed or disagrees with the typed artifact lock"
+if [ "${DUO_WORDPRESS_ORG_OFFLINE:-0}" = 1 ]; then
+  jq -s -e 'all(.[]; .source == "cache-hit")' "$ARTIFACT_USAGE_LOG" >/dev/null \
+    || fail "WordPress.org-offline proof observed a network artifact fetch"
+fi
+ARTIFACT_CACHE_ENTRIES=$(jq -s '
+  sort_by(.kind,.slug,.version,.sha256,.path,.source)
+  | group_by([.kind,.slug,.version,.sha256,.path])
+  | map({
+      kind:.[0].kind,slug:.[0].slug,version:.[0].version,sha256:.[0].sha256,
+      path:.[0].path,sources:([.[].source] | unique),uses:length
+    })
+' "$ARTIFACT_USAGE_LOG")
+ENV_TMP="$ENV_FILE.artifact-cache.tmp"
+jq --argjson entries "$ARTIFACT_CACHE_ENTRIES" \
+  --argjson wordpress_org_blocked "$([ "${DUO_WORDPRESS_ORG_OFFLINE:-0}" = 1 ] && printf true || printf false)" '
+  . + {artifact_cache:{
+    format:"duo-artifact-cache-usage/v1",
+    authority:false,
+    wordpress_org_blocked:$wordpress_org_blocked,
+    entries:$entries
+  }}
+' "$ENV_FILE" > "$ENV_TMP"
+mv "$ENV_TMP" "$ENV_FILE"
+
 say "materialize the content-addressed machine-readable bundle"
 # DUO-3361: the enumeration below MUST stay `LC_ALL=C sort -u`.
 #
@@ -940,12 +994,16 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   sandbox/tests/regress_multisite_refusal.sh \
   sandbox/tests/regress_init_contract.php \
   sandbox/tests/regress_duo_init.sh \
-  sandbox/pair.yml sandbox/db.yml sandbox/init-cli.Dockerfile \
+  sandbox/pair.yml sandbox/pair.artifacts.yml sandbox/pair.wordpress-offline.yml \
+  sandbox/db.yml sandbox/init-cli.Dockerfile \
   scripts/capability-registry.php docs/compatibility-baseline.json \
   DESIGN.md spec/repo-format.md Makefile .github/workflows/conformance.yml; \
   printf '%s\n' manifests/dispositions.json; } \
   | grep -v '^manifests/capabilities/' | LC_ALL=C sort -u | jq -R . | jq -s .)
-ARTIFACTS=$(jq '[to_entries[] as $slug | $slug.value | to_entries[] | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256,role:.value.role}]' conformance/artifacts.lock.json)
+ARTIFACTS=$(jq '[.plugins | to_entries[] as $slug | $slug.value | to_entries[]
+  | select(.value.role == "certified-boundary" or .value.role == "refusal-fixture")
+  | {name:$slug.key,version:.key,url:.value.url,sha256:.value.sha256,role:.value.role}]' \
+  conformance/artifacts.lock.json)
 TESTS=$(printf '%s\n' "${TEST_FRAGMENTS[@]}" | jq -s .)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_REVISION="$SOURCE_SHA"

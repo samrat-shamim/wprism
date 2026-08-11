@@ -661,11 +661,13 @@ check(
     'canonical site-repo ignore template protects the init journal and fixed capture transition slots'
 );
 $sourceBinding = strpos($liveHarness, 'export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"');
-$pairUp = strpos($liveHarness, 'bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless');
+$pairUp = strpos($liveHarness, 'bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"');
 check(
     str_contains($liveHarness, "git rev-parse --verify 'HEAD^{commit}'")
         && str_contains($liveHarness, '[[ ! -d "$REPO_ROOT/.git" ]]')
         && str_contains($liveHarness, 'git status --porcelain --untracked-files=all')
+        && str_contains($liveHarness, 'PAIR_UP_FLAGS=(--headless --artifacts)')
+        && str_contains($liveHarness, 'PAIR_UP_FLAGS+=(--wordpress-offline)')
         && $sourceBinding !== false && $pairUp !== false && $sourceBinding < $pairUp,
     'live init evidence binds a clean standalone exact Git HEAD before the first pair mutation'
 );

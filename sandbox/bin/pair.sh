@@ -5,7 +5,7 @@
 # duplicated pair profiles each carrying their own dedicated MariaDB.
 #
 # Subcommands:
-#   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--http|--headless]
+#   pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
 #   pair.sh reset <name>
 #   pair.sh destroy <name>
 #   pair.sh list
@@ -65,6 +65,7 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m%s\033[0m\n' "$*" >&2; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
+
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/manifests sources must always live, regardless of
@@ -1103,7 +1104,23 @@ wait_web_mountpoints() { # wait_web_mountpoints <name>
 }
 
 install_and_activate_theme() { # install_and_activate_theme <cli service> <theme slug>
-  local cli="$1" theme="$2" attempt active
+  local cli="$1" theme="$2" attempt active installed_version
+  if [ "${PAIR_BOOTSTRAP_ARTIFACTS:-0}" = 1 ]; then
+    local artifact
+    artifact=$(fetch_artifact "$theme" "$PAIR_BOOTSTRAP_THEME_VERSION" "$cli" theme) \
+      || fail "theme '$theme' exact pinned artifact is unavailable"
+    "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$artifact" --activate --force \
+      || fail "theme '$theme' exact pinned artifact could not be installed and activated"
+    active=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme list --status=active --field=name) \
+      || fail "theme '$theme' active-theme readback failed after pinned install"
+    [ "$active" = "$theme" ] \
+      || fail "theme '$theme' pinned install completed but active theme was '${active:-none}'"
+    installed_version=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme get "$theme" --field=version) \
+      || fail "theme '$theme' version readback failed after pinned install"
+    [ "$installed_version" = "$PAIR_BOOTSTRAP_THEME_VERSION" ] \
+      || fail "theme '$theme' pinned install reported version '$installed_version', expected '$PAIR_BOOTSTRAP_THEME_VERSION'"
+    return 0
+  fi
   # A fresh pair is an evidence boundary, but WordPress.org is not: a
   # transient theme-directory lookup must not turn an otherwise healthy
   # conformance leg red. Keep the retry narrow and bounded, preserve every
@@ -1204,20 +1221,30 @@ install_side() { # install_side <name> <side (1|2)> <url> <title>
 # --- subcommands -------------------------------------------------------------
 
 cmd_up() {
-  local name="${1:?usage: pair.sh up <name> <port1> <port2> [--journal] [--codebind <dir>] [--http|--headless]}"
+  local name="${1:?usage: pair.sh up <name> <port1> <port2> [--journal] [--codebind <dir>] [--artifacts] [--wordpress-offline] [--http|--headless]}"
   local port1="${2:?up needs <port1>}"
   local port2="${3:?up needs <port2>}"
   shift 3
-  local journal=0 codebind="" http_mode=1
+  local journal=0 codebind="" artifacts=0 wordpress_offline=0 http_mode=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --journal) journal=1; shift ;;
       --codebind) codebind="${2:?--codebind needs a plugin directory name}"; shift 2 ;;
+      --artifacts) artifacts=1; shift ;;
+      --wordpress-offline) wordpress_offline=1; shift ;;
       --http) http_mode=1; shift ;;
       --headless) http_mode=0; shift ;;
       *) fail "up: unknown flag '$1'" ;;
     esac
   done
+  [ "$wordpress_offline" = 0 ] || [ "$artifacts" = 1 ] \
+    || fail "up: --wordpress-offline requires --artifacts so bootstrap has a verified local theme source"
+  if [ "$artifacts" = 1 ]; then
+    # Ordinary pair commands retain pair.sh's self-contained load boundary;
+    # only the explicit artifact-backed bootstrap needs the shared resolver.
+    # shellcheck source=fetch-artifact.sh
+    . bin/fetch-artifact.sh
+  fi
   validate_name "$name"
 
   # DUO-3377: the exact-source gate runs FIRST -- ahead of the budget
@@ -1225,6 +1252,23 @@ cmd_up() {
   # checkout), the shared DB, this pair's schemas, its site-repo roots, and
   # every container operation. A refusal here has touched nothing at all.
   assert_candidate_source up
+
+  # The typed artifact registry is mutation authority for the explicit
+  # artifact-backed bootstrap. Validate its complete closed shape before the
+  # budget lock, shared database, pair roots, or Docker are touched; a later
+  # fetch must not be the first place an unknown role/key is discovered.
+  if [ "$artifacts" = 1 ]; then
+    validate_artifact_lock conformance/artifacts.lock.json \
+      || fail "up: artifact lock is malformed; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_VERSION=$(jq -r '
+      .themes.twentytwentyone | if type == "object" and length == 1 then keys[0] else empty end
+    ' conformance/artifacts.lock.json)
+    [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
+      || fail "up: the pinned bootstrap-theme registry entry is missing or ambiguous; no pair resources were changed"
+  else
+    PAIR_BOOTSTRAP_THEME_VERSION=
+  fi
+  PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
 
   # Reserve the host budget before touching the shared DB, creating pair
   # schemas, or creating bind roots.  The reservation lock remains held
@@ -1242,7 +1286,10 @@ cmd_up() {
   [ "$http_mode" = 1 ] && overlays+=(pair.http.yml)
   [ "$journal" = 1 ] && overlays+=(pair.journal.yml)
   [ -n "$codebind" ] && overlays+=(pair.codebind.yml)
+  [ "$artifacts" = 1 ] && overlays+=(pair.artifacts.yml)
+  [ "$wordpress_offline" = 1 ] && overlays+=(pair.wordpress-offline.yml)
   export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
+  export DUO_ARTIFACT_OFFLINE="$wordpress_offline"
   pair_compose "$name" "${overlays[@]}"
 
   say "shared infra: MariaDB (duo-db) + duo-shared network"
@@ -1329,8 +1376,8 @@ cmd_up() {
   fi
   echo
   echo "  wp-cli invocation pattern for this pair (run from sandbox/):"
-  echo "    docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )run --rm cli1 wp <command...>"
-  echo "    docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )run --rm cli2 wp <command...>"
+  echo "    docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli1 wp <command...>"
+  echo "    docker compose -p duo-${name} -f pair.yml $( [ "$journal" = 1 ] && printf -- '-f pair.journal.yml ' )$( [ -n "$codebind" ] && printf -- '-f pair.codebind.yml ' )$( [ "$artifacts" = 1 ] && printf -- '-f pair.artifacts.yml ' )$( [ "$wordpress_offline" = 1 ] && printf -- '-f pair.wordpress-offline.yml ' )run --rm cli2 wp <command...>"
   echo "  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=${name} must stay exported, or pass -p duo-${name} and set WORDPRESS_DB_NAME/etc. yourself)"
 }
 
@@ -1545,7 +1592,7 @@ cmd_list() {
 usage() {
   cat <<'USAGE'
 usage:
-  pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--http|--headless]
+  pair.sh up <name> <port1> <port2> [--journal] [--codebind <plugin-dir>] [--artifacts] [--wordpress-offline] [--http|--headless]
   pair.sh reset <name>
   pair.sh stop <name>
   pair.sh start <name>
@@ -1565,6 +1612,10 @@ usage:
              --codebind <dir>   bind wp-content/plugins/<dir> from this
                                  pair's own siterepo/<name>{1,2}/code/ tree
                                  (pair.codebind.yml; spike G's pattern)
+             --artifacts        mount the shared digest-addressed artifact
+                                 cache and bootstrap from its pinned theme
+             --wordpress-offline  map WordPress.org catalog hosts to
+                                 loopback; requires --artifacts and a warm cache
              --http             publish wp1/wp2 on <port1>/<port2> (default)
              --headless         don't publish any host port for this pair
 

@@ -1,105 +1,108 @@
-# fetch-artifact.sh — DUO-3223's version-boundary matrix / the owner ruling
-# on artifact sourcing (issue comment 0ec1d2e3, DUO-3223). Meant to be
-# SOURCED (". bin/fetch-artifact.sh"), not executed — it defines one
-# function, fetch_artifact(), that reuses the calling script's own
-# PAIR_COMPOSE array (every pair-based test already defines one) rather
-# than re-encoding a whole docker-compose invocation as its own argument
-# surface. This mirrors the existing convention of small in-script helper
-# functions (install_plugins(), reset_env_state(), etc.) more than it
-# mirrors sandbox/bin/pair.sh's own standalone-executable shape — a fetch
-# always happens ON BEHALF OF some specific pair's specific cli service,
-# never independently of one.
+# fetch-artifact.sh — typed, digest-pinned shared artifact resolution.
+# Source this file after defining PAIR_COMPOSE as a docker-compose argv array.
 #
-# Contract (this issue's own non-negotiable: "installs exact artifacts; it
-# never pulls latest"):
-#   - No entry in sandbox/conformance/artifacts.lock.json for the given
-#     (slug, version) -> refuse loudly. No fallback to "just fetch it and
-#     trust wp.org" for an unpinned version, ever.
-#   - Entry present, no cached file yet -> download inside the CALLING
-#     pair's own cli container (this host's own shell has no outbound
-#     network access, confirmed empirically while researching this issue —
-#     the containers do), allocate a unique temp path on the shared mount,
-#     retry transient download-command failures at most three times, verify
-#     sha256 against the lockfile's declared digest, refuse loudly and delete
-#     only that fetch's temp file on any mismatch or exhausted retry sequence.
-#   - Entry present, cached file already exists -> re-verify sha256 every
-#     time (cheap, local, no network) rather than trusting a prior verified-
-#     ness a stale/tampered cache file might no longer deserve. A mismatch
-#     here refuses loudly and does NOT silently re-fetch — an operator
-#     asking "why did my pinned artifact's bytes change on disk" needs to
-#     see that surfaced, not have it silently paper over itself.
+# validate_artifact_lock [path]
 #
-# Requires: the caller has already layered pair.artifacts.yml onto its own
-# PAIR_COMPOSE (-f pair.artifacts.yml, alongside pair.yml/pair.journal.yml/
-# etc) — this mounts sandbox/conformance/artifacts-cache/ into cli1/cli2 at
-# /artifacts-cache, shared across every pair and every run (deliberately
-# NOT per-pair the way siterepo/ is — see pair.artifacts.yml's own comment
-# for why that's what makes the cache actually save repeat downloads).
-#
-# fetch_artifact <slug> <version> <cli-service-name>
-#   Prints the container-side path to the verified ZIP on stdout
-#   (/artifacts-cache/<slug>-<version>.zip) — pass this straight to
-#   `wp plugin install "$(fetch_artifact ...)" --activate`, never a slug or
-#   a bare version number, so an install can never silently fall through to
-#   wp-cli's own live wp.org fetch of "whatever is current."
-fetch_artifact() {
-  local slug="$1" version="$2" cli="$3"
-  local lockfile="conformance/artifacts.lock.json"
-  local entry url sha256 cache_path
+# Refuse any registry shape that the resolver or bundle reducer does not
+# understand. In particular, an unknown role must never be executable while
+# disappearing from the bundle's certified/refusal artifact inventory.
+validate_artifact_lock() {
+  local lockfile="${1:-${DUO_ARTIFACT_LOCKFILE:-conformance/artifacts.lock.json}}"
+  jq -e '
+    def safe_slug:
+      type == "string" and test("^[a-z0-9][a-z0-9._-]*[a-z0-9]$");
+    def safe_version:
+      type == "string" and test("^[0-9A-Za-z][0-9A-Za-z._-]*$");
+    def safe_entry:
+      type == "object" and
+      (keys == ["role","sha256","url"] or
+       keys == ["archive_root","role","sha256","url"]) and
+      (.role == "certified-boundary" or
+       .role == "refusal-fixture" or
+       .role == "exercise-fixture") and
+      (.sha256 | type == "string" and test("^[0-9a-f]{64}$")) and
+      (.url | type == "string" and test("^https://[^[:space:]'\''\"]+$")) and
+      ((has("archive_root") | not) or (.archive_root | safe_slug));
+    def safe_namespace:
+      type == "object" and
+      all(to_entries[];
+        (.key | safe_slug) and
+        (.value | type == "object" and length > 0) and
+        all(.value | to_entries[];
+          (.key | safe_version) and (.value | safe_entry)));
+    type == "object" and keys == ["plugins","themes"] and
+    (.plugins | safe_namespace) and (.themes | safe_namespace) and
+    all(.themes | to_entries[] | .value | to_entries[];
+      .value.role == "exercise-fixture")
+  ' "$lockfile" >/dev/null 2>&1 || {
+    echo "FAIL: artifact lock is malformed or contains an unsupported namespace, key, role, URL, digest, or archive root" >&2
+    return 1
+  }
+}
 
-  entry=$(jq -c --arg slug "$slug" --arg version "$version" \
-    '.[$slug][$version] // empty' "$lockfile")
+# fetch_artifact <slug> <version> <cli-service-name> [plugin|theme]
+# prints only the verified container-side ZIP path on stdout. Resolution is
+# authorized by conformance/artifacts.lock.json; a miss never falls through to
+# a bare WP-CLI catalog install. The mounted runner owns the cross-process lock,
+# re-verification, bounded download, and atomic publication.
+fetch_artifact() {
+  local slug="$1" version="$2" cli="$3" kind="${4:-plugin}"
+  local lockfile="${DUO_ARTIFACT_LOCKFILE:-conformance/artifacts.lock.json}"
+  local runner="/duo-harness/artifact-cache-fetch.sh"
+  local entry url sha256 cache_path source record offline="${DUO_ARTIFACT_OFFLINE:-0}"
+
+  [[ "$slug" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+    || { echo "FAIL: fetch_artifact: invalid artifact slug" >&2; return 1; }
+  [[ "$version" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
+    || { echo "FAIL: fetch_artifact: invalid artifact version" >&2; return 1; }
+  case "$kind" in
+    plugin|theme) ;;
+    *) echo "FAIL: fetch_artifact: kind must be plugin or theme" >&2; return 1 ;;
+  esac
+  case "$offline" in
+    0|1) ;;
+    *) echo "FAIL: fetch_artifact: DUO_ARTIFACT_OFFLINE must be 0 or 1" >&2; return 1 ;;
+  esac
+  validate_artifact_lock "$lockfile" || return 1
+  entry=$(jq -c --arg namespace "${kind}s" --arg slug "$slug" --arg version "$version" \
+    '.[$namespace][$slug][$version] // empty' "$lockfile")
   if [ -z "$entry" ]; then
-    echo "FAIL: fetch_artifact: no pin for $slug $version in $lockfile" \
-      "— this issue's own non-negotiable is 'installs exact artifacts;" \
-      "never pulls latest,' so an unpinned version is refused, not fetched" >&2
+    echo "FAIL: fetch_artifact: no $kind pin for $slug $version in $lockfile" \
+      "— exact artifact installs are mandatory, so an unpinned version is refused, not fetched" >&2
     return 1
   fi
   url=$(echo "$entry" | jq -r '.url')
   sha256=$(echo "$entry" | jq -r '.sha256')
-  cache_path="/artifacts-cache/${slug}-${version}.zip"
+  [[ "$sha256" =~ ^[0-9a-f]{64}$ ]] \
+    || { echo "FAIL: fetch_artifact: malformed digest pin for $slug $version" >&2; return 1; }
+  if [[ "$url" != https://* || "$url" == *"'"* || "$url" == *" "* \
+    || "$url" == *$'\t'* || "$url" == *$'\r'* || "$url" == *$'\n'* ]]; then
+    echo "FAIL: fetch_artifact: malformed HTTPS URL pin for $slug $version" >&2
+    return 1
+  fi
+  cache_path="/artifacts-cache/${kind}-${slug}-${version}-${sha256}.zip"
 
-  # The shared cache is a host bind mount and is intentionally not made
-  # world-writable. Fetch/verification is infrastructure work, so perform
-  # this one bounded command as root; ordinary wp-cli/plugin execution still
-  # runs as the image's unprivileged user and only reads the verified ZIP.
-  "${PAIR_COMPOSE[@]}" run --rm -T -u root "$cli" sh -c "
-    set -e
-    if [ -f '$cache_path' ]; then
-      ACTUAL=\$(sha256sum '$cache_path' | cut -d' ' -f1)
-      if [ \"\$ACTUAL\" != '$sha256' ]; then
-        echo \"FAIL: fetch_artifact: cached $cache_path does not match its pinned digest (expected $sha256, got \$ACTUAL) — refusing, not silently re-fetching; delete the cache file first if a re-fetch is actually intended\" >&2
-        exit 1
-      fi
-      exit 0
-    fi
-    # Create the temp on the shared cache mount itself: mktemp's exclusive
-    # creation prevents concurrent pair fetches from sharing a partial path,
-    # while the final same-mount mv remains atomic.
-    TMP=\$(mktemp \"$cache_path.tmp.XXXXXX\")
-    trap 'rm -f \"\$TMP\"' EXIT
-    chmod 0644 \"\$TMP\"
-    for attempt in 1 2 3; do
-      : > \"\$TMP\"
-      if curl --connect-timeout 10 --max-time 120 -fsSL -o \"\$TMP\" '$url'; then
-        break
-      fi
-      if [ \"\$attempt\" -eq 3 ]; then
-        rm -f \"\$TMP\"
-        echo \"FAIL: fetch_artifact: download of $slug $version failed after 3 attempts — refusing and deleting only the partial file\" >&2
-        exit 1
-      fi
-      echo \"Warning: fetch_artifact: download of $slug $version failed on attempt \$attempt/3; retrying the pinned URL\" >&2
-      sleep \"\$attempt\"
-    done
-    ACTUAL=\$(sha256sum \"\$TMP\" | cut -d' ' -f1)
-    if [ \"\$ACTUAL\" != '$sha256' ]; then
-      rm -f \"\$TMP\"
-      echo \"FAIL: fetch_artifact: downloaded $slug $version does not match its pinned digest (expected $sha256, got \$ACTUAL) — refusing, deleting the partial file, not installing it\" >&2
-      exit 1
-    fi
-    mv \"\$TMP\" '$cache_path'
-  " >&2 || return 1
+  # Cache writes are infrastructure work and run as root inside the fixed CLI
+  # image. Ordinary WP-CLI execution remains uid 33 and only reads the ZIP.
+  if ! source=$("${PAIR_COMPOSE[@]}" run --rm -T -u root \
+    -e "DUO_ARTIFACT_FORCE_PHP_LOCK=${DUO_ARTIFACT_FORCE_PHP_LOCK:-0}" \
+    "$cli" sh "$runner" "$url" "$sha256" "$cache_path" "$offline" "$slug" "$version" "$kind"); then
+    return 1
+  fi
+  case "$source" in
+    cache-hit|network-fetch) ;;
+    *) echo "FAIL: fetch_artifact: fetch runner returned an invalid source record" >&2; return 1 ;;
+  esac
 
+  printf 'artifact-cache: kind=%s slug=%s version=%s sha256=%s source=%s path=%s\n' \
+    "$kind" "$slug" "$version" "$sha256" "$source" "$cache_path" >&2
+  if [ -n "${DUO_ARTIFACT_USAGE_LOG:-}" ]; then
+    record=$(jq -cn --arg kind "$kind" --arg slug "$slug" --arg version "$version" \
+      --arg sha256 "$sha256" --arg source "$source" --arg path "$cache_path" \
+      '{kind:$kind,slug:$slug,version:$version,sha256:$sha256,source:$source,path:$path}') \
+      || return 1
+    # One bounded printf opens with O_APPEND and performs one record write.
+    printf '%s\n' "$record" >> "$DUO_ARTIFACT_USAGE_LOG" || return 1
+  fi
   echo "$cache_path"
 }
