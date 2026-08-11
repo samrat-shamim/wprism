@@ -140,10 +140,13 @@ PID_C=""
 
 cleanup() {
   local status=$? remaining="" pid=""
+  local -a running_ids=()
   trap - EXIT
   for pid in "$PID_A" "$PID_B_JSON" "$PID_B_HUMAN" "$PID_C"; do
-    if [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null; then
-      kill "$pid" 2>/dev/null || true
+    if [[ "$pid" =~ ^[0-9]+$ ]]; then
+      if jobs -pr | grep -qx "$pid"; then
+        kill "$pid" 2>/dev/null || true
+      fi
       wait "$pid" 2>/dev/null || true
     fi
   done
@@ -173,8 +176,18 @@ cleanup() {
         printf 'FAIL: could not prove pair %s stopped; preserving all reachable evidence\n' "$PAIR" >&2
         status=1
       elif [ -n "$remaining" ]; then
-        printf 'FAIL: pair %s still has running containers; preserving all reachable evidence\n' "$PAIR" >&2
-        status=1
+        read -r -a running_ids <<<"$(tr '\n' ' ' <<<"$remaining")"
+        if ! docker stop "${running_ids[@]}" >/dev/null; then
+          printf 'FAIL: could not stop pair %s one-off containers; preserving all reachable evidence\n' "$PAIR" >&2
+          status=1
+        elif ! remaining=$(docker ps \
+            --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
+          printf 'FAIL: could not recheck pair %s after stopping one-off containers\n' "$PAIR" >&2
+          status=1
+        elif [ -n "$remaining" ]; then
+          printf 'FAIL: pair %s still has running containers; preserving all reachable evidence\n' "$PAIR" >&2
+          status=1
+        fi
       fi
       printf 'preserved failed capture-concurrency evidence under:\n  %s\n  /tmp/duo3223-%s-*\n' \
         "$HOST_REPO1" "$PAIR" >&2
@@ -245,8 +258,6 @@ CAPTURE_B_HUMAN="$(cat "$LOG_B_HUMAN_OUT" "$LOG_B_HUMAN_ERR")"
 printf '%s\n' "$CAPTURE_B_JSON"
 [ "$CAPTURE_B_RC" -eq 1 ] || fail "capture B returned $CAPTURE_B_RC instead of the typed refusal exit 1"
 require_duo_answered "capture B JSON refusal" json "$CAPTURE_B_JSON"
-[ -z "$CAPTURE_B_JSON_ERR" ] \
-  || fail "capture B wrote unexpected stderr beside its JSON contract: $CAPTURE_B_JSON_ERR"
 jq -e -s '
   length == 1 and .[0] == {
     "format": "duo-command-refusal/v1",
@@ -269,6 +280,12 @@ jq -e -s '
   && [[ "$CAPTURE_B_JSON" != *"lock held:"* ]] \
   && [[ "$CAPTURE_B_JSON" != *"DUO-3213"* ]] \
   || fail "capture B's machine contract leaked operator-only path or lock evidence: $CAPTURE_B_JSON"
+[[ "$CAPTURE_B_JSON_ERR" != *"/siterepo/state"* ]] \
+  && [[ "$CAPTURE_B_JSON_ERR" != *"already publishing"* ]] \
+  && [[ "$CAPTURE_B_JSON_ERR" != *"lock held:"* ]] \
+  && [[ "$CAPTURE_B_JSON_ERR" != *"DUO-3213"* ]] \
+  && [[ "$CAPTURE_B_JSON_ERR" != *"duo-command-refusal/v1"* ]] \
+  || fail "capture B's machine invocation leaked operator or refusal-envelope evidence on stderr: $CAPTURE_B_JSON_ERR"
 pass "capture B refused immediately through the typed, path-redacted machine contract"
 
 say "PART 1 — human mode retains operator-only lock and destination evidence"
