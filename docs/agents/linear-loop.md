@@ -328,7 +328,7 @@ branch or edit files before this passes.
    the evidence: what changed (file:line), test tails (paste, don't
    paraphrase), conformance evidence for affected manifests, and anything
    re-homed or discovered.
-2. The merge gate is your **local conformance evidence** from Work and Verify
+2. The merge gate is your **local conformance evidence** from Work and verify
    step 4, quoted in the PR body — the repo's CI workflow is currently
    disabled by owner decision. (If/when it is re-enabled, PR CI green becomes
    an additional required gate; a red leg is then yours to root-cause —
@@ -386,11 +386,12 @@ queue look better than it is.
 
 ## Field notes — shell & process hygiene (hard-won)
 
-One rule per incident; each cost real debugging time. **Contract for new
+One rule per incident; each cost real debugging time. Follow them, and
+extend this list when you pay for a new one. **Contract for new
 notes: one bolded rule, a one-clause mechanism, and the issue ref — the full
 narrative lives in the issue; when a suite or helper later enforces the
-rule, shrink the note to a pointer.** Every story below is recoverable via
-its DUO ref.
+rule, shrink the note to a pointer.** Stories are recoverable via their
+DUO refs where given.
 
 - **Reading the process table for a running sweep:** naive
   `pgrep -f "conformance/run.sh"` matches your own watcher and every other
@@ -406,17 +407,21 @@ its DUO ref.
   DUO-3382). A pattern cannot tell your run from anyone else's, and `-f`
   widens it to every wrapper that merely quotes the string. "Don't start a
   second one" is the tool's job, not the process table's:
-  `certify_reference_bundle.sh` takes a per-host flock the KERNEL releases
-  when its holder stops existing — no corpse, no staleness rule, nothing to
-  clean by hand — and `CERT_BUNDLE_WAIT=1` waits for it (bounded poll, no
-  ordering). Killing a bundle to free its lock achieves nothing the kernel
-  wouldn't. Proven offline by `regress_certbundle_lock.sh`, both backends.
+  `certify_reference_bundle.sh` takes a per-host flock
+  (`/tmp/duo-certbundle.lock`) BEFORE its preflight, which the KERNEL
+  releases when its holder stops existing — no corpse, no staleness rule, nothing to
+  clean by hand — and `CERT_BUNDLE_WAIT=1` waits for it (bounded poll, 90 min
+  default, no ordering). Killing a bundle to free its lock achieves nothing the kernel
+  wouldn't. Proven offline by `sandbox/tests/regress_certbundle_lock.sh`, both
+  backends.
 - **Posting content to any API from a shell:** never build the payload
   inside a double-quoted argument — double quotes do NOT suppress backticks
   or `$var` (backtick code spans in comment text got EXECUTED and blanked;
   `$path` expanded to the host `$PATH` inside a posted body; three artifacts
   corrupted, caught only by re-fetching). Write the payload to a spec FILE
-  with the file tool, POST the file, then **re-fetch what actually posted**
+  with the file tool (content never touches a command line), then POST the
+  file (`python3 helper.py spec.json`), then **re-fetch what actually
+  posted**
   — the write succeeding says nothing about what the shell did to the bytes.
 - **Source-read any script before running it, every time it changed** —
   specifically its resource stanza (PAIR/ports/`reset`/`up`/`destroy`
@@ -439,9 +444,12 @@ its DUO ref.
   (`grep -qE ... <<<"$VAR"`); convert every `echo "$BIGVAR" | grep -q` on
   sight. Corollary: when an in-script check contradicts your standalone
   reproduction, suspect a race in the CHECK before a mystery in the system.
-  Same investigation: BRE `\|` alternation is a GNU-ism (always `-E`);
-  `curl -s` swallows mid-transfer truncation — assert a byte floor above the
-  last needed marker and print `${#VAR}` in every failure path; bare
+  Same investigation: BRE `\|` alternation is a GNU-ism —
+  this host's ugrep accepts it while plain BSD grep reads it literally
+  (always `-E`);
+  `curl -s` swallows mid-transfer truncation — assert a byte floor above
+  the last needed marker's OFFSET, before any content grep, and print
+  `${#VAR}` in every failure path; bare
   `?page_id=N` 301s under pretty permalinks (use `-L`).
 - **A live check has three failure domains — premise, answer, observation —
   and must name the right one instead of accusing the engine.** Under
@@ -450,8 +458,10 @@ its DUO ref.
   silently not land — read it back and assert its shape BEFORE the behavior
   assertion (`require_fixture_ids`/`require_fixture_values`/
   `require_fixture_state`, message prefix `fixture manufacture failed:`;
-  DUO-3380/3381); (b) a captured duo invocation can die at the docker layer
-  precisely because `|| RC=$?` / `|| fail` disables `set -e` for it —
+  DUO-3380/DUO-3381); (b) a captured duo invocation can die at the docker layer
+  precisely because `|| RC=$?` / `|| fail` disables `set -e` for it (and
+  RC-only variants are worse: ANY non-zero exit satisfies them, so a dead
+  invocation reports GREEN) —
   assert there WAS an answer before asserting about the answer
   (`require_duo_answered <what> <human|json> <output>`, prefix
   `infrastructure failure:`; keep the "answered" marker BROAD — a narrow one
@@ -462,9 +472,11 @@ its DUO ref.
   exit-code-gated where the read exits non-zero on genuine absence, so a
   real deletion still reaches the engine accusation; DUO-3401). All helpers
   live in `sandbox/conformance/asserts.sh`, the shared fragment BOTH
-  hook-sourcing harnesses load and `run.sh` `export -f`s to its child hooks
-  (a helper added to only one harness kills the other at bundle leg 12,
-  DUO-3408); the wiring is enforced by `regress_conformance_asserts.sh`.
+  hook-sourcing harnesses load (`conformance/run.sh`, which `export -f`s
+  them to its child hooks, and `certify_version_matrix.sh` — a helper added
+  to only one harness kills the other at bundle leg 12 with `command not
+  found`, DUO-3408); the wiring is enforced by
+  `sandbox/tests/regress_conformance_asserts.sh`.
 - **CLOSED (DUO-3277):** the "bring pairs up only from the canonical
   checkout, never a worktree" discipline is now tooling-enforced —
   `pair.sh up` resolves the `agent`/`manifests` bind mounts via git's own
