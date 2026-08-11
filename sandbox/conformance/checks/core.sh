@@ -281,7 +281,49 @@ grep -Fq "EXPLAIN wp duo explain $EXPLAIN_SELECTOR --repo=<repo>" <<<"$TITLE_HUM
 # _explain_registry.sh), with the trap installed BEFORE the first write so an
 # interrupt cannot leave the temp namespace occupied for a later sweep.
 EXPLAIN_REGISTRY_DIR=$(alloc_explain_registry_dir)
-trap 'rm -rf -- "${EXPLAIN_REGISTRY_DIR:-}"' EXIT
+EXPLAIN_TOOTH_OPTION_MAY_EXIST=0
+EXPLAIN_MU_MAY_EXIST=0
+remove_strict_explain_mu() {
+  local output rc
+  # Prefer the already-running web container. If compose exec cannot answer,
+  # start a one-shot, dependency-free root command against the same volume so
+  # cleanup still works when the cli service is the failed leg.
+  if output=$($COMPOSE exec -T --user root wp2 sh -c \
+    'rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php; printf "%s\\n" cleaned' 2>/dev/null); then
+    rc=0
+  else
+    rc=$?
+  fi
+  if [ "$rc" -eq 0 ] && grep -Fqx 'cleaned' <<<"$output"; then
+    return 0
+  fi
+  if output=$($COMPOSE run --rm -T --no-deps --user root wp2 sh -c \
+    'rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php; printf "%s\\n" cleaned' 2>/dev/null); then
+    rc=0
+  else
+    rc=$?
+  fi
+  [ "$rc" -eq 0 ] && grep -Fqx 'cleaned' <<<"$output"
+}
+cleanup_strict_explain() {
+  local status=$?
+  trap - EXIT
+  # The option is the only durable database mutation in this window. Best-effort
+  # cleanup is deliberately attempted from the EXIT path too: a compose
+  # command can return non-zero after the write has reached MySQL, leaving
+  # the normal forward delete unreachable. The MU files get the same
+  # exec-then-one-shot cleanup attempt; if the Docker daemon itself is dead,
+  # only pair destroy (not pair reset) removes their persistent webroot volume.
+  if [ "${EXPLAIN_TOOTH_OPTION_MAY_EXIST:-0}" -eq 1 ]; then
+    wp_conf2 option delete duo_explain_mutation_tooth >/dev/null 2>&1 || true
+  fi
+  if [ "${EXPLAIN_MU_MAY_EXIST:-0}" -eq 1 ]; then
+    remove_strict_explain_mu || true
+  fi
+  rm -rf -- "${EXPLAIN_REGISTRY_DIR:-}"
+  exit "$status"
+}
+trap cleanup_strict_explain EXIT
 EXPLAIN_REGISTRY="$EXPLAIN_REGISTRY_DIR/envs.json"
 jq -n --arg compose "$PWD/pair.yml" '{envs:{target:{transport:"docker",compose_file:$compose,service:"cli2",repo_path:"/siterepo"}}}' \
   >"$EXPLAIN_REGISTRY"
@@ -291,6 +333,7 @@ jq -n --arg compose "$PWD/pair.yml" '{envs:{target:{transport:"docker",compose_f
 # volume is root-owned, so install the fixture through the pair's exact owned
 # web container, then prove WordPress actually registered it before relying on
 # the negative invocation assertion.
+EXPLAIN_MU_MAY_EXIST=1
 $COMPOSE exec -T --user root wp2 sh -c \
   'printf "%s\n" "<?php" "add_filter(\"duo_attachment_capture_source\", static function () { throw new RuntimeException(\"DUO_EXPLAIN_OFFLOAD_HOOK_WAS_INVOKED\"); });" > /var/www/html/wp-content/mu-plugins/duo-explain-offload-guard.php'
 [ "$(wp_conf2 eval 'echo has_filter("duo_attachment_capture_source") ? "registered" : "missing";')" = 'registered' ] \
@@ -313,8 +356,10 @@ $COMPOSE exec -T --user root wp2 sh -c \
 # through the pair's own owned web container, like the offload guard above). The
 # tooth is untouched: the comparison stays a byte-exact hash of the ENTIRE database
 # with NO row filtering, so an explain write to ANY row still fails — a positive
-# control at the end proves that live. Both the freeze and the offload guard are
-# lifted BEFORE any fail-prone assertion below, so neither leaks past this proof.
+# control at the end proves that live. Both MU files remain cleanup-owned until
+# their answered removal; if the Docker daemon is unavailable even to the
+# one-shot fallback, pair destroy is required because pair reset preserves the
+# webroot volumes.
 wp_conf2 transient delete --expired >/dev/null 2>&1 || true
 wp_conf2 transient delete --expired --network >/dev/null 2>&1 || true
 $COMPOSE exec -T --user root wp2 sh -c \
@@ -365,15 +410,31 @@ wp_conf2 transient delete --expired --network >/dev/null 2>&1 || true
 EXPLAIN_TOOTH_BEFORE_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
 require_observed_nonempty "conf2 db export (mutation-tooth before)" "$EXPLAIN_TOOTH_BEFORE_SQL"
 EXPLAIN_TOOTH_BEFORE=$(printf '%s' "$EXPLAIN_TOOTH_BEFORE_SQL" | shasum -a 256 | awk '{print $1}')
+EXPLAIN_TOOTH_OPTION_MAY_EXIST=1
 wp_conf2 option update duo_explain_mutation_tooth duo-3410 >/dev/null \
   || fail "DUO-3410 mutation-tooth self-test could not stage its durable probe write"
-EXPLAIN_TOOTH_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null)
+EXPLAIN_TOOTH_AFTER_RC=0
+EXPLAIN_TOOTH_AFTER_SQL=$(wp_conf2 db export - --skip-comments --single-transaction 2>/dev/null) \
+  || EXPLAIN_TOOTH_AFTER_RC=$?
+# Remove the durable tooth immediately after collecting its bytes, before the
+# premise check below can abort on an empty-at-exit-0 observation. The EXIT
+# cleanup above covers the separate non-zero/partial-write failure shape.
+EXPLAIN_TOOTH_DELETE_RC=0
+EXPLAIN_TOOTH_DELETE_OUT=$(wp_conf2 option delete duo_explain_mutation_tooth 2>/dev/null) \
+  || EXPLAIN_TOOTH_DELETE_RC=$?
+[ "$EXPLAIN_TOOTH_DELETE_RC" -eq 0 ] && [ -n "$EXPLAIN_TOOTH_DELETE_OUT" ] \
+  || fail "infrastructure failure: conf2 mutation-tooth cleanup was not answered (rc=$EXPLAIN_TOOTH_DELETE_RC)"
+EXPLAIN_TOOTH_OPTION_MAY_EXIST=0
+[ "$EXPLAIN_TOOTH_AFTER_RC" -eq 0 ] \
+  || fail "infrastructure failure: conf2 db export (mutation-tooth after) failed (rc=$EXPLAIN_TOOTH_AFTER_RC)"
 require_observed_nonempty "conf2 db export (mutation-tooth after)" "$EXPLAIN_TOOTH_AFTER_SQL"
 EXPLAIN_TOOTH_AFTER=$(printf '%s' "$EXPLAIN_TOOTH_AFTER_SQL" | shasum -a 256 | awk '{print $1}')
-wp_conf2 option delete duo_explain_mutation_tooth >/dev/null
-# DUO-3410: lift the WP-Cron freeze BEFORE any fail-prone assertion below, so it
-# never leaks past this proof (the offload guard above is lifted the same way).
-$COMPOSE exec -T --user root wp2 rm -f -- /var/www/html/wp-content/mu-plugins/duo-explain-cron-freeze.php
+# DUO-3410/3424: lift both MU files only after the strict-explain and tooth
+# observations have answered. The helper verifies that either the running
+# container or a one-shot root fallback actually executed the removal.
+remove_strict_explain_mu \
+  || fail "infrastructure failure: strict-explain MU cleanup was not answered"
+EXPLAIN_MU_MAY_EXIST=0
 rm -rf -- "$EXPLAIN_REGISTRY_DIR"
 trap - EXIT
 # The json invocation is safe to gate: the host CLI's refusal envelope goes to
