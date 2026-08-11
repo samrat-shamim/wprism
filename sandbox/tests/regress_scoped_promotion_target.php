@@ -24,8 +24,16 @@ namespace Duo {
         public static bool $failNextPromotionSessionUpsert = false;
         public static int $promotionLockWrites = 0;
         public static int $transactionStarts = 0;
+        public static int $transactionRollbacks = 0;
+        /** @var list<string> */
+        public static array $transactionReadKeys = [];
+        /** @var list<string> */
+        public static array $lastTransactionReadKeys = [];
 
         public static function get(string $key): ?string {
+            if (self::$transactionValues !== null) {
+                self::$transactionReadKeys[] = $key;
+            }
             $values = self::$transactionValues ?? self::$values;
             return $values[$key] ?? null;
         }
@@ -64,6 +72,7 @@ namespace Duo {
             }
             self::$transactionStarts++;
             self::$transactionValues = self::$values;
+            self::$transactionReadKeys = [];
         }
 
         public static function commit(): void {
@@ -72,12 +81,17 @@ namespace Duo {
             }
             self::$values = self::$transactionValues;
             self::$transactionValues = null;
+            self::$lastTransactionReadKeys = self::$transactionReadKeys;
+            self::$transactionReadKeys = [];
         }
 
         public static function rollback(): void {
             if (self::$transactionValues === null) {
                 throw new \RuntimeException('fake scoped promotion transaction is absent at rollback');
             }
+            self::$transactionRollbacks++;
+            self::$lastTransactionReadKeys = self::$transactionReadKeys;
+            self::$transactionReadKeys = [];
             self::$transactionValues = null;
         }
 
@@ -152,6 +166,15 @@ namespace {
             }
             [$template, $args] = $this->decode($query);
             if (str_contains($template, 'information_schema.TABLES')) {
+                if (!ScopedPromotionTargetLedger::transactionOpen()
+                    || ScopedPromotionTargetLedger::$transactionReadKeys !== [
+                        'promotion_lock',
+                        'promotion_session',
+                    ]) {
+                    throw new RuntimeException(
+                        'engine assertion must follow transaction-bound promotion lock/session reads'
+                    );
+                }
                 if (($args[0] ?? null) !== $this->prefix . 'duo_kv') {
                     throw new RuntimeException('unexpected promotion-lock engine table query');
                 }
@@ -427,13 +450,19 @@ namespace {
         $acquireInternalSource,
         "Db::start('scoped ordinary session replacement transaction start')"
     );
+    $replacementLockReadOffset = strpos($acquireInternalSource, '$before = self::current();');
+    $replacementSessionReadOffset = strpos($acquireInternalSource, '$existingSession = self::current_session();');
     $check(
         $replacementStorageOffset !== false
             && $replacementTransactionStartOffset !== false
-            && $replacementStorageOffset < $replacementTransactionStartOffset
+            && $replacementLockReadOffset !== false
+            && $replacementSessionReadOffset !== false
+            && $replacementTransactionStartOffset < $replacementLockReadOffset
+            && $replacementLockReadOffset < $replacementSessionReadOffset
+            && $replacementSessionReadOffset < $replacementStorageOffset
             && str_contains($lockSource, 'information_schema.TABLES')
             && str_contains($lockSource, "strcasecmp(\$engine, 'InnoDB')"),
-        'ordinary-session replacement proves the exact duo_kv storage is InnoDB before opening its atomic transaction'
+        'ordinary-session replacement checks exact InnoDB storage only after transaction-bound lock/session reads'
     );
     $second = PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
     $check(
@@ -496,6 +525,7 @@ namespace {
     ];
     $ordinaryCompletedBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
     $ordinaryReplacementTransactionStarts = ScopedPromotionTargetLedger::$transactionStarts;
+    $ordinaryReplacementTransactionRollbacks = ScopedPromotionTargetLedger::$transactionRollbacks;
     $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
     $GLOBALS['wpdb']->duoKvEngine = 'MyISAM';
     $expect(
@@ -507,9 +537,14 @@ namespace {
         (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryCompletedBytes
             && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
             && !ScopedPromotionTargetLedger::transactionOpen()
-            && ScopedPromotionTargetLedger::$transactionStarts === $ordinaryReplacementTransactionStarts
+            && ScopedPromotionTargetLedger::$transactionStarts === $ordinaryReplacementTransactionStarts + 1
+            && ScopedPromotionTargetLedger::$transactionRollbacks === $ordinaryReplacementTransactionRollbacks + 1
+            && ScopedPromotionTargetLedger::$lastTransactionReadKeys === [
+                'promotion_lock',
+                'promotion_session',
+            ]
             && ScopedPromotionTargetLedger::$promotionLockWrites === $ordinaryReplacementLockWrites,
-        'nontransactional storage refusal leaves the exact ordinary session, lock state, and transaction boundary untouched'
+        'nontransactional storage refusal rolls back its metadata-locked reads without changing the ordinary session or lock'
     );
     $GLOBALS['wpdb']->duoKvEngine = 'InnoDB';
     $ordinaryReplacementLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
