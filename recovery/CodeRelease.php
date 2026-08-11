@@ -376,7 +376,7 @@ final class CodeRelease {
             'target_id' => (string) $payload['target_id'],
         ];
         self::validateMetadata($metadata);
-        self::atomicWrite($metadataPath, RollbackControl::canonical($metadata) . "\n", 0600, 'code release metadata');
+        self::atomicWrite($metadataPath, CanonicalJson::encode($metadata) . "\n", 0600, 'code release metadata');
         self::verifyMetadataArtifacts($root, $metadata);
         return self::publicMetadata($metadata);
     }
@@ -432,7 +432,7 @@ final class CodeRelease {
         $tombstone = ['deleted_at' => (string) $payload['timestamp'], 'format' => self::TOMBSTONE_FORMAT,
             'metadata_sha256' => self::metadataHash($metadata), 'prior_release_id' => (string) $metadata['prior_release_id'],
             'provider_id' => (string) $metadata['provider_id'], 'receipt_id' => (string) $status['receipt_id']];
-        self::atomicWrite($tombstonePath, RollbackControl::canonical($tombstone) . "\n", 0600, 'code release tombstone');
+        self::atomicWrite($tombstonePath, CanonicalJson::encode($tombstone) . "\n", 0600, 'code release tombstone');
         return ['deleted' => true, 'ok' => true, 'prior_release_id' => (string) $metadata['prior_release_id']];
     }
 
@@ -727,7 +727,7 @@ final class CodeRelease {
             'prior_release_id' => (string) $metadata['prior_release_id'], 'provider_id' => (string) $metadata['provider_id'], 'provider_version' => (string) $metadata['provider_version']];
     }
 
-    private static function metadataHash(array $metadata): string { return hash('sha256', RollbackControl::canonical($metadata)); }
+    private static function metadataHash(array $metadata): string { return hash('sha256', CanonicalJson::encode($metadata)); }
 
     /** @param array<string,mixed> $payload */
     private static function validateRequest(array $payload): void {
@@ -784,28 +784,27 @@ final class CodeRelease {
     private static function call(array $config, array $request): array {
         $command = $config['code_release_provider'] ?? null;
         if (!is_array($command) || $command === []) throw new \RuntimeException('duo code release: provider is not configured');
-        $pipes = [];
-        $process = @proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, null, null, ['bypass_shell' => true]);
-        if (!is_resource($process)) throw new \RuntimeException('duo code release: could not start provider');
-        fwrite($pipes[0], RollbackControl::canonical($request) . "\n"); fclose($pipes[0]); stream_set_blocking($pipes[1], false); stream_set_blocking($pipes[2], false);
-        $stdout = ''; $stderr = ''; $observed = null; $deadline = microtime(true) + (int) $config['timeout_seconds'];
-        do { $stdout .= (string) stream_get_contents($pipes[1]); $stderr .= (string) stream_get_contents($pipes[2]); $state = proc_get_status($process); if (!$state['running']) { $observed = (int) $state['exitcode']; break; } if (microtime(true) >= $deadline) { proc_terminate($process, 9); throw new \RuntimeException('duo code release: provider timed out; exclusion remains held'); } usleep(10000); } while (true);
-        $stdout .= (string) stream_get_contents($pipes[1]); $stderr .= (string) stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]); $closed = proc_close($process); $exit = $observed ?? $closed;
-        if ($exit !== 0) { $detail = trim($stderr !== '' ? $stderr : $stdout); throw new \RuntimeException('duo code release: provider failed' . ($detail !== '' ? ': ' . substr($detail, 0, 1000) : '')); }
-        try { $decoded = json_decode($stdout, true, 512, JSON_THROW_ON_ERROR); } catch (\Throwable $e) { throw new \RuntimeException('duo code release: provider returned malformed JSON'); }
-        if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $stdout) throw new \RuntimeException('duo code release: provider returned non-canonical evidence');
-        return $decoded;
+        return ProviderClient::request(
+            $command,
+            $request,
+            (int) $config['timeout_seconds'],
+            'duo code release',
+            'duo code release: could not start provider',
+            'duo code release: provider timed out; exclusion remains held',
+            'duo code release: provider output exceeded the redacted evidence limit',
+            'duo code release: provider failed',
+            true,
+            'duo code release: provider returned malformed JSON',
+            'duo code release: provider returned non-canonical evidence'
+        );
     }
 
     /** @return array<string,mixed> */
     private static function readCanonical(string $path, string $label): array {
-        self::assertAbsoluteRegularFile($path, $label); $bytes = file_get_contents($path);
-        try { $decoded = is_string($bytes) ? json_decode($bytes, true, 512, JSON_THROW_ON_ERROR) : null; } catch (\Throwable $e) { throw new \RuntimeException("duo code release: $label is malformed JSON"); }
-        if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $bytes) throw new \RuntimeException("duo code release: $label is not canonical JSON");
-        return $decoded;
+        return AtomicStore::readCanonical($path, $label, 'duo code release');
     }
 
-    private static function assertAbsoluteRegularFile(string $path, string $label): void { if ($path === '' || $path[0] !== '/' || is_link($path) || !is_file($path)) throw new \RuntimeException("duo code release: $label must be an absolute regular file"); }
+    private static function assertAbsoluteRegularFile(string $path, string $label): void { AtomicStore::assertAbsoluteRegularFile($path, $label, 'duo code release'); }
     private static function assertHash(string $value, string $label): void { if (preg_match('/^[a-f0-9]{64}$/', $value) !== 1) throw new \RuntimeException("duo code release: $label must be a sha256 hex digest"); }
     private static function assertActor(string $value, string $label): void { if (preg_match('/^[A-Za-z0-9._:@+-]{1,128}$/', $value) !== 1) throw new \RuntimeException("duo code release: $label is invalid"); }
     private static function assertIdentifier(string $value, string $label, int $min, int $max): void { $length = strlen($value); if ($length < $min || $length > $max || preg_match('/^[a-f0-9]+$/', $value) !== 1) throw new \RuntimeException("duo code release: $label is invalid"); }
@@ -813,9 +812,9 @@ final class CodeRelease {
     private static function assertExactKeys(array $value, array $expected, string $label): void { $actual = array_keys($value); sort($actual, SORT_STRING); sort($expected, SORT_STRING); if ($actual !== $expected) throw new \RuntimeException("duo code release: $label has missing or unknown fields"); }
 
     private static function receiptDirectory(string $root, string $receiptId): string { self::assertIdentifier($receiptId, 'receipt id', 32, 64); return dirname($root) . '/rollback/' . $receiptId; }
-    private static function ensureDirectory(string $path, int $mode): void { if (is_link($path) || (file_exists($path) && !is_dir($path))) throw new \RuntimeException('duo code release: directory path is unsafe'); if (!is_dir($path) && !mkdir($path, $mode, true)) throw new \RuntimeException('duo code release: could not create directory'); chmod($path, $mode); }
-    private static function syncDirectory(string $path): void { $fh = @fopen($path, 'r'); if (is_resource($fh)) { @fsync($fh); fclose($fh); } }
-    private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void { if (is_link($path) || (file_exists($path) && !is_file($path))) throw new \RuntimeException("duo code release: $label path is unsafe"); $tmp = $path . '.tmp-' . bin2hex(random_bytes(8)); $fh = @fopen($tmp, 'x+b'); if (!is_resource($fh)) throw new \RuntimeException("duo code release: could not create $label"); try { chmod($tmp, $mode); if (fwrite($fh, $bytes) !== strlen($bytes) || !fflush($fh) || !fsync($fh)) throw new \RuntimeException("duo code release: could not persist $label"); fclose($fh); $fh = null; if (!rename($tmp, $path)) throw new \RuntimeException("duo code release: could not publish $label"); self::syncDirectory(dirname($path)); } finally { if (is_resource($fh)) fclose($fh); @unlink($tmp); } }
+    private static function ensureDirectory(string $path, int $mode): void { AtomicStore::ensureDirectory($path, $mode, 'duo code release'); }
+    private static function syncDirectory(string $path): void { AtomicStore::syncDirectory($path, 'code release directory', 'duo code release'); }
+    private static function atomicWrite(string $path, string $bytes, int $mode, string $label): void { AtomicStore::atomicWrite($path, $bytes, $mode, $label, 'duo code release'); }
     /** @template T @param callable():T $callback @return T */
-    private static function withLock(string $root, callable $callback): mixed { $path = $root . '/code-release.lock'; if (is_link($path) || (file_exists($path) && !is_file($path))) throw new \RuntimeException('duo code release: lock path is unsafe'); $fh = @fopen($path, 'c+b'); if (!is_resource($fh) || !flock($fh, LOCK_EX)) throw new \RuntimeException('duo code release: could not acquire lock'); try { return $callback(); } finally { flock($fh, LOCK_UN); fclose($fh); } }
+    private static function withLock(string $root, callable $callback): mixed { $path = $root . '/code-release.lock'; return ProtocolLock::withExclusive($path, $callback, 'duo code release: lock path is unsafe', 'duo code release: could not acquire lock', 'duo code release: could not acquire lock', 0600); }
 }
