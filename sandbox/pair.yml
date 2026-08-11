@@ -79,6 +79,14 @@ x-wp-env-base: &wp-env-base
   WORDPRESS_DB_PASSWORD: wordpress
   WORDPRESS_DB_HOST: duo-shared-db
   DUO_MANIFESTS_DIR: /duo-manifests
+  # The sandbox deliberately shares this one exact bind root between the host
+  # fixture process and uid 33 in the WordPress/CLI containers. Git otherwise
+  # rejects a host-owned /siterepo as dubious before `duo init` can reach its
+  # reviewed post-Git failure seams. This is an exact container path, never a
+  # wildcard safe-directory grant, and trusts nothing outside the pair bind.
+  GIT_CONFIG_COUNT: "1"
+  GIT_CONFIG_KEY_0: safe.directory
+  GIT_CONFIG_VALUE_0: /siterepo
   WORDPRESS_CONFIG_EXTRA: |
     define('WP_ENVIRONMENT_TYPE', 'local');
 
