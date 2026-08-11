@@ -484,7 +484,11 @@ final class ScopedApply {
             }
             $type = (string) ($row['type'] ?? '');
             try {
-                $data = Canon::decode((string) ($row['content'] ?? ''));
+                if ($type === 'post') {
+                    [$data] = Canon::parse_post_file((string) ($row['content'] ?? ''));
+                } else {
+                    $data = Canon::decode((string) ($row['content'] ?? ''));
+                }
             } catch (\Throwable $failure) {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
             }

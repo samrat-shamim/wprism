@@ -490,6 +490,61 @@ $compiled = CompiledRepository::create([
 ]);
 $policy = new Policy();
 
+// Capture returns post entities in their canonical Markdown file format,
+// unlike JSON-backed terms, menus, sidebars, and table rows. The selected
+// identity rebind must parse that same front matter before proving the live
+// post_type; treating every target entity as raw JSON made even a clean
+// scoped post no-op refuse before authority.
+$postFront = ['uuid' => $selectedId, 'type' => 'page'];
+$postCompiled = CompiledRepository::create([
+    'tree' => [
+        $selectedId => [
+            'type' => 'post',
+            'hash' => $desiredHash,
+            'path' => 'posts/page/' . $selectedId . '--selected.md',
+            'content' => Canon::post_file($postFront, 'selected body'),
+            'data' => $postFront,
+        ],
+    ],
+    'deletions' => [],
+    'revision_hash' => $hash('post-rebind-revision'),
+    'manifest_hash' => $hash('post-rebind-manifest'),
+    'site_hash' => $hash('post-rebind-site'),
+    'effects_inventory' => [],
+]);
+$postActual = [
+    $selectedId => [
+        'type' => 'post',
+        'hash' => $beforeHash,
+        'content' => Canon::post_file($postFront, 'selected body'),
+        'path' => 'posts/page/' . $selectedId . '--selected.md',
+    ],
+];
+$GLOBALS['wpdb']->mapRows = [[
+    'uuid' => $selectedId,
+    'entity_type' => 'post',
+    'id_kind' => 'post',
+    'local_id' => 71,
+]];
+$GLOBALS['wpdb']->postRows = [
+    71 => [
+        'post_type' => 'page',
+        'post_status' => 'publish',
+        'uuid' => $selectedId,
+        'term_taxonomy_ids' => [],
+    ],
+];
+ScopedApply::assert_selected_ledger_map_observation(
+    $policy,
+    $contract,
+    $postActual,
+    [$hash($selectedId)],
+    $postCompiled
+);
+$check(true, 'selected post map rebind parses canonical Markdown front matter before physical proof');
+$GLOBALS['wpdb']->mapRows = [];
+$GLOBALS['wpdb']->postRows = [];
+
 $beforeRows = [[
     'identity_hash' => $hash($selectedId),
     'type' => 'post',
