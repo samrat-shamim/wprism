@@ -60,6 +60,9 @@ $expectedRequires = [
     'functions' => [
         'wc_get_product',
         'wc_get_container',
+        'wc_get_attribute_taxonomies',
+        'wc_attribute_taxonomy_name',
+        'wc_get_permalink_structure',
         'add_filter',
         'remove_filter',
         'get_post_meta',
@@ -75,6 +78,7 @@ $expectedRequires = [
         'WC_Data_Store',
         'WC_Product_Variable',
         'WC_Product_Grouped',
+        'WC_Cache_Helper',
     ],
 ];
 check(is_array($declaration)
@@ -159,6 +163,7 @@ $needles = [
     'wc_get_attribute_taxonomies' => 'Woo attribute definitions are refreshed through the public API',
     "delete_transient('wc_attribute_taxonomies')" => 'Woo attribute transient is invalidated before regeneration',
     "invalidate_cache_group('woocommerce-attributes')" => 'Woo attribute object-cache group is invalidated',
+    "is_callable(['\\\\WC_Cache_Helper', 'invalidate_cache_group'])" => 'Woo cache helper method availability fails closed beyond the declared class requirement',
     'register_taxonomy' => 'new Woo attribute taxonomies are registered for products',
     "'update_count_callback' => '_update_post_term_count'" => 'registered Woo attribute taxonomy keeps its count callback',
     'attribute_public' => 'attribute registration branches on Woo\'s authored public flag',

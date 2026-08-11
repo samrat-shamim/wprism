@@ -536,6 +536,9 @@ woo_effect_check(
                 'functions' => [
                     'wc_get_product',
                     'wc_get_container',
+                    'wc_get_attribute_taxonomies',
+                    'wc_attribute_taxonomy_name',
+                    'wc_get_permalink_structure',
                     'add_filter',
                     'remove_filter',
                     'get_post_meta',
@@ -551,6 +554,7 @@ woo_effect_check(
                     'WC_Data_Store',
                     'WC_Product_Variable',
                     'WC_Product_Grouped',
+                    'WC_Cache_Helper',
                 ],
             ],
             'capabilities' => ['rebuild_product_lookups'],

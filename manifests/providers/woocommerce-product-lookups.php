@@ -1114,37 +1114,33 @@ final class WoocommerceProductLookups {
      * plugin init. WooCommerce itself registers pa_* taxonomies during init
      * from wc_get_attribute_taxonomies(); Duo's typed-table apply can land a
      * new definition later in the same request. The public cache invalidators
-     * plus register_taxonomy() restore the same product/cache callback
-     * contract for the remainder of this bounded product repair.
+     * plus WooCommerce 11.0.0's own derived register_taxonomy() arguments and
+     * filters restore the same product/cache/visibility contract for the
+     * remainder of this bounded product repair. This is deliberately kept in
+     * the version-pinned manifest provider rather than generic engine code.
      */
     /** @return list<string> registered Woo attribute taxonomy names */
     private function refresh_attribute_taxonomy_registry(): array {
-        if (!function_exists('wc_get_attribute_taxonomies')
-            || !function_exists('wc_attribute_taxonomy_name')
-            || !function_exists('taxonomy_exists')
-            || !function_exists('register_taxonomy')) {
-            return [];
+        delete_transient('wc_attribute_taxonomies');
+        if (!is_callable(['\\WC_Cache_Helper', 'invalidate_cache_group'])) {
+            throw new \RuntimeException(
+                'duo: WooCommerce cache helper lacks invalidate_cache_group(); cannot refresh attribute taxonomy registration'
+            );
         }
-
-        if (function_exists('delete_transient')) {
-            delete_transient('wc_attribute_taxonomies');
-        }
-        $cacheHelperClass = '\\WC_Cache_Helper';
-        if (class_exists($cacheHelperClass)
-            && is_callable([$cacheHelperClass, 'invalidate_cache_group'])) {
-            \WC_Cache_Helper::invalidate_cache_group('woocommerce-attributes');
-        }
+        \WC_Cache_Helper::invalidate_cache_group('woocommerce-attributes');
 
         $attributes = (array) wc_get_attribute_taxonomies();
+        $permalinks = wc_get_permalink_structure();
         $registeredTaxonomies = [];
         global $wc_product_attributes;
         if (!is_array($wc_product_attributes)) {
             $wc_product_attributes = [];
         }
         foreach ($attributes as $attribute) {
-            $attributeName = is_object($attribute)
-                ? (string) ($attribute->attribute_name ?? '')
-                : (string) ($attribute['attribute_name'] ?? '');
+            if (!is_object($attribute)) {
+                continue;
+            }
+            $attributeName = (string) ($attribute->attribute_name ?? '');
             if ($attributeName === '') {
                 continue;
             }
@@ -1152,20 +1148,75 @@ final class WoocommerceProductLookups {
             if ($taxonomy === '') {
                 continue;
             }
-            if (!taxonomy_exists($taxonomy)) {
-                $registered = register_taxonomy($taxonomy, ['product'], [
-                    'hierarchical' => false,
-                    'update_count_callback' => '_update_post_term_count',
-                ]);
-                if (is_wp_error($registered) || !taxonomy_exists($taxonomy)) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce attribute taxonomy '$taxonomy' could not be registered for product-object reconciliation"
-                    );
-                }
-            }
-            // WC_Product_Attribute::get_taxonomy_object() reads this global;
-            // keep it coherent when the definition was created post-init.
+
+            // Keep this derivation byte-for-byte aligned with the dynamic
+            // attribute block in WC_Post_Types::register_taxonomies() for the
+            // certified WooCommerce 11.0.0 surface. In particular, omitted
+            // register_taxonomy() defaults are public/queryable/rewriteable;
+            // every visibility field must therefore be explicit here.
+            $attribute->attribute_public = absint(
+                isset($attribute->attribute_public) ? $attribute->attribute_public : 1
+            );
+            $label = !empty($attribute->attribute_label)
+                ? (string) $attribute->attribute_label
+                : $attributeName;
             $wc_product_attributes[$taxonomy] = $attribute;
+            if (taxonomy_exists($taxonomy)) {
+                $registeredTaxonomies[$taxonomy] = $taxonomy;
+                continue;
+            }
+            $taxonomyData = [
+                'hierarchical' => false,
+                'update_count_callback' => '_update_post_term_count',
+                'labels' => [
+                    'name' => sprintf(_x('Product %s', 'Product Attribute', 'woocommerce'), $label),
+                    'singular_name' => $label,
+                    'search_items' => sprintf(__('Search %s', 'woocommerce'), $label),
+                    'all_items' => sprintf(__('All %s', 'woocommerce'), $label),
+                    'parent_item' => sprintf(__('Parent %s', 'woocommerce'), $label),
+                    'parent_item_colon' => sprintf(__('Parent %s:', 'woocommerce'), $label),
+                    'edit_item' => sprintf(__('Edit %s', 'woocommerce'), $label),
+                    'update_item' => sprintf(__('Update %s', 'woocommerce'), $label),
+                    'add_new_item' => sprintf(__('Add new %s', 'woocommerce'), $label),
+                    'new_item_name' => sprintf(__('New %s', 'woocommerce'), $label),
+                    'not_found' => sprintf(__('No &quot;%s&quot; found', 'woocommerce'), $label),
+                    'back_to_items' => sprintf(__('&larr; Back to "%s" attributes', 'woocommerce'), $label),
+                ],
+                'show_ui' => true,
+                'show_in_quick_edit' => false,
+                'show_in_menu' => false,
+                'meta_box_cb' => false,
+                'query_var' => 1 === $attribute->attribute_public,
+                'rewrite' => false,
+                'sort' => false,
+                'public' => 1 === $attribute->attribute_public,
+                'show_in_nav_menus' => 1 === $attribute->attribute_public
+                    && apply_filters('woocommerce_attribute_show_in_nav_menus', false, $taxonomy),
+                'capabilities' => [
+                    'manage_terms' => 'manage_product_terms',
+                    'edit_terms' => 'edit_product_terms',
+                    'delete_terms' => 'delete_product_terms',
+                    'assign_terms' => 'assign_product_terms',
+                ],
+            ];
+            if (1 === $attribute->attribute_public && sanitize_title($attributeName)) {
+                $taxonomyData['rewrite'] = [
+                    'slug' => trailingslashit($permalinks['attribute_rewrite_slug'])
+                        . urldecode(sanitize_title($attributeName)),
+                    'with_front' => false,
+                    'hierarchical' => true,
+                ];
+            }
+            $registered = register_taxonomy(
+                $taxonomy,
+                apply_filters("woocommerce_taxonomy_objects_{$taxonomy}", ['product']),
+                apply_filters("woocommerce_taxonomy_args_{$taxonomy}", $taxonomyData)
+            );
+            if (is_wp_error($registered) || !taxonomy_exists($taxonomy)) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce attribute taxonomy '$taxonomy' could not be registered for product-object reconciliation"
+                );
+            }
             $registeredTaxonomies[$taxonomy] = $taxonomy;
         }
         return array_values($registeredTaxonomies);
