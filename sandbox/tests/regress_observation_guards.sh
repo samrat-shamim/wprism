@@ -74,13 +74,23 @@ pass "require_observed_nonempty passes a non-empty observation silently"
 # guard is reverted (the inline `[ "$(wp_conf2 …)" = "$BEFORE" ]` restored),
 # BOTH its positive pin here and the matching negative pin below fail.
 GUARD_WHATS=(
+  'require_observed_nonempty "conf2 theme_mods_twentytwentyfive (target observation)"'
+  'require_observed_nonempty "conf1 widget_$TYPE identity ledger"'
+  'require_observed_nonempty "conf2 widget_$TYPE identity ledger"'
+  'require_observed_nonempty "conf2 sidebar-1 widget keys (target observation)"'
+  'require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target baseline)"'
+  'require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base baseline)"'
   'require_observed_nonempty "conf2 branch-a post_title (unforced-conflict target)"'
   'require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict base)"'
   'require_observed_nonempty "conf2 branch-a post_title (forced-conflict convergence)"'
+  'require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target baseline)"'
+  'require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base baseline)"'
   'require_observed_nonempty "conf2 comment get (preserved runtime comment)"'
   'require_observed_nonempty "conf2 post get post_content (guard-blocked deletion target)"'
   'require_observed_nonempty "conf2 wp_duo_state content_hash (guard-blocked deletion base)"'
   'require_observed_nonempty "conf2 comment get (guard-blocked deletion runtime reference)"'
+  'require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target baseline)"'
+  'require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base baseline)"'
   'require_observed_nonempty "conf2 post get post_content (force-theirs-only deletion-conflict target)"'
   'require_observed_nonempty "conf2 wp_duo_state content_hash (force-theirs-only deletion-conflict base)"'
 )
@@ -88,7 +98,13 @@ for what in "${GUARD_WHATS[@]}"; do
   grep -Fq "$what" "$CORE" \
     || fail "$CORE no longer premise-guards an observation read: missing [$what]"
 done
-pass "all ${#GUARD_WHATS[@]} DUO-3401 observation reads are premise-guarded with require_observed_nonempty"
+pass "all ${#GUARD_WHATS[@]} DUO-3401/DUO-3426 observation reads are premise-guarded with require_observed_nonempty"
+
+grep -Fq "__duo_missing__" "$CORE" \
+  || fail "$CORE no longer distinguishes a genuine missing Ledger mapping from an empty infrastructure observation"
+grep -Fq '[ "$SOURCE_LOCAL" != '\''__duo_missing__'\'' ]' "$CORE" \
+  || fail "$CORE no longer routes a genuine missing Ledger mapping to the engine assertion"
+pass "Ledger null mappings retain the engine accusation while compose-empty observations remain infrastructure failures"
 
 # Negative pins — the exact unguarded inline shapes the fix removed must not
 # reappear. These are scoped to the guarded sites only (the rollback-alpha/beta
