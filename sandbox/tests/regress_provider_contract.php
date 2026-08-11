@@ -1038,6 +1038,14 @@ try {
 }
 $check($applyRefusal,
     'direct negotiation still throws the packaging fault for apply\'s fail-before-mutation gate');
+$offlinePackaging = \Duo\Providers::packaging_problems(
+    $reviewedPolicy,
+    $reviewedPolicy->actions_for(['post:probe'])
+);
+$check(count($offlinePackaging) === 1
+    && ($offlinePackaging[0]['code'] ?? '') === 'provider_code_unavailable'
+    && ($offlinePackaging[0]['provider'] ?? '') === 'probe-cache',
+    'offline packaging inspection reports the missing manifest provider without loading its PHP');
 rename($providerFile . '.hidden', $providerFile);
 @unlink($dir . '/probe.json');
 

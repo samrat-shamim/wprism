@@ -280,6 +280,48 @@ final class Providers {
     }
 
     /**
+     * Report manifest-provider files that are absent without loading provider
+     * PHP or asking WordPress for plugin state. The host-side adapter doctor is
+     * intentionally WordPress-free, but a missing file in the manifest-owned
+     * package is still a packaging fact rather than a target fact. Plugin-owned
+     * providers remain deferred to the target negotiation path.
+     *
+     * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
+     * @return list<array<string,mixed>>
+     */
+    public static function packaging_problems(Policy $policy, array $selectedActions): array {
+        $declarations = $policy->provider_declarations();
+        $problems = [];
+        $seen = [];
+        foreach ($selectedActions as $action) {
+            if (($action['kind'] ?? '') !== 'provider') {
+                continue;
+            }
+            $id = (string) ($action['provider'] ?? '');
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $declaration = $declarations[$id] ?? null;
+            if (!is_array($declaration) || ($declaration['source'] ?? '') !== 'manifest') {
+                continue;
+            }
+            $manifest = (string) ($declaration['manifest'] ?? ($action['manifest'] ?? '?'));
+            $file = Policy::manifests_dir() . '/providers/' . $id . '.php';
+            if (is_file($file)) {
+                continue;
+            }
+            $problems[] = self::packaging_problem(new ProviderPackagingException(
+                $id,
+                $manifest,
+                "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
+                    . 'provider code ships with its manifest, not the engine'
+            ));
+        }
+        return $problems;
+    }
+
+    /**
      * Scoped-effect negotiation is deliberately additive to negotiate().
      *
      * Legacy plan/status/full-apply callers continue to negotiate only the

@@ -136,6 +136,27 @@ function rm_rf(string $path): void {
     @unlink($path);
 }
 
+function copy_tree(string $source, string $destination): void {
+    if (!is_dir($destination)) {
+        mkdir($destination, 0777, true);
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($source, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($iterator as $item) {
+        $relative = substr($item->getPathname(), strlen(rtrim($source, '/')) + 1);
+        $target = $destination . '/' . $relative;
+        if ($item->isDir()) {
+            if (!is_dir($target)) {
+                mkdir($target, 0777, true);
+            }
+        } else {
+            copy($item->getPathname(), $target);
+        }
+    }
+}
+
 function scratch(string $label): string {
     $root = sys_get_temp_dir() . "/duo_regress_adapter_catalog_{$label}_" . bin2hex(random_bytes(4));
     mkdir($root, 0777, true);
@@ -722,6 +743,46 @@ check(
     $coreBlockers === [],
     'while the certified shipped adapter beside it contributes no blocker of its own (found: '
     . implode(', ', array_column($coreBlockers, 'code')) . ')'
+);
+
+// A manifest-shipped provider is an executable package fact even on the
+// WordPress-free host: doctor must report an absent provider file without
+// loading provider PHP or pretending to know plugin liveness. Copy the real
+// reviewed library into scratch, remove only the provider file, and exercise
+// the actual CLI doctor subprocess against a real pinned manifest.
+$missingProviderLibrary = scratch('missing-provider-library');
+copy_tree($manifestDir, $missingProviderLibrary);
+unlink($missingProviderLibrary . '/providers/woocommerce-cache.php');
+$missingManifest = Canon::decode(Canon::read_file($missingProviderLibrary . '/woocommerce.json'));
+$missingDispositions = Canon::decode(Canon::read_file($missingProviderLibrary . '/dispositions.json'));
+$missingRegistry = Canon::decode(Canon::read_file($missingProviderLibrary . '/capabilities/registry.json'));
+$missingRegistry['manifests']['woocommerce']['adapter_digest'] = \Duo\CapabilityRegistry::adapter_digest(
+    $missingManifest,
+    $missingDispositions['manifests']['woocommerce'],
+    $missingProviderLibrary
+);
+Canon::write_file(
+    $missingProviderLibrary . '/capabilities/registry.json',
+    Canon::encode($missingRegistry)
+);
+$missingProviderRepo = site_repo(['woocommerce']);
+$missingProviderDoctor = duo(
+    ['doctor', '--repo=' . $missingProviderRepo, '--format=json'],
+    $missingProviderLibrary
+);
+$missingProviderReport = report($missingProviderDoctor);
+$missingProviderBlockers = array_values(array_filter(
+    $missingProviderReport['blockers'] ?? [],
+    static fn(array $row): bool => ($row['code'] ?? null) === 'provider_code_unavailable'
+));
+check(
+    $missingProviderDoctor['exit'] === 1
+    && count($missingProviderBlockers) === 1
+    && ($missingProviderBlockers[0]['provider'] ?? null) === 'woocommerce-cache'
+    && ($missingProviderBlockers[0]['manifest'] ?? null) === 'woocommerce',
+    'adapter doctor reports an absent manifest-shipped provider as a structured blocker without loading provider PHP '
+    . '(exit ' . $missingProviderDoctor['exit'] . '; codes: '
+    . implode(', ', array_column($missingProviderReport['blockers'] ?? [], 'code')) . ')'
 );
 
 $brokenList = report(duo(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']));
