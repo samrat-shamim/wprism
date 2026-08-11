@@ -734,8 +734,8 @@ regress-order-preserving:
 regress-promotion-lock:
 	bash sandbox/tests/regress_promotion_lock.sh
 
-# DUO-3223 (concurrency-scenario arm): two real `wp duo capture` processes
-# racing for the same destination -- the SAME deterministic-pause idiom
+# DUO-3223 (concurrency-scenario arm): a real `wp duo capture` lock holder
+# plus simultaneous contenders racing for that destination -- the SAME pause idiom
 # DUO-3217 established for live PromotionLock races, applied to the capture
 # lock instead. Complements regress_promotion_lock.sh (concurrent
 # PROMOTION, already comprehensive) with the still-uncovered concurrent
@@ -1065,7 +1065,7 @@ regress-live-list:
 	@echo "  regress-widgets                           pair awid3278 8960/..."
 	@echo "  regress-promotion                         pair codexmaca3216 8920/... (also runs in CI as code-half-grind's sibling)"
 	@echo "  regress-promotion-lock                    pair codexmac3217 8900/... (runs in CI: code-half-live-lock)"
-	@echo "  regress-capture-concurrency               pair concurrency 8934/... (parameterized: CONCURRENCY_PORT1)"
+	@echo "  regress-capture-concurrency               own disposable pair (required: CONCURRENCY_PAIR/CONCURRENCY_PORT1/CONCURRENCY_PORT2; DUO_EXPECTED_SOURCE_SHA exact candidate gate)"
 	@echo "  regress-acf-term-options-fields           pair asub3263 (parameterized: PAIR/PORT1/PORT2)"
 	@echo "  regress-collision                         legacy docker-compose.yml --profile fx"
 	@echo "  regress-entity-type-width                 pair amergety"
