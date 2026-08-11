@@ -27,6 +27,17 @@ under another actor's feet mid-edit (this rule exists because it happened).
 Genesis's "no partial ships" becomes "no *silent* partial ships" — slices are
 legitimate in this project only with an owner scope note (Close Gate step 6).
 
+## The loop at a glance
+
+Claim (Linear readback-proven) → worktree from fresh `origin/main` →
+root-cause fix + regression that fails on the prior defect → offline-all +
+the MINIMAL live set (Evidence scoping) → independent review-only pass in its
+own checkout, land every finding → squash-merge → `close-gate-check.sh` proof
+→ Linear close (PR link, squash SHA, the literal line
+`merge-base --is-ancestor: ok`, evidence; strip prefix; Done) → destroy
+pairs, remove worktree, delete branch → re-read this file → next issue. The
+glance is a map, not the procedure — the sections below govern.
+
 ## Required parameters
 
 - `AGENT_NAME` — title/comment prefix, e.g. `[codexmac] Original title`.
@@ -63,12 +74,10 @@ bash scripts/agent-bootstrap.sh
 
 The clone directory is yours alone (one checkout per actor, above). If the
 host already has a clone that other sessions use, do NOT work in it — make
-your own clone.
-
-Your clone's default checkout stays on `main` and is never edited directly:
-**every issue is worked in its own worktree created from `origin/main`**
-(Work and Verify step 1). Worktrees live beside the clone as
-`../duo-wp-wt-<issue>` and are removed after the issue closes.
+your own clone. The clone's default checkout stays on `main` and is never
+edited directly: every issue is worked in its own worktree from
+`origin/main` (Work and verify step 1), living beside the clone as
+`../duo-wp-wt-<issue>` and removed after the issue closes.
 
 The script fail-loud-verifies host prerequisites (git, jq, php, curl, docker +
 compose v2; `gh` authenticated for the close gate), pre-pulls the sandbox
@@ -92,30 +101,29 @@ Sandbox discipline (see `docs/sandbox.md`):
   is a SECOND pair while your issue pair exists, so stop the issue pair
   during a sweep if the budget is tight, and destroy the sweep pair when
   the sweep ends. Only if you deliberately share the literal `conf` pair
-  does the old single-writer rule apply: check
-  `pgrep -f "conformance/run.sh"` and wait rather than interleave (two
-  writers on one pair produce false failures — reset's DROP/CREATE lands
-  under the other run's feet).
+  does the old single-writer rule apply: check for a running sweep (see the
+  pgrep field note) and wait rather than interleave — two writers on one
+  pair produce false failures (reset's DROP/CREATE lands under the other
+  run's feet).
 
 **Resource lifecycle (mandatory):**
 
-- **Budget:** at most **one running pair per agent** at a time (relaxes
-  to two only while both are actively executing independent live suites —
-  see Work and verify's Evidence scoping, "Parallel pairs"). The
-  host-wide budget is dynamic — **1 docker core per running pair**,
-  RAM-guarded (~2 GiB per actively-verifying pair), computed from the
-  machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
+- **Budget:** at most **one running pair per agent** at a time, relaxing to
+  two only while both are actively executing independent live suites on
+  DISTINCT pairs — never while idle. (This bullet is the single home of the
+  budget rule; the single-writer rule applies only to two writers on ONE
+  pair.) The host-wide budget is dynamic — **1 docker core per running
+  pair**, RAM-guarded (~2 GiB per actively-verifying pair), computed from
+  the machine's actual resources by `pair_budget()` in `sandbox/bin/pair.sh`
   and **enforced by `pair.sh up`**: a new pair over budget refuses, with
   `DUO_PAIR_BUDGET_OVERRIDE=1` as the named report-not-hide escape hatch —
   never set it unless the dispatch prompt explicitly says so. Check
   `pair.sh list` before every `up`; need a second env outside the
-  active-parallel-suites case below? Stop or destroy your first. One name
-  is exempt while — and only while — a lock says so: the pair recorded by
-  a HELD host certification lock is already budgeted, because a bundle
-  destroys and recreates that one pair per leg across ~50 minutes and must
-  not lose the slot it reserved mid-run (DUO-3396). Nothing else is
-  exempt, the name is matched exactly, and a crashed bundle's leftover
-  record grants nothing.
+  active-parallel-suites case? Stop or destroy your first. One exemption:
+  the pair recorded by a HELD host certification lock is already budgeted —
+  a bundle destroys and recreates that one pair per leg across ~50 minutes
+  and must not lose the slot it reserved mid-run (DUO-3396). The name is
+  matched exactly; a crashed bundle's leftover record grants nothing.
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
@@ -253,53 +261,49 @@ branch or edit files before this passes.
   deterministic, mutation-proven offline reproduction of the exact failure
   (e.g. priming PHP's stat cache to force the stale-stat path; a stubbed
   compose-death to force the infrastructure-vs-engine branch) is the PRIMARY
-  proof. Once that pin bites,
-  the live sweep only CONFIRMS the real environment still passes — so ONE
-  representative sweep suffices instead of a matrix, and the proof holds even
-  when a shared, contended docker host makes live runs slow or flaky.
+  proof. Once that pin bites, the live sweep only CONFIRMS the real
+  environment still passes — so ONE representative sweep suffices instead of
+  a matrix, and the proof holds even when a shared, contended docker host
+  makes live runs slow or flaky.
 - **Exact-source gate: bind every live run to its commit (DUO-3377).** A
   pair's `agent`/`manifests` bind mounts resolve to the CANONICAL checkout,
-  not to whichever checkout ran `pair.sh` (DUO-3277, so a persistent pair
-  survives its worktree's removal) — so a live suite or sweep launched from
-  your issue WORKTREE exercises the canonical checkout's bytes, and its
-  verdict, green or red, is about code you did not write (observed live on
-  DUO-3316: worktree at 3ae1ea5, pair mounted canonical b69fdf; the stale-
-  code warnings read as a candidate regression for a day). `pair.sh
-  up|reset|start` now always prints the mounted source path and HEAD; set
+  not to whichever checkout ran `pair.sh` (DUO-3277 — a persistent pair
+  survives its worktree's removal), so a live run launched from your issue
+  worktree exercises the canonical checkout's bytes and its verdict, green or
+  red, is about code you did not write (a stale-code verdict once read as a
+  candidate regression for a day — DUO-3316). `pair.sh up|reset|start` always
+  prints the mounted source path and HEAD; set
   `DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)` (conformance:
   `CONF_EXPECTED_SOURCE_SHA=...`, which `run.sh` exports as that) and any
   other source — wrong commit, or uncommitted `agent`/`manifests` bytes —
   refuses BEFORE the budget reservation, the database drop/create, and any
-  container start. The remedy the refusal names is the one the bundle
-  already uses: a standalone clone at the candidate HEAD (`git clone
-  --branch {branch} {canonical} ../duo-wp-live-DUO-XXXX`), run from there.
+  container start. The remedy the refusal names is the one the bundle already
+  uses: a standalone clone at the candidate HEAD (`git clone --branch
+  {branch} {canonical} ../duo-wp-live-DUO-XXXX`), run from there.
   `stop`/`destroy`/`list` are deliberately ungated — cleanup must never be
   blocked by a variable left exported in your shell.
 - **Ordering: the bundle is always LAST.** Dispatch the independent review
   before launching the bundle and land every finding first — a single
-  manifest-byte fix from review invalidates a running bundle wholesale
-  (observed live on DUO-3338: a review finding moved the elementor digest
-  and cost a full bundle restart). Re-fetch and rebase onto `origin/main`
-  immediately before launching, too: the certification attestation binds
-  digests of agent/cli/spec bytes as well as manifests, so ANOTHER agent's
-  merge to any bound input invalidates a running bundle just as thoroughly
-  (also observed live on DUO-3338 — four upstream merges landed mid-run
-  and cost the second restart). The bundle itself refuses linked
-  worktrees and dirty trees: run it from a clean standalone clone at the
-  branch's exact HEAD (the `duo-wp-cert-<issue>` pattern), never from
+  manifest-byte fix from review moves a digest and invalidates a running
+  bundle wholesale (cost a full restart on DUO-3338). Re-fetch and rebase
+  onto `origin/main` immediately before launching, too: the certification
+  attestation binds agent/cli/spec digests as well as manifests, so ANOTHER
+  agent's merge to any bound input invalidates a running bundle just as
+  thoroughly (cost DUO-3338's second restart). The bundle itself refuses
+  linked worktrees and dirty trees: run it from a clean standalone clone at
+  the branch's exact HEAD (the `duo-wp-cert-<issue>` pattern), never from
   your issue worktree, with `CERT_BUNDLE_PAIR`/`CERT_BUNDLE_PORT1`/
   `CERT_BUNDLE_PORT2` allocated from your `PORT_BASE` (its defaults —
   `certbundle`, 8880/8881 — collide on a shared host). It also serializes
   itself host-wide: a second launch refuses by naming the holder, or with
   `CERT_BUNDLE_WAIT=1` polls until the lock frees and takes it then (a
-  bounded poll, not a queue — several waiters are not served in arrival
-  order). Never clear the way by killing — see the pattern-kill field note
-  below (DUO-3382). "The independent
-  review" here is the dispatch protocol's pre-merge review-only subagent
-  pass in its own checkout, recorded in the PR. Sequence (maximal — the
-  live/sweep/bundle steps each apply only per Evidence scoping's minimal set):
-  implement → offline-all → targeted live suites → targeted sweeps → review →
-  fixes + registry regenerate → rebase onto fresh `origin/main` → bundle (clean
+  bounded poll, not a queue). Never clear the way by killing — see the
+  pattern-kill field note below (DUO-3382). "The independent review" here is
+  the dispatch protocol's pre-merge review-only subagent pass in its own
+  checkout, recorded in the PR. Sequence (maximal — the live/sweep/bundle
+  steps each apply only per Evidence scoping's minimal set): implement →
+  offline-all → targeted live suites → targeted sweeps → review → fixes +
+  registry regenerate → rebase onto fresh `origin/main` → bundle (clean
   clone) → generated-evidence commit → merge promptly (Close gate order
   unchanged).
 - **Registry regenerate after ANY manifest/provider/regenerator byte change**
@@ -308,12 +312,6 @@ branch or edit files before this passes.
   DUO-3360) regenerator file bytes are all digest-bound into adapter identity,
   so a stale registry refuses every `duo` command (observed live, twice, on
   DUO-3338).
-- **Parallel pairs are safe and encouraged when the host budget allows**:
-  independent live suites may run concurrently on DISTINCT pairs (names/
-  ports parameterized from your `PORT_BASE`). The single-writer rule
-  applies only to two writers on ONE pair. The Resource lifecycle budget
-  of at most **one running pair per agent** (above) relaxes to two only
-  while both are actively executing suites, never while idle.
 - **Keep the standalone sweeps for changed manifests even though the
   bundle re-runs them**: a sweep failure costs a ~2-minute re-run; the
   same failure discovered inside the bundle costs the whole bundle.
@@ -386,159 +384,90 @@ issue and its blocker, poll at the configured cadence, and stop when the
 limit expires — never idle silently, never mark anything Done to make the
 queue look better than it is.
 
-## Field notes — shell & process hygiene (hard-won, 2026-08-06)
+## Field notes — shell & process hygiene (hard-won)
 
-Lessons from live multi-agent operation on this repo; each one cost real
-debugging time. Follow them; extend this list when you pay for a new one.
+One rule per incident; each cost real debugging time. **Contract for new
+notes: one bolded rule, a one-clause mechanism, and the issue ref — the full
+narrative lives in the issue; when a suite or helper later enforces the
+rule, shrink the note to a pointer.** Every story below is recoverable via
+its DUO ref.
 
-- **Checking for a running conformance/sweep process:** naive
-  `pgrep -f "conformance/run.sh"` matches YOUR OWN watcher/daemon process
-  (its command line contains the pattern) and any other agent's watcher —
-  two watchers see each other forever (a self-sustaining false-busy
-  deadlock, observed live). Use both defenses: the bracket trick AND a
-  start-anchor — `pgrep -f "^[b]ash sandbox/conformance/run.sh"` — the
-  character class can't match its own literal text, and the anchor
-  excludes wrapper shells that merely EMBED the string (also observed
-  live: an unanchored bracket pattern still matched a `bash -lc` watcher
-  whose body quoted the plain literal).
-- **Kill only a PID your own launcher recorded — never by pattern.** The
-  bullet above is a pattern matching too much while READING the process
-  table; this is the same defect with a signal attached, and it costs more.
-  A launcher preamble of the `pkill -f certify_reference_bundle` shape
-  matched three OTHER agents' bundle runs on 2026-08-09 — parent and
-  wrapper both — orphaning each one's conformance child and destroying its
-  work root (~40 minutes lost per victim, three victims, none of them the
-  process the launcher meant to clean up after). A pattern cannot tell your
-  run from anyone else's, and `-f` widens it to every wrapper and watcher
-  whose command line merely QUOTES the string. If your launcher started the
-  process it knows the PID, so kill that; if it didn't start it, it has no
-  business killing it. And when the real intent is "don't start a second
-  one," say that to the tool rather than to the process table:
-  `certify_reference_bundle.sh` now takes a per-host lock
-  (`/tmp/duo-certbundle.lock`) before its preflight and refuses by naming
-  the holder's pid, pair, checkout, and how long it has held, with the exact
-  `CERT_BUNDLE_WAIT=1` command to wait for it instead (a bounded poll, 90 min
-  default, no ordering guarantee between waiters). The lock is an flock(2)
-  held by a helper process that owns the descriptor — the same primitive
-  `pair.sh` uses for the pair budget — so the KERNEL releases it when its
-  holder stops existing. There is no corpse to detect, no staleness rule to
-  get wrong, and nothing to clean up by hand after a crash or a kill: the
-  next invocation simply acquires, within about a second. Killing a bundle
-  to free its lock accomplishes exactly nothing the kernel would not have
-  done, and costs whatever that run had built (DUO-3382;
-  `sandbox/tests/regress_certbundle_lock.sh` proves each of those offline
-  with real racing processes, on both lock backends).
-- **Posting content to Linear (or any API) from a shell:** never build the
-  payload inside a double-quoted shell argument. Double quotes do NOT
-  suppress backticks or `$var` — backtick-quoted code spans in comment
-  text get silently EXECUTED and blanked, and `$path` in a code sample
-  expanded to the entire host `$PATH` inside a posted issue body (observed
-  live; three artifacts corrupted, caught only by re-fetching). Pattern
-  that is safe by construction: write the payload to a JSON spec FILE with
-  the file tool (content never touches a command line), then POST the file
-  (`python3 helper.py spec.json`). And always **re-fetch what actually
-  posted** — the write succeeding says nothing about what the shell did to
-  the bytes first.
-- **Source-read any test script before running it** — even "just a regress
-  script from main." A script may hardcode ANOTHER actor's pair name,
-  fixed ports, or an unconditional `pair.sh reset` (observed live: an
-  unread script reset a foreign pair — both DBs dropped and its host
-  siterepo trees rm -rf'd; near-zero real loss only because the trees were
-  the script's own regenerable fixtures and the issue had already merged;
-  filed as DUO-3252). `reset` destroys more than containers. The mandate
-  is per-run, not per-repo-trust: read the resource stanza (PAIR/ports/
-  reset/up/destroy lines) of anything you invoke, every time it changed.
-- **Close-gate scope notes go in the issue DESCRIPTION, not comments**
-  (protocol step 6). A comment-only scope note scrolls away and the
-  description keeps claiming the original full scope — the next claimer
-  reads a lie (observed live: two consecutive Backlog returns of the same
-  issue carried evidence-complete comments and an untouched description).
-  At every partial-scope close/return: append `## Scope note` to the
-  description itself stating delivered vs deferred, then comment.
-- **Never pipe a large variable into `grep -q` under `pipefail` — it is
-  a RACE, and races make your own reproduction attempts lie to you.**
-  CONFIRMED root cause of a five-round live mystery (DUO-3267/PR #63): a
-  render check `echo "$HTML" | grep -qiE ... || fail` failed five
-  consecutive in-script runs against a healthy, full-size, marker-bearing
-  133KB page — while the byte-identical assertion passed EVERY standalone
-  reproduction, including under the same background runner and an
-  explicit SIGPIPE-disposition test. Mechanism: the first marker sat at
-  offset ~29KB, inside the first 64KB pipe-buffer fill, so grep could
-  match and exit while echo still had ~69KB queued; echo dies by SIGPIPE
-  (141); `pipefail` reports the PIPELINE as failed despite the match.
-  Whether grep drains the stream first or exits early is scheduling —
-  the script's context lost the race five-for-five, every ad-hoc probe
-  won it. Two consequences: (a) the fix is structural, not statistical —
-  herestrings (`grep -qE ... <<<"$VAR"`) have no pipe to break; convert
-  every `echo "$BIGVAR" | grep -q` on sight; (b) when an in-script
-  check contradicts your standalone reproduction, suspect a race in the
-  CHECK before a mystery in the system — five theories (BSD grep,
-  truncation, two plugin-cache mechanisms, execution context) were
-  chased and killed before the race was caught, each "refuted" partly
-  by probes the race itself was corrupting. Still-real secondary
-  hazards from the same investigation: `grep "a\|b"` BRE alternation is
-  a GNU-ism (this host's ugrep accepts it; plain BSD grep reads it
-  literally — always `-E`); `curl -s` swallows mid-transfer truncation,
-  so assert a byte floor ABOVE the last needed marker's offset before
-  any content grep, and print `${#VAR}` in every failure path; `?page_id=N`
-  301s under pretty permalinks, so bare curl without `-L` sees an empty
-  body.
-- **Assert the premise before the behavior in a live check.** A check that
-  manufactures its own fixture and then asserts the engine's reaction has
-  two failure domains, but its failure MESSAGE is written for only one of
-  them — the engine's. `conformance/postdeploy/core.sh` manufactured a
-  duplicate adoption key with five `docker compose run` calls and asserted
-  the refusal; under five-agent docker load one of those returned empty
-  with exit 0 (nothing for `set -e` to fire on), so the refusal
-  legitimately did not fire and the sweep reported "duplicate full
-  hierarchical adoption key was not rejected" — a false engine-regression
-  scare plus a full certification-bundle restart (~1h, DUO-3380; the
-  identical sweep standalone passed). Same family as DUO-3267: the harness
-  lying about the system. Fix: read the manufactured state back and assert
-  its exact shape BEFORE the behavior assertion, and say which domain
-  failed — the helpers `require_fixture_ids` / `require_fixture_values` /
-  `require_fixture_state` live in `sandbox/conformance/asserts.sh`, the
-  shared fragment BOTH hook-sourcing harnesses load (`conformance/run.sh`,
-  which also `export -f`s them to its child hook processes, and
-  `certify_version_matrix.sh` — a helper added to only one harness kills
-  the other at bundle leg 12 with `command not found`, DUO-3408), and every
-  message they emit carries the grep-able `fixture manufacture failed:`
-  prefix (DUO-3381).
-- **An assertion about an answer must first assert there WAS one.** The
-  sibling half of the bullet above, and the residual path it left open: a
-  refusal check neutralizes its own invocation's exit status on purpose —
-  `OUT=$(wp_conf2 duo plan ... 2>&1) || RC=$?` so it can grep `$OUT`, or
-  `|| fail` so it can name the engine — which is precisely what disables
-  `set -e` for that call. When the `docker compose run` then dies at the
-  DOCKER layer (container creation refused, daemon saturated by parallel
-  agents), the check still runs, over a capture holding nothing but
-  compose's container-creation chatter: the refusal grep legitimately does
-  not match and the sweep accuses the ENGINE for a command that never
-  reached it (that chatter pasted into the message from `$OUT` — exactly
-  what DUO-3380 archived). The RC-only variants are worse: any non-zero
-  exit satisfies them, so a dead invocation reports GREEN. Fix:
-  `conformance/run.sh` exports `require_duo_answered <what> <human|json>
-  <output>`, called BETWEEN the invocation and the assertion, prefix
-  `infrastructure failure:` — a deliberate sibling of `fixture manufacture
-  failed:` above, distinct because the domains differ (never built the
-  premise vs. never got an answer). Keep the "answered" marker BROAD
-  (wp-cli's `Success:`/`Error:`/`Warning:` framing, duo's own `duo:`
-  prefix, PHP's fatal framing): a narrow one would demote a real,
-  differently-worded engine failure into an infrastructure signal, which is
-  the one thing such a helper must never do (DUO-3391).
-- **CLOSED (DUO-3277) — the "bring up shared pairs from `duo-wp-main`,
-  never a worktree" discipline this bullet used to require is now
-  enforced by the tooling itself, not by remembering to follow it.**
-  `pair.sh up` (any invocation, from any checkout) resolves the
-  `agent`/`manifests` bind-mounts against the repo's canonical checkout
-  via git's own common-dir — never wherever `pair.sh`'s own script file
-  happened to be invoked from — so a pair brought up from a worktree no
-  longer pins a mount that dies when that worktree is cleaned up at
-  close-gate (observed live twice on r3b before this fix; see the issue
-  for the live proof this closes it, including a pair recovering cleanly
-  after its own origin worktree was removed out from under it). `pair.sh
-  start` also now detects and loudly names any dead bind-mount source
-  still baked into an existing container (a pair created before this fix
-  shipped, or broken by any other means), naming the exact recovery
-  instead of docker's own opaque failure. Kept here, in the past tense,
-  as the record of why this used to require operator discipline at all.
+- **Reading the process table for a running sweep:** naive
+  `pgrep -f "conformance/run.sh"` matches your own watcher and every other
+  agent's (a self-sustaining false-busy deadlock, observed live). Use BOTH
+  defenses — bracket trick AND start anchor:
+  `pgrep -f "^[b]ash sandbox/conformance/run.sh"`. The character class can't
+  match its own literal; the anchor excludes wrapper shells that merely
+  embed the string.
+- **Kill only a PID your own launcher recorded — never by pattern.** A
+  `pkill -f certify_reference_bundle` preamble matched three OTHER agents'
+  runs — parent and wrapper both — orphaning each and destroying its work
+  root (~40 min lost per victim, none of them the intended target;
+  DUO-3382). A pattern cannot tell your run from anyone else's, and `-f`
+  widens it to every wrapper that merely quotes the string. "Don't start a
+  second one" is the tool's job, not the process table's:
+  `certify_reference_bundle.sh` takes a per-host flock the KERNEL releases
+  when its holder stops existing — no corpse, no staleness rule, nothing to
+  clean by hand — and `CERT_BUNDLE_WAIT=1` waits for it (bounded poll, no
+  ordering). Killing a bundle to free its lock achieves nothing the kernel
+  wouldn't. Proven offline by `regress_certbundle_lock.sh`, both backends.
+- **Posting content to any API from a shell:** never build the payload
+  inside a double-quoted argument — double quotes do NOT suppress backticks
+  or `$var` (backtick code spans in comment text got EXECUTED and blanked;
+  `$path` expanded to the host `$PATH` inside a posted body; three artifacts
+  corrupted, caught only by re-fetching). Write the payload to a spec FILE
+  with the file tool, POST the file, then **re-fetch what actually posted**
+  — the write succeeding says nothing about what the shell did to the bytes.
+- **Source-read any script before running it, every time it changed** —
+  specifically its resource stanza (PAIR/ports/`reset`/`up`/`destroy`
+  lines). An unread regress script from main hardcoded another actor's pair
+  and an unconditional `pair.sh reset`: both DBs dropped, host siterepo
+  trees rm -rf'd (DUO-3252; near-zero real loss only by luck). `reset`
+  destroys more than containers; the mandate is per-run, not per-repo-trust.
+- **Partial-scope closes/returns write the scope note into the issue
+  DESCRIPTION (`## Scope note`), then comment** (Close gate step 6) — a
+  comment-only note scrolls away while the description keeps claiming the
+  original full scope, and the next claimer reads a lie (observed twice on
+  one issue).
+- **Never pipe a large variable into `grep -q` under `pipefail` — it is a
+  RACE** that corrupts your own reproductions: with the marker inside the
+  first 64KB pipe-buffer fill, grep can match and exit while echo still has
+  bytes queued; echo dies by SIGPIPE (141) and `pipefail` fails the pipeline
+  DESPITE the match. Whether it fires is scheduling — one context lost the
+  race five-for-five while every standalone repro passed (a five-round
+  mystery; DUO-3267/PR #63). Structural fix: herestrings
+  (`grep -qE ... <<<"$VAR"`); convert every `echo "$BIGVAR" | grep -q` on
+  sight. Corollary: when an in-script check contradicts your standalone
+  reproduction, suspect a race in the CHECK before a mystery in the system.
+  Same investigation: BRE `\|` alternation is a GNU-ism (always `-E`);
+  `curl -s` swallows mid-transfer truncation — assert a byte floor above the
+  last needed marker and print `${#VAR}` in every failure path; bare
+  `?page_id=N` 301s under pretty permalinks (use `-L`).
+- **A live check has three failure domains — premise, answer, observation —
+  and must name the right one instead of accusing the engine.** Under
+  multi-agent docker load a `compose run` can return EMPTY at exit 0
+  (nothing for `set -e` to fire on), so: (a) a manufactured fixture can
+  silently not land — read it back and assert its shape BEFORE the behavior
+  assertion (`require_fixture_ids`/`require_fixture_values`/
+  `require_fixture_state`, message prefix `fixture manufacture failed:`;
+  DUO-3380/3381); (b) a captured duo invocation can die at the docker layer
+  precisely because `|| RC=$?` / `|| fail` disables `set -e` for it —
+  assert there WAS an answer before asserting about the answer
+  (`require_duo_answered <what> <human|json> <output>`, prefix
+  `infrastructure failure:`; keep the "answered" marker BROAD — a narrow one
+  would demote a real, differently-worded engine failure into an
+  infrastructure signal; DUO-3391); (c) a hashed or compared observation of
+  live target state can be empty — assert it carried bytes before
+  hashing/comparing (`require_observed_nonempty`, same prefix; DUO-3413 —
+  exit-code-gated where the read exits non-zero on genuine absence, so a
+  real deletion still reaches the engine accusation; DUO-3401). All helpers
+  live in `sandbox/conformance/asserts.sh`, the shared fragment BOTH
+  hook-sourcing harnesses load and `run.sh` `export -f`s to its child hooks
+  (a helper added to only one harness kills the other at bundle leg 12,
+  DUO-3408); the wiring is enforced by `regress_conformance_asserts.sh`.
+- **CLOSED (DUO-3277):** the "bring pairs up only from the canonical
+  checkout, never a worktree" discipline is now tooling-enforced —
+  `pair.sh up` resolves the `agent`/`manifests` bind mounts via git's own
+  common-dir from any invocation point, and `start` loudly names a dead
+  mount source with its exact recovery. Kept as one note for why this once
+  required operator discipline.
