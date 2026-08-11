@@ -4,7 +4,7 @@
 
 Duo agent **0.5.0** / repo spec **2** is certified only for the exact boundaries below. Plugins execute unmodified; that fact is separate from whether their authored state is branchable.
 
-Evidence bundle: `43283d4cf19c5236a308db6d288e5f03df5f738fe12ac3d103b492e294c2596e` (CANDIDATE, source revision `87f3fe84be2bb6e7bbe0bf7da096cdcb6f851c11`). Missing entries and unlisted surfaces are unsupported.
+Evidence bundle: `4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2` (CURRENT, source revision `cfdb184b45dddab2676b85156584855522212a69`). Missing entries and unlisted surfaces are unsupported.
 
 | Adapter | Authored state | Plugin execution | Versions | Operations |
 |---|---|---|---|---|
