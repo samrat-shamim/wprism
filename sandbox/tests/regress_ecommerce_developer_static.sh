@@ -6,6 +6,7 @@ cd "$(dirname "$0")/.."
 
 SCRIPT="tests/grind_ecommerce_developer.sh"
 FIXTURE="fixtures/duo-ecommerce-developer-grind"
+MATRIX="tests/grind_ecommerce_developer.matrix.json"
 STATIC_STRUCTURE_FILE=""
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -375,6 +376,8 @@ assert_rm_rf_targets() {
       'rm -rf "$previous" "$unpack"' | \
       'rm -rf -- "$SITE/code/wp-content/plugins/$WOO_SLUG"' | \
       'rm -rf -- "$SITE/code/wp-content/plugins/$EXT_SLUG"' | \
+      'rm -rf -- "$SITE/code/wp-content/themes/$PARENT_THEME"' | \
+      'rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"' | \
       'rm -rf -- "$SITE/code"' | \
       'rm -rf -- "$SITE/state"' | \
       'rm -rf -- "$OTHER_SITE/.tmp-v1-recapture"' | \
@@ -430,7 +433,7 @@ ACF_SCHEMA_HELPER_GOLDEN_HASH=8ebb0003d070fea83241ddf3a565c1fe62485b4e0345a2101c
 FRONTEND_HELPER_GOLDEN_HASH=92273a989a026102a60f14fb5904101c2f2e50e66e5afa12372ed225812979ca
 REST_HELPER_GOLDEN_HASH=04e2ae5929d0f588dac14cf7fe5090bf8039e07fe2d9ea6d743635a059564b61
 STORE_API_HTTP_HELPER_GOLDEN_HASH=166220142d61874d76e56c6a18a30f09149c1ed06be33c40bdf8d560d5ef80c6
-FAIL_CLOSED_PHASE_GOLDEN_HASH=2f7531a124792da175133ad4501492bcc94d2abc10947d762f3a57138e810fa3
+FAIL_CLOSED_PHASE_GOLDEN_HASH=19c32d439e4c512ac4f7630d86e1467b67377242558a9ce60d7512b5ff668a51
 FINAL_RECAPTURE_PHASE_GOLDEN_HASH=8ad39bfd59ef81c8c78ef9c6f4c1800af877f2ae5cae2a0ce40488123c10559c
 assert_block_golden_hash cleanup "$CLEANUP_HELPER_BLOCK" "$CLEANUP_HELPER_GOLDEN_HASH"
 assert_block_golden_hash order-helper "$ORDER_HELPER_BLOCK" "$ORDER_HELPER_GOLDEN_HASH"
@@ -929,7 +932,7 @@ block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETIO
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)"' 'fail-closed phase does not compare all source Duo ledgers after refusal'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" '[ -e "$DELETION_PROBE_STATE_FILE" ]' 'fail-closed phase does not retain the canonical product state'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]' 'fail-closed phase does not assert tombstone absence'
-block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_theme_and_dependency' 'fail-closed phase does not assert target theme/dependency survival'
+block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_parent_theme_and_dependencies' 'fail-closed phase does not assert target theme/dependency survival'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_woo_catalog 1 5' 'fail-closed phase does not assert the unchanged target catalog count'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"' 'fail-closed phase does not assert target probe lookup survival'
 block_contains fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" 'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649' 'fail-closed phase does not assert target derived-index survival'
@@ -958,7 +961,7 @@ ordered_contract fail-closed-phase "$FAIL_CLOSED_PHASE_BLOCK" \
   'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)"' \
   '[ -e "$DELETION_PROBE_STATE_FILE" ]' \
   '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]' \
-  'assert_theme_and_dependency' \
+  'assert_parent_theme_and_dependencies' \
   'assert_woo_catalog 1 5' \
   'assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"' \
   'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649' \
@@ -979,7 +982,7 @@ FAIL_CLOSED_REQUIRED_TOKENS=(
   'assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)"'
   '[ -e "$DELETION_PROBE_STATE_FILE" ]'
   '[ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ]'
-  'assert_theme_and_dependency'
+  'assert_parent_theme_and_dependencies'
   'assert_woo_catalog 1 5'
   'assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"'
   'assert_derived_indexes 7 instock 16.49 9.99 16.49 1649'
@@ -1289,7 +1292,7 @@ grep -Fq 'DRIFT_HEAL_ARTIFACT="$(artifact_for_promote_output "$DRIFT_HEAL_OUT")"
 grep -Fq 'REMOVE_ARTIFACT="$(artifact_for_promote_output "$REMOVE_OUT")"' "$SCRIPT" || fail 'extension-removal promote receipt is not output-bound'
 grep -Fq 'REMOVE_REVISION="$(jq -r '\''.code.code_revision'\'' "$REMOVE_ARTIFACT")"' "$SCRIPT" || fail 'extension-removal code revision is not bound to its new receipt'
 grep -Fq 'assert_receipt "$REMOVE_ARTIFACT" '\''extension removal promote'\'' "$REMOVE_REVISION"' "$SCRIPT" || fail 'extension-removal receipt is checked against its newly published code revision'
-grep -Fq '[ "$REMOVE_REVISION" != "$V2_REVISION" ]' "$SCRIPT" || fail 'extension-removal code revision is not required to differ from v2'
+grep -Fq '[ "$REMOVE_REVISION" != "$THEME_SAFE_REMOVE_REVISION" ]' "$SCRIPT" || fail 'extension-removal code revision is not required to differ from the immediately prior theme lifecycle revision'
 grep -Fq 'RESTORED_ARTIFACT="$(artifact_for_promote_output "$RESTORE_OUT")"' "$SCRIPT" || fail 'rollback promote receipt is not output-bound'
 grep -Fq 'assert_runtime_state_excluded' "$SCRIPT" || fail 'generated-state runtime exclusion helper is missing'
 grep -Fq 'assert_env_secret_isolation' "$SCRIPT" || fail 'repeated env-secret isolation helper is missing'
@@ -1395,5 +1398,162 @@ ACF_UNESCAPED="$(sed 's/\\\$//g' <<<"$ACF_BLOCK" | grep -oE '\$[A-Za-z_][A-Za-z0
 grep -Fq 'Requires Plugins: woocommerce' "$FIXTURE/v1/wp-content/plugins/duo-commerce-extension/duo-commerce-extension.php" || fail 'v1 dependency header missing'
 grep -Fq 'Duo Commerce Extension reviewed v2 activation failure' "$FIXTURE/v2/broken/duo-commerce-extension.php" || fail 'broken activation fixture missing'
 grep -Fq 'migrate:v1-to-v2:' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'fixed v2 migration trace missing'
+
+# DUO-3358 is deliberately test-first.  The existing parent/child install
+# proves only that a static theme can be materialized; it cannot stand in for
+# an upgrade, a target-runtime refusal, a dependency-safe removal, or their
+# recovery/rollback contracts.  Keep this offline seam attached to the live
+# source structure so a comment, matrix-only status change, or unrelated
+# plugin failure cannot masquerade as executable theme coverage.
+[ -f "$MATRIX" ] || fail "DUO-3358 matrix is missing: $MATRIX"
+THEME_MATRIX_ROW="$(jq -ce '.moves[] | select(.id == "theme-upgrade-downgrade-removal")' "$MATRIX")" \
+  || fail 'DUO-3358 theme lifecycle row is missing or duplicated from the move matrix'
+jq -e '
+  .status == "exercised" and
+  .public_command == "php cli/duo --envs-file=<pair-envs> promote target --force-theirs" and
+  .harness == "sandbox/tests/grind_ecommerce_developer.sh" and
+  (.gap == null) and
+  (.linear_routing == null) and
+  ((.required_capabilities | index("target runtime preflight")) != null) and
+  ((.required_capabilities | index("parent-child dependency closure")) != null) and
+  ((.required_capabilities | index("explicit safe removal")) != null) and
+  ((.required_capabilities | index("failure retry")) != null) and
+  ((.required_capabilities | index("exact rollback")) != null)
+' <<<"$THEME_MATRIX_ROW" >/dev/null \
+  || fail 'DUO-3358 matrix row is not an exercised public theme lifecycle contract'
+
+THEME_REQUIRED_ANCHORS=(
+  'theme lifecycle: reviewed upgrade preserves portable relationships'
+  'theme lifecycle: incompatible downgrade refuses before target mutation'
+  'theme lifecycle: unsafe parent removal refuses before target mutation'
+  'theme lifecycle: explicit safe child removal failure/retry'
+  "assert_theme_portable_relationships 'exact v1 rollback'"
+)
+for theme_anchor in "${THEME_REQUIRED_ANCHORS[@]}"; do
+  jq -e --arg anchor "$theme_anchor" '(.evidence_anchors | index($anchor)) != null' <<<"$THEME_MATRIX_ROW" >/dev/null \
+    || fail "DUO-3358 matrix row is missing executable evidence anchor: $theme_anchor"
+done
+
+THEME_SNAPSHOT_HELPER_BLOCK="$(function_block theme_lifecycle_snapshot | strip_static_comments)"
+THEME_UNCHANGED_HELPER_BLOCK="$(function_block assert_theme_lifecycle_unchanged | strip_static_comments)"
+THEME_PORTABLE_HELPER_BLOCK="$(function_block assert_theme_portable_relationships | strip_static_comments)"
+THEME_VERSION_HELPER_BLOCK="$(function_block assert_theme_versions | strip_static_comments)"
+THEME_REMOVED_HELPER_BLOCK="$(function_block assert_theme_child_removed | strip_static_comments)"
+THEME_PARENT_FRONTEND_HELPER_BLOCK="$(function_block assert_frontend_parent | strip_static_comments)"
+
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'target_wp eval' \
+  'theme lifecycle snapshot does not read the target through the public WordPress surface'
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'get_option("stylesheet")' \
+  'theme lifecycle snapshot omits the active stylesheet'
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'get_option("template")' \
+  'theme lifecycle snapshot omits the active parent template'
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'get_theme_mod("background_color")' \
+  'theme lifecycle snapshot omits the portable theme setting'
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'get_theme_mod("custom_logo")' \
+  'theme lifecycle snapshot omits the media-backed custom-logo relationship'
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'get_attached_file' \
+  'theme lifecycle snapshot does not resolve the media relationship through WordPress'
+block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'wp_json_encode' \
+  'theme lifecycle snapshot is not a deterministic structured receipt'
+
+block_contains theme-unchanged-helper "$THEME_UNCHANGED_HELPER_BLOCK" 'theme_lifecycle_snapshot' \
+  'theme no-mutation helper does not recapture the target lifecycle snapshot'
+block_contains theme-unchanged-helper "$THEME_UNCHANGED_HELPER_BLOCK" 'assert_eq "$before" "$after" "$label"' \
+  'theme no-mutation helper does not compare the exact lifecycle snapshot'
+
+block_contains theme-portable-helper "$THEME_PORTABLE_HELPER_BLOCK" 'assert_ecommerce_menu "$label"' \
+  'theme portable relationship helper does not prove navigation preservation'
+block_contains theme-portable-helper "$THEME_PORTABLE_HELPER_BLOCK" 'background_color' \
+  'theme portable relationship helper does not prove the theme setting'
+block_contains theme-portable-helper "$THEME_PORTABLE_HELPER_BLOCK" 'logo_title' \
+  'theme portable relationship helper does not prove the media-backed logo setting'
+block_contains theme-portable-helper "$THEME_PORTABLE_HELPER_BLOCK" 'logo_hash' \
+  'theme portable relationship helper does not prove the resolved media bytes'
+
+block_contains theme-version-helper "$THEME_VERSION_HELPER_BLOCK" '.parent_version' \
+  'theme version helper does not verify the target parent version'
+block_contains theme-version-helper "$THEME_VERSION_HELPER_BLOCK" '.child_version' \
+  'theme version helper does not verify the target child version'
+block_contains theme-removed-helper "$THEME_REMOVED_HELPER_BLOCK" 'assert_eq "$PARENT_THEME" "$(target_wp option get stylesheet)"' \
+  'safe theme removal helper does not prove the parent became active through lifecycle reconciliation'
+block_contains theme-removed-helper "$THEME_REMOVED_HELPER_BLOCK" 'assert_eq absent "$(target_directory "$CHILD_TARGET")"' \
+  'safe theme removal helper does not prove the child root was removed'
+block_contains theme-parent-frontend-helper "$THEME_PARENT_FRONTEND_HELPER_BLOCK" 'curl --connect-timeout 3 --max-time 10 --silent --show-error' \
+  'standalone parent frontend proof is not bounded'
+block_contains theme-parent-frontend-helper "$THEME_PARENT_FRONTEND_HELPER_BLOCK" 'rm -f -- "$body_file"' \
+  'standalone parent frontend proof does not clean its temporary response on failure'
+block_contains theme-parent-frontend-helper "$THEME_PARENT_FRONTEND_HELPER_BLOCK" 'fail "$label standalone-parent frontend request failed"' \
+  'standalone parent frontend proof does not surface transport failure'
+
+THEME_UPGRADE_PHASE_BLOCK="$FAILED_V2_PHASE_BLOCK
+$FAILED_V2_RECOVERY_PHASE_BLOCK"
+THEME_DOWNGRADE_PHASE_BLOCK="$(phase_block 'theme lifecycle: incompatible downgrade refuses before target mutation' | strip_static_comments)"
+THEME_PARENT_REMOVAL_PHASE_BLOCK="$(phase_block 'theme lifecycle: unsafe parent removal refuses before target mutation' | strip_static_comments)"
+THEME_SAFE_REMOVAL_PHASE_BLOCK="$(phase_block 'theme lifecycle: explicit safe child removal failure/retry' | strip_static_comments)"
+
+ordered_contract theme-upgrade "$THEME_UPGRADE_PHASE_BLOCK" \
+  'V2_BROKEN_OUT' \
+  'V2_OUT' \
+  "assert_theme_versions 'reviewed v2 theme upgrade'" \
+  "assert_theme_portable_relationships 'reviewed v2 theme upgrade'" \
+  "assert_receipt \"\$V2_ARTIFACT\" 'reviewed v2 theme upgrade promote' \"\$V2_REVISION\""
+
+ordered_contract theme-downgrade-refusal "$THEME_DOWNGRADE_PHASE_BLOCK" \
+  'THEME_DOWNGRADE_TREE_BEFORE="$(target_managed_code_tree_hash)"' \
+  'THEME_DOWNGRADE_LIFECYCLE_BEFORE="$(theme_lifecycle_snapshot)"' \
+  'Requires PHP: 99.0' \
+  'THEME_DOWNGRADE_PLAN="$(plan_json)"' \
+  'code_source_requires_php_incompatible' \
+  '.kind == "theme"' \
+  'THEME_DOWNGRADE_OUT="$(deploy --force-code-mismatch 2>&1)"' \
+  "assert_absent \"\$THEME_DOWNGRADE_OUT\" 'deploy phase: promotion-begin' 'incompatible theme downgrade'" \
+  'assert_eq "$THEME_DOWNGRADE_TREE_BEFORE" "$(target_managed_code_tree_hash)"' \
+  "assert_theme_lifecycle_unchanged \"\$THEME_DOWNGRADE_LIFECYCLE_BEFORE\" 'incompatible theme downgrade refusal'" \
+  'cp -a "$FIXTURE/v2/wp-content/themes/$CHILD_THEME"'
+
+ordered_contract theme-parent-removal-refusal "$THEME_PARENT_REMOVAL_PHASE_BLOCK" \
+  'THEME_PARENT_REMOVE_TREE_BEFORE="$(target_managed_code_tree_hash)"' \
+  'THEME_PARENT_REMOVE_REVISION_BEFORE="$(ledger_revision)"' \
+  'THEME_PARENT_REMOVE_LIFECYCLE_BEFORE="$(theme_lifecycle_snapshot)"' \
+  'rm -rf -- "$SITE/code/wp-content/themes/$PARENT_THEME"' \
+  'THEME_PARENT_REMOVE_OUT="$(deploy 2>&1)"' \
+  'canonical template' \
+  "assert_absent \"\$THEME_PARENT_REMOVE_OUT\" 'deploy phase: promotion-begin' 'unsafe parent-theme removal'" \
+  'assert_eq "$THEME_PARENT_REMOVE_TREE_BEFORE" "$(target_managed_code_tree_hash)"' \
+  'assert_eq "$THEME_PARENT_REMOVE_REVISION_BEFORE" "$(ledger_revision)"' \
+  "assert_theme_lifecycle_unchanged \"\$THEME_PARENT_REMOVE_LIFECYCLE_BEFORE\" 'unsafe parent removal refusal'" \
+  'cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME"'
+
+ordered_contract theme-safe-removal-retry "$THEME_SAFE_REMOVAL_PHASE_BLOCK" \
+  'source_wp theme activate "$PARENT_THEME"' \
+  'source_wp duo capture --repo=/siterepo' \
+  'rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"' \
+  'THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"' \
+  "assert_theme_child_removed 'theme safe child removal'" \
+  "assert_theme_portable_relationships 'theme safe child removal'" \
+  'THEME_SAFE_REMOVE_ARTIFACT="$(artifact_for_promote_output "$THEME_SAFE_REMOVE_OUT")"' \
+  "assert_receipt \"\$THEME_SAFE_REMOVE_ARTIFACT\" 'safe child-theme removal promote' \"\$THEME_SAFE_REMOVE_REVISION\""
+
+THEME_REMOVAL_SEQUENCE="$THEME_PARENT_REMOVAL_PHASE_BLOCK
+$THEME_SAFE_REMOVAL_PHASE_BLOCK"
+ordered_contract theme-removal-failure-retry "$THEME_REMOVAL_SEQUENCE" \
+  'THEME_PARENT_REMOVE_OUT="$(deploy 2>&1)"' \
+  'source_wp theme activate "$PARENT_THEME"' \
+  'source_wp duo capture --repo=/siterepo' \
+  'THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"'
+
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" "assert_theme_versions 'exact v1 rollback'" \
+  'exact rollback does not restore and verify the v1 theme versions'
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" "assert_theme_portable_relationships 'exact v1 rollback'" \
+  'exact rollback does not restore and verify theme settings/menu/media relationships'
+
+# Negative proof: a phase can retain its prose and still lose a material
+# assertion. Remove the existing successful-v2 receipt binding from the
+# extracted live block and prove the same ordered-contract checker rejects it.
+THEME_UPGRADE_RECEIPT_TOKEN='assert_receipt "$V2_ARTIFACT" '\''reviewed v2 theme upgrade promote'\'' "$V2_REVISION"'
+THEME_UPGRADE_WITHOUT_RECEIPT="$(grep -Fv -- "$THEME_UPGRADE_RECEIPT_TOKEN" <<<"$THEME_UPGRADE_PHASE_BLOCK")"
+if (ordered_contract theme-upgrade-negative "$THEME_UPGRADE_WITHOUT_RECEIPT" "$THEME_UPGRADE_RECEIPT_TOKEN") >/dev/null 2>&1; then
+  fail 'DUO-3358 self-mutation: theme upgrade without its receipt binding unexpectedly passed'
+fi
 
 pass 'ecommerce grind syntax, fixture, pin, lifecycle, dependency, rollback, and derived-index contracts pass offline'

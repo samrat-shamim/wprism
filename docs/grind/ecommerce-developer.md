@@ -25,7 +25,7 @@ the live grind proves a fail-closed unsupported/refusal boundary; `planned_gap`
 means the proposed public move is explicitly marked unavailable and routed but
 not claimed by this harness.
 
-The current machine-checked report contains 17 exercised moves, 7 planned
+The current machine-checked report contains 18 exercised moves, 6 planned
 gaps, and 2 reproduced fail-closed boundaries. The regression recomputes those
 counts from the rows so the summary cannot drift from the evidence index.
 
@@ -50,9 +50,15 @@ before-fix/after-fix convergence path.
 The explicit gaps are initialization/adoption (DUO-3336), branch
 materialization (DUO-3324), authored-user synchronization (DUO-3344),
 refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), scoped promotion (DUO-3344), and provider-backed
-plugin/theme replacement (DUO-3357). Theme upgrade, downgrade refusal, and
-removal are routed to DUO-3358. Reproduced boundaries include unsupported Woo deletion (DUO-3338)
-and dependency refusal (DUO-3338). These
+plugin/theme replacement (DUO-3357). The proof now exercises a reviewed
+parent/child theme upgrade with failure/retry, a non-forceable incompatible
+downgrade, unsafe parent-removal refusal, dependency-safe child removal after
+a public theme switch with an explicit `--force-theirs` acceptance of the
+reviewed theme-state intent, and exact rollback while preserving theme settings,
+navigation, and media. The separate WordPress-cron move is routed to DUO-3359.
+Reproduced boundaries include unsupported Woo deletion (DUO-3338) and
+dependency refusal (DUO-3338). Compatibility refusal (DUO-3326) is exercised
+by the live proof. These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.
 

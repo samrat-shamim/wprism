@@ -138,9 +138,15 @@ Three consequences follow, and the third is the one teams get wrong:
    backup. Duo detects the divergence and refuses to write state across it. It
    does not put the old bytes back.
 
-Theme upgrade, downgrade refusal, and removal as a first-class managed
-lifecycle is **Planned (DUO-3358)** — not yet shipped. Provider-backed
-plugin/theme replacement is **Planned (DUO-3357)** — not yet shipped.
+Theme upgrade, incompatible-downgrade refusal, unsafe parent-removal refusal,
+and dependency-safe removal are exercised by the ecommerce developer proof.
+The safe removal uses `promote --force-theirs` after a public source theme
+switch so the captured standalone-parent intent explicitly wins over the
+target option drift caused by the corresponding lifecycle switch.
+They use the same generic source/runtime preflight, code-state relationship,
+staged lifecycle, and finalization boundaries described above: no theme name
+or theme-specific branch exists in the engine. Provider-backed plugin/theme
+replacement remains **Planned (DUO-3357)** — it is a separate workflow.
 
 ## Rollback
 

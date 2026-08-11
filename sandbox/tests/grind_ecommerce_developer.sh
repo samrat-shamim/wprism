@@ -343,6 +343,7 @@ echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
   target_wp "${args[@]}"
 }
 target_file() { target_php "echo is_file('$1') ? 'present' : 'absent';"; }
+target_directory() { target_php "echo is_dir('$1') ? 'present' : 'absent';"; }
 target_hash() { target_php "echo hash_file('sha256', '$1');"; }
 source_hash() { sha256sum "$1" | awk '{print $1}'; }
 state_tree_hash() {
@@ -1094,6 +1095,22 @@ assert_frontend_child_parent() {
   fi
   pass "$label frontend exercised parent body_class, child template, and dependency-ordered parent/child enqueues"
 }
+
+assert_frontend_parent() {
+  local label="$1" body_file body http
+  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-parent-front.XXXXXX")"
+  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/")"; then
+    rm -f -- "$body_file"
+    fail "$label standalone-parent frontend request failed"
+  fi
+  body="$(<"$body_file")"
+  rm -f -- "$body_file"
+  assert_eq 200 "$http" "$label frontend HTTP status"
+  grep -Eiq '<body[^>]*duo-commerce-storefront' <<<"$body" || fail "$label frontend is missing the parent body_class marker"
+  grep -Fq 'duo-commerce-v2' <<<"$body" || fail "$label frontend did not execute the v2 parent template"
+  assert_absent "$body" 'duo-commerce-child-catalog' "$label standalone parent frontend"
+  pass "$label frontend runs the reviewed standalone parent after child removal"
+}
 assert_extension_rest_status() {
   local expected_version="$1" expected_schema="$2" label="$3" body_file body http
   body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-rest.XXXXXX")"
@@ -1698,6 +1715,89 @@ assert_theme_and_dependency() {
   target_wp eval 'if (!class_exists("WooCommerce")) { exit(1); } if (!function_exists("woocommerce_content")) { exit(1); }' || fail "custom storefront did not load WooCommerce integration"
 }
 
+theme_lifecycle_snapshot() {
+  target_wp eval '
+$stylesheet = (string) get_option("stylesheet");
+$template = (string) get_option("template");
+$parent = wp_get_theme("duo-commerce-parent");
+$child = wp_get_theme("duo-commerce-child");
+$logo_id = (int) get_theme_mod("custom_logo");
+$logo = $logo_id > 0 ? get_post($logo_id) : null;
+$logo_file = $logo_id > 0 ? (string) get_attached_file($logo_id) : "";
+$locations = (array) get_theme_mod("nav_menu_locations", []);
+$menu_id = (int) ($locations["primary"] ?? 0);
+$menu = $menu_id > 0 ? wp_get_nav_menu_object($menu_id) : false;
+echo wp_json_encode([
+    "stylesheet" => $stylesheet,
+    "template" => $template,
+    "parent_exists" => $parent->exists(),
+    "parent_version" => $parent->exists() ? (string) $parent->get("Version") : "",
+    "child_exists" => $child->exists(),
+    "child_version" => $child->exists() ? (string) $child->get("Version") : "",
+    "background_color" => (string) get_theme_mod("background_color"),
+    "logo_title" => $logo ? (string) $logo->post_title : "",
+    "logo_mime" => $logo ? (string) $logo->post_mime_type : "",
+    "logo_hash" => $logo_file !== "" && is_file($logo_file) ? (string) hash_file("sha256", $logo_file) : "",
+    "menu_name" => $menu ? (string) $menu->name : "",
+    "menu_slug" => $menu ? (string) $menu->slug : "",
+], JSON_UNESCAPED_SLASHES);
+'
+}
+
+assert_theme_lifecycle_unchanged() {
+  local before="$1" label="$2" after
+  after="$(theme_lifecycle_snapshot)"
+  assert_eq "$before" "$after" "$label"
+}
+
+assert_theme_portable_relationships() {
+  local label="$1" expected_stylesheet="${2:-$CHILD_THEME}" out
+  assert_ecommerce_menu "$label"
+  out="$(theme_lifecycle_snapshot)"
+  jq -e \
+    --arg stylesheet "$expected_stylesheet" \
+    --arg template "$PARENT_THEME" \
+    --arg background "1f4b6e" '
+      .stylesheet == $stylesheet and .template == $template and
+      .background_color == $background and
+      .logo_title == "Duo Grind Widget Image" and .logo_mime == "image/png" and
+      .logo_hash == "431ced6916a2a21a156e38701afe55bbd7f88969fbbfc56d7fe099d47f265460" and
+      .menu_name == "Duo Grind Primary" and .menu_slug == "duo-grind-primary"
+    ' <<<"$out" >/dev/null \
+    || fail "$label did not preserve portable theme settings, navigation, or media: $out"
+  pass "$label preserves background, mapped custom-logo media, and the primary navigation relationship"
+}
+
+assert_theme_versions() {
+  local label="$1" expected_parent="$2" expected_child="$3" out
+  out="$(theme_lifecycle_snapshot)"
+  jq -e \
+    --arg parent "$expected_parent" \
+    --arg child "$expected_child" '
+      .parent_exists == true and .parent_version == $parent and
+      (if $child == "absent" then .child_exists == false and .child_version == ""
+       else .child_exists == true and .child_version == $child end)
+    ' <<<"$out" >/dev/null \
+    || fail "$label theme versions are not exact: $out"
+  pass "$label has exact parent/child theme versions"
+}
+
+assert_theme_child_removed() {
+  local label="$1"
+  assert_eq "$PARENT_THEME" "$(target_wp option get stylesheet)" "$label active standalone parent"
+  assert_eq "$PARENT_THEME" "$(target_wp option get template)" "$label active parent template"
+  assert_eq absent "$(target_directory "$CHILD_TARGET")" "$label retired child-theme root"
+}
+
+assert_parent_theme_and_dependencies() {
+  assert_eq "$PARENT_THEME" "$(target_wp option get stylesheet)" "active standalone parent theme"
+  assert_eq "$PARENT_THEME" "$(target_wp option get template)" "active parent template"
+  target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail "WooCommerce is inactive"
+  target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail "ACF is inactive"
+  target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "Duo Commerce Extension is inactive"
+  assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" "exact authored active_plugins order"
+}
+
 assert_derived_indexes() {
   local expected_cap_stock="${1:-null}"
   local expected_cap_status="${2:-}"
@@ -1970,6 +2070,13 @@ source_wp option update duo_commerce_extension_gateway_secret 'source-only-synth
 source_wp plugin activate "$EXT_SLUG" >/dev/null
 source_wp theme activate "$PARENT_THEME" >/dev/null
 source_wp theme activate "$CHILD_THEME" >/dev/null
+source_wp eval '
+set_theme_mod("background_color", "1f4b6e");
+set_theme_mod("custom_logo", '"$MEDIA_ID"');
+$locations = (array) get_theme_mod("nav_menu_locations", []);
+$locations["primary"] = '"$MENU_ID"';
+set_theme_mod("nav_menu_locations", $locations);
+' >/dev/null
 assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$(source_wp option get active_plugins --format=json | jq -c '.')" "author native active_plugins order"
 assert_eq "$PARENT_THEME" "$(source_wp option get template)" "author parent theme after public switch"
 assert_eq "$CHILD_THEME" "$(source_wp option get stylesheet)" "author child theme after public switch"
@@ -2046,6 +2153,8 @@ assert_source_runtime_absent_from_target 'v1 target apply'
 assert_env_secret_isolation 'v1 target apply'
 assert_runtime_state_excluded 'v1 target apply'
 assert_frontend_child_parent 'v1 target apply'
+assert_theme_versions 'v1 target apply' '1.0.0' '1.0.0'
+assert_theme_portable_relationships 'v1 target apply'
 assert_extension_rest_status '1.0.0' 1 'v1 target apply'
 assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" "v1 authored extension setting"
 assert_eq 1 "$(target_wp option get duo_commerce_extension_schema)" "v1 extension schema"
@@ -2547,6 +2656,8 @@ assert_extension_runtime_event 0 "" 'v1 runtime row after checkpoint restore'
 # state the checkpoint never contained.
 assert_eq "$EXTENSION_INACTIVE_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" 'inactive-extension plugin order after checkpoint restore'
 assert_runtime_isolation 'v1 checkpoint recovery' 0
+assert_theme_versions 'v1 checkpoint recovery' '1.0.0' '1.0.0'
+assert_theme_portable_relationships 'v1 checkpoint recovery'
 
 cp "$FIXTURE/v2/fixed/$EXT_FILE" "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE"
 V2_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"
@@ -2564,6 +2675,8 @@ echo "$V2_OUT"
 assert_phase_order "$V2_OUT" 'promote phase: compile' 'promote phase: code-preflight' 'promote phase: promotion-begin' 'promote phase: checkpoint' 'promote phase: code-stage' 'promote phase: lifecycle-retire' 'promote phase: lifecycle-activate' 'promote phase: code-finalize' 'promote phase: apply'
 assert_theme_and_dependency "$AUTHORED_ACTIVE_PLUGINS_JSON"
 assert_frontend_child_parent 'fixed v2 retry' 1
+assert_theme_versions 'reviewed v2 theme upgrade' '1.1.0' '2.0.0'
+assert_theme_portable_relationships 'reviewed v2 theme upgrade'
 assert_extension_rest_status '2.0.0' 2 'fixed v2 retry'
 target_wp option get duo_commerce_extension_settings --format=json | jq -e '.schema == 2 and .channel == "retail" and .catalog_mode == "managed"' >/dev/null || fail 'v2 migration/state object did not converge'
 assert_eq 2 "$(target_wp option get duo_commerce_extension_schema)" 'v2 extension schema'
@@ -2577,7 +2690,7 @@ assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 V2_ARTIFACT="$(artifact_for_promote_output "$V2_OUT")"
 V2_REVISION="$(jq -r '.code.code_revision' "$V2_ARTIFACT")"
 V2_ARTIFACT_HASH="$(jq -r '.artifact_hash' "$V2_ARTIFACT")"
-assert_receipt "$V2_ARTIFACT" 'fixed v2 retry' "$V2_REVISION"
+assert_receipt "$V2_ARTIFACT" 'reviewed v2 theme upgrade promote' "$V2_REVISION"
 [ "$V2_REVISION" != "$V1_REVISION" ] || fail 'v2 did not publish a distinct code revision'
 assert_eq "$V2_SOURCE_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact fixed v2 managed code tree'
 assert_woo_catalog 1 5
@@ -2596,6 +2709,7 @@ source_wp option update --format=json active_plugins "$AUTHORED_ACTIVE_PLUGINS_J
 assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(source_wp option get active_plugins --format=json | jq -c '.')" 'source v2 runtime migration authored plugin order'
 assert_source_runtime_baseline 'source v2 runtime migration'
 assert_runtime_isolation 'fixed v2 retry' 1
+pass "theme lifecycle: reviewed upgrade preserves portable relationships"
 pass "exact v1 checkpoint recovery removed failed migration effects; fixed v2 activation migrated before canonical object apply and preserved target runtime order/stock"
 
 say "real author product update: change grouped child price/merchandising, capture, and promote the state delta"
@@ -2621,6 +2735,160 @@ assert_runtime_isolation 'author product update promote' 1
 PRODUCT_UPDATE_ARTIFACT="$(artifact_for_promote_output "$PRODUCT_UPDATE_OUT")"
 assert_receipt "$PRODUCT_UPDATE_ARTIFACT" 'author product update promote' "$V2_REVISION"
 pass "the author-side grouped-child price/merchandising edit refreshed the grouped root while target-only HPOS order/stock remained runtime-local"
+
+say "theme lifecycle: incompatible downgrade refuses before target mutation"
+THEME_TARGET_RUNTIME="$(target_wp eval 'global $wp_version; echo wp_json_encode(["php" => PHP_VERSION, "wordpress" => (string) $wp_version]);')"
+THEME_TARGET_PHP="$(jq -r '.php' <<<"$THEME_TARGET_RUNTIME")"
+THEME_TARGET_WORDPRESS="$(jq -r '.wordpress' <<<"$THEME_TARGET_RUNTIME")"
+THEME_DOWNGRADE_TREE_BEFORE="$(target_managed_code_tree_hash)"
+THEME_DOWNGRADE_REVISION_BEFORE="$(ledger_revision)"
+THEME_DOWNGRADE_LIFECYCLE_BEFORE="$(theme_lifecycle_snapshot)"
+THEME_DOWNGRADE_SESSION_BEFORE="$(ledger_value promotion_session)"
+THEME_DOWNGRADE_LOCK_BEFORE="$(ledger_value promotion_lock)"
+rm -rf -- "$SITE/code/wp-content/themes/$PARENT_THEME"
+rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"
+cp -a "$FIXTURE/v1/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
+cp -a "$FIXTURE/v1/wp-content/themes/$CHILD_THEME" "$SITE/code/wp-content/themes/"
+php -r '
+$path = $argv[1];
+$bytes = file_get_contents($path);
+$needle = "Version: 1.0.0\n";
+if (!is_string($bytes) || substr_count($bytes, $needle) !== 1) { exit(2); }
+$next = str_replace($needle, $needle . "Requires PHP: 99.0\n", $bytes);
+if (file_put_contents($path, $next) === false) { exit(3); }
+' "$SITE/code/wp-content/themes/$CHILD_THEME/style.css"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject incompatible child-theme downgrade'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+THEME_DOWNGRADE_PLAN="$(plan_json)"
+jq -e \
+  --arg theme "$CHILD_THEME" \
+  --arg php "$THEME_TARGET_PHP" \
+  --arg wordpress "$THEME_TARGET_WORDPRESS" \
+  '[.code_mismatch[] | select(
+      .issue == "code_source_requires_php_incompatible"
+      and .kind == "theme"
+      and .theme == $theme
+      and .target_php == $php
+      and .target_wordpress == $wordpress
+      and .required_version == "99.0"
+      and .non_forceable == true
+      and (.code_revision | test("^[0-9a-f]{64}$"))
+      and (.component_sha256 | test("^[0-9a-f]{64}$"))
+    )] | length == 1' <<<"$THEME_DOWNGRADE_PLAN" >/dev/null \
+  || fail 'semantic plan did not bind the incompatible child-theme downgrade to exact target/runtime code evidence'
+if THEME_DOWNGRADE_OUT="$(deploy --force-code-mismatch 2>&1)"; then
+  echo "$THEME_DOWNGRADE_OUT" >&2
+  fail 'incompatible child-theme downgrade unexpectedly deployed'
+fi
+echo "$THEME_DOWNGRADE_OUT"
+grep -Fq 'code_source_requires_php_incompatible' <<<"$THEME_DOWNGRADE_OUT" \
+  || fail 'theme downgrade refusal lost its structured runtime diagnostic'
+grep -Fq "$CHILD_THEME" <<<"$THEME_DOWNGRADE_OUT" \
+  || fail 'theme downgrade refusal did not name the exact child theme'
+grep -Fq "target PHP is $THEME_TARGET_PHP" <<<"$THEME_DOWNGRADE_OUT" \
+  || fail 'theme downgrade refusal did not name the exact target PHP value'
+assert_absent "$THEME_DOWNGRADE_OUT" 'deploy phase: promotion-begin' 'incompatible theme downgrade'
+assert_eq "$THEME_DOWNGRADE_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'managed code tree after incompatible theme downgrade refusal'
+assert_eq "$THEME_DOWNGRADE_REVISION_BEFORE" "$(ledger_revision)" 'code revision after incompatible theme downgrade refusal'
+assert_theme_lifecycle_unchanged "$THEME_DOWNGRADE_LIFECYCLE_BEFORE" 'incompatible theme downgrade refusal'
+assert_eq "$THEME_DOWNGRADE_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after incompatible theme downgrade refusal'
+assert_eq "$THEME_DOWNGRADE_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lock after incompatible theme downgrade refusal'
+rm -rf -- "$SITE/code/wp-content/themes/$PARENT_THEME"
+rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"
+cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
+cp -a "$FIXTURE/v2/wp-content/themes/$CHILD_THEME" "$SITE/code/wp-content/themes/"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore reviewed v2 themes after downgrade refusal'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+pass "theme lifecycle: incompatible downgrade refuses before target mutation"
+
+say "theme lifecycle: unsafe parent removal refuses before target mutation"
+THEME_PARENT_REMOVE_TREE_BEFORE="$(target_managed_code_tree_hash)"
+THEME_PARENT_REMOVE_REVISION_BEFORE="$(ledger_revision)"
+THEME_PARENT_REMOVE_LIFECYCLE_BEFORE="$(theme_lifecycle_snapshot)"
+THEME_PARENT_REMOVE_SESSION_BEFORE="$(ledger_value promotion_session)"
+THEME_PARENT_REMOVE_LOCK_BEFORE="$(ledger_value promotion_lock)"
+rm -rf -- "$SITE/code/wp-content/themes/$PARENT_THEME"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: reject child theme without its canonical parent'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+if THEME_PARENT_REMOVE_OUT="$(deploy 2>&1)"; then
+  echo "$THEME_PARENT_REMOVE_OUT" >&2
+  fail 'unsafe parent-theme removal unexpectedly deployed'
+fi
+echo "$THEME_PARENT_REMOVE_OUT"
+grep -Fq 'code_state_mismatch' <<<"$THEME_PARENT_REMOVE_OUT" \
+  || fail 'unsafe parent removal did not retain the code_state_mismatch diagnostic'
+grep -Fq "canonical template '$PARENT_THEME' has no matching theme directory in code/wp-content/themes" <<<"$THEME_PARENT_REMOVE_OUT" \
+  || fail 'unsafe parent removal did not name the exact canonical template dependency'
+assert_absent "$THEME_PARENT_REMOVE_OUT" 'deploy phase: promotion-begin' 'unsafe parent-theme removal'
+assert_eq "$THEME_PARENT_REMOVE_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'managed code tree after unsafe parent removal refusal'
+assert_eq "$THEME_PARENT_REMOVE_REVISION_BEFORE" "$(ledger_revision)" 'code revision after unsafe parent removal refusal'
+assert_theme_lifecycle_unchanged "$THEME_PARENT_REMOVE_LIFECYCLE_BEFORE" 'unsafe parent removal refusal'
+assert_eq "$THEME_PARENT_REMOVE_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after unsafe parent removal refusal'
+assert_eq "$THEME_PARENT_REMOVE_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lock after unsafe parent removal refusal'
+cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore parent after dependency refusal'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+pass "theme lifecycle: unsafe parent removal refuses before target mutation"
+
+say "theme lifecycle: explicit safe child removal failure/retry"
+# Correct the refused dependency move through ordinary WordPress lifecycle
+# APIs. Capture records standalone-parent intent and resolves the theme-local
+# media/menu ids; the reviewed code descriptor can then remove only the child.
+source_wp theme activate "$PARENT_THEME" >/dev/null
+source_wp eval '
+set_theme_mod("background_color", "1f4b6e");
+set_theme_mod("custom_logo", '"$MEDIA_ID"');
+$locations = (array) get_theme_mod("nav_menu_locations", []);
+$locations["primary"] = '"$MENU_ID"';
+set_theme_mod("nav_menu_locations", $locations);
+' >/dev/null
+assert_eq "$PARENT_THEME" "$(source_wp option get template)" 'source template before safe child removal'
+assert_eq "$PARENT_THEME" "$(source_wp option get stylesheet)" 'source stylesheet before safe child removal'
+source_wp duo capture --repo=/siterepo >/dev/null
+rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"
+THEME_SAFE_REMOVE_SOURCE_TREE="$(source_managed_code_tree_hash)"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: switch to parent and remove child theme'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+if ! THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"; then
+  echo "$THEME_SAFE_REMOVE_OUT" >&2
+  fail 'safe child-theme removal promote failed'
+fi
+echo "$THEME_SAFE_REMOVE_OUT"
+assert_phase_order "$THEME_SAFE_REMOVE_OUT" \
+  'promote phase: compile' \
+  'promote phase: code-preflight' \
+  'promote phase: promotion-begin' \
+  'promote phase: checkpoint' \
+  'promote phase: code-stage' \
+  'promote phase: lifecycle-retire' \
+  'promote phase: lifecycle-activate' \
+  'promote phase: code-finalize' \
+  'promote phase: apply'
+assert_parent_theme_and_dependencies
+assert_theme_child_removed 'theme safe child removal'
+assert_theme_versions 'safe child-theme removal' '1.1.0' 'absent'
+assert_theme_portable_relationships 'theme safe child removal' "$PARENT_THEME"
+assert_frontend_parent 'safe child-theme removal'
+assert_eq "$THEME_SAFE_REMOVE_SOURCE_TREE" "$(target_managed_code_tree_hash)" 'exact managed code tree after safe child-theme removal'
+assert_ecommerce_menu 'safe child-theme removal'
+assert_target_order_unchanged 'target-only order survives safe child-theme removal'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives safe child-theme removal'
+assert_runtime_isolation 'safe child-theme removal' 1
+THEME_SAFE_REMOVE_ARTIFACT="$(artifact_for_promote_output "$THEME_SAFE_REMOVE_OUT")"
+THEME_SAFE_REMOVE_REVISION="$(jq -r '.code.code_revision' "$THEME_SAFE_REMOVE_ARTIFACT")"
+assert_receipt "$THEME_SAFE_REMOVE_ARTIFACT" 'safe child-theme removal promote' "$THEME_SAFE_REMOVE_REVISION"
+[ "$THEME_SAFE_REMOVE_REVISION" != "$V2_REVISION" ] || fail 'safe child-theme removal did not publish a distinct code revision'
+pass "theme lifecycle: explicit safe child removal failure/retry"
 
 # Keep this boundary after every ordinary source capture. Once a public Woo delete
 # removes the probe from the source database, every later capture would
@@ -2655,12 +2923,14 @@ assert_eq "$DELETION_PROBE_STATUS_BEFORE" "$(git -C "$SITE" status --porcelain=v
 assert_eq "$DELETION_PROBE_LEDGER_BEFORE" "$(source_duo_ledger_snapshot)" 'Duo ledgers after unsupported Woo product deletion refusal'
 [ -e "$DELETION_PROBE_STATE_FILE" ] || fail 'unsupported Woo product deletion refusal removed the canonical product state'
 [ ! -e "$SITE/state/deletions/$DELETION_PROBE_UUID.json" ] || fail 'unsupported Woo product deletion refusal published a tombstone'
-assert_theme_and_dependency
+assert_parent_theme_and_dependencies
+assert_theme_versions 'unsupported Woo product deletion refusal' '1.1.0' 'absent'
+assert_theme_portable_relationships 'unsupported Woo product deletion refusal' "$PARENT_THEME"
 assert_woo_catalog 1 5
 assert_deletion_probe_lookup_present "$DELETION_PROBE_V1_TARGET_ID"
 assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
 assert_store_api_http 1649 'unsupported Woo product deletion refusal'
-assert_eq "$V2_REVISION" "$(ledger_revision)" 'code revision survives unsupported Woo product deletion refusal'
+assert_eq "$THEME_SAFE_REMOVE_REVISION" "$(ledger_revision)" 'code revision survives unsupported Woo product deletion refusal'
 assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned secret survives unsupported Woo product deletion refusal'
 assert_target_order_unchanged 'target-only order survives unsupported Woo product deletion refusal'
 assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only cap stock survives unsupported Woo product deletion refusal'
@@ -2870,10 +3140,10 @@ if ! DRIFT_HEAL_OUT="$(promote 2>&1)"; then
 fi
 echo "$DRIFT_HEAL_OUT"
 assert_eq "$(source_hash "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE")" "$(target_hash "$EXT_TARGET")" 'healed extension bytes'
-assert_eq "$V2_REVISION" "$(ledger_revision)" 'code revision after byte-drift healing'
+assert_eq "$THEME_SAFE_REMOVE_REVISION" "$(ledger_revision)" 'code revision after byte-drift healing'
 assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned secret after code-drift healing'
 DRIFT_HEAL_ARTIFACT="$(artifact_for_promote_output "$DRIFT_HEAL_OUT")"
-assert_receipt "$DRIFT_HEAL_ARTIFACT" 'target code-drift healing promote' "$V2_REVISION"
+assert_receipt "$DRIFT_HEAL_ARTIFACT" 'target code-drift healing promote' "$THEME_SAFE_REMOVE_REVISION"
 assert_runtime_isolation 'target code-drift healing' 1
 pass "target-only code drift was blocked by status and overwritten only by reviewed public promote"
 
@@ -2909,7 +3179,7 @@ assert_runtime_isolation 'extension removal' 1
 REMOVE_ARTIFACT="$(artifact_for_promote_output "$REMOVE_OUT")"
 REMOVE_REVISION="$(jq -r '.code.code_revision' "$REMOVE_ARTIFACT")"
 assert_receipt "$REMOVE_ARTIFACT" 'extension removal promote' "$REMOVE_REVISION"
-[ "$REMOVE_REVISION" != "$V2_REVISION" ] || fail 'extension removal did not publish a distinct code revision'
+[ "$REMOVE_REVISION" != "$THEME_SAFE_REMOVE_REVISION" ] || fail 'extension removal did not publish a distinct code revision'
 pass "dependency-aware lifecycle retired only custom code; WooCommerce, ACF, catalog, target-only order and stock survived"
 
 say "exact rollback: import v1 checkpoint under maintenance, then promote v1"
@@ -2959,6 +3229,9 @@ assert_phase_order "$RESTORE_OUT" \
 assert_eq "$(source_hash "$V1_INPUTS/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE")" "$(target_hash "$EXT_TARGET")" 'exact v1 extension bytes'
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact v1 managed code tree after checkpoint import'
 assert_theme_and_dependency "$NATIVE_ACTIVE_PLUGINS_JSON"
+assert_theme_versions 'exact v1 rollback' '1.0.0' '1.0.0'
+assert_theme_portable_relationships 'exact v1 rollback'
+assert_frontend_child_parent 'exact v1 rollback'
 assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target secret after rollback'
 assert_target_order_absent 'checkpoint rollback restores pre-runtime-order baseline'
 assert_eq 0 "$(target_wp eval 'echo get_user_by("email", "runtime-customer@example.invalid") ? 1 : 0;')" 'checkpoint rollback removes target-only runtime customer'
