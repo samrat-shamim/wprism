@@ -1098,9 +1098,12 @@ assert_frontend_child_parent() {
 
 assert_frontend_parent() {
   local label="$1" body_file body http
-  body_file="$(mktemp)"
-  http="$(curl -sS -o "$body_file" -w '%{http_code}' "$TARGET_URL/")"
-  body="$(cat "$body_file")"
+  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-parent-front.XXXXXX")"
+  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/")"; then
+    rm -f -- "$body_file"
+    fail "$label standalone-parent frontend request failed"
+  fi
+  body="$(<"$body_file")"
   rm -f -- "$body_file"
   assert_eq 200 "$http" "$label frontend HTTP status"
   grep -Eiq '<body[^>]*duo-commerce-storefront' <<<"$body" || fail "$label frontend is missing the parent body_class marker"

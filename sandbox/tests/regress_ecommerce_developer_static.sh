@@ -1439,6 +1439,7 @@ THEME_UNCHANGED_HELPER_BLOCK="$(function_block assert_theme_lifecycle_unchanged 
 THEME_PORTABLE_HELPER_BLOCK="$(function_block assert_theme_portable_relationships | strip_static_comments)"
 THEME_VERSION_HELPER_BLOCK="$(function_block assert_theme_versions | strip_static_comments)"
 THEME_REMOVED_HELPER_BLOCK="$(function_block assert_theme_child_removed | strip_static_comments)"
+THEME_PARENT_FRONTEND_HELPER_BLOCK="$(function_block assert_frontend_parent | strip_static_comments)"
 
 block_contains theme-snapshot-helper "$THEME_SNAPSHOT_HELPER_BLOCK" 'target_wp eval' \
   'theme lifecycle snapshot does not read the target through the public WordPress surface'
@@ -1477,6 +1478,12 @@ block_contains theme-removed-helper "$THEME_REMOVED_HELPER_BLOCK" 'assert_eq "$P
   'safe theme removal helper does not prove the parent became active through lifecycle reconciliation'
 block_contains theme-removed-helper "$THEME_REMOVED_HELPER_BLOCK" 'assert_eq absent "$(target_directory "$CHILD_TARGET")"' \
   'safe theme removal helper does not prove the child root was removed'
+block_contains theme-parent-frontend-helper "$THEME_PARENT_FRONTEND_HELPER_BLOCK" 'curl --connect-timeout 3 --max-time 10 --silent --show-error' \
+  'standalone parent frontend proof is not bounded'
+block_contains theme-parent-frontend-helper "$THEME_PARENT_FRONTEND_HELPER_BLOCK" 'rm -f -- "$body_file"' \
+  'standalone parent frontend proof does not clean its temporary response on failure'
+block_contains theme-parent-frontend-helper "$THEME_PARENT_FRONTEND_HELPER_BLOCK" 'fail "$label standalone-parent frontend request failed"' \
+  'standalone parent frontend proof does not surface transport failure'
 
 THEME_UPGRADE_PHASE_BLOCK="$FAILED_V2_PHASE_BLOCK
 $FAILED_V2_RECOVERY_PHASE_BLOCK"
