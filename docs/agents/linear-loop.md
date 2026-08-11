@@ -198,21 +198,37 @@ branch or edit files before this passes.
 ### Evidence scoping
 
 - **Minimal reasonably-safe live set, by diff — scope it, never run the matrix
-  by habit.** `make regress-offline-all` (~5 min) is unconditional (DUO-3285)
-  and never lowers step 4's bar. Then run the SMALLEST live set the diff
-  actually needs:
-  - **Offline-verifiable diff only** (`sandbox/tests/`, `Makefile`, `docs/`, a
-    non-live harness) → **no sweep**; the offline corpus + `regress-bundle-coverage`
-    is the gate.
-  - **`agent/src`/`Policy.php` engine internals, or a `sandbox/conformance/` /
-    `sandbox/bin/` harness change** → **one sweep of the cheapest affected
-    manifest** (`core` for generic capture/apply/publish/lint paths; a specific
-    plugin's manifest only when the change is that plugin's path). The harness
-    that produces evidence needs at least one real sweep of its own.
+  by habit.** `make regress-offline-all` (~5 min) is unconditional (DUO-3285);
+  nothing below reduces it. The unit of scoping is the set of live surfaces
+  that actually EXECUTE the changed code — that set can be empty, one, or
+  several, and the cases below are how you compute it. Run that smallest set,
+  before the PR; it is a requirement, not a suggestion:
+  - **Every changed code path executes offline** (`docs/`, `Makefile`, offline
+    suites and their fixtures) → **no sweep**; the offline corpus is the gate.
+    The DIRECTORY is not the test: `sandbox/tests/` also holds LIVE-only
+    scripts (grinds, certify, live `regress_*`), and an edit to one of those
+    executes nowhere offline — prove its edited logic offline instead (a
+    static pin or a simulated input driving the same jq/shell logic, the
+    DUO-3362/DUO-3406 pattern) or run the edited script's own path once.
+  - **`agent/src`/`Policy.php` engine internals** → **one sweep of the
+    cheapest manifest that executes the changed path** (`core` for generic
+    capture/apply/publish/lint paths; a plugin's manifest when the change is
+    that plugin's surface — typed tables → woocommerce, json_refs/blobs →
+    elementor, serialization → polylang). If independent review PROVES no live
+    path reaches the change (a direct-call-only surface, a WordPress-free host
+    verb), the affected set is empty: no sweep, with that proof recorded in
+    the PR.
+  - **A `sandbox/conformance/` / `sandbox/bin/` harness change** → one real
+    sweep that EXECUTES the edited file: for a per-manifest check/seed/
+    postdeploy that means THAT manifest's own sweep (an unrelated sweep never
+    runs the edited file); for shared harness (`run.sh`, `asserts.sh`,
+    `pair.sh`) any cheapest sweep exercises it. The code that produces
+    evidence needs at least one real run of itself.
   - **A `manifests/*.json` / `providers/` / `interpreters/` / `regenerators/` /
-    dispositions EDIT** → one sweep of that adapter's cheapest fixture.
-  - **A flaky / timing-sensitive assertion** → N-consecutive sweeps of the ONE
-    relevant manifest — not the matrix.
+    dispositions EDIT** → one sweep of EACH changed adapter's own fixture —
+    minimality means skipping unaffected adapters, never skipping changed ones.
+  - **A flaky / timing-sensitive assertion** → N-consecutive sweeps (typically
+    3) of the ONE relevant manifest — not the matrix.
   - **A live-pair `regress-*` suite** runs only when the diff touches the
     mechanism its own header names — not by habit.
   - **The reference certification bundle** (`make certify-reference-bundle`) is
@@ -223,16 +239,21 @@ branch or edit files before this passes.
     — that such changes expire WITHOUT a runtime refusal; refreshing that is
     batched maintenance, `php scripts/capability-registry.php check` and refresh
     on reported expiry, not a per-issue gate — the ratified scoping decision this
-    records, not an oversight.) Otherwise the bundle is the operator's RELEASE /
-    periodic certification, NOT a per-issue gate — do not run the full serial
-    matrix "to be safe."
-  - **Safety floor:** if you genuinely cannot bound a change to a manifest,
-    escalate UP a tier, never skip. Unknown → conservative.
+    records, not an oversight.) Otherwise the bundle is the operator's
+    release-time certification — and because every certification-byte issue
+    re-runs it anyway, the full matrix already keeps a rolling cadence at no
+    added per-issue cost. It is NOT a per-issue gate and is never run "to be
+    safe."
+  - **Safety floor:** an engine change you genuinely cannot bound to specific
+    surfaces gets a small representative SUBSET — `core` plus the richest
+    affected adapter surface(s) — never a silent skip, and never the
+    bundle-as-guess. Unknown → conservative subset, and say so in the PR.
 - **Reproduce the mechanism offline first — the highest-leverage habit, and
-  what keeps "one sweep" reasonably safe.** A deterministic, mutation-proven
-  offline reproduction of the exact failure (e.g. priming PHP's stat cache to
-  force the stale-stat path; a stubbed compose-death to force the
-  infrastructure-vs-engine branch) is the PRIMARY proof. Once that pin bites,
+  what keeps "one sweep" reasonably safe.** Where the mechanism admits one, a
+  deterministic, mutation-proven offline reproduction of the exact failure
+  (e.g. priming PHP's stat cache to force the stale-stat path; a stubbed
+  compose-death to force the infrastructure-vs-engine branch) is the PRIMARY
+  proof. Once that pin bites,
   the live sweep only CONFIRMS the real environment still passes — so ONE
   representative sweep suffices instead of a matrix, and the proof holds even
   when a shared, contended docker host makes live runs slow or flaky.
