@@ -22,7 +22,7 @@
             "name": "duo-reference-certification",
             "version": 4
         },
-        "status": "current",
+        "status": "candidate",
         "tests": [
             {
                 "id": "conformance-core",
@@ -123,7 +123,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-acf",
                     "exact-artifact-version-matrix"
@@ -210,7 +210,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-contact-form-7",
                     "exact-artifact-version-matrix"
@@ -304,7 +304,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -466,7 +466,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -535,7 +535,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -599,7 +599,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -673,7 +673,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -741,7 +741,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -806,7 +806,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
@@ -902,7 +902,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-ninja-forms",
                     "exact-artifact-version-matrix"
@@ -1011,7 +1011,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-paid-memberships-pro"
                 ]
@@ -1157,7 +1157,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1248,7 +1248,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1325,7 +1325,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "54cfa87fdd7e4d72ba91bd9f4eec8c3d38db73fdcadf444f35645e2fa3f2f80b",
+            "adapter_digest": "02ab1102f901be88f5d9f10021e2e2146755c9a62d8a3c0f8420d92e88f7c8b4",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1365,7 +1365,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
@@ -1626,7 +1626,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -1736,7 +1736,7 @@
                 "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-fse"
                 ]
