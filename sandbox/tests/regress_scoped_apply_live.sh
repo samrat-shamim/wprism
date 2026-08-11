@@ -23,7 +23,8 @@
 #     hash-only receipts, while an unrelated target project stays untouched;
 #   * scoped work never advances generic applied_revision/debt;
 #   * selected sidebar/menu nested identities are allowed to allocate and
-#     retire, while a separate unselected sidebar/menu stays byte-exact;
+#     retire, including exact all-status physical menu children, while a
+#     separate unselected sidebar/menu stays byte-exact;
 #   * a selected menu cannot take a live location from an unselected holder,
 #     and a selected menu tombstone releases only its own location; and
 #   * active and archived terminal replay return byte-stable receipt evidence,
@@ -238,6 +239,13 @@ target_map_count() { # <uuid>
   local uuid=$1
   assert_uuid "target map UUID" "$uuid"
   target_wp db query "SELECT COUNT(*) FROM wp_duo_map WHERE uuid = '$uuid'" --skip-column-names \
+    | tr -d '[:space:]'
+}
+
+target_state_count() { # <uuid>
+  local uuid=$1
+  assert_uuid "target state UUID" "$uuid"
+  target_wp db query "SELECT COUNT(*) FROM wp_duo_state WHERE uuid = '$uuid'" --skip-column-names \
     | tr -d '[:space:]'
 }
 
@@ -977,6 +985,167 @@ TARGET_A_ITEM_ID="$(target_menu_item_id "$MENU_A_ITEM_UUID")"
 assert_generic_scoped_boundary "selected menu nested-item create"
 pass "selected menu nested map is writable while protected menu B maps remain exact"
 
+say "retire an exact draft target-old menu item while selected menu A has canonical work"
+MENU_A_SOURCE_WORK_ITEM_ID="$(source_wp menu item add-custom "$MENU_A_SOURCE_ID" 'DUO-3344 selected menu canonical work' 'https://example.test/duo3344-a-work' --porcelain)"
+[[ "$MENU_A_SOURCE_WORK_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "could not manufacture selected menu A canonical work item"
+publish_source_capture menu-target-old-source-work 'capture: DUO-3344 selected menu canonical work'
+MENU_A_SOURCE_WORK_ITEM_UUID="$(source_uuid "$MENU_A_SOURCE_WORK_ITEM_ID")"
+assert_uuid "source selected menu canonical work item" "$MENU_A_SOURCE_WORK_ITEM_UUID"
+
+TARGET_A_OLD_ITEM_UUID="$(target_wp eval 'echo wp_generate_uuid4();' | tr -d '\r\n')"
+assert_uuid "target selected draft target-old menu item" "$TARGET_A_OLD_ITEM_UUID"
+TARGET_A_OLD_ITEM_ID="$(target_wp post create --post_type=nav_menu_item --post_status=draft --post_title='DUO-3344 selected draft target-old item' --porcelain)"
+[[ "$TARGET_A_OLD_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "could not manufacture selected draft target-old menu item"
+target_wp eval "
+global \$wpdb;
+\$menu = (int) $TARGET_A_MENU_ID;
+\$item = (int) $TARGET_A_OLD_ITEM_ID;
+\$uuid = '$TARGET_A_OLD_ITEM_UUID';
+\$tt = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'nav_menu' LIMIT 1\", \$menu
+));
+if (\$tt < 1
+    || \$wpdb->insert(\$wpdb->term_relationships, ['object_id' => \$item, 'term_taxonomy_id' => \$tt, 'term_order' => 0], ['%d', '%d', '%d']) !== 1) {
+    fwrite(STDERR, 'could not attach exact draft target-old item to selected menu'); exit(1);
+}
+update_post_meta(\$item, '_duo_uuid', \$uuid);
+\\Duo\\Ledger::set(\$uuid, 'menu_item', \\Duo\\Ledger::KIND_POST, \$item);
+\\Duo\\Ledger::set_state_hash(\$uuid, 'menu_item', hash('sha256', 'DUO-3344 selected draft target-old state'));
+\$rels = array_map('intval', \$wpdb->get_col(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_relationships} WHERE object_id = %d ORDER BY term_taxonomy_id\", \$item
+)));
+\$maps = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT COUNT(*) FROM {\$wpdb->prefix}duo_map WHERE uuid = %s AND entity_type = 'menu_item' AND id_kind = 'post' AND local_id = %d\", \$uuid, \$item
+));
+\$states = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT COUNT(*) FROM {\$wpdb->prefix}duo_state WHERE uuid = %s AND entity_type = 'menu_item'\", \$uuid
+));
+if (\$rels !== [\$tt] || \$maps !== 1 || \$states !== 1) {
+    fwrite(STDERR, 'draft target-old fixture is not an exact selected physical identity'); exit(1);
+}
+echo wp_json_encode(['item_id' => \$item, 'uuid' => \$uuid, 'term_taxonomy_id' => \$tt]);
+" >"$TMP/target-menu-a-draft-old.json"
+jq -e --arg uuid "$TARGET_A_OLD_ITEM_UUID" --argjson item "$TARGET_A_OLD_ITEM_ID" '
+  .uuid == $uuid and .item_id == $item and (.term_taxonomy_id | type == "number" and . > 0)
+' "$TMP/target-menu-a-draft-old.json" >/dev/null \
+  || fail "selected draft target-old fixture did not retain its exact sidecar/map/sole-menu shape"
+[ "$(target_map_count "$TARGET_A_OLD_ITEM_UUID")" = 1 ] \
+  && [ "$(target_state_count "$TARGET_A_OLD_ITEM_UUID")" = 1 ] \
+  || fail "selected draft target-old fixture did not retain map/state rows"
+
+MENU_TARGET_OLD_CONTRACT="$TMP/menu-a-target-old.scope.json"
+run_duo_json menu-target-old-scope "$MENU_TARGET_OLD_CONTRACT" scope source "--roots=menu:${MENU_A_SLUG}" --contract --format=json
+MENU_TARGET_OLD_PLAN_BOUNDARY_BEFORE="$(target_boundary_digest)"
+run_duo_json menu-target-old-plan "$TMP/menu-target-old-plan.json" plan target "--scope-contract=$MENU_TARGET_OLD_CONTRACT" --format=json
+[ "$(target_boundary_digest)" = "$MENU_TARGET_OLD_PLAN_BOUNDARY_BEFORE" ] \
+  || fail "selected draft target-old plan changed target state before authoring"
+run_duo_json menu-target-old-apply "$TMP/menu-target-old-apply.json" apply target "--scope-contract=$MENU_TARGET_OLD_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and .verification.selected_live == 1
+  and .scoped_receipt.phase == "complete"
+' "$TMP/menu-target-old-apply.json" >/dev/null \
+  || fail "exact draft target-old menu item did not converge through selected menu apply"
+TARGET_A_SOURCE_WORK_ITEM_ID="$(target_menu_item_id "$MENU_A_SOURCE_WORK_ITEM_UUID")"
+[[ "$TARGET_A_SOURCE_WORK_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "selected menu target-old case did not author its real canonical source work"
+[ "$(target_map_count "$MENU_A_SOURCE_WORK_ITEM_UUID")" = 1 ] \
+  || fail "selected menu canonical work did not receive a nested map"
+[ "$(target_wp db query "SELECT COUNT(*) FROM wp_posts WHERE ID = $TARGET_A_OLD_ITEM_ID" --skip-column-names | tr -d '[:space:]')" = 0 ] \
+  || fail "selected draft target-old menu post survived selected finalization"
+[ "$(target_menu_item_id "$TARGET_A_OLD_ITEM_UUID")" = 0 ] \
+  || fail "selected draft target-old sidecar survived selected finalization"
+[ "$(target_map_count "$TARGET_A_OLD_ITEM_UUID")" = 0 ] \
+  || fail "selected draft target-old map survived selected finalization"
+[ "$(target_state_count "$TARGET_A_OLD_ITEM_UUID")" = 0 ] \
+  || fail "selected draft target-old state survived selected finalization"
+[ "$(target_map_bytes "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_MAP_BEFORE" ] \
+  || fail "draft target-old selected apply changed protected menu B map bytes"
+[ "$(target_map_bytes "$TARGET_B_ITEM_UUID")" = "$TARGET_B_ITEM_MAP_BEFORE" ] \
+  || fail "draft target-old selected apply changed protected B nested-item map bytes"
+[ "$(target_option_bytes widget_nav_menu)" = "$TARGET_B_WIDGET_FAMILY_BEFORE" ] \
+  || fail "draft target-old selected apply rewrote protected sidebar B widget-family bytes"
+[ "$(target_sidebar_assignment_bytes sidebar-b)" = "$TARGET_B_SIDEBAR_BEFORE" ] \
+  || fail "draft target-old selected apply changed protected sidebar B assignment bytes"
+assert_outside_preserved "selected draft target-old menu item apply"
+assert_generic_scoped_boundary "selected draft target-old menu item apply"
+pass "exact draft target-old child is retired with its selected map/state while canonical work and protected B remain bounded"
+
+say "refuse a dual-menu target-old child before session or target mutation"
+TARGET_A_DUAL_ITEM_UUID="$(target_wp eval 'echo wp_generate_uuid4();' | tr -d '\r\n')"
+assert_uuid "target dual-menu target-old item" "$TARGET_A_DUAL_ITEM_UUID"
+TARGET_A_DUAL_ITEM_ID="$(target_wp post create --post_type=nav_menu_item --post_status=trash --post_title='DUO-3344 selected dual-menu target-old item' --porcelain)"
+[[ "$TARGET_A_DUAL_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "could not manufacture dual-menu target-old item"
+target_wp eval "
+global \$wpdb;
+\$a = (int) $TARGET_A_MENU_ID;
+\$b = (int) $TARGET_B_MENU_ID;
+\$item = (int) $TARGET_A_DUAL_ITEM_ID;
+\$uuid = '$TARGET_A_DUAL_ITEM_UUID';
+\$aTt = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'nav_menu' LIMIT 1\", \$a
+));
+\$bTt = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'nav_menu' LIMIT 1\", \$b
+));
+if (\$aTt < 1 || \$bTt < 1
+    || \$wpdb->insert(\$wpdb->term_relationships, ['object_id' => \$item, 'term_taxonomy_id' => \$aTt, 'term_order' => 0], ['%d', '%d', '%d']) !== 1
+    || \$wpdb->insert(\$wpdb->term_relationships, ['object_id' => \$item, 'term_taxonomy_id' => \$bTt, 'term_order' => 0], ['%d', '%d', '%d']) !== 1) {
+    fwrite(STDERR, 'could not attach dual-menu target-old item'); exit(1);
+}
+update_post_meta(\$item, '_duo_uuid', \$uuid);
+\\Duo\\Ledger::set(\$uuid, 'menu_item', \\Duo\\Ledger::KIND_POST, \$item);
+\\Duo\\Ledger::set_state_hash(\$uuid, 'menu_item', hash('sha256', 'DUO-3344 dual-menu target-old state'));
+\$rels = array_map('intval', \$wpdb->get_col(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_relationships} WHERE object_id = %d ORDER BY term_taxonomy_id\", \$item
+)));
+sort(\$rels, SORT_NUMERIC);
+\$expected = [\$aTt, \$bTt]; sort(\$expected, SORT_NUMERIC);
+if (\$rels !== \$expected) { fwrite(STDERR, 'dual-menu fixture did not retain both nav-menu owners'); exit(1); }
+echo wp_json_encode(['item_id' => \$item, 'uuid' => \$uuid, 'a_tt' => \$aTt, 'b_tt' => \$bTt]);
+" >"$TMP/target-menu-a-dual-old.json"
+jq -e --arg uuid "$TARGET_A_DUAL_ITEM_UUID" --argjson item "$TARGET_A_DUAL_ITEM_ID" '
+  .uuid == $uuid and .item_id == $item and (.a_tt | type == "number" and . > 0) and (.b_tt | type == "number" and . > 0) and .a_tt != .b_tt
+' "$TMP/target-menu-a-dual-old.json" >/dev/null \
+  || fail "dual-menu target-old fixture did not retain both selected/protected owners"
+[ "$(target_map_count "$TARGET_A_DUAL_ITEM_UUID")" = 1 ] \
+  && [ "$(target_state_count "$TARGET_A_DUAL_ITEM_UUID")" = 1 ] \
+  || fail "dual-menu target-old fixture did not retain map/state rows"
+
+MENU_DUAL_OLD_CONTRACT="$TMP/menu-a-dual-old.scope.json"
+run_duo_json menu-dual-old-scope "$MENU_DUAL_OLD_CONTRACT" scope source "--roots=menu:${MENU_A_SLUG}" --contract --format=json
+MENU_DUAL_OLD_SESSION_BEFORE="$(target_kv scoped_apply_session)"
+MENU_DUAL_OLD_BOUNDARY_BEFORE="$(target_boundary_digest)"
+run_duo_refusal_json menu-dual-old-refusal "$TMP/menu-dual-old-refusal.json" apply target "--scope-contract=$MENU_DUAL_OLD_CONTRACT" --format=json
+jq -e '.command == "apply" and .reason_code == "scoped_identity_recovery_required"' "$TMP/menu-dual-old-refusal.json" >/dev/null \
+  || fail "dual-menu target-old child did not return the stable scoped identity refusal"
+[ "$(target_kv scoped_apply_session)" = "$MENU_DUAL_OLD_SESSION_BEFORE" ] \
+  || fail "dual-menu target-old refusal opened or changed a scoped session"
+[ "$(target_boundary_digest)" = "$MENU_DUAL_OLD_BOUNDARY_BEFORE" ] \
+  || fail "dual-menu target-old refusal changed target maps/state/menu rows"
+[ "$(target_map_bytes "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_MAP_BEFORE" ] \
+  || fail "dual-menu target-old refusal changed protected menu B map bytes"
+[ "$(target_map_bytes "$TARGET_B_ITEM_UUID")" = "$TARGET_B_ITEM_MAP_BEFORE" ] \
+  || fail "dual-menu target-old refusal changed protected B nested-item map bytes"
+assert_outside_preserved "dual-menu target-old refusal"
+assert_generic_scoped_boundary "dual-menu target-old refusal"
+target_wp eval "
+\$uuid = '$TARGET_A_DUAL_ITEM_UUID';
+\$item = (int) $TARGET_A_DUAL_ITEM_ID;
+\\Duo\\Ledger::forget(\$uuid);
+if (!wp_delete_post(\$item, true)) { fwrite(STDERR, 'could not clean dual-menu target-old fixture'); exit(1); }
+" >/dev/null
+[ "$(target_wp db query "SELECT COUNT(*) FROM wp_posts WHERE ID = $TARGET_A_DUAL_ITEM_ID" --skip-column-names | tr -d '[:space:]')" = 0 ] \
+  && [ "$(target_map_count "$TARGET_A_DUAL_ITEM_UUID")" = 0 ] \
+  && [ "$(target_state_count "$TARGET_A_DUAL_ITEM_UUID")" = 0 ] \
+  || fail "dual-menu target-old fixture cleanup left a post, map, or state row"
+pass "dual-menu target-old child refuses before session/mutation and its disposable fixture is removed exactly"
+
 say "remove the selected menu nested item through a fresh target-bound scope"
 source_wp post delete "$MENU_A_SOURCE_ITEM_ID" --force >/dev/null
 publish_source_capture menu-item-remove 'capture: DUO-3344 selected menu item removal'
@@ -1101,6 +1270,35 @@ set_theme_mod('nav_menu_locations', \$locations);
 " >/dev/null
 [ "$(target_menu_location_id duo3344_secondary)" = "$TARGET_B_MENU_ID" ] \
   || fail "could not manufacture protected target menu B secondary location"
+TARGET_A_TOMBSTONE_SIDECARLESS_ITEM_ID="$(target_wp post create --post_type=nav_menu_item --post_status=trash --post_title='DUO-3344 selected menu sidecarless tombstone child' --porcelain)"
+[[ "$TARGET_A_TOMBSTONE_SIDECARLESS_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "could not manufacture selected menu sidecarless tombstone child"
+target_wp eval "
+global \$wpdb;
+\$menu = (int) $TARGET_A_MENU_ID;
+\$item = (int) $TARGET_A_TOMBSTONE_SIDECARLESS_ITEM_ID;
+\$tt = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'nav_menu' LIMIT 1\", \$menu
+));
+if (\$tt < 1
+    || \$wpdb->insert(\$wpdb->term_relationships, ['object_id' => \$item, 'term_taxonomy_id' => \$tt, 'term_order' => 0], ['%d', '%d', '%d']) !== 1) {
+    fwrite(STDERR, 'could not attach sidecarless tombstone child to selected menu'); exit(1);
+}
+\$rels = array_map('intval', \$wpdb->get_col(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_relationships} WHERE object_id = %d ORDER BY term_taxonomy_id\", \$item
+)));
+\$maps = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT COUNT(*) FROM {\$wpdb->prefix}duo_map WHERE id_kind = 'post' AND local_id = %d\", \$item
+));
+if (get_post_meta(\$item, '_duo_uuid', true) !== '' || \$rels !== [\$tt] || \$maps !== 0) {
+    fwrite(STDERR, 'sidecarless tombstone child is not an unmapped selected-only physical row'); exit(1);
+}
+echo wp_json_encode(['item_id' => \$item, 'term_taxonomy_id' => \$tt]);
+" >"$TMP/target-menu-a-sidecarless-tombstone-child.json"
+jq -e --argjson item "$TARGET_A_TOMBSTONE_SIDECARLESS_ITEM_ID" '
+  .item_id == $item and (.term_taxonomy_id | type == "number" and . > 0)
+' "$TMP/target-menu-a-sidecarless-tombstone-child.json" >/dev/null \
+  || fail "sidecarless tombstone child did not retain its selected-only unmapped shape"
 source_wp menu delete "$MENU_A_SOURCE_ID" >/dev/null
 publish_source_capture menu-tombstone 'capture: DUO-3344 selected menu tombstone'
 MENU_TOMBSTONE_CONTRACT="$TMP/menu-a-tombstone.scope.json"
@@ -1126,6 +1324,10 @@ jq -e '
   || fail "selected menu tombstone did not release its own primary location"
 [ "$(target_menu_location_id duo3344_secondary)" = "$TARGET_B_MENU_ID" ] \
   || fail "selected menu tombstone removed protected menu B's secondary location"
+[ "$(target_wp db query "SELECT COUNT(*) FROM wp_posts WHERE ID = $TARGET_A_TOMBSTONE_SIDECARLESS_ITEM_ID" --skip-column-names | tr -d '[:space:]')" = 0 ] \
+  || fail "selected menu tombstone left its sidecarless/unmapped physical child live"
+[ "$(target_menu_term_id "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_ID" ] \
+  || fail "selected menu tombstone removed protected menu B itself"
 [ "$(target_map_bytes "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_MAP_BEFORE" ] \
   || fail "selected menu tombstone changed protected menu B map bytes"
 [ "$(target_map_bytes "$TARGET_B_ITEM_UUID")" = "$TARGET_B_ITEM_MAP_BEFORE" ] \
@@ -1137,6 +1339,6 @@ jq -e '
 [ "$(target_sidebar_assignment_bytes sidebar-b)" = "$TARGET_B_SIDEBAR_BEFORE" ] \
   || fail "selected menu tombstone changed protected sidebar B assignment bytes"
 assert_generic_scoped_boundary "selected menu tombstone"
-pass "selected menu tombstone releases only A's authored location and preserves B's owner/map/sidebar evidence"
+pass "selected menu tombstone removes its sidecarless child and releases only A's location while preserving B's owner/map/sidebar evidence"
 
 printf '\n✔ REGRESS_SCOPED_APPLY_LIVE PASSED (pair %s cleaned exactly on exit)\n' "$PAIR"
