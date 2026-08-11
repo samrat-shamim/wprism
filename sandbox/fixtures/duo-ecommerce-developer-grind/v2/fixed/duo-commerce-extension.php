@@ -39,7 +39,9 @@ function duo_commerce_extension_update_option_checked(string $name, mixed $value
     }
     $missing = new stdClass();
     $actual = duo_commerce_extension_read_option($name, $missing);
-    if ($actual === $missing || $actual !== $value) {
+    $matches = $actual === $value
+        || (is_int($value) && is_string($actual) && $actual === (string) $value);
+    if ($actual === $missing || !$matches) {
         throw new RuntimeException("Duo Commerce Extension option verification failed: $name");
     }
 }

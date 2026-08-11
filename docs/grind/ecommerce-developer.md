@@ -25,14 +25,14 @@ the live grind proves a fail-closed unsupported/refusal boundary; `planned_gap`
 means the proposed public move is explicitly marked unavailable and routed but
 not claimed by this harness.
 
-The current machine-checked report contains 18 exercised moves, 6 planned
+The current machine-checked report contains 19 exercised moves, 5 planned
 gaps, and 2 reproduced fail-closed boundaries. The regression recomputes those
 counts from the rows so the summary cannot drift from the evidence index.
 
 The exercised slice includes state-only capture, managed code deploy and
 apply, Woo products/variations/taxonomies/media/options, ACF, ordered menus,
 extension migration/lifecycle, bounded generated-index and queue work,
-explicit dependency-aware plugin removal, semantic preview, drift/conflict
+explicit dependency-aware plugin identity replacement/removal, semantic preview, drift/conflict
 handling, compatibility refusal, complete promotion, recovery, exact rollback, and final semantic
 recapture. The Action Scheduler row is intentionally separate from the
 bounded native WordPress-cron row, which names one `publish_future_post` event
@@ -49,16 +49,17 @@ before-fix/after-fix convergence path.
 
 The explicit gaps are initialization/adoption (DUO-3336), branch
 materialization (DUO-3324), authored-user synchronization (DUO-3344),
-refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), scoped promotion (DUO-3344), and provider-backed
-plugin/theme replacement (DUO-3357). The proof now exercises a reviewed
+refresh/rebase live-grind coverage (the public workflow landed in DUO-3343),
+and scoped promotion (DUO-3344). The proof exercises a reviewed
 parent/child theme upgrade with failure/retry, a non-forceable incompatible
 downgrade, unsafe parent-removal refusal, dependency-safe child removal after
 a public theme switch with an explicit `--force-theirs` acceptance of the
 reviewed theme-state intent, and exact rollback while preserving theme settings,
-navigation, and media. The separate WordPress-cron move is routed to DUO-3359.
-Reproduced boundaries include unsupported Woo deletion (DUO-3338) and
-dependency refusal (DUO-3338). Compatibility refusal (DUO-3326) is exercised
-by the live proof. These
+navigation, and media. It also exercises one representative plugin identity
+replacement through the generic plan/promote path and one bounded named
+WordPress-cron event. Reproduced boundaries include unsupported Woo deletion
+(DUO-3338) and dependency refusal (DUO-3338). Compatibility refusal (DUO-3326)
+is exercised by the live proof. These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.
 
@@ -186,7 +187,22 @@ The live sequence covers:
   provider-first lifecycle activation, while a custom-without-Woo dependency
   request is refused before target mutation;
 - ordinary state drift/conflict resolution and target code drift healing;
-- dependency-aware extension removal while Woo/ACF and runtime order data stay;
+- a representative descriptor-driven plugin identity replacement through the
+  ordinary public plan/promote path: the compositional plan names the outgoing
+  and incoming plugin mismatches, exact authored option changes, clean
+  provider diagnostics, and Woo effects before mutation. A dependency-invalid
+  revision refuses before promotion begins; the corrected revision retires the
+  old plugin while its code remains staged, activates the distinct replacement
+  in a fresh process, preserves Woo/ACF plus target-only order, stock, secret,
+  and runtime state, and restores the exact immediate-prior v2 result through
+  a public reverse promotion. This is not a separate `--replace-extension`
+  command or a claim that every plugin/theme replacement has been generalized.
+  This synthetic identity swap has no incompatible data migration, so rollback
+  reverses the owned-code transition while the replacement descriptor still
+  authorizes pruning its root. The forward checkpoint remains byte-verified
+  evidence but is not imported after that later promotion supersedes its
+  recovery session. Real incompatible migrations remain subject to the
+  code-and-database rollback rule in the code-update guide;
 - exact v1 code/state plus a maintenance-held, pair-local pre-order database
   checkpoint restore performed before the public v1 promotion;
 - derived-aware semantic final recapture, clean status, and scoped pair/database

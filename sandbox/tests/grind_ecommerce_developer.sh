@@ -107,13 +107,18 @@ ACF_BASENAME="advanced-custom-fields/acf.php"
 EXT_SLUG="duo-commerce-extension"
 EXT_FILE="duo-commerce-extension.php"
 EXT_BASENAME="$EXT_SLUG/$EXT_FILE"
+REPLACEMENT_SLUG="duo-commerce-replacement"
+REPLACEMENT_FILE="duo-commerce-replacement.php"
+REPLACEMENT_BASENAME="$REPLACEMENT_SLUG/$REPLACEMENT_FILE"
 NATIVE_ACTIVE_PLUGINS_JSON="[\"$ACF_BASENAME\",\"$EXT_BASENAME\",\"$WOO_BASENAME\"]"
 AUTHORED_ACTIVE_PLUGINS_JSON="[\"$WOO_BASENAME\",\"$ACF_BASENAME\",\"$EXT_BASENAME\"]"
 EXTENSION_INACTIVE_ACTIVE_PLUGINS_JSON="[\"$WOO_BASENAME\",\"$ACF_BASENAME\"]"
+REPLACEMENT_ACTIVE_PLUGINS_JSON="[\"$WOO_BASENAME\",\"$ACF_BASENAME\",\"$REPLACEMENT_BASENAME\"]"
 PARENT_THEME="duo-commerce-parent"
 CHILD_THEME="duo-commerce-child"
 CONTENT="/var/www/html/wp-content"
 EXT_TARGET="$CONTENT/plugins/$EXT_SLUG/$EXT_FILE"
+REPLACEMENT_TARGET="$CONTENT/plugins/$REPLACEMENT_SLUG/$REPLACEMENT_FILE"
 CHILD_TARGET="$CONTENT/themes/$CHILD_THEME"
 WOO_TARGET="$CONTENT/plugins/$WOO_SLUG/woocommerce.php"
 STATE="$SITE/state/options/core.json"
@@ -344,6 +349,9 @@ echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 }
 target_file() { target_php "echo is_file('$1') ? 'present' : 'absent';"; }
 target_directory() { target_php "echo is_dir('$1') ? 'present' : 'absent';"; }
+target_path() {
+  target_php "echo (file_exists('$1') || is_link('$1')) ? 'present' : 'absent';"
+}
 target_hash() { target_php "echo hash_file('sha256', '$1');"; }
 source_hash() { sha256sum "$1" | awk '{print $1}'; }
 state_tree_hash() {
@@ -448,6 +456,7 @@ $roots = [
     "plugins/woocommerce",
     "plugins/advanced-custom-fields",
     "plugins/duo-commerce-extension",
+    "plugins/duo-commerce-replacement",
     "themes/duo-commerce-parent",
     "themes/duo-commerce-child",
 ];
@@ -477,6 +486,7 @@ $roots = [
     "plugins/woocommerce",
     "plugins/advanced-custom-fields",
     "plugins/duo-commerce-extension",
+    "plugins/duo-commerce-replacement",
     "themes/duo-commerce-parent",
     "themes/duo-commerce-child",
 ];
@@ -924,6 +934,7 @@ assert_runtime_state_excluded() {
       '200 Target Runtime Way' \
       '201 Target Fulfillment Way' \
       'Duo Grind runtime v1 event' \
+      'activate:replacement-fixed:fresh=yes:retiring-root=present' \
       'source-only-synthetic-secret' \
       'target-only-synthetic-secret'; do
       if grep -R -Fq -- "$marker" "$path"; then
@@ -1125,6 +1136,20 @@ assert_extension_rest_status() {
     || fail "$label extension REST status payload is not exact: $body"
   pass "$label extension REST status endpoint returned exact version/schema/Woo payload"
 }
+assert_replacement_rest_status() {
+  local label="$1" body_file body http
+  body_file="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-replacement-rest.XXXXXX")"
+  if ! http="$(curl --connect-timeout 3 --max-time 10 --silent --show-error -o "$body_file" -w '%{http_code}' "$TARGET_URL/wp-json/duo-commerce/v1/status")"; then
+    rm -f -- "$body_file"
+    fail "$label replacement REST request failed"
+  fi
+  body="$(<"$body_file")"
+  rm -f -- "$body_file"
+  assert_eq 200 "$http" "$label replacement REST HTTP status"
+  jq -e '.extension_identity == "duo-commerce-replacement" and .extension_version == "1.0.0" and .schema == 2 and .woocommerce == true' <<<"$body" >/dev/null \
+    || fail "$label replacement REST status payload is not exact: $body"
+  pass "$label replacement REST status identifies the distinct implementation and reviewed runtime schema"
+}
 assert_store_api_http() {
   local expected_cap_cents="$1" label="$2" price_body attribute_body price_negative_body attribute_negative_body
   local price_response attribute_response price_negative_response attribute_negative_response
@@ -1270,6 +1295,7 @@ require sha256sum
 [ -f "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG/$EXT_FILE" ] || fail "v1 extension fixture missing"
 [ -f "$FIXTURE/v2/broken/$EXT_FILE" ] || fail "broken v2 extension fixture missing"
 [ -f "$FIXTURE/v2/fixed/$EXT_FILE" ] || fail "fixed v2 extension fixture missing"
+[ -f "$FIXTURE/replacement/fixed/$REPLACEMENT_FILE" ] || fail "fixed replacement fixture missing"
 [ -f "conformance/artifacts.lock.json" ] || fail "pinned artifact lock missing"
 jq -e --arg version "$WOO_VERSION" '.plugins.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "WooCommerce $WOO_VERSION is not digest-pinned"
 jq -e --arg version "$WOO_DOWNGRADE_VERSION" '.plugins.woocommerce[$version].sha256 | test("^[0-9a-f]{64}$")' conformance/artifacts.lock.json >/dev/null || fail "WooCommerce $WOO_DOWNGRADE_VERSION is not digest-pinned"
@@ -1713,6 +1739,18 @@ assert_theme_and_dependency() {
   target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail "Duo Commerce Extension is inactive"
   assert_eq "$expected_active" "$(active_plugins_json)" "exact authored active_plugins order"
   target_wp eval 'if (!class_exists("WooCommerce")) { exit(1); } if (!function_exists("woocommerce_content")) { exit(1); }' || fail "custom storefront did not load WooCommerce integration"
+}
+assert_replacement_and_dependencies() {
+  assert_eq "$PARENT_THEME" "$(target_wp option get stylesheet)" "replacement active standalone parent theme"
+  assert_eq "$PARENT_THEME" "$(target_wp option get template)" "replacement active parent template"
+  assert_eq absent "$(target_directory "$CHILD_TARGET")" "replacement keeps the reviewed child-theme removal"
+  target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail "replacement WooCommerce dependency is inactive"
+  target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail "replacement ACF extension is inactive"
+  target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail "outgoing Duo Commerce Extension remained active"
+  target_wp plugin is-active "$REPLACEMENT_SLUG" >/dev/null || fail "Duo Commerce Replacement is inactive"
+  assert_eq "$REPLACEMENT_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" "exact replacement active_plugins order"
+  target_wp eval 'if (!class_exists("WooCommerce")) { exit(1); } if (!function_exists("woocommerce_content")) { exit(1); }' \
+    || fail "replacement storefront did not retain WooCommerce integration"
 }
 
 theme_lifecycle_snapshot() {
@@ -3147,40 +3185,224 @@ assert_receipt "$DRIFT_HEAL_ARTIFACT" 'target code-drift healing promote' "$THEM
 assert_runtime_isolation 'target code-drift healing' 1
 pass "target-only code drift was blocked by status and overwritten only by reviewed public promote"
 
-say "extension/dependency removal: custom code and authored setting retire while Woo and ACF remain"
+say "explicit plugin identity replacement: preflight dependency refusal, semantic plan, retire old, activate new"
+REPLACEMENT_PRIOR_INPUTS="$V1_INPUTS/replacement-prior"
+mkdir -p "$REPLACEMENT_PRIOR_INPUTS"
+cp -a "$SITE/code" "$REPLACEMENT_PRIOR_INPUTS/code"
+cp -a "$SITE/state" "$REPLACEMENT_PRIOR_INPUTS/state"
+cp "$SITE/site.duo.json" "$REPLACEMENT_PRIOR_INPUTS/site.duo.json"
 OPTION_RECORD="$(jq -c '.records.duo_commerce_extension_settings' "$STATE")"
 OPTION_EXPECTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
 require getenv("DUO_CANON");
 $record = json_decode($argv[1], true, 512, JSON_THROW_ON_ERROR);
 echo hash("sha256", Duo\Canon::encode($record));
 ' "$OPTION_RECORD")"
+REPLACEMENT_PLUGIN_TREE_BEFORE="$(target_plugin_tree_hash)"
+REPLACEMENT_MANAGED_TREE_BEFORE="$(target_managed_code_tree_hash)"
+REPLACEMENT_OLD_FILE_HASH_BEFORE="$(target_hash "$EXT_TARGET")"
+REPLACEMENT_REVISION_BEFORE="$(ledger_revision)"
+REPLACEMENT_SESSION_BEFORE="$(ledger_value promotion_session)"
+REPLACEMENT_LOCK_BEFORE="$(ledger_value promotion_lock)"
+REPLACEMENT_ACTIVE_BEFORE="$(active_plugins_json)"
+REPLACEMENT_PRIOR_ARTIFACT_HASH="$(jq -r '.artifact_hash' "$DRIFT_HEAL_ARTIFACT")"
+REPLACEMENT_PRIOR_STATE_REVISION="$(jq -r '.revision_hash' "$DRIFT_HEAL_ARTIFACT")"
 rm -rf -- "$SITE/code/wp-content/plugins/$EXT_SLUG"
-jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg expected "$OPTION_EXPECTED_HASH" '.records.active_plugins.value = [$woo, $acf] | .records.duo_commerce_extension_settings = {expected_hash: $expected, state: "deleted"}' "$STATE" > "$STATE.next"
+mkdir -p "$SITE/code/wp-content/plugins/$REPLACEMENT_SLUG"
+cp "$FIXTURE/replacement/fixed/$REPLACEMENT_FILE" \
+  "$SITE/code/wp-content/plugins/$REPLACEMENT_SLUG/$REPLACEMENT_FILE"
+jq --arg acf "$ACF_BASENAME" --arg replacement "$REPLACEMENT_BASENAME" --arg expected "$OPTION_EXPECTED_HASH" '
+  .records.active_plugins.value = [$acf, $replacement]
+  | .records.duo_commerce_extension_settings = {expected_hash: $expected, state: "deleted"}
+' "$STATE" > "$STATE.next"
 mv "$STATE.next" "$STATE"
 canonicalize_json "$STATE"
 git -C "$SITE" add -A
-git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: retire custom extension and setting'
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'replacement: reject replacement without its Woo provider'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
-if ! REMOVE_OUT="$(promote --with-deletes 2>&1)"; then
-  echo "$REMOVE_OUT" >&2
-  fail 'custom extension removal promote failed'
+if REPLACEMENT_PREFLIGHT_OUT="$(deploy 2>&1)"; then
+  echo "$REPLACEMENT_PREFLIGHT_OUT" >&2
+  fail 'replacement without its declared Woo provider unexpectedly passed compile'
 fi
-echo "$REMOVE_OUT"
-target_wp plugin is-active "$WOO_SLUG" >/dev/null || fail 'dependency WooCommerce was removed with custom extension'
-target_wp plugin is-active "$ACF_SLUG" >/dev/null || fail 'available ACF extension was removed with custom extension'
-target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail 'custom extension remained active after removal'
-assert_eq absent "$(target_file "$EXT_TARGET")" 'retired extension main file'
-assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_options WHERE option_name = 'duo_commerce_extension_settings'")" 'retired authored extension option'
-assert_trace_has "$(target_wp option get duo_commerce_extension_trace --format=json)" 'deactivate:commerce-v2:woo=yes'
-assert_target_order_unchanged 'target-only order survives extension removal'
-assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives extension removal'
-assert_runtime_isolation 'extension removal' 1
-REMOVE_ARTIFACT="$(artifact_for_promote_output "$REMOVE_OUT")"
-REMOVE_REVISION="$(jq -r '.code.code_revision' "$REMOVE_ARTIFACT")"
-assert_receipt "$REMOVE_ARTIFACT" 'extension removal promote' "$REMOVE_REVISION"
-[ "$REMOVE_REVISION" != "$THEME_SAFE_REMOVE_REVISION" ] || fail 'extension removal did not publish a distinct code revision'
-pass "dependency-aware lifecycle retired only custom code; WooCommerce, ACF, catalog, target-only order and stock survived"
+echo "$REPLACEMENT_PREFLIGHT_OUT"
+grep -Fq 'code_plugin_dependency_inactive' <<<"$REPLACEMENT_PREFLIGHT_OUT" \
+  || fail 'replacement preflight did not name code_plugin_dependency_inactive'
+grep -Fq "$REPLACEMENT_BASENAME" <<<"$REPLACEMENT_PREFLIGHT_OUT" \
+  || fail 'replacement preflight did not name the incoming plugin identity'
+grep -Fq "$WOO_SLUG" <<<"$REPLACEMENT_PREFLIGHT_OUT" \
+  || fail 'replacement preflight did not name the missing canonical Woo provider'
+assert_absent "$REPLACEMENT_PREFLIGHT_OUT" 'deploy phase: promotion-begin' 'replacement dependency preflight'
+assert_eq "$REPLACEMENT_PLUGIN_TREE_BEFORE" "$(target_plugin_tree_hash)" 'target plugin tree after replacement preflight refusal'
+assert_eq "$REPLACEMENT_MANAGED_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'managed target tree after replacement preflight refusal'
+assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")" 'outgoing plugin bytes after replacement preflight refusal'
+assert_eq absent "$(target_file "$REPLACEMENT_TARGET")" 'incoming plugin after replacement preflight refusal'
+target_wp plugin is-active "$EXT_SLUG" >/dev/null || fail 'replacement preflight deactivated the outgoing plugin'
+assert_eq "$REPLACEMENT_REVISION_BEFORE" "$(ledger_revision)" 'completed revision after replacement preflight refusal'
+assert_eq "$REPLACEMENT_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after replacement preflight refusal'
+assert_eq "$REPLACEMENT_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lease after replacement preflight refusal'
+assert_eq "$REPLACEMENT_ACTIVE_BEFORE" "$(active_plugins_json)" 'active plugins after replacement preflight refusal'
+assert_runtime_isolation 'replacement preflight refusal' 1
+
+jq --arg woo "$WOO_BASENAME" --arg acf "$ACF_BASENAME" --arg replacement "$REPLACEMENT_BASENAME" '
+  .records.active_plugins.value = [$woo, $acf, $replacement]
+' "$STATE" > "$STATE.next"
+mv "$STATE.next" "$STATE"
+canonicalize_json "$STATE"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'replacement: declare reviewed Woo-backed plugin identity'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+
+REPLACEMENT_PLAN_PLUGIN_TREE_BEFORE="$(target_plugin_tree_hash)"
+REPLACEMENT_PLAN_MANAGED_TREE_BEFORE="$(target_managed_code_tree_hash)"
+REPLACEMENT_PLAN_REVISION_BEFORE="$(ledger_revision)"
+REPLACEMENT_PLAN_SESSION_BEFORE="$(ledger_value promotion_session)"
+REPLACEMENT_PLAN_LOCK_BEFORE="$(ledger_value promotion_lock)"
+REPLACEMENT_PLAN_ACTIVE_BEFORE="$(active_plugins_json)"
+REPLACEMENT_PLAN_SETTING_BEFORE="$(target_wp option get duo_commerce_extension_settings --format=json)"
+if ! REPLACEMENT_PLAN="$(plan_json)"; then
+  fail 'replacement semantic plan command failed before returning machine-readable JSON'
+fi
+jq -e --arg outgoing "$EXT_BASENAME" --arg incoming "$REPLACEMENT_BASENAME" --arg completed "$REPLACEMENT_REVISION_BEFORE" '
+  ([.code_mismatch[] | select(.issue == "unexpected_active_plugin" and .kind == "plugin" and .plugin == $outgoing)] | length) == 1
+  and ([.code_mismatch[] | select(.issue == "missing_in_code" and .kind == "plugin" and .plugin == $incoming)] | length) == 1
+  and ([.code_mismatch[] | select(.issue == "code_revision_stale" and .kind == "code" and .completed_revision == $completed)] | length) == 1
+  and ([.update[] | select(
+    .uuid == "options/core"
+    and .rebuild_option_names == ["duo_commerce_extension_settings"]
+    and (.option_deletes | index("duo_commerce_extension_settings") != null)
+  )] | length) == 1
+  and (.adapter_dispositions == [])
+  and (.provider_problems == [])
+  and ([.effects_inventory[] | select(.phase == "rebuild" and .source == "provider:woocommerce-cache/invalidate_cache_groups")] | length) > 0
+  and ([.effects_inventory[] | select(.phase == "rebuild" and .source == "provider:woocommerce-product-lookups/rebuild_product_lookups")] | length) > 0
+' <<<"$REPLACEMENT_PLAN" >/dev/null \
+  || fail "replacement plan did not expose the exact outgoing/incoming lifecycle, code/state, provider, and effect evidence: $REPLACEMENT_PLAN"
+assert_eq "$REPLACEMENT_PLAN_PLUGIN_TREE_BEFORE" "$(target_plugin_tree_hash)" 'target plugin tree after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_MANAGED_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'managed target tree after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_REVISION_BEFORE" "$(ledger_revision)" 'completed revision after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lease after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_ACTIVE_BEFORE" "$(active_plugins_json)" 'active plugins after replacement plan'
+assert_eq "$REPLACEMENT_PLAN_SETTING_BEFORE" "$(target_wp option get duo_commerce_extension_settings --format=json)" 'authored extension setting after replacement plan'
+assert_runtime_isolation 'replacement semantic plan' 1
+
+REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"
+if ! REPLACEMENT_OUT="$(promote --with-deletes 2>&1)"; then
+  echo "$REPLACEMENT_OUT" >&2
+  fail 'reviewed plugin identity replacement promote failed'
+fi
+echo "$REPLACEMENT_OUT"
+assert_phase_order "$REPLACEMENT_OUT" \
+  'promote phase: compile' \
+  'promote phase: promotion-begin' \
+  'promote phase: checkpoint' \
+  'promote phase: code-stage' \
+  'promote phase: lifecycle-retire' \
+  'promote phase: lifecycle-activate' \
+  'promote phase: code-finalize' \
+  'promote phase: apply'
+assert_eq absent "$(target_file "$EXT_TARGET")" 'outgoing extension after replacement finalization'
+assert_eq present "$(target_file "$REPLACEMENT_TARGET")" 'incoming replacement after finalization'
+assert_eq absent "$(target_path "$CONTENT/plugins/$EXT_SLUG")" 'outgoing extension root after replacement finalization'
+assert_eq present "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")" 'incoming replacement root after finalization'
+assert_replacement_and_dependencies
+assert_replacement_rest_status 'reviewed replacement'
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_options WHERE option_name = 'duo_commerce_extension_settings'")" 'retired outgoing authored setting'
+REPLACEMENT_TRACE="$(target_wp option get duo_commerce_extension_trace --format=json)"
+jq -e '
+  (index("deactivate:commerce-v2:woo=yes")) as $retired
+  | (index("activate:replacement-fixed:fresh=yes:retiring-root=present")) as $activated
+  | $retired != null and $activated != null and $retired < $activated
+' <<<"$REPLACEMENT_TRACE" >/dev/null \
+  || fail "replacement lifecycle trace did not retire old before fresh activation while its root remained: $REPLACEMENT_TRACE"
+assert_eq "$REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact replacement managed code tree'
+assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target secret survives replacement'
+assert_target_order_unchanged 'target-only order survives replacement'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock survives replacement'
+assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
+assert_store_api_http 1649 'reviewed replacement'
+assert_runtime_isolation 'reviewed replacement' 1
+REPLACEMENT_ARTIFACT="$(artifact_for_promote_output "$REPLACEMENT_OUT")"
+REPLACEMENT_REVISION="$(jq -r '.code.code_revision' "$REPLACEMENT_ARTIFACT")"
+assert_receipt "$REPLACEMENT_ARTIFACT" 'reviewed replacement promote' "$REPLACEMENT_REVISION"
+[ "$REPLACEMENT_REVISION" != "$THEME_SAFE_REMOVE_REVISION" ] || fail 'replacement did not publish a distinct code revision after the theme lifecycle'
+if ! REPLACEMENT_STATUS="$(status 2>&1)"; then
+  echo "$REPLACEMENT_STATUS" >&2
+  fail 'reviewed replacement did not converge to clean status'
+fi
+pass "declared descriptor replacement refused before mutation without Woo, then retired old code, activated the distinct implementation, verified effects/runtime sovereignty, and converged"
+
+say "exact replacement rollback: reverse-promote the immediate prior v2 code/state; retain the superseded checkpoint as evidence"
+REPLACEMENT_CHECKPOINT="$(sed -n 's/^database checkpoint: //p' <<<"$REPLACEMENT_OUT" | head -1)"
+[ -n "$REPLACEMENT_CHECKPOINT" ] || fail 'successful replacement did not report its retained checkpoint'
+REPLACEMENT_CHECKPOINT_HOST="$OTHER_SITE/${REPLACEMENT_CHECKPOINT#/siterepo/}"
+[ -s "$REPLACEMENT_CHECKPOINT_HOST" ] || fail 'successful replacement checkpoint is not target-visible and non-empty'
+REPLACEMENT_CHECKPOINT_SHA256="$(sha256sum "$REPLACEMENT_CHECKPOINT_HOST" | awk '{print $1}')"
+[[ "$REPLACEMENT_CHECKPOINT_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'replacement checkpoint SHA-256 is malformed'
+rm -rf -- "$SITE/code"
+rm -rf -- "$SITE/state"
+cp -a "$REPLACEMENT_PRIOR_INPUTS/code" "$SITE/code"
+cp -a "$REPLACEMENT_PRIOR_INPUTS/state" "$SITE/state"
+cp "$REPLACEMENT_PRIOR_INPUTS/site.duo.json" "$SITE/site.duo.json"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'rollback: restore exact pre-replacement v2 descriptors'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+if ! target_wp maintenance-mode activate >/dev/null; then
+  fail 'could not establish target maintenance before replacement rollback'
+fi
+ROLLBACK_MAINTENANCE_HELD=1
+assert_replacement_and_dependencies
+if ! REPLACEMENT_ROLLBACK_OUT="$(promote 2>&1)"; then
+  echo "$REPLACEMENT_ROLLBACK_OUT" >&2
+  fail 'exact replacement rollback promotion failed'
+fi
+echo "$REPLACEMENT_ROLLBACK_OUT"
+assert_phase_order "$REPLACEMENT_ROLLBACK_OUT" \
+  'promote phase: compile' \
+  'promote phase: promotion-begin' \
+  'promote phase: checkpoint' \
+  'promote phase: code-stage' \
+  'promote phase: lifecycle-retire' \
+  'promote phase: lifecycle-activate' \
+  'promote phase: code-finalize' \
+  'promote phase: apply'
+assert_eq present "$(target_file "$EXT_TARGET")" 'outgoing extension after replacement rollback'
+assert_eq absent "$(target_file "$REPLACEMENT_TARGET")" 'replacement after exact immediate-prior rollback'
+assert_eq present "$(target_path "$CONTENT/plugins/$EXT_SLUG")" 'outgoing extension root after replacement rollback'
+assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")" 'replacement root after exact immediate-prior rollback'
+assert_eq "$REPLACEMENT_CHECKPOINT_SHA256" "$(sha256sum "$REPLACEMENT_CHECKPOINT_HOST" | awk '{print $1}')" 'superseded replacement checkpoint remains immutable evidence after reverse promotion'
+assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = 'promotion_lock'")" 'replacement reverse promotion released its lease'
+assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" 'pre-replacement active plugin order after reverse promotion'
+if ! target_wp maintenance-mode deactivate >/dev/null; then
+  fail 'could not release target maintenance after replacement rollback'
+fi
+ROLLBACK_MAINTENANCE_HELD=0
+assert_eq "$REPLACEMENT_MANAGED_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'exact managed code tree after replacement rollback'
+assert_parent_theme_and_dependencies
+assert_theme_child_removed 'replacement rollback'
+assert_theme_versions 'replacement rollback' '1.1.0' 'absent'
+assert_theme_portable_relationships 'replacement rollback' "$PARENT_THEME"
+assert_frontend_parent 'replacement rollback'
+assert_extension_rest_status '2.0.0' 2 'replacement rollback'
+target_wp option get duo_commerce_extension_settings --format=json | jq -e '.schema == 2 and .channel == "retail" and .catalog_mode == "managed"' >/dev/null \
+  || fail 'replacement rollback did not restore the exact v2 authored setting'
+assert_eq target-only-synthetic-secret "$(target_wp option get duo_commerce_extension_gateway_secret)" 'env-owned target secret after replacement rollback'
+assert_target_order_unchanged 'target-only order after replacement rollback'
+assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" 'target-only stock after replacement rollback'
+assert_derived_indexes 7 instock 16.49 9.99 16.49 1649
+assert_store_api_http 1649 'replacement rollback'
+assert_runtime_isolation 'replacement rollback' 1
+REPLACEMENT_ROLLBACK_ARTIFACT="$(artifact_for_promote_output "$REPLACEMENT_ROLLBACK_OUT")"
+assert_eq "$REPLACEMENT_PRIOR_ARTIFACT_HASH" "$(jq -r '.artifact_hash' "$REPLACEMENT_ROLLBACK_ARTIFACT")" 'exact pre-replacement artifact after rollback'
+assert_eq "$REPLACEMENT_PRIOR_STATE_REVISION" "$(jq -r '.revision_hash' "$REPLACEMENT_ROLLBACK_ARTIFACT")" 'exact pre-replacement state revision after rollback'
+assert_receipt "$REPLACEMENT_ROLLBACK_ARTIFACT" 'exact replacement rollback promotion' "$REPLACEMENT_REVISION_BEFORE"
+if ! REPLACEMENT_ROLLBACK_STATUS="$(status 2>&1)"; then
+  echo "$REPLACEMENT_ROLLBACK_STATUS" >&2
+  fail 'exact replacement rollback did not converge to clean status'
+fi
+pass "public reverse promotion restored the exact reviewed v2 result; the superseded forward checkpoint remained byte-verified evidence and was not imported"
 
 say "exact rollback: import v1 checkpoint under maintenance, then promote v1"
 rm -rf -- "$SITE/code"
@@ -3201,10 +3423,18 @@ ROLLBACK_MAINTENANCE_HELD=1
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before rollback import'
 control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql" >/dev/null
-assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)" 'v1 checkpoint active plugin order before code staging'
-assert_eq absent "$(target_file "$EXT_TARGET")" 'v1 extension code absent before control-plane staging'
+ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1")"
+if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r '
+$value = unserialize((string) ($argv[1] ?? ""), ["allowed_classes" => false]);
+if (!is_array($value)) { exit(2); }
+echo json_encode(array_values($value), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+' "$ROLLBACK_ACTIVE_PLUGINS_RAW")"; then
+  fail 'v1 checkpoint active_plugins could not be decoded without bootstrapping WordPress'
+fi
+assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON" 'v1 checkpoint active plugin order before code staging'
+assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")" 'exact v2 extension bytes before v1 control-plane staging'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'exact v1 code revision after checkpoint import'
-assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" 'exact v1 setting after checkpoint import'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'exact v1 setting after checkpoint import'
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'exact v1 runtime table shape'
 assert_extension_runtime_event 0 "" 'exact v1 runtime row after rollback'
 if ! RESTORE_OUT="$(promote 2>&1)"; then
@@ -3227,6 +3457,8 @@ assert_phase_order "$RESTORE_OUT" \
   'promote phase: code-finalize' \
   'promote phase: apply'
 assert_eq "$(source_hash "$V1_INPUTS/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE")" "$(target_hash "$EXT_TARGET")" 'exact v1 extension bytes'
+assert_eq absent "$(target_file "$REPLACEMENT_TARGET")" 'replacement code after exact v1 rollback'
+assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")" 'replacement root after exact v1 rollback'
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'exact v1 managed code tree after checkpoint import'
 assert_theme_and_dependency "$NATIVE_ACTIVE_PLUGINS_JSON"
 assert_theme_versions 'exact v1 rollback' '1.0.0' '1.0.0'

@@ -487,8 +487,8 @@ rather than working around it.
   skewed policy evidence and rechecks candidate policy after code replay. It is
   not a general JSON object merge, a WordPress-target mutation path, or a
   literal value-diff UI.
-- Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
-- Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
+- Representative descriptor-driven plugin identity replacement — **Exercised (DUO-3357)** through the ordinary compositional plan and public `duo promote --with-deletes`; there is no special replacement command or general plugin/theme replacement claim.
+- Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Exercised (DUO-3358)** by the ecommerce proof through the generic preflight, staged lifecycle, and finalization path.
 - Bounded native WordPress-cron proof — **Exercised (DUO-3359)** in the ecommerce
   grind: one classified `publish_future_post` event is listed and run through
   public WP-CLI, while unrelated cron and Action Scheduler inventories remain

@@ -209,12 +209,14 @@ VISIBILITY_HELPER_BLOCK="$(function_block assert_product_visibility_runtime | st
 EQ_HELPER_BLOCK="$(function_block assert_eq | strip_static_comments)"
 RECEIPT_HELPER_BLOCK="$(function_block assert_receipt | strip_static_comments)"
 THEME_HELPER_BLOCK="$(function_block assert_theme_and_dependency | strip_static_comments)"
+REPLACEMENT_DEPENDENCY_HELPER_BLOCK="$(function_block assert_replacement_and_dependencies | strip_static_comments)"
 PHASE_ORDER_HELPER_BLOCK="$(function_block assert_phase_order | strip_static_comments)"
 ABSENT_HELPER_BLOCK="$(function_block assert_absent | strip_static_comments)"
 TRACE_HELPER_BLOCK="$(function_block assert_trace_has | strip_static_comments)"
 STATE_TREE_HASH_HELPER_BLOCK="$(function_block state_tree_hash | strip_static_comments)"
 FINAL_COMPILED_STATE_DIFF_HELPER_BLOCK="$(function_block final_compiled_state_diff | strip_static_comments)"
 TARGET_PLUGIN_TREE_HASH_HELPER_BLOCK="$(function_block target_plugin_tree_hash | strip_static_comments)"
+TARGET_PATH_HELPER_BLOCK="$(function_block target_path | strip_static_comments)"
 TARGET_MANAGED_CODE_TREE_HASH_HELPER_BLOCK="$(function_block target_managed_code_tree_hash | strip_static_comments)"
 SOURCE_MANAGED_CODE_TREE_HASH_HELPER_BLOCK="$(function_block source_managed_code_tree_hash | strip_static_comments)"
 TARGET_TEE_UNCHANGED_HELPER_BLOCK="$(function_block assert_target_tee_unchanged | strip_static_comments)"
@@ -236,11 +238,14 @@ SOURCE_LEDGER_HELPER_BLOCK="$(function_block source_duo_ledger_snapshot | strip_
 ACF_SCHEMA_HELPER_BLOCK="$(function_block assert_acf_schema | strip_static_comments)"
 FRONTEND_HELPER_BLOCK="$(function_block assert_frontend_child_parent | strip_static_comments)"
 REST_HELPER_BLOCK="$(function_block assert_extension_rest_status | strip_static_comments)"
+REPLACEMENT_REST_HELPER_BLOCK="$(function_block assert_replacement_rest_status | strip_static_comments)"
 STORE_API_HTTP_HELPER_BLOCK="$(function_block assert_store_api_http | strip_static_comments)"
 INITIAL_V1_PHASE_BLOCK="$(phase_block 'publish target-only env registry and materialize v1 code/lifecycle' | strip_static_comments)"
 INACTIVE_COMPAT_PHASE_BLOCK="$(phase_block 'target runtime compatibility: inactive vendored plugin refuses before promotion-begin and force flags cannot bypass' | strip_static_comments)"
 FAILED_V2_PHASE_BLOCK="$(phase_block 'v2 reviewed change: migrate scalar setting/table and deliberately fail activation' | strip_static_comments)"
 FAILED_V2_RECOVERY_PHASE_BLOCK="$(phase_block 'exact checkpoint recovery, then fixed v2 retry' | strip_static_comments)"
+REPLACEMENT_PHASE_BLOCK="$(phase_block 'explicit plugin identity replacement: preflight dependency refusal, semantic plan, retire old, activate new' | strip_static_comments)"
+REPLACEMENT_ROLLBACK_PHASE_BLOCK="$(phase_block 'exact replacement rollback: reverse-promote the immediate prior v2 code/state; retain the superseded checkpoint as evidence' | strip_static_comments)"
 ROLLBACK_PHASE_BLOCK="$(phase_block 'exact rollback: import v1 checkpoint under maintenance, then promote v1' | strip_static_comments)"
 FAIL_CLOSED_PHASE_BLOCK="$(phase_block 'Woo deletion boundary: public product delete is refused before Duo capture mutation' | strip_static_comments)"
 FINAL_RECAPTURE_PHASE_BLOCK="$(phase_block 'final recapture/status and exact clean-room cleanup' | strip_static_comments)"
@@ -321,6 +326,10 @@ block_absent prelude "$PRELUDE_BLOCK" 'ACTIVE_PAIRS=' \
   'live harness still serializes against every other active pair instead of using pair.sh capacity'
 block_absent prelude "$PRELUDE_BLOCK" 'refusing to start $PAIR while another pair is active' \
   'live harness still carries the stale zero-other-pairs refusal'
+block_contains prelude "$PRELUDE_BLOCK" 'ROLLBACK_MAINTENANCE_HELD=0' \
+  'early live refusal can reach cleanup before the rollback-maintenance flag is initialized'
+block_contains prelude "$PRELUDE_BLOCK" 'ROLLBACK_PROMOTION_SUCCEEDED=0' \
+  'early live refusal can reach cleanup before the rollback-promotion flag is initialized'
 block_contains clean-room "$CLEAN_ROOM_PHASE_BLOCK" \
   'bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --journal --http' \
   'live harness does not delegate its atomic capacity reservation to pair.sh up'
@@ -405,33 +414,36 @@ ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5d
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
 EQ_HELPER_GOLDEN_HASH=4533ae3a46601a7646bbfc7e6258d08136783621e32487b906784be559a7d3c1
-RECEIPT_HELPER_GOLDEN_HASH=012e44c96f4da73ce556a69f7f4915e45abd89c0024f092b84d235c93e9774bb
+RECEIPT_HELPER_GOLDEN_HASH=2d5de42526e20ad6b80a3cf8f4f32c8681148f755eb22318d8392a3ef447d7c6
 THEME_HELPER_GOLDEN_HASH=92f7178cab9469fee55245f405839ce130c1fc9e8e113ada4ab8cfa560f5810e
+REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH=1af8e0f446c33e4d53b2f64bfcb1c02aac93d6e955be24f2995a3f1ee21833a0
 PHASE_ORDER_HELPER_GOLDEN_HASH=b8be7ab1221ac36f7ee6128ce24341d86ae46d66d7f0623ee567d3202b4e9aff
 ABSENT_HELPER_GOLDEN_HASH=74e54e8d9c00ba9d83634d57f7d56248999adf428426ab97d95e48dfb5a05616
 TRACE_HELPER_GOLDEN_HASH=dc4e232dae6bbae8b99cd00355e3b890d420d0c74ef70ef8baf170391aad73c5
 STATE_TREE_HASH_HELPER_GOLDEN_HASH=0b405c1bd3820c990ab1e6c3f2fe303fc8e8071be20fe65b133f73771c040349
 FINAL_COMPILED_STATE_DIFF_HELPER_GOLDEN_HASH=a6880a0178cbdab3968d75671dd90acdddc2476c621e5f513e30cdf88c768b11
 TARGET_PLUGIN_TREE_HASH_HELPER_GOLDEN_HASH=6c9343b7af357aa093efaae96328a2315ee2c1c421a27d0afecc72d4bf68a3a6
-TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=d80740550295c2df86f1a011941531aca503a475081bfbec685f9f158d9fa1e4
-SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=830daaccf4702c0f2dbb27efd6b4aa5b1dd936bd089d744eaa8ec14f0ff35c31
+TARGET_PATH_HELPER_GOLDEN_HASH=c881d4b675e06224911c23f194af7a7305b85f3f8f6b2f452cca870b5a91c7d4
+TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=a9477b84f96b9cb2a00a4d4cd3e2dc55830806355fa7362c3d49380644a24bd6
+SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=fe35ce2a019a1f045c4c0d48f76df6a5a24f9c645340d38006a771848b1818be
 TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686e537f953c482bdaf3163bad0
 TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
 DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4983d9395645cbe79418dd286ba
-LIVE_CHECKOUT_HELPER_GOLDEN_HASH=ddca827bf0b7e746c3aa30c8f85fea9e16296564eb0dd9aca5655b4ff140eadc
+LIVE_CHECKOUT_HELPER_GOLDEN_HASH=72273ab8fa6e7ee1da62ee11bc029098a2215338153aaf7a0861f749bef704f5
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
 PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=9fc8327f20d2796edeee613f0bbdb8db2208802f40b8aacd8aafd36a7710c15b
 SOURCE_EVENT_BASELINE_HELPER_GOLDEN_HASH=2dae7f427f639ab1bcb9d4e1e12122a2c8fba8499e6fdc81d8d1cf245ea4120c
 RUNTIME_ISOLATION_HELPER_GOLDEN_HASH=b785e1dffaf6ee68c850bc3e78af0573220af20ff3e2255457386f54aa18c5da
-RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH=09055c952a6e0f470c482a20317b2e0eb0b51321226782cea81aa3da70473b71
+RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH=49e7fccf04e6e6e5e95d0f9c283a37b6a7c1194b6f515393f8d2cad196f806ea
 RUNTIME_IDENTITY_HELPER_GOLDEN_HASH=5bb575bc44f32865f890383e47d341a3862a01c713ac74e2f675be36288276cc
 ENV_SECRET_HELPER_GOLDEN_HASH=434293b1db5c243c18bdb0f036d3d29e3140e2277844cb4ade597a76c1672a5d
 SOURCE_LEDGER_HELPER_GOLDEN_HASH=c1de83ea8b60d634fbd77e761b35612591aa354d4c55aa703ec9eb8a5cc8a17d
 ACF_SCHEMA_HELPER_GOLDEN_HASH=8ebb0003d070fea83241ddf3a565c1fe62485b4e0345a2101c82fd51cf584a65
 FRONTEND_HELPER_GOLDEN_HASH=92273a989a026102a60f14fb5904101c2f2e50e66e5afa12372ed225812979ca
 REST_HELPER_GOLDEN_HASH=04e2ae5929d0f588dac14cf7fe5090bf8039e07fe2d9ea6d743635a059564b61
+REPLACEMENT_REST_HELPER_GOLDEN_HASH=b3dcfeec7d63c6a135a655ab70fd539bbc19a66d96da99596bdd681260c5682d
 STORE_API_HTTP_HELPER_GOLDEN_HASH=166220142d61874d76e56c6a18a30f09149c1ed06be33c40bdf8d560d5ef80c6
 FAIL_CLOSED_PHASE_GOLDEN_HASH=19c32d439e4c512ac4f7630d86e1467b67377242558a9ce60d7512b5ff668a51
 FINAL_RECAPTURE_PHASE_GOLDEN_HASH=8ad39bfd59ef81c8c78ef9c6f4c1800af877f2ae5cae2a0ce40488123c10559c
@@ -441,6 +453,14 @@ assert_block_golden_hash visibility-helper "$VISIBILITY_HELPER_BLOCK" "$VISIBILI
 assert_block_golden_hash eq-helper "$EQ_HELPER_BLOCK" "$EQ_HELPER_GOLDEN_HASH"
 assert_block_golden_hash receipt-helper "$RECEIPT_HELPER_BLOCK" "$RECEIPT_HELPER_GOLDEN_HASH"
 assert_block_golden_hash theme-helper "$THEME_HELPER_BLOCK" "$THEME_HELPER_GOLDEN_HASH"
+assert_helper_contracts replacement-dependencies "$REPLACEMENT_DEPENDENCY_HELPER_BLOCK" "$REPLACEMENT_DEPENDENCY_HELPER_GOLDEN_HASH" \
+  'assert_eq "$PARENT_THEME" "$(target_wp option get stylesheet)"' 'replacement dependency helper does not retain the standalone parent theme' \
+  'assert_eq absent "$(target_directory "$CHILD_TARGET")"' 'replacement dependency helper does not retain the reviewed child-theme removal' \
+  'target_wp plugin is-active "$WOO_SLUG"' 'replacement dependency helper does not require WooCommerce' \
+  'target_wp plugin is-active "$ACF_SLUG"' 'replacement dependency helper does not require ACF' \
+  'target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail' 'replacement dependency helper does not reject the outgoing plugin remaining active' \
+  'target_wp plugin is-active "$REPLACEMENT_SLUG"' 'replacement dependency helper does not require the incoming plugin' \
+  'assert_eq "$REPLACEMENT_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)"' 'replacement dependency helper does not require exact plugin order'
 assert_helper_contracts phase-order "$PHASE_ORDER_HELPER_BLOCK" "$PHASE_ORDER_HELPER_GOLDEN_HASH" \
   'local output="$1" last=0 needle line' 'phase-order helper does not bind output/line state' \
   'shift' 'phase-order helper does not discard the output argument before scanning phases' \
@@ -497,12 +517,16 @@ assert_helper_contracts target-plugin-tree-hash "$TARGET_PLUGIN_TREE_HASH_HELPER
   '$rows[] = $relative . "\\t" . hash_file("sha256", $file->getPathname());' 'target_plugin_tree_hash helper does not bind each path to its file hash' \
   'sort($rows, SORT_STRING);' 'target_plugin_tree_hash helper does not sort its manifest deterministically' \
   'echo hash("sha256", implode("\\n", $rows));' 'target_plugin_tree_hash helper does not return a manifest SHA-256'
+assert_helper_contracts target-path "$TARGET_PATH_HELPER_BLOCK" "$TARGET_PATH_HELPER_GOLDEN_HASH" \
+  'file_exists('\''$1'\'') || is_link('\''$1'\'')' 'target_path helper does not treat any existing file/link root as present' \
+  "? 'present' : 'absent'" 'target_path helper does not return the closed present/absent vocabulary'
 assert_helper_contracts target-managed-code-tree-hash "$TARGET_MANAGED_CODE_TREE_HASH_HELPER_BLOCK" "$TARGET_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH" \
   'target_php' 'target_managed_code_tree_hash helper does not execute its target-side PHP probe' \
   '$root = "/var/www/html/wp-content";' 'target_managed_code_tree_hash helper is not rooted at wp-content' \
   '"plugins/woocommerce",' 'target_managed_code_tree_hash helper omits WooCommerce' \
   '"plugins/advanced-custom-fields",' 'target_managed_code_tree_hash helper omits ACF' \
   '"plugins/duo-commerce-extension",' 'target_managed_code_tree_hash helper omits the extension' \
+  '"plugins/duo-commerce-replacement",' 'target_managed_code_tree_hash helper omits the replacement' \
   '"themes/duo-commerce-parent",' 'target_managed_code_tree_hash helper omits the parent theme' \
   '"themes/duo-commerce-child",' 'target_managed_code_tree_hash helper omits the child theme' \
   '$absoluteRoot = $root . "/" . $relativeRoot;' 'target_managed_code_tree_hash helper does not resolve each managed root' \
@@ -519,6 +543,7 @@ assert_helper_contracts source-managed-code-tree-hash "$SOURCE_MANAGED_CODE_TREE
   '"plugins/woocommerce",' 'source_managed_code_tree_hash helper omits WooCommerce' \
   '"plugins/advanced-custom-fields",' 'source_managed_code_tree_hash helper omits ACF' \
   '"plugins/duo-commerce-extension",' 'source_managed_code_tree_hash helper omits the extension' \
+  '"plugins/duo-commerce-replacement",' 'source_managed_code_tree_hash helper omits the replacement' \
   '"themes/duo-commerce-parent",' 'source_managed_code_tree_hash helper omits the parent theme' \
   '"themes/duo-commerce-child",' 'source_managed_code_tree_hash helper omits the child theme' \
   '$absoluteRoot = $root . "/" . $relativeRoot;' 'source_managed_code_tree_hash helper does not resolve each managed root' \
@@ -784,6 +809,7 @@ assert_helper_contracts runtime-state-exclusion "$RUNTIME_STATE_EXCLUSION_HELPER
   '200 Target Runtime Way' 'runtime state exclusion omits the target billing-address marker' \
   '201 Target Fulfillment Way' 'runtime state exclusion omits the target shipping-address marker' \
   'Duo Grind runtime v1 event' 'runtime state exclusion omits the target event marker' \
+  'activate:replacement-fixed:fresh=yes:retiring-root=present' 'runtime state exclusion omits the replacement lifecycle marker' \
   'source-only-synthetic-secret' 'runtime state exclusion omits the source secret marker' \
   'target-only-synthetic-secret' 'runtime state exclusion omits the target secret marker'
 assert_helper_contracts runtime-identity "$RUNTIME_IDENTITY_HELPER_BLOCK" "$RUNTIME_IDENTITY_HELPER_GOLDEN_HASH" \
@@ -820,6 +846,13 @@ assert_helper_contracts extension-rest "$REST_HELPER_BLOCK" "$REST_HELPER_GOLDEN
   '.extension_version == $version' 'extension REST probe does not assert extension version' \
   '.schema == $schema' 'extension REST probe does not assert schema version' \
   '.woocommerce == true' 'extension REST probe does not assert Woo availability'
+assert_helper_contracts replacement-rest "$REPLACEMENT_REST_HELPER_BLOCK" "$REPLACEMENT_REST_HELPER_GOLDEN_HASH" \
+  'curl --connect-timeout 3 --max-time 10' 'replacement REST probe is not bounded' \
+  'assert_eq 200 "$http"' 'replacement REST probe does not require HTTP 200' \
+  '.extension_identity == "duo-commerce-replacement"' 'replacement REST probe does not assert the distinct identity' \
+  '.extension_version == "1.0.0"' 'replacement REST probe does not assert the reviewed version' \
+  '.schema == 2' 'replacement REST probe does not assert the v2 runtime schema' \
+  '.woocommerce == true' 'replacement REST probe does not assert Woo availability'
 assert_helper_contracts store-api-http "$STORE_API_HTTP_HELPER_BLOCK" "$STORE_API_HTTP_HELPER_GOLDEN_HASH" \
   'curl --connect-timeout 3 --max-time 10 --silent --show-error --get' 'external Store API probe is not bounded' \
   "--write-out '%{http_code}'" 'external Store API probe does not capture HTTP status' \
@@ -889,13 +922,110 @@ ordered_contract failed-v2-recovery "$FAILED_V2_RECOVERY_PHASE_BLOCK" \
   'control_wp recoveryDbImportArgs "$V2_FAILED_CHECKPOINT"' \
   'control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT"'
 
+ordered_contract explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  'cp -a "$SITE/code" "$REPLACEMENT_PRIOR_INPUTS/code"' \
+  'REPLACEMENT_MANAGED_TREE_BEFORE="$(target_managed_code_tree_hash)"' \
+  'rm -rf -- "$SITE/code/wp-content/plugins/$EXT_SLUG"' \
+  'cp "$FIXTURE/replacement/fixed/$REPLACEMENT_FILE"' \
+  '.records.active_plugins.value = [$acf, $replacement]' \
+  'if REPLACEMENT_PREFLIGHT_OUT="$(deploy 2>&1)"; then' \
+  'code_plugin_dependency_inactive' \
+  'assert_absent "$REPLACEMENT_PREFLIGHT_OUT" '\''deploy phase: promotion-begin'\''' \
+  'assert_eq "$REPLACEMENT_MANAGED_TREE_BEFORE" "$(target_managed_code_tree_hash)"' \
+  'assert_eq "$REPLACEMENT_REVISION_BEFORE" "$(ledger_revision)"' \
+  'assert_eq "$REPLACEMENT_SESSION_BEFORE" "$(ledger_value promotion_session)"' \
+  'assert_eq "$REPLACEMENT_LOCK_BEFORE" "$(ledger_value promotion_lock)"' \
+  'assert_eq "$REPLACEMENT_ACTIVE_BEFORE" "$(active_plugins_json)"' \
+  '.records.active_plugins.value = [$woo, $acf, $replacement]' \
+  'REPLACEMENT_PLAN="$(plan_json)"' \
+  'assert_eq "$REPLACEMENT_PLAN_ACTIVE_BEFORE" "$(active_plugins_json)"' \
+  'assert_eq "$REPLACEMENT_PLAN_SETTING_BEFORE" "$(target_wp option get duo_commerce_extension_settings --format=json)"' \
+  'assert_runtime_isolation '\''replacement semantic plan'\'' 1' \
+  'REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH="$(source_managed_code_tree_hash)"' \
+  'REPLACEMENT_OUT="$(promote --with-deletes 2>&1)"' \
+  "'promote phase: lifecycle-retire'" \
+  "'promote phase: lifecycle-activate'" \
+  "'promote phase: code-finalize'" \
+  'assert_eq absent "$(target_file "$EXT_TARGET")"' \
+  'assert_eq present "$(target_file "$REPLACEMENT_TARGET")"' \
+  'assert_eq absent "$(target_path "$CONTENT/plugins/$EXT_SLUG")"' \
+  'assert_eq present "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")"' \
+  'activate:replacement-fixed:fresh=yes:retiring-root=present' \
+  'assert_eq "$REPLACEMENT_SOURCE_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)"' \
+  'assert_runtime_isolation '\''reviewed replacement'\'' 1' \
+  'assert_receipt "$REPLACEMENT_ARTIFACT" '\''reviewed replacement promote'\'' "$REPLACEMENT_REVISION"'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '.issue == "unexpected_active_plugin" and .kind == "plugin" and .plugin == $outgoing' \
+  'replacement plan does not require the outgoing active-plugin mismatch'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '.issue == "missing_in_code" and .kind == "plugin" and .plugin == $incoming' \
+  'replacement plan does not require the incoming code mismatch'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '.issue == "code_revision_stale" and .kind == "code" and .completed_revision == $completed' \
+  'replacement plan does not bind the prior completed code revision'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '.rebuild_option_names == ["duo_commerce_extension_settings"]' \
+  'replacement plan does not expose the exact authored-setting write set'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '(.option_deletes | index("duo_commerce_extension_settings") != null)' \
+  'replacement plan does not expose the authored setting deletion'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '.adapter_dispositions == []' 'replacement plan does not require clean adapter diagnostics'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '.provider_problems == []' 'replacement plan does not require clean provider diagnostics'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  'provider:woocommerce-cache/invalidate_cache_groups' \
+  'replacement plan does not expose the Woo cache effect'
+block_contains explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  'provider:woocommerce-product-lookups/rebuild_product_lookups' \
+  'replacement plan does not expose the Woo lookup effect'
+block_absent explicit-plugin-identity-replacement "$REPLACEMENT_PHASE_BLOCK" \
+  '--replace-extension' 'replacement proof invents a late apply flag instead of using public promote'
+
+ordered_contract exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_PHASE_BLOCK" \
+  'REPLACEMENT_CHECKPOINT="$(sed -n' \
+  'REPLACEMENT_CHECKPOINT_SHA256="$(sha256sum "$REPLACEMENT_CHECKPOINT_HOST"' \
+  'rm -rf -- "$SITE/code"' \
+  'rm -rf -- "$SITE/state"' \
+  'cp -a "$REPLACEMENT_PRIOR_INPUTS/code" "$SITE/code"' \
+  'target_wp maintenance-mode activate' \
+  'assert_replacement_and_dependencies' \
+  'REPLACEMENT_ROLLBACK_OUT="$(promote 2>&1)"' \
+  "'promote phase: code-stage'" \
+  "'promote phase: lifecycle-retire'" \
+  "'promote phase: lifecycle-activate'" \
+  "'promote phase: code-finalize'" \
+  'assert_eq present "$(target_file "$EXT_TARGET")"' \
+  'assert_eq absent "$(target_file "$REPLACEMENT_TARGET")"' \
+  'assert_eq present "$(target_path "$CONTENT/plugins/$EXT_SLUG")"' \
+  'assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")"' \
+  'assert_eq "$REPLACEMENT_CHECKPOINT_SHA256" "$(sha256sum "$REPLACEMENT_CHECKPOINT_HOST"' \
+  'assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM wp_duo_kv WHERE k = '\''promotion_lock'\''")"' \
+  'assert_eq "$AUTHORED_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)"' \
+  'target_wp maintenance-mode deactivate' \
+  'assert_parent_theme_and_dependencies' \
+  'assert_theme_child_removed '\''replacement rollback'\''' \
+  'assert_theme_versions '\''replacement rollback'\'' '\''1.1.0'\'' '\''absent'\''' \
+  'assert_theme_portable_relationships '\''replacement rollback'\'' "$PARENT_THEME"' \
+  'assert_frontend_parent '\''replacement rollback'\''' \
+  'assert_eq "$REPLACEMENT_PRIOR_ARTIFACT_HASH" "$(jq -r '\''.artifact_hash'\'' "$REPLACEMENT_ROLLBACK_ARTIFACT")"' \
+  'assert_eq "$REPLACEMENT_PRIOR_STATE_REVISION" "$(jq -r '\''.revision_hash'\'' "$REPLACEMENT_ROLLBACK_ARTIFACT")"' \
+  'assert_receipt "$REPLACEMENT_ROLLBACK_ARTIFACT" '\''exact replacement rollback promotion'\'' "$REPLACEMENT_REVISION_BEFORE"' \
+  'REPLACEMENT_ROLLBACK_STATUS="$(status 2>&1)"'
+block_absent exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_PHASE_BLOCK" \
+  'recoveryDbImportArgs "$REPLACEMENT_CHECKPOINT"' \
+  'superseded replacement checkpoint is imported after the reverse promotion'
+
 ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'target_wp maintenance-mode activate' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql"' \
   'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql"' \
-  'assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$(active_plugins_json)"' \
-  'assert_eq absent "$(target_file "$EXT_TARGET")"' \
+  'ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''active_plugins'\'' LIMIT 1")"' \
+  'if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r' \
+  'assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON"' \
+  'assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")"' \
+  'assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''duo_commerce_extension_settings'\'' LIMIT 1")"' \
   'if ! RESTORE_OUT="$(promote 2>&1)"; then' \
   'ROLLBACK_PROMOTION_SUCCEEDED=1' \
   'target_wp maintenance-mode deactivate' \
@@ -906,8 +1036,16 @@ if grep -Fq 'target_wp db import' "$SCRIPT"; then
 fi
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql"' \
   'exact v1 rollback does not restore its dump through the fatal-safe control operation'
+ROLLBACK_PRE_STAGE_BLOCK="$(sed -n '/control_wp recoveryDbImportArgs/,/if ! RESTORE_OUT=/p' <<<"$ROLLBACK_PHASE_BLOCK")"
+block_absent exact-v1-pre-stage "$ROLLBACK_PRE_STAGE_BLOCK" 'target_wp ' \
+  'exact v1 rollback bootstraps the still-v2 target plugin after database import and before v1 code staging'
+block_absent exact-v1-pre-stage "$ROLLBACK_PRE_STAGE_BLOCK" 'active_plugins_json' \
+  'exact v1 rollback reads active_plugins through ordinary WordPress before v1 code staging'
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'promote phase: code-stage' \
   'exact v1 rollback does not require code staging before lifecycle activation'
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
+  'assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")"' \
+  'exact v1 rollback does not require the replacement root to remain absent'
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'target_wp maintenance-mode deactivate' \
   'exact v1 rollback does not release target maintenance after promotion'
 grep -Fq 'ROLLBACK_MAINTENANCE_HELD=0' "$SCRIPT" || fail 'rollback maintenance held flag is not initialized/released'
@@ -1286,13 +1424,15 @@ grep -Fq "assert_runtime_isolation 'fixed v2 retry' 1" "$SCRIPT" || fail 'fixed-
 grep -Fq "assert_runtime_isolation 'author product update promote' 1" "$SCRIPT" || fail 'product-update runtime sovereignty checkpoint is missing'
 grep -Fq "assert_runtime_isolation 'unsupported Woo product deletion refusal' 1" "$SCRIPT" || fail 'unsupported-product-deletion runtime sovereignty checkpoint is missing'
 grep -Fq "assert_runtime_isolation 'v1 checkpoint recovery' 0" "$SCRIPT" || fail 'checkpoint-recovery runtime isolation checkpoint is missing'
-grep -Fq "assert_runtime_isolation 'extension removal' 1" "$SCRIPT" || fail 'extension-removal runtime isolation checkpoint is missing'
+grep -Fq "assert_runtime_isolation 'reviewed replacement' 1" "$SCRIPT" || fail 'plugin-replacement runtime isolation checkpoint is missing'
+grep -Fq "assert_runtime_isolation 'replacement rollback' 1" "$SCRIPT" || fail 'plugin-replacement rollback runtime isolation checkpoint is missing'
 grep -Fq 'V1_DEACTIVATE_ARTIFACT="$(artifact_for_promote_output "$V1_DEACTIVATE_OUT")"' "$SCRIPT" || fail 'v1 deactivation promote receipt is not output-bound'
 grep -Fq 'DRIFT_HEAL_ARTIFACT="$(artifact_for_promote_output "$DRIFT_HEAL_OUT")"' "$SCRIPT" || fail 'code-drift healing promote receipt is not output-bound'
-grep -Fq 'REMOVE_ARTIFACT="$(artifact_for_promote_output "$REMOVE_OUT")"' "$SCRIPT" || fail 'extension-removal promote receipt is not output-bound'
-grep -Fq 'REMOVE_REVISION="$(jq -r '\''.code.code_revision'\'' "$REMOVE_ARTIFACT")"' "$SCRIPT" || fail 'extension-removal code revision is not bound to its new receipt'
-grep -Fq 'assert_receipt "$REMOVE_ARTIFACT" '\''extension removal promote'\'' "$REMOVE_REVISION"' "$SCRIPT" || fail 'extension-removal receipt is checked against its newly published code revision'
-grep -Fq '[ "$REMOVE_REVISION" != "$THEME_SAFE_REMOVE_REVISION" ]' "$SCRIPT" || fail 'extension-removal code revision is not required to differ from the immediately prior theme lifecycle revision'
+grep -Fq 'REPLACEMENT_ARTIFACT="$(artifact_for_promote_output "$REPLACEMENT_OUT")"' "$SCRIPT" || fail 'plugin-replacement promote receipt is not output-bound'
+grep -Fq 'REPLACEMENT_REVISION="$(jq -r '\''.code.code_revision'\'' "$REPLACEMENT_ARTIFACT")"' "$SCRIPT" || fail 'plugin-replacement code revision is not bound to its new receipt'
+grep -Fq 'assert_receipt "$REPLACEMENT_ARTIFACT" '\''reviewed replacement promote'\'' "$REPLACEMENT_REVISION"' "$SCRIPT" || fail 'plugin-replacement receipt is not checked against its newly published code revision'
+grep -Fq '[ "$REPLACEMENT_REVISION" != "$THEME_SAFE_REMOVE_REVISION" ]' "$SCRIPT" || fail 'plugin-replacement code revision is not required to differ from the immediate theme-lifecycle revision'
+grep -Fq 'REPLACEMENT_ROLLBACK_ARTIFACT="$(artifact_for_promote_output "$REPLACEMENT_ROLLBACK_OUT")"' "$SCRIPT" || fail 'plugin-replacement rollback receipt is not output-bound'
 grep -Fq 'RESTORED_ARTIFACT="$(artifact_for_promote_output "$RESTORE_OUT")"' "$SCRIPT" || fail 'rollback promote receipt is not output-bound'
 grep -Fq 'assert_runtime_state_excluded' "$SCRIPT" || fail 'generated-state runtime exclusion helper is missing'
 grep -Fq 'assert_env_secret_isolation' "$SCRIPT" || fail 'repeated env-secret isolation helper is missing'
@@ -1398,6 +1538,12 @@ ACF_UNESCAPED="$(sed 's/\\\$//g' <<<"$ACF_BLOCK" | grep -oE '\$[A-Za-z_][A-Za-z0
 grep -Fq 'Requires Plugins: woocommerce' "$FIXTURE/v1/wp-content/plugins/duo-commerce-extension/duo-commerce-extension.php" || fail 'v1 dependency header missing'
 grep -Fq 'Duo Commerce Extension reviewed v2 activation failure' "$FIXTURE/v2/broken/duo-commerce-extension.php" || fail 'broken activation fixture missing'
 grep -Fq 'migrate:v1-to-v2:' "$FIXTURE/v2/fixed/duo-commerce-extension.php" || fail 'fixed v2 migration trace missing'
+REPLACEMENT_FIXTURE="$FIXTURE/replacement/fixed/duo-commerce-replacement.php"
+grep -Fq 'Requires Plugins: woocommerce' "$REPLACEMENT_FIXTURE" || fail 'replacement dependency header missing'
+grep -Fq 'function_exists('\''duo_commerce_extension_table'\'')' "$REPLACEMENT_FIXTURE" || fail 'replacement fresh-process guard missing'
+grep -Fq "WP_PLUGIN_DIR . '/duo-commerce-extension'" "$REPLACEMENT_FIXTURE" || fail 'replacement retiring-root guard missing'
+grep -Fq 'activate:replacement-fixed:fresh=yes:retiring-root=present' "$REPLACEMENT_FIXTURE" || fail 'replacement lifecycle trace missing'
+grep -Fq "'extension_identity' => 'duo-commerce-replacement'" "$REPLACEMENT_FIXTURE" || fail 'replacement REST identity missing'
 
 # DUO-3358 is deliberately test-first.  The existing parent/child install
 # proves only that a static theme can be materialized; it cannot stand in for

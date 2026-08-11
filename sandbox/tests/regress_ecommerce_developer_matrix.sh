@@ -60,6 +60,7 @@ check_matrix() {
     --argjson expected_ids "$REQUIRED_IDS_JSON" \
     '
       . as $root |
+      ($root.moves | map(select(.id == "explicit-plugin-theme-replacement")) | .[0]) as $replacement |
       ($root | type == "object") and
       ($root.schema == "duo/ecommerce-developer-move-matrix/v1") and
       ($root.issue == "DUO-3337") and
@@ -87,7 +88,31 @@ check_matrix() {
       all($root.moves[]; (.convergence_rule | type == "string" and length > 0)) and
       all($root.moves[]; (.rollback_rule | type == "string" and length > 0)) and
       all($root.moves[]; (.evidence_anchors | type == "array" and all(.[]; type == "string"))) and
-      all($root.moves[]; (.acceptance | type == "array" and length > 0 and all(.[]; type == "string" and length > 0)))
+      all($root.moves[]; (.acceptance | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
+      ($replacement.status == "exercised") and
+      ($replacement.public_command == "php cli/duo --envs-file=<pair-envs> promote target --with-deletes") and
+      ($replacement.harness == "sandbox/tests/grind_ecommerce_developer.sh") and
+      (([($replacement | .. | strings)] | join("\n")) | contains("--replace-extension") | not) and
+      (($replacement.code_delta | join("\n")) | contains("duo-commerce-extension") and contains("duo-commerce-replacement")) and
+      (($replacement.authored_state_delta | join("\n")) | contains("active_plugins") and contains("expected-hash")) and
+      (($replacement.expected_semantic_plan | join("\n")) |
+        contains("unexpected_active_plugin") and contains("missing_in_code") and
+        contains("code_revision_stale") and contains("options/core") and
+        contains("provider") and contains("effects")) and
+      (($replacement.expected_write_set | join("\n")) |
+        contains("Outgoing/incoming owned code roots") and contains("active_plugins") and contains("setting")) and
+      ($replacement.failure_semantics |
+        contains("Woo dependency") and contains("before promotion-begin") and
+        contains("without target cleanup or a code bind")) and
+      ($replacement.convergence_rule |
+        contains("old root") and contains("replacement is active") and contains("status is clean")) and
+      ($replacement.rollback_rule |
+        contains("immediate-prior v2") and contains("checkpoint") and contains("Public reverse promotion") and
+        contains("not imported") and contains("supersedes")) and
+      (($replacement.evidence_anchors | index("REPLACEMENT_PLAN=\"$(plan_json)\"")) != null) and
+      (($replacement.evidence_anchors | index("code_plugin_dependency_inactive")) != null) and
+      (($replacement.evidence_anchors | index("REPLACEMENT_ROLLBACK_STATUS=\"$(status 2>&1)\"")) != null) and
+      ($replacement.gap == null) and ($replacement.linear_routing == null)
     ' "$candidate" >/dev/null || return 1
 
   while IFS= read -r row; do
@@ -178,8 +203,9 @@ MUTATED_ROUTE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-route.XXXXXX")"
 MUTATED_CONTRACT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-contract.XXXXXX")"
 MUTATED_CRON_COMMAND="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-cron.XXXXXX")"
 MUTATED_CRON_FLAGS="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-cron-flags.XXXXXX")"
+MUTATED_REPLACEMENT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-replacement.XXXXXX")"
 cleanup_matrix() {
-  rm -f -- "$MUTATED_ANCHOR" "$MUTATED_ROUTE" "$MUTATED_CONTRACT" "$MUTATED_CRON_COMMAND" "$MUTATED_CRON_FLAGS"
+  rm -f -- "$MUTATED_ANCHOR" "$MUTATED_ROUTE" "$MUTATED_CONTRACT" "$MUTATED_CRON_COMMAND" "$MUTATED_CRON_FLAGS" "$MUTATED_REPLACEMENT"
 }
 trap cleanup_matrix EXIT
 
@@ -227,5 +253,14 @@ if check_matrix "$MUTATED_CRON_FLAGS" >/dev/null 2>&1; then
   fail 'self-mutation proof: trailing WP-Cron drain flag unexpectedly passed'
 fi
 pass 'self-mutation proof: trailing WP-Cron drain flag is rejected'
+
+# Self-mutation proof: the replacement row cannot drift back to a fictional
+# late apply flag while retaining its live anchors and otherwise-valid shape.
+jq '(.moves[] | select(.id == "explicit-plugin-theme-replacement") | .public_command) = "php cli/duo --envs-file=<pair-envs> promote target --replace-extension=duo-commerce-extension"' \
+  "$MATRIX" >"$MUTATED_REPLACEMENT"
+if check_matrix "$MUTATED_REPLACEMENT" >/dev/null 2>&1; then
+  fail 'self-mutation proof: fictional replacement command unexpectedly passed'
+fi
+pass 'self-mutation proof: the exercised replacement stays on generic public promote'
 
 pass 'DUO-3337 ecommerce developer move matrix regression passed offline'
