@@ -509,7 +509,7 @@ self::validate_post_type_children($manifest);
             $actions,
             static fn(array $action): bool => ($action['kind'] ?? null) === 'provider'
         ));
-        if ($providerActions === [] || $this->manifestDispositions === null || $this->capabilityRegistry === null) {
+        if ($providerActions === []) {
             return [];
         }
 
@@ -518,11 +518,28 @@ self::validate_post_type_children($manifest);
         // one runtime contract Deploy and Providers already share.
         require_once __DIR__ . '/Deploy.php';
         require_once __DIR__ . '/Providers.php';
-        if (!Providers::runtime_negotiation_available()) {
-            return [];
+        $packagingProblems = Providers::packaging_problems($this, $providerActions);
+        if (!Providers::runtime_negotiation_available()
+            || $this->manifestDispositions === null
+            || $this->capabilityRegistry === null) {
+            // A missing manifest-shipped provider is a packaging fault, not a
+            // target fact. Keep the WordPress-free adapter doctor readable by
+            // reporting that static fact without loading provider PHP, while
+            // leaving plugin-owned/runtime negotiation deferred until a target
+            // is available.
+            $negotiation = ['problems' => $packagingProblems];
+        } else {
+            try {
+                $negotiation = Providers::negotiate($this, $providerActions);
+            } catch (ProviderPackagingException $failure) {
+                // A missing manifest-shipped provider is a packaging fault, not
+                // a target fact. Keep plan/status/doctor readable by projecting
+                // the same structured row Providers::problems() uses, while
+                // leaving Providers::negotiate() itself throwing for apply's
+                // fail-before-mutation gate.
+                $negotiation = ['problems' => [Providers::packaging_problem($failure)]];
+            }
         }
-
-        $negotiation = Providers::negotiate($this, $providerActions);
         $sources = $this->adapter_sources()->diagnostics($this->manifests);
         $rows = [];
         foreach ($negotiation['problems'] as $problem) {

@@ -280,6 +280,48 @@ final class Providers {
     }
 
     /**
+     * Report manifest-provider files that are absent without loading provider
+     * PHP or asking WordPress for plugin state. The host-side adapter doctor is
+     * intentionally WordPress-free, but a missing file in the manifest-owned
+     * package is still a packaging fact rather than a target fact. Plugin-owned
+     * providers remain deferred to the target negotiation path.
+     *
+     * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
+     * @return list<array<string,mixed>>
+     */
+    public static function packaging_problems(Policy $policy, array $selectedActions): array {
+        $declarations = $policy->provider_declarations();
+        $problems = [];
+        $seen = [];
+        foreach ($selectedActions as $action) {
+            if (($action['kind'] ?? '') !== 'provider') {
+                continue;
+            }
+            $id = (string) ($action['provider'] ?? '');
+            if ($id === '' || isset($seen[$id])) {
+                continue;
+            }
+            $seen[$id] = true;
+            $declaration = $declarations[$id] ?? null;
+            if (!is_array($declaration) || ($declaration['source'] ?? '') !== 'manifest') {
+                continue;
+            }
+            $manifest = (string) ($declaration['manifest'] ?? ($action['manifest'] ?? '?'));
+            $file = Policy::manifests_dir() . '/providers/' . $id . '.php';
+            if (is_file($file)) {
+                continue;
+            }
+            $problems[] = self::packaging_problem(new ProviderPackagingException(
+                $id,
+                $manifest,
+                "duo: manifest '$manifest' declares provider '$id' but $file is missing — "
+                    . 'provider code ships with its manifest, not the engine'
+            ));
+        }
+        return $problems;
+    }
+
+    /**
      * Scoped-effect negotiation is deliberately additive to negotiate().
      *
      * Legacy plan/status/full-apply callers continue to negotiate only the
@@ -714,16 +756,7 @@ final class Providers {
                 }
             ));
         } catch (ProviderPackagingException $t) {
-            return [self::problem(
-                $t->providerId(),
-                $t->manifest(),
-                '?',
-                'provider_code_unavailable',
-                "the manifest-sourced provider '{$t->providerId()}' to resolve to its shipped class",
-                $t->getMessage(),
-                "repair manifests/providers/{$t->providerId()}.php, which ships with manifest "
-                    . "'{$t->manifest()}', or unpin that manifest"
-            )];
+            return [self::packaging_problem($t)];
         } catch (\Throwable $t) {
             return [self::problem(
                 '?',
@@ -736,6 +769,26 @@ final class Providers {
                     . 'established before it threw'
             )];
         }
+    }
+
+    /**
+     * Project the one packaging fault that reporting callers may recover from
+     * without weakening the direct negotiation gate. Policy uses this exact
+     * row when plan/status needs to keep a missing manifest provider visible;
+     * apply still calls negotiate() and therefore still throws before target
+     * mutation.
+     */
+    public static function packaging_problem(ProviderPackagingException $failure): array {
+        return self::problem(
+            $failure->providerId(),
+            $failure->manifest(),
+            '?',
+            'provider_code_unavailable',
+            "the manifest-sourced provider '{$failure->providerId()}' to resolve to its shipped class",
+            $failure->getMessage(),
+            "repair manifests/providers/{$failure->providerId()}.php, which ships with manifest "
+                . "'{$failure->manifest()}', or unpin that manifest"
+        );
     }
 
     /**
