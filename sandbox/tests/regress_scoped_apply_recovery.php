@@ -1497,6 +1497,46 @@ ScopedApply::assert_selected_ledger_map_observation(
 );
 $check(true, 'tombstone sidecarless cascade is strictly observed before any deletion transaction');
 
+// Even without a target map, a hidden sidecar cannot be deleted through M
+// when the frozen source assigns that UUID to protected menu N. Tombstone
+// deletion removes the physical row, so source ownership is independently
+// authoritative from target ledger presence.
+$protectedTombstoneItem = $uuid(42);
+$protectedTombstoneMenu = $uuid(43);
+$protectedTombstoneCompiled = CompiledRepository::create([
+    'tree' => [$protectedTombstoneMenu => [
+        'type' => 'menu',
+        'hash' => $hash('protected-tombstone-owner-menu'),
+        'path' => 'menus/protected-tombstone-owner.json',
+        'content' => '',
+        'data' => [
+            'uuid' => $protectedTombstoneMenu,
+            'items' => [['uuid' => $protectedTombstoneItem]],
+        ],
+    ]],
+    'deletions' => $tombstoneCompiled->deletions(),
+    'revision_hash' => $hash('protected-tombstone-owner-revision'),
+    'manifest_hash' => $hash('protected-tombstone-owner-manifest'),
+    'site_hash' => $hash('protected-tombstone-owner-site'),
+    'effects_inventory' => [],
+]);
+$GLOBALS['wpdb']->postRows[400]['uuid'] = $protectedTombstoneItem;
+try {
+    ScopedApply::ledger_map_identity_hashes(
+        $tombstoneContract,
+        $protectedTombstoneCompiled,
+        $tombstoneActual,
+        true
+    );
+    $check(false, 'an unmapped tombstone item owned by a protected source menu must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'menu tombstone inventory refuses a hidden sidecar owned by a protected frozen menu'
+    );
+}
+$GLOBALS['wpdb']->postRows[400]['uuid'] = '';
+
 $GLOBALS['wpdb']->taxonomyRows[141] = ['term_id' => 41, 'taxonomy' => 'category'];
 $GLOBALS['wpdb']->postRows[400]['term_taxonomy_ids'] = [140, 141];
 try {

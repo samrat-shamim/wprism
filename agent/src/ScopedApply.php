@@ -1156,7 +1156,9 @@ final class ScopedApply {
                     // UUID's exact post tuple. Otherwise delete_entity()
                     // would remove P while Ledger::uuid_for(P) sees nothing,
                     // leaving a stale/rebound identity behind.
-                    if ($sidecarUuid !== '' && isset($mapRowsByUuid[$sidecarUuid])) {
+                    if ($sidecarUuid !== ''
+                        && (isset($mapRowsByUuid[$sidecarUuid])
+                            || is_array($frozenOwners[$sidecarUuid] ?? null))) {
                         throw CommandRefusalException::scopedIdentityRecoveryRequired();
                     }
                     continue;
