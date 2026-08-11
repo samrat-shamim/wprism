@@ -90,6 +90,10 @@ repo_host 1
 "${GIT1[@]}" push -qu origin main
 
 git clone -q "$ORIGIN" "$HOST2"
+# The host clone recreates canonical state with host umask (directories 0755).
+# Normalize this exact peer root before target apply/recapture can rotate that
+# tree into state.capture-backup and ask uid 33 to remove its descendants.
+repo_host 2
 # WordPress/Woo activation creates the same starter posts and terms on both
 # sides independently. Remove target copies before apply so this deletion
 # regression does not need an unrelated adopt flow (and therefore cannot hide
