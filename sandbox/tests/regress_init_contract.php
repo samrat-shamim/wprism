@@ -857,17 +857,13 @@ require_once __DIR__ . '/../../agent/src/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/Init.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 
-// DUO-3421: the proposal-time manual-recovery gate and the recovery-time
-// deletion authority must answer the SAME question about an unmanifested Git
-// root. They did not: the gate tested only that `git_empty_identity` was
-// PRESENT, while the compensation path additionally requires it to still
-// describe the root. initialize_git() runs between the `git-reserved` journal
-// that records that key and the `git-ready` journal that records
-// `git_identity`, so an attempt interrupted inside that window was proposed as
-// a ready, confirmable `verify-interrupted-precommit-init` plan whose
-// confirmation then refused mid-protocol with the unclassified envelope.
-// Exercised against the real private predicate with real directory identities,
-// offline: no docker, no WordPress.
+// The proposal-time manual-recovery gate and the recovery-time deletion
+// authority must answer the SAME question about a Git root. A populated
+// git-ready identity is deletion authority only while it still describes the
+// complete current tree: strict cleanup can restore the root after deleting a
+// child, which leaves a partial canonical tree behind. Exercised against the
+// real private predicate with real directory identities, offline: no docker,
+// no WordPress.
 // The predicate resolves the fixed capture-record slots through Publish.
 require_once __DIR__ . '/../../agent/src/Publish.php';
 $recoveryReason = (new ReflectionClass(\Duo\Init::class))
@@ -875,6 +871,64 @@ $recoveryReason = (new ReflectionClass(\Duo\Init::class))
 $recoveryReason->setAccessible(true);
 $directoryIdentity = (new ReflectionClass(\Duo\Init::class))->getMethod('directory_identity');
 $directoryIdentity->setAccessible(true);
+$removeOwnedTree = (new ReflectionClass(\Duo\Init::class))->getMethod('remove_owned_tree');
+$removeOwnedTree->setAccessible(true);
+$treeCleanupFixture = sys_get_temp_dir() . '/duo-init-tree-cleanup-' . bin2hex(random_bytes(6));
+if (!mkdir($treeCleanupFixture, 0777, true)) fail('could not create the exact-owned tree cleanup fixture');
+register_shutdown_function(static function () use ($treeCleanupFixture): void {
+    exec('rm -rf ' . escapeshellarg($treeCleanupFixture));
+});
+// Filesystem permissions cannot make unlink/rmdir fail under a root test
+// runner. Exercise the real private claim-and-remove boundary through the
+// test-only operation seam instead, then prove that the exact root returns to
+// its canonical name rather than being hidden behind a cleanup claim.
+foreach ([
+    ['name' => 'unlink', 'phase' => 'unlink', 'child' => 'file', 'description' => 'unlink'],
+    ['name' => 'child-rmdir', 'phase' => 'rmdir', 'child' => 'directory', 'description' => 'child rmdir'],
+    // This root is deliberately empty: CHILD_FIRST has no child rmdir to
+    // intercept, so the seam proves the claimed root rmdir itself is checked.
+    ['name' => 'root-rmdir', 'phase' => 'rmdir', 'child' => null, 'description' => 'root rmdir'],
+] as $treeCleanupCase) {
+    $name = (string) $treeCleanupCase['name'];
+    $phase = (string) $treeCleanupCase['phase'];
+    $description = (string) $treeCleanupCase['description'];
+    $ownedTree = $treeCleanupFixture . '/' . $name;
+    if (!mkdir($ownedTree, 0777, true)) fail("could not create the $description cleanup root");
+    if ($treeCleanupCase['child'] === 'directory') {
+        if (!mkdir($ownedTree . '/child', 0777, true)) fail("could not create the $description cleanup child");
+    } elseif ($treeCleanupCase['child'] === 'file') {
+        file_put_contents($ownedTree . '/child', 'payload');
+    }
+    $ownedIdentity = (string) $directoryIdentity->invoke(null, $ownedTree, "exact-owned $description cleanup root");
+    $cleanupFailure = null;
+    putenv('DUO_TEST_MODE=1');
+    putenv('DUO_TEST_INIT_FAIL_PHASE=owned-tree-remove-' . $phase);
+    try {
+        $removeOwnedTree->invoke(null, $ownedTree, $ownedIdentity, "exact-owned $description cleanup root");
+    } catch (ReflectionException $unexpected) {
+        throw $unexpected;
+    } catch (Throwable $failure) {
+        $cleanupFailure = $failure;
+    } finally {
+        putenv('DUO_TEST_INIT_FAIL_PHASE');
+        putenv('DUO_TEST_MODE');
+    }
+    check(
+        $cleanupFailure instanceof RuntimeException
+            && str_contains($cleanupFailure->getMessage(), "injected exact-owned tree $phase refusal"),
+        "an exact-owned tree $description failure is surfaced instead of being reported as clean"
+    );
+    check(
+        is_dir($ownedTree)
+            && !is_link($ownedTree)
+            && hash_equals(
+                $ownedIdentity,
+                (string) $directoryIdentity->invoke(null, $ownedTree, "exact-owned $description cleanup root")
+            )
+            && glob($treeCleanupFixture . '/.' . $name . '.duo-init-remove-*') === [],
+        "a failed exact-owned tree $description cleanup restores its canonical authority without a hidden claim"
+    );
+}
 $gitFixtureRepo = sys_get_temp_dir() . '/duo-init-git-authority-' . bin2hex(random_bytes(6));
 if (!mkdir($gitFixtureRepo . '/.git', 0777, true)) fail('could not create the Git authority fixture');
 register_shutdown_function(static function () use ($gitFixtureRepo): void {
@@ -905,26 +959,64 @@ check(
     ) === $incompleteGitReason,
     'a Git root written into after its empty-root manifest was sealed is non-confirmable — presence is not deletion authority'
 );
+$gitReadyConfig = $gitFixtureRepo . '/.git/config';
+file_put_contents($gitReadyConfig, "[core]\nrepositoryformatversion = 0\n");
+$gitReadyIdentity = (string) $directoryIdentity->invoke(
+    null,
+    $gitFixtureRepo . '/.git',
+    'Git metadata root'
+);
+$gitReadyAttempt = $gitAttempt([
+    'git_empty_identity' => $emptyRootIdentity,
+    'git_identity' => $gitReadyIdentity,
+]);
 check(
-    $recoveryReason->invoke(
-        null,
-        $gitFixtureRepo,
-        $gitAttempt([
-            'git_empty_identity' => $emptyRootIdentity,
-            'git_identity' => (string) $directoryIdentity->invoke(
-                null,
-                $gitFixtureRepo . '/.git',
-                'Git metadata root'
-            ),
-        ])
-    ) === null,
+    $recoveryReason->invoke(null, $gitFixtureRepo, $gitReadyAttempt) === null,
     'a completed git-ready manifest remains automatically recoverable'
+);
+unlink($gitReadyConfig);
+check(
+    $recoveryReason->invoke(null, $gitFixtureRepo, $gitReadyAttempt) === $incompleteGitReason,
+    'a partially deleted Git root restored to its canonical path is non-confirmable before recovery mutates it'
 );
 $initAuthoritySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Init.php');
 check(
-    substr_count($initAuthoritySource, 'self::git_empty_identity_current($repo, $owned)') === 2
-        && str_contains($initAuthoritySource, 'private static function git_empty_identity_current('),
-    'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
+    substr_count($initAuthoritySource, 'self::git_deletion_identity_current($repo, $owned)') === 2
+        && str_contains($initAuthoritySource, 'private static function git_deletion_identity_current('),
+    'the proposal gate and recovery resolve full and empty Git manifests through one shared exact-tree predicate'
+);
+// A full confirmation needs the WordPress lease, capture lock, and Git
+// worktree, so this offline contract exercises its private filesystem boundary
+// directly. The live post-Git marker below invokes confirm() through that
+// catch; this ordering pin proves its failure branch sets retention before the
+// journal and both lock teardown paths can run.
+$precommitRetentionMessage = 'duo: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete:';
+$precommitRetentionMessageAt = strpos($initAuthoritySource, $precommitRetentionMessage);
+$precommitRetainAt = $precommitRetentionMessageAt === false
+    ? false
+    : strrpos(substr($initAuthoritySource, 0, $precommitRetentionMessageAt), '$retainPublicationLock = true;');
+$precommitThrowAt = $precommitRetainAt === false
+    ? false
+    : strpos($initAuthoritySource, 'throw new InitAttemptRetentionException(', $precommitRetainAt);
+$attemptVerificationAt = $precommitRetentionMessageAt === false
+    ? false
+    : strpos($initAuthoritySource, 'if (is_array($attemptPublication) && is_resource($publicationLock))', $precommitRetentionMessageAt);
+$catchLockTeardownAt = $precommitRetentionMessageAt === false
+    ? false
+    : strpos($initAuthoritySource, 'if (!$retainPublicationLock && $lockOwnedAndCreated', $precommitRetentionMessageAt);
+$finallyLockTeardownAt = $precommitRetentionMessageAt === false
+    ? false
+    : strpos($initAuthoritySource, 'if (!$succeeded && !$retainPublicationLock && $lockOwnedAndCreated', $precommitRetentionMessageAt);
+check(
+    $precommitRetainAt !== false && $precommitThrowAt !== false
+        && $attemptVerificationAt !== false && $catchLockTeardownAt !== false && $finallyLockTeardownAt !== false
+        && $precommitRetainAt < $precommitThrowAt
+        && $precommitThrowAt < $attemptVerificationAt
+        && $precommitThrowAt < $catchLockTeardownAt
+        && $precommitThrowAt < $finallyLockTeardownAt
+        && str_contains($liveHarness, 'DUO_TEST_INIT_FAIL_AFTER_GIT_CREATE=1')
+        && str_contains($liveHarness, 'post-Git-create failure left repository artifacts'),
+    'a pre-COMMIT cleanup failure retains the sealed journal and capture lock before either teardown; the live post-Git marker covers the enclosing confirm catch'
 );
 
 // DUO-3427: the same asymmetry family, one authority over. Every ownership
