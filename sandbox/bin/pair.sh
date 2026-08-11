@@ -548,9 +548,16 @@ repo_host_remove_probe() { # repo_host_remove_probe <exact probe directory>
     || fail "could not remove exact empty ownership handback capability probe: $probe"
 }
 
+repo_host_probe_is_empty() { # repo_host_probe_is_empty <exact probe directory>
+  local probe="$1" entry
+  [ ! -L "$probe" ] && [ -d "$probe" ] || return 1
+  entry="$(find "$probe" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || return 1
+  [ -z "$entry" ]
+}
+
 repo_host_one() { # repo_host_one <name> <side (1|2)>
   local name="$1" side="$2" root root_abs parent_abs probe probe_abs host_uid host_gid \
-    owner probe_owner probe_before root_inode_before root_inode_after host_os cli_image
+    owner probe_owner probe_initial probe_before root_inode_before root_inode_after host_os cli_image
   root="siterepo/${name}${side}"
   case "$side" in
     1|2) ;;
@@ -590,13 +597,44 @@ repo_host_one() { # repo_host_one <name> <side (1|2)>
       fail "private ownership handback capability probe escaped exact pair parent: $probe_abs"
       ;;
   esac
-  probe_before="$(repo_host_stat_owner "$probe_abs")" || {
+  repo_host_probe_is_empty "$probe_abs" || {
+    repo_host_remove_probe "$probe_abs"
+    fail "private ownership handback capability probe is not an exact empty directory before normalization: $probe_abs"
+  }
+  probe_initial="$(repo_host_stat_owner "$probe_abs")" || {
     repo_host_remove_probe "$probe_abs"
     fail "could not verify private ownership handback capability probe before handback: $probe_abs"
   }
+  if ! [[ "$probe_initial" =~ ^[0-9]+:[0-9]+$ ]]; then
+    repo_host_remove_probe "$probe_abs"
+    fail "private ownership handback capability probe owner is malformed before normalization: $probe_initial"
+  fi
+  if [ "${probe_initial%%:*}" != "$host_uid" ]; then
+    repo_host_remove_probe "$probe_abs"
+    fail "private ownership handback capability probe has foreign uid before normalization (got ${probe_initial}; expected uid ${host_uid})"
+  fi
+
+  # BSD mkdir may inherit the physical parent group (for example wheel under
+  # /tmp) even for a host-owned probe. Normalize ONLY this freshly verified
+  # empty directory with a no-follow, non-recursive host-side chgrp before it
+  # becomes the empirical witness for Docker's same-call handback behavior.
+  # A changed shape/content or an unsuccessful exact readback fails closed;
+  # no root or sibling pair path is ever passed to chgrp.
+  if ! chgrp -h "$host_gid" "$probe_abs"; then
+    repo_host_remove_probe "$probe_abs"
+    fail "could not normalize exact private ownership handback capability probe to host group ${host_gid}: $probe_abs"
+  fi
+  repo_host_probe_is_empty "$probe_abs" || {
+    repo_host_remove_probe "$probe_abs"
+    fail "private ownership handback capability probe changed during host-side normalization: $probe_abs"
+  }
+  probe_before="$(repo_host_stat_owner "$probe_abs")" || {
+    repo_host_remove_probe "$probe_abs"
+    fail "could not verify private ownership handback capability probe after host-side normalization: $probe_abs"
+  }
   [ "$probe_before" = "${host_uid}:${host_gid}" ] || {
     repo_host_remove_probe "$probe_abs"
-    fail "private ownership handback capability probe did not start as host ${host_uid}:${host_gid}: $probe_before"
+    fail "private ownership handback capability probe did not normalize to host ${host_uid}:${host_gid}: $probe_before"
   }
 
   cli_image="${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
