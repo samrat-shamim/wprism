@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Distributed LINEAR-LOOP close gate (docs/agents/linear-loop.md), simplified
-# from genesis-monorepo's dispatch-close-gate-check.sh: after `gh pr merge
+# LINEAR-LOOP close gate (docs/agents/linear-loop.md): after `gh pr merge
 # --squash` reports success, PROVE the merge before touching Linear. Exits
 # non-zero on any failure; the final stdout line on success is the literal
 # evidence string the close comment must quote.

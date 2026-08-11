@@ -1035,7 +1035,7 @@ regress-offline-all: code-half-unit \
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
-# own "1 docker core per RUNNING pair" discipline) -- enumerable instead, so
+# own "2 pairs per docker core" budget discipline) -- enumerable instead, so
 # a claim touching a mechanism can find its own suite without grepping this
 # file by hand. Prints name + pair/environment requirement per suite; runs
 # nothing. Most grind-*/certify-* targets remain a separate category, but the

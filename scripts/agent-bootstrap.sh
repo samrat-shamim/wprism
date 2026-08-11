@@ -22,9 +22,9 @@ docker info >/dev/null 2>&1 || fail "docker daemon not running/reachable"
 docker compose version >/dev/null 2>&1 || fail "docker compose v2 plugin not available"
 ok "host prerequisites present (git, jq, php, curl, docker + compose v2)"
 
-# gh is needed only for the distributed close gate (PR merge verification).
+# gh is needed only for the close gate (PR merge verification).
 if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
-    ok "gh authenticated (distributed close gate available)"
+    ok "gh authenticated (close gate available)"
 else
     printf '\033[1;33mwarn: gh missing or unauthenticated — required before any PR/close-gate step, not for local verification\033[0m\n'
 fi
@@ -39,8 +39,8 @@ bash -n sandbox/bin/pair.sh && ok "pair.sh parses"
 DUO_PAIR=x DUO_PORT1=1 DUO_PORT2=2 docker compose -f sandbox/pair.yml config >/dev/null \
     && ok "pair.yml valid"
 
-# --- current sandbox load (agents must respect the >2-pairs guidance) --------
-echo "--- current pairs on this host (docs/sandbox.md: keep concurrent pairs low):"
+# --- current sandbox load (agents must respect the dynamic pair budget) ------
+echo "--- current pairs on this host (pair.sh warns when over the host budget; stop idle pairs):"
 bash sandbox/bin/pair.sh list || true
 
 echo
