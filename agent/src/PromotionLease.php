@@ -985,17 +985,19 @@ class PromotionLease {
 
     /** @return array<string,mixed>|null */
     private static function current_session(): ?array {
+        $typedFailure = null;
         try {
             $record = PromotionSessionJournal::readAny();
             if ($record !== null) {
                 return $record->toArray();
             }
             return null;
-        } catch (\InvalidArgumentException) {
+        } catch (\InvalidArgumentException $failure) {
             // Scoped replacement must classify malformed ordinary recovery
             // receipts itself so it can refuse without erasing their bytes.
             // Preserve the journal as the normal reader; this narrow fallback
             // only decodes the identity envelope for the fail-closed refusal.
+            $typedFailure = $failure;
         }
         $raw = Ledger::kv_get('promotion_session');
         if ($raw === null || $raw === '') {
@@ -1009,6 +1011,9 @@ class PromotionLease {
             || preg_match('/^[a-f0-9]{64}$/D', $decoded['artifact_hash']) !== 1
             || !is_int($decoded['begun_at'] ?? null)) {
             throw new \RuntimeException('duo: malformed promotion session record; refusing to guess checkpoint ownership');
+        }
+        if (array_key_exists('profile', $decoded)) {
+            throw $typedFailure ?? new \RuntimeException('duo: malformed scoped promotion session record');
         }
         return $decoded;
     }

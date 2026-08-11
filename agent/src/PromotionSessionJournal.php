@@ -222,6 +222,19 @@ final class PromotionSessionJournal {
                 'duo: promotion session transition cannot change its owner, artifact, or generation'
             );
         }
+        $expectedPayload = $expected->toArray();
+        $nextPayload = $next->toArray();
+        if (($expectedPayload['profile'] ?? null) === 'scoped-checkpoint-v1') {
+            $scopedKeys = [
+                'profile', 'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
+                'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id',
+            ];
+            foreach ($scopedKeys as $key) {
+                if (($expectedPayload[$key] ?? null) !== ($nextPayload[$key] ?? null)) {
+                    throw new \RuntimeException('duo: scoped promotion session authority metadata is immutable');
+                }
+            }
+        }
         $current = self::read();
         if ($current === null || !self::same($current, $expected)) {
             throw new \RuntimeException('duo: promotion session changed before its typed transition');
