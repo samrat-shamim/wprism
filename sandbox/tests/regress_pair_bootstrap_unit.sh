@@ -443,6 +443,55 @@ run_invalid_artifact_lock_preflight_case() {
   pass "$label: malformed typed lock refuses before Docker, DB, or pair-root mutation"
 }
 
+run_invalid_bootstrap_theme_preflight_case() {
+  local variant case_root fake_bin log output canonical_root
+  for variant in missing ambiguous; do
+    case_root="$TMP/bootstrap_theme_$variant"
+    fake_bin="$case_root/fake-bin"
+    log="$case_root/docker.log"
+    output="$case_root/output.log"
+    canonical_root="$case_root/canonical"
+    mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
+    cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+    cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+    case "$variant" in
+      missing)
+        jq 'del(.themes.twentytwentyone)' \
+          "$ROOT/sandbox/conformance/artifacts.lock.json" \
+          > "$case_root/sandbox/conformance/artifacts.lock.json"
+        ;;
+      ambiguous)
+        jq '.themes.twentytwentyone["2.9"] = .themes.twentytwentyone["2.8"]' \
+          "$ROOT/sandbox/conformance/artifacts.lock.json" \
+          > "$case_root/sandbox/conformance/artifacts.lock.json"
+        ;;
+    esac
+    chmod +x "$case_root/sandbox/bin/pair.sh"
+    write_fake_docker "$fake_bin"
+    write_fake_git "$fake_bin"
+    export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+      DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+      DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
+      DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+      DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+      PATH="$fake_bin:$ORIGINAL_PATH"
+
+    if "$case_root/sandbox/bin/pair.sh" up "pair${variant}" 9911 9912 --headless --artifacts \
+        >"$output" 2>&1; then
+      fail "bootstrap_theme_$variant accepted a non-singleton twentytwentyone pin"
+    fi
+    assert_file_contains "$output" 'bootstrap-theme registry entry is missing or ambiguous' \
+      "bootstrap_theme_$variant did not return the bounded preflight refusal"
+    [ ! -e "$log" ] || [ ! -s "$log" ] \
+      || fail "bootstrap_theme_$variant contacted Docker before refusing"
+    [ ! -e "$canonical_root/sandbox/siterepo" ] \
+      || fail "bootstrap_theme_$variant created the shared budget-lock root before refusing"
+    [ ! -e "$case_root/sandbox/siterepo" ] \
+      || fail "bootstrap_theme_$variant created pair state before refusing"
+  done
+  pass "missing and ambiguous bootstrap-theme pins refuse before budget, Docker, DB, or pair-root mutation"
+}
+
 run_python_lock_fallback_case() {
   local label=python_lock_fallback pair=pylock
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
@@ -1495,6 +1544,9 @@ run_artifact_theme_case
 
 say "malformed artifact-lock preflight (fake compose; no Docker/DB)"
 run_invalid_artifact_lock_preflight_case
+
+say "bootstrap-theme singleton preflight (fake compose; no Docker/DB)"
+run_invalid_bootstrap_theme_preflight_case
 
 say "bounded theme lookup retry + exact active-state proof (fake compose; no Docker/DB)"
 run_theme_retry_case

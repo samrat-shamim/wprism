@@ -1260,7 +1260,15 @@ cmd_up() {
   if [ "$artifacts" = 1 ]; then
     validate_artifact_lock conformance/artifacts.lock.json \
       || fail "up: artifact lock is malformed; no pair resources were changed"
+    PAIR_BOOTSTRAP_THEME_VERSION=$(jq -r '
+      .themes.twentytwentyone | if type == "object" and length == 1 then keys[0] else empty end
+    ' conformance/artifacts.lock.json)
+    [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
+      || fail "up: the pinned bootstrap-theme registry entry is missing or ambiguous; no pair resources were changed"
+  else
+    PAIR_BOOTSTRAP_THEME_VERSION=
   fi
+  PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
 
   # Reserve the host budget before touching the shared DB, creating pair
   # schemas, or creating bind roots.  The reservation lock remains held
@@ -1281,15 +1289,6 @@ cmd_up() {
   [ "$artifacts" = 1 ] && overlays+=(pair.artifacts.yml)
   [ "$wordpress_offline" = 1 ] && overlays+=(pair.wordpress-offline.yml)
   export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
-  PAIR_BOOTSTRAP_ARTIFACTS="$artifacts"
-  PAIR_BOOTSTRAP_THEME_VERSION=
-  if [ "$artifacts" = 1 ]; then
-    PAIR_BOOTSTRAP_THEME_VERSION=$(jq -r '
-      .themes.twentytwentyone | if type == "object" and length == 1 then keys[0] else empty end
-    ' conformance/artifacts.lock.json)
-    [[ "$PAIR_BOOTSTRAP_THEME_VERSION" =~ ^[0-9A-Za-z][0-9A-Za-z._-]*$ ]] \
-      || fail "up: the pinned bootstrap-theme registry entry is missing or ambiguous"
-  fi
   export DUO_ARTIFACT_OFFLINE="$wordpress_offline"
   pair_compose "$name" "${overlays[@]}"
 
