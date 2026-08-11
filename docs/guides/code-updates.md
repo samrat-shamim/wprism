@@ -146,7 +146,17 @@ target option drift caused by the corresponding lifecycle switch.
 They use the same generic source/runtime preflight, code-state relationship,
 staged lifecycle, and finalization boundaries described above: no theme name
 or theme-specific branch exists in the engine. Provider-backed plugin/theme
-replacement remains **Planned (DUO-3357)** — it is a separate workflow.
+replacement is not a separate product or command.
+
+The ecommerce proof exercises one representative descriptor-driven plugin
+identity replacement through the ordinary compositional plan and public
+`duo promote --with-deletes` workflow. It does not add a special
+`--replace-extension` command or claim a general plugin/theme replacement
+product. Its no-incompatible-migration rollback is another public promotion
+of the exact prior descriptors. The forward checkpoint is retained and
+byte-verified as evidence, but is not imported after the reverse promotion
+supersedes its recovery session. This bounded proof composes with the exercised
+theme lifecycle; it does not claim a general plugin/theme replacement product.
 
 ## Rollback
 

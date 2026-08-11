@@ -149,6 +149,12 @@ function update_option(string $name, mixed $value, bool $autoload = true): bool 
         $wpdb->last_error = "simulated option write failure: $name";
         return false;
     }
+    if (array_key_exists($name, $fakeOptions)
+        && is_string($fakeOptions[$name])
+        && is_int($value)
+        && $fakeOptions[$name] === (string) $value) {
+        return false;
+    }
     $fakeOptions[$name] = $value;
     return true;
 }
@@ -341,6 +347,25 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_assert_v1($wpdb);
             return;
 
+        case 'v1-idempotent-activation':
+            ecommerce_extension_child_set_v1($wpdb);
+            $fakeOptions['duo_commerce_extension_schema'] = '1';
+            ecommerce_extension_child_check(is_callable($fakeActivation), 'v1 fixture did not register activation callback');
+            $fakeActivation();
+            ecommerce_extension_child_check(
+                $fakeOptions['duo_commerce_extension_schema'] === '1',
+                'v1 idempotent activation did not preserve the stored WordPress scalar spelling'
+            );
+            ecommerce_extension_child_check(
+                ($fakeOptions['duo_commerce_extension_settings'] ?? null) === 'retail',
+                'v1 idempotent activation changed the authored setting'
+            );
+            ecommerce_extension_child_check(
+                ($fakeOptions['duo_commerce_extension_activations'] ?? null) === 1,
+                'v1 idempotent activation did not record its lifecycle event'
+            );
+            return;
+
         case 'v2-probe':
             ecommerce_extension_child_set_v1($wpdb);
             $wpdb->failProbe = 1;
@@ -463,6 +488,26 @@ function ecommerce_extension_child_run(string $fixture, string $case): void {
             ecommerce_extension_child_assert_v2($wpdb);
             return;
 
+        case 'v2-idempotent-activation':
+            ecommerce_extension_child_set_v2($wpdb);
+            $fakeOptions['duo_commerce_extension_schema'] = '2';
+            ecommerce_extension_child_check(is_callable($fakeActivation), 'v2 fixture did not register activation callback');
+            $fakeActivation();
+            ecommerce_extension_child_check(
+                $fakeOptions['duo_commerce_extension_schema'] === '2',
+                'v2 idempotent activation did not preserve the stored WordPress scalar spelling'
+            );
+            ecommerce_extension_child_check(
+                ($fakeOptions['duo_commerce_extension_settings'] ?? null)
+                    === ['schema' => 2, 'channel' => 'retail', 'catalog_mode' => 'managed'],
+                'v2 idempotent activation changed the authored setting'
+            );
+            ecommerce_extension_child_check(
+                ($fakeOptions['duo_commerce_extension_activations'] ?? null) === 1,
+                'v2 idempotent activation did not record its lifecycle event'
+            );
+            return;
+
         case 'broken-activation':
             ecommerce_extension_child_set_v1($wpdb);
             duo_commerce_extension_migrate_v1_to_v2();
@@ -499,12 +544,14 @@ function ecommerce_extension_migration_parent(): void {
         ['fixture' => 'v1', 'case' => 'v1-settings'],
         ['fixture' => 'v1', 'case' => 'v1-schema'],
         ['fixture' => 'v1', 'case' => 'v1-activation-v2-shape'],
+        ['fixture' => 'v1', 'case' => 'v1-idempotent-activation'],
         ['fixture' => 'fixed-v2', 'case' => 'shape-normalization'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-probe'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-alter'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-settings'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-schema'],
         ['fixture' => 'fixed-v2', 'case' => 'v2-create'],
+        ['fixture' => 'fixed-v2', 'case' => 'v2-idempotent-activation'],
         ['fixture' => 'broken-v2', 'case' => 'broken-activation'],
     ];
     $passed = 0;
