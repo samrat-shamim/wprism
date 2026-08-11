@@ -489,7 +489,11 @@ rather than working around it.
   literal value-diff UI.
 - Provider-backed plugin and theme replacement — **Planned (DUO-3357)** — not yet shipped.
 - Theme upgrade, downgrade refusal, and removal as a managed lifecycle — **Planned (DUO-3358)** — not yet shipped.
-- Moving WordPress cron as managed state — **Planned (DUO-3359)** — not yet shipped.
+- Bounded native WordPress-cron proof — **Exercised (DUO-3359)** in the ecommerce
+  grind: one classified `publish_future_post` event is listed and run through
+  public WP-CLI, while unrelated cron and Action Scheduler inventories remain
+  stable. This is proof of the existing native scheduling contract, not a new
+  Duo-managed scheduler or an unbounded queue-drain capability.
 - Retiring the last Duo-authored WooCommerce business logic — **Partially shipped (DUO-3342)** — the
   dispatch migration has landed; the WooCommerce-authored semantics have not.
   The lookup rebuild lives in

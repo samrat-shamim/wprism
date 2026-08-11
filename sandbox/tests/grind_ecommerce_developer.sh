@@ -124,6 +124,13 @@ cleanup() {
   local pair_containers pair_volumes pair_networks remaining_dbs teardown_verified=1
   trap - EXIT INT TERM
   set +e
+  if [ -n "${TARGET_CRON_FREEZE_FILE:-}" ] && [ -n "${TARGET_CRON_FREEZE_SHA:-}" ] && [ "$PAIR_UP" = 1 ]; then
+    if ! remove_target_cron_freeze; then
+      printf 'FAIL: ecommerce cron freeze cleanup failed for %s\n' "$PAIR" >&2
+      status=1
+      teardown_verified=0
+    fi
+  fi
   # Maintenance is deliberately fail-closed while an exact rollback is
   # incomplete.  Release it only after the public v1 promote completed; if
   # that promote/import failed, pair destruction removes the disposable
@@ -262,10 +269,30 @@ PAIR_COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml -f pair.artifacts.yml -f
 # 301 response instead of the rendered frontend.
 SOURCE_URL="http://localhost:${PORT1}"
 TARGET_URL="http://localhost:${PORT2}"
+TARGET_CRON_FREEZE_FILE=""
+TARGET_CRON_FREEZE_SHA=""
 source_wp() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' _ "$@"; }
 target_wp() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' _ "$@"; }
 source_php() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 php -r "$1"; }
 target_php() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 php -r "$1"; }
+target_root_php_args() {
+  local code="$1"
+  shift
+  "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 php -r "$code" -- "$@"
+}
+remove_target_cron_freeze() {
+  [ -n "${TARGET_CRON_FREEZE_FILE:-}" ] || return 0
+  [ -n "${TARGET_CRON_FREEZE_SHA:-}" ] || return 1
+  target_root_php_args '
+$path = $argv[1] ?? "";
+ $expected = $argv[2] ?? "";
+if (!is_file($path) || is_link($path) || !hash_equals($expected, (string) @hash_file("sha256", $path)) || !@unlink($path)) {
+    throw new RuntimeException("cron freeze file removal failed: " . $path);
+}
+' "$TARGET_CRON_FREEZE_FILE" "$TARGET_CRON_FREEZE_SHA" >/dev/null
+  TARGET_CRON_FREEZE_FILE=""
+  TARGET_CRON_FREEZE_SHA=""
+}
 source_db_scalar() {
   docker exec -e MYSQL_PWD=root duo-shared-db mariadb -uroot -N -B --raw "wp_${PAIR}1" -e "$1" | tr -d '\r'
 }
@@ -794,6 +821,31 @@ if ($events_exists === $events_table) {
 }
 echo wp_json_encode(["customers" => $customers, "orders" => $orders, "events" => $events], JSON_UNESCAPED_SLASHES);
 '
+}
+target_cron_inventory() {
+  target_wp cron event list --fields=hook,time,args,schedule,interval --format=json | jq -cS '
+    if type != "array" then error("WP-Cron inventory is not a JSON array") else
+    sort_by([
+      ((.hook // "") | tostring),
+      ((.time // "") | tostring),
+      ((.args // "") | tostring),
+      ((.schedule // "") | tostring),
+      ((.interval // "") | tostring)
+    ])
+    end
+  '
+}
+target_action_scheduler_inventory() {
+  target_wp eval '
+global $wpdb;
+$table = $wpdb->prefix . "actionscheduler_actions";
+$wpdb->last_error = "";
+$rows = $wpdb->get_results("SELECT * FROM `" . $table . "` ORDER BY action_id", ARRAY_A);
+if (!is_array($rows) || (string) $wpdb->last_error !== "") {
+    throw new RuntimeException("Action Scheduler inventory read failed: " . (string) $wpdb->last_error);
+}
+echo wp_json_encode($rows, JSON_UNESCAPED_SLASHES);
+' | jq -cS 'if type != "array" then error("Action Scheduler inventory is not a JSON array") else . end'
 }
 assert_source_runtime_event_baseline() {
   local label="$1" snapshot="$2" context_columns event_id event_label event_created_at event_context
@@ -2154,6 +2206,132 @@ assert_target_order_snapshot "$TARGET_ORDER_BASELINE" 'target-only HPOS order'
 assert_runtime_isolation 'target-only runtime seed' 0
 assert_eq 7 "$(target_wp eval '$p = get_page_by_path("duo-grind-cap", OBJECT, "product"); $product = $p ? wc_get_product($p->ID) : null; echo $product ? (int) $product->get_stock_quantity() : -1;')" "target-only stock adjustment"
 pass "v1 code/state materialized and checkpointed; synthetic target-only HPOS order $TARGET_ORDER_ID and stock=7 are runtime data, never canonical"
+
+say "bounded WordPress cron move: execute one named future-post event"
+# The hook is the existing Apply::run() future-post native scheduling
+# contract, not a harness-specific engine branch.  The fixture only supplies
+# one runtime-only post so the public WP-Cron action can be observed without
+# changing canonical authored state.
+TARGET_CRON_FREEZE_CANDIDATE="/var/www/html/wp-content/mu-plugins/duo-cron-freeze-${PAIR}.php"
+TARGET_CRON_FREEZE_SHA="$(target_root_php_args '
+$path = $argv[1] ?? "";
+$bytes = "<?php\nif (!defined(\"DISABLE_WP_CRON\")) { define(\"DISABLE_WP_CRON\", true); }\n";
+if (file_exists($path) || is_link($path)) {
+    throw new RuntimeException("cron freeze file already exists: " . $path);
+}
+ $created = false;
+try {
+    $handle = @fopen($path, "xb");
+    if (!is_resource($handle)) {
+        throw new RuntimeException("cron freeze file exclusive create failed: " . $path);
+    }
+    $created = true;
+    if (@fwrite($handle, $bytes) !== strlen($bytes) || !@fflush($handle) || !@fclose($handle)) {
+        @fclose($handle);
+        throw new RuntimeException("cron freeze file write failed: " . $path);
+    }
+    echo hash("sha256", $bytes);
+} catch (Throwable $e) {
+    if ($created && is_file($path) && !is_link($path)) {
+        @unlink($path);
+    }
+    throw $e;
+}
+' "$TARGET_CRON_FREEZE_CANDIDATE")" || fail 'scoped cron freeze exclusive create failed'
+[[ "$TARGET_CRON_FREEZE_SHA" =~ ^[0-9a-f]{64}$ ]] || fail 'scoped cron freeze hash is malformed'
+TARGET_CRON_FREEZE_FILE="$TARGET_CRON_FREEZE_CANDIDATE"
+assert_eq present "$(target_file "$TARGET_CRON_FREEZE_FILE")" 'cron freeze file exists before WP boot'
+assert_eq 1 "$(target_wp eval 'echo defined("DISABLE_WP_CRON") && DISABLE_WP_CRON ? 1 : 0;')" 'automatic WP-Cron is disabled by the scoped freeze'
+TARGET_CRON_INVENTORY_BEFORE="$(target_cron_inventory)"
+TARGET_ACTION_SCHEDULER_INVENTORY_BEFORE="$(target_action_scheduler_inventory)"
+TARGET_CRON_POST_ID="$(target_wp eval '
+$timestamp = time() + 3600;
+$post_id = wp_insert_post([
+    "post_title" => "Duo Grind bounded cron move",
+    "post_name" => "duo-grind-bounded-cron-move",
+    "post_type" => "page",
+    "post_status" => "future",
+    "post_date_gmt" => gmdate("Y-m-d H:i:s", $timestamp),
+    "post_date" => get_date_from_gmt(gmdate("Y-m-d H:i:s", $timestamp), "Y-m-d H:i:s"),
+    "post_content" => "Duo-3359 named WordPress cron transition.",
+], true);
+if (is_wp_error($post_id)) {
+    throw new RuntimeException("bounded cron post seed failed: " . $post_id->get_error_message());
+}
+// Keep the authored status as future but move its stored dates behind the
+// clock.  Core check_and_publish_future_post() otherwise clears this event
+// and reschedules it for the original future date instead of publishing it.
+global $wpdb;
+$past_gmt = gmdate("Y-m-d H:i:s", time() - 120);
+$past_local = get_date_from_gmt($past_gmt, "Y-m-d H:i:s");
+$updated = $wpdb->update(
+    $wpdb->posts,
+    [
+        "post_date" => $past_local,
+        "post_date_gmt" => $past_gmt,
+        "post_modified" => $past_local,
+        "post_modified_gmt" => $past_gmt,
+    ],
+    ["ID" => (int) $post_id],
+    ["%s", "%s", "%s", "%s"],
+    ["%d"]
+);
+if ($updated !== 1) {
+    throw new RuntimeException("bounded cron post date update failed: " . (string) $wpdb->last_error);
+}
+clean_post_cache((int) $post_id);
+$cleared = wp_clear_scheduled_hook("publish_future_post", [(int) $post_id]);
+if ($cleared === false) {
+    throw new RuntimeException("bounded cron seed could not clear the auto-scheduled event");
+}
+if (!wp_schedule_single_event(time() - 1, "publish_future_post", [(int) $post_id])) {
+    throw new RuntimeException("bounded cron seed could not schedule its due event");
+}
+echo (int) $post_id;
+')"
+[[ "$TARGET_CRON_POST_ID" =~ ^[1-9][0-9]*$ ]] || fail "bounded cron post id is not numeric: $TARGET_CRON_POST_ID"
+assert_eq future "$(target_wp post get "$TARGET_CRON_POST_ID" --field=post_status)" 'named cron post is future before run'
+TARGET_CRON_EVENT_LIST="$(target_wp cron event list --hook=publish_future_post --fields=hook,time,args,schedule,interval --format=json)"
+jq -e --argjson expected_id "$TARGET_CRON_POST_ID" '
+  def event_args:
+    if (.args | type) == "string" then ((.args | fromjson) // []) else ((.args // []) | arrays) end;
+  ([.[] | select(.hook == "publish_future_post" and ((event_args[0] // null) | tonumber) == $expected_id)] | length) == 1
+' <<<"$TARGET_CRON_EVENT_LIST" >/dev/null \
+  || fail "named publish_future_post event was not listed exactly once"
+TARGET_CRON_DUE="$(target_wp eval '
+$post_id = (int) '"$TARGET_CRON_POST_ID"';
+$due = [];
+foreach ((array) _get_cron_array() as $timestamp => $hooks) {
+    if ((int) $timestamp > time() || !isset($hooks["publish_future_post"])) {
+        continue;
+    }
+    foreach ((array) $hooks["publish_future_post"] as $event) {
+        $args = array_values((array) ($event["args"] ?? []));
+        $due[] = ["timestamp" => (int) $timestamp, "hook" => "publish_future_post", "args" => $args];
+    }
+}
+echo wp_json_encode($due, JSON_UNESCAPED_SLASHES);
+')"
+jq -e --argjson expected_id "$TARGET_CRON_POST_ID" '
+  length == 1 and .[0].hook == "publish_future_post" and ((.[0].args[0] // null) | tonumber) == $expected_id
+' <<<"$TARGET_CRON_DUE" >/dev/null \
+  || fail "named cron hook is not the only due publish_future_post event"
+target_wp cron event run publish_future_post --due-now >/dev/null
+assert_eq publish "$(target_wp post get "$TARGET_CRON_POST_ID" --field=post_status)" 'named cron transition publishes the post'
+TARGET_CRON_AFTER_RUN="$(target_wp cron event list --hook=publish_future_post --fields=hook,time,args,schedule,interval --format=json)"
+jq -e --argjson expected_id "$TARGET_CRON_POST_ID" '
+  def event_args:
+    if (.args | type) == "string" then ((.args | fromjson) // []) else ((.args // []) | arrays) end;
+  ([.[] | select(.hook == "publish_future_post" and ((event_args[0] // null) | tonumber) == $expected_id)] | length) == 0
+' <<<"$TARGET_CRON_AFTER_RUN" >/dev/null \
+  || fail "named cron event remained after its one public run"
+target_wp post delete "$TARGET_CRON_POST_ID" --force >/dev/null
+assert_eq 0 "$(target_wp eval 'echo get_post('"$TARGET_CRON_POST_ID"') ? 1 : 0;')" 'named cron post cleanup'
+assert_eq "$TARGET_CRON_INVENTORY_BEFORE" "$(target_cron_inventory)" 'unrelated WP-Cron inventory after named move'
+assert_eq "$TARGET_ACTION_SCHEDULER_INVENTORY_BEFORE" "$(target_action_scheduler_inventory)" 'unrelated Action Scheduler inventory after named move'
+assert_eq "$TARGET_RUNTIME_IDENTITY_BASELINE" "$(runtime_identity_inventory target_wp)" 'runtime identities after named cron move'
+remove_target_cron_freeze
+pass "named WordPress cron event $TARGET_CRON_POST_ID converged exactly once; unrelated cron/Action Scheduler/runtime identities stayed unchanged"
 
 say "compile preflight failure/retry: remove desired extension main file before touching target"
 TARGET_TREE_BEFORE="$(target_hash "$EXT_TARGET")"
