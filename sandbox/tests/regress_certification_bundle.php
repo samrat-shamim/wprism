@@ -73,6 +73,12 @@ check(
         && $guardCall < $workAllocation && $guardCall < $pairInspection,
     'exact-checkout refusal runs before temporary allocation or Docker pair inspection'
 );
+check(
+    str_contains($referenceRunner, 'duo-artifact-cache-usage/v1')
+        && str_contains($referenceRunner, 'all(.[]; .source == "cache-hit")')
+        && str_contains($referenceRunner, '$lock[0][(.kind + "s")][.slug][.version].sha256 == .sha256'),
+    'reference environment binds typed cache usage and makes offline proof cache-hit-only'
+);
 
 echo "\n== bound-input enumeration is locale-pinned (DUO-3361) ==\n";
 // bound_inputs is a JSON ARRAY, and cert_canonical() sorts object keys while
@@ -95,6 +101,11 @@ check(
 check(
     $enumeration !== '' && preg_match('/(?<!LC_ALL=C )\bsort\b/', $enumeration) !== 1,
     'bound-input enumeration carries no unpinned sort stage'
+);
+check(
+    str_contains($enumeration, 'sandbox/pair.artifacts.yml')
+        && str_contains($enumeration, 'sandbox/pair.wordpress-offline.yml'),
+    'artifact-cache mount and WordPress.org-offline overlay are bundle-bound inputs'
 );
 
 $certRepoRoot = dirname(__DIR__, 2);
@@ -285,13 +296,43 @@ $refusalArtifacts = array_fill_keys([
     'woocommerce@10.9.4',
     'wordpress-seo@27.9',
 ], true);
-foreach ($artifactLock as $plugin => $versions) {
+foreach (($artifactLock['plugins'] ?? []) as $plugin => $versions) {
     foreach ($versions as $version => $artifact) {
         $key = "$plugin@$version";
-        $expectedRole = isset($refusalArtifacts[$key]) ? 'refusal-fixture' : 'certified-boundary';
+        $expectedRole = $key === 'paid-memberships-pro@3.8.3'
+            ? 'exercise-fixture'
+            : (isset($refusalArtifacts[$key]) ? 'refusal-fixture' : 'certified-boundary');
         check(($artifact['role'] ?? null) === $expectedRole, "$key is labeled $expectedRole");
     }
 }
+foreach (($artifactLock['themes'] ?? []) as $theme => $versions) {
+    foreach ($versions as $version => $artifact) {
+        check(
+            ($artifact['role'] ?? null) === 'exercise-fixture',
+            "$theme@$version is labeled exercise-fixture rather than certified plugin evidence"
+        );
+    }
+}
+check(
+    ($artifactLock['plugins']['paid-memberships-pro']['3.8.3']['archive_root'] ?? null)
+        === 'paid-memberships-pro-3.8.3',
+    'the GitHub-tag fixture declares its exact archive root for local pre-activation normalization'
+);
+check(
+    str_contains((string) file_get_contents(__DIR__ . '/../conformance/run.sh'),
+        'normalize_archive_root "$env" plugin "$slug" "$archive_root"'),
+    'conformance normalizes a declared local archive root before slug/version readback'
+);
+$localInstallSources = implode("\n", [
+    (string) file_get_contents(__DIR__ . '/../conformance/run.sh'),
+    (string) file_get_contents(__DIR__ . '/certify_version_matrix.sh'),
+    (string) file_get_contents(__DIR__ . '/regress_duo_init.sh'),
+    (string) file_get_contents(__DIR__ . '/../bin/pair.sh'),
+]);
+check(
+    preg_match('/(?:plugin|theme) install [^\n]*--slug=/', $localInstallSources) !== 1,
+    'local ZIP installs do not invent the unsupported WP-CLI --slug option'
+);
 
 file_put_contents("$repo/agent.php", "<?php // exact product input\n");
 file_put_contents("$repo/harness.sh", "#!/usr/bin/env bash\n# exact harness input\n");

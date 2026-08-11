@@ -91,7 +91,18 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
 ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
   || fail "unknown manifest '$MANIFEST' (see $REG)"
-mapfile -t PLUGINS < <(echo "$ENTRY" | jq -r '.plugins[]?')
+jq -e '
+  (.plugins | type == "array") and
+  (.plugins | all(type == "object" and (keys == ["slug", "version"]) and
+    (.slug | test("^[a-z0-9][a-z0-9._-]*[a-z0-9]$")) and
+    (.version | test("^[0-9A-Za-z][0-9A-Za-z._-]*$")))) and
+  ((.themes // []) | type == "array") and
+  ((.themes // []) | all(type == "object" and (keys == ["slug", "version"]) and
+    (.slug | test("^[a-z0-9][a-z0-9._-]*[a-z0-9]$")) and
+    (.version | test("^[0-9A-Za-z][0-9A-Za-z._-]*$"))))
+' <<<"$ENTRY" >/dev/null || fail "manifest '$MANIFEST' has malformed pinned plugin/theme fixtures"
+mapfile -t PLUGINS < <(echo "$ENTRY" | jq -c '.plugins[]')
+mapfile -t THEMES < <(echo "$ENTRY" | jq -c '.themes[]?')
 SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
 
 # A caller that is assembling certification evidence can ask every manifest
@@ -170,7 +181,22 @@ if [ "$CONF_PAIR" = "conf" ]; then
     CONF2_PORT="${CONF2_PORT:-8807}"
   fi
 fi
-COMPOSE="docker compose -p duo-${CONF_PAIR} -f pair.yml -f pair.http.yml"
+WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+case "$WORDPRESS_OFFLINE" in
+  0|1) ;;
+  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+esac
+export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+COMPOSE="docker compose -p duo-${CONF_PAIR} -f pair.yml -f pair.http.yml -f pair.artifacts.yml"
+PAIR_COMPOSE=(docker compose -p "duo-${CONF_PAIR}" -f pair.yml -f pair.http.yml -f pair.artifacts.yml)
+PAIR_UP_FLAGS=(--http --artifacts)
+if [ "$WORDPRESS_OFFLINE" = 1 ]; then
+  COMPOSE="$COMPOSE -f pair.wordpress-offline.yml"
+  PAIR_COMPOSE+=(-f pair.wordpress-offline.yml)
+  PAIR_UP_FLAGS+=(--wordpress-offline)
+fi
+# shellcheck source=../bin/fetch-artifact.sh
+. bin/fetch-artifact.sh
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)
@@ -217,47 +243,19 @@ say "clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — co
 bash bin/pair.sh reset "$CONF_PAIR"
 
 say "pair.sh up: boot conf1 (:$CONF1_PORT) / conf2 (:$CONF2_PORT), DB-level readiness, generic WordPress bootstrap"
-bash bin/pair.sh up "$CONF_PAIR" "$CONF1_PORT" "$CONF2_PORT" --http
+bash bin/pair.sh up "$CONF_PAIR" "$CONF1_PORT" "$CONF2_PORT" "${PAIR_UP_FLAGS[@]}"
 
-# DUO-3242: derive a guard-safe SLUG from a manifest's plugins[] entry.
-# `wp plugin is-active`/`is-installed` (install_env's own guard, below)
-# both expect a slug (the wp-content/plugins/ directory name) — given a
-# raw URL (paid-memberships-pro's own manifest entry, the first of this
-# shape — DUO-3239), both always report "not found" regardless of actual
-# state, so the guard never short-circuits for a URL-sourced plugin, and a
-# second `install` call on files already present from an earlier
-# manifest's run on this SAME (reset-but-not-destroyed) pair hard-fails:
-# confirmed live — "Warning: Destination folder already exists" / "Plugin
-# installation failed." / "Error: No plugins installed." (exit 1), NOT the
-# graceful "Plugin already installed." warning a same-slug re-install
-# produces (also confirmed live, side by side — the two are genuinely
-# different wp-cli code paths, not a memory error). wp-cli's own
-# GitHub-archive install path (every URL this project currently ships — a
-# .../<repo>/archive/refs/{tags,heads}/<ref>.zip download) unpacks to
-# `<repo>-<ref>/` then renames to the bare `<repo>` directory (confirmed
-# live: "Renamed Github-based project from 'paid-memberships-pro-3.8.3' to
-# 'paid-memberships-pro'") — so the repo name, one path segment before
-# "archive", IS the eventual slug.
-#
-# Returns empty for any URL shape that doesn't match — not a guess dressed
-# up as an answer. install_env()'s own fallback for that case (below)
-# stays CORRECT either way, at the cost of an unconditional --force
-# re-fetch instead of a cheap guard check: confirmed live that --force
-# succeeds identically whether the destination already exists (updates in
-# place) or doesn't (installs fresh) — unlike a bare re-attempted
-# `install`, which is only safe for a KNOWN-matching slug.
-plugin_slug() { # plugin_slug <plugin-identifier> -> slug, or empty if unknown
-  local id="$1"
-  case "$id" in
-    http://*|https://*)
-      if [[ "$id" =~ /([^/]+)/archive/ ]]; then
-        printf '%s' "${BASH_REMATCH[1]}"
-      fi
-      ;;
-    *)
-      printf '%s' "$id"   # already a plain wp.org slug (or slug/file.php) — unchanged
-      ;;
+normalize_archive_root() { # normalize_archive_root <env> <plugin|theme> <slug> <archive-root>
+  local env="$1" kind="$2" slug="$3" archive_root="$4" side="${1#conf}" base
+  [ "$archive_root" != "$slug" ] || return 0
+  case "$kind" in
+    plugin) base=/var/www/html/wp-content/plugins ;;
+    theme) base=/var/www/html/wp-content/themes ;;
+    *) fail "invalid extension kind for archive-root normalization" ;;
   esac
+  $COMPOSE run --rm -T "cli${side}" sh /duo-harness/artifact-archive-root.sh \
+    "$base" "$archive_root" "$slug" \
+    || fail "could not normalize pinned $kind archive root $archive_root to $slug on $env"
 }
 
 install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
@@ -279,53 +277,48 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
   # apply`'s job artificially easy — activation state already matched
   # canonical before deploy ever ran, so conformance never actually
   # exercised deploy's reconciliation. This is bug #2's fix.
-  local env="$1" role="$2"
+  local env="$1" role="$2" side="${1#conf}" spec slug version artifact archive_root installed_version
   wp_env "$env" option update blogname "Duo ${env} (${MANIFEST})"
   wp_env "$env" site empty --yes
   if [ "${#PLUGINS[@]}" -gt 0 ]; then
-    for plugin in "${PLUGINS[@]}"; do
-      slug=$(plugin_slug "$plugin")
-      # DUO-3242: a URL-sourced install call needs --force regardless of
-      # whether plugin_slug() above could derive a slug. is-active/
-      # is-installed (the guard just below) correctly gate WHETHER to call
-      # `install` at all once a slug is known — but activation/installation
-      # state is a DIFFERENT question from whether the URL's own download
-      # destination already exists on disk from an earlier manifest's run
-      # on this pair. Confirmed live: even when the guard correctly finds
-      # "not active" (a fresh database has no activation record — see the
-      # role=author comment below) and the derived slug is exactly right,
-      # a plain, non-forced `install` on an existing destination still
-      # hard-fails for a URL. A plain slug never has this problem (`wp
-      # plugin install <slug>` gracefully warns "already installed" and
-      # proceeds), so --force is scoped to URL-shaped entries only —
-      # unnecessary weight on the common, already-working case.
-      case "$plugin" in
-        http://*|https://*) force=--force ;;
-        *) force= ;;
-      esac
-      if [ "$role" = author ]; then
-        # is-active, not is-installed: pair.sh's reset deliberately leaves the
-        # webroot volume alone (only the database is DROP/CREATE'd — that's
-        # the whole reset-speed win), so a plugin's FILES can persist from an
-        # earlier manifest's run on this same pair while the freshly-reset
-        # database has no record of it being active. is-installed (files on
-        # disk) would short-circuit past `install --activate` entirely in
-        # that case — confirmed the hard way: `install --activate` DOES
-        # activate an already-present-but-inactive plugin fine when actually
-        # invoked (it's not a no-op), the bug was this guard never calling it.
-        if [ -z "$slug" ] || ! wp_env "$env" plugin is-active "$slug" >/dev/null 2>&1; then
-          wp_env "$env" plugin install "$plugin" --activate $force
-        fi
-      else
-        # role=target: files only, deliberately never --activate — `wp duo
-        # deploy` (below, once conf2 has its clone) is what activates this
-        # FOR REAL, from canonical. Same cross-manifest-run persistence
-        # caveat as the author branch above, just guarding on the thing
-        # this branch actually needs (files on disk), not activation state.
-        if [ -z "$slug" ] || ! wp_env "$env" plugin is-installed "$slug" >/dev/null 2>&1; then
-          wp_env "$env" plugin install "$plugin" $force
-        fi
-      fi
+    for spec in "${PLUGINS[@]}"; do
+      slug=$(jq -r '.slug' <<<"$spec")
+      version=$(jq -r '.version' <<<"$spec")
+      archive_root=$(jq -r --arg slug "$slug" --arg version "$version" \
+        '.plugins[$slug][$version].archive_root // $slug' conformance/artifacts.lock.json)
+      [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+        || fail "pinned plugin archive root is malformed for $slug $version"
+      artifact=$(fetch_artifact "$slug" "$version" "cli$side" plugin) \
+        || fail "could not obtain pinned plugin artifact $slug $version for $env"
+      wp_env "$env" plugin install "$artifact" --force
+      normalize_archive_root "$env" plugin "$slug" "$archive_root"
+      [ "$role" != author ] || wp_env "$env" plugin activate "$slug"
+      wp_env "$env" plugin is-installed "$slug" >/dev/null \
+        || fail "pinned plugin artifact $slug $version installed under an unexpected basename on $env"
+      installed_version=$(wp_env "$env" plugin get "$slug" --field=version) \
+        || fail "pinned plugin artifact $slug $version has no readable installed version on $env"
+      [ "$installed_version" = "$version" ] \
+        || fail "pinned plugin artifact $slug reported version $installed_version on $env, expected $version"
+    done
+  fi
+  if [ "${#THEMES[@]}" -gt 0 ]; then
+    for spec in "${THEMES[@]}"; do
+      slug=$(jq -r '.slug' <<<"$spec")
+      version=$(jq -r '.version' <<<"$spec")
+      archive_root=$(jq -r --arg slug "$slug" --arg version "$version" \
+        '.themes[$slug][$version].archive_root // $slug' conformance/artifacts.lock.json)
+      [[ "$archive_root" =~ ^[a-z0-9][a-z0-9._-]*[a-z0-9]$ ]] \
+        || fail "pinned theme archive root is malformed for $slug $version"
+      artifact=$(fetch_artifact "$slug" "$version" "cli$side" theme) \
+        || fail "could not obtain pinned theme artifact $slug $version for $env"
+      wp_env "$env" theme install "$artifact" --force
+      normalize_archive_root "$env" theme "$slug" "$archive_root"
+      wp_env "$env" theme is-installed "$slug" >/dev/null \
+        || fail "pinned theme artifact $slug $version installed under an unexpected basename on $env"
+      installed_version=$(wp_env "$env" theme get "$slug" --field=version) \
+        || fail "pinned theme artifact $slug $version has no readable installed version on $env"
+      [ "$installed_version" = "$version" ] \
+        || fail "pinned theme artifact $slug reported version $installed_version on $env, expected $version"
     done
   fi
   if [ "$role" = author ]; then
@@ -336,7 +329,7 @@ install_env() { # install_env <conf1|conf2> <author|target> — pair.sh's `up`
       *) fail "unknown setup hook '$SETUP' for manifest '$MANIFEST'" ;;
     esac
   fi
-  echo "env $env installed, role=$role ($MANIFEST: ${PLUGINS[*]:-no plugins}${SETUP:+, setup=$SETUP})"
+  echo "env $env installed, role=$role ($MANIFEST: ${#PLUGINS[@]} pinned plugins, ${#THEMES[@]} pinned themes${SETUP:+, setup=$SETUP})"
 }
 install_env conf1 author
 install_env conf2 target

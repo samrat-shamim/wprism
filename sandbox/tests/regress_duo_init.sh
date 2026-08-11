@@ -45,6 +45,8 @@ HOST_REPO="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 HOST_REPO2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 ENVS_FILE="$REPO_ROOT/sandbox/siterepo/${PAIR}-envs.json"
 COMPOSE_FILE="$REPO_ROOT/sandbox/pair.yml"
+ARTIFACTS_COMPOSE_FILE="$REPO_ROOT/sandbox/pair.artifacts.yml"
+WORDPRESS_OFFLINE_COMPOSE_FILE="$REPO_ROOT/sandbox/pair.wordpress-offline.yml"
 # DUO-3421: the hermetic certification fixture this suite mounts instead of the
 # live library (see its manufacture below) and the confirmation logs that are
 # this suite's primary evidence when a paused confirmation misbehaves. Both are
@@ -300,11 +302,26 @@ export DUO_MANIFESTS_SRC="$HERMETIC_MANIFESTS"
 
 say "boot disposable authenticated Docker target on owned ports $PORT1/$PORT2"
 unset DUO_CLI_IMAGE || true
-bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
-COMPOSE=(docker compose -p "duo-$PAIR" -f "$COMPOSE_FILE")
+WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
+case "$WORDPRESS_OFFLINE" in
+  0|1) ;;
+  *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
+esac
+PAIR_UP_FLAGS=(--headless --artifacts)
+COMPOSE=(docker compose -p "duo-$PAIR" -f "$COMPOSE_FILE" -f "$ARTIFACTS_COMPOSE_FILE")
+if [ "$WORDPRESS_OFFLINE" = 1 ]; then
+  PAIR_UP_FLAGS+=(--wordpress-offline)
+  COMPOSE+=(-f "$WORDPRESS_OFFLINE_COMPOSE_FILE")
+fi
+export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
+bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
 git1() { "${COMPOSE[@]}" run --rm -T --entrypoint git cli1 -C /siterepo "$@"; }
+PAIR_COMPOSE=("${COMPOSE[@]}")
+export DUO_ARTIFACT_LOCKFILE="$REPO_ROOT/sandbox/conformance/artifacts.lock.json"
+# shellcheck source=../bin/fetch-artifact.sh
+. "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
 # wait_for_init_lease <repo> <confirmation-log>
 #
 # DUO-3421: a confirmation that never takes the lease has ALREADY answered, in
@@ -330,7 +347,9 @@ rows above and the hermetic fixture at $HERMETIC_ROOT)"
 }
 
 say "install the exact certified WooCommerce boundary and representative authored entities"
-wp1 plugin install woocommerce --version=11.0.0 --activate >/dev/null
+WOO_ARTIFACT=$(fetch_artifact woocommerce 11.0.0 cli1 plugin) \
+  || fail "WooCommerce 11.0.0 pinned artifact was unavailable"
+wp1 plugin install "$WOO_ARTIFACT" --activate --force >/dev/null
 [ "$(wp1 plugin get woocommerce --field=version | tr -d '\r')" = "11.0.0" ] \
   || fail "WooCommerce 11.0.0 was not installed"
 ATTR_ID=$(wp1 wc product_attribute create --name='Duo Init Material' --slug=duoinit --type=select --order_by=menu_order --has_archives=false --user=admin --porcelain)

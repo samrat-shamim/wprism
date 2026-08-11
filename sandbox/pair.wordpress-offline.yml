@@ -1,0 +1,17 @@
+# Verification-only overlay for DUO-3431's warm-cache acceptance. A bundle
+# may layer this onto its disposable pair after prewarming every digest-pinned
+# artifact; any remaining bare wp plugin/theme install then reaches loopback
+# instead of the WordPress.org catalog and fails loudly. Local ZIP installs
+# from /artifacts-cache remain available.
+services:
+  wp1:
+    extra_hosts: &wordpress_offline_hosts
+      - "api.wordpress.org:127.0.0.1"
+      - "downloads.wordpress.org:127.0.0.1"
+      - "wordpress.org:127.0.0.1"
+  cli1:
+    extra_hosts: *wordpress_offline_hosts
+  wp2:
+    extra_hosts: *wordpress_offline_hosts
+  cli2:
+    extra_hosts: *wordpress_offline_hosts
