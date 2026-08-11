@@ -17,8 +17,8 @@
 # this project's own discipline refuses to ship. Reuses the SAME idiom
 # DUO-3217 established for its own live PromotionLock races
 # (sandbox/tests/regress_promotion_lock.sh): a DUO_TEST_MODE-gated,
-# env-var-controlled deterministic pause (agent/src/Capture.php's own new
-# DUO_TEST_CAPTURE_PAUSE_MS hook, inserted immediately after Publish::lock()
+# env-var-controlled deterministic release gate (agent/src/Capture.php's own
+# DUO_TEST_CAPTURE_WAIT_FOR_RELEASE hook, immediately after Publish::lock()
 # succeeds) plus a DB-backed (Ledger::kv_set(), cross-process-visible —
 # unlike the lock itself, which is a local flock() invisible to another
 # process) phase marker a controlling script polls for before launching the
@@ -119,7 +119,7 @@ fi
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
 export DUO_PAIR="$PAIR"
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
-wp1_test() { "${COMPOSE[@]}" run --rm -T -e DUO_TEST_MODE=1 -e DUO_TEST_CAPTURE_PAUSE_MS="$PAUSE_MS" cli1 wp "$@"; }
+wp1_test() { "${COMPOSE[@]}" run --rm -T -e DUO_TEST_MODE=1 -e DUO_TEST_CAPTURE_WAIT_FOR_RELEASE=1 cli1 wp "$@"; }
 read_capture_phase() {
   local rc=0
   set +e
@@ -128,7 +128,9 @@ read_capture_phase() {
   set -e
   return "$rc"
 }
-PAUSE_MS=10000
+release_capture() {
+  wp1 eval '\Duo\Ledger::kv_set("capture_test_phase", "release");' >/dev/null
+}
 PAIR_OWNED=0
 GREEN=0
 PID_A=""
@@ -146,23 +148,37 @@ cleanup() {
     fi
   done
   if [ "$PAIR_OWNED" = 1 ]; then
-    if ! bash bin/pair.sh destroy "$PAIR"; then
-      printf 'FAIL: pair destroy failed for %s; preserving its repository artifacts\n' "$PAIR" >&2
-      status=1
-    elif ! remaining=$(docker ps -a \
-        --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
-      printf 'FAIL: could not prove pair %s stopped; preserving its repository artifacts\n' "$PAIR" >&2
-      status=1
-    elif [ -n "$remaining" ]; then
-      printf 'FAIL: pair %s still has containers; preserving its repository artifacts\n' "$PAIR" >&2
-      status=1
-    elif [ "$GREEN" = 1 ] && [ "$status" -eq 0 ]; then
-      rm -rf -- "$HOST_REPO1" "$HOST_REPO2" "$HOST_ORIGIN"
-      rm -f -- "$LOG_A" "$LOG_B_JSON_OUT" "$LOG_B_JSON_ERR" \
-        "$LOG_B_HUMAN_OUT" "$LOG_B_HUMAN_ERR" "$LOG_C" "$LOG_D" "$PHASE_ERR"
+    if [ "$GREEN" = 1 ] && [ "$status" -eq 0 ]; then
+      if ! bash bin/pair.sh destroy "$PAIR"; then
+        printf 'FAIL: pair destroy failed for %s; preserving its repository artifacts\n' "$PAIR" >&2
+        status=1
+      elif ! remaining=$(docker ps -a \
+          --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
+        printf 'FAIL: could not prove pair %s destroyed; preserving its repository artifacts\n' "$PAIR" >&2
+        status=1
+      elif [ -n "$remaining" ]; then
+        printf 'FAIL: pair %s still has containers; preserving its repository artifacts\n' "$PAIR" >&2
+        status=1
+      else
+        rm -rf -- "$HOST_REPO1" "$HOST_REPO2" "$HOST_ORIGIN"
+        rm -f -- "$LOG_A" "$LOG_B_JSON_OUT" "$LOG_B_JSON_ERR" \
+          "$LOG_B_HUMAN_OUT" "$LOG_B_HUMAN_ERR" "$LOG_C" "$LOG_D" "$PHASE_ERR"
+      fi
     else
+      if ! bash bin/pair.sh stop "$PAIR"; then
+        printf 'FAIL: pair stop failed for %s; preserving all reachable evidence\n' "$PAIR" >&2
+        status=1
+      elif ! remaining=$(docker ps \
+          --filter "label=com.docker.compose.project=duo-${PAIR}" --format '{{.ID}}'); then
+        printf 'FAIL: could not prove pair %s stopped; preserving all reachable evidence\n' "$PAIR" >&2
+        status=1
+      elif [ -n "$remaining" ]; then
+        printf 'FAIL: pair %s still has running containers; preserving all reachable evidence\n' "$PAIR" >&2
+        status=1
+      fi
       printf 'preserved failed capture-concurrency evidence under:\n  %s\n  /tmp/duo3223-%s-*\n' \
         "$HOST_REPO1" "$PAIR" >&2
+      printf 'resume the stopped pair with: bash sandbox/bin/pair.sh start %s\n' "$PAIR" >&2
     fi
   fi
   exit "$status"
@@ -272,8 +288,9 @@ read_capture_phase \
 [ "$PHASE" = "locked" ] \
   || fail "capture A released its lock before both B refusals completed; overlap was not proven (phase: '$PHASE')"
 pass "both B refusals completed while capture A still provably held the destination lock"
+release_capture || fail "could not release capture A after proving both same-destination refusals"
 
-say "PART 1 — capture A completes normally once its pause ends"
+say "PART 1 — capture A completes normally once the controller releases its test gate"
 wait "$PID_A" || { tail -60 "$LOG_A"; fail "capture A itself failed (see log above)"; }
 PID_A=""
 tail -3 "$LOG_A"
@@ -328,6 +345,7 @@ read_capture_phase \
 [ "$PHASE" = "locked" ] \
   || fail "capture C released its lock before the different-destination capture completed; overlap was not proven (phase: '$PHASE')"
 pass "a different destination is completely unaffected by /siterepo's own held lock"
+release_capture || fail "could not release capture C after proving different-destination independence"
 
 wait "$PID_C" || { tail -60 "$LOG_C"; fail "capture C itself failed (see log above)"; }
 PID_C=""
