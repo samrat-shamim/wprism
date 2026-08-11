@@ -26,14 +26,21 @@ VOLUME="${PREFIX}-wordpress"
 IMAGE="${PREFIX}-ssh-image"
 PORT=""
 TMP=""
+DIAG_DIR=""
 DUO="$ROOT/cli/duo"
 SUITE_LABEL="regress-ssh-adopt"
 RUN_ID=""
+BODY_COMPLETE=0
 IMAGE_OWNED=0
 NETWORK_OWNED=0
 VOLUME_OWNED=0
 DATABASE_OWNED=0
 TARGET_OWNED=0
+SCOPED_PROMOTE_STDOUT=""
+SCOPED_PROMOTE_STDERR=""
+SCOPED_PROMOTE_EXIT=""
+AUTHORITY_STATUS_STDOUT=""
+AUTHORITY_STATUS_EXIT=""
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -101,14 +108,35 @@ cleanup() {
   cleanup_resource network "$NETWORK_OWNED" "$NET" || cleanup_failed=1
   cleanup_resource volume "$VOLUME_OWNED" "$VOLUME" || cleanup_failed=1
   cleanup_resource image "$IMAGE_OWNED" "$IMAGE" || cleanup_failed=1
-  if [ -n "$TMP" ] && [ -d "$TMP" ]; then
+  # TMP contains the one-run SSH key, rollback signing key, and database
+  # connection material. It is never diagnostic evidence: erase it on every
+  # EXIT path even if an owned Docker resource could not be cleaned up.
+  if [ -n "$TMP" ]; then
     rm -rf -- "$TMP" || cleanup_failed=1
+    [ ! -e "$TMP" ] && [ ! -L "$TMP" ] || cleanup_failed=1
   fi
+
+  # A green body is not a green live proof until the label-verified fixture
+  # cleanup succeeds. Only then may the narrow, non-secret diagnostic record
+  # be discarded and the final PASS be published.
+  if [ "$BODY_COMPLETE" -eq 1 ] && [ "$incoming" -eq 0 ] && [ "$cleanup_failed" -eq 0 ]; then
+    if [ -n "$DIAG_DIR" ]; then
+      rm -rf -- "$DIAG_DIR" || cleanup_failed=1
+      [ ! -e "$DIAG_DIR" ] && [ ! -L "$DIAG_DIR" ] || cleanup_failed=1
+    fi
+    if [ "$cleanup_failed" -eq 0 ]; then
+      printf '\n\033[1;32m✔ REGRESS_SSH_ADOPT PASSED\033[0m\n'
+      exit 0
+    fi
+  fi
+
   if [ "$cleanup_failed" -ne 0 ]; then
-    printf 'FAIL: owned SSH-adoption fixture cleanup was incomplete; preserved unmatched resources\n' >&2
-    exit 1
+    printf 'FAIL: SSH-adoption fixture cleanup was incomplete; diagnostic evidence retained privately\n' >&2
   fi
-  exit "$incoming"
+  if [ -n "$DIAG_DIR" ]; then
+    printf 'FAIL: SSH-adoption diagnostic evidence retained privately at %s\n' "$DIAG_DIR" >&2
+  fi
+  exit 1
 }
 
 for command in git docker lsof; do
@@ -160,6 +188,17 @@ RUN_ID="${PREFIX}-${SOURCE_SHA:0:12}-$$-${RANDOM}${RANDOM}"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
+DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt-diagnostics.XXXXXX")"
+chmod 0700 "$DIAG_DIR"
+SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
+SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
+SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
+AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
+AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
+for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_EXIT"; do
+  ( umask 077; : >"$diagnostic_file" )
+  chmod 0600 "$diagnostic_file"
+done
 
 ssh_fixture() { ssh -F "$TMP/ssh_config" duo-adopt-fixture "$@"; }
 
@@ -310,7 +349,7 @@ if DRIVER_JSON="$("$DUO" --envs-file="$TMP/envs.json" driver-capabilities target
 else
   DRIVER_CODE=$?
 fi
-[ "$DRIVER_CODE" -eq 0 ] || fail "SSH adopt driver preflight failed: $(cat "$TMP/driver-adopt.err")"
+[ "$DRIVER_CODE" -eq 0 ] || fail "SSH adopt driver preflight failed"
 php -r '
   $r=json_decode($argv[1],true);
   if (!is_array($r) || ($r["format"] ?? null) !== "duo-environment-driver-capabilities/v1"
@@ -496,25 +535,37 @@ scp -F "$TMP/ssh_config" "$TMP/duo3344-scoped-promotion-fault.php" \
   duo-adopt-fixture:/var/www/html/wp-content/mu-plugins/duo3344-scoped-promotion-fault.php >/dev/null
 ssh_fixture 'touch /home/duo/recovery-fixture/duo3344-scoped-fault-active'
 
-if FAILURE_OUT="$("$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json" 2>&1)"; then
+if "$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"; then
   FAILURE_CODE=0
 else
   FAILURE_CODE=$?
 fi
+printf '%s\n' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"
+# Capture the read-only authority status before removing the injected fault.
+# The separate diagnostic directory deliberately contains only these bounded
+# promote/status observations, never the SSH config, keys, or DB credentials
+# from TMP. Its contents are private and must not be printed into CI output.
+if ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>/dev/null; then
+  AUTHORITY_STATUS_CODE=0
+else
+  AUTHORITY_STATUS_CODE=$?
+fi
+printf '%s\n' "$AUTHORITY_STATUS_CODE" >"$AUTHORITY_STATUS_EXIT"
 ssh_fixture 'rm -f /home/duo/recovery-fixture/duo3344-scoped-fault-active /var/www/html/wp-content/mu-plugins/duo3344-scoped-promotion-fault.php'
 [ "$FAILURE_CODE" -ne 0 ] || fail "post-begin scoped fault unexpectedly promoted"
-grep -q 'scoped promote phase: promotion-begin-scoped' <<<"$FAILURE_OUT" \
+grep -q 'scoped promote phase: promotion-begin-scoped' "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" \
   || fail "controlled scoped fault did not cross target promotion-begin-scoped"
-grep -q 'scoped promote phase: apply' <<<"$FAILURE_OUT" \
+grep -q 'scoped promote phase: apply' "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" \
   || fail "controlled scoped fault did not enter the receipt-bound target apply"
-grep -q 'prior database verified; generation .* rolled_back and exclusion released' <<<"$FAILURE_OUT" \
+grep -q 'prior database verified; generation .* rolled_back and exclusion released' "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" \
   || fail "controlled scoped fault did not report verified pre-commit rollback"
 
-FAIL_STATUS="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
+[ "$AUTHORITY_STATUS_CODE" -eq 0 ] \
+  || fail "scoped failure authority status probe did not complete"
 jq -e '
   .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
   and .state == "rolled_back" and .terminal == true and .exclusion_state == "released"
-' <<<"$FAIL_STATUS" >/dev/null \
+' "$AUTHORITY_STATUS_STDOUT" >/dev/null \
   || fail "scoped failure did not leave a signed rolled_back terminal receipt with v2 exclusion released"
 FAIL_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
 jq -e '
@@ -523,7 +574,7 @@ jq -e '
   and .completed_operations.prior_verify.operation_status == "completed"
 ' <<<"$FAIL_EVIDENCE" >/dev/null \
   || fail "signed failure evidence did not bind encrypted database_restore and prior_verify"
-FAIL_RECEIPT="$(jq -r '.receipt_id' <<<"$FAIL_STATUS")"
+FAIL_RECEIPT="$(jq -r '.receipt_id' "$AUTHORITY_STATUS_STDOUT")"
 ssh_fixture "test -s /home/duo/site/.duo/rollback/$FAIL_RECEIPT/artifacts/checkpoint.enc" \
   || fail "rolled-back scoped generation did not retain its real encrypted database checkpoint"
 [ "$(target_checkpoint_state)" = "prior-db" ] \
@@ -557,8 +608,8 @@ else
   SUCCESS_CODE=$?
 fi
 [ "$SUCCESS_CODE" -eq 0 ] \
-  || fail "public SSH scoped promote did not complete: $(cat "$TMP/duo3344-success.err")"
-jq -e --argjson failed_generation "$(jq -r '.generation' <<<"$FAIL_STATUS")" '
+  || fail "public SSH scoped promote did not complete"
+jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDOUT")" '
   .format == "duo-scoped-promotion-result/v1" and .state == "committed"
   and (.generation > $failed_generation)
   and .rollback.format == "duo-scoped-promotion-receipt/v1"
@@ -597,4 +648,4 @@ jq -e '.state == "released"' <<<"$(ssh_fixture 'cat /home/duo/recovery-fixture/p
   || fail "v2 exclusion provider did not release after scoped commit"
 pass "public scoped promotion restores a real encrypted DB checkpoint on failure, then commits a receipt-bound target Apply and retires its scoped session"
 
-printf '\n\033[1;32m✔ REGRESS_SSH_ADOPT PASSED\033[0m\n'
+BODY_COMPLETE=1

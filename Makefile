@@ -1064,6 +1064,12 @@ regress-scoped-promotion-target:
 regress-scoped-promote-unit:
 	bash sandbox/tests/regress_scoped_promote_unit.sh
 
+# DUO-3344: the SSH live harness keeps its exact controlled-promotion failure
+# evidence in a private non-secret directory, while unconditionally erasing
+# the SSH/config/credential scratch tree. Source-only: no Docker or SSH host.
+regress-ssh-adopt-evidence-retention:
+	php sandbox/tests/regress_ssh_adopt_evidence_retention.php
+
 # DUO-3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
 regress-scope-wire:
