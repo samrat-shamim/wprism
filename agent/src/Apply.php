@@ -135,7 +135,8 @@ final class Apply {
                 $policy,
                 $a->scopeContract,
                 $actual,
-                $a->scoped_ledger_map_identity_hashes()
+                $a->scoped_ledger_map_identity_hashes(),
+                $a->scoped_allows_target_old_menu_items($actual)
             );
             $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false);
             $surfaces = $a->rebuild_surfaces(
@@ -2552,7 +2553,8 @@ final class Apply {
                     $policy,
                     $preflightContract,
                     $actual,
-                    (array) $authority['selection']['ledger_map_identity_hashes']
+                    (array) $authority['selection']['ledger_map_identity_hashes'],
+                    false
                 );
                 $terminalReceipt = $terminalReplaySession->terminal_receipt();
                 if (!ScopedApply::terminal_replay_matches(
@@ -2847,7 +2849,8 @@ final class Apply {
                 $this->policy,
                 $this->scopeContract,
                 $actual,
-                $this->scoped_ledger_map_identity_hashes()
+                $this->scoped_ledger_map_identity_hashes(),
+                $this->scoped_allows_target_old_menu_items($actual)
             );
         }
 
@@ -3183,7 +3186,8 @@ final class Apply {
                 $this->policy,
                 $this->scopeContract,
                 $freshActual,
-                $this->scoped_ledger_map_identity_hashes()
+                $this->scoped_ledger_map_identity_hashes(),
+                $this->scoped_allows_target_old_menu_items($freshActual)
             );
             foreach ([
                 'selected_before_root', 'protected_out_of_scope_root',
@@ -3580,7 +3584,8 @@ final class Apply {
                     $this->policy,
                     $this->scopeContract,
                     $afterActual,
-                    $this->scoped_ledger_map_identity_hashes()
+                    $this->scoped_ledger_map_identity_hashes(),
+                    false
                 );
                 if (!hash_equals(
                     (string) $this->scopedSession->authority()['target']['protected_out_of_scope_hash'],
@@ -4006,6 +4011,33 @@ final class Apply {
         }
         $hashes = $this->scopedSession->authority()['selection']['ledger_map_identity_hashes'] ?? null;
         return $this->assert_scoped_ledger_map_identity_hashes($hashes, 'authority');
+    }
+
+    /**
+     * Initial observation may admit an exact target-only draft/trash
+     * menu-item map because finalize_menu() will remove it, and may inventory
+     * physical items under a selected menu tombstone because delete_entity()
+     * will cascade them. A retained authority can admit either only while its
+     * selected target root is still exactly pre-authoring. This distinguishes
+     * an authoring-phase response loss whose authored rows are already desired
+     * from a genuine retry of the before-state; every other phase is
+     * fail-closed.
+     */
+    private function scoped_allows_target_old_menu_items(array $actual): bool {
+        if ($this->scopedSession === null) {
+            return true;
+        }
+        if (!in_array($this->scopedSession->phase(), [
+            ScopedApplySession::PHASE_PLANNED,
+            ScopedApplySession::PHASE_AUTHORING,
+        ], true) || $this->scopeContract === null) {
+            return false;
+        }
+        return ScopedApply::selected_observation_matches_before(
+            $actual,
+            $this->scopeContract,
+            (string) ($this->scopedSession->authority()['target']['selected_before_hash'] ?? '')
+        );
     }
 
     /** @return list<string> opaque SHA-256 UUID hashes derived before authority minting */
@@ -4792,7 +4824,8 @@ final class Apply {
             $this->policy,
             $this->scopeContract,
             $actual,
-            (array) $verifyingSession->authority()['selection']['ledger_map_identity_hashes']
+            (array) $verifyingSession->authority()['selection']['ledger_map_identity_hashes'],
+            false
         );
         if (!hash_equals($expectedProtectedRoot, (string) $observation['protected_out_of_scope_root'])
             || !hash_equals($expectedProtectedMapRoot, (string) $observation['protected_ledger_map_root'])) {

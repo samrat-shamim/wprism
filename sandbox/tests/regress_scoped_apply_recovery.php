@@ -95,7 +95,7 @@ final class ScopedRecoveryEffectWpdb {
     public array $kvRows = [];
     /** @var list<array{uuid:string,entity_type:string,id_kind:string,local_id:int}> */
     public array $mapRows = [];
-    /** @var array<int,array{post_type:string,uuid:string,term_taxonomy_ids:list<int>}> */
+    /** @var array<int,array{post_type:string,post_status?:string,uuid:string,term_taxonomy_ids:list<int>}> */
     public array $postRows = [];
     /** @var array<int,string> */
     public array $termRows = [];
@@ -169,7 +169,16 @@ final class ScopedRecoveryEffectWpdb {
                 && !in_array((int) $tt[1], $row['term_taxonomy_ids'], true)) {
                 return null;
             }
-            return ['ID' => $id, 'post_type' => $row['post_type'], 'duo_uuid' => $row['uuid']];
+            if (preg_match("/p\\.post_status\\s*=\\s*'([^']+)'/", $query, $status) === 1
+                && ($row['post_status'] ?? 'publish') !== $status[1]) {
+                return null;
+            }
+            return [
+                'ID' => $id,
+                'post_type' => $row['post_type'],
+                'post_status' => $row['post_status'] ?? 'publish',
+                'duo_uuid' => $row['uuid'],
+            ];
         }
         if (preg_match('/WHERE t.term_id = ([0-9]+) AND tt.term_taxonomy_id = ([0-9]+)/', $query, $match) === 1) {
             $termId = (int) $match[1];
@@ -199,6 +208,47 @@ final class ScopedRecoveryEffectWpdb {
         $this->last_error = '';
         if (str_contains($query, 'FROM wp_duo_map')) {
             return $this->mapRows;
+        }
+        if (str_contains($query, 'FROM wp_posts p')
+            && preg_match('/tr\.term_taxonomy_id = ([0-9]+)/', $query, $match) === 1) {
+            $rows = [];
+            foreach ($this->postRows as $id => $row) {
+                if ($row['post_type'] !== 'nav_menu_item'
+                    || !in_array((int) $match[1], $row['term_taxonomy_ids'], true)) {
+                    continue;
+                }
+                $rows[] = [
+                    'ID' => $id,
+                    'post_type' => $row['post_type'],
+                    'post_status' => $row['post_status'] ?? 'publish',
+                    'duo_uuid' => $row['uuid'],
+                ];
+            }
+            usort($rows, static fn(array $a, array $b): int => (int) $a['ID'] <=> (int) $b['ID']);
+            return $rows;
+        }
+        if (str_contains($query, 'FROM wp_term_relationships tr')
+            && preg_match('/tr\.object_id = ([0-9]+)/', $query, $match) === 1) {
+            $post = $this->postRows[(int) $match[1]] ?? null;
+            if ($post === null) {
+                return [];
+            }
+            $rows = [];
+            $navMenuOnly = str_contains($query, "tt.taxonomy = 'nav_menu'");
+            foreach ($post['term_taxonomy_ids'] as $ttId) {
+                $taxonomy = $this->taxonomyRows[$ttId] ?? null;
+                if ($taxonomy !== null
+                    && (!$navMenuOnly || $taxonomy['taxonomy'] === 'nav_menu')) {
+                    $rows[] = [
+                        'term_taxonomy_id' => $ttId,
+                        'taxonomy' => $taxonomy['taxonomy'],
+                    ];
+                }
+            }
+            usort($rows, static fn(array $a, array $b): int =>
+                (int) $a['term_taxonomy_id'] <=> (int) $b['term_taxonomy_id']
+            );
+            return $rows;
         }
         if (str_contains($query, "option_name LIKE 'widget")) {
             $rows = [];
@@ -685,6 +735,8 @@ $sourceMenuItem = $uuid(23);
 $targetMenuItem = $uuid(24);
 $protectedWidget = $uuid(25);
 $protectedMenuItem = $uuid(26);
+$draftTargetMenuItem = $uuid(28);
+$trashTargetMenuItem = $uuid(29);
 $nestedContract = $contract;
 $nestedContract['selectors'] = ['menu:selected', 'sidebar:selected'];
 $nestedRootEntities = [$selectedMenu, $selectedSidebar];
@@ -771,28 +823,75 @@ $nestedActual = [
         ]),
     ],
 ];
+// Strict map/physical fixture for the source-new and target-old ownership
+// union. Capture intentionally omits the draft/trash items below, while
+// finalize_menu() will enumerate and delete them with every other status.
+$GLOBALS['wpdb']->mapRows = [
+    ['uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 20],
+    ['uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 120],
+    ['uuid' => $targetWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 4],
+    ['uuid' => $targetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 24],
+    ['uuid' => $draftTargetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 28],
+    ['uuid' => $trashTargetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 29],
+    ['uuid' => $protectedWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_block', 'local_id' => 9],
+];
+$GLOBALS['wpdb']->termRows = [20 => $selectedMenu];
+$GLOBALS['wpdb']->taxonomyRows = [120 => ['term_id' => 20, 'taxonomy' => 'nav_menu']];
+$GLOBALS['wpdb']->postRows = [
+    24 => [
+        'post_type' => 'nav_menu_item', 'post_status' => 'publish',
+        'uuid' => $targetMenuItem, 'term_taxonomy_ids' => [120],
+    ],
+    28 => [
+        'post_type' => 'nav_menu_item', 'post_status' => 'draft',
+        'uuid' => $draftTargetMenuItem, 'term_taxonomy_ids' => [120],
+    ],
+    29 => [
+        'post_type' => 'nav_menu_item', 'post_status' => 'trash',
+        'uuid' => $trashTargetMenuItem, 'term_taxonomy_ids' => [120],
+    ],
+];
+$GLOBALS['wpdb']->optionRows['widget_text'] = serialize([
+    4 => ['title' => 'selected'],
+    '_multiwidget' => 1,
+]);
+$GLOBALS['wpdb']->optionRows['sidebars_widgets'] = serialize([
+    'selected' => ['text-4'],
+    'protected' => [],
+    'wp_inactive_widgets' => [],
+    'array_version' => 3,
+]);
+$nestedPolicy = clone $policy;
+$nestedPolicy->manifests = [[
+    'name' => 'scoped-recovery-fixture',
+    'widgets' => ['text' => ['settings' => []]],
+]];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual);
+    $check(false, 'post-author identity derivation must not admit retained hidden menu-item maps');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'default identity derivation fails closed when an all-status target-old menu item reappears'
+    );
+}
 $nestedIdentityHashes = ScopedApply::ledger_map_identity_hashes(
     $nestedContract,
     $nestedCompiled,
-    $nestedActual
+    $nestedActual,
+    true
 );
 $expectedNestedHashes = array_map($hash, [
     $selectedMenu, $sourceWidget, $targetWidget, $sourceMenuItem, $targetMenuItem,
+    $draftTargetMenuItem, $trashTargetMenuItem,
 ]);
 sort($expectedNestedHashes, SORT_STRING);
 $check(
     $nestedIdentityHashes === $expectedNestedHashes
         && !in_array($hash($protectedWidget), $nestedIdentityHashes, true)
         && !in_array($hash($protectedMenuItem), $nestedIdentityHashes, true),
-    'sealed map membership includes selected source-new and target-old nested owners but excludes protected owners'
+    'sealed map membership includes selected source-new, canonical target, and strict all-status target-old menu owners only'
 );
-$GLOBALS['wpdb']->mapRows = [
-    ['uuid' => $selectedMenu, 'entity_type' => 'term', 'id_kind' => 'term', 'local_id' => 20],
-    ['uuid' => $selectedMenu, 'entity_type' => 'term', 'id_kind' => 'term_taxonomy', 'local_id' => 120],
-    ['uuid' => $sourceWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 3],
-    ['uuid' => $targetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 24],
-    ['uuid' => $protectedWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_block', 'local_id' => 9],
-];
 $mapRows = $GLOBALS['wpdb']->mapRows;
 usort($mapRows, static fn(array $a, array $b): int => [
     $a['uuid'], $a['id_kind'], $a['local_id'], $a['entity_type'],
@@ -811,48 +910,140 @@ $nestedMapRoots = ScopedApply::ledger_map_roots($nestedIdentityHashes);
 $check(
     $nestedMapRoots['selected_ledger_map_root'] === $hash(Canon::encode($expectedSelectedMapRows))
         && $nestedMapRoots['protected_ledger_map_root'] === $hash(Canon::encode($expectedProtectedMapRows))
-        && count($expectedSelectedMapRows) === 4
+        && count($expectedSelectedMapRows) === 6
         && count($expectedProtectedMapRows) === 1,
-    'ledger partition keeps every id_kind row for selected owners together and protects unselected owner rows'
+    'ledger partition moves all selected menu draft/trash map rows together and protects unselected owner rows'
 );
-$GLOBALS['wpdb']->mapRows = [
-    ['uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 20],
-    ['uuid' => $selectedMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 120],
-    ['uuid' => $targetWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 4],
-    ['uuid' => $targetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 24],
-    // An unselected stale row is outside this authority and must remain
-    // untouched rather than making a selected observation prune globally.
-    ['uuid' => $protectedWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_block', 'local_id' => 9],
-];
-$GLOBALS['wpdb']->termRows = [20 => $selectedMenu];
-$GLOBALS['wpdb']->taxonomyRows = [120 => ['term_id' => 20, 'taxonomy' => 'nav_menu']];
-$GLOBALS['wpdb']->postRows = [24 => [
-    'post_type' => 'nav_menu_item',
-    'uuid' => $targetMenuItem,
-    'term_taxonomy_ids' => [120],
-]];
-$GLOBALS['wpdb']->optionRows['widget_text'] = serialize([
-    4 => ['title' => 'selected'],
-    '_multiwidget' => 1,
-]);
-$GLOBALS['wpdb']->optionRows['sidebars_widgets'] = serialize([
-    'selected' => ['text-4'],
-    'protected' => [],
-    'wp_inactive_widgets' => [],
-    'array_version' => 3,
-]);
-$nestedPolicy = clone $policy;
-$nestedPolicy->manifests = [[
-    'name' => 'scoped-recovery-fixture',
-    'widgets' => ['text' => ['settings' => []]],
-]];
+try {
+    ScopedApply::assert_selected_ledger_map_observation(
+        $nestedPolicy,
+        $nestedContract,
+        $nestedActual,
+        $nestedIdentityHashes,
+        $nestedCompiled
+    );
+    $check(false, 'post-author strict observation must not accept retained hidden menu-item maps');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'post-author strict observation treats a reappearing draft/trash map as recovery evidence'
+    );
+}
 ScopedApply::assert_selected_ledger_map_observation(
     $nestedPolicy,
     $nestedContract,
     $nestedActual,
-    $nestedIdentityHashes
+    $nestedIdentityHashes,
+    $nestedCompiled,
+    true
 );
-$check(true, 'strict selected map observation accepts exact target-backed nested rows and ignores unselected stale rows');
+$check(true, 'initial/pre-author strict observation admits exact all-status target rows and ignores unselected stale rows');
+
+// A lost response can leave the durable session at `authoring` after the
+// selected file rows are already desired. Root matching—not the phase name—
+// must then disable target-old admission, while a genuine exact-before retry
+// remains eligible.
+$phaseContract = $nestedContract;
+$phaseContract['selectors'] = ['menu:selected'];
+$phaseContract['resolution']['live_root_entities'] = [$selectedMenu];
+$phaseContract['live']['roots'] = array_values(array_filter(
+    $nestedContract['live']['roots'],
+    static fn(array $row): bool => ($row['entity'] ?? '') === $selectedMenu
+));
+unset($phaseContract['scope_hash']);
+$phaseContract['scope_hash'] = $hash(Canon::encode($phaseContract));
+$phaseContract = ScopeContract::from_array($phaseContract);
+$phaseCompiled = CompiledRepository::create([
+    'tree' => [$selectedMenu => $nestedCompiled->tree()[$selectedMenu]],
+    'deletions' => [],
+    'revision_hash' => $hash('phase-menu-revision'),
+    'manifest_hash' => $hash('phase-menu-manifest'),
+    'site_hash' => $hash('phase-menu-site'),
+    'effects_inventory' => [],
+]);
+$phaseBeforeActual = [$selectedMenu => $nestedActual[$selectedMenu]];
+$authoringDesiredActual = [$selectedMenu => $nestedActual[$selectedMenu]];
+$authoringDesiredActual[$selectedMenu]['content'] = Canon::encode(
+    (array) $phaseCompiled->tree()[$selectedMenu]['data']
+);
+$authoringDesiredActual[$selectedMenu]['hash'] = $hash('authoring-desired-menu');
+$phaseIdentityHashes = ScopedApply::ledger_map_identity_hashes(
+    $phaseContract,
+    $phaseCompiled,
+    $phaseBeforeActual,
+    true
+);
+$nestedBeforeRoot = ScopedApply::selected_observation_root($phaseBeforeActual, $phaseContract);
+$phaseAuthority = ScopedApplySession::make_authority(
+    $phaseContract['scope_hash'],
+    [
+        'artifact_hash' => $phaseCompiled->artifact_hash(),
+        'state_revision_hash' => $phaseCompiled->revision_hash(),
+        'manifest_hash' => $phaseCompiled->manifest_hash(),
+    ],
+    [
+        'owner' => 'nested-phase-owner',
+        'artifact_hash' => $phaseCompiled->artifact_hash(),
+        'session_id' => 'nested-phase-session',
+    ],
+    [
+        'selected_before_hash' => $nestedBeforeRoot,
+        'selected_before_ledger_map_hash' => $hash('nested-before-map'),
+        'protected_ledger_map_hash' => $hash('nested-protected-map'),
+        'protected_out_of_scope_hash' => $hash('nested-protected-root'),
+        'ledger_roots_hash' => $hash('nested-ledger-roots'),
+    ],
+    [
+        'precondition_hash' => $hash('nested-phase-preconditions'),
+        'guard_witnesses_hash' => $hash('nested-phase-guards'),
+    ],
+    $selection,
+    $hash('nested-phase-code-witness')
+);
+$phaseStore = new ScopedRecoveryMemoryStore();
+$phaseSession = ScopedApplySession::begin($phaseStore, $phaseAuthority);
+$phaseSession->transition(ScopedApplySession::PHASE_AUTHORING);
+$phaseApply = $applyReflection->newInstanceWithoutConstructor();
+$applyReflection->getProperty('scopeContract')->setValue($phaseApply, $phaseContract);
+$applyReflection->getProperty('scopedSession')->setValue($phaseApply, $phaseSession);
+$phaseAllowance = $applyReflection->getMethod('scoped_allows_target_old_menu_items');
+$phaseAllowsBefore = $phaseAllowance->invoke($phaseApply, $phaseBeforeActual);
+$phaseDesiredState = ScopedApply::authored_state(
+    $authoringDesiredActual,
+    $phaseCompiled,
+    $nestedPolicy,
+    $phaseContract,
+    $nestedBeforeRoot
+);
+$phaseAllowsDesired = $phaseAllowance->invoke($phaseApply, $authoringDesiredActual);
+$check(
+    $phaseAllowsBefore === true,
+    'authoring recovery admits target-old identities only while the exact selected before root remains intact'
+);
+$check(
+    $phaseDesiredState === 'desired',
+    'authoring desired selected content is classified as desired before phase admission is evaluated'
+);
+$check(
+    $phaseAllowsDesired === false,
+    'authoring recovery blocks a desired readback from target-old admission'
+);
+try {
+    ScopedApply::assert_selected_ledger_map_observation(
+        $nestedPolicy,
+        $phaseContract,
+        $authoringDesiredActual,
+        $phaseIdentityHashes,
+        $phaseCompiled,
+        false
+    );
+    $check(false, 'authoring desired readback with a reappearing hidden map must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'desired authoring recovery treats a hidden all-status map as recovery evidence before false-green transition'
+    );
+}
 
 $GLOBALS['wpdb']->mapRows[3]['local_id'] = 25;
 try {
@@ -860,7 +1051,9 @@ try {
         $nestedPolicy,
         $nestedContract,
         $nestedActual,
-        $nestedIdentityHashes
+        $nestedIdentityHashes,
+        $nestedCompiled,
+        true
     );
     $check(false, 'a same-kind selected map rebound to a different local id must refuse');
 } catch (\Duo\CommandRefusalException $failure) {
@@ -871,9 +1064,113 @@ try {
 }
 $GLOBALS['wpdb']->mapRows[3]['local_id'] = 24;
 
-// Source-new I is absent from the selected target menu. A lingering post map
-// for I must not make finalize_menu trust a dead/reused local id and skip the
-// insert; refuse before authority or authored mutation instead.
+// A source-owned item can be draft/trash in the target and still be safe to
+// reuse: finalize_menu() will publish it. An exact map is retained in the
+// selected partition; an entirely missing map is created through Ledger::set.
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $sourceMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 230,
+];
+$GLOBALS['wpdb']->postRows[230] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'draft',
+    'uuid' => $sourceMenuItem, 'term_taxonomy_ids' => [120],
+];
+$sourceHiddenHashes = ScopedApply::ledger_map_identity_hashes(
+    $nestedContract,
+    $nestedCompiled,
+    $nestedActual,
+    true
+);
+$check(
+    $sourceHiddenHashes === $nestedIdentityHashes,
+    'an exact hidden source-owned menu-item map remains in its already-selected source partition'
+);
+ScopedApply::assert_selected_ledger_map_observation(
+    $nestedPolicy,
+    $nestedContract,
+    $nestedActual,
+    $sourceHiddenHashes,
+    $nestedCompiled,
+    true
+);
+$check(true, 'an exact draft source-owned menu item is reusable before authoring');
+array_pop($GLOBALS['wpdb']->mapRows);
+
+$sourceHiddenUnmappedHashes = ScopedApply::ledger_map_identity_hashes(
+    $nestedContract,
+    $nestedCompiled,
+    $nestedActual,
+    true
+);
+ScopedApply::assert_selected_ledger_map_observation(
+    $nestedPolicy,
+    $nestedContract,
+    $nestedActual,
+    $sourceHiddenUnmappedHashes,
+    $nestedCompiled,
+    true
+);
+$check(
+    $sourceHiddenUnmappedHashes === $nestedIdentityHashes,
+    'a hidden source-owned menu item with no map remains eligible for Ledger::set creation'
+);
+
+// Reuse publishes this source-owned item but does not delete it, so a
+// non-nav relationship is allowed as long as its sole nav-menu owner remains
+// the selected menu.
+$GLOBALS['wpdb']->taxonomyRows[122] = ['term_id' => 22, 'taxonomy' => 'category'];
+$GLOBALS['wpdb']->postRows[230]['term_taxonomy_ids'] = [120, 122];
+$check(
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true)
+        === $nestedIdentityHashes,
+    'source-desired hidden reuse preserves a non-nav relationship while retaining its exact selected nav-menu owner'
+);
+$GLOBALS['wpdb']->postRows[230]['term_taxonomy_ids'] = [120];
+unset($GLOBALS['wpdb']->taxonomyRows[122]);
+
+// The zero-map reuse path must still reject a local post already bound to a
+// different map UUID: otherwise Ledger::set(sourceUuid, localPost) fails only
+// after authoring begins.
+$conflictingLocalMenuItem = $uuid(37);
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $conflictingLocalMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 230,
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a zero-map source-owned hidden item bound to another local post map must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'a zero-map source-owned hidden item refuses before Ledger::set can collide with a local post map'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+
+// Source-desired hidden reuse is not safe when the physical item is also
+// attached to an unselected menu: finalization would publish it through both
+// menus. The exclusive-owner check applies before the zero-map reuse branch.
+$GLOBALS['wpdb']->taxonomyRows[121] = ['term_id' => 21, 'taxonomy' => 'nav_menu'];
+$GLOBALS['wpdb']->postRows[230]['term_taxonomy_ids'] = [120, 121];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a source-owned hidden item shared with a protected menu must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'source-desired hidden reuse requires exactly one selected nav-menu relationship'
+    );
+}
+$GLOBALS['wpdb']->postRows[230]['term_taxonomy_ids'] = [120];
+unset($GLOBALS['wpdb']->taxonomyRows[121]);
+
+// The same source UUID is stale when its map no longer names a physical item:
+// it must not be trusted as an old id merely because the source owns it.
+unset($GLOBALS['wpdb']->postRows[230]);
 $GLOBALS['wpdb']->mapRows[] = [
     'uuid' => $sourceMenuItem,
     'entity_type' => 'menu_item',
@@ -885,17 +1182,416 @@ try {
         $nestedPolicy,
         $nestedContract,
         $nestedActual,
-        $nestedIdentityHashes
+        $nestedIdentityHashes,
+        $nestedCompiled,
+        true
     );
-    $check(false, 'a stale selected source-new menu-item map must refuse');
+    $check(false, 'a source-owned menu-item map without its physical sidecar row must refuse');
 } catch (\Duo\CommandRefusalException $failure) {
     $check(
         $failure->reasonCode === 'scoped_identity_recovery_required'
             && !str_contains($failure->publicMessage, $sourceMenuItem)
             && !str_contains($failure->remediation, $sourceMenuItem),
-        'a stale selected menu-item map refuses through a value-free typed recovery contract before mutation'
+        'a stale source menu-item map still refuses through a value-free recovery contract'
     );
 }
+array_pop($GLOBALS['wpdb']->mapRows);
+
+// A compiled protected owner cannot be reclassified merely because the
+// target's selected menu now physically holds it, even when Capture would
+// canonically expose that published item under the selected owner.
+$protectedOwnerMismatchActual = $nestedActual;
+$protectedOwnerMismatchActual[$selectedMenu]['content'] = Canon::encode([
+    'uuid' => $selectedMenu,
+    'items' => [['uuid' => $targetMenuItem], ['uuid' => $protectedMenuItem]],
+]);
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $protectedMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 260,
+];
+$GLOBALS['wpdb']->postRows[260] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'publish',
+    'uuid' => $protectedMenuItem, 'term_taxonomy_ids' => [120],
+];
+try {
+    ScopedApply::ledger_map_identity_hashes(
+        $nestedContract,
+        $nestedCompiled,
+        $protectedOwnerMismatchActual,
+        true
+    );
+    $check(false, 'a compiled protected menu-item owner must not enter selected authority');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'a protected compiled owner mismatch refuses even for a published selected-target candidate'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+unset($GLOBALS['wpdb']->postRows[260]);
+
+// The generic frozen-owner comparison applies before map union for widgets
+// too: target ownership under the selected sidebar cannot steal a UUID the
+// complete source tree assigns to a protected sidebar.
+$protectedWidgetMismatchActual = $nestedActual;
+$protectedWidgetMismatchActual[$selectedSidebar]['content'] = Canon::encode([
+    'widgets' => [[
+        'uuid' => $targetWidget, 'type' => 'text', 'settings' => (object) [],
+    ], [
+        'uuid' => $protectedWidget, 'type' => 'block', 'settings' => (object) [],
+    ]],
+]);
+try {
+    ScopedApply::ledger_map_identity_hashes(
+        $nestedContract,
+        $nestedCompiled,
+        $protectedWidgetMismatchActual,
+        true
+    );
+    $check(false, 'a compiled protected widget owner must not enter selected authority');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'a protected compiled widget owner mismatch refuses before nested-map union'
+    );
+}
+
+// A physical selected menu row with a post map but an incorrect entity type
+// must refuse rather than remain a hidden protected Ledger::forget target.
+$malformedTypeMenuItem = $uuid(30);
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $malformedTypeMenuItem,
+    'entity_type' => 'post',
+    'id_kind' => 'post',
+    'local_id' => 30,
+];
+$GLOBALS['wpdb']->postRows[30] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'draft',
+    'uuid' => $malformedTypeMenuItem, 'term_taxonomy_ids' => [120],
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a malformed selected physical menu-item entity type must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'physical id_kind=post discovery rejects a malformed menu-item entity type'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+unset($GLOBALS['wpdb']->postRows[30]);
+
+// Likewise the embedded physical sidecar must agree with the selected map
+// tuple before target-only ownership can be sealed.
+$malformedSidecarMenuItem = $uuid(31);
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $malformedSidecarMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 31,
+];
+$GLOBALS['wpdb']->postRows[31] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'trash',
+    'uuid' => $uuid(32), 'term_taxonomy_ids' => [120],
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a mismatched selected physical menu-item sidecar must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'physical id_kind=post discovery rejects a mismatched menu-item sidecar'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+unset($GLOBALS['wpdb']->postRows[31]);
+
+// finalize_menu() keys envByUuid from every nonempty physical sidecar, not
+// from duo_map. A sidecar with no exact map could make Ledger::forget() erase
+// another UUID's state, so initial observation must refuse it before a
+// session/mutation boundary exists.
+$unmappedSidecarMenuItem = $uuid(33);
+$GLOBALS['wpdb']->postRows[33] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'draft',
+    'uuid' => $unmappedSidecarMenuItem, 'term_taxonomy_ids' => [120],
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a selected physical menu-item sidecar without a map must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'all-status sidecar discovery refuses an unmapped Ledger::forget identity before authority'
+    );
+}
+unset($GLOBALS['wpdb']->postRows[33]);
+
+// A map under the same UUID but bound to another local post is equally unsafe:
+// finalization will forget by sidecar UUID, not the stale local map id.
+$reboundSidecarMenuItem = $uuid(34);
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $reboundSidecarMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 35,
+];
+$GLOBALS['wpdb']->postRows[34] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'trash',
+    'uuid' => $reboundSidecarMenuItem, 'term_taxonomy_ids' => [120],
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a selected physical menu-item sidecar rebound to another map id must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'all-status sidecar discovery refuses a local-id rebound before Ledger::forget can cross partitions'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+unset($GLOBALS['wpdb']->postRows[34]);
+
+// A genuine target-old row may be selected for deletion only when the
+// selected menu is its sole nav-menu owner. Sharing it with a protected menu
+// would make finalize_menu() delete protected membership/content too.
+$dualOwnedTargetMenuItem = $uuid(36);
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $dualOwnedTargetMenuItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 36,
+];
+$GLOBALS['wpdb']->postRows[36] = [
+    'post_type' => 'nav_menu_item', 'post_status' => 'trash',
+    'uuid' => $dualOwnedTargetMenuItem, 'term_taxonomy_ids' => [120, 121],
+];
+$GLOBALS['wpdb']->taxonomyRows[121] = ['term_id' => 21, 'taxonomy' => 'nav_menu'];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a target-old menu item shared with a protected menu must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'target-old menu ownership requires exactly one selected nav-menu relationship'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+unset($GLOBALS['wpdb']->postRows[36], $GLOBALS['wpdb']->taxonomyRows[121]);
+
+// A canonical target-only item is removed by finalize_menu(), which deletes
+// its post row and every eligible taxonomy relationship. It therefore cannot
+// retain an unrelated taxonomy relationship merely because its selected
+// nav-menu attachment is valid.
+$GLOBALS['wpdb']->taxonomyRows[122] = ['term_id' => 22, 'taxonomy' => 'category'];
+$GLOBALS['wpdb']->postRows[24]['term_taxonomy_ids'] = [120, 122];
+try {
+    ScopedApply::ledger_map_identity_hashes($nestedContract, $nestedCompiled, $nestedActual, true);
+    $check(false, 'a source-absent canonical menu item with another taxonomy relationship must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'source-absent canonical deletion requires full relationship exclusivity'
+    );
+}
+$GLOBALS['wpdb']->postRows[24]['term_taxonomy_ids'] = [120];
+unset($GLOBALS['wpdb']->taxonomyRows[122]);
+
+// A menu tombstone takes a different physical deletion path: delete_entity()
+// enumerates every attached nav_menu_item, including sidecarless rows that
+// normal canonical capture cannot name. Its pre-author inventory must retain
+// only exact mapped children while proving the whole cascade is safe.
+$tombstoneMenu = $uuid(38);
+$tombstoneItem = $uuid(39);
+$tombstoneDeletion = [
+    'format' => 'duo-deletion/v1',
+    'uuid' => $tombstoneMenu,
+    'kind' => 'menu',
+    'type' => 'nav_menu',
+    'source_path' => 'menus/tombstoned.json',
+    'expected_hash' => $hash('tombstone-menu-expected'),
+    'expected_revision' => $hash('tombstone-menu-revision'),
+];
+$tombstoneContract = $nestedContract;
+$tombstoneContract['selectors'] = ['tombstone:' . $tombstoneMenu];
+$tombstoneContract['resolution'] = [
+    'live_root_entities' => [],
+    'tombstone_uuids' => [$tombstoneMenu],
+];
+$tombstoneContract['live'] = [
+    'roots' => [],
+    'closure' => [],
+    'excluded' => [],
+    'inbound' => [],
+];
+$tombstoneContract['tombstones'] = [[
+    'uuid' => $tombstoneMenu,
+    'path' => 'deletions/menu/' . $tombstoneMenu . '.json',
+    'tombstone_hash' => $hash('tombstone-menu-record'),
+    'deletion' => $tombstoneDeletion,
+    'policy_deletion_obligations' => [
+        'selector' => 'menu:nav_menu',
+        'cascades' => ['menu_items', 'term_relationships', 'term_taxonomy', 'termmeta'],
+        'guards' => [],
+        'declared_by' => ['core'],
+        'static_only' => true,
+    ],
+]];
+unset($tombstoneContract['scope_hash']);
+$tombstoneContract['scope_hash'] = $hash(Canon::encode($tombstoneContract));
+$tombstoneContract = ScopeContract::from_array($tombstoneContract);
+$tombstoneCompiled = CompiledRepository::create([
+    'tree' => [],
+    'deletions' => [$tombstoneMenu => [
+        'type' => 'menu',
+        'hash' => $hash('tombstone-menu-entry'),
+        'path' => 'deletions/menu/' . $tombstoneMenu . '.json',
+        'data' => $tombstoneDeletion,
+    ]],
+    'revision_hash' => $hash('tombstone-compiled-revision'),
+    'manifest_hash' => $hash('tombstone-compiled-manifest'),
+    'site_hash' => $hash('tombstone-compiled-site'),
+    'effects_inventory' => [],
+]);
+$tombstoneActual = [
+    $tombstoneMenu => [
+        'type' => 'menu',
+        'hash' => $hash('tombstone-target-menu'),
+        'path' => 'menus/tombstoned.json',
+        'content' => Canon::encode(['uuid' => $tombstoneMenu, 'items' => []]),
+    ],
+];
+$savedTombstoneMaps = $GLOBALS['wpdb']->mapRows;
+$savedTombstoneTerms = $GLOBALS['wpdb']->termRows;
+$savedTombstoneTaxonomies = $GLOBALS['wpdb']->taxonomyRows;
+$savedTombstonePosts = $GLOBALS['wpdb']->postRows;
+$GLOBALS['wpdb']->mapRows = [
+    ['uuid' => $tombstoneMenu, 'entity_type' => 'menu', 'id_kind' => 'term', 'local_id' => 40],
+    ['uuid' => $tombstoneMenu, 'entity_type' => 'menu', 'id_kind' => 'term_taxonomy', 'local_id' => 140],
+];
+$GLOBALS['wpdb']->termRows = [40 => $tombstoneMenu];
+$GLOBALS['wpdb']->taxonomyRows = [140 => ['term_id' => 40, 'taxonomy' => 'nav_menu']];
+$GLOBALS['wpdb']->postRows = [400 => [
+    'post_type' => 'nav_menu_item', 'post_status' => 'trash',
+    'uuid' => '', 'term_taxonomy_ids' => [140],
+]];
+
+$sidecarlessTombstoneHashes = ScopedApply::ledger_map_identity_hashes(
+    $tombstoneContract,
+    $tombstoneCompiled,
+    $tombstoneActual,
+    true
+);
+$check(
+    $sidecarlessTombstoneHashes === [$hash($tombstoneMenu)],
+    'a deletion-authorized tombstone may cascade a sidecarless unmapped item owned only by its selected menu'
+);
+ScopedApply::assert_selected_ledger_map_observation(
+    $nestedPolicy,
+    $tombstoneContract,
+    $tombstoneActual,
+    $sidecarlessTombstoneHashes,
+    $tombstoneCompiled,
+    true
+);
+$check(true, 'tombstone sidecarless cascade is strictly observed before any deletion transaction');
+
+$GLOBALS['wpdb']->taxonomyRows[141] = ['term_id' => 41, 'taxonomy' => 'category'];
+$GLOBALS['wpdb']->postRows[400]['term_taxonomy_ids'] = [140, 141];
+try {
+    ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
+    $check(false, 'a tombstone item with another taxonomy relationship must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'menu tombstone cascade requires full relationship exclusivity before delete_entity()'
+    );
+}
+$GLOBALS['wpdb']->postRows[400]['term_taxonomy_ids'] = [140];
+unset($GLOBALS['wpdb']->taxonomyRows[141]);
+
+// A map without its matching physical sidecar is not a safely deletable map
+// tuple, even under a selected menu tombstone.
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $tombstoneItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 400,
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
+    $check(false, 'a map-only tombstone menu item must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'menu tombstone inventory refuses a mapped item without its matching sidecar'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+
+$GLOBALS['wpdb']->postRows[400]['uuid'] = $tombstoneItem;
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $tombstoneItem,
+    'entity_type' => 'post',
+    'id_kind' => 'post',
+    'local_id' => 400,
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
+    $check(false, 'a mistyped tombstone menu-item map must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'menu tombstone inventory refuses a non-menu-item post map'
+    );
+}
+array_pop($GLOBALS['wpdb']->mapRows);
+
+// The map UUID itself cannot be rebound to a different physical post: the
+// tombstone loop deletes P, while Ledger::uuid_for(P) would otherwise miss B.
+$GLOBALS['wpdb']->mapRows[] = [
+    'uuid' => $tombstoneItem,
+    'entity_type' => 'menu_item',
+    'id_kind' => 'post',
+    'local_id' => 401,
+];
+try {
+    ScopedApply::ledger_map_identity_hashes($tombstoneContract, $tombstoneCompiled, $tombstoneActual, true);
+    $check(false, 'a tombstone menu-item map rebound to another local post must refuse');
+} catch (\Duo\CommandRefusalException $failure) {
+    $check(
+        $failure->reasonCode === 'scoped_identity_recovery_required',
+        'tombstone inventory refuses a sidecar whose map is bound to another local post'
+    );
+}
+$GLOBALS['wpdb']->mapRows[count($GLOBALS['wpdb']->mapRows) - 1]['local_id'] = 400;
+$mappedTombstoneHashes = ScopedApply::ledger_map_identity_hashes(
+    $tombstoneContract,
+    $tombstoneCompiled,
+    $tombstoneActual,
+    true
+);
+$expectedMappedTombstoneHashes = [$hash($tombstoneMenu), $hash($tombstoneItem)];
+sort($expectedMappedTombstoneHashes, SORT_STRING);
+$check(
+    $mappedTombstoneHashes === $expectedMappedTombstoneHashes,
+    'an exact mapped tombstone item is sealed into the selected ledger partition before deletion'
+);
+ScopedApply::assert_selected_ledger_map_observation(
+    $nestedPolicy,
+    $tombstoneContract,
+    $tombstoneActual,
+    $mappedTombstoneHashes,
+    $tombstoneCompiled,
+    true
+);
+$check(true, 'an exact mapped tombstone menu item passes strict pre-author observation');
+
+$GLOBALS['wpdb']->mapRows = $savedTombstoneMaps;
+$GLOBALS['wpdb']->termRows = $savedTombstoneTerms;
+$GLOBALS['wpdb']->taxonomyRows = $savedTombstoneTaxonomies;
+$GLOBALS['wpdb']->postRows = $savedTombstonePosts;
 
 // The same boundary protects a top-level source entity: a deleted target menu
 // with surviving term/term-taxonomy map rows must not make ensure_term_row()
@@ -918,7 +1614,9 @@ try {
         $nestedPolicy,
         $nestedContract,
         $missingSelectedMenuActual,
-        $nestedIdentityHashes
+        $nestedIdentityHashes,
+        $nestedCompiled,
+        true
     );
     $check(false, 'a stale selected top-level menu map must refuse');
 } catch (\Duo\CommandRefusalException $failure) {
