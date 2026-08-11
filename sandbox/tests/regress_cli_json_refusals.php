@@ -857,11 +857,11 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    // 24 with `adapter-observe`, `adapter-survey`, `init`, and DUO-3326's
+    // 25 with `adapter-observe`, `adapter-survey`, `init`, and DUO-3326's
     // `code-preflight` on the current CLI surface. Every advertised handler is
     // covered by the common envelope contract, so this count moves with the set
     // rather than around it.
-    check(count($advertised) === 24, 'every one of the 24 --format=json commands was scanned (' . count($advertised) . ')');
+    check(count($advertised) === 25, 'every one of the 25 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
