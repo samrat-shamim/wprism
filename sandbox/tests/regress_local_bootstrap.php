@@ -122,7 +122,11 @@ final class LocalBootstrapUploadCollisionTransport implements AdoptionTransport 
     }
 }
 
-$root = sys_get_temp_dir() . '/duo-local-bootstrap-' . bin2hex(random_bytes(8));
+$physicalTemp = realpath(sys_get_temp_dir());
+if (!is_string($physicalTemp) || $physicalTemp === '' || $physicalTemp === DIRECTORY_SEPARATOR) {
+    throw new RuntimeException('could not resolve the regression temporary directory');
+}
+$root = rtrim($physicalTemp, DIRECTORY_SEPARATOR) . '/duo-local-bootstrap-' . bin2hex(random_bytes(8));
 $bin = $root . '/bin';
 $wpRoot = $root . '/wordpress';
 $content = $wpRoot . '/wp-content';
@@ -209,6 +213,33 @@ SH;
         '_machine_local' => true,
     ]);
     local_bootstrap_ok($transport->capabilityReport('adopt')->ready(), 'the exact machine-local opt-in advertises the bootstrap mechanism');
+
+    $temporaryTarget = $root . '/temporary-target';
+    $temporaryLink = $root . '/temporary-link';
+    $temporaryFile = $root . '/temporary-file';
+    mkdir($temporaryTarget, 0700);
+    symlink($temporaryTarget, $temporaryLink);
+    file_put_contents($temporaryFile, "not-a-directory\n", LOCK_EX);
+    $temporaryCheck = new ReflectionMethod(BootstrapEligibilityReport::class, 'temporaryPathCheckScript');
+    $linkedTemporary = $transport->captureRaw(
+        (string) $temporaryCheck->invoke(null, $temporaryLink) . "echo safe\n"
+    );
+    local_bootstrap_ok(
+        $linkedTemporary['exit'] === 0 && trim($linkedTemporary['stdout']) === 'safe',
+        'a linked temporary alias resolving to an ordinary writable directory is eligible'
+    );
+    unlink($temporaryLink);
+    symlink($temporaryFile, $temporaryLink);
+    $nonDirectoryTemporary = $transport->captureRaw(
+        (string) $temporaryCheck->invoke(null, $temporaryLink) . "echo safe\n"
+    );
+    local_bootstrap_ok(
+        $nonDirectoryTemporary['exit'] === 0
+            && trim($nonDirectoryTemporary['stdout']) === 'temporary_path_unsafe',
+        'a linked temporary alias resolving to a non-directory remains blocked'
+    );
+    unlink($temporaryLink);
+
     $eligibility = BootstrapEligibilityReport::inspect($transport, 'fixture', 'local', $source);
     if (!$eligibility->ready()) {
         fwrite(STDERR, json_encode($eligibility->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
