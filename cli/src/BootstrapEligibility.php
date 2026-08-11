@@ -283,7 +283,7 @@ PHP;
             . 'mu=' . $q($mu) . "\n"
             . 'repo=' . $q($repo) . "\n"
             . "for command in php tar cp mv rm mkdir rmdir chmod find dirname ln; do command -v \"\$command\" >/dev/null 2>&1 || { echo missing_tool; exit 0; }; done\n"
-            . "[ -d /tmp ] && [ ! -L /tmp ] && [ -w /tmp ] && [ -x /tmp ] || { echo temporary_path_unsafe; exit 0; }\n"
+            . self::temporaryPathCheckScript('/tmp')
             . "check_ancestors() ( p=\"\$1\"; while [ \"\$p\" != / ]; do [ ! -L \"\$p\" ] || { echo ancestor_symlink; exit 1; }; [ ! -e \"\$p\" ] || [ -d \"\$p\" ] || { echo ancestor_type; exit 1; }; p=\$(dirname \"\$p\"); done; )\n"
             . "check_parent_write() ( p=\$(dirname \"\$1\"); while [ ! -e \"\$p\" ]; do p=\$(dirname \"\$p\"); done; [ -d \"\$p\" ] && [ ! -L \"\$p\" ] && [ -w \"\$p\" ] && [ -x \"\$p\" ] || { echo destination_unwritable; exit 1; }; )\n"
             . "check_writable_root() ( p=\"\$1\"; check_ancestors \"\$p\" || exit 1; if [ -e \"\$p\" ]; then [ -d \"\$p\" ] && [ -w \"\$p\" ] && [ -x \"\$p\" ] || { echo destination_unwritable; exit 1; }; else parent=\$(dirname \"\$p\"); [ -d \"\$parent\" ] && [ ! -L \"\$parent\" ] && [ -w \"\$parent\" ] && [ -x \"\$parent\" ] || { echo destination_unwritable; exit 1; }; fi; )\n"
@@ -310,6 +310,20 @@ PHP;
         return $script;
     }
 
+    /**
+     * The transaction uses /tmp for an exclusive, identity-bound archive and
+     * stage. macOS exposes that system directory through the OS-provided
+     * /tmp -> /private/tmp alias. Resolve only this fixed staging path; every
+     * transaction child remains exclusive and identity-bound, while links in
+     * every bootstrap destination itself are still refused.
+     */
+    private static function temporaryPathCheckScript(string $path): string {
+        $quoted = escapeshellarg($path);
+        return 'temporary_path=' . $quoted . "\n"
+            . "temporary_physical=\$(cd -P \"\$temporary_path\" 2>/dev/null && pwd -P) || { echo temporary_path_unsafe; exit 0; }\n"
+            . "[ \"\$temporary_physical\" != / ] && [ -d \"\$temporary_physical\" ] && [ ! -L \"\$temporary_physical\" ] && [ -w \"\$temporary_physical\" ] && [ -x \"\$temporary_physical\" ] || { echo temporary_path_unsafe; exit 0; }\n";
+    }
+
     /** @param list<string> $command @return list<string> */
     private static function controlArgs(array $command): array {
         $bootstrap = trim(str_replace(["\r", "\n"], ' ', self::READ_ONLY_BOOTSTRAP));
@@ -329,8 +343,8 @@ PHP;
                 'install php, tar, cp, mv, rm, mkdir, rmdir, chmod, find, dirname, and ln, then retry',
             ],
             'temporary_path_unsafe' => [
-                'the target temporary directory is not an ordinary writable directory',
-                'repair the local /tmp directory type and permissions, then retry',
+                'the target temporary path does not resolve to an ordinary writable directory',
+                'repair the local /tmp target type and permissions, then retry',
             ],
             'destination_symlink', 'ancestor_symlink', 'control_special' => [
                 'a bootstrap destination or its authority tree crosses a symbolic link',
