@@ -2060,8 +2060,12 @@ $check(
         && $sessionBeginAt !== false
         && $promotionSessionBeginAt < $sessionBeginAt
         && str_contains(
-            (string) file_get_contents($root . '/agent/src/PromotionLock.php'),
-            "'session_id' => 'ps-' . bin2hex(random_bytes(16))"
+            (string) file_get_contents($root . '/agent/src/PromotionLease.php'),
+            "PromotionSessionJournal::start("
+        )
+        && str_contains(
+            (string) file_get_contents($root . '/agent/src/PromotionLease.php'),
+            "'ps-' . bin2hex(random_bytes(16))"
         ),
     'direct scoped apply publishes a random promotion generation only at the sealed-authority boundary'
 );

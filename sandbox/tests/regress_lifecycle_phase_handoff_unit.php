@@ -31,6 +31,7 @@ final class FakePromotionWpdb {
     /** @var list<mixed> */
     public array $preparedArgs = [];
     public bool $fenceHeld = false;
+    public int $connectionId = 17;
 
     public function prepare(string $sql, mixed ...$args): string {
         $this->preparedArgs = $args;
@@ -39,14 +40,14 @@ final class FakePromotionWpdb {
 
     public function get_var(string $sql): mixed {
         if (str_contains($sql, 'CONNECTION_ID()')) {
-            return 17;
+            return $this->connectionId;
         }
         if (str_contains($sql, 'GET_LOCK(')) {
             $this->fenceHeld = true;
             return 1;
         }
         if (str_contains($sql, 'IS_USED_LOCK(')) {
-            return $this->fenceHeld ? 17 : null;
+            return $this->fenceHeld ? $this->connectionId : null;
         }
         if (str_contains($sql, 'RELEASE_LOCK(')) {
             $this->fenceHeld = false;
@@ -155,6 +156,48 @@ $throws(
     'direct apply session could be published twice'
 );
 PromotionLock::release('direct-preflight-owner', $artifact);
+
+// A reconnect must invalidate the old process-local lease witness. Otherwise
+// the first heartbeat on the replacement connection renews normally while the
+// row is unexpired, then a later heartbeat can revive that same row after TTL
+// even though the original connection/fence continuity was lost.
+Ledger::$rows = [];
+$reconnectOwner = 'reconnect-fence-owner';
+PromotionLock::acquire($reconnectOwner, $artifact, 'checkpoint', 1);
+$wpdb->connectionId = 18;
+PromotionLock::heartbeat($reconnectOwner, $artifact, 'reconnected-heartbeat', 1);
+$reconnectedLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
+$reconnectedLease['expires_at'] = time() - 1;
+Ledger::$rows['promotion_lock'] = json_encode($reconnectedLease, JSON_THROW_ON_ERROR);
+$throws(
+    static fn() => PromotionLock::heartbeat($reconnectOwner, $artifact, 'expired-after-reconnect', 1),
+    'lost or expired',
+    'a disconnected advisory fence revived an expired promotion lease'
+);
+$check(
+    (int) json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR)['expires_at'] < time(),
+    'expired lease bytes changed after the replacement-fence refusal'
+);
+PromotionLock::release($reconnectOwner, $artifact);
+$wpdb->connectionId = 17;
+
+// The fence service is public for its narrow ownership surface. If a caller
+// releases it directly, the next lease heartbeat must still clear the stale
+// Lease witness before it can reacquire a replacement fence.
+Ledger::$rows = [];
+$directReleaseOwner = 'direct-fence-release-owner';
+PromotionLock::acquire($directReleaseOwner, $artifact, 'checkpoint', 1);
+\Duo\ProcessFence::release();
+PromotionLock::heartbeat($directReleaseOwner, $artifact, 'post-direct-release', 1);
+$directReleaseLease = json_decode(Ledger::$rows['promotion_lock'], true, 512, JSON_THROW_ON_ERROR);
+$directReleaseLease['expires_at'] = time() - 1;
+Ledger::$rows['promotion_lock'] = json_encode($directReleaseLease, JSON_THROW_ON_ERROR);
+$throws(
+    static fn() => PromotionLock::heartbeat($directReleaseOwner, $artifact, 'expired-after-direct-release', 1),
+    'lost or expired',
+    'a direct process-fence release revived an expired promotion lease'
+);
+PromotionLock::release($directReleaseOwner, $artifact);
 
 Ledger::$rows = [];
 

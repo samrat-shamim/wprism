@@ -16,7 +16,7 @@
  * write_record() `finally` cleanup's is_file($tmp) miss the owned temp hard
  * link and leak it.
  *
- * The fix (agent/src/Publish.php): read_record() uses a fresh lstat regular-file
+ * The fix (agent/src/PublicationJournal.php): read_record() uses a fresh lstat regular-file
  * check, opens the path read-only, and binds the opened descriptor to the named
  * inode before and after reading. write_record() likewise fresh-lstats its
  * owned temp before cleanup. Cached path predicates therefore grant neither
@@ -29,7 +29,7 @@
  * link inside a pcntl_fork()ed CHILD — the parent process's cached stat stays
  * stale (fork + pipe I/O never re-stat a path), the offline stand-in for the
  * bind mount's stale kernel stat. The mutation proof loads a COPY of
- * Publish.php with the inode-bound pre-open check reverted to the old cached
+ * PublicationJournal.php with the inode-bound pre-open check reverted to the old cached
  * file_exists()/is_file()/is_link() boundary and shows the primed-stale
  * readback then throws the non-file boundary again — i.e. the fix genuinely
  * bites. A real directory, symlink, malformed, or unsealed record still
@@ -200,7 +200,7 @@ if ($pcntl) {
 
 // ======================================================================
 // R1' — MUTATION PROOF: the same primed-stale readback, run against a copy of
-// Publish.php whose inode-bound pre-open check is reverted to the old cached
+// PublicationJournal.php whose inode-bound pre-open check is reverted to the old cached
 // path predicates, MUST throw the non-file boundary again. This proves the
 // stronger readback boundary is load-bearing.
 // ======================================================================
@@ -208,9 +208,10 @@ echo "\n== R1': mutation proof (restore cached path predicates -> the boundary f
 if ($pcntl) {
     $root = fresh_root('mutation');
     $realSrc = "$repoRoot/agent/src";
-    $realPublish = "$realSrc/Publish.php";
+    $realEngine = "$realSrc/PublicationJournal.php";
+    $realFacade = "$realSrc/Publish.php";
 
-    // A standalone copy of the engine tree so a mutated Publish.php still finds
+    // A standalone copy of the engine tree so a mutated PublicationJournal.php still finds
     // its own require_once __DIR__ .'/CommandRefusal.php' + Canon.php siblings.
     $mutantSrc = "$root/mutant_src";
     $p = proc_open('cp -R ' . escapeshellarg($realSrc) . ' ' . escapeshellarg($mutantSrc),
@@ -221,16 +222,21 @@ if ($pcntl) {
     fclose($pipes[2]);
     $cpRc = proc_close($p);
     check($cpRc === 0, 'R1\'a: engine source tree copied for mutation' . ($cpRc === 0 ? '' : " ($cpErr)"));
-    $mutantPublish = "$mutantSrc/Publish.php";
+    $mutantEngine = "$mutantSrc/PublicationJournal.php";
+    $mutantFacade = "$mutantSrc/Publish.php";
 
-    $srcText = (string) file_get_contents($mutantPublish);
-    $methodNeedle = "    private static function read_record(string \$path, string \$label): ?array {\n";
+    $srcText = (string) file_get_contents($mutantEngine);
+    // The implementation now belongs to PublicationJournal and is public so
+    // the legacy Publish facade can expose the exact same read boundary.
+    // Target the first implementation declaration; the facade proxy later in
+    // the file is intentionally not the mutation target.
+    $methodNeedle = "    public static function read_record(string \$path, string \$label): ?array {\n";
     $handleNeedle = "        \$handle = @fopen(\$path, 'rb');\n";
     $methodOffset = strpos($srcText, $methodNeedle);
     $bodyOffset = is_int($methodOffset) ? $methodOffset + strlen($methodNeedle) : false;
     $handleOffset = is_int($bodyOffset) ? strpos($srcText, $handleNeedle, $bodyOffset) : false;
     check(is_int($methodOffset) && is_int($bodyOffset) && is_int($handleOffset),
-        'R1\'b: the inode-bound read_record pre-open boundary is present once (mutation target is unambiguous)');
+        'R1\'b: the inode-bound read_record pre-open boundary is present (mutation target is unambiguous)');
     if (is_int($bodyOffset) && is_int($handleOffset)) {
         $legacyPrelude = <<<'PHP'
         if (is_link($path)) {
@@ -248,7 +254,7 @@ PHP;
         $srcText = substr($srcText, 0, $bodyOffset)
             . $legacyPrelude
             . substr($srcText, $handleOffset);
-        file_put_contents($mutantPublish, $srcText);
+        file_put_contents($mutantEngine, $srcText);
     }
 
     // The driver reproduces the primed-stale readback (via its own pcntl_fork)
@@ -259,8 +265,8 @@ PHP;
     file_put_contents($driver, <<<'DRIVER'
 <?php
 error_reporting(E_ALL & ~E_DEPRECATED);
-// argv[1] = a Publish.php to load (its dir must hold CommandRefusal.php +
-//           Canon.php); argv[2] = a fresh work dir.
+// argv[1] = a Publish.php facade to load (its dir must hold the engine,
+//           CommandRefusal.php, and Canon.php); argv[2] = a fresh work dir.
 require $argv[1];
 use Duo\Canon;
 use Duo\Publish;
@@ -344,13 +350,13 @@ DRIVER);
     // Control: the REAL (fixed) source returns the sealed record for the exact
     // same primed-stale reproduction — proving the driver is a faithful repro,
     // so a REFUSED under mutation is attributable to the removed line alone.
-    $realResult = $runDriver($realPublish, "$root/work_real");
+    $realResult = $runDriver($realFacade, "$root/work_real");
     check(str_starts_with($realResult, 'OK'),
         'R1\'c: fixed source reads the stale-cached hard link back as the sealed record (control: ' . $realResult . ')');
 
     // Mutation: with the old cached path predicates restored, the identical
     // primed-stale readback throws the false non-file boundary again.
-    $mutResult = $runDriver($mutantPublish, "$root/work_mutant");
+    $mutResult = $runDriver($mutantFacade, "$root/work_mutant");
     check(str_starts_with($mutResult, 'REFUSED')
             && str_contains($mutResult, 'non-file') && str_contains($mutResult, 'boundary'),
         'R1\'d: restoring cached path predicates reintroduces the non-file boundary refusal (mutation bites: ' . $mutResult . ')');
