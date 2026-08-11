@@ -875,6 +875,55 @@ $recoveryReason = (new ReflectionClass(\Duo\Init::class))
 $recoveryReason->setAccessible(true);
 $directoryIdentity = (new ReflectionClass(\Duo\Init::class))->getMethod('directory_identity');
 $directoryIdentity->setAccessible(true);
+$removeOwnedTree = (new ReflectionClass(\Duo\Init::class))->getMethod('remove_owned_tree');
+$removeOwnedTree->setAccessible(true);
+$treeCleanupFixture = sys_get_temp_dir() . '/duo-init-tree-cleanup-' . bin2hex(random_bytes(6));
+if (!mkdir($treeCleanupFixture, 0777, true)) fail('could not create the exact-owned tree cleanup fixture');
+register_shutdown_function(static function () use ($treeCleanupFixture): void {
+    exec('rm -rf ' . escapeshellarg($treeCleanupFixture));
+});
+// Filesystem permissions cannot make unlink/rmdir fail under a root test
+// runner. Exercise the real private claim-and-remove boundary through the
+// test-only operation seam instead, then prove that the exact root returns to
+// its canonical name rather than being hidden behind a cleanup claim.
+foreach (['unlink' => 'payload', 'rmdir' => null] as $operation => $payload) {
+    $ownedTree = $treeCleanupFixture . '/' . $operation;
+    if (!mkdir($ownedTree, 0777, true)) fail("could not create the $operation cleanup root");
+    if ($payload === null) {
+        if (!mkdir($ownedTree . '/child', 0777, true)) fail('could not create the rmdir cleanup child');
+    } else {
+        file_put_contents($ownedTree . '/child', $payload);
+    }
+    $ownedIdentity = (string) $directoryIdentity->invoke(null, $ownedTree, "exact-owned $operation cleanup root");
+    $cleanupFailure = null;
+    putenv('DUO_TEST_MODE=1');
+    putenv('DUO_TEST_INIT_FAIL_PHASE=owned-tree-remove-' . $operation);
+    try {
+        $removeOwnedTree->invoke(null, $ownedTree, $ownedIdentity, "exact-owned $operation cleanup root");
+    } catch (ReflectionException $unexpected) {
+        throw $unexpected;
+    } catch (Throwable $failure) {
+        $cleanupFailure = $failure;
+    } finally {
+        putenv('DUO_TEST_INIT_FAIL_PHASE');
+        putenv('DUO_TEST_MODE');
+    }
+    check(
+        $cleanupFailure instanceof RuntimeException
+            && str_contains($cleanupFailure->getMessage(), "injected exact-owned tree $operation refusal"),
+        "an exact-owned tree $operation failure is surfaced instead of being reported as clean"
+    );
+    check(
+        is_dir($ownedTree)
+            && !is_link($ownedTree)
+            && hash_equals(
+                $ownedIdentity,
+                (string) $directoryIdentity->invoke(null, $ownedTree, "exact-owned $operation cleanup root")
+            )
+            && glob($treeCleanupFixture . '/.' . $operation . '.duo-init-remove-*') === [],
+        "a failed exact-owned tree $operation cleanup restores its canonical authority without a hidden claim"
+    );
+}
 $gitFixtureRepo = sys_get_temp_dir() . '/duo-init-git-authority-' . bin2hex(random_bytes(6));
 if (!mkdir($gitFixtureRepo . '/.git', 0777, true)) fail('could not create the Git authority fixture');
 register_shutdown_function(static function () use ($gitFixtureRepo): void {

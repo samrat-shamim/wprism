@@ -2014,43 +2014,54 @@ final class Init {
                     $error
                 );
             }
-            if (is_string($stagedCode) && is_string($stagedCodeIdentity)
-                && (file_exists($stagedCode) || is_link($stagedCode))) {
-                self::remove_owned_tree($stagedCode, $stagedCodeIdentity, 'code staging root');
-            }
-            if ($mediaCreated && is_string($mediaIdentity)
-                && (file_exists($repo . '/media') || is_link($repo . '/media'))) {
-                self::remove_owned_tree($repo . '/media', $mediaIdentity, 'media publication root');
-            }
-            if ($stateReserved && is_string($stateIdentity)
-                && is_dir($repo . '/state')
-                && hash_equals($stateIdentity, self::directory_identity($repo . '/state', 'initial state reservation'))) {
-                self::remove_owned_tree($repo . '/state', $stateIdentity, 'initial state reservation');
-            }
-            if ($publishedCode && is_string($publishedCodeIdentity)
-                && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
-                self::remove_owned_tree($repo . '/code', $publishedCodeIdentity, 'code publication root');
-            } elseif ($codeRootCreated && is_string($codeRootEmptyIdentity)
-                && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
-                self::remove_owned_tree($repo . '/code', $codeRootEmptyIdentity, 'empty code publication root');
-            }
-            if (is_array($sitePublication)) {
-                try {
-                    self::compensate_owned_file($siteFile, $sitePublication, 'site.duo.json');
-                } catch (\Throwable $restoreError) {
-                    throw new \RuntimeException(
-                        $error->getMessage() . "\nduo: init could not compensate its site.duo.json publication: " . $restoreError->getMessage(),
-                        0,
-                        $error
-                    );
+            try {
+                if (is_string($stagedCode) && is_string($stagedCodeIdentity)
+                    && (file_exists($stagedCode) || is_link($stagedCode))) {
+                    self::remove_owned_tree($stagedCode, $stagedCodeIdentity, 'code staging root');
                 }
-            }
-            if (is_array($gitignorePublication)) {
-                self::compensate_owned_file($repo . '/.gitignore', $gitignorePublication, '.gitignore');
-            }
-            if ($gitCreated && is_string($gitIdentity)
-                && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
-                self::remove_owned_tree($repo . '/.git', $gitIdentity, 'Git metadata root');
+                if ($mediaCreated && is_string($mediaIdentity)
+                    && (file_exists($repo . '/media') || is_link($repo . '/media'))) {
+                    self::remove_owned_tree($repo . '/media', $mediaIdentity, 'media publication root');
+                }
+                if ($stateReserved && is_string($stateIdentity)
+                    && is_dir($repo . '/state')
+                    && hash_equals($stateIdentity, self::directory_identity($repo . '/state', 'initial state reservation'))) {
+                    self::remove_owned_tree($repo . '/state', $stateIdentity, 'initial state reservation');
+                }
+                if ($publishedCode && is_string($publishedCodeIdentity)
+                    && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
+                    self::remove_owned_tree($repo . '/code', $publishedCodeIdentity, 'code publication root');
+                } elseif ($codeRootCreated && is_string($codeRootEmptyIdentity)
+                    && (file_exists($repo . '/code') || is_link($repo . '/code'))) {
+                    self::remove_owned_tree($repo . '/code', $codeRootEmptyIdentity, 'empty code publication root');
+                }
+                if (is_array($sitePublication)) {
+                    try {
+                        self::compensate_owned_file($siteFile, $sitePublication, 'site.duo.json');
+                    } catch (\Throwable $restoreError) {
+                        throw new \RuntimeException(
+                            $error->getMessage() . "\nduo: init could not compensate its site.duo.json publication: " . $restoreError->getMessage(),
+                            0,
+                            $error
+                        );
+                    }
+                }
+                if (is_array($gitignorePublication)) {
+                    self::compensate_owned_file($repo . '/.gitignore', $gitignorePublication, '.gitignore');
+                }
+                if ($gitCreated && is_string($gitIdentity)
+                    && (file_exists($repo . '/.git') || is_link($repo . '/.git'))) {
+                    self::remove_owned_tree($repo . '/.git', $gitIdentity, 'Git metadata root');
+                }
+            } catch (\Throwable $cleanupFailure) {
+                $retainPublicationLock = true;
+                throw new InitAttemptRetentionException(
+                    $error->getMessage()
+                    . "\nduo: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete: "
+                    . $cleanupFailure->getMessage(),
+                    0,
+                    $cleanupFailure
+                );
             }
             if (is_array($attemptPublication) && is_resource($publicationLock)) {
                 try {
@@ -3360,25 +3371,75 @@ final class Init {
             || !hash_equals($identity, self::directory_identity($path, $label))) {
             throw new \RuntimeException("duo: init preserved a replacement $label instead of deleting external data");
         }
+        $rootInode = self::directory_inode_identity($path, $label);
         $claim = dirname($path) . '/.' . basename($path) . '.duo-init-remove-' . bin2hex(random_bytes(8));
         if (!@rename($path, $claim)) {
             throw new \RuntimeException("duo: init could not claim its $label for cleanup");
         }
         self::init_fault_checkpoint('owned-tree-claim');
         if (!hash_equals($identity, self::directory_identity($claim, $label))) {
-            if (!file_exists($path) && !is_link($path)) {
-                @rename($claim, $path);
+            try {
+                self::restore_claimed_tree($claim, $path, $rootInode, $label);
+            } catch (\Throwable $restoreFailure) {
+                throw new \RuntimeException(
+                    "duo: init retained a raced $label at $claim because it could not restore its canonical boundary: "
+                    . $restoreFailure->getMessage(),
+                    0,
+                    $restoreFailure
+                );
             }
             throw new \RuntimeException(
-                "duo: init retained a raced $label at $claim instead of recursively deleting unowned data"
+                "duo: init preserved a raced $label instead of recursively deleting unowned data"
             );
         }
-        self::remove_tree($claim);
+        try {
+            self::remove_tree($claim, $label);
+            clearstatcache(true, $claim);
+            if (file_exists($claim) || is_link($claim)) {
+                throw new \RuntimeException("duo: init could not remove its exact $label root completely");
+            }
+        } catch (\Throwable $cleanupFailure) {
+            try {
+                self::restore_claimed_tree($claim, $path, $rootInode, $label);
+            } catch (\Throwable $restoreFailure) {
+                throw new \RuntimeException(
+                    "duo: init retained its failed $label cleanup claim at $claim because it could not restore its canonical boundary: "
+                    . $restoreFailure->getMessage(),
+                    0,
+                    $cleanupFailure
+                );
+            }
+            throw new \RuntimeException(
+                "duo: init could not remove its exact $label completely; restored its canonical boundary: "
+                . $cleanupFailure->getMessage(),
+                0,
+                $cleanupFailure
+            );
+        }
     }
 
-    private static function remove_tree(string $path): void {
+    private static function restore_claimed_tree(
+        string $claim,
+        string $path,
+        string $expectedInode,
+        string $label
+    ): void {
+        if (is_link($claim) || !is_dir($claim)) {
+            throw new \RuntimeException("duo: init retained $label claim $claim because its root is no longer an ordinary directory");
+        }
+        self::assert_directory_inode($claim, $expectedInode, $label);
+        if (file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("duo: init retained $label claim $claim because its canonical boundary is no longer absent");
+        }
+        if (!@rename($claim, $path)) {
+            throw new \RuntimeException("duo: init could not restore its exact $label canonical boundary");
+        }
+        self::assert_directory_inode($path, $expectedInode, $label);
+    }
+
+    private static function remove_tree(string $path, string $label): void {
         if (is_link($path) || is_file($path)) {
-            @unlink($path);
+            self::remove_tree_entry($path, false, $label);
             return;
         }
         if (!is_dir($path)) return;
@@ -3387,9 +3448,25 @@ final class Init {
             \RecursiveIteratorIterator::CHILD_FIRST
         );
         foreach ($iterator as $item) {
-            $item->isDir() && !$item->isLink() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+            self::remove_tree_entry($item->getPathname(), $item->isDir() && !$item->isLink(), $label);
         }
-        @rmdir($path);
+        self::remove_tree_entry($path, true, $label);
+    }
+
+    private static function remove_tree_entry(string $path, bool $directory, string $label): void {
+        $operation = $directory ? 'rmdir' : 'unlink';
+        if (getenv('DUO_TEST_MODE') === '1'
+            && getenv('DUO_TEST_INIT_FAIL_PHASE') === 'owned-tree-remove-' . $operation) {
+            throw new \RuntimeException("duo: injected exact-owned tree $operation refusal");
+        }
+        $removed = $directory ? @rmdir($path) : @unlink($path);
+        if (!$removed) {
+            throw new \RuntimeException("duo: init could not $operation its exact $label path $path");
+        }
+        clearstatcache(true, $path);
+        if (file_exists($path) || is_link($path)) {
+            throw new \RuntimeException("duo: init $operation left its exact $label path $path present");
+        }
     }
 
     /** @return array{attachments:int,local:int,provider:int,unavailable:int,strategy:string} */
