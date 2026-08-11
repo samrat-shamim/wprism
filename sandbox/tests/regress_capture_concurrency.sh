@@ -280,12 +280,9 @@ jq -e -s '
   && [[ "$CAPTURE_B_JSON" != *"lock held:"* ]] \
   && [[ "$CAPTURE_B_JSON" != *"DUO-3213"* ]] \
   || fail "capture B's machine contract leaked operator-only path or lock evidence: $CAPTURE_B_JSON"
-[[ "$CAPTURE_B_JSON_ERR" != *"/siterepo/state"* ]] \
-  && [[ "$CAPTURE_B_JSON_ERR" != *"already publishing"* ]] \
-  && [[ "$CAPTURE_B_JSON_ERR" != *"lock held:"* ]] \
-  && [[ "$CAPTURE_B_JSON_ERR" != *"DUO-3213"* ]] \
-  && [[ "$CAPTURE_B_JSON_ERR" != *"duo-command-refusal/v1"* ]] \
-  || fail "capture B's machine invocation leaked operator or refusal-envelope evidence on stderr: $CAPTURE_B_JSON_ERR"
+! grep -Eqi 'duo-command-refusal/v1|capture_lock_held|(^|[[:space:]])duo:|capture refused|another (capture|publisher)|already publishing|lock held:|DUO-3213|/siterepo/state' \
+    <<<"$CAPTURE_B_JSON_ERR" \
+  || fail "capture B's machine invocation leaked operator or refusal evidence on stderr: $CAPTURE_B_JSON_ERR"
 pass "capture B refused immediately through the typed, path-redacted machine contract"
 
 say "PART 1 — human mode retains operator-only lock and destination evidence"
