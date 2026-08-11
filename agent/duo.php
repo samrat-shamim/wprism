@@ -58,6 +58,7 @@ require_once __DIR__ . '/src/Publish.php';
 require_once __DIR__ . '/src/Capture.php';
 require_once __DIR__ . '/src/RepositoryAuthorization.php';
 require_once __DIR__ . '/src/CodeCompatibility.php';
+require_once __DIR__ . '/src/PathSafety.php';
 require_once __DIR__ . '/src/Code.php';
 require_once __DIR__ . '/src/ReferenceGraph.php';
 require_once __DIR__ . '/src/RepositoryCompiler.php';

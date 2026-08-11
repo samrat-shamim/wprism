@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CodeCompatibility.php';
+require_once __DIR__ . '/PathSafety.php';
 
 /**
  * v0 code-half payload support.
@@ -1831,10 +1832,7 @@ final class Code {
     }
 
     private static function safe_join(string $root, string $relative): string {
-        if (!self::safe_relative($relative)) {
-            throw new \RuntimeException("duo: unsafe code path '$relative'");
-        }
-        return rtrim($root, '/') . '/' . $relative;
+        return PathSafety::safe_join($root, $relative);
     }
 
     /**
@@ -1900,14 +1898,7 @@ final class Code {
     }
 
     private static function same_target_path(string $actual, string $expected): bool {
-        $actual = rtrim($actual, '/');
-        $expected = rtrim($expected, '/');
-        if ($actual === $expected) {
-            return true;
-        }
-        $actualReal = realpath($actual);
-        $expectedReal = realpath($expected);
-        return $actualReal !== false && $expectedReal !== false && rtrim($actualReal, '/') === rtrim($expectedReal, '/');
+        return PathSafety::same_target_path($actual, $expected);
     }
 
     /**
@@ -1923,85 +1914,38 @@ final class Code {
         bool $includeLeaf,
         string $operation
     ): void {
-        if (!defined('WP_CONTENT_DIR') || !is_string(WP_CONTENT_DIR) || WP_CONTENT_DIR === '') {
-            throw new \RuntimeException("duo: $operation requires WordPress WP_CONTENT_DIR");
-        }
-        if (!self::safe_relative($relative)) {
-            throw new \RuntimeException("duo: $operation refuses unsafe target path '$relative'");
-        }
-        $parts = explode('/', $relative);
-        if (!$includeLeaf) {
-            array_pop($parts);
-        }
-        $cursor = rtrim(WP_CONTENT_DIR, '/');
-        $walked = [];
-        foreach ($parts as $part) {
-            $walked[] = $part;
-            $cursor .= '/' . $part;
-            if (is_link($cursor)) {
-                $path = implode('/', $walked);
-                throw new \RuntimeException("duo: $operation refuses symbolic-link target path '$path'");
-            }
-        }
+        PathSafety::assert_no_symlinked_target_path($relative, $includeLeaf, $operation);
     }
 
     private static function safe_relative(string $path): bool {
-        if ($path === '' || str_starts_with($path, '/') || str_contains($path, '\\') || str_contains($path, "\0")
-            || preg_match('/[\x00-\x1f\x7f]/', $path)) {
-            return false;
-        }
-        $parts = explode('/', $path);
-        return !in_array('', $parts, true) && !in_array('.', $parts, true) && !in_array('..', $parts, true);
+        return PathSafety::safe_relative($path);
     }
 
     private static function safe_component(string $name): bool {
-        return $name !== '' && self::safe_relative($name) && !str_contains($name, '/');
+        return PathSafety::safe_component($name);
     }
 
     /** Match WordPress get_plugins(): root PHP files or PHP files one directory deep. */
     private static function plugin_main_candidate(string $path): bool {
-        if (!str_ends_with(strtolower($path), '.php')) {
-            return false;
-        }
-        $parts = explode('/', $path);
-        return $parts[0] === 'plugins' && (count($parts) === 2 || count($parts) === 3);
+        return PathSafety::plugin_main_candidate($path);
     }
 
     /** @param array<string,bool> $currentPaths */
     private static function has_current_path_at_or_below(string $path, array $currentPaths): bool {
-        foreach ($currentPaths as $current => $_present) {
-            if ($current === $path || str_starts_with($current, $path . '/')) {
-                return true;
-            }
-        }
-        return false;
+        return PathSafety::has_current_path_at_or_below($path, $currentPaths);
     }
 
     /** @param array<string,bool> $ownedRoots */
     private static function owned_path(string $path, array $ownedRoots): bool {
-        foreach ($ownedRoots as $root => $_owned) {
-            if ($path === $root || str_starts_with($path, $root . '/')) {
-                return true;
-            }
-        }
-        return false;
+        return PathSafety::owned_path($path, $ownedRoots);
     }
 
     private static function safe_component_root(string $path): bool {
-        if (!self::safe_relative($path)) {
-            return false;
-        }
-        $parts = explode('/', $path);
-        return count($parts) === 2
-            && in_array($parts[0], self::ROOTS, true)
-            && self::safe_component($parts[1]);
+        return PathSafety::safe_component_root($path, self::ROOTS);
     }
 
     private static function reserved_path(string $path): bool {
-        $lower = strtolower($path);
-        return $lower === 'mu-plugins/duo'
-            || str_starts_with($lower, 'mu-plugins/duo/')
-            || $lower === 'mu-plugins/duo-loader.php';
+        return PathSafety::reserved_path($path);
     }
 
     private static function ensure_target_parent(string $dir): void {
