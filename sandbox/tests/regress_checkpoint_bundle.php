@@ -5,11 +5,14 @@ declare(strict_types=1);
 // exact database restore ordering, prior verification, and retention.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
+require dirname(__DIR__, 2) . '/agent/src/Canon.php';
 require dirname(__DIR__, 2) . '/cli/src/Transport.php';
 require dirname(__DIR__, 2) . '/cli/src/SshTransport.php';
 require dirname(__DIR__, 2) . '/cli/src/RollbackAuthority.php';
+require dirname(__DIR__, 2) . '/cli/src/ScopedRollbackProfile.php';
 
 use Duo\Orchestrator\RollbackAuthority;
+use Duo\Orchestrator\ScopedRollbackProfile;
 use Duo\Orchestrator\SshTransport;
 use Duo\Recovery\CheckpointBundle;
 use Duo\Recovery\RecoveryExecutor;
@@ -85,6 +88,47 @@ function checkpoint_request(array $identity, string $action, string $timestamp):
         'receipt_id' => str_repeat('c', 48), 'retention_until' => '2020-01-02T00:00:00Z',
         'target_id' => $identity['target_id'], 'timestamp' => $timestamp,
     ];
+}
+/** @return array<string,mixed> */
+function checkpoint_scoped_plan(string $artifactHash, string $scopeHash, string $seed): array {
+    $hash = static fn(string $value): string => hash('sha256', $seed . ':' . $value);
+    return [
+        'artifact_hash' => $artifactHash,
+        'format' => 'duo-scoped-plan/v1',
+        'resolved_adapters' => [['name' => 'fixture-db', 'version' => '1.0.0']],
+        'scope' => [
+            'format' => 'duo-scope-contract/v1',
+            'scope_hash' => $scopeHash,
+            'source_artifact_hash' => $artifactHash,
+        ],
+        'selected_actions' => [],
+        'selected_surfaces' => ['option:fixture-' . $seed],
+        'target' => [
+            'ledger_map_root' => $hash('ledger-map'),
+            'protected_ledger_map_root' => $hash('protected-ledger-map'),
+            'protected_out_of_scope_root' => $hash('protected-root'),
+            'selected_before_root' => $hash('selected-before'),
+            'selected_ledger_map_root' => $hash('selected-ledger-map'),
+            'target_observation_hash' => $hash('target-observation'),
+        ],
+    ];
+}
+/** @return array<string,mixed> */
+function checkpoint_scoped_terminal(string $seed): array {
+    $hash = static fn(string $value): string => hash('sha256', $seed . ':' . $value);
+    $terminal = [
+        'authority_hash' => $hash('authority'),
+        'convergence_hash' => $hash('convergence'),
+        'intents_hash' => $hash('intents'),
+        'lease_hash' => $hash('lease'),
+        'phase' => 'complete',
+        'protected_ledger_map_hash' => $hash('protected-map'),
+        'receipts_hash' => $hash('receipts'),
+        'selected_ledger_map_hash' => $hash('selected-map'),
+        'session_id' => 'scoped-session-' . $seed,
+    ];
+    $terminal['terminal_hash'] = hash('sha256', \Duo\Canon::encode($terminal));
+    return $terminal;
 }
 
 $exclusionSource = <<<'PHP'
@@ -204,5 +248,200 @@ try {
     checkpoint_ok(($verifiedController['execution']['ok']??false)===true,'fresh SSH controller executes and completes exact prior-world verification');
     $authority->append('rolled_back','state_transition','controller-rolled-back',1,'controller-worker',$hash('controller-rolled-back'),str_repeat('0',64),'2020-02-01T00:00:08Z');
     $controllerDeleted=$authority->deleteCheckpoint('2020-02-03T00:00:00Z');checkpoint_ok(($controllerDeleted['ok']??false)===true&&($controllerDeleted['format']??'')==='duo-checkpoint-tombstone/v1','controller signs terminal retention deletion and receives the exact tombstone');
+
+    // DUO-3344: checkpoint-only scoped promotion deliberately configures no
+    // code/upload/effect provider.  The independent receipt remains fully
+    // recoverable across controller response loss and target-plan drift.
+    $scopedHost = $tmp . '/scoped-controller-host';
+    $scopedRoot = $scopedHost . '/.duo/control';
+    RollbackControl::initialize($scopedRoot);
+    RollbackControl::installPublicKey($scopedRoot, $keyId, base64_encode($public));
+    $scopedRuntime = $scopedRoot . '/recovery-runtime';
+    mkdir($scopedRuntime, 0700);
+    foreach (['rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
+        copy(dirname(__DIR__, 2) . '/recovery/' . $runtimeFile, $scopedRuntime . '/' . $runtimeFile);
+    }
+    $scopedProviderState = $tmp . '/scoped-provider-state';
+    $scopedExclusionState = $tmp . '/scoped-exclusion.json';
+    $scopedConfig = $config;
+    $scopedConfig['checkpoint_provider'] = [PHP_BINARY, $provider, $scopedProviderState, $dbSource, $kmsKey];
+    $scopedConfig['exclusion_provider'] = [PHP_BINARY, $exclusion, $scopedExclusionState];
+    $scopedConfigPath = $tmp . '/scoped-config.json';
+    checkpoint_write($scopedConfigPath, RollbackControl::canonical($scopedConfig) . "\n");
+    RecoveryExecutor::configureFromFile($scopedRoot, $scopedConfigPath);
+    $scopedTransport = new SshTransport('scoped-checkpoint-controller', [
+        'transport' => 'ssh',
+        'host' => 'fixture-host',
+        'wp_path' => $tmp . '/unused-wordpress',
+        'repo_path' => $scopedHost,
+        'rollback_key_id' => $keyId,
+        'rollback_signing_key' => $signingPath,
+        'rollback_recovery' => [
+            'adapters' => $commands,
+            'checkpoint_provider' => [PHP_BINARY, $provider, $scopedProviderState, $dbSource, $kmsKey],
+            'exclusion_provider' => [PHP_BINARY, $exclusion, $scopedExclusionState],
+            'timeout_seconds' => 3,
+        ],
+        'verified_rollback' => [
+            'claim_ttl_seconds' => 90,
+            'encryption_key_id' => 'kms-scoped-fixture',
+            'retention_seconds' => 3600,
+        ],
+    ]);
+    $scopeHash = $hash('scoped-contract');
+    $scopedArtifact = $hash('scoped-artifact');
+    $scopedPlan = checkpoint_scoped_plan($scopedArtifact, $scopeHash, 'original');
+    $scopedSelection = ScopedRollbackProfile::select($scopedTransport, $scopedPlan, $scopeHash);
+    checkpoint_ok(($scopedSelection['automatic'] ?? false) === true,
+        'checkpoint-only scoped profile is ready without code/upload/effect providers');
+    $scopedProfile = new ScopedRollbackProfile($scopedTransport);
+    $scopedOwner = 'scoped:fixture-owner';
+    $scopedClaimant = 'scoped-fixture-worker';
+    $scopedClaim = $scopedProfile->claim(
+        $scopedPlan, $scopeHash, $scopedOwner, $scopedClaimant, '2020-03-01T00:00:00Z'
+    );
+    $scopedReceipt = (array) $scopedClaim['receipt'];
+    checkpoint_ok(($scopedReceipt['format'] ?? '') === RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+        && !array_key_exists('code_release_metadata_sha256', $scopedReceipt)
+        && !array_key_exists('uploads_inventory_sha256', $scopedReceipt)
+        && !array_key_exists('lifecycle_receipts_sha256', $scopedReceipt)
+        && hash_equals(
+            hash('sha256', RollbackControl::canonical($scopedReceipt)),
+            (string) ($scopedClaim['receipt_payload_sha256'] ?? '')
+        ), 'scoped claim publishes only the hash-bound checkpoint receipt and canonical payload hash');
+
+    $changedPlan = checkpoint_scoped_plan($scopedArtifact, $scopeHash, 'after-apply');
+    $changedPlan['selected_surfaces'] = ['option:after-apply'];
+    $resumedClaim = $scopedProfile->claim($changedPlan, $scopeHash, $scopedOwner, $scopedClaimant);
+    checkpoint_ok(($resumedClaim['receipt_payload_sha256'] ?? '') === ($scopedClaim['receipt_payload_sha256'] ?? '')
+        && ($resumedClaim['status']['generation'] ?? 0) === 1,
+        'active scoped retry ignores changed mutable plan witnesses and resumes the exact receipt generation');
+    $resumeOnlyPlan = $changedPlan;
+    $resumeOnlyPlan['selected_actions'] = [['type' => 'post-apply-plan-drift']];
+    checkpoint_ok((ScopedRollbackProfile::select($scopedTransport, $resumeOnlyPlan, $scopeHash)['automatic'] ?? false) === true,
+        'active scoped profile selection bypasses fresh-plan-only witness validation during recovery');
+    checkpoint_refuses(fn() => $scopedProfile->claim($changedPlan, $hash('different-scope'), $scopedOwner, $scopedClaimant),
+        'active scoped retry refuses a different scope intent');
+    $wrongArtifactPlan = $changedPlan;
+    $wrongArtifactPlan['artifact_hash'] = $hash('different-artifact');
+    checkpoint_refuses(fn() => $scopedProfile->claim($wrongArtifactPlan, $scopeHash, $scopedOwner, $scopedClaimant),
+        'active scoped retry refuses a different artifact intent');
+    checkpoint_refuses(fn() => $scopedProfile->claim($changedPlan, $scopeHash, 'scoped:other-owner', $scopedClaimant),
+        'active scoped retry refuses a different owner intent');
+    checkpoint_refuses(fn() => $scopedProfile->claim($changedPlan, $scopeHash, $scopedOwner, 'scoped-other-worker'),
+        'active scoped retry refuses a different claimant intent');
+
+    $scopedProfile->startPromotion();
+    checkpoint_ok(($scopedProfile->startPromotion()['state'] ?? '') === 'promoting',
+        'scoped promotion start is state-idempotent');
+    $scopedAuthority = new RollbackAuthority($scopedTransport);
+    $beforeScopedGate = RollbackAuthority::scopedStatus($scopedTransport);
+    checkpoint_refuses(fn() => $scopedAuthority->appendScoped(
+        'verifying_new', 'state_transition', 'scoped_fresh_verification', 1, $scopedClaimant,
+        $hash('missing-scoped-apply-input'), $hash('missing-scoped-apply-result')
+    ), 'target scoped receipt refuses verification/commit transition without completed scoped_apply evidence');
+    checkpoint_refuses(fn() => $scopedAuthority->prepareScopedOperation(
+        'promoting', 'code_restore', 1, ['operation' => 'code_restore']
+    ), 'target scoped receipt refuses an ordinary code operation before executor authorization');
+    checkpoint_ok(RollbackControl::canonical($beforeScopedGate) === RollbackControl::canonical(RollbackAuthority::scopedStatus($scopedTransport)),
+        'scoped target-gate refusals preserve the exact signed authority head');
+    checkpoint_refuses(fn() => $scopedProfile->sealCommit(),
+        'profile commit seal refuses absent scoped_apply evidence without state mutation');
+    checkpoint_ok(($scopedProfile->status()['state'] ?? '') === 'promoting',
+        'absent scoped_apply leaves scoped promotion in its retryable promoting state');
+
+    $scopedTerminal = checkpoint_scoped_terminal('first');
+    $scopedProfile->recordScopedApply($scopedTerminal);
+    checkpoint_ok(($scopedProfile->recordScopedApply($scopedTerminal)['state'] ?? '') === 'promoting',
+        'exact scoped apply receipt recording is operation-idempotent');
+    checkpoint_refuses(fn() => $scopedProfile->recordScopedApply(checkpoint_scoped_terminal('different')),
+        'completed scoped apply evidence refuses a mismatched terminal receipt');
+    $sealed = $scopedProfile->sealCommit();
+    checkpoint_ok(($sealed['state'] ?? '') === 'committed'
+        && (RollbackAuthority::status($scopedTransport)['exclusion_state'] ?? '') === 'held',
+        'sealCommit commits only after exact scoped_apply while the independent exclusion remains held');
+    checkpoint_ok(($scopedProfile->sealCommit()['state'] ?? '') === 'committed',
+        'scoped commit sealing is idempotent after a lost response');
+    $heldTerminalResume = $scopedProfile->claim($changedPlan, $scopeHash, $scopedOwner, $scopedClaimant);
+    checkpoint_ok(($heldTerminalResume['receipt_payload_sha256'] ?? '') === ($scopedClaim['receipt_payload_sha256'] ?? '')
+        && ($heldTerminalResume['status']['exclusion_state'] ?? '') === 'held',
+        'terminal scoped receipt with held exclusion resumes instead of minting a second generation');
+    checkpoint_refuses(fn() => $scopedProfile->claim($changedPlan, $scopeHash, 'scoped:other-owner', $scopedClaimant),
+        'terminal held scoped receipt refuses a mismatched immutable intent');
+
+    // Simulate a release that reached the target but whose controller response
+    // was lost.  The subsequent profile release must observe the durable
+    // released record and converge idempotently.
+    $sealedTarget = RollbackControl::status($scopedRoot);
+    checkpoint_exclusion_submit($scopedRoot, [
+        'action' => 'release',
+        'artifact_hash' => (string) $sealedTarget['artifact_hash'],
+        'claim_epoch' => (int) $sealedTarget['claim_epoch'],
+        'claimant' => (string) $sealedTarget['claimant'],
+        'format' => 'duo-exclusion-request/v1',
+        'generation' => (int) $sealedTarget['generation'],
+        'owner' => (string) $sealedTarget['owner'],
+        'receipt_id' => (string) $sealedTarget['receipt_id'],
+        'target_id' => (string) $sealedTarget['target_id'],
+        'timestamp' => '2020-03-01T00:00:10Z',
+    ], $keyId, $secret);
+    checkpoint_ok(($scopedProfile->release()['state'] ?? '') === 'committed',
+        'lost terminal release response retries against the durable released exclusion record');
+    $nextScopedClaim = $scopedProfile->claim(
+        $scopedPlan, $scopeHash, $scopedOwner, $scopedClaimant, '2020-03-02T00:00:00Z'
+    );
+    checkpoint_ok(($nextScopedClaim['status']['generation'] ?? 0) === 2
+        && ($nextScopedClaim['receipt_payload_sha256'] ?? '') !== ($scopedClaim['receipt_payload_sha256'] ?? ''),
+        'terminal scoped receipt with released exclusion advances to a new generation');
+    $scopedProfile->startPromotion();
+    $scopedRolledBack = $scopedProfile->rollback();
+    checkpoint_ok(($scopedRolledBack['state'] ?? '') === 'rolled_back'
+        && (RollbackAuthority::status($scopedTransport)['exclusion_state'] ?? '') === 'released',
+        'checkpoint-only scoped rollback restores and prior-verifies through no code/upload/effect provider');
+    checkpoint_ok(($scopedProfile->rollback()['state'] ?? '') === 'rolled_back',
+        'terminal scoped rollback release is idempotent after a lost response');
+
+    // An independently prepared operation is never enough to seal success.
+    // This separate root remains intentionally nonterminal after the refusal.
+    $openHost = $tmp . '/scoped-open-controller-host';
+    $openRoot = $openHost . '/.duo/control';
+    RollbackControl::initialize($openRoot);
+    RollbackControl::installPublicKey($openRoot, $keyId, base64_encode($public));
+    $openRuntime = $openRoot . '/recovery-runtime';
+    mkdir($openRuntime, 0700);
+    foreach (['rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
+        copy(dirname(__DIR__, 2) . '/recovery/' . $runtimeFile, $openRuntime . '/' . $runtimeFile);
+    }
+    $openProviderState = $tmp . '/scoped-open-provider-state';
+    $openExclusionState = $tmp . '/scoped-open-exclusion.json';
+    $openConfig = $config;
+    $openConfig['checkpoint_provider'] = [PHP_BINARY, $provider, $openProviderState, $dbSource, $kmsKey];
+    $openConfig['exclusion_provider'] = [PHP_BINARY, $exclusion, $openExclusionState];
+    $openConfigPath = $tmp . '/scoped-open-config.json';
+    checkpoint_write($openConfigPath, RollbackControl::canonical($openConfig) . "\n");
+    RecoveryExecutor::configureFromFile($openRoot, $openConfigPath);
+    $openTransport = new SshTransport('scoped-open-controller', [
+        'transport' => 'ssh', 'host' => 'fixture-host', 'wp_path' => $tmp . '/unused-wordpress',
+        'repo_path' => $openHost, 'rollback_key_id' => $keyId, 'rollback_signing_key' => $signingPath,
+        'rollback_recovery' => [
+            'adapters' => $commands,
+            'checkpoint_provider' => [PHP_BINARY, $provider, $openProviderState, $dbSource, $kmsKey],
+            'exclusion_provider' => [PHP_BINARY, $exclusion, $openExclusionState], 'timeout_seconds' => 3,
+        ],
+        'verified_rollback' => [
+            'claim_ttl_seconds' => 90, 'encryption_key_id' => 'kms-scoped-fixture', 'retention_seconds' => 3600,
+        ],
+    ]);
+    $openProfile = new ScopedRollbackProfile($openTransport);
+    $openProfile->claim($scopedPlan, $scopeHash, $scopedOwner, $scopedClaimant, '2020-03-03T00:00:00Z');
+    $openProfile->startPromotion();
+    $openAuthority = new RollbackAuthority($openTransport);
+    $openAuthority->prepareScopedOperation('promoting', 'scoped_apply', 1, ['format' => 'duo-open-scoped-apply/v1']);
+    checkpoint_refuses(fn() => $openProfile->sealCommit(),
+        'profile commit seal refuses an open scoped_apply operation without state mutation');
+    checkpoint_ok(($openProfile->status()['state'] ?? '') === 'promoting'
+        && (RollbackAuthority::scopedStatus($openTransport)['open_operations'] ?? 0) === 1,
+        'open scoped_apply remains retryable and cannot be mistaken for a completed terminal receipt');
+
     echo "PASS: encrypted checkpoint bundle + verified restore regression\n";
 } finally { sodium_memzero($secret); checkpoint_remove_tree($tmp); }

@@ -19,6 +19,13 @@ final class RollbackControl {
     private const CERTIFICATION_CRASH_MARKER_BYTES = "duo-rollback-certification-crash-mode/v1\n";
     public const TARGET_FORMAT = 'duo-rollback-target/v1';
     public const RECEIPT_FORMAT = 'duo-rollback-receipt/v2';
+    /**
+     * A checkpoint-only authority for one externally excluded scoped state
+     * promotion.  It deliberately has no code, upload, lifecycle, or effect
+     * recovery fields: admitting any of those would turn a state-only window
+     * into the ordinary whole-release rollback protocol.
+     */
+    public const SCOPED_PROMOTION_RECEIPT_FORMAT = 'duo-scoped-promotion-receipt/v1';
     private const LEGACY_RECEIPT_FORMAT = 'duo-rollback-receipt/v1';
     public const EVENT_FORMAT = 'duo-rollback-event/v1';
 
@@ -47,6 +54,26 @@ final class RollbackControl {
         'verifying_prior' => ['rolled_back'],
         'committed' => [],
         'rolled_back' => [],
+    ];
+
+    /**
+     * Checkpoint-only generations are intentionally narrower than ordinary
+     * rollback authority.  Even a holder of the controller signing key cannot
+     * use this receipt format to smuggle a code, upload, lifecycle, or effect
+     * operation into the external chain.
+     *
+     * @var array<string,string>
+     */
+    private const SCOPED_STATE_TRANSITION_OPERATIONS = [
+        'prepared>promoting' => 'scoped_promotion_start',
+        'promoting>verifying_new' => 'scoped_fresh_verification',
+        'verifying_new>committed' => 'scoped_committed_verified',
+        'prepared>rollback_pending' => 'scoped_promotion_failed',
+        'promoting>rollback_pending' => 'scoped_promotion_failed',
+        'verifying_new>rollback_pending' => 'scoped_promotion_failed',
+        'rollback_pending>rolling_back' => 'scoped_rollback_start',
+        'rolling_back>verifying_prior' => 'scoped_verifying_prior',
+        'verifying_prior>rolled_back' => 'scoped_rolled_back_verified',
     ];
 
     /** @var list<string> */
@@ -85,6 +112,29 @@ final class RollbackControl {
         'receipt_id', 'resources_inventory_sha256', 'retention_until',
         'runtime_fingerprints_sha256', 'signing_key_id', 'target_id',
         'uploads_inventory_sha256',
+    ];
+
+    /** @var list<string> */
+    private const SCOPED_PROMOTION_RECEIPT_KEYS = [
+        'adapter_versions_sha256',
+        'artifact_hash',
+        'checkpoint_sha256',
+        'claim_ttl_seconds',
+        'created_at',
+        'encryption_key_id',
+        'exclusion_token_sha256',
+        'format',
+        'generation',
+        'ledger_session_sha256',
+        'owner',
+        'prior_verifier_inputs_sha256',
+        'receipt_id',
+        'resources_inventory_sha256',
+        'retention_until',
+        'runtime_fingerprints_sha256',
+        'scope_hash',
+        'signing_key_id',
+        'target_id',
     ];
 
     /** @var list<string> */
@@ -245,6 +295,9 @@ final class RollbackControl {
             }
             $verified = self::verifyActive($root, $target);
             $receipt = $verified['receipt'];
+            if (self::isScopedPromotionReceipt($receipt)) {
+                return self::scopedStatusFromVerified($target, $verified);
+            }
             return [
                 'active' => true,
                 'artifact_hash' => (string) $receipt['artifact_hash'],
@@ -336,7 +389,13 @@ final class RollbackControl {
      * Return the verified receipt and open-operation set used by the isolated
      * recovery executor. Nothing in this view is sourced from WordPress.
      *
-     * @return array{receipt:array<string,mixed>,status:array<string,mixed>,open_operations:array<string,array<string,mixed>>}
+     * @return array{
+     *   receipt:array<string,mixed>,
+     *   status:array<string,mixed>,
+     *   open_operations:array<string,array<string,mixed>>,
+     *   completed_operations:array<string,array<string,mixed>>,
+     *   completed_operation_history:array<string,array<string,mixed>>
+     * }
      */
     public static function activeEvidence(string $root): array {
         return self::withLock($root, function () use ($root): array {
@@ -346,6 +405,8 @@ final class RollbackControl {
             }
             $verified = self::verifyActive($root, $target);
             return [
+                'completed_operation_history' => $verified['completed_operation_history'],
+                'completed_operations' => $verified['completed_operations'],
                 'open_operations' => $verified['open_operations'],
                 'receipt' => $verified['receipt'],
                 'status' => self::statusFromVerified($target, $verified),
@@ -436,11 +497,26 @@ final class RollbackControl {
             || (int) $event['claim_epoch'] !== 1) {
             throw new \RuntimeException('duo rollback: first event must establish prepared at sequence/claim epoch 1');
         }
+        if (self::isScopedPromotionReceipt($receipt)
+            && (string) $event['operation_id'] !== 'promotion-claim') {
+            throw new \RuntimeException('duo rollback: scoped first event must be the scoped promotion claim');
+        }
         self::assertClaimExpiry($event, (int) $receipt['claim_ttl_seconds']);
         if (self::timeValue((string) $event['timestamp']) < self::timeValue((string) $receipt['created_at'])) {
             throw new \RuntimeException('duo rollback: first event predates its immutable receipt');
         }
-        if (RecoveryExecutor::configured($root)) {
+        if (self::isScopedPromotionReceipt($receipt)) {
+            // Scoped promotion is safe only while the target independently
+            // proves the same exclusion and encrypted checkpoint.  It does
+            // not inherit optional whole-release provider requirements.
+            if (!RecoveryExecutor::configured($root) || !CheckpointBundle::configured($root)) {
+                throw new \RuntimeException(
+                    'duo rollback: scoped promotion receipt requires configured exclusion and checkpoint recovery'
+                );
+            }
+            RecoveryExecutor::assertClaimExclusion($root, $receipt, $event);
+            CheckpointBundle::assertClaimCheckpoint($root, $receipt, $event);
+        } elseif (RecoveryExecutor::configured($root)) {
             RecoveryExecutor::assertClaimExclusion($root, $receipt, $event);
             if (CheckpointBundle::configured($root)) {
                 CheckpointBundle::assertClaimCheckpoint($root, $receipt, $event);
@@ -525,7 +601,8 @@ final class RollbackControl {
             $verified['completed_operations'],
             $verified['completed_operation_history'],
             $verified['required_operations'],
-            $isTakeover
+            $isTakeover,
+            self::isScopedPromotionReceipt($receipt)
         );
 
         $dir = self::receiptDirectory($root, (string) $receipt['receipt_id']);
@@ -622,7 +699,8 @@ final class RollbackControl {
                     $completed,
                     $completedHistory,
                     $required,
-                    $takeover
+                    $takeover,
+                    self::isScopedPromotionReceipt($receipt)
                 );
             }
             self::assertClaimExpiry($event, (int) $receipt['claim_ttl_seconds']);
@@ -716,10 +794,32 @@ final class RollbackControl {
         array $completed,
         array $completedHistory,
         array $required,
-        bool $takeover
+        bool $takeover,
+        bool $scopedReceipt
     ): void {
         $status = (string) $event['operation_status'];
         $nextState = (string) $event['state'];
+        if ($scopedReceipt) {
+            $operation = (string) $event['operation_id'];
+            if ($status === 'state_transition') {
+                $expected = self::SCOPED_STATE_TRANSITION_OPERATIONS[$currentState . '>' . $nextState] ?? null;
+                if (!is_string($expected) || !hash_equals($expected, $operation)) {
+                    throw new \RuntimeException('duo rollback: scoped receipt refused an unknown state transition operation');
+                }
+            } elseif (in_array($status, ['prepared', 'completed'], true)) {
+                $allowedState = [
+                    'scoped_apply' => 'promoting',
+                    'database_restore' => 'rolling_back',
+                    'prior_verify' => 'verifying_prior',
+                ][$operation] ?? null;
+                if (!is_string($allowedState)
+                    || $currentState !== $allowedState || $nextState !== $allowedState) {
+                    throw new \RuntimeException('duo rollback: scoped receipt refused a non-checkpoint operation');
+                }
+            } else {
+                throw new \RuntimeException('duo rollback: scoped receipt refused an unsupported operation status');
+            }
+        }
         if ($takeover) {
             return;
         }
@@ -742,6 +842,16 @@ final class RollbackControl {
                     && !is_array($completedHistory['database_restore'] ?? null)) {
                     throw new \RuntimeException(
                         'duo rollback: rolled_back requires a completed declared database_restore'
+                    );
+                }
+            }
+            if ($scopedReceipt
+                && in_array($currentState . '>' . $nextState, ['promoting>verifying_new', 'verifying_new>committed'], true)) {
+                $scopedApply = $completed['scoped_apply'] ?? null;
+                if (!is_array($scopedApply)
+                    || (int) ($scopedApply['claim_epoch'] ?? 0) !== (int) $event['claim_epoch']) {
+                    throw new \RuntimeException(
+                        'duo rollback: scoped promotion commit requires a completed scoped_apply in the current claim epoch'
                     );
                 }
             }
@@ -847,6 +957,9 @@ final class RollbackControl {
 
     /** @param array{receipt:array<string,mixed>,open_operations:array<string,array<string,mixed>>,last_timestamp:int} $verified */
     private static function statusFromVerified(array $target, array $verified): array {
+        if (self::isScopedPromotionReceipt($verified['receipt'])) {
+            return self::scopedStatusFromVerified($target, $verified);
+        }
         return [
             'active' => true,
             'artifact_hash' => (string) $target['artifact_hash'],
@@ -872,6 +985,53 @@ final class RollbackControl {
             'retention_until' => (string) $verified['receipt']['retention_until'],
             'uploads_inventory_sha256' => (string) $verified['receipt']['uploads_inventory_sha256'],
             'sequence' => (int) $target['sequence'],
+            'state' => (string) $target['state'],
+            'target_id' => (string) $target['target_id'],
+            'terminal' => in_array((string) $target['state'], self::TERMINAL_STATES, true),
+        ];
+    }
+
+    /**
+     * Keep ordinary status bytes stable while giving scoped consumers an
+     * explicit receipt discriminator.  Omitted full-release evidence is
+     * intentional, not a null/manual fallback: no code/upload/effect
+     * operation has authority in this generation.
+     *
+     * @param array{receipt:array<string,mixed>,open_operations:array<string,array<string,mixed>>,last_timestamp:int} $verified
+     * @return array<string,mixed>
+     */
+    private static function scopedStatusFromVerified(array $target, array $verified): array {
+        $receipt = $verified['receipt'];
+        return [
+            'active' => true,
+            'adapter_versions_sha256' => (string) $receipt['adapter_versions_sha256'],
+            'artifact_hash' => (string) $target['artifact_hash'],
+            'claim_epoch' => (int) $target['claim_epoch'],
+            'claim_expires_at' => (string) $target['claim_expires_at'],
+            'claim_ttl_seconds' => (int) $receipt['claim_ttl_seconds'],
+            'claimant' => (string) $target['claimant'],
+            'checkpoint_sha256' => (string) $receipt['checkpoint_sha256'],
+            'created_at' => (string) $receipt['created_at'],
+            'encryption_key_id' => (string) $receipt['encryption_key_id'],
+            'exclusion_token_sha256' => (string) $receipt['exclusion_token_sha256'],
+            'format' => self::TARGET_FORMAT,
+            'generation' => (int) $target['generation'],
+            'head_event_sha256' => (string) $target['head_event_sha256'],
+            'ledger_session_sha256' => (string) $receipt['ledger_session_sha256'],
+            'last_event_at' => (string) $target['updated_at'],
+            'ok' => true,
+            'open_operations' => count($verified['open_operations']),
+            'owner' => (string) $target['owner'],
+            'prior_verifier_inputs_sha256' => (string) $receipt['prior_verifier_inputs_sha256'],
+            'receipt_format' => self::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'receipt_id' => (string) $target['active_receipt'],
+            'receipt_payload_sha256' => hash('sha256', self::canonical($receipt)),
+            'retention_until' => (string) $receipt['retention_until'],
+            'resources_inventory_sha256' => (string) $receipt['resources_inventory_sha256'],
+            'runtime_fingerprints_sha256' => (string) $receipt['runtime_fingerprints_sha256'],
+            'scope_hash' => (string) $receipt['scope_hash'],
+            'sequence' => (int) $target['sequence'],
+            'signing_key_id' => (string) $receipt['signing_key_id'],
             'state' => (string) $target['state'],
             'target_id' => (string) $target['target_id'],
             'terminal' => in_array((string) $target['state'], self::TERMINAL_STATES, true),
@@ -911,6 +1071,8 @@ final class RollbackControl {
             self::assertExactKeys($receipt, self::RECEIPT_KEYS, 'receipt payload');
         } elseif ($format === self::LEGACY_RECEIPT_FORMAT) {
             self::assertExactKeys($receipt, self::LEGACY_RECEIPT_KEYS, 'receipt payload');
+        } elseif ($format === self::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            self::assertExactKeys($receipt, self::SCOPED_PROMOTION_RECEIPT_KEYS, 'receipt payload');
         } else {
             throw new \RuntimeException('duo rollback: unsupported receipt format');
         }
@@ -929,20 +1091,30 @@ final class RollbackControl {
             || $receipt['claim_ttl_seconds'] > 3600) {
             throw new \RuntimeException('duo rollback: receipt claim TTL must be 30..3600 seconds');
         }
-        foreach ([
+        $hashes = [
             'artifact_hash',
             'checkpoint_sha256',
-            ...($format === self::RECEIPT_FORMAT ? ['code_release_metadata_sha256'] : []),
-            'prior_code_descriptor_sha256',
-            'lifecycle_receipts_sha256',
-            'uploads_inventory_sha256',
             'resources_inventory_sha256',
             'adapter_versions_sha256',
             'prior_verifier_inputs_sha256',
             'ledger_session_sha256',
             'runtime_fingerprints_sha256',
             'exclusion_token_sha256',
-        ] as $key) {
+        ];
+        if ($format === self::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            $hashes[] = 'scope_hash';
+        } else {
+            if ($format === self::RECEIPT_FORMAT) {
+                $hashes[] = 'code_release_metadata_sha256';
+            }
+            array_push(
+                $hashes,
+                'prior_code_descriptor_sha256',
+                'lifecycle_receipts_sha256',
+                'uploads_inventory_sha256'
+            );
+        }
+        foreach ($hashes as $key) {
             self::assertHash((string) $receipt[$key], "receipt $key");
         }
         self::assertActor((string) $receipt['encryption_key_id'], 'encryption key id');
@@ -951,6 +1123,11 @@ final class RollbackControl {
         if ($retention <= $created) {
             throw new \RuntimeException('duo rollback: receipt retention must end after creation');
         }
+    }
+
+    /** @param array<string,mixed> $receipt */
+    private static function isScopedPromotionReceipt(array $receipt): bool {
+        return ($receipt['format'] ?? null) === self::SCOPED_PROMOTION_RECEIPT_FORMAT;
     }
 
     private static function validateEvent(array $event, string $envelopeKeyId): void {
@@ -1296,6 +1473,7 @@ function rollback_control_main(array $argv): int {
                 (int) ($args['claim-epoch'] ?? 0),
                 (string) ($args['input'] ?? '')
             ),
+            'active-evidence' => RollbackControl::activeEvidence($root),
             'authority-status' => RollbackControl::status($root),
             'audit' => RollbackControl::auditEvidence($root),
             'status' => RecoveryExecutor::decorateStatus($root, RollbackControl::status($root)),
