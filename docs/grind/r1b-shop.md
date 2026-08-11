@@ -23,11 +23,12 @@ Classification isn't post-type-scoped in this engine (`Policy::rule()` never tak
 
 **Current status:** that final sentence records the original R1-B discovery, not
 the present contract. The WooCommerce 11.x manifest now has a synchronous,
-bounded product/variation regenerator for effective `_price`, product and
-global-attribute lookups, and per-product sale schedules. It deliberately does
-not run the former whole-catalog projection command; `wc_category_lookup`
-remains an explicit manual repair/verification boundary because Woo exposes no
-public bounded regeneration method for it.
+bounded product/variation provider for effective `_price`,
+`wc_product_meta_lookup`, and per-product sale schedules. It deliberately does
+not claim `wc_product_attributes_lookup` or run the former whole-catalog
+projection command; both attribute and category lookup tables remain explicit
+manual repair/verification boundaries because Woo exposes no bounded
+independent value oracle for them.
 
 ## The core loop, and why it isn't re-enacted verbatim in the script
 

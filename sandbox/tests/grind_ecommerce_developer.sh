@@ -1581,8 +1581,30 @@ echo json_encode([
   pass "products, variations, categories, global attributes, coupon, shipping, tax, media and Woo config round-tripped; orders remain runtime-excluded"
 }
 
+manual_regenerate_attribute_lookup() {
+  target_wp eval '
+$ids = wc_get_products(["return" => "ids", "limit" => 65]);
+if (!is_array($ids) || count($ids) > 64) {
+    throw new RuntimeException("manual attribute fixture exceeds the 64-product synchronous bound");
+}
+$regenerator = wc_get_container()->get(Automattic\WooCommerce\Internal\ProductAttributesLookup\DataRegenerator::class);
+$last = $regenerator->initiate_regeneration(false);
+if ($last > 0 && $regenerator->do_regeneration_step(64, false)) {
+    $regenerator->finalize_regeneration(false);
+    throw new RuntimeException("manual attribute fixture did not converge in one bounded step");
+}
+if ($last > 0) {
+    $regenerator->finalize_regeneration(true);
+}
+' >/dev/null
+}
+
 assert_deletion_probe_lookup_present() {
   local id="$1" meta_rows attribute_rows
+  # DUO-3411: this table is outside Duo's verified provider authority. Build
+  # the fixture through Woo's own explicit whole-table maintenance boundary
+  # before auditing it; none of the assertions below are evidence of Duo repair.
+  manual_regenerate_attribute_lookup
   [[ "$id" =~ ^[0-9]+$ ]] || fail "deletion probe target id is not numeric: $id"
   assert_eq "$id" "$(target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID)" "deletion probe target product id"
   meta_rows="$(target_db_scalar "SELECT COUNT(*) FROM wp_wc_product_meta_lookup WHERE product_id = $id AND sku = 'GRIND-DELETE-PROBE'")"
@@ -1622,6 +1644,9 @@ assert_derived_indexes() {
   local expected_bundle_max="${5:-14.99}"
   local expected_cap_cents="${6:-1499}"
   local out
+  # Product-meta/price assertions below prove Duo's bounded provider. Attribute
+  # row assertions are a separate manual Woo maintenance baseline only.
+  manual_regenerate_attribute_lookup
   out="$(target_wp eval '
 global $wpdb;
 $cap = get_page_by_path("duo-grind-cap", OBJECT, "product");
@@ -1846,7 +1871,7 @@ echo json_encode([
     --arg expected_cap_cents "$expected_cap_cents" \
     '.meta_rows >= 1 and .attribute_rows == 8 and .variation_attribute_rows == 8 and .attribute_exact == true and .variation_ids_exact == true and (.variation_ids | length) == 4 and (.loaded_variation_ids | length) == 4 and (.variation_ids_missing | length) == 0 and (.variation_ids_unexpected | length) == 0 and (.variation_load_errors | length) == 0 and (.duplicate_variation_skus | length) == 0 and (.attribute_missing_keys | length) == 0 and (.attribute_unexpected_keys | length) == 0 and (.attribute_duplicate_keys | length) == 0 and (.attribute_unknown_product_ids | length) == 0 and (.attribute_actual_keys | length) == 8 and (.attribute_expected_keys | length) == 8 and .cap_exact == true and (.cap_meta.min_price | tonumber) == $expected_cap_price and (.cap_meta.max_price | tonumber) == $expected_cap_price and .cap_status == $expected_cap_status and .cap_manage_stock == true and .cap_stock == $expected_cap_stock and .tee_exact == true and .bundle_rows == 1 and (.bundle_meta.min_price | tonumber) == $expected_bundle_min and (.bundle_meta.max_price | tonumber) == $expected_bundle_max and (.bundle_meta.onsale | tonumber) == 0 and .variation_exact == true and .blue_exact == true and .price_matches >= 1 and .price_api == $expected_cap_cents and .attribute_matches >= 1 and .price_negative_matches == 0 and .attribute_negative_matches == 0 and .tax_725 == true' \
     <<<"$out" >/dev/null || fail "Woo derived indexes, exact simple/grouped/variable price/SKU/stock/tax rows, or positive/negative Store API filters did not converge: $out"
-  pass "wc_product_meta_lookup and wc_product_attributes_lookup expose exact cap/grouped-bundle/tee/variation price, SKU, stock, tax, attribute-term/in_stock rows; Store API price/attribute filters resolve"
+  pass "Duo product-meta/price rows converge; separately, manual Woo attribute regeneration yields exact attribute rows and Store API price/attribute filters resolve"
 }
 
 ROLLBACK_MAINTENANCE_HELD=0

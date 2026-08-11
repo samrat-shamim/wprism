@@ -173,7 +173,7 @@
       },
       "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["conformance-woocommerce", "exact-artifact-version-matrix"]},
-      "reason": "Certified product/catalog creation and update with bounded product/attribute/sale projection repair, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed deletion boundaries.",
+      "reason": "Certified product/catalog creation and update with bounded product-meta/price/sale repair, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.",
       "status": "certified",
       "supported_versions": {"plugin": "woocommerce/woocommerce.php", "range": {"max": "12.0.0", "min": "11.0.0"}},
       "unsupported": [
@@ -182,6 +182,7 @@
         {"operation": "delete", "reason": "The v1 guard/cascade grammar cannot express WooCommerce global-attribute semantic deletion.", "surface": "tables.woocommerce_attribute_taxonomies"},
         {"operation": "delete", "reason": "Shipping-zone and tax-rate rows require version-pinned WooCommerce API, cache, child-row, and option-name effects that are not a closed semantic delete contract.", "surface": "tables.woocommerce_shipping_zone_locations|woocommerce_shipping_zone_methods|woocommerce_shipping_zones|woocommerce_tax_rate_locations|woocommerce_tax_rates"},
         {"operation": "apply", "reason": "WooCommerce 11.0.0 exposes only a public whole-catalog category lookup rebuild; automatic bounded repair and verification are unavailable, so operators must repair this derived table explicitly.", "surface": "derived.wc_category_lookup"},
+        {"operation": "apply", "reason": "WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.", "surface": "derived.wc_product_attributes_lookup"},
         {"operation": "capture", "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.", "surface": "tables.runtime"}
       ]
     },

@@ -7,9 +7,10 @@ use Duo\Policy;
  * WooCommerce 11.x product lookup adapter.
  *
  * Duo writes product posts and postmeta with SQL, intentionally bypassing the
- * save hooks Woo normally uses to maintain its two product lookup tables.
- * This adapter is the manifest-owned boundary for repairing that derived
- * state synchronously.  It deliberately does not call on_product_changed():
+ * save hooks Woo normally uses to maintain derived product state. This
+ * adapter is the manifest-owned boundary for the product-meta lookup, price,
+ * and sale-schedule surfaces that have independent synchronous verification.
+ * It deliberately does not call on_product_changed():
  * Woo's public hook-facing method schedules Action Scheduler work by default,
  * which would leave a successful Duo apply with a pending, non-deterministic
  * lookup update.  The public data-store methods used here are synchronous.
@@ -38,7 +39,6 @@ final class WoocommerceProductLookups {
     private Policy $policy;
 
     private const META_LOOKUP = 'wc_product_meta_lookup';
-    private const ATTR_LOOKUP = 'wc_product_attributes_lookup';
     private const CAPABILITY = 'rebuild_product_lookups';
 
     public function __construct(Policy $policy) {
@@ -58,16 +58,15 @@ final class WoocommerceProductLookups {
      * `reads`/`writes` are the capability-level summary in the canonical
      * surface vocabulary; the precise restorable/irreversible inventory of one
      * invocation is the declaring action's own `effects` list in
-     * manifests/woocommerce.json — the same 108 rows the two post types'
-     * `regen_dependency.effects` carried before this migration, moved with the
-     * dispatch rather than re-derived.
+     * manifests/woocommerce.json — the migrated set minus the two attribute
+     * lookup writes DUO-3411 made explicitly unsupported.
      *
      * `context` names every channel this repair actually consumes, and each
      * one is load-bearing rather than aspirational:
-     *   - `deletions`  drives the synchronous equivalent of Woo's ACTION_DELETE
-     *     path — the lookup rows of a removed product/variation, its captured
-     *     `child_ids`, and the still-live parent whose derived price and
-     *     attribute rows the removal changed;
+     *   - `deletions`  drives the public product-meta lookup deletion path —
+     *     the row of a removed product/variation, its captured
+     *     `child_ids`, and the still-live parent whose derived price the
+     *     removal changed;
      *   - `reparents`  refreshes BOTH roots of a moved variation. One row per
      *     root is how the engine normalizes a chained A->B->C move, and
      *     invoke() regroups them per entity so the accumulated root set reaches
@@ -114,7 +113,6 @@ final class WoocommerceProductLookups {
                 'writes' => [
                     'table:actionscheduler_actions',
                     'table:postmeta',
-                    'table:wc_product_attributes_lookup',
                     'table:wc_product_meta_lookup',
                 ],
                 'scope' => 'entity',
@@ -128,14 +126,17 @@ final class WoocommerceProductLookups {
     /**
      * Map the engine batch envelope onto the batch entry point below, run it,
      * and return a receipt whose `verified` is true only because
-     * verify_exact_state()/verify_sale_schedules() already proved the values.
+     * verify_exact_state()/verify_sale_schedules() proved every supported
+     * value surface. The attribute lookup table is outside this provider's
+     * authority because Woo exposes no independent bounded value oracle; its
+     * apply surface is explicitly unsupported in the manifest disposition.
      *
-     * before/after are observed row cardinalities in the two derived lookup
-     * tables over exactly the ids this invocation was handed — a cheap,
+     * before/after are observed row cardinalities in the supported product
+     * meta lookup over exactly the ids this invocation was handed — a cheap,
      * value-level statement about what changed. They are deliberately NOT the
      * verification: a count is not proof that a row holds what WooCommerce
-     * derives, which is what the exact-state pass inside regenerate_batch()
-     * checks (and hard-fails on) before this method can return at all.
+     * derives. The exact-state pass verifies the supported product-meta and
+     * sale-schedule surfaces only.
      *
      * @param array<string,mixed> $args
      * @return array{before:array, after:array, verified:true}
@@ -208,8 +209,8 @@ final class WoocommerceProductLookups {
      * A->B->C move survives a row grammar whose fields are scalars; the batch
      * entry point below consumes a single `root_ids` list per entity, falling
      * back to old/new only for receipts that predate it. Collapsing to the
-     * old/new pair here would silently drop root A and leave its lookup and
-     * attribute rows stale forever — the exact bug the engine's durable-marker
+     * old/new pair here would silently drop root A and leave its price/meta
+     * lookup stale forever — the exact bug the engine's durable-marker
      * merge exists to prevent.
      *
      * @param array<int,array<string,mixed>> $deletions
@@ -279,35 +280,22 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Row cardinalities in the two derived lookup tables for a bounded id set.
+     * Row cardinality in the supported product-meta lookup for a bounded id set.
      *
      * Batched into `IN (...)` chunks rather than two COUNTs per id (independent
      * review, F7): a receipt is observation, and observation must not cost
      * 4 × |batch| round trips on a catalog-sized apply. The chunk bound keeps
      * the statement well inside any placeholder limit while staying one query
-     * per chunk per table per side.
-     *
-     * One semantic consequence, stated because it is a real difference and not
-     * a wash: the attribute-lookup count is now DISTINCT ROWS touching any id in
-     * the batch, where the per-id sum double-counted a row whose `product_id`
-     * and `product_or_parent_id` were both in the batch — the ordinary shape for
-     * a variable product and its variations. Exactly distinct within one
-     * chunk: a row naming ids that land in two different chunks is still
-     * counted once per chunk, so past 200 ids the number is a sum of
-     * per-chunk distincts, not a global distinct. Both numbers are honest
-     * cardinalities; the batched one is the one that means what its name says.
-     * Nothing branches on these values (they are receipt payload, and `verified`
-     * is decided by verify_exact_state()), so the change is visible only in what
-     * the receipt reports.
+     * per chunk per side. Nothing branches on this observation; exact
+     * verification remains the separate gate below.
      *
      * @param array<int,int> $ids
-     * @return array{scoped_products:int, meta_lookup_rows:int, attribute_lookup_rows:int}
+     * @return array{scoped_products:int, meta_lookup_rows:int}
      */
     private function observe_lookup_state(array $ids): array {
         global $wpdb;
         $ids = array_values(array_filter(array_map('intval', $ids), static fn(int $id): bool => $id > 0));
         $metaRows = 0;
-        $attributeRows = 0;
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
             $metaRows += (int) $this->checked_get_var($wpdb->prepare(
@@ -315,16 +303,10 @@ final class WoocommerceProductLookups {
                 . " WHERE product_id IN ($placeholders)",
                 ...$chunk
             ), 'product lookup receipt observation');
-            $attributeRows += (int) $this->checked_get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::ATTR_LOOKUP
-                . " WHERE product_id IN ($placeholders) OR product_or_parent_id IN ($placeholders)",
-                ...array_merge($chunk, $chunk)
-            ), 'product attribute lookup receipt observation');
         }
         return [
             'scoped_products' => count($ids),
             'meta_lookup_rows' => $metaRows,
-            'attribute_lookup_rows' => $attributeRows,
         ];
     }
 
@@ -401,8 +383,8 @@ final class WoocommerceProductLookups {
         // registration pass. Refresh the public attribute caches and register
         // any newly-created pa_* taxonomies before wc_get_product() parses
         // _product_attributes; otherwise Woo treats a global attribute as a
-        // local one for the rest of this apply process and synthesizes no
-        // attribute lookup rows.
+        // local one for the rest of this apply process, corrupting attribute
+        // cache invalidation and product object semantics.
         $registeredAttributeKeys = $this->refresh_attribute_taxonomy_registry();
         $this->heartbeat($heartbeat);
 
@@ -447,16 +429,14 @@ final class WoocommerceProductLookups {
             }
         }
 
-        // Delete lookup rows first, while no WC object is needed.  This is
-        // the synchronous equivalent of Woo's ACTION_DELETE path and works
-        // even though the post itself has already been removed by raw SQL.
+        // Delete the supported product-meta lookup rows first, while no WC
+        // object is needed. This works even though the post itself has already
+        // been removed by raw SQL.
         if ($deletionIds) {
             $productStore = \WC_Data_Store::load('product');
-            $attributeStore = $this->attribute_lookup_store();
             foreach ($deletionIds as $id) {
                 $this->heartbeat($heartbeat);
                 $this->delete_meta_lookup($productStore, $id);
-                $this->delete_attribute_lookup($attributeStore, $id);
                 $this->heartbeat($heartbeat);
             }
         }
@@ -466,8 +446,8 @@ final class WoocommerceProductLookups {
         $affectedIds = array_fill_keys($liveIds, true);
         // A deleted variation can still be present in a cached parent
         // object's child list while the parent lookup is being rebuilt. Clear
-        // the deleted product instances too, so attribute regeneration sees
-        // the post's absence rather than resurrecting its derived row.
+        // the deleted product instances too, so price/root synthesis sees the
+        // post's absence rather than resurrecting derived product state.
         foreach ($deletionIds as $deletedId) {
             $deletedId = (int) $deletedId;
             if ($deletedId > 0) {
@@ -641,17 +621,21 @@ final class WoocommerceProductLookups {
             $deletionIds ? $registeredAttributeKeys : []
         );
 
-        // Recompute the derived _price meta from authored regular/sale/date
-        // inputs.  WC_Product::get_price('edit') is not an independent
-        // derivation in Woo 11 — it reads the stored _price prop — so using it
-        // here would preserve exactly the stale value this adapter exists to
-        // repair.
+        // Ask WooCommerce to decide the active price from its authored
+        // regular/sale/date props. WC_Product::get_price('edit') is not an
+        // independent derivation in Woo 11 — it reads the stored _price prop —
+        // so the public is_on_sale()/regular/sale accessors are the stable
+        // business-rule boundary here.
         foreach ($priceIds as $id => $_) {
             if (isset($variableRoots[$id]) || isset($groupedRoots[$id])) {
                 continue;
             }
             $this->heartbeat($heartbeat);
-            $this->recompute_simple_price((int) $id);
+            $product = $products[(int) $id] ?? $this->load_product((int) $id);
+            if (!$product) {
+                throw new \RuntimeException("duo: WooCommerce could not load product $id for public price synthesis");
+            }
+            $this->sync_simple_price_from_woocommerce($product);
             $this->heartbeat($heartbeat);
         }
 
@@ -665,14 +649,12 @@ final class WoocommerceProductLookups {
         foreach ($variableRoots as $rootId => $root) {
             $this->heartbeat($heartbeat);
             // sync_price() is public in WooCommerce 11.x and updates the
-            // parent _price set from all visible child prices.  Pass the
-            // object by reference as the data-store contract requires. Woo's
-            // public implementation also clears the parent's authored
-            // regular/sale rows as an internal invariant. Those rows remain
-            // Duo-authored state (and can be present in a real captured
-            // catalog), so snapshot and restore their exact row shape even
-            // when the public call fails part-way through.
-            $this->sync_price_preserving_authored_meta($variableStore, $root);
+            // parent _price set from all visible child prices. Pass the object
+            // by reference as the data-store contract requires. Woo's own
+            // implementation also attempts to delete parent regular/sale
+            // rows; protect those repository-authored rows at WordPress's
+            // public metadata boundary while Woo owns every price decision.
+            $this->sync_parent_price_from_woocommerce($variableStore, $root);
             $this->heartbeat($heartbeat);
         }
 
@@ -706,7 +688,7 @@ final class WoocommerceProductLookups {
                 // preserving the grouped root's runtime stock/order fields.
                 // It also clears authored regular/sale rows, which must stay
                 // target-identical just like variable roots above.
-                $this->sync_price_preserving_authored_meta($groupedStore, $root);
+                $this->sync_parent_price_from_woocommerce($groupedStore, $root);
                 $this->heartbeat($heartbeat);
             }
         }
@@ -725,28 +707,6 @@ final class WoocommerceProductLookups {
             $productStore->refresh_product_lookup_table($id);
             $this->heartbeat($heartbeat);
         }
-
-        // ProductAttributesLookup\LookupDataStore::create_data_for_product()
-        // is synchronous.  Calling on_product_changed() here would enqueue
-        // Action Scheduler work and make apply's convergence boundary false.
-        $attributeStore = $this->attribute_lookup_store();
-        $this->with_all_attribute_languages(function () use ($attributeRoots, $attributeStore, $heartbeat): void {
-            foreach ($attributeRoots as $rootId => $root) {
-                $this->heartbeat($heartbeat);
-                // Pass the already-classified object. A fresh Duo target does
-                // not yet have Woo's derived product_type relationship, so an
-                // id-only call would make Woo reload a variable root as a
-                // simple product and omit every variation row.
-                $attributeStore->create_data_for_product($root, false);
-                if (is_callable([$attributeStore, 'get_last_create_operation_failed'])
-                    && $attributeStore->get_last_create_operation_failed()) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce product attributes lookup generation reported failure for product $rootId"
-                    );
-                }
-                $this->heartbeat($heartbeat);
-            }
-        });
 
         // Sale actions are operational state derived from the exact sale-date
         // inputs on the affected products. Woo's public helper is
@@ -767,7 +727,13 @@ final class WoocommerceProductLookups {
         ksort($saleIds, SORT_NUMERIC);
         $this->schedule_sale_events(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
 
-        $this->verify_exact_state($productStore, $products, $variableRoots, $attributeRoots, $deletionIds, $heartbeat);
+        $this->verify_exact_state(
+            $productStore,
+            $products,
+            $variableRoots,
+            $deletionIds,
+            $heartbeat
+        );
         $this->verify_sale_schedules(array_values($saleIds), $deletionIds, $saleProducts, $heartbeat);
     }
 
@@ -1001,180 +967,78 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Run a public Woo price synthesis call without erasing authored parent
-     * price metadata. WooCommerce 11.x's variable and grouped stores both
-     * delete _regular_price and _sale_price while deriving _price. Capture
-     * every row (including an absent key, an explicitly empty row, and
-     * duplicate/multiple rows) and restore the same rows before committing
-     * the boundary so a failed public call is safe to retry as well.
+     * Let WooCommerce own parent price synthesis while preserving the exact
+     * authored metadata boundary declared by this adapter.
      *
-     * The snapshot/restore/transaction wrapper is Duo-native and stays that
-     * way for now: WooCommerce owns the price synthesis (sync_price() below is
-     * its public call) but owns no notion of preserving a parent's authored
-     * rows across it, because in Woo's own flows those rows are not authored
-     * state. Narrowing this is a separate parity slice (DUO-3342 continuation);
-     * it is drift risk, not a divergence from any Woo rule.
+     * WooCommerce 11.x's public variable/grouped sync_price() methods derive
+     * _price and unconditionally delete parent _regular_price/_sale_price.
+     * Those two keys are repository-authored here, so intercept only those
+     * exact deletion attempts through WordPress's public metadata filter. This
+     * keeps absent, empty, duplicate and multiple row shapes byte-identical
+     * without snapshotting, restoring, or copying any Woo price rule. The
+     * filter is synchronous and removed even when Woo's call throws. The
+     * provider runs the public call in its own database transaction because
+     * provider dispatch happens after Apply's authored-state commit; a failed
+     * sync must not leave a durable partial derived-price mutation.
      */
-    private function sync_price_preserving_authored_meta(object $store, object $product): void {
-        $id = (int) $product->get_id();
-        $transactionStarted = false;
-        try {
-            $this->start_price_sync_transaction($id);
-            $transactionStarted = true;
-            $authored = [
-                '_regular_price' => (array) get_post_meta($id, '_regular_price', false),
-                '_sale_price' => (array) get_post_meta($id, '_sale_price', false),
-            ];
-            $syncFailure = null;
-            try {
-                $store->sync_price($product);
-            } catch (\Throwable $t) {
-                $syncFailure = $t;
-            }
-
-            try {
-                $this->restore_authored_price_meta($id, $authored);
-            } catch (\Throwable $restoreFailure) {
-                $rollbackFailure = $this->rollback_price_sync_transaction($id, $transactionStarted);
-                if ($rollbackFailure !== null) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce price sync failed and its authored metadata rollback failed for product $id",
-                        0,
-                        $rollbackFailure
-                    );
-                }
-                $this->invalidate_product_caches($id);
-                if ($syncFailure !== null) {
-                    throw new \RuntimeException(
-                        "duo: failed to restore authored WooCommerce price metadata for product $id after sync failure",
-                        0,
-                        $restoreFailure
-                    );
-                }
-                throw $restoreFailure;
-            }
-            if ($syncFailure !== null) {
-                $rollbackFailure = $this->rollback_price_sync_transaction($id, $transactionStarted);
-                if ($rollbackFailure !== null) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce price sync rollback failed for product $id",
-                        0,
-                        $rollbackFailure
-                    );
-                }
-                $this->invalidate_product_caches($id);
-                throw $syncFailure;
-            }
-
-            try {
-                $this->commit_price_sync_transaction($id, $transactionStarted);
-            } catch (\Throwable $commitFailure) {
-                $rollbackFailure = $this->rollback_price_sync_transaction($id, $transactionStarted);
-                if ($rollbackFailure !== null) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce price sync commit and rollback failed for product $id",
-                        0,
-                        $rollbackFailure
-                    );
-                }
-                $this->invalidate_product_caches($id);
-                throw $commitFailure;
-            }
-            $this->invalidate_product_caches($id);
-        } catch (\Throwable $failure) {
-            if ($transactionStarted) {
-                $rollbackFailure = $this->rollback_price_sync_transaction($id, $transactionStarted);
-                $this->invalidate_product_caches($id);
-                if ($rollbackFailure !== null) {
-                    throw new \RuntimeException(
-                        "duo: WooCommerce price sync transaction failed for product $id and could not be rolled back",
-                        0,
-                        $rollbackFailure
-                    );
-                }
-            }
-            throw $failure;
-        }
-    }
-
-    private function start_price_sync_transaction(int $id): void {
+    private function sync_parent_price_from_woocommerce(object $store, object $product): void {
         global $wpdb;
-        if (is_callable([$wpdb, 'get_var'])) {
-            $inTransaction = $this->checked_get_var(
-                'SELECT @@in_transaction',
-                "transaction-state inspection for product $id"
+        $id = (int) $product->get_id();
+        $inTransaction = $this->checked_get_var(
+            'SELECT @@in_transaction',
+            "transaction-state inspection for product $id"
+        );
+        if ($inTransaction === null) {
+            throw new \RuntimeException(
+                "duo: transaction-state inspection returned no value for WooCommerce product $id"
             );
-            if ($inTransaction === null) {
-                throw new \RuntimeException(
-                    "duo: could not inspect transaction state before WooCommerce price sync for product $id"
-                );
-            }
-            if ((string) $inTransaction === '1') {
-                throw new \RuntimeException(
-                    "duo: cannot establish an all-or-nothing WooCommerce price sync boundary for product $id inside an active transaction"
-                );
-            }
+        }
+        if ((string) $inTransaction === '1') {
+            throw new \RuntimeException(
+                "duo: cannot establish an atomic WooCommerce price sync boundary for product $id inside an active transaction"
+            );
         }
         if (!is_callable([$wpdb, 'query']) || $wpdb->query('START TRANSACTION') === false) {
             throw new \RuntimeException(
-                "duo: could not start an all-or-nothing WooCommerce price sync transaction for product $id"
+                "duo: could not start an atomic WooCommerce price sync transaction for product $id"
             );
         }
-    }
-
-    private function commit_price_sync_transaction(int $id, bool &$transactionStarted): void {
-        global $wpdb;
-        if (!$transactionStarted) {
-            return;
-        }
-        if ($wpdb->query('COMMIT') === false) {
-            throw new \RuntimeException(
-                "duo: could not commit the all-or-nothing WooCommerce price sync transaction for product $id"
-            );
-        }
-        $transactionStarted = false;
-    }
-
-    private function rollback_price_sync_transaction(int $id, bool &$transactionStarted): ?\Throwable {
-        global $wpdb;
-        if (!$transactionStarted) {
-            return null;
-        }
-        if (!is_callable([$wpdb, 'query']) || $wpdb->query('ROLLBACK') === false) {
-            return new \RuntimeException(
-                "duo: could not roll back the all-or-nothing WooCommerce price sync transaction for product $id"
-            );
-        }
-        $transactionStarted = false;
-        return null;
-    }
-
-    /** @param array<string,array<int,mixed>> $authored */
-    private function restore_authored_price_meta(int $id, array $authored): void {
-        foreach (['_regular_price', '_sale_price'] as $key) {
-            if (function_exists('delete_post_meta') && function_exists('add_post_meta')) {
-                if (!delete_post_meta($id, $key)) {
-                    // WordPress returns false when there were no rows. An
-                    // absent snapshot is already converged in that case.
-                    $existing = (array) get_post_meta($id, $key, false);
-                    if ($existing) {
-                        throw new \RuntimeException(
-                            "duo: failed to clear WooCommerce authored $key metadata for product $id"
-                        );
-                    }
-                }
-                foreach ((array) ($authored[$key] ?? []) as $value) {
-                    if (!add_post_meta($id, $key, $value, false)) {
-                        throw new \RuntimeException(
-                            "duo: failed to restore WooCommerce authored $key metadata for product $id"
-                        );
-                    }
-                }
-                continue;
+        $transactionActive = true;
+        $preserveAuthoredParentPrice = static function (
+            mixed $check,
+            int $objectId,
+            string $metaKey,
+            mixed $_metaValue,
+            bool $_deleteAll
+        ) use ($id): mixed {
+            if ($objectId === $id && in_array($metaKey, ['_regular_price', '_sale_price'], true)) {
+                return true;
             }
-            throw new \RuntimeException(
-                'duo: WordPress metadata APIs are unavailable; cannot preserve authored WooCommerce price metadata'
-            );
+            return $check;
+        };
+        add_filter('delete_post_metadata', $preserveAuthoredParentPrice, PHP_INT_MAX, 5);
+        try {
+            $store->sync_price($product);
+            remove_filter('delete_post_metadata', $preserveAuthoredParentPrice, PHP_INT_MAX);
+            if ($wpdb->query('COMMIT') === false) {
+                throw new \RuntimeException(
+                    "duo: could not commit the atomic WooCommerce price sync transaction for product $id"
+                );
+            }
+            $transactionActive = false;
+        } catch (\Throwable $failure) {
+            remove_filter('delete_post_metadata', $preserveAuthoredParentPrice, PHP_INT_MAX);
+            if ($transactionActive && $wpdb->query('ROLLBACK') === false) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce price sync failed and its transaction could not be rolled back for product $id",
+                    0,
+                    $failure
+                );
+            }
+            throw $failure;
+        } finally {
+            remove_filter('delete_post_metadata', $preserveAuthoredParentPrice, PHP_INT_MAX);
+            $this->invalidate_product_caches($id);
         }
     }
 
@@ -1186,6 +1050,9 @@ final class WoocommerceProductLookups {
             || !function_exists('wc_get_container')
             || !function_exists('add_filter')
             || !function_exists('remove_filter')
+            || !function_exists('get_post_meta')
+            || !function_exists('delete_post_meta')
+            || !function_exists('add_post_meta')
             || !function_exists('wc_maybe_schedule_product_sale_events')
             || !function_exists('as_unschedule_all_actions')
             || !function_exists('as_next_scheduled_action')
@@ -1247,38 +1114,12 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Keep third-party language filters from dropping valid attribute terms.
-     *
-     * Polylang treats an explicit empty `lang` query arg as all languages.
-     * WordPress and WooCommerce safely ignore that otherwise-unknown arg.
-     * Scope the filter to pa_* queries made by Woo's public lookup store and
-     * always remove it, including when public regeneration throws.
-     */
-    private function with_all_attribute_languages(callable $callback): mixed {
-        $filter = static function (array $args, array $taxonomies): array {
-            foreach ($taxonomies as $taxonomy) {
-                if (str_starts_with((string) $taxonomy, 'pa_')) {
-                    $args['lang'] = '';
-                    break;
-                }
-            }
-            return $args;
-        };
-        add_filter('get_terms_args', $filter, 1, 2);
-        try {
-            return $callback();
-        } finally {
-            remove_filter('get_terms_args', $filter, 1);
-        }
-    }
-
-    /**
      * Make Woo's runtime taxonomy registry reflect definitions applied after
      * plugin init. WooCommerce itself registers pa_* taxonomies during init
      * from wc_get_attribute_taxonomies(); Duo's typed-table apply can land a
      * new definition later in the same request. The public cache invalidators
-     * plus register_taxonomy() restore the same product/callback contract for
-     * the synchronous lookup data stores below.
+     * plus register_taxonomy() restore the same product/cache callback
+     * contract for the remainder of this bounded product repair.
      */
     /** @return list<string> registered Woo attribute taxonomy names */
     private function refresh_attribute_taxonomy_registry(): array {
@@ -1322,7 +1163,7 @@ final class WoocommerceProductLookups {
                 ]);
                 if (is_wp_error($registered) || !taxonomy_exists($taxonomy)) {
                     throw new \RuntimeException(
-                        "duo: WooCommerce attribute taxonomy '$taxonomy' could not be registered for lookup regeneration"
+                        "duo: WooCommerce attribute taxonomy '$taxonomy' could not be registered for product-object reconciliation"
                     );
                 }
             }
@@ -1332,29 +1173,6 @@ final class WoocommerceProductLookups {
             $registeredTaxonomies[$taxonomy] = $taxonomy;
         }
         return array_values($registeredTaxonomies);
-    }
-
-    private function attribute_lookup_store(): object {
-        $class = '\\Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore';
-        if (!class_exists($class)) {
-            throw new \RuntimeException(
-                'duo: WooCommerce ProductAttributesLookup\\LookupDataStore is unavailable; cannot reconcile attribute lookup rows'
-            );
-        }
-        try {
-            $store = \wc_get_container()->get($class);
-        } catch (\Throwable $t) {
-            throw new \RuntimeException('duo: failed to load WooCommerce ProductAttributesLookup data store', 0, $t);
-        }
-        if (!is_object($store)
-            || !is_callable([$store, 'create_data_for_product'])
-            || !is_callable([$store, 'run_update_callback'])
-            || !is_callable([$store, 'get_last_create_operation_failed'])) {
-            throw new \RuntimeException(
-                'duo: WooCommerce ProductAttributesLookup data store lacks the synchronous public contract'
-            );
-        }
-        return $store;
     }
 
     /**
@@ -1382,12 +1200,6 @@ final class WoocommerceProductLookups {
             );
         }
         $store->delete_from_lookup_table($id, self::META_LOOKUP);
-    }
-
-    private function delete_attribute_lookup(object $store, int $id): void {
-        $class = '\\Automattic\\WooCommerce\\Internal\\ProductAttributesLookup\\LookupDataStore';
-        $action = defined($class . '::ACTION_DELETE') ? constant($class . '::ACTION_DELETE') : 3;
-        $store->run_update_callback($id, $action);
     }
 
     private function invalidate_product_caches(int $id): void {
@@ -1530,58 +1342,38 @@ final class WoocommerceProductLookups {
     }
 
     /**
-     * Rebuild one product/variation's active price without touching stock.
+     * Persist the active price WooCommerce derives for one simple product or
+     * variation without invoking WC_Product::save().
      *
-     * The on-sale decision below is a Duo-authored restatement of Woo's rule
-     * (WC_Product::is_on_sale('edit') plus the _price branch of
-     * WC_Product_Data_Store_CPT::update_post_meta()), and it was diffed against
-     * WooCommerce 11.0.0 case by case — sale/regular comparison, both date
-     * bounds, the empty and zero sale-price edges — and found behaviour
-     * equivalent. It is therefore a drift risk rather than a live divergence,
-     * and re-homing it onto Woo's own accessors is a separate parity slice
-     * (DUO-3342 continuation) rather than part of this change: the Woo-owned
-     * alternative writes through $product->save(), which fires the hooks and
-     * schedules the Action Scheduler work this whole adapter exists to avoid.
+     * is_on_sale('edit') owns Woo's comparison/date behavior; the regular and
+     * sale accessors own the selected authored value. The adapter only
+     * materializes that public result into Woo's derived _price key through
+     * WordPress metadata APIs. save() is deliberately not the boundary: after
+     * raw apply the freshly loaded object has no dirty price props, and a
+     * forced save also fires asynchronous lookup hooks.
      */
-    private function recompute_simple_price(int $id): void {
-        global $wpdb;
-        $regular = (string) get_post_meta($id, '_regular_price', true);
-        $sale = (string) get_post_meta($id, '_sale_price', true);
-        $from = get_post_meta($id, '_sale_price_dates_from', true);
-        $to = get_post_meta($id, '_sale_price_dates_to', true);
-        $now = time();
-        $fromActive = $from === '' || $from === null || (int) $from <= $now;
-        $toActive = $to === '' || $to === null || (int) $to >= $now;
-        $onSale = $sale !== '' && $regular !== ''
-            && (float) $regular > (float) $sale && $fromActive && $toActive;
-        $price = $onSale ? $sale : $regular;
+    private function sync_simple_price_from_woocommerce(object $product): void {
+        $id = (int) $product->get_id();
+        foreach (['is_on_sale', 'get_sale_price', 'get_regular_price'] as $method) {
+            if (!is_callable([$product, $method])) {
+                throw new \RuntimeException(
+                    "duo: WooCommerce product $id lacks public $method(); the installed version is outside the adapter contract"
+                );
+            }
+        }
+        $price = $product->is_on_sale('edit')
+            ? (string) $product->get_sale_price('edit')
+            : (string) $product->get_regular_price('edit');
 
-        $deleted = $wpdb->query($wpdb->prepare(
-            "DELETE FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = '_price'",
-            $id
-        ));
-        if ($deleted === false) {
-            throw new \RuntimeException(
-                "duo: failed to clear stale WooCommerce _price meta for product $id: {$wpdb->last_error}"
-            );
+        if (!delete_post_meta($id, '_price')) {
+            $remaining = (array) get_post_meta($id, '_price', false);
+            if ($remaining !== []) {
+                throw new \RuntimeException("duo: failed to clear stale WooCommerce _price meta for product $id");
+            }
         }
-        if ($price === '') {
-            $this->invalidate_product_caches($id);
-            return;
+        if ($price !== '' && !add_post_meta($id, '_price', $price, false)) {
+            throw new \RuntimeException("duo: failed to write WooCommerce-derived _price meta for product $id");
         }
-        $inserted = $wpdb->insert(
-            $wpdb->postmeta,
-            ['post_id' => $id, 'meta_key' => '_price', 'meta_value' => $price],
-            ['%d', '%s', '%s']
-        );
-        if ($inserted === false) {
-            throw new \RuntimeException(
-                "duo: failed to write recomputed WooCommerce _price meta for product $id: {$wpdb->last_error}"
-            );
-        }
-        // The write intentionally bypasses update_post_meta() hooks; clear
-        // the post/product caches before any verifier or subsequent parent
-        // sync reads the freshly derived value.
         $this->invalidate_product_caches($id);
     }
 
@@ -1595,7 +1387,6 @@ final class WoocommerceProductLookups {
         object $productStore,
         array $products,
         array $variableRoots,
-        array $attributeRoots,
         array $deletionIds,
         ?callable $heartbeat = null
     ): void {
@@ -1606,22 +1397,16 @@ final class WoocommerceProductLookups {
                 "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP . " WHERE product_id = %d",
                 (int) $id
             ), "product lookup deletion verification for product $id");
-            $attrCountValue = $this->checked_get_var($wpdb->prepare(
-                "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::ATTR_LOOKUP . " WHERE product_id = %d OR product_or_parent_id = %d",
-                (int) $id,
-                (int) $id
-            ), "product attribute deletion verification for product $id");
-            if ($metaCountValue === null || $attrCountValue === null) {
+            if ($metaCountValue === null) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce lookup deletion verification returned no count for product $id"
+                    "duo: WooCommerce product lookup deletion verification returned no count for product $id"
                 );
             }
             $metaCount = (int) $metaCountValue;
-            $attrCount = (int) $attrCountValue;
-            if ($metaCount !== 0 || $attrCount !== 0) {
+            if ($metaCount !== 0) {
                 throw new \RuntimeException(
-                    "duo: WooCommerce lookup deletion verification failed for product $id "
-                    . "(meta rows=$metaCount, attribute rows=$attrCount)"
+                    "duo: WooCommerce product lookup deletion verification failed for product $id "
+                    . "(meta rows=$metaCount)"
                 );
             }
             $this->heartbeat($heartbeat);
@@ -1643,18 +1428,6 @@ final class WoocommerceProductLookups {
                     $this->verify_meta_row($productStore, $childId, $heartbeat);
                 }
             }
-        }
-
-        foreach ($attributeRoots as $rootId => $root) {
-            $this->heartbeat($heartbeat);
-            $expected = $this->expected_attribute_rows($root, $deletionIds);
-            $actual = $this->actual_attribute_rows((int) $rootId);
-            if ($expected !== $actual) {
-                throw new \RuntimeException(
-                    "duo: WooCommerce product attributes lookup verification failed for product $rootId"
-                );
-            }
-            $this->heartbeat($heartbeat);
         }
     }
 
@@ -1890,196 +1663,4 @@ final class WoocommerceProductLookups {
         );
     }
 
-    /**
-     * Rebuild the attribute lookup rows WooCommerce should have synthesized.
-     *
-     * This is a Duo-authored mirror of WooCommerce's own row synthesis, and it
-     * stays one deliberately, unlike the meta-lookup column rules that moved
-     * onto Woo's published derivation. Two reasons, both structural:
-     *
-     * Woo's synthesis has no observable derivation channel. create_data_for_
-     * product() is the only public entry point (LookupDataStore.php:307);
-     * every method that decides what a row should contain —
-     * insert_lookup_table_data_for_variation() (:474), insert_lookup_table_
-     * data() (:616), create_data_for_product_cpt() (:816) and its core (:847)
-     * — is private, writes straight to the table, and caches nothing a caller
-     * could read back. There is no equivalent of update_lookup_table()'s
-     * published row here.
-     *
-     * And this check is the only guard on the failure it exists for: Woo
-     * synthesizes NO rows, silently and successfully, for a pa_* taxonomy that
-     * is not registered at the moment it runs — exactly the post-init
-     * typed-table bootstrap case refresh_attribute_taxonomy_registry() above
-     * exists to prevent. A comparison against Woo's own output would agree with
-     * Woo that zero rows were correct.
-     *
-     * @return array<int,array<string,int|string>>
-     */
-    private function expected_attribute_rows(object $root, array $deletionIds = []): array {
-        $rows = [];
-        $type = (string) $root->get_type();
-        if ($type === 'variation') {
-            $parentId = (int) $root->get_parent_id('edit');
-            $parent = $parentId > 0 ? $this->load_product($parentId) : false;
-            if (!$parent || !$this->is_variable($parent)) {
-                return $rows;
-            }
-            $root = $parent;
-            $type = 'variable';
-        }
-        $attributes = (array) $root->get_attributes();
-        if ($type !== 'variable') {
-            foreach ($attributes as $taxonomy => $attribute) {
-                if (!is_object($attribute) || !is_callable([$attribute, 'get_id']) || !(int) $attribute->get_id()) {
-                    continue;
-                }
-                $this->append_attribute_rows(
-                    $rows,
-                    (int) $root->get_id(),
-                    (int) $root->get_id(),
-                    (string) $taxonomy,
-                    array_map('intval', (array) $attribute->get_options()),
-                    false,
-                    $root->is_in_stock()
-                );
-            }
-            return $this->sort_attribute_rows($rows);
-        }
-
-        $variationAttributes = [];
-        foreach ($attributes as $taxonomy => $attribute) {
-            if (!is_object($attribute) || !is_callable([$attribute, 'get_id']) || !(int) $attribute->get_id()) {
-                continue;
-            }
-            $termIds = array_map('intval', (array) $attribute->get_options());
-            $isVariation = is_callable([$attribute, 'get_variation']) && (bool) $attribute->get_variation();
-            if ($isVariation) {
-                $variationAttributes[(string) $taxonomy] = $termIds;
-            } else {
-                $this->append_attribute_rows(
-                    $rows,
-                    (int) $root->get_id(),
-                    (int) $root->get_id(),
-                    (string) $taxonomy,
-                    $termIds,
-                    false,
-                    $root->is_in_stock()
-                );
-            }
-        }
-        $termSlugIds = $this->term_slug_ids(array_keys($variationAttributes));
-        foreach ((array) $root->get_children() as $childId) {
-            if (isset($deletionIds[(int) $childId])) {
-                continue;
-            }
-            $child = $this->load_product((int) $childId);
-            if (!$child) {
-                continue;
-            }
-            $childAttrs = (array) $child->get_attributes();
-            foreach ($variationAttributes as $taxonomy => $termIds) {
-                $slug = $childAttrs[$taxonomy] ?? ($childAttrs['attribute_' . $taxonomy] ?? '');
-                $ids = [];
-                if (is_string($slug) && $slug !== '' && isset($termSlugIds[$taxonomy][$slug])) {
-                    $ids = [(int) $termSlugIds[$taxonomy][$slug]];
-                } else {
-                    $ids = $termIds;
-                }
-                $this->append_attribute_rows(
-                    $rows,
-                    (int) $child->get_id(),
-                    (int) $root->get_id(),
-                    (string) $taxonomy,
-                    $ids,
-                    true,
-                    $child->is_in_stock()
-                );
-            }
-        }
-        return $this->sort_attribute_rows($rows);
-    }
-
-    private function append_attribute_rows(
-        array &$rows,
-        int $productId,
-        int $parentId,
-        string $taxonomy,
-        array $termIds,
-        bool $variation,
-        bool $inStock
-    ): void {
-        foreach ($termIds as $termId) {
-            $termId = (int) $termId;
-            if ($termId <= 0) {
-                continue;
-            }
-            $rows[] = [
-                'product_id' => $productId,
-                'product_or_parent_id' => $parentId,
-                'taxonomy' => $taxonomy,
-                'term_id' => $termId,
-                'is_variation_attribute' => $variation ? 1 : 0,
-                'in_stock' => $inStock ? 1 : 0,
-            ];
-        }
-    }
-
-    /** @return array<string,array<string,int>> */
-    private function term_slug_ids(array $taxonomies): array {
-        $out = [];
-        foreach ($taxonomies as $taxonomy) {
-            $terms = get_terms([
-                'taxonomy' => function_exists('wc_sanitize_taxonomy_name')
-                    ? wc_sanitize_taxonomy_name($taxonomy)
-                    : $taxonomy,
-                'hide_empty' => false,
-                'fields' => 'id=>slug',
-                // Polylang interprets an explicit empty language as an
-                // unfiltered term query; core safely ignores the extra arg.
-                'lang' => '',
-            ]);
-            if (is_wp_error($terms)) {
-                throw new \RuntimeException("duo: failed to read WooCommerce attribute terms for $taxonomy");
-            }
-            $out[$taxonomy] = array_flip((array) $terms);
-        }
-        return $out;
-    }
-
-    /** @return array<int,array<string,int|string>> */
-    private function actual_attribute_rows(int $rootId): array {
-        global $wpdb;
-        $table = $wpdb->prefix . self::ATTR_LOOKUP;
-        $rows = $this->checked_get_results($wpdb->prepare(
-            "SELECT product_id, product_or_parent_id, taxonomy, term_id, is_variation_attribute, in_stock
-             FROM `$table` WHERE product_or_parent_id = %d OR product_id = %d",
-            $rootId,
-            $rootId
-        ), "product attribute lookup verification for product $rootId");
-        $normalized = [];
-        foreach ($rows as $row) {
-            $normalized[] = [
-                'product_id' => (int) $row['product_id'],
-                'product_or_parent_id' => (int) $row['product_or_parent_id'],
-                'taxonomy' => (string) $row['taxonomy'],
-                'term_id' => (int) $row['term_id'],
-                'is_variation_attribute' => (int) $row['is_variation_attribute'],
-                'in_stock' => (int) $row['in_stock'],
-            ];
-        }
-        return $this->sort_attribute_rows($normalized);
-    }
-
-    private function sort_attribute_rows(array $rows): array {
-        usort($rows, static function (array $a, array $b): int {
-            foreach (['product_id', 'product_or_parent_id', 'taxonomy', 'term_id', 'is_variation_attribute', 'in_stock'] as $key) {
-                $cmp = ((string) $a[$key]) <=> ((string) $b[$key]);
-                if ($cmp !== 0) {
-                    return $cmp;
-                }
-            }
-            return 0;
-        });
-        return $rows;
-    }
 }

@@ -5,7 +5,8 @@
  * This intentionally models only the public Woo APIs the shipped adapter is
  * allowed to call.  It proves stale _price repair, variable-root dedupe,
  * deletion context (including the parent id), runtime stock preservation, and
- * exact attribute/meta lookup verification without Docker.
+ * exact product-meta lookup verification without Docker. Attribute lookup is
+ * a deliberate unsupported boundary and is characterized as untouched.
  */
 
 namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
@@ -187,6 +188,7 @@ namespace {
         public string $posts = 'wp_posts';
         public string $last_error = '';
         public ?string $failReadContaining = null;
+        public bool $nullTransactionStateRead = false;
         private bool $transactionActive = false;
         private array $transactionMeta = [];
         private array $transactionMetaLookup = [];
@@ -327,6 +329,9 @@ namespace {
                 return null;
             }
             if (trim($query) === 'SELECT @@in_transaction') {
+                if ($this->nullTransactionStateRead) {
+                    return null;
+                }
                 return $this->transactionActive ? '1' : '0';
             }
             if (preg_match('/SELECT post_type FROM wp_posts WHERE ID = (\d+) LIMIT 1/', $query, $m)) {
@@ -462,6 +467,28 @@ namespace {
             global $fakeMeta;
             $prices = $this->cachedPrices ?? ($fakeMeta[$this->id]['_price'] ?? []);
             return (string) ($prices[0] ?? '');
+        }
+        public function get_regular_price(string $context = 'view'): string {
+            global $fakeMeta;
+            return (string) ($fakeMeta[$this->id]['_regular_price'][0] ?? '');
+        }
+        public function get_sale_price(string $context = 'view'): string {
+            global $fakeMeta;
+            return (string) ($fakeMeta[$this->id]['_sale_price'][0] ?? '');
+        }
+        public function is_on_sale(string $context = 'view'): bool {
+            global $fakePublicOnSaleOverrides;
+            if (array_key_exists($this->id, $fakePublicOnSaleOverrides)) {
+                return (bool) $fakePublicOnSaleOverrides[$this->id];
+            }
+            $regular = $this->get_regular_price('edit');
+            $sale = $this->get_sale_price('edit');
+            $from = $this->get_date_on_sale_from('edit');
+            $to = $this->get_date_on_sale_to('edit');
+            $now = time();
+            return $sale !== '' && $regular !== '' && (float) $regular > (float) $sale
+                && ($from === null || $from->getTimestamp() <= $now)
+                && ($to === null || $to->getTimestamp() >= $now);
         }
         public function get_children(): array { return $this->children; }
         public function get_visible_children(): array {
@@ -714,8 +741,8 @@ namespace {
             // Woo's public variable sync clears these authored parent rows.
             // The adapter must restore them, including when this simulated
             // call fails after the derived write has started.
-            $fakeMeta[$product->get_id()]['_regular_price'] = [];
-            $fakeMeta[$product->get_id()]['_sale_price'] = [];
+            \delete_post_meta((int) $product->get_id(), '_regular_price');
+            \delete_post_meta((int) $product->get_id(), '_sale_price');
             if (($fakeSyncFailures['variable'][$product->get_id()] ?? 0) > 0) {
                 $fakeSyncFailures['variable'][$product->get_id()]--;
                 throw new \RuntimeException('simulated variable sync failure');
@@ -748,8 +775,8 @@ namespace {
                 : [];
             // Woo's grouped data store derives only prices here. Runtime
             // stock/order metadata must remain target-local and untouched.
-            $fakeMeta[$product->get_id()]['_regular_price'] = [];
-            $fakeMeta[$product->get_id()]['_sale_price'] = [];
+            \delete_post_meta((int) $product->get_id(), '_regular_price');
+            \delete_post_meta((int) $product->get_id(), '_sale_price');
             if (($fakeSyncFailures['grouped'][$product->get_id()] ?? 0) > 0) {
                 $fakeSyncFailures['grouped'][$product->get_id()]--;
                 throw new \RuntimeException('simulated grouped sync failure');
@@ -833,13 +860,22 @@ namespace {
     $fakeMetaLookup[14]['product_id'] = 14;
     $fakeMetaLookup[15] = $fakeMetaLookup[10];
     $fakeMetaLookup[15]['product_id'] = 15;
-    $fakeAttrLookup = [];
+    $fakeAttrLookup = [[
+        'product_id' => 999,
+        'product_or_parent_id' => 999,
+        'taxonomy' => 'pa_external',
+        'term_id' => 777,
+        'is_variation_attribute' => 0,
+        'in_stock' => 1,
+    ]];
+    $unsupportedAttributeRows = $fakeAttrLookup;
     $wpdb = new FakeWpdb();
     $fakeRegisteredTaxonomies = [];
     $fakeDeletedTransients = [];
     $fakeWpCache = [];
     $fakeLookupWriteFaults = [];
     $fakeLookupCacheSuppressed = [];
+    $fakePublicOnSaleOverrides = [];
     $fakeWpCacheDeletes = [];
     $fakeCacheHooks = [];
     $fakeGroupedChildren = [];
@@ -952,6 +988,10 @@ namespace {
     }
     function delete_post_meta(int $id, string $key): bool {
         global $fakeMeta;
+        $check = apply_filters('delete_post_metadata', null, $id, $key, null, false);
+        if ($check !== null) {
+            return (bool) $check;
+        }
         $hadRows = !empty($fakeMeta[$id][$key]);
         unset($fakeMeta[$id][$key]);
         return $hadRows;
@@ -1055,6 +1095,18 @@ namespace {
         }
         return false;
     }
+    function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
+        global $fakeFilters;
+        $filters = $fakeFilters[$hook] ?? [];
+        ksort($filters, SORT_NUMERIC);
+        foreach ($filters as $callbacks) {
+            foreach ($callbacks as [$callback, $acceptedArgs]) {
+                $callArgs = array_slice(array_merge([$value], $args), 0, (int) $acceptedArgs);
+                $value = $callback(...$callArgs);
+            }
+        }
+        return $value;
+    }
     function get_terms(array $args): array {
         global $fakeFilters, $fakeTermQueries;
         $taxonomies = (array) ($args['taxonomy'] ?? []);
@@ -1150,14 +1202,7 @@ namespace {
 
     $verifyExactState = new \ReflectionMethod($adapter, 'verify_exact_state');
     $verifyExactState->setAccessible(true);
-    // Bind by the method's own arity rather than a fixed argument list. The
-    // deletion-only path this exercises is identical either way, and the
-    // tolerance is what lets this suite be run verbatim against an older
-    // adapter revision to see which checks its behavior actually fails —
-    // without a harness TypeError standing in for a real finding.
-    $verifyExactStateArgs = $verifyExactState->getNumberOfParameters() >= 6
-        ? [WC_Data_Store::load('product'), [], [], [], [999 => 999], null]
-        : [[], [], [], [999 => 999], null];
+    $verifyExactStateArgs = [WC_Data_Store::load('product'), [], [], [999 => 999], null];
     $wpdb->failReadContaining = 'wc_product_meta_lookup';
     $deletionReadFailedClosed = false;
     try {
@@ -1172,21 +1217,11 @@ namespace {
     $check($deletionReadFailedClosed,
         'lookup deletion verification cannot clear a receipt after a failed count query');
 
-    $actualAttributeRows = new \ReflectionMethod($adapter, 'actual_attribute_rows');
-    $actualAttributeRows->setAccessible(true);
-    $wpdb->failReadContaining = 'wc_product_attributes_lookup';
-    $attributeReadFailedClosed = false;
-    try {
-        $actualAttributeRows->invoke($adapter, 10);
-    } catch (\Throwable $failure) {
-        $attributeReadFailedClosed = str_contains(
-            $failure->getMessage(),
-            'product attribute lookup verification for product 10 query failed'
-        );
-    }
-    $wpdb->failReadContaining = null;
-    $check($attributeReadFailedClosed,
-        'attribute lookup verification cannot treat a failed query as an empty table');
+    $attributeStoreProbe = wc_get_container()->get(
+        \Automattic\WooCommerce\Internal\ProductAttributesLookup\LookupDataStore::class
+    );
+    $check($attributeStoreProbe->createCalls === 0 && $attributeStoreProbe->deleteCalls === 0,
+        'verified product repair never invokes the unsupported attribute lookup writer or delete path');
 
     $check($fakeMeta[11]['_price'] === ['18'], 'stale child _price is recomputed from regular/sale inputs');
     $check($fakeMeta[10]['_price'] === ['18', '21'], 'variable parent _price is synchronized from distinct child prices');
@@ -1196,11 +1231,9 @@ namespace {
     $check($fakeMetaLookup[11]['min_price'] === '18', 'existing stale wc_product_meta_lookup row is refreshed');
     $check($fakeMetaLookup[11]['onsale'] === 1, 'onsale follows Woo sale-price/effective-price equality');
     $check($fakeMeta[11]['_stock'] === ['5'], 'target-local runtime stock meta is preserved');
-    $check(count($fakeAttrLookup) === 2, 'attribute lookup rows are regenerated synchronously and exactly');
-    $check($fakeTermQueries !== [] && count(array_filter(
-        $fakeTermQueries,
-        static fn(array $args): bool => !array_key_exists('lang', $args) || $args['lang'] !== ''
-    )) === 0, 'public and verifier attribute term reads explicitly span all Polylang languages');
+    $check($fakeAttrLookup === $unsupportedAttributeRows,
+        'unsupported attribute lookup rows remain byte-for-byte outside provider authority');
+    $check($fakeTermQueries === [], 'verified provider performs no attribute lookup term derivation');
     $remainingTermFilters = array_filter(
         $fakeFilters['get_terms_args'][1] ?? [],
         static fn(array $entry): bool => isset($entry[0])
@@ -1433,12 +1466,15 @@ namespace {
         'grouped deletion receipt retry is idempotent and leaves exact root state');
 
     $heartbeatCalls = 0;
+    $fakePublicOnSaleOverrides[13] = false;
     $adapter->regenerate_batch([13], [], static function () use (&$heartbeatCalls): void {
         $heartbeatCalls++;
     });
     $check($heartbeatCalls > 0, 'batch adapter invokes the promotion heartbeat callback');
-    $check($fakeMeta[13]['_price'] === ['0'], 'authored zero sale price recomputes stale _price');
+    $check($fakeMeta[13]['_price'] === ['21'],
+        'simple active price follows Woo public is_on_sale semantics rather than a copied sale/date rule');
     $check($fakeMetaLookup[13]['onsale'] === 0, 'zero sale price is not marked onsale');
+    unset($fakePublicOnSaleOverrides[13]);
     // get_post_meta($id, 'total_sales', true) returns '' for absent meta, not
     // null (class-wc-product-data-store-cpt.php:2513), and total_sales is
     // always in the derived set, so bigint(20) stores 0. The retired "Woo
@@ -1452,9 +1488,6 @@ namespace {
         'no-price product lookup stores Woo decimal zero defaults');
 
     $adapter->regenerate_batch([15], []);
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
-        (int) $row['product_id'] === 15 && $row['taxonomy'] === 'pa_grind-size')) === 1,
-        'simple global attribute lookup rows are required after bootstrap registration');
     $check(in_array('pa_grind-size', WC_Cache_Helper::$invalidatedAttributes, true)
         && in_array('wc_layered_nav_counts_pa_grind-size', $fakeDeletedTransients, true),
         'simple product attribute invalidation reconciles its concrete layered-nav key');
@@ -1481,8 +1514,6 @@ namespace {
     $check($fakeMeta[31]['_stock'] === ['7'], 'same-parent variation preserves target-local runtime stock');
     $check($fakeMeta[30]['_price'] === ['18'], 'same-parent write refreshes the variable root price range');
     $check($fakeMetaLookup[30]['min_price'] === '18', 'same-parent write refreshes the root meta lookup row');
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 30)) === 1,
-        'same-parent write rebuilds the exact current attribute root');
     $sameParentEvents = array_slice($fakeCacheEvents, $sameParentEventStart);
     $sameParentRemove = array_search('remove:30', $sameParentEvents, true);
     $sameParentRead = null;
@@ -1529,10 +1560,31 @@ namespace {
     $check($fakeMeta[20]['_regular_price'] === ['32', '31'] && $fakeMeta[20]['_sale_price'] === ['29'],
         'variable sync preserves multiple authored parent price rows and their order');
 
-    // The public variable store can fail after clearing the parent authored
-    // rows. The adapter must restore them before surfacing the error, and a
-    // replay must still be able to complete with the exact same authored
-    // row shape.
+    $transactionStateFailureCaught = false;
+    $priceBeforeTransactionStateFailure = $fakeMeta[20]['_price'];
+    $wpdb->nullTransactionStateRead = true;
+    try {
+        $adapter->regenerate_batch([], [[
+            'kind' => 'reparent',
+            'uuid' => 'variable-transaction-state-failure',
+            'id' => 20,
+            'post_type' => 'product',
+            'root_ids' => [20],
+        ]]);
+    } catch (\Throwable $t) {
+        $transactionStateFailureCaught = str_contains($t->getMessage(), 'transaction-state inspection returned no value');
+    } finally {
+        $wpdb->nullTransactionStateRead = false;
+    }
+    $check($transactionStateFailureCaught,
+        'parent synchronization fails closed when the database cannot report transaction state');
+    $check($fakeMeta[20]['_price'] === $priceBeforeTransactionStateFailure,
+        'an unknown transaction state cannot mutate the derived parent price');
+
+    // The public variable store can fail after mutating derived _price. The
+    // scoped WordPress metadata guard must preserve authored parent rows and
+    // be removed in finally; the provider-local transaction owns derived
+    // rollback because provider dispatch occurs after Apply's main commit.
     $fakeMeta[20]['_price'] = ['123'];
     $priceBeforeVariableFailure = $fakeMeta[20]['_price'];
     $variableFailureCaught = false;
@@ -1550,9 +1602,14 @@ namespace {
     }
     $check($variableFailureCaught, 'variable public sync failure is surfaced to the caller');
     $check($fakeMeta[20]['_regular_price'] === ['32', '31'] && $fakeMeta[20]['_sale_price'] === ['29'],
-        'failed variable sync restores authored parent rows before retry');
+        'failed variable sync never deletes authored parent rows');
     $check($fakeMeta[20]['_price'] === $priceBeforeVariableFailure,
-        'failed variable sync rolls back its derived price mutation before retry');
+        'a throwing public sync rolls back its partial derived-price mutation inside the provider boundary');
+    $remainingPriceGuards = array_filter(
+        $fakeFilters['delete_post_metadata'][PHP_INT_MAX] ?? [],
+        static fn(array $entry): bool => isset($entry[0])
+    );
+    $check($remainingPriceGuards === [], 'parent-price metadata guard is removed after a throwing Woo sync');
     $adapter->regenerate_batch([], [[
         'kind' => 'reparent',
         'uuid' => 'variable-sync-failure',
@@ -1561,41 +1618,10 @@ namespace {
         'root_ids' => [20],
     ]]);
     $check($fakeMeta[20]['_regular_price'] === ['32', '31'] && $fakeMeta[20]['_sale_price'] === ['29'],
-        'variable sync retry preserves the restored authored parent rows');
-
-    // A restore can fail after delete_post_meta() has already removed the
-    // authored rows. The transaction must roll back both that partial restore
-    // and the derived sync, leaving an exact retry starting point.
-    $priceBeforeRestoreFailure = $fakeMeta[20]['_price'];
-    $fakeMetaRestoreFailures[20]['_regular_price'] = 1;
-    $restoreFailureCacheStart = count(\Automattic\WooCommerce\Internal\Caches\ProductCache::$removed);
-    $restoreFailureCaught = false;
-    try {
-        $adapter->regenerate_batch([], [[
-            'kind' => 'reparent',
-            'uuid' => 'variable-restore-failure',
-            'id' => 20,
-            'post_type' => 'product',
-            'root_ids' => [20],
-        ]]);
-    } catch (\Throwable $t) {
-        $restoreFailureCaught = true;
-    }
-    $check($restoreFailureCaught, 'authored metadata restore failure is surfaced to the caller');
-    $check($fakeMeta[20]['_regular_price'] === ['32', '31'] && $fakeMeta[20]['_sale_price'] === ['29']
-        && $fakeMeta[20]['_price'] === $priceBeforeRestoreFailure,
-        'restore failure rolls back partial deletion and derived price changes atomically');
-    $check(in_array(20, array_slice(\Automattic\WooCommerce\Internal\Caches\ProductCache::$removed, $restoreFailureCacheStart), true),
-        'restore failure invalidates Woo product caches after rollback');
-    $adapter->regenerate_batch([], [[
-        'kind' => 'reparent',
-        'uuid' => 'variable-restore-failure',
-        'id' => 20,
-        'post_type' => 'product',
-        'root_ids' => [20],
-    ]]);
-    $check($fakeMeta[20]['_regular_price'] === ['32', '31'] && $fakeMeta[20]['_sale_price'] === ['29'],
-        'exact authored rows survive the retry after restore failure');
+        'variable sync retry preserves the exact authored parent rows');
+    $fakeMeta[999]['_regular_price'] = ['ordinary-delete'];
+    $check(delete_post_meta(999, '_regular_price') && !isset($fakeMeta[999]['_regular_price']),
+        'metadata guard is scoped to the active Woo parent sync and cannot suppress later ordinary deletes');
     $check(in_array(20, \Automattic\WooCommerce\Internal\Caches\ProductCache::$removed, true)
         && in_array(22, \Automattic\WooCommerce\Internal\Caches\ProductCache::$removed, true),
         'reparent invalidates Woo product-instance caches for both roots');
@@ -1612,10 +1638,6 @@ namespace {
         $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
             "reparent evicts product-cache id $cacheId before the first read");
     }
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 20)) === 0,
-        'reparent removes old-root attribute lookup rows');
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 22)) === 1,
-        'reparent writes new-root attribute lookup rows');
 
     // Exercise an accumulated A->B->C receipt.  Preload stale A/B/C and the
     // live variation, then move the variation again before the prior failed
@@ -1663,12 +1685,6 @@ namespace {
         $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
             "chained reparent evicts accumulated root/cache id $cacheId before the first read");
     }
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 20)) === 0,
-        'chained reparent leaves no stale attribute rows on original root A');
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 22)) === 0,
-        'chained reparent leaves no stale attribute rows on intermediate root B');
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 24)) === 1,
-        'chained reparent writes exact attribute rows on final root C');
 
     // A failed A->B receipt can meet a deletion before retry. Leave the
     // parent's stale child list and cached deleted variation in place; the
@@ -1699,8 +1715,6 @@ namespace {
         && ($fakeMetaLookup[22]['min_price'] ?? null) === '0.0000'
         && ($fakeMetaLookup[24]['min_price'] ?? null) === '0.0000',
         'deleted reparent retry refreshes every accumulated no-price root');
-    $check(count(array_filter($fakeAttrLookup, static fn(array $row): bool => (int) $row['product_or_parent_id'] === 24)) === 0,
-        'deleted reparent retry leaves no attribute rows for the deleted child/root');
     $check($fakeMeta[24]['_stock'] === ['5'], 'deleted reparent retry preserves root-local runtime stock');
     $deletedReparentEvents = array_slice($fakeCacheEvents, $deletedReparentEventStart);
     foreach ([20, 21, 22, 24] as $cacheId) {
@@ -1712,8 +1726,8 @@ namespace {
                 break;
             }
         }
-        $check($firstRemove !== false && $firstRead !== null && $firstRemove < $firstRead,
-            "deleted reparent retry evicts cache id $cacheId before the first read");
+        $check($firstRemove !== false && ($firstRead === null || $firstRemove < $firstRead),
+            "deleted reparent retry evicts cache id $cacheId before any read");
     }
 
     $adapter->regenerate_batch([10, 12], [[
@@ -1725,7 +1739,7 @@ namespace {
     ]]);
     $check(!isset($fakeMetaLookup[11]), 'deletion context removes the deleted variation meta lookup row');
     $check($fakeMeta[10]['_price'] === ['21'], 'deletion context parent id triggers parent price resync');
-    $check((WC_Data_Store::$variable?->calls ?? 0) === 16, 'parent resync remains deduplicated across same-parent, chained roots, deletion, and cleanup');
+    $check((WC_Data_Store::$variable?->calls ?? 0) === 14, 'parent resync remains deduplicated across same-parent, chained roots, deletion, and cleanup');
 
     // A deleted simple product cannot be loaded after ACTION_DELETE.  The
     // adapter must use the finite registered taxonomy set as its conservative
@@ -1767,15 +1781,8 @@ namespace {
         $fakeMetaLookup[$id]['max_price'] = '999';
     }
     $adapter->regenerate_batch([68, 69, 70], []);
-    $freshRows = array_values(array_filter(
-        $fakeAttrLookup,
-        static fn(array $row): bool => (int) $row['product_or_parent_id'] === 70
-    ));
     $check($fakeMeta[70]['_price'] === ['18', '21'],
         'fresh target infers variable-root price synthesis from authored child posts');
-    $check(count($freshRows) === 2
-        && array_column($freshRows, 'product_id') === [68, 69],
-        'child-before-parent fresh target generates the exact cross-language variation lookup graph');
     $check($fakeProducts[70]->get_type() === 'simple',
         'fresh-target classification stays in memory and never persists a derived product_type');
 
@@ -1994,34 +2001,10 @@ namespace {
         && ($receipt['before']['meta_lookup_rows'] ?? null) === 2
         && ($receipt['after']['meta_lookup_rows'] ?? null) === 1,
         'the receipt observes the ids it was handed on both sides, and records the deleted row disappearing');
-    // Independent review F7: the observation is batched into IN (...), so the
-    // attribute count is DISTINCT rows touching the id set. Asserted against the
-    // fixture's own rows rather than a magic number, so a revert to per-id
-    // summing fails here the moment one row names two batched ids — the
-    // ordinary variable-product shape.
-    $distinctAttributeRows = count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
-        in_array((int) $row['product_id'], [10, 11], true)
-        || in_array((int) $row['product_or_parent_id'], [10, 11], true)));
-    $check(($receipt['after']['attribute_lookup_rows'] ?? null) === $distinctAttributeRows,
-        'and counts each attribute-lookup row once, not once per id it happens to name');
-    // Non-vacuous by construction: ids 68/70 are a variation and its variable
-    // root, and the fixture's row 68/70 names BOTH — so the per-id sum this
-    // batching replaced counts it twice while the batched query counts it once.
-    $observe = new \ReflectionMethod($adapter, 'observe_lookup_state');
-    $observed = (array) $observe->invoke($adapter, [68, 70]);
-    $perIdSum = 0;
-    foreach ([68, 70] as $probeId) {
-        $perIdSum += count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
-            (int) $row['product_id'] === $probeId || (int) $row['product_or_parent_id'] === $probeId));
-    }
-    $distinctPair = count(array_filter($fakeAttrLookup, static fn(array $row): bool =>
-        in_array((int) $row['product_id'], [68, 70], true)
-        || in_array((int) $row['product_or_parent_id'], [68, 70], true)));
-    $check($perIdSum > $distinctPair,
-        'the fixture really does contain a row naming two ids of one batch, so the next check discriminates');
-    $check(($observed['attribute_lookup_rows'] ?? null) === $distinctPair,
-        'the batched observation counts that row ONCE — a per-id sum would report it twice, and the two '
-        . 'numbers are what the batching changed');
+    $check($fakeAttrLookup === $unsupportedAttributeRows
+        && $attributeStoreProbe->createCalls === 0
+        && $attributeStoreProbe->deleteCalls === 0,
+        'all product, reparent, deletion, retry, and invoke paths preserve the unsupported attribute table exactly');
     $check(!isset($fakeMetaLookup[11]),
         'and the envelope really reached the deletion path — the deleted lookup row is gone');
     $unknownCapabilityCaught = false;
