@@ -19,36 +19,38 @@ PORT2="${CERT_BUNDLE_PORT2:-8881}"
 OUT_ROOT="${CERT_BUNDLE_OUT:-$PWD/certification-bundles}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] || fail "invalid CERT_BUNDLE_PAIR '$PAIR'"
 
-# DUO-3421: the two init legs -- the platform init contract and the public
-# existing-site `duo init` golden path -- are DESCOPED from the certified set
-# by default, and run only under CERT_BUNDLE_INCLUDE_INIT_LEGS=1.
+# DUO-3427/DUO-3428: the two init legs -- the platform init contract and the
+# public existing-site `duo init` golden path -- are back IN the certified set
+# and run by DEFAULT. CERT_BUNDLE_INCLUDE_INIT_LEGS=0 is an emergency opt-OUT.
 #
-# #151 added both to the certified set before either had ever passed end to
-# end. They could not have: the golden path was evidence-coupled (its own
-# proposals refused on the expired attestation every bundle-owing branch
-# carries by construction, so it self-blocked on the evidence the bundle
-# exists to mint), and behind that coupling sat thirteen independent defects
-# -- an uncertifiable fixture range, unasserted fixture manufacture, a code
-# staging charset that refused ordinary shipped bytes, an O(n^2) staging walk,
-# a refusal surface that published transport noise instead of the target's
-# answer, a proposal that invited a confirmation it would then refuse, a
-# rollback proof that refused the rollback it had just performed, a recovery
-# that demanded manual intervention over a file it had never opened, two
-# proven outcomes reported as unclassified gates, and two blockers that named
-# themselves in words nothing else used. DUO-3421 fixed ten of them; the
-# remainder is DUO-3427 (init interrupted-recovery subsystem), plus the
-# separately filed golden-path clock defect: `completed_within_fifteen_minutes`
-# is certified as a per-init claim but implemented as a whole-suite stopwatch
-# (STARTED_AT is set at script start), and the suite runs eighteen full
-# code stagings, so it cannot hold whatever the engine does.
+# #151 added both before either had ever passed end to end. They could not
+# have: the golden path was evidence-coupled (its own proposals refused on the
+# expired attestation every bundle-owing branch carries by construction, so it
+# self-blocked on the evidence the bundle exists to mint), and behind that
+# coupling sat eighteen independent defects. DUO-3421 fixed ten and descoped
+# the legs rather than certify a set containing legs that had never passed.
+# DUO-3427 fixed the remaining six -- a deletion authority that compared
+# journaled ownership manifests by PHP key order and so refused every strict
+# rollback, a proposal gate that swept bound capture-record temporaries by name
+# where the authority resolves them by inode, a test-only ledger row that
+# survived every killed init, a committed-config check that compared file bytes
+# to a re-encoding the JSON journal cannot reproduce, a committed-code check
+# that compared the repository payload's revision to the live source's, and a
+# capture refusal that redacted the one instruction that was public -- and
+# DUO-3428 restated `completed_within_fifteen_minutes` as the per-init claim it
+# always named instead of a whole-suite stopwatch. The live suite is green end
+# to end, so the rule that removed these legs is the rule that returns them: a
+# certified set may only contain legs that have passed, and these now have.
 #
-# A certified set may only contain legs that have passed. Until those land,
-# these two are skipped LOUDLY -- never silently -- and the bundle carries no
-# test fragment, no assertion, and no exclusion claiming them.
-INCLUDE_INIT_LEGS=0
+# The opt-out survives because the condition that created it can recur: when a
+# leg starts failing, an operator must be able to isolate it without editing
+# this file mid-incident. Opting out is LOUD, produces no test fragment, no
+# assertion and no exclusion for either leg, and says plainly that the result
+# is not a complete reference bundle.
+INCLUDE_INIT_LEGS=1
 case "${CERT_BUNDLE_INCLUDE_INIT_LEGS:-}" in
-  1|true|yes) INCLUDE_INIT_LEGS=1 ;;
-  ''|0|false|no) INCLUDE_INIT_LEGS=0 ;;
+  ''|1|true|yes) INCLUDE_INIT_LEGS=1 ;;
+  0|false|no) INCLUDE_INIT_LEGS=0 ;;
   *) fail "CERT_BUNDLE_INCLUDE_INIT_LEGS must be 1/true/yes or 0/false/no (got '${CERT_BUNDLE_INCLUDE_INIT_LEGS}')" ;;
 esac
 command -v jq >/dev/null || fail "jq required"
@@ -805,7 +807,7 @@ write_fragment exact-artifact-version-matrix version-matrix \
 append_fragment "$WORK_ROOT/exact-artifact-version-matrix.fragment.json" "$MATRIX_LOG"
 
 if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
-  # Opt-in only (see CERT_BUNDLE_INCLUDE_INIT_LEGS at the top of this file).
+  # The default (see CERT_BUNDLE_INCLUDE_INIT_LEGS at the top of this file).
   leg=$((leg + 1))
   init_contract_assertions='["authenticated_target_proposal","digest_bound_confirmation","separate_code_and_state_declarations","redacted_risk_rendering","fail_closed_transport","generic_authored_only_scope","initial_baseline_lifecycle"]'
   init_contract_exclusions='["live_wordpress_runtime","plugin_semantic_conformance","agent_installation_or_adoption"]'
@@ -904,12 +906,14 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
     "$WORK_ROOT/duo-init-golden-path.fragment.json"
   append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LOG"
 else
-  say "reference legs: init platform contract + public duo init golden path are DESCOPED"
-  printf '\033[1;33mSKIPPED (not certified, not claimed): the two init legs are out of the
-certified set pending DUO-3427 (init interrupted-recovery subsystem) and the
-golden-path clock defect -- #151 certified them before either had ever passed
-end to end. This bundle carries no init test fragment, assertion, or exclusion.
-Run them with CERT_BUNDLE_INCLUDE_INIT_LEGS=1 once both land.\033[0m\n'
+  say "reference legs: init platform contract + public duo init golden path are OPTED OUT"
+  printf '\033[1;33mSKIPPED (not certified, not claimed) by CERT_BUNDLE_INCLUDE_INIT_LEGS=%s.
+Both init legs are IN the certified set by default -- DUO-3427 repaired the init
+interrupted-recovery subsystem and DUO-3428 restated the per-init clock, and the
+live suite is green end to end. This run opted out, so the bundle below carries
+no init test fragment, assertion, or exclusion and is NOT a complete reference
+bundle. Unset CERT_BUNDLE_INCLUDE_INIT_LEGS to certify them.\033[0m\n' \
+    "${CERT_BUNDLE_INCLUDE_INIT_LEGS}"
 fi
 
 assert_exact_source_unchanged

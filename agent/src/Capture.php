@@ -195,7 +195,26 @@ final class Capture {
                 'duo: scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'
             );
         }
-        if (!$initialBaseline) {
+        // DUO-3427: this early check exists for exactly one reason — acquiring
+        // the destination lock CREATES its file, and no ordinary capture may
+        // write into a repository that holds an interrupted init. When the
+        // canonical lock already exists there is nothing to create, so the
+        // early exit buys nothing and costs the truth: a LIVE init holds that
+        // lock and has already written its journal, so this arm answered a
+        // running race with recovery advice — "run duo init to verify or roll
+        // back that interrupted attempt" — for an init that was not
+        // interrupted, was mid-publication, and went on to succeed. Following
+        // that advice means starting a second init against a live one.
+        //
+        // Gated on the lock's ABSENCE, the no-write guarantee is unchanged
+        // (the refusal still happens before anything could be created) and a
+        // live race falls through to Publish::lock(), whose refusal names the
+        // held destination lock. Whoever then holds the lock is by definition
+        // the only live publisher, so the post-acquire check below — already
+        // documented as the race-closer — is where "interrupted" can actually
+        // be told apart from "in progress".
+        $canonicalLock = Publish::lock_path($stateDir);
+        if (!$initialBaseline && !file_exists($canonicalLock) && !is_link($canonicalLock)) {
             self::assert_no_interrupted_init($repoPath);
         }
         if ($initialBaseline) {
@@ -268,16 +287,36 @@ final class Capture {
             // observable from another wp-cli invocation's own process) —
             // the same reason PromotionLock's phase marker is DB-backed
             // rather than in-memory. No effect at all unless a caller
-            // explicitly opts into test mode. Production capture is unchanged.
-            if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1') {
+            // explicitly opts into a marker-reading seam; production capture
+            // is unchanged, and a DUO_TEST_MODE run requesting neither seam
+            // writes no marker (a SIGKILLed run must not leave a ledger row
+            // that the next init reads as an existing Duo ledger).
+            $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
+            $waitForRelease = getenv('DUO_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1';
+            if ($scopeRequest === null && getenv('DUO_TEST_MODE') === '1'
+                && (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {
                 // This marker is intentionally outside the consistent
                 // snapshot: a second process must be able to observe it
                 // while this process is paused inside the held flock(). It is
                 // test-only and is deleted in finally so a refused/failed
                 // capture cannot leave a duo_kv residue behind.
+                //
+                // DUO-3427: scoped to the pause it exists FOR, not to test
+                // mode at large. Its only reader (regress_capture_concurrency)
+                // always requests the pause, and the finally-delete keeps the
+                // no-residue promise on every ordinary failure — but not
+                // through a SIGKILL, and #151 later added init's SIGKILL fault
+                // seams to this same path. Every killed init therefore
+                // committed one wp_duo_kv row that nothing would ever read and
+                // no rollback would ever clear, and a non-pristine ledger is
+                // not inert: it is `existing_duo_ledger`, so the environment a
+                // rolled-back init is supposed to leave RETRYABLE refused the
+                // next init instead. Written only where it is observed, so the
+                // promise in the paragraph above is true for every path that
+                // writes it.
                 $testPhaseMarked = true;
                 Ledger::kv_set('capture_test_phase', 'locked');
-                if (getenv('DUO_TEST_CAPTURE_WAIT_FOR_RELEASE') === '1') {
+                if ($waitForRelease) {
                     $released = false;
                     for ($attempt = 0; $attempt < 1200; $attempt++) {
                         if ((string) Ledger::kv_get('capture_test_phase') === 'release') {
@@ -290,10 +329,7 @@ final class Capture {
                         throw new \RuntimeException('duo: test capture release marker was not received');
                     }
                 } else {
-                    $pauseMs = (int) (getenv('DUO_TEST_CAPTURE_PAUSE_MS') ?: 0);
-                    if ($pauseMs > 0 && $pauseMs <= 10000) {
-                        usleep($pauseMs * 1000);
-                    }
+                    usleep($pauseMs * 1000);
                 }
             }
             // Deterministic recovery of whatever a prior crashed run left
@@ -1015,11 +1051,29 @@ final class Capture {
         );
     }
 
+    /**
+     * DUO-3427: typed, because this refusal has an entirely reviewable shape.
+     *
+     * A retained init recovery journal is not an internal fault: the operator
+     * is told exactly what exists and exactly what to run, in a fixed engine
+     * sentence that names no path, selector, or value. As a bare
+     * RuntimeException it reached JSON callers as "capture refused at an
+     * unclassified safety gate" with details_redacted, sending an operator
+     * holding an interrupted init to private evidence for the one instruction
+     * that IS public — the DUO-3398/DUO-3399 shape, and the same treatment
+     * DUO-3421 gave the init side's proven rollback. The human rendering is
+     * unchanged: the operator message below is the sentence this gate has
+     * always printed.
+     */
     private static function assert_no_interrupted_init(string $repo): void {
         foreach (['.duo-init-attempt', '.duo-init-attempt.next'] as $name) {
             $path = rtrim($repo, '/') . '/' . $name;
             if (file_exists($path) || is_link($path)) {
-                throw new \RuntimeException(
+                throw new CommandRefusalException(
+                    'interrupted_init_recovery_pending',
+                    'capture refused while a sealed init recovery journal exists',
+                    'run duo init for the same environment to verify or roll back that interrupted attempt, then capture again',
+                    [],
                     'duo: capture refused while a sealed init recovery journal exists; '
                     . 'run duo init for the same environment to verify or roll back that attempt before capturing again'
                 );

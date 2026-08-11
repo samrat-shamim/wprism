@@ -57,7 +57,9 @@ INIT_LOGS=(
   "/tmp/${PAIR}-init-root-symlink.log"
   "/tmp/${PAIR}-init-root-directory.log"
 )
-STARTED_AT=$SECONDS
+# DUO-3428: informational only. The certified clock is per-init and lives in
+# time_golden_init() below; this stopwatch measures the HARNESS.
+SUITE_STARTED_AT=$SECONDS
 
 export DUO_PAIR="$PAIR"
 
@@ -141,6 +143,51 @@ assert_exit() {
 
 library_digest() { # library_digest <dir>
   find "$1" -type f -print0 | LC_ALL=C sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
+}
+
+# DUO-3428: the certified `completed_within_fifteen_minutes` clock.
+#
+# The claim is DUO-3336's, and DUO-3336's title is per-init: an existing site
+# initializes inside fifteen minutes. It was implemented as a whole-SUITE
+# stopwatch -- `$SECONDS` captured at script start, compared to 900 once on the
+# last line -- and then exported into the reference bundle as a certified
+# member of `init_golden_assertions`. Those are not the same measurement and
+# they do not even have the same subject: this suite installs WooCommerce,
+# plants a 5000-row risk fixture, and drives roughly twenty injected-failure
+# confirmations with about eighteen full code stagings between them, so the
+# number it certified was the harness's own cost. At full green the suite runs
+# ~60 minutes while one init measures a few hundred seconds, so a suite that
+# proved the product fast would have failed the claim that says it is -- the
+# certified assertion could only ever have been false, or vacuous behind an
+# earlier failure.
+#
+# So the budget is applied where the claim lives: each golden-path init is
+# timed on its OWN wall, proposal through confirmation, which is exactly the
+# span an operator waits through, and every timed case must be inside the
+# budget. Any case may be added here; the certified assertion is the whole set,
+# and a set that lost its last member would certify nothing, so the count is
+# pinned below too. The suite total is still measured and printed, because it
+# is real operational data worth tracking (DUO-3425) -- it is simply not what
+# this claim certifies, and it is reported as an informational line that no
+# assertion rests on.
+INIT_BUDGET_SECONDS=900
+INIT_TIMED_CASES_EXPECTED=1
+INIT_TIMINGS=()
+
+# time_golden_init <expected-exit> <label> <command...>
+#
+# assert_exit's contract is preserved verbatim -- exit status checked, $OUT
+# left in place for the caller's greps -- with the per-init wall recorded and
+# budgeted around it.
+time_golden_init() {
+  local expected="$1" label="$2"; shift 2
+  local started=$SECONDS elapsed
+  assert_exit "$expected" "$label" "$@"
+  elapsed=$((SECONDS - started))
+  INIT_TIMINGS+=("$elapsed"$'\t'"$label")
+  [ "$elapsed" -le "$INIT_BUDGET_SECONDS" ] \
+    || fail "$label took ${elapsed}s, over the per-init fifteen-minute budget (${INIT_BUDGET_SECONDS}s)"
+  pass "$label completed in ${elapsed}s (per-init budget ${INIT_BUDGET_SECONDS}s)"
 }
 
 # assert_init_plan <wp1|wp2> <container-repo> <label>  ->  $INIT_PLAN_DIGEST
@@ -1207,6 +1254,13 @@ pass "confirmation boundary is real"
 say "two concurrent confirmations produce exactly one complete winner"
 assert_init_plan wp2 /siterepo "concurrent confirmation"
 CONCURRENT_DIGEST="$INIT_PLAN_DIGEST"
+# DUO-3428: measured and printed, never asserted. This IS a complete init, but
+# it is a contention case -- two contenders, one deliberate 5000 ms publication
+# pause, and the winner is whichever one the lease picks -- so its wall is not
+# the golden-path span `completed_within_fifteen_minutes` certifies. It is
+# recorded because it is the suite's only other full initialization and the
+# comparison is worth having (DUO-3425).
+CONCURRENT_STARTED_AT=$SECONDS
 set +e
 "${COMPOSE[@]}" run --rm -T \
   -e DUO_TEST_MODE=1 -e DUO_TEST_INIT_PUBLICATION_PAUSE_MS=5000 \
@@ -1223,13 +1277,26 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 [ -f "$HOST_REPO2/site.duo.json" ] || fail "concurrent winner never reached publication-lock phase"
+# DUO-3427: this is the MACHINE surface, so it is asserted on the machine
+# contract. `another capture is already publishing` is the OPERATOR-message
+# wording, which --format=json deliberately does not carry — the reviewed
+# public fields are the reason code and its own sentence — so grepping the
+# human phrase here asked the JSON envelope for something it never promised.
+# The operator wording keeps its two proper homes: regress_capture_concurrency
+# asserts it on stderr, and regress_capture_publish asserts it on the thrown
+# message. Compose stderr is dropped for the same reason DUO-3421 stopped
+# preferring it: `docker compose run` writes progress there on every call, so
+# merging it here would leave nothing parseable.
 set +e
-CAPTURE_OUT=$(wp2 duo capture --repo=/siterepo --format=json 2>&1)
+CAPTURE_OUT=$(wp2 duo capture --repo=/siterepo --format=json 2>/dev/null)
 CAPTURE_CODE=$?
 set -e
 [ "$CAPTURE_CODE" -ne 0 ] || fail "ordinary capture entered while init held its publication lock"
-grep -q 'another capture is already publishing' <<<"$CAPTURE_OUT" \
-  || fail "ordinary capture refusal did not name the held publication lock"
+jq -e '.format == "duo-command-refusal/v1" and .reason_code == "capture_lock_held"' \
+  <<<"$CAPTURE_OUT" >/dev/null 2>&1 \
+  || fail "ordinary capture refusal did not name the held publication lock: $CAPTURE_OUT"
+grep -q 'another publisher holds the destination lock' <<<"$CAPTURE_OUT" \
+  || fail "ordinary capture refusal omitted its reviewed public sentence: $CAPTURE_OUT"
 set +e
 wait "$PID1"; CODE1=$?
 wait "$PID2"; CODE2=$?
@@ -1241,6 +1308,9 @@ if { [ "$CODE1" -eq 0 ] && [ "$CODE2" -eq 0 ]; } \
   sed -n '1,120p' "/tmp/${PAIR}-init-concurrent-2.log"
   fail "concurrent init expected exactly one successful confirmation"
 fi
+CONCURRENT_ELAPSED=$((SECONDS - CONCURRENT_STARTED_AT))
+printf 'informational: concurrent-confirmation group (winner + loser + injected 5000ms pause) took %ss; not a certified per-init measurement\n' \
+  "$CONCURRENT_ELAPSED"
 [ -f "$HOST_REPO2/site.duo.json" ] && [ -d "$HOST_REPO2/state" ] \
   && [ -d "$HOST_REPO2/code/wp-content" ] && [ -d "$HOST_REPO2/.git" ] \
   || fail "concurrent winner did not leave one complete baseline tuple"
@@ -1250,7 +1320,10 @@ assert_exit 0 "concurrent winner status" "${DUO[@]}" status "${PAIR}2"
 pass "init advisory lease prevents loser cleanup from touching the winner"
 
 say "confirm the content-addressed proposal through the public host CLI"
-assert_exit 0 "duo init Woo golden path" "${DUO[@]}" init "${PAIR}1" --yes
+# DUO-3428: the certified per-init clock. One public host-CLI invocation that
+# proposes and confirms, which is the whole operator-visible span the
+# fifteen-minute claim is about.
+time_golden_init 0 "duo init Woo golden path" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'code: managed-baseline-proposed' <<<"$OUT" || fail "init did not propose a separate code baseline"
 grep -q 'active plugin: woocommerce/woocommerce.php 11.0.0' <<<"$OUT" || fail "init did not inventory the active plugin version"
 grep -q 'Initialized canonical state baseline' <<<"$OUT" || fail "init did not name the state baseline"
@@ -1413,8 +1486,20 @@ grep -q 'Verified the interrupted committed init' <<<"$OUT" \
 assert_exit 0 "status after retained init cleanup recovery" "${DUO[@]}" status "${PAIR}2"
 pass "retained init cleanup is receipt-bound and the canonical lock remains the recovery rendezvous"
 
-ELAPSED=$((SECONDS - STARTED_AT))
-[ "$ELAPSED" -le 900 ] || fail "golden path exceeded 15 minutes (${ELAPSED}s)"
-pass "golden path completed in ${ELAPSED}s and the pair will be destroyed"
+say "certified per-init clock: completed_within_fifteen_minutes"
+# DUO-3428. Each entry was already budgeted at the moment it was measured, so
+# reaching here means every one of them passed; this restates them together as
+# the certified assertion's evidence and refuses a set that measured nothing --
+# a claim whose subject silently disappeared is worse than a failing one.
+[ "${#INIT_TIMINGS[@]}" -eq "$INIT_TIMED_CASES_EXPECTED" ] \
+  || fail "the per-init clock timed ${#INIT_TIMINGS[@]} golden-path init(s), not the $INIT_TIMED_CASES_EXPECTED it certifies"
+for TIMING in "${INIT_TIMINGS[@]}"; do
+  printf '  %6ss  %s\n' "${TIMING%%$'\t'*}" "${TIMING#*$'\t'}"
+done
+pass "every golden-path init completed within ${INIT_BUDGET_SECONDS}s of its own proposal (per-init wall)"
+
+SUITE_ELAPSED=$((SECONDS - SUITE_STARTED_AT))
+printf '\ninformational: whole suite took %ss (harness cost -- WooCommerce install, 5000-row risk fixture, ~20 injected-failure confirmations; NOT the certified claim)\n' \
+  "$SUITE_ELAPSED"
 
 printf '\n\033[1;32m✔ REGRESS_DUO_INIT PASSED\033[0m\n'

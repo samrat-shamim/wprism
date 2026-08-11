@@ -624,8 +624,21 @@ final class Init {
             if (str_contains($entry, '.duo-claim-')) {
                 return 'the interrupted-init repository contains an unjournaled cleanup claim artifact';
             }
-            if (str_starts_with($entry, 'state.capture-intent.tmp.')
-                || str_starts_with($entry, 'state.capture-receipt.tmp.')) {
+            // DUO-3427: "unbound" is the recovery authority's word, and it
+            // has a precise meaning there — a write_record() temp that is NOT
+            // a hard link to its sealed next slot carrying that exact record
+            // (Publish::remove_matching_record_temps(), whose docblock refuses
+            // to sweep "by name pattern"). This gate swept by name pattern,
+            // so the `record-create-next` crash window — temp created, hard
+            // linked to `.next`, fault before the canonical link, one unlink
+            // from resolved — was sent to manual archive-and-recreate even
+            // though the confirmation would have rolled it back completely.
+            // Both sites now ask Publish the same question; a genuinely
+            // unbound temp (the `record-create-temp` window, where no `.next`
+            // exists at all) still refuses here with the same sentence.
+            if ((str_starts_with($entry, 'state.capture-intent.tmp.')
+                || str_starts_with($entry, 'state.capture-receipt.tmp.'))
+                && !Publish::record_temp_is_resolvable($stateDir, $entry)) {
                 return 'the interrupted-init repository contains an unbound capture record temporary artifact';
             }
             $knownInitArtifact = $entry === self::ATTEMPT_FILE
@@ -1238,20 +1251,71 @@ final class Init {
             || !hash_equals((string) ($receipt['previous_sha256'] ?? ''), hash('sha256', ''))) {
             throw new \RuntimeException('duo: committed init receipt does not prove the current state tree');
         }
+        // DUO-3427: two questions, each asked of evidence that survives the
+        // sealed journal.
+        //
+        // This compared the committed file's BYTES to a re-encoding of the
+        // journal's copy of the confirmed config, and those bytes can never
+        // agree. The file is written from the LIVE proposal, where an empty
+        // policy map is a JSON object; the journal stores that proposal as
+        // JSON and Canon::decode() reads it back with assoc arrays, so `{}`
+        // returns as `[]` and re-encodes as `[]`. Every core-only site has at
+        // least one empty policy map, so committed-init FINALIZATION — the
+        // whole point of a crash after COMMIT — refused unconditionally with
+        // the unclassified envelope, telling the operator their config no
+        // longer matched a proposal they had never touched.
+        //
+        // Byte-exactness is still the anti-tamper contract (a single appended
+        // newline must refuse), so it moves to the evidence that CAN carry it
+        // through the journal: the publication identity Duo recorded when it
+        // wrote the file, which folds the content digest with dev/ino. The
+        // proposal binding is kept as a structural comparison, both sides
+        // normalized through the same decode/encode, so it means what it says
+        // without depending on a distinction the journal cannot hold. The
+        // identity is tested FIRST and short-circuits, so the decode below
+        // only ever runs on bytes Duo itself wrote.
         $proposal = $attempt['proposal'] ?? null;
         $expectedConfig = is_array($proposal) ? ($proposal['state']['config'] ?? null) : null;
+        $sitePublication = ((array) ($attempt['owned'] ?? []))['site_publication'] ?? null;
         $siteFile = rtrim($repo, '/') . '/site.duo.json';
         if (!is_array($expectedConfig) || is_link($siteFile) || !is_file($siteFile)
-            || Canon::read_file($siteFile) !== Canon::encode($expectedConfig)) {
+            || !is_array($sitePublication) || !is_string($sitePublication['published'] ?? null)
+            || !hash_equals(
+                (string) $sitePublication['published'],
+                self::regular_file_identity($siteFile, 'site.duo.json')
+            )
+            || Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)) {
             throw new \RuntimeException('duo: committed init site.duo.json no longer matches the confirmed proposal');
         }
+        // DUO-3427: two quantities that are never equal were compared as if
+        // they were one. `proposal.code.source_revision` digests the LIVE
+        // SOURCE inventory (the target's own wp-content) and is verified
+        // against that source, correctly, in capture_code(); a compiled
+        // `code_revision` digests the REPOSITORY PAYLOAD. They are computed
+        // over different roots from different inputs — the payload
+        // deliberately excludes Duo's own control-plane loader, for one — so
+        // this refused every committed finalization on arithmetic alone, a
+        // second unconditional gate behind the site.duo.json one above.
+        //
+        // The payload is proved the way everything else in this subsystem is:
+        // against evidence the sealed journal carries. `code_identity` is the
+        // publication identity Duo recorded for the code root at `code-ready`
+        // (dev/ino plus content digest for every child), so it proves the
+        // payload is byte-for-byte the tree this attempt published; the
+        // completed_code_mismatch() check immediately below already proves
+        // that same payload is the one the committed transaction recorded in
+        // the ledger. Together those are the binding this line was reaching
+        // for. Nothing binds the payload to `source_revision`, because the
+        // product does not claim they are equal.
         $policy = Policy::load($repo);
         $compiled = RepositoryCompiler::compile($repo, $policy);
         $descriptor = $compiled->code_descriptor();
-        $expectedRevision = is_array($proposal) ? ($proposal['code']['source_revision'] ?? null) : null;
-        if (!is_array($descriptor) || !is_string($expectedRevision)
-            || !hash_equals($expectedRevision, (string) ($descriptor['code_revision'] ?? ''))) {
-            throw new \RuntimeException('duo: committed init code descriptor no longer matches the confirmed proposal');
+        $codeIdentity = ((array) ($attempt['owned'] ?? []))['code_identity'] ?? null;
+        $codeRoot = rtrim($repo, '/') . '/code';
+        if (!is_array($descriptor) || !is_string($codeIdentity)
+            || is_link($codeRoot) || !is_dir($codeRoot)
+            || !hash_equals($codeIdentity, self::directory_identity($codeRoot, 'code publication root'))) {
+            throw new \RuntimeException('duo: committed init code payload changed after Duo published it');
         }
         $codeMismatch = Code::completed_code_mismatch($compiled);
         if ($codeMismatch !== null) {

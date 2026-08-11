@@ -540,6 +540,58 @@ check(
         && str_contains($agentSource, "hash_equals((string) (\$receipt['previous_sha256'] ?? ''), hash('sha256', ''))"),
     'ordinary capture cannot replace a retained initial receipt and committed recovery proves a first publication'
 );
+// DUO-3427: and it says so to a MACHINE caller. A retained init recovery
+// journal is the operator's whole answer — what exists, and the one command
+// that resolves it — in a fixed engine sentence carrying no path, selector, or
+// value. As a bare RuntimeException it reached `--format=json` as "capture
+// refused at an unclassified safety gate" with details_redacted, which sends
+// an operator holding an interrupted init to private evidence for public
+// guidance. Typed now, like the init side's proven rollback (DUO-3421), with
+// the human sentence preserved verbatim as the operator message.
+check(
+    str_contains($captureSource, "'interrupted_init_recovery_pending',")
+        && str_contains($captureSource, "'capture refused while a sealed init recovery journal exists',")
+        && str_contains($captureSource, "'run duo init for the same environment to verify or roll back that interrupted attempt, then capture again',")
+        && !preg_match(
+            '/private static function assert_no_interrupted_init.{0,400}throw new \\\\RuntimeException/s',
+            $captureSource
+        ),
+    'the retained init-recovery capture gate is a typed public refusal, not an unclassified redacted envelope'
+);
+// DUO-3427: and it must not answer a LIVE race. The pre-lock arm of that gate
+// exists for one reason — acquiring the destination lock CREATES its file, and
+// no ordinary capture may write into a repository holding an interrupted init.
+// When the canonical lock already exists nothing can be created, so an
+// unconditional early exit only pre-empted the truth: a live init holds that
+// lock and has already written its journal, so a running race was answered
+// with "run duo init to verify or roll back that interrupted attempt" for an
+// init that was mid-publication and went on to succeed. Gated on the lock's
+// ABSENCE the no-write guarantee is identical, and a live race falls through
+// to Publish::lock(), whose typed refusal names the held destination lock —
+// which is also the only point at which "interrupted" can be told apart from
+// "in progress", because holding that lock is what proves nobody else is
+// alive.
+$preLockGate = strpos(
+    $captureSource,
+    "if (!\$initialBaseline && !file_exists(\$canonicalLock) && !is_link(\$canonicalLock)) {"
+);
+$lockAcquire = strpos($captureSource, '$lock = $publicationLock ?? Publish::lock($stateDir);');
+$postLockGate = strpos($captureSource, 'self::assert_no_interrupted_init($repoPath);', (int) $lockAcquire);
+check(
+    $preLockGate !== false && $lockAcquire !== false && $postLockGate !== false
+        && $preLockGate < $lockAcquire && $lockAcquire < $postLockGate
+        && substr_count($captureSource, 'self::assert_no_interrupted_init($repoPath);') === 2,
+    'the pre-lock init-recovery gate fires only where acquiring the lock would create it; a live race is answered by the lock itself'
+);
+$publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php');
+check(
+    str_contains($publishSourceLock, "'capture_lock_held',")
+        && str_contains($publishSourceLock, "'capture refused because another publisher holds the destination lock',")
+        && str_contains($liveHarness, "\$CAPTURE_OUT) >/dev/null 2>&1 \\") === false
+        && str_contains($liveHarness, ".reason_code == \"capture_lock_held\"")
+        && !str_contains($liveHarness, "grep -q 'another capture is already publishing'"),
+    'the live concurrency case asserts the machine refusal contract, not the operator-message wording'
+);
 check(
     str_contains($agentSource, 'private static function remove_exact_owned_file(')
         && str_contains($agentSource, 'if (!@unlink($path))'),
@@ -655,6 +707,38 @@ check(
         && str_contains($liveHarness, 'replacement ordinary directory received a repository write')
         && str_contains($liveHarness, 'post-proposal symlink replacement received a repository write'),
     'live root suite covers missing, ancestor-link, symlink-swap, and ordinary-directory replacement boundaries'
+);
+
+// DUO-3428: `completed_within_fifteen_minutes` is exported into the reference
+// bundle as a CERTIFIED member of init_golden_assertions, and DUO-3336 states
+// it per init. It was implemented as a whole-suite stopwatch over a harness
+// that installs WooCommerce and drives ~20 injected-failure confirmations, so
+// the certified number described the harness and could only fail once the
+// suite went green end to end. Pinned as a shape, not a duration: the budget
+// is applied per timed init, the whole-suite stopwatch is informational and
+// carries no assertion, and the certified set cannot silently empty out.
+$suiteStopwatch = (bool) preg_match('/^SUITE_STARTED_AT=\$SECONDS$/m', $liveHarness);
+check(
+    $suiteStopwatch
+        && str_contains($liveHarness, 'time_golden_init() {')
+        && str_contains($liveHarness, 'INIT_BUDGET_SECONDS=900')
+        && str_contains($liveHarness, 'over the per-init fifteen-minute budget')
+        && str_contains($liveHarness, 'time_golden_init 0 "duo init Woo golden path"')
+        && !preg_match('/^STARTED_AT=\$SECONDS$/m', $liveHarness)
+        && !str_contains($liveHarness, 'golden path exceeded 15 minutes'),
+    'the certified fifteen-minute clock budgets each golden-path init on its own proposal-to-confirmation wall, not the whole suite'
+);
+check(
+    str_contains($liveHarness, 'SUITE_ELAPSED=$((SECONDS - SUITE_STARTED_AT))')
+        && str_contains($liveHarness, 'informational: whole suite took %ss')
+        && !preg_match('/\[ "\$SUITE_ELAPSED" -\w+ /', $liveHarness),
+    'the whole-suite wall is reported as informational operational data and no assertion rests on it'
+);
+check(
+    str_contains($liveHarness, 'INIT_TIMED_CASES_EXPECTED=1')
+        && str_contains($liveHarness, '[ "${#INIT_TIMINGS[@]}" -eq "$INIT_TIMED_CASES_EXPECTED" ]')
+        && str_contains($liveHarness, 'golden-path init(s), not the $INIT_TIMED_CASES_EXPECTED it certifies'),
+    'the per-init clock refuses a certified set that timed nothing, so the claim cannot go vacuous'
 );
 
 // DUO-3421. This leg and the live golden path (bundle legs 13-14) both run on
@@ -839,6 +923,205 @@ check(
     substr_count($initAuthoritySource, 'self::git_empty_identity_current($repo, $owned)') === 2
         && str_contains($initAuthoritySource, 'private static function git_empty_identity_current('),
     'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
+);
+
+// DUO-3427: the same asymmetry family, one authority over. Every ownership
+// manifest a recovery consumes has made a round trip through the sealed init
+// journal, and Canon::encode() ksorts object keys — so a journaled entry comes
+// back {dev,ino,path,sha256,type} while tree_ownership_manifest() builds
+// {type,dev,ino,sha256,path}. PHP's `===` on arrays is order-sensitive, so
+// Publish::assert_owned_tree() reported "changed after Duo created it" for a
+// tree nothing had touched, and it did so on EVERY fresh-process rollback:
+// the strict first-publication recovery path could only refuse. Its two
+// siblings — the proposal-time gate above and remove_owned_file_initial()'s
+// file-level twin — already compared canonically, both since the same commit.
+// Exercised against the real predicate with a real tree and a real journal
+// round trip, offline.
+require_once __DIR__ . '/../../agent/src/Publish.php';
+$manifestFixture = sys_get_temp_dir() . '/duo-init-manifest-order-' . bin2hex(random_bytes(6));
+if (!mkdir($manifestFixture . '/posts/page', 0777, true)) fail('could not create the manifest-order fixture');
+register_shutdown_function(static function () use ($manifestFixture): void {
+    exec('rm -rf ' . escapeshellarg($manifestFixture));
+});
+file_put_contents($manifestFixture . '/posts/page/hello.md', "hello\n");
+$liveManifest = \Duo\Publish::tree_ownership_manifest($manifestFixture);
+$sealedManifest = \Duo\Canon::decode(\Duo\Canon::encode($liveManifest));
+check(
+    $liveManifest !== $sealedManifest && \Duo\Canon::encode($liveManifest) === \Duo\Canon::encode($sealedManifest),
+    'a journaled ownership manifest really does come back with reordered keys, so the comparison is the whole question'
+);
+$ownedTreeVerdict = static function (array $manifest) use ($manifestFixture): ?string {
+    try {
+        \Duo\Publish::assert_owned_tree($manifestFixture, $manifest, 'initial capture staging');
+        return null;
+    } catch (\Throwable $refusal) {
+        return $refusal->getMessage();
+    }
+};
+check(
+    $ownedTreeVerdict($sealedManifest) === null,
+    'a tree that still matches its SEALED manifest carries complete deletion authority'
+);
+$changedManifest = $sealedManifest;
+$changedManifest['entries'][0]['ino'] = '999999999999';
+check(
+    $ownedTreeVerdict($changedManifest) === 'duo: initial capture staging changed after Duo created it; preserving it',
+    'a re-inoded entry is still refused and preserved'
+);
+file_put_contents($manifestFixture . '/posts/page/unmanifested.md', "added\n");
+check(
+    $ownedTreeVerdict($sealedManifest) === 'duo: initial capture staging changed after Duo created it; preserving it',
+    'an entry absent from the sealed manifest is still refused and preserved'
+);
+
+// DUO-3427: the same asymmetry a third time, on the capture-record temporaries.
+// Publish::remove_matching_record_temps()'s docblock states the rule — resolve
+// only a temp that is a hard link to its sealed next slot carrying that exact
+// record, never sweep "by name pattern" — and the proposal gate swept by name
+// pattern. write_record() creates the temp, hard links it to `.next`, and only
+// then reaches the record-create-next fault boundary, so a crash there leaves
+// the bound shape the authority is built to resolve; the gate sent it to
+// manual archive-and-recreate instead, and the confirmation that would have
+// rolled it back completely was never offered. Exercised against the real
+// shared predicate with real inodes, offline.
+$tempFixture = sys_get_temp_dir() . '/duo-init-record-temp-' . bin2hex(random_bytes(6));
+if (!mkdir($tempFixture, 0777, true)) fail('could not create the record-temp fixture');
+register_shutdown_function(static function () use ($tempFixture): void {
+    exec('rm -rf ' . escapeshellarg($tempFixture));
+});
+$tempStateDir = $tempFixture . '/state';
+$sealIntent = static function (string $candidate): string {
+    $record = [
+        'format' => 'duo-capture-intent/v1',
+        'id' => bin2hex(random_bytes(16)),
+        'phase' => 'prepared',
+        'candidate_sha256' => $candidate,
+        'previous_sha256' => hash('sha256', ''),
+        'created_at' => gmdate('c'),
+    ];
+    $record['record_sha256'] = hash('sha256', \Duo\Canon::encode($record));
+    return \Duo\Canon::encode($record);
+};
+// The literal fixed slot name, as the site-repo ignore template pins it.
+$intentNext = \Duo\Publish::intent_path($tempStateDir) . '.next';
+$boundTemp = \Duo\Publish::intent_path($tempStateDir) . '.tmp.4242.' . bin2hex(random_bytes(6));
+file_put_contents($boundTemp, $sealIntent(str_repeat('a', 64)));
+if (!link($boundTemp, $intentNext)) fail('could not hard link the record-temp fixture');
+check(
+    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === true,
+    'a record temp hard-linked to its sealed next slot is resolvable, exactly as the removal authority resolves it'
+);
+$strayTemp = \Duo\Publish::intent_path($tempStateDir) . '.tmp.4243.' . bin2hex(random_bytes(6));
+file_put_contents($strayTemp, $sealIntent(str_repeat('b', 64)));
+check(
+    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($strayTemp)) === false,
+    'a record temp on its own inode is not resolvable and still means manual recovery'
+);
+unlink($intentNext);
+check(
+    \Duo\Publish::record_temp_is_resolvable($tempStateDir, basename($boundTemp)) === false,
+    'a record temp with no sealed next slot at all is not resolvable — the record-create-temp crash window is unchanged'
+);
+check(
+    substr_count($initAuthoritySource, 'Publish::record_temp_is_resolvable($stateDir, $entry)') === 1
+        && str_contains($initAuthoritySource, "str_starts_with(\$entry, 'state.capture-intent.tmp.')"),
+    'the proposal gate resolves record temporaries through the authority\'s own binding predicate, not a name sweep'
+);
+
+// DUO-3427: committed-init FINALIZATION re-proved the published site.duo.json
+// by comparing its BYTES to a re-encoding of the journal's copy of the
+// confirmed config — and those bytes can never agree. The file is written from
+// the LIVE proposal, where an empty policy map is a JSON object; the journal
+// stores the proposal as JSON and Canon::decode() reads it back with assoc
+// arrays, so `{}` returns as `[]`. Every core-only site has at least one empty
+// policy map, so the crash-after-COMMIT path this function exists for refused
+// unconditionally. Byte-exactness now rides on the publication identity Duo
+// recorded (content digest folded with dev/ino, a string the journal carries
+// intact) and the proposal binding is structural, both sides normalized
+// through one decode/encode. The collapse itself is demonstrated here, on the
+// real encoder, with the real shape.
+$liveInitConfig = [
+    'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
+    'manifests' => [['digest' => str_repeat('a', 64), 'name' => 'core']],
+    'policy' => [
+        'options' => new stdClass(),
+        'post_meta' => new stdClass(),
+        'post_types' => ['attachment', 'page', 'post'],
+        'taxonomies' => ['category', 'post_tag'],
+        'term_meta' => new stdClass(),
+    ],
+    'spec_version' => 2,
+];
+$committedBytes = \Duo\Canon::encode($liveInitConfig);
+$journaledConfig = \Duo\Canon::decode(
+    \Duo\Canon::encode(['proposal' => ['state' => ['config' => $liveInitConfig]]])
+)['proposal']['state']['config'];
+check(
+    str_contains($committedBytes, '"options": {}')
+        && \Duo\Canon::encode($journaledConfig) !== $committedBytes,
+    'the sealed journal cannot round-trip an empty policy map, so re-encoding its config never reproduces the committed bytes'
+);
+check(
+    \Duo\Canon::encode(\Duo\Canon::decode($committedBytes)) === \Duo\Canon::encode($journaledConfig),
+    'normalizing both sides through one decode/encode makes the proposal binding answerable'
+);
+check(
+    str_contains($initAuthoritySource, 'Canon::encode(Canon::decode(Canon::read_file($siteFile))) !== Canon::encode($expectedConfig)')
+        && str_contains($initAuthoritySource, "\$sitePublication['published'],")
+        && !str_contains($initAuthoritySource, 'Canon::read_file($siteFile) !== Canon::encode($expectedConfig)'),
+    'committed-init finalization proves site.duo.json byte-exactly through its journaled publication identity, and structurally against the confirmed proposal'
+);
+// DUO-3427: the second unconditional gate on the same path. The finalization
+// compared the compiled payload's `code_revision` to the proposal's
+// `source_revision` — a digest of the LIVE SOURCE inventory, verified against
+// that source in capture_code(), computed over a different root from different
+// inputs (the payload excludes Duo's own loader, which the live suite asserts
+// by name). They are never equal, so this refused every committed
+// finalization on arithmetic. The payload is now proved against the journaled
+// publication identity of the code root, beside the completed_code_mismatch()
+// check that binds the same payload to the committed ledger.
+check(
+    str_contains($initAuthoritySource, "\$codeIdentity = ((array) (\$attempt['owned'] ?? []))['code_identity'] ?? null;")
+        && str_contains($initAuthoritySource, "hash_equals(\$codeIdentity, self::directory_identity(\$codeRoot, 'code publication root'))")
+        && str_contains($initAuthoritySource, 'Code::completed_code_mismatch($compiled)')
+        && !str_contains($initAuthoritySource, "\$expectedRevision = is_array(\$proposal) ? (\$proposal['code']['source_revision'] ?? null) : null;"),
+    'committed-init finalization proves the code payload against its journaled publication identity, not against the live source digest'
+);
+// The source digest keeps its own, correct verification site: the confirmation
+// still refuses when the target's code changed between proposal and capture.
+check(
+    str_contains($initAuthoritySource, "if (!hash_equals((string) (\$code['source_revision'] ?? ''), \$revision)) {")
+        && str_contains($initAuthoritySource, 'duo: code changed after proposal review; rerun init and review the new digest'),
+    'the live source digest is still enforced where it belongs, against the source it describes'
+);
+
+// DUO-3427: a rolled-back init must leave ZERO Duo ledger rows — a non-pristine
+// ledger is `existing_duo_ledger`, so residue is the difference between a
+// retryable environment and one that refuses the next init. Capture's test-only
+// `capture_test_phase` marker is committed outside the consistent snapshot on
+// purpose (its reader must see it while the writer is paused inside the held
+// flock) and deleted in `finally` so no ordinary failure leaves residue — but
+// `finally` does not run through a SIGKILL, and #151 later pointed init's
+// SIGKILL fault seams at this same path. Every killed init committed one row
+// nothing would read and no rollback would clear. It is now written only when
+// a READING seam is requested — the bounded pause, or DUO-3430's
+// wait-for-release gate, whose controller (regress_capture_concurrency) polls
+// this exact marker cross-process; a run requesting neither seam writes no
+// marker. Pinned as an ordering, because the behaviour itself needs a
+// database: gate, then marker, then the wait branch, then the pause.
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$markerGate = strpos($captureSource, '&& (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {');
+$markerSet = strpos($captureSource, "Ledger::kv_set('capture_test_phase', 'locked');");
+$markerWait = strpos($captureSource, 'if ($waitForRelease) {');
+$markerPause = strpos($captureSource, 'usleep($pauseMs * 1000);');
+check(
+    $markerGate !== false && $markerSet !== false && $markerWait !== false
+        && $markerPause !== false
+        && $markerGate < $markerSet && $markerSet < $markerWait
+        && $markerWait < $markerPause
+        && substr_count($captureSource, "Ledger::kv_set('capture_test_phase'") === 1
+        && substr_count($captureSource, "Ledger::kv_delete('capture_test_phase')") === 1,
+    'the test-only capture phase marker is written only for a reading seam — pause or wait-for-release — so a killed init leaves no ledger residue'
 );
 
 // DUO-3421: the interrupted-init compensation runs over the same artifacts

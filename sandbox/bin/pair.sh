@@ -881,8 +881,10 @@ disarm_budget_up_cleanup() {
 # sandbox/tests/certify_reference_bundle.sh holds the per-host certification
 # lock (DUO-3382) for one whole ~50-minute run, but it destroys and recreates
 # ONE pair -- the pair it recorded in that lock -- once per leg. Every recreate
-# re-enters the reservation below, so a 12-leg bundle asks the host for its own
-# pair twelve times, and a leg that lands after other agents have filled the
+# re-enters the reservation below, so the default 14-leg bundle asks the host
+# for its own pair thirteen times (every leg but the offline init-contract one;
+# DUO-3427/DUO-3428 returned legs 13-14 to the certified set), and a leg that
+# lands after other agents have filled the
 # budget in between is refused ("refusing to bring up new pair ... over
 # budget"), which ends the bundle in an immutable FAIL verdict after the legs
 # it had already earned (observed live: leg 6, ~25 minutes of green burned).
