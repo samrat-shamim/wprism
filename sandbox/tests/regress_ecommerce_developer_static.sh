@@ -12,12 +12,13 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "ok: $*"; }
 STATIC_INVALID_OUT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-invalid.XXXXXX")"
 STATIC_EXISTING_OUT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-existing.XXXXXX")"
+STATIC_EARLY_OUT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-early.XXXXXX")"
 STATIC_SENTINEL=""
 STATIC_CREATED_SITEREPO=0
 cleanup_static() {
   local status=$?
   trap - EXIT
-  rm -f -- "$STATIC_INVALID_OUT" "$STATIC_EXISTING_OUT" "$STATIC_STRUCTURE_FILE"
+  rm -f -- "$STATIC_INVALID_OUT" "$STATIC_EXISTING_OUT" "$STATIC_EARLY_OUT" "$STATIC_STRUCTURE_FILE"
   if [ -n "$STATIC_SENTINEL" ] && [ -d "$STATIC_SENTINEL" ]; then
     rm -f -- "$STATIC_SENTINEL/keep"
     rmdir "$STATIC_SENTINEL" 2>/dev/null || true
@@ -395,7 +396,7 @@ helper_noop_rejected visibility-helper "$VISIBILITY_STATE_ASSERT"
 helper_noop_rejected eq-helper "$EQ_PREDICATE"
 helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
-CLEANUP_HELPER_GOLDEN_HASH=9cac02c1c9d2ff7667e56018b20321c25aa093ae7a034f241260448581609e75
+CLEANUP_HELPER_GOLDEN_HASH=54239920ca1e5f97582c7c4dfe97daab159852fbf49fb651feead54ef235ab76
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
@@ -414,7 +415,7 @@ TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686
 TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
 DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4983d9395645cbe79418dd286ba
-LIVE_CHECKOUT_HELPER_GOLDEN_HASH=1ef4a9c1f02943311c2767a7f336fe24588ce0f6d7e641ca826adfb7588edea2
+LIVE_CHECKOUT_HELPER_GOLDEN_HASH=ddca827bf0b7e746c3aa30c8f85fea9e16296564eb0dd9aca5655b4ff140eadc
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
 PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=877ea91d017f105aa689e7d68e64fdeea0d06138fe0f552f9ad7e781867d94a8
@@ -988,6 +989,23 @@ fi
 
 [ -x "$SCRIPT" ] || fail "$SCRIPT must be executable"
 bash -n "$SCRIPT"
+
+ROLLBACK_INIT_LINE="$(grep -n -m1 '^ROLLBACK_MAINTENANCE_HELD=0$' "$SCRIPT" | cut -d: -f1)"
+TRAP_LINE="$(grep -n -m1 '^trap cleanup EXIT$' "$SCRIPT" | cut -d: -f1)"
+[ -n "$ROLLBACK_INIT_LINE" ] && [ -n "$TRAP_LINE" ] && [ "$ROLLBACK_INIT_LINE" -lt "$TRAP_LINE" ] \
+  || fail 'rollback cleanup flags are not initialized before the EXIT trap'
+
+if ECOMMERCE_TEST_EARLY_REFUSAL=1 ECOMMERCE_PAIR="ecomearly${BASHPID}" bash "$SCRIPT" >"$STATIC_EARLY_OUT" 2>&1; then
+  fail 'simulated pre-pair refusal unexpectedly succeeded'
+fi
+grep -Fq 'simulated pre-pair refusal' "$STATIC_EARLY_OUT" \
+  || fail 'simulated pre-pair refusal did not preserve its original diagnostic'
+if grep -Fq 'unbound variable' "$STATIC_EARLY_OUT"; then
+  fail 'early cleanup added an unbound-variable diagnostic'
+fi
+if grep -Fq 'pair.sh up' "$STATIC_EARLY_OUT" || grep -Fq 'docker ' "$STATIC_EARLY_OUT"; then
+  fail 'simulated pre-pair refusal attempted Docker/pair setup'
+fi
 
 if ECOMMERCE_PAIR='../unsafe' bash "$SCRIPT" >"$STATIC_INVALID_OUT" 2>&1; then
   fail 'invalid pair name unexpectedly reached the live harness'
