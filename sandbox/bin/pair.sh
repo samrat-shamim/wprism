@@ -498,13 +498,10 @@ prepare_siterepo_roots() { # prepare_siterepo_roots <name>
 # created capture/state trees in it. The path is never accepted from argv: it
 # is derived only from an already validated pair name and a closed side value.
 # A one-shot root container bind-mounts precisely that resolved directory at
-# /siterepo, plus one unpredictable empty sibling capability probe created by
-# this function beneath the same physical siterepo parent. The probe observes
-# the bind filesystem's actual uid:gid handback behavior without granting
-# cleanup authority over another pair or the canonical checkout. Direct
-# `docker run` also keeps reset's established non-Git-copy behavior: no
-# agent/manifests source resolution or pair service/volume creation is needed
-# for a handback.
+# /siterepo, crossing the uid boundary without sudo or granting host cleanup
+# authority over another pair or the canonical checkout. Direct `docker run`
+# also keeps reset's established non-Git-copy behavior: no agent/manifests
+# source resolution or pair service/volume creation is needed for a handback.
 #
 # The root inode is preserved. Missing roots are a no-op (destroy of a pair
 # that never reached repository creation stays a no-op); a symlink or other
@@ -535,29 +532,19 @@ repo_host_stat_inode() { # repo_host_stat_inode <ordinary path>
   printf '%s\n' "$inode"
 }
 
-# The capability probe is made by mktemp beneath the exact physical
-# siterepo parent and is required to remain an empty ordinary directory. Do
-# not use recursive removal here: if anything replaced or populated it, leave
-# that evidence in place and refuse rather than following it.
-repo_host_remove_probe() { # repo_host_remove_probe <exact probe directory>
-  local probe="$1"
-  if [ -L "$probe" ] || [ ! -d "$probe" ]; then
-    fail "ownership handback capability probe is no longer an ordinary directory: $probe"
+repo_host_revalidate_root() { # repo_host_revalidate_root <root> <expected-inode>
+  local root="$1" expected_inode="$2" actual_inode
+  if [ -L "$root" ] || [ ! -d "$root" ]; then
+    fail "exact pair repository root changed from an ordinary directory during ownership handback: $root"
   fi
-  rmdir "$probe" \
-    || fail "could not remove exact empty ownership handback capability probe: $probe"
-}
-
-repo_host_probe_is_empty() { # repo_host_probe_is_empty <exact probe directory>
-  local probe="$1" entry
-  [ ! -L "$probe" ] && [ -d "$probe" ] || return 1
-  entry="$(find "$probe" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" || return 1
-  [ -z "$entry" ]
+  actual_inode="$(repo_host_stat_inode "$root")" \
+    || fail "could not read exact pair repository inode after ownership handback: $root"
+  [ "$actual_inode" = "$expected_inode" ] \
+    || fail "exact pair repository inode changed during ownership handback: $root"
 }
 
 repo_host_one() { # repo_host_one <name> <side (1|2)>
-  local name="$1" side="$2" root root_abs parent_abs probe probe_abs host_uid host_gid \
-    owner probe_owner probe_initial probe_before root_inode_before root_inode_after host_os cli_image
+  local name="$1" side="$2" root root_abs host_uid host_gid owner owner_uid root_inode_before cli_image
   root="siterepo/${name}${side}"
   case "$side" in
     1|2) ;;
@@ -575,129 +562,56 @@ repo_host_one() { # repo_host_one <name> <side (1|2)>
 
   root_abs="$(cd "$(dirname "$root")" && pwd -P)/$(basename "$root")" \
     || fail "could not resolve exact pair repository path for ownership handback: $root"
-  parent_abs="$(dirname "$root_abs")"
-  root_inode_before="$(repo_host_stat_inode "$root")" \
+  if [ -L "$root_abs" ] || [ ! -d "$root_abs" ]; then
+    fail "pair '$name' repository root is not an ordinary physical directory: $root_abs — refusing ownership handback"
+  fi
+  root_inode_before="$(repo_host_stat_inode "$root_abs")" \
     || fail "could not read exact pair repository inode before ownership handback: $root"
   [[ "$root_inode_before" =~ ^[0-9]+$ ]] \
     || fail "exact pair repository inode is malformed before ownership handback: $root"
 
-  # This one empty sibling is the only extra resource. Its pre-handback
-  # ownership proves it began as the requesting host uid:gid; the same Docker
-  # call below chowns it with the exact uid:gid requested for the pair root.
-  probe="$(mktemp -d "${parent_abs}/.duo-owner-probe.XXXXXX")" \
-    || fail "could not allocate private ownership handback capability probe beside $root"
-  probe_abs="$(cd "$probe" && pwd -P)" || {
-    repo_host_remove_probe "$probe"
-    fail "could not resolve private ownership handback capability probe beside $root"
-  }
-  case "$probe_abs" in
-    "${parent_abs}"/.duo-owner-probe.*) ;;
-    *)
-      repo_host_remove_probe "$probe"
-      fail "private ownership handback capability probe escaped exact pair parent: $probe_abs"
-      ;;
-  esac
-  repo_host_probe_is_empty "$probe_abs" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "private ownership handback capability probe is not an exact empty directory before normalization: $probe_abs"
-  }
-  probe_initial="$(repo_host_stat_owner "$probe_abs")" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "could not verify private ownership handback capability probe before handback: $probe_abs"
-  }
-  if ! [[ "$probe_initial" =~ ^[0-9]+:[0-9]+$ ]]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "private ownership handback capability probe owner is malformed before normalization: $probe_initial"
-  fi
-  if [ "${probe_initial%%:*}" != "$host_uid" ]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "private ownership handback capability probe has foreign uid before normalization (got ${probe_initial}; expected uid ${host_uid})"
-  fi
-
-  # BSD mkdir may inherit the physical parent group (for example wheel under
-  # /tmp) even for a host-owned probe. Normalize ONLY this freshly verified
-  # empty directory with a no-follow, non-recursive host-side chgrp before it
-  # becomes the empirical witness for Docker's same-call handback behavior.
-  # A changed shape/content or an unsuccessful exact readback fails closed;
-  # no root or sibling pair path is ever passed to chgrp.
-  if ! chgrp -h "$host_gid" "$probe_abs"; then
-    repo_host_remove_probe "$probe_abs"
-    fail "could not normalize exact private ownership handback capability probe to host group ${host_gid}: $probe_abs"
-  fi
-  repo_host_probe_is_empty "$probe_abs" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "private ownership handback capability probe changed during host-side normalization: $probe_abs"
-  }
-  probe_before="$(repo_host_stat_owner "$probe_abs")" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "could not verify private ownership handback capability probe after host-side normalization: $probe_abs"
-  }
-  [ "$probe_before" = "${host_uid}:${host_gid}" ] || {
-    repo_host_remove_probe "$probe_abs"
-    fail "private ownership handback capability probe did not normalize to host ${host_uid}:${host_gid}: $probe_before"
-  }
-
   cli_image="${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
   if ! docker run --rm -u root \
     --mount "type=bind,src=${root_abs},dst=/siterepo" \
-    --mount "type=bind,src=${probe_abs},dst=/owner-probe" \
     --entrypoint sh "$cli_image" -ceu '
 uid="$1"; gid="$2"
 chown -R "$uid:$gid" /siterepo
 chmod -R ugo+rwX /siterepo
 chmod 0777 /siterepo
-chown "$uid:$gid" /owner-probe
-chmod 0700 /owner-probe
 ' sh "$host_uid" "$host_gid"; then
-    repo_host_remove_probe "$probe_abs"
     fail "could not return exact pair repository $root from container uid 33 to host ${host_uid}:${host_gid}"
   fi
 
-  # The root could theoretically be replaced while Docker has returned. Check
-  # the same ordinary non-symlink/inode contract again before accepting either
-  # its ownership or the capability witness.
-  if [ -L "$root" ] || [ ! -d "$root" ]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "pair '$name' repository root changed from an ordinary directory during ownership handback: $root"
-  fi
-  root_inode_after="$(repo_host_stat_inode "$root")" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "could not read exact pair repository inode after ownership handback: $root"
-  }
-  if [ "$root_inode_after" != "$root_inode_before" ]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "exact pair repository inode changed during ownership handback: $root"
-  fi
-
-  owner="$(repo_host_stat_owner "$root")" || {
-    repo_host_remove_probe "$probe_abs"
+  # Docker Desktop may return an exact host UID but a translated GID for this
+  # bind root. Revalidate its closed path/inode before every host mutation;
+  # a foreign UID is never normalized, and a final literal uid:gid readback is
+  # still mandatory after the narrowly scoped host-side repair.
+  repo_host_revalidate_root "$root_abs" "$root_inode_before"
+  owner="$(repo_host_stat_owner "$root_abs")" || {
     fail "could not verify host ownership of exact pair repository $root after handback"
   }
-  probe_owner="$(repo_host_stat_owner "$probe_abs")" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "could not verify private ownership handback capability probe after handback: $probe_abs"
-  }
-  if ! [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]] || ! [[ "$probe_owner" =~ ^[0-9]+:[0-9]+$ ]]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "ownership handback readback is malformed for exact pair repository $root or its capability probe"
+  if ! [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]]; then
+    fail "exact pair repository ownership readback is malformed after handback: $owner"
   fi
-  if [ "${owner%%:*}" != "$host_uid" ] || [ "${probe_owner%%:*}" != "$host_uid" ]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "exact pair repository $root or its capability probe has a foreign uid after handback (root ${owner}; probe ${probe_owner}; expected uid ${host_uid})"
+  owner_uid="${owner%%:*}"
+  if [ "$owner_uid" != "$host_uid" ]; then
+    fail "exact pair repository $root has foreign uid after handback (got ${owner}; expected uid ${host_uid})"
   fi
-  if [ "$owner" != "$probe_owner" ]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "exact pair repository $root ownership ${owner} does not match same-filesystem capability probe ${probe_owner} after handback"
+  if [ "$owner" != "${host_uid}:${host_gid}" ]; then
+    # -h prevents a root-path symlink race from following a target; no -R is
+    # intentional. Docker already chowns the tree recursively, while this
+    # host repair changes only the prevalidated exact bind-root directory.
+    if ! chgrp -h "$host_gid" "$root_abs"; then
+      repo_host_revalidate_root "$root_abs" "$root_inode_before"
+      fail "could not normalize exact pair repository $root to host group ${host_gid} after handback"
+    fi
+    repo_host_revalidate_root "$root_abs" "$root_inode_before"
+    owner="$(repo_host_stat_owner "$root_abs")" || {
+      fail "could not verify host ownership of exact pair repository $root after host-side normalization"
+    }
   fi
-  host_os="$(uname -s)" || {
-    repo_host_remove_probe "$probe_abs"
-    fail "could not identify host platform for ownership handback"
-  }
-  if [ "$host_os" = Linux ] && [ "$owner" != "${host_uid}:${host_gid}" ]; then
-    repo_host_remove_probe "$probe_abs"
-    fail "exact pair repository $root still has owner $owner after handback (expected ${host_uid}:${host_gid})"
-  fi
-  repo_host_remove_probe "$probe_abs"
+  [ "$owner" = "${host_uid}:${host_gid}" ] \
+    || fail "exact pair repository $root still has owner $owner after handback (expected ${host_uid}:${host_gid})"
 }
 
 repo_host() { # repo_host <name> [1|2|both]

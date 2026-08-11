@@ -267,10 +267,9 @@ FAKE_GIT
 }
 
 # The repository handback proof uses a real pair.sh path with a fake Docker
-# plus a fake host stat ABI. The fake switches from the probe's known host
-# uid:gid to the configured post-chown result only after Docker records the
-# one root-plus-probe handback command, so the suite can prove both native and
-# translated same-filesystem ownership readback without a daemon.
+# plus a fake host stat ABI. The fake switches root readback after Docker and
+# after an exact-root host chgrp, so this no-daemon suite exercises native and
+# Docker Desktop GID behavior without inventing a sibling capability probe.
 write_fake_owner_identity_tools() {
   local fake_bin="$1"
   cat > "$fake_bin/id" <<'FAKE_ID'
@@ -282,31 +281,32 @@ case "${1:-}" in
   *) exit 64 ;;
 esac
 FAKE_ID
-  cat > "$fake_bin/uname" <<'FAKE_UNAME'
-#!/usr/bin/env bash
-set -euo pipefail
-[ "${1:-}" = -s ] || exit 64
-printf '%s\n' "${DUO_PAIR_TEST_HOST_OS:?}"
-FAKE_UNAME
   cat > "$fake_bin/stat" <<'FAKE_STAT'
 #!/usr/bin/env bash
 set -euo pipefail
 flavor="${DUO_PAIR_TEST_STAT_FLAVOR:?}"
 format="${2:-}"
 path="${3:-}"
+is_root() {
+  [ "$1" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] || [ "$1" = "${DUO_PAIR_TEST_STAT_ROOT_LEXICAL:?}" ]
+}
 owner_after() {
-  if [ "$1" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] || [ "$1" = "${DUO_PAIR_TEST_STAT_ROOT_LEXICAL:?}" ]; then
-    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER:?}"
-  elif [[ "$1" = "${DUO_PAIR_TEST_STAT_PROBE_PREFIX:?}"* ]]; then
-    if [ -e "${DUO_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ]; then
-      printf '%s\n' "${DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER:?}"
-    elif [ -e "${DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER:?}" ]; then
-      printf '%s\n' "${DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED:?}"
-    else
-      printf '%s\n' "${DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL:?}"
-    fi
+  is_root "$1" || exit 64
+  [ -e "${DUO_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ] || exit 64
+  if [ -e "${DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}" ]; then
+    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_OWNER_NORMALIZED:?}"
   else
-    exit 64
+    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER_DOCKER:?}"
+  fi
+}
+inode_at_phase() {
+  is_root "$1" || exit 64
+  if [ -e "${DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}" ]; then
+    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_NORMALIZED:?}"
+  elif [ -e "${DUO_PAIR_TEST_REPO_HANDOFF_MARKER:?}" ]; then
+    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_DOCKER:?}"
+  else
+    printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE_BEFORE:?}"
   fi
 }
 case "${1:-}" in
@@ -314,7 +314,7 @@ case "${1:-}" in
     [ "$flavor" = gnu ] || exit 1
     case "$format" in
       '%u:%g') owner_after "$path" ;;
-      '%i') { [ "$path" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] || [ "$path" = "${DUO_PAIR_TEST_STAT_ROOT_LEXICAL:?}" ]; } && printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE:?}" ;;
+      '%i') inode_at_phase "$path" ;;
       *) exit 64 ;;
     esac
     ;;
@@ -322,7 +322,7 @@ case "${1:-}" in
     [ "$flavor" = bsd ] || exit 1
     case "$format" in
       '%u:%g') owner_after "$path" ;;
-      '%i') { [ "$path" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] || [ "$path" = "${DUO_PAIR_TEST_STAT_ROOT_LEXICAL:?}" ]; } && printf '%s\n' "${DUO_PAIR_TEST_STAT_ROOT_INODE:?}" ;;
+      '%i') inode_at_phase "$path" ;;
       *) exit 64 ;;
     esac
     ;;
@@ -332,12 +332,22 @@ FAKE_STAT
   cat > "$fake_bin/chgrp" <<'FAKE_CHGRP'
 #!/usr/bin/env bash
 set -euo pipefail
-[ "${DUO_PAIR_TEST_FAIL_PROBE_CHGRP:-0}" = 0 ] || exit 73
+log="${DUO_PAIR_TEST_CHGRP_LOG:?}"
+{
+  printf 'chgrp'
+  for arg in "$@"; do printf ' <%s>' "$arg"; done
+  printf '\n'
+} >> "$log"
+[ "${DUO_PAIR_TEST_FAIL_ROOT_CHGRP:-0}" = 0 ] || exit 73
 [ "${1:-}" = -h ] && [ "${2:-}" = "${DUO_PAIR_TEST_HOST_GID:?}" ] \
-  && [[ "${3:-}" = "${DUO_PAIR_TEST_STAT_PROBE_PREFIX:?}"* ]] || exit 64
-: > "${DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER:?}"
+  && [ "${3:-}" = "${DUO_PAIR_TEST_STAT_ROOT:?}" ] && [ "$#" = 3 ] || exit 64
+: > "${DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER:?}"
+if [ "${DUO_PAIR_TEST_REPLACE_ROOT_WITH_SYMLINK:-0}" = 1 ]; then
+  mv "${DUO_PAIR_TEST_STAT_ROOT:?}" "${DUO_PAIR_TEST_REPLACED_ROOT:?}"
+  ln -s "${DUO_PAIR_TEST_REPLACEMENT_TARGET:?}" "${DUO_PAIR_TEST_STAT_ROOT:?}"
+fi
 FAKE_CHGRP
-  chmod +x "$fake_bin/id" "$fake_bin/uname" "$fake_bin/stat" "$fake_bin/chgrp"
+  chmod +x "$fake_bin/id" "$fake_bin/stat" "$fake_bin/chgrp"
 }
 
 install_python_lock_path() {
@@ -1519,215 +1529,151 @@ run_repo_host_refusal_case() {
 
 run_repo_host_platform_ownership_proof_case() {
   local label=repo_host_platform_ownership_proof pair=hostproof
-  local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
-    log="$TMP/$label/docker.log" output="$TMP/$label/output.log" \
-    marker normalized_marker root peer root_abs probe_prefix inode_before inode_after
-  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
-  chmod +x "$case_root/sandbox/bin/pair.sh"
-  root="$case_root/sandbox/siterepo/${pair}1"
-  peer="$case_root/sandbox/siterepo/${pair}2"
-  mkdir -p "$root/state/nested" "$peer/state"
-  printf 'ownership proof fixture\n' > "$root/state/nested/record.json"
-  printf 'unselected peer\n' > "$peer/state/marker"
-  root_abs="$(physical_path "$root")"
-  probe_prefix="$(dirname "$root_abs")/.duo-owner-probe."
-  marker="$case_root/handback-complete"
-  normalized_marker="$case_root/probe-normalized"
-  inode_before="$(inode_of "$root")"
-  write_fake_docker "$fake_bin"
-  write_fake_owner_identity_tools "$fake_bin"
+  local case_root="${TMP}/${label}" fake_bin="${TMP}/${label}/fake-bin" \
+    log="${TMP}/${label}/docker.log" output="${TMP}/${label}/output.log" \
+    chgrp_log marker normalized_marker replaced_root root peer root_abs peer_abs inode_before inode_after
+  mkdir -p "${case_root}/sandbox/bin" "${fake_bin}"
+  cp "${ROOT}/sandbox/bin/pair.sh" "${case_root}/sandbox/bin/pair.sh"
+  chmod +x "${case_root}/sandbox/bin/pair.sh"
+  root="${case_root}/sandbox/siterepo/${pair}1"
+  peer="${case_root}/sandbox/siterepo/${pair}2"
+  mkdir -p "${root}/state/nested" "${peer}/state"
+  printf 'ownership proof fixture\n' > "${root}/state/nested/record.json"
+  printf 'unselected peer\n' > "${peer}/state/marker"
+  root_abs="$(physical_path "${root}")"
+  peer_abs="$(physical_path "${peer}")"
+  marker="${case_root}/handback-complete"
+  normalized_marker="${case_root}/root-normalized"
+  replaced_root="${case_root}/replaced-root"
+  chgrp_log="${case_root}/chgrp.log"
+  inode_before="$(inode_of "${root}")"
+  write_fake_docker "${fake_bin}"
+  write_fake_owner_identity_tools "${fake_bin}"
 
-  # Native Linux remains exact: the empty sibling already has 501:20, the
-  # bounded host chgrp confirms that exact value, and both mounts report it
-  # again after the same Docker chown. The real inode/content and unselected
-  # peer prove this extra capability check did not widen the operation's scope.
-  if ! env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Linux \
-    DUO_PAIR_TEST_STAT_FLAVOR=gnu DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:20 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:20 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    cat "$output" >&2
-    fail "$label rejected native exact ownership handback"
-  fi
-  inode_after="$(inode_of "$root")"
-  [ "$inode_before" = "$inode_after" ] || fail "$label replaced the selected root inode"
-  [ -f "$root/state/nested/record.json" ] || fail "$label changed selected-root content"
-  [ -f "$peer/state/marker" ] || fail "$label touched the unselected peer root"
-  assert_file_contains "$log" "<type=bind,src=${root_abs},dst=/siterepo>" \
-    "$label did not use the exact selected bind root"
-  assert_file_contains "$log" \
-    "<type=bind,src=${root_abs},dst=/siterepo> <--mount> <type=bind,src=${probe_prefix}" \
-    "$label did not mount the exact root and its unpredictable same-parent probe in one handback call"
-  if find "$(dirname "$root_abs")" -maxdepth 1 -name '.duo-owner-probe.*' -print -quit | grep -q .; then
-    fail "$label retained a capability probe after native exact handback"
-  fi
+  run_handback() { # flavor post-Docker-owner post-chgrp-owner post-chgrp-inode chgrp-fails replace-root
+    local flavor="$1" owner_after="$2" owner_normalized="$3" inode_normalized="$4" fail_chgrp="$5" replace_root="$6"
+    : > "${log}"
+    : > "${chgrp_log}"
+    rm -f "${marker}" "${normalized_marker}"
+    env \
+      DUO_PAIR_TEST_LOG="${log}" DUO_PAIR_TEST_CHGRP_LOG="${chgrp_log}" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+      DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 \
+      DUO_PAIR_TEST_STAT_FLAVOR="${flavor}" DUO_PAIR_TEST_STAT_ROOT="${root_abs}" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
+      DUO_PAIR_TEST_STAT_ROOT_INODE_BEFORE=424242 DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_DOCKER=424242 \
+      DUO_PAIR_TEST_STAT_ROOT_INODE_AFTER_NORMALIZED="${inode_normalized}" \
+      DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER_DOCKER="${owner_after}" DUO_PAIR_TEST_STAT_ROOT_OWNER_NORMALIZED="${owner_normalized}" \
+      DUO_PAIR_TEST_ROOT_NORMALIZED_MARKER="${normalized_marker}" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="${marker}" \
+      DUO_PAIR_TEST_FAIL_ROOT_CHGRP="${fail_chgrp}" DUO_PAIR_TEST_REPLACE_ROOT_WITH_SYMLINK="${replace_root}" \
+      DUO_PAIR_TEST_REPLACED_ROOT="${replaced_root}" DUO_PAIR_TEST_REPLACEMENT_TARGET="${peer_abs}" \
+      DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
+      PATH="${fake_bin}:${ORIGINAL_PATH}" \
+      "${case_root}/sandbox/bin/pair.sh" repo-host "${pair}" 1 >"${output}" 2>&1
+  }
+  assert_root_scope_unchanged() {
+    inode_after="$(inode_of "${root}")"
+    [ "${inode_before}" = "${inode_after}" ] || fail "${label} replaced the selected root inode"
+    [ -f "${root}/state/nested/record.json" ] || fail "${label} changed selected-root content"
+    [ -f "${peer}/state/marker" ] || fail "${label} touched the unselected peer root"
+  }
+  assert_exact_root_chgrp() {
+    assert_file_contains "${chgrp_log}" "chgrp <-h> <20> <${root_abs}>" \
+      "${label} did not normalize only the exact physical selected root"
+    ! grep -Fq '<-R>' "${chgrp_log}" \
+      || fail "${label} widened exact-root group normalization recursively"
+    ! grep -Fq -- "${peer_abs}" "${chgrp_log}" \
+      || fail "${label} normalized the unselected peer root"
+  }
 
-  # BSD mktemp may inherit its parent wheel group (501:0). pair.sh must first
-  # normalize only that exact empty host-owned probe to 501:20; only then can
-  # the same Docker call empirically translate both probe and root to 501:0.
-  # No host-brand or fixed fallback group is sufficient on its own.
-  rm -f "$marker" "$normalized_marker"
-  if ! env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
-    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:0 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    cat "$output" >&2
-    fail "$label rejected measured same-filesystem translated ownership handback"
+  # Native ownership remains literally exact after Docker, so no host chgrp
+  # is needed. The real inode/content and peer prove the one-root mount did
+  # not widen the operation's scope.
+  if ! run_handback gnu 501:20 501:20 424242 0 0; then
+    cat "${output}" >&2
+    fail "${label} rejected native exact ownership handback"
   fi
-  if find "$(dirname "$root_abs")" -maxdepth 1 -name '.duo-owner-probe.*' -print -quit | grep -q .; then
-    fail "$label retained a capability probe after translated handback"
-  fi
+  [ -e "${marker}" ] && [ ! -e "${normalized_marker}" ] && [ ! -s "${chgrp_log}" ] \
+    || fail "${label} used host chgrp despite native exact ownership"
+  assert_file_contains "${log}" "<type=bind,src=${root_abs},dst=/siterepo>" \
+    "${label} did not use the exact selected bind root"
+  ! grep -Fq 'owner-probe' "${log}" \
+    || fail "${label} retained a capability-probe mount"
+  assert_root_scope_unchanged
 
-  # Negative 1: a probe with a foreign initial UID never reaches chgrp or
-  # Docker, even though its inherited group looks like the BSD wheel case.
-  : > "$log"
-  rm -f "$marker" "$normalized_marker"
-  if env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
-    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=502:0 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=0 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    fail "$label accepted a foreign initial probe UID"
+  # Docker Desktop can faithfully return the host UID while translating the
+  # bind-root GID to 0. Only the already-checked exact physical root is
+  # repaired, followed by a final literal ownership readback.
+  if ! run_handback bsd 501:0 501:20 424242 0 0; then
+    cat "${output}" >&2
+    fail "${label} rejected exact-root Docker Desktop GID normalization"
   fi
-  assert_file_contains "$output" 'capability probe has foreign uid before normalization (got 502:0; expected uid 501)' \
-    "$label did not report the pre-Docker foreign-probe refusal"
-  [ ! -e "$marker" ] && [ ! -e "$normalized_marker" ] && [ ! -s "$log" ] \
-    || fail "$label reached host chgrp or Docker after a foreign initial probe UID"
+  [ -e "${marker}" ] && [ -e "${normalized_marker}" ] \
+    || fail "${label} did not perform the required post-Docker root normalization"
+  assert_exact_root_chgrp
+  assert_root_scope_unchanged
 
-  # Negative 2: a host chgrp error also refuses before the exact pair root is
-  # mounted or any Docker/Compose mutation becomes possible.
-  : > "$log"
-  rm -f "$marker" "$normalized_marker"
-  if env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
-    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:0 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=1 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    fail "$label continued after host-side probe chgrp failure"
+  # A foreign UID is never a candidate for host-side group repair, even if a
+  # chgrp readback would otherwise look exact.
+  if run_handback bsd 502:0 501:20 424242 0 0; then
+    fail "${label} accepted a foreign root UID after Docker handback"
   fi
-  assert_file_contains "$output" 'could not normalize exact private ownership handback capability probe to host group 20' \
-    "$label did not report the pre-Docker host chgrp refusal"
-  [ ! -e "$marker" ] && [ ! -e "$normalized_marker" ] && [ ! -s "$log" ] \
-    || fail "$label reached Docker after a host-side probe chgrp failure"
+  assert_file_contains "${output}" 'has foreign uid after handback (got 502:0; expected uid 501)' \
+    "${label} did not report the foreign-UID ownership refusal"
+  [ -e "${marker}" ] && [ ! -e "${normalized_marker}" ] && [ ! -s "${chgrp_log}" ] \
+    || fail "${label} reached chgrp after a foreign root UID"
+  assert_root_scope_unchanged
 
-  # Negative 3: chgrp may return success while the host readback still carries
-  # the inherited wheel group. That is not an empirical Docker translation:
-  # refuse before mounting the root, retain no probe, and leave both pair
-  # roots byte-identical.
-  : > "$log"
-  rm -f "$marker" "$normalized_marker"
-  if env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
-    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:0 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=0 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    fail "$label continued after a successful but ineffective host-side probe chgrp"
+  # A root-only chgrp command failure is fatal after revalidation and cannot
+  # advance into any later compose/database path.
+  if run_handback bsd 501:0 501:20 424242 1 0; then
+    fail "${label} continued after exact-root chgrp failure"
   fi
-  assert_file_contains "$output" 'capability probe did not normalize to host 501:20: 501:0' \
-    "$label did not report the ineffective host chgrp refusal"
-  [ -e "$normalized_marker" ] && [ ! -e "$marker" ] && [ ! -s "$log" ] \
-    || fail "$label reached Docker after a successful but ineffective host-side probe chgrp"
-  if find "$(dirname "$root_abs")" -maxdepth 1 -name '.duo-owner-probe.*' -print -quit | grep -q .; then
-    fail "$label retained a capability probe after an ineffective host chgrp"
-  fi
-  [ -f "$root/state/nested/record.json" ] && [ -f "$peer/state/marker" ] \
-    || fail "$label changed a pair root after an ineffective host chgrp"
+  assert_file_contains "${output}" 'could not normalize exact pair repository siterepo/hostproof1 to host group 20 after handback' \
+    "${label} did not report the exact-root chgrp refusal"
+  [ -e "${marker}" ] && [ ! -e "${normalized_marker}" ] \
+    || fail "${label} recorded a successful normalization after chgrp failure"
+  assert_exact_root_chgrp
+  assert_root_scope_unchanged
 
-  # Negative 4: translation is never uid-only, even when its probe reads the
-  # expected normalized group.
-  rm -f "$marker" "$normalized_marker"
-  if env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
-    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=502:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:0 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=0 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    fail "$label accepted a foreign root UID on the translated ownership path"
+  # A successful command is insufficient: the post-normalization readback
+  # must be the caller's literal uid:gid, not merely the expected UID.
+  if run_handback bsd 501:0 501:0 424242 0 0; then
+    fail "${label} accepted an ineffective exact-root chgrp"
   fi
-  assert_file_contains "$output" 'has a foreign uid after handback (root 502:0; probe 501:0; expected uid 501)' \
-    "$label did not report the foreign-UID ownership refusal"
+  assert_file_contains "${output}" 'still has owner 501:0 after handback (expected 501:20)' \
+    "${label} did not report the ineffective exact-root chgrp refusal"
+  [ -e "${marker}" ] && [ -e "${normalized_marker}" ] \
+    || fail "${label} did not record the ineffective chgrp attempt"
+  assert_exact_root_chgrp
+  assert_root_scope_unchanged
 
-  # Negative 5: root and probe must agree exactly; a desktop group is not a
-  # blanket waiver for a root whose post-chown readback differs from its own
-  # same-filesystem capability witness.
-  rm -f "$marker" "$normalized_marker"
-  if env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
-    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:0 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:7 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=0 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    fail "$label accepted a root/probe ownership mismatch"
+  # Revalidate the root's shape/inode after the one permitted host mutation;
+  # an inode swap is a hard refusal even when its fake ownership is exact.
+  if run_handback bsd 501:0 501:20 515151 0 0; then
+    fail "${label} accepted a post-chgrp root inode mismatch"
   fi
-  assert_file_contains "$output" 'ownership 501:0 does not match same-filesystem capability probe 501:7 after handback' \
-    "$label did not report the root/probe ownership refusal"
+  assert_file_contains "${output}" 'exact pair repository inode changed during ownership handback' \
+    "${label} did not report the post-chgrp inode refusal"
+  [ -e "${marker}" ] && [ -e "${normalized_marker}" ] \
+    || fail "${label} did not record the post-chgrp inode-mismatch path"
+  assert_exact_root_chgrp
+  assert_root_scope_unchanged
 
-  # Negative 6: Linux's established exact uid:gid requirement remains even
-  # when both real root and empirical probe agree on a translated group.
-  rm -f "$marker" "$normalized_marker"
-  if env \
-    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Linux \
-    DUO_PAIR_TEST_STAT_FLAVOR=gnu DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
-    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
-    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:20 \
-    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:20 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
-    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
-    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=0 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
-    PATH="$fake_bin:$ORIGINAL_PATH" \
-    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
-    fail "$label weakened Linux's exact UID:GID ownership proof"
+  # The same post-chgrp revalidation also refuses a root that became a
+  # symlink. The fake retains the original directory separately so this
+  # assertion proves neither its content nor the peer was touched further.
+  if run_handback bsd 501:0 501:20 424242 0 1; then
+    fail "${label} accepted a post-chgrp root symlink replacement"
   fi
-  assert_file_contains "$output" 'still has owner 501:0 after handback (expected 501:20)' \
-    "$label did not report the Linux GID ownership refusal"
-  [ -f "$root/state/nested/record.json" ] || fail "$label changed root content after a proof refusal"
-  [ -f "$peer/state/marker" ] || fail "$label changed peer content after a proof refusal"
-  if find "$(dirname "$root_abs")" -maxdepth 1 -name '.duo-owner-probe.*' -print -quit | grep -q .; then
-    fail "$label retained a capability probe after a proof refusal"
-  fi
-  pass "$label: inherited-group normalization is proved before Docker; ineffective chgrp, foreign UID, root/probe mismatch, and Linux GID mismatch refuse"
+  assert_file_contains "${output}" 'exact pair repository root changed from an ordinary directory during ownership handback' \
+    "${label} did not report the post-chgrp root-shape refusal"
+  [ -e "${marker}" ] && [ -e "${normalized_marker}" ] && [ -L "${root_abs}" ] \
+    || fail "${label} did not exercise the post-chgrp root-shape refusal"
+  [ -f "${replaced_root}/state/nested/record.json" ] && [ -f "${peer}/state/marker" ] \
+    || fail "${label} changed selected-root content or the unselected peer after a root-shape refusal"
+  assert_exact_root_chgrp
+  ! grep -Fq 'owner-probe' "${log}" \
+    || fail "${label} retained a capability-probe mount after normalization"
+  pass "${label}: exact root-only GID repair preserves native ownership and refuses foreign UID, chgrp failure/ineffectiveness, and root shape/inode change"
 }
 
 # --- DUO-3412: the needs-install marker's whole lifecycle --------------------
@@ -1984,17 +1930,22 @@ grep -Fq 'GIT_CONFIG_VALUE_0: /siterepo' "$ROOT/sandbox/pair.yml" \
   || fail "pair CLI services do not scope Git trust to exact /siterepo"
 ! grep -Fq 'safe.directory=*' "$ROOT/sandbox/pair.yml" \
   || fail "pair Git trust widened to a wildcard"
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'chown "$uid:$gid" /owner-probe' \
-  'pair handback does not chown the private capability probe in its exact root call'
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$probe_abs"; then' \
-  'pair handback does not narrowly normalize the exact host-owned probe before Docker'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"; then' \
+  'pair handback does not narrowly normalize the exact physical root after Docker'
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if [ -L "$root" ] || [ ! -d "$root" ]; then' \
   'pair handback does not revalidate the root as an ordinary directory after Docker returns'
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'root_inode_after="$(repo_host_stat_inode "$root")"' \
-  'pair handback does not revalidate the root inode after Docker returns'
-assert_before "$ROOT/sandbox/bin/pair.sh" 'chown "$uid:$gid" /owner-probe' 'if [ -L "$root" ] || [ ! -d "$root" ]; then'
-assert_before "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$probe_abs"; then' 'chown "$uid:$gid" /owner-probe'
-assert_before "$ROOT/sandbox/bin/pair.sh" 'if [ -L "$root" ] || [ ! -d "$root" ]; then' 'owner="$(repo_host_stat_owner "$root")"'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if [ -L "$root_abs" ] || [ ! -d "$root_abs" ]; then' \
+  'pair handback does not check the resolved physical root before Docker owns it'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'repo_host_revalidate_root "$root_abs" "$root_inode_before"' \
+  'pair handback does not revalidate the physical root shape and inode after Docker returns'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'owner_uid="${owner%%:*}"' \
+  'pair handback does not isolate and check the returned root uid before chgrp'
+assert_before "$ROOT/sandbox/bin/pair.sh" 'owner_uid="${owner%%:*}"' 'if ! chgrp -h "$host_gid" "$root_abs"; then'
+assert_before "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"; then' '[ "$owner" = "${host_uid}:${host_gid}" ]'
+! grep -Fq 'owner-probe' "$ROOT/sandbox/bin/pair.sh" \
+  || fail "pair handback retained a sibling capability probe"
+! grep -Fq 'chgrp -R' "$ROOT/sandbox/bin/pair.sh" \
+  || fail "pair handback widened exact-root group normalization recursively"
 pass "pair launcher and offline regression parse cleanly"
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
@@ -2092,7 +2043,7 @@ run_repo_host_shape_refusal_case
 say "ownership handback failure refuses before reset mutation"
 run_repo_host_refusal_case
 
-say "cross-platform ownership handback proof accepts only same-filesystem probe evidence and keeps Linux exact"
+say "exact-root ownership handback repair preserves literal host ownership"
 run_repo_host_platform_ownership_proof_case
 
 say "DUO-3412: reset records a needs-install marker for both sides"
