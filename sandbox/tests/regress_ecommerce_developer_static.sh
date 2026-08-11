@@ -1410,7 +1410,7 @@ THEME_MATRIX_ROW="$(jq -ce '.moves[] | select(.id == "theme-upgrade-downgrade-re
   || fail 'DUO-3358 theme lifecycle row is missing or duplicated from the move matrix'
 jq -e '
   .status == "exercised" and
-  (.public_command | type == "string" and contains("php cli/duo --envs-file=<pair-envs> promote target")) and
+  .public_command == "php cli/duo --envs-file=<pair-envs> promote target --force-theirs" and
   .harness == "sandbox/tests/grind_ecommerce_developer.sh" and
   (.gap == null) and
   (.linear_routing == null) and
