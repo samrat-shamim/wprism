@@ -167,6 +167,7 @@ $needles = [
     'register_taxonomy' => 'new Woo attribute taxonomies are registered for products',
     "'update_count_callback' => '_update_post_term_count'" => 'registered Woo attribute taxonomy keeps its count callback',
     'attribute_public' => 'attribute registration branches on Woo\'s authored public flag',
+    'isset($attribute->attribute_public) ? $attribute->attribute_public : 1' => 'legacy Woo attributes default to public exactly as WooCommerce does',
     'woocommerce_taxonomy_objects_{$taxonomy}' => 'Woo taxonomy object types remain filterable by taxonomy',
     'woocommerce_taxonomy_args_{$taxonomy}' => 'Woo taxonomy args remain filterable by taxonomy',
     'woocommerce_attribute_show_in_nav_menus' => 'public Woo attributes retain the nav-menu filter seam',

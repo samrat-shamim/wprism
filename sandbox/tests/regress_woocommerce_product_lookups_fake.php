@@ -986,6 +986,13 @@ namespace {
                 'attribute_label' => 'Color',
                 'attribute_public' => 1,
             ],
+            // Woo treats legacy rows that predate attribute_public as public.
+            // The late-registration mirror must retain that exact default.
+            (object) [
+                'attribute_id' => 9,
+                'attribute_name' => 'legacy',
+                'attribute_label' => 'Legacy',
+            ],
         ];
     }
     function wc_attribute_taxonomy_name(string $name): string {
@@ -1354,6 +1361,20 @@ namespace {
         'not_found' => 'No &quot;Color&quot; found',
         'back_to_items' => '&larr; Back to "Color" attributes',
     ];
+    $legacyLabels = [
+        'name' => 'Product Legacy',
+        'singular_name' => 'Legacy',
+        'search_items' => 'Search Legacy',
+        'all_items' => 'All Legacy',
+        'parent_item' => 'Parent Legacy',
+        'parent_item_colon' => 'Parent Legacy:',
+        'edit_item' => 'Edit Legacy',
+        'update_item' => 'Update Legacy',
+        'add_new_item' => 'Add new Legacy',
+        'new_item_name' => 'New Legacy',
+        'not_found' => 'No &quot;Legacy&quot; found',
+        'back_to_items' => '&larr; Back to "Legacy" attributes',
+    ];
     $expectedHiddenArgs = [
         'hierarchical' => false,
         'update_count_callback' => '_update_post_term_count',
@@ -1388,14 +1409,21 @@ namespace {
         'show_in_nav_menus' => true,
         'capabilities' => $capabilities,
     ];
+    $expectedLegacyArgs = $expectedPublicArgs;
+    $expectedLegacyArgs['labels'] = $legacyLabels;
+    $expectedLegacyArgs['rewrite']['slug'] = 'attribute/legacy';
     $check(($registrationByTaxonomy['pa_grind-size']['object_types'] ?? null) === ['product'],
         'the non-public attribute keeps the default product object type after the objects filter');
     $check(($registrationByTaxonomy['pa_color']['object_types'] ?? null) === ['product', 'product_variation'],
         'the public attribute receives the object types returned by its Woo taxonomy-objects filter');
+    $check(($registrationByTaxonomy['pa_legacy']['object_types'] ?? null) === ['product'],
+        'an attribute row without attribute_public retains Woo\'s public default and product object type');
     $check(($registrationByTaxonomy['pa_grind-size']['args'] ?? null) === $expectedHiddenArgs,
         'attribute_public=0 registers the complete Woo contract without public/query/rewrite visibility');
     $check(($registrationByTaxonomy['pa_color']['args'] ?? null) === $expectedPublicArgs,
         'attribute_public=1 registers the complete Woo contract with its public rewrite and nav visibility');
+    $check(($registrationByTaxonomy['pa_legacy']['args'] ?? null) === $expectedLegacyArgs,
+        'an absent legacy attribute_public value defaults to Woo\'s complete public registration contract');
     $filterCallsFor = static function (string $hook) use (&$fakeApplyFilterCalls): array {
         return array_values(array_filter(
             $fakeApplyFilterCalls,
@@ -1406,6 +1434,8 @@ namespace {
     $publicObjectsCalls = $filterCallsFor('woocommerce_taxonomy_objects_pa_color');
     $hiddenArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_grind-size');
     $publicArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_color');
+    $legacyObjectsCalls = $filterCallsFor('woocommerce_taxonomy_objects_pa_legacy');
+    $legacyArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_legacy');
     $navCalls = $filterCallsFor('woocommerce_attribute_show_in_nav_menus');
     $check(count($hiddenObjectsCalls) === 1 && $hiddenObjectsCalls[0]['value'] === ['product']
         && $hiddenObjectsCalls[0]['args'] === [],
@@ -1419,9 +1449,19 @@ namespace {
     $check(count($publicArgsCalls) === 1 && $publicArgsCalls[0]['value'] === $expectedPublicArgs
         && $publicArgsCalls[0]['args'] === [],
         'the public taxonomy args filter sees the full rewrite-enabled Woo contract');
-    $check(count($navCalls) === 1 && $navCalls[0]['value'] === false
-        && $navCalls[0]['args'] === ['pa_color'],
-        'the nav-menu filter runs only for public attributes, with Woo\'s false default and taxonomy name');
+    $check(count($legacyObjectsCalls) === 1 && $legacyObjectsCalls[0]['value'] === ['product']
+        && $legacyObjectsCalls[0]['args'] === []
+        && count($legacyArgsCalls) === 1 && $legacyArgsCalls[0]['value'] === $expectedLegacyArgs
+        && $legacyArgsCalls[0]['args'] === [],
+        'legacy public-default registration preserves both Woo taxonomy filter seams');
+    $publicNavCalls = array_values(array_filter(
+        $navCalls,
+        static fn(array $call): bool => in_array(($call['args'][0] ?? null), ['pa_color', 'pa_legacy'], true)
+    ));
+    $check(count($navCalls) === 2 && count($publicNavCalls) === 2
+        && array_reduce($publicNavCalls, static fn(bool $ok, array $call): bool =>
+            $ok && $call['value'] === false, true),
+        'the nav-menu filter runs only for explicit/default-public attributes with Woo\'s false default and taxonomy name');
     $check(count(array_filter(
         $navCalls,
         static fn(array $call): bool => ($call['args'][0] ?? null) === 'pa_grind-size'
