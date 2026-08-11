@@ -305,7 +305,29 @@ final class EffectBundle {
             if ($placeholder === 'positive_uint') {
                 $regex .= '[1-9][0-9]{0,18}';
             } elseif ($placeholder === 'slug') {
-                $regex .= '[a-z0-9][a-z0-9_-]{0,63}';
+                // A generic engine "slug" is a WordPress-style identifier,
+                // not an ASCII-only one: WordPress registers taxonomies,
+                // terms, and attribute-derived identifiers from
+                // sanitize_title()-family output, which preserves any
+                // lowercase (or case-lacking) Unicode letter/decimal-digit a
+                // plugin's own sanitizer emits -- e.g. WooCommerce >=11.0.0
+                // attribute taxonomy names such as pa_尺寸 (DUO-3437).
+                // \p{Ll} (lowercase letters: Latin, Cyrillic, Greek, ...) and
+                // \p{Lo} (case-lacking letters: CJK ideographs, Hangul,
+                // Arabic, Hebrew, Thai, ...) generalize that across every
+                // script a sanitizer might emit, without generalizing case:
+                // \p{Lu}/\p{Lt} (upper/titlecase) stay excluded on purpose --
+                // WordPress lowercases Latin-script slugs before this code
+                // ever sees them, and regress_woocommerce_effect_contract.php
+                // already pins 'attribute_PA_color' as a required non-match.
+                // \p{Nd} (decimal digit) is the direct multi-script analog of
+                // the prior grammar's 0-9, deliberately narrower than \p{N}
+                // (which would also admit Roman numerals, fractions, and
+                // superscript digits no sanitizer here would ever produce).
+                // The punctuation/length shape -- leading letter-or-digit,
+                // then up to 63 more letters/digits/underscore/hyphen -- is
+                // unchanged from the ASCII-only grammar this replaces.
+                $regex .= '[\p{Ll}\p{Lo}\p{Nd}][\p{Ll}\p{Lo}\p{Nd}_-]{0,63}';
             } else {
                 return null;
             }
@@ -316,7 +338,15 @@ final class EffectBundle {
         if (str_contains($tail, '{') || str_contains($tail, '}') || $placeholderCount === 0) {
             return null;
         }
-        return $regex . preg_quote($tail, '~') . '$~D';
+        // /u (PCRE_UTF8 + Unicode properties): required for \p{L}/\p{N}
+        // above and harmless everywhere else in this pattern -- preg_quote()
+        // literals here are always plain ASCII template text, and
+        // positive_uint's [1-9][0-9]{0,18} is a pure ASCII digit class, so
+        // /u changes nothing for either. A non-UTF-8 $actualValue at the
+        // match site fails preg_match() (returns false, not 1) rather than
+        // matching loosely -- the existing `=== 1` check already treats
+        // that as no-match, so this stays fail-closed.
+        return $regex . preg_quote($tail, '~') . '$~uD';
     }
 
     /** @return array{adapter_version:string,result_sha256:string} */

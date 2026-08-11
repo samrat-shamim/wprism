@@ -675,6 +675,55 @@ foreach (['product', 'product_variation'] as $postType) {
             ]),
         "$postType aggregate matcher rejects wildcard, leading-zero, unknown-family, and namespace broadening"
     );
+    // DUO-3437: WooCommerce >=11.0.0 permits multibyte attribute taxonomy
+    // names (pa_<slug> within register_taxonomy()'s 32-byte limit, 29 bytes
+    // after the pa_ prefix) -- a real WooCommerce install can reach every
+    // one of these concrete cache effects from a non-ASCII attribute, not
+    // just the ASCII slugs the rest of this suite already covers above.
+    woo_effect_check(
+        $selectorMatches([
+            'scope' => 'external',
+            'type' => 'provider_resource',
+            'value' => 'wc_layered_nav_counts_pa_尺寸',
+        ])
+            && $selectorMatches([
+                'scope' => 'external',
+                'type' => 'provider_resource',
+                'value' => 'woocommerce-product-cache-event:v1:transient=wc_layered_nav_counts_pa_尺寸',
+            ])
+            && $selectorMatches([
+                'scope' => 'external',
+                'type' => 'provider_resource',
+                'value' => 'pa_尺寸_relationships:42',
+            ])
+            && $selectorMatches([
+                'scope' => 'external',
+                'type' => 'provider_resource',
+                'value' => 'woocommerce-product-cache-event:v1:cache_group=pa_尺寸_relationships;key=42',
+            ]),
+        "$postType aggregate matcher reconciles a valid multibyte WooCommerce 11.0.0 attribute slug"
+    );
+    woo_effect_check(
+        // Case-lacking multibyte scripts (CJK, Arabic, Hebrew, ...) stay
+        // covered; uppercase/titlecase and non-letter/non-decimal-digit
+        // Unicode (symbols, Roman numerals) stay rejected exactly as their
+        // ASCII equivalents already are above -- widening to Unicode did
+        // not widen past what a WordPress-lowercased, sanitize_title()-
+        // family slug can actually contain.
+        !$selectorMatches([
+            'scope' => 'external', 'type' => 'provider_resource',
+            'value' => 'wc_layered_nav_counts_pa_Pa色', // mixed ASCII-upper + multibyte
+        ])
+            && !$selectorMatches([
+                'scope' => 'external', 'type' => 'provider_resource',
+                'value' => 'wc_layered_nav_counts_pa_★', // symbol, not a letter or digit
+            ])
+            && !$selectorMatches([
+                'scope' => 'external', 'type' => 'provider_resource',
+                'value' => 'wc_layered_nav_counts_pa_Ⅷ', // Roman numeral (\p{Nl}, not \p{Nd})
+            ]),
+        "$postType aggregate matcher rejects mixed-case and non-letter/non-decimal-digit Unicode in a slug position"
+    );
     $declaredHook = woo_effect_hook('aggregate-exact-hook', 'clean_post_cache')['selector'];
     woo_effect_check(
         (bool) $selectorMatcher->invoke(null, $declaredHook, $declaredHook)
