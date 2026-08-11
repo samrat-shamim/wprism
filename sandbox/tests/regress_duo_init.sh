@@ -322,6 +322,7 @@ PAIR_COMPOSE=("${COMPOSE[@]}")
 export DUO_ARTIFACT_LOCKFILE="$REPO_ROOT/sandbox/conformance/artifacts.lock.json"
 # shellcheck source=../bin/fetch-artifact.sh
 . "$REPO_ROOT/sandbox/bin/fetch-artifact.sh"
+repo_host() { bash sandbox/bin/pair.sh repo-host "$PAIR" "$1" >/dev/null; }
 # wait_for_init_lease <repo> <confirmation-log>
 #
 # DUO-3421: a confirmation that never takes the lease has ALREADY answered, in
@@ -907,6 +908,7 @@ grep -q 'incomplete Git metadata without a complete ownership manifest' <<<"$OUT
   || fail "Git recovery refusal did not name its manual ownership boundary"
 [ -d "$HOST_REPO/.git" ] && [ -f "$HOST_REPO/.duo-init-attempt" ] \
   || fail "Git recovery refusal discarded its incomplete root or sealed journal"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 pass "planned-to-mutated Git gaps retain a sealed journal until explicit cleanup"
 
@@ -923,6 +925,7 @@ set -e
 [ "$CODE" -ne 0 ] || fail "unmanifested state reservation unexpectedly initialized"
 [ -d "$HOST_REPO/state" ] && [ -f "$HOST_REPO/.duo-init-attempt" ] \
   || fail "state-reservation failure lost its unmanifested root or sealed journal"
+repo_host 1
 printf 'must survive recovery refusal\n' >"$HOST_REPO/state/manual-sentinel"
 assert_exit 2 "unmanifested state recovery is non-confirmable" "${DUO[@]}" init "${PAIR}1" --yes
 grep -q 'interrupted_init_manual_recovery' <<<"$OUT" \
@@ -931,6 +934,7 @@ grep -q 'incomplete state reservation without a complete ownership manifest' <<<
   || fail "state recovery refusal did not name its missing ownership manifest"
 grep -q 'must survive recovery refusal' "$HOST_REPO/state/manual-sentinel" \
   || fail "state recovery refusal deleted the unmanifested sentinel"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 pass "state planned-to-mutated gap cannot manufacture deletion authority"
 
@@ -1004,6 +1008,7 @@ for INIT_KILL_PHASE in lock-created attempt-transition-pre-rename; do
   [ -z "$(git1 status --porcelain --untracked-files=all)" ] \
     || fail "$INIT_KILL_PHASE recovery changed the pre-existing Git worktree"
 done
+repo_host 1
 rm -rf "$HOST_REPO/.git"
 rm -f "$HOST_REPO/.gitignore"
 pass "prepublication crash recovery is fresh-process, sealed, and Git-invisible"
@@ -1028,6 +1033,7 @@ grep -q 'partial code staging tree without a complete descriptor' <<<"$OUT" \
   || fail "partial code-stage recovery did not name its manual deletion boundary"
 [ -f "$HOST_REPO/.duo-init-attempt" ] && [ -f "$HOST_REPO/state.capture.lock" ] \
   || fail "partial code-stage recovery discarded its sealed journal or canonical lock"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 pass "partial code-stage evidence is retained fail-closed for explicit manual cleanup"
 
@@ -1053,6 +1059,7 @@ grep -q 'partial state staging tree without a complete deletion manifest' <<<"$O
   && [ -f "$HOST_REPO/.duo-init-attempt" ] \
   && [ -f "$HOST_REPO/state.capture.lock" ] \
   || fail "partial state-stage recovery discarded unproven payload or recovery authority"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "partial state payload is retained fail-closed until explicit manual cleanup"
@@ -1078,6 +1085,7 @@ grep -q 'interrupted_init_manual_recovery' <<<"$OUT" \
   || fail "record-temp recovery proposal advertised confirmation"
 [ "$TEMP_HASH" = "$(sha256sum "$TEMP_PATH" | awk '{print $1}')" ] \
   || fail "record-temp refusal changed the unbound temp artifact"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "record-temp recovery retains the exact unbound artifact and journal"
@@ -1103,6 +1111,7 @@ grep -q 'interrupted_init_manual_recovery' <<<"$OUT" \
   || fail "Init-owned temp recovery proposal advertised confirmation"
 [ "$INIT_TEMP_HASH" = "$(sha256sum "$INIT_TEMP_PATH" | awk '{print $1}')" ] \
   || fail "Init-owned temp refusal changed the unbound temp artifact"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "Init-owned temp recovery retains the exact unbound artifact and journal"
@@ -1162,6 +1171,7 @@ assert_exit 2 "post-swap exact-manifest recovery refusal" "${DUO[@]}" init "${PA
 [ -d "$HOST_REPO/state/unmanifested-empty-directory" ] \
   && [ -f "$HOST_REPO/.duo-init-attempt" ] \
   || fail "post-swap recovery deleted the unmanifested directory or cleared its journal"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "live initial success requires the exact candidate manifest through receipt cleanup"
@@ -1183,6 +1193,7 @@ for STRICT_PHASE in record-create-next after-backup-rename after-state-rename; d
     after-backup-rename) STRICT_ROOT="$HOST_REPO/state.capture-backup" ;;
     after-state-rename) STRICT_ROOT="$HOST_REPO/state" ;;
   esac
+  repo_host 1
   mkdir "$STRICT_ROOT/unmanifested-empty-directory"
   assert_exit 2 "$STRICT_PHASE exact-manifest recovery refusal" "${DUO[@]}" init "${PAIR}1" --yes
   grep -q 'interrupted_init_manual_recovery' <<<"$(wp1 duo init --repo=/siterepo --format=json)" \
@@ -1190,6 +1201,7 @@ for STRICT_PHASE in record-create-next after-backup-rename after-state-rename; d
   [ -d "$STRICT_ROOT/unmanifested-empty-directory" ] \
     && [ -f "$HOST_REPO/.duo-init-attempt" ] \
     || fail "$STRICT_PHASE recovery deleted an unmanifested directory or its sealed journal"
+  repo_host 1
   find "$HOST_REPO" -mindepth 1 -delete
   wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 done
@@ -1206,6 +1218,7 @@ OUT=$("${COMPOSE[@]}" run --rm -T \
 CODE=$?
 set -e
 [ "$CODE" -ne 0 ] || fail "partial-tree recovery fixture unexpectedly succeeded"
+repo_host 1
 PARTIAL_FILE=$(find "$HOST_REPO/state" -mindepth 1 -type f -print -quit)
 if [ -n "$PARTIAL_FILE" ]; then
   rm -f "$PARTIAL_FILE"
@@ -1219,6 +1232,7 @@ grep -q 'interrupted_init_manual_recovery' <<<"$(wp1 duo init --repo=/siterepo -
   || fail "partial manifest-bound tree refusal cleared the sealed journal"
 [ -d "$HOST_REPO/state" ] \
   || fail "partial manifest-bound tree refusal removed the retained state root"
+repo_host 1
 find "$HOST_REPO" -mindepth 1 -delete
 wp1 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 pass "strict recovery proposal refuses partial manifest-bound trees before mutation"
@@ -1399,6 +1413,7 @@ grep -q '0 conflict' <<<"$OUT" || fail "clean status did not report zero conflic
 grep -q '0 drift' <<<"$OUT" || fail "clean status did not report zero drift"
 
 say "post-COMMIT SIGKILL finalizes the verified tuple instead of stranding its journal"
+repo_host 2
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 assert_init_plan wp2 /siterepo "pre-unlink journal SIGKILL"
@@ -1416,6 +1431,7 @@ printf '%s\n' "$OUT"
   && [ -f "$HOST_REPO2/state.capture-receipt" ] \
   && [ -d "$HOST_REPO2/state" ] \
   || fail "pre-unlink journal kill did not retain the committed recovery tuple"
+repo_host 2
 cp "$HOST_REPO2/site.duo.json" "/tmp/${PAIR}-committed-site.duo.json"
 printf '\n' >>"$HOST_REPO2/site.duo.json"
 assert_exit 1 "committed init tamper refuses finalization" "${DUO[@]}" init "${PAIR}2" --yes
@@ -1436,6 +1452,7 @@ find "$HOST_REPO2" -maxdepth 1 -name '.*.duo-init-compensate-*' -print -quit | g
 pass "committed initialization survives a crash immediately before atomic journal removal"
 
 say "a crash immediately after atomic journal removal leaves a complete usable baseline"
+repo_host 2
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 assert_init_plan wp2 /siterepo "post-unlink journal SIGKILL"
@@ -1463,6 +1480,7 @@ assert_exit 0 "status after post-unlink journal crash" "${DUO[@]}" status "${PAI
 pass "atomic journal removal has no absent-canonical hidden-claim crash state"
 
 say "retained post-commit cleanup cannot masquerade as successful init"
+repo_host 2
 find "$HOST_REPO2" -mindepth 1 -delete
 wp2 db query 'DROP TABLE IF EXISTS wp_duo_journal,wp_duo_kv,wp_duo_map,wp_duo_state' >/dev/null
 assert_init_plan wp2 /siterepo "retained post-commit cleanup"
