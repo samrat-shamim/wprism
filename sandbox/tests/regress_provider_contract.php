@@ -2592,10 +2592,11 @@ $runSource = implode("\n", array_slice(
 $check((bool) preg_match(
     '/\$this->rebuild\(\s*\$attachmentIds,\s*\$work,\s*\$tree,\s*\$regenContext,\s*\$deleteWork,'
     . '\s*\$executeDeletes,\s*\$plan\[\'deleted\'\],\s*\$scoped,\s*\$skipScopedCore,'
-    . '\s*\$scopedCoreComplete\s*\);/',
+    . '\s*\$scopedCoreComplete,\s*\$scopedPromotion\s*\);/',
     $runSource
 ), "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
-    . 'the wider set the pre-mutation selection projected surfaces from');
+    . 'the wider set the pre-mutation selection projected surfaces from; scoped promotion also retains its '
+    . 'checkpoint-only external-effects profile');
 $check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runSource),
     'run() records its apply_in_progress read on the instance, which is the only path by which the retry channel '
     . 'can ever be true');
