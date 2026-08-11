@@ -532,10 +532,31 @@ woo_effect_check(
             'version' => '1.0.0',
             'source' => 'manifest',
             'plugin' => 'woocommerce/woocommerce.php',
+            'requires' => [
+                'functions' => [
+                    'wc_get_product',
+                    'wc_get_container',
+                    'add_filter',
+                    'remove_filter',
+                    'get_post_meta',
+                    'delete_post_meta',
+                    'add_post_meta',
+                    'wc_maybe_schedule_product_sale_events',
+                    'as_unschedule_all_actions',
+                    'as_next_scheduled_action',
+                    'wp_cache_get',
+                    'wp_cache_delete',
+                ],
+                'classes' => [
+                    'WC_Data_Store',
+                    'WC_Product_Variable',
+                    'WC_Product_Grouped',
+                ],
+            ],
             'capabilities' => ['rebuild_product_lookups'],
         ],
     ],
-    'the Woo provider declarations are manifest-shipped identities owned by the version-pinned plugin, each advertising exactly the capability its action names'
+    'the Woo provider declarations are manifest-shipped identities owned by the version-pinned plugin, with the lookup runtime contract declared as exact requirements rather than provider code'
 );
 woo_effect_check(
     str_contains($cacheProviderSource, "get_transient_version('shipping', true)")

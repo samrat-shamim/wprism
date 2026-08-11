@@ -151,7 +151,6 @@ final class WoocommerceProductLookups {
                 "duo: WooCommerce product lookup provider does not implement capability '$capability'"
             );
         }
-        $this->assert_runtime_contract();
         $envelope = $args[\Duo\Providers::ENTITIES_ARG] ?? null;
         if (!is_array($envelope) || !array_key_exists('entities', $envelope)
             || !array_key_exists('deletions', $envelope) || !array_key_exists('reparents', $envelope)) {
@@ -227,7 +226,6 @@ final class WoocommerceProductLookups {
 
     /** @param array<string,mixed> $args @return array{scoped_products:int,meta_lookup_rows:int} */
     private function scoped_postcondition(array $args): array {
-        $this->assert_runtime_contract();
         return $this->observe_lookup_state($this->scoped_observed_ids($args));
     }
 
@@ -370,7 +368,7 @@ final class WoocommerceProductLookups {
         $metaRows = 0;
         foreach (array_chunk($ids, 200) as $chunk) {
             $placeholders = implode(', ', array_fill(0, count($chunk), '%d'));
-            $metaRows += (int) $this->checked_get_var($wpdb->prepare(
+            $metaRows += (int) \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP
                 . " WHERE product_id IN ($placeholders)",
                 ...$chunk
@@ -380,53 +378,6 @@ final class WoocommerceProductLookups {
             'scoped_products' => count($ids),
             'meta_lookup_rows' => $metaRows,
         ];
-    }
-
-    /**
-     * WordPress database reads return empty-looking values on SQL failure.
-     * Every decision-making read in this adapter must distinguish a real
-     * empty result from a failed query before a durable receipt can clear.
-     */
-    private function checked_get_var(string $sql, string $context): mixed {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $value = $wpdb->get_var($sql);
-        if ($value === false || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: WooCommerce $context query failed");
-        }
-        return $value;
-    }
-
-    /** @return array<int,mixed> */
-    private function checked_get_col(string $sql, string $context): array {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_col($sql);
-        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: WooCommerce $context query failed");
-        }
-        return $rows;
-    }
-
-    private function checked_get_row(string $sql, string $context): ?array {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $row = $wpdb->get_row($sql, ARRAY_A);
-        if (($row !== null && !is_array($row)) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: WooCommerce $context query failed");
-        }
-        return $row;
-    }
-
-    /** @return array<int,array<string,mixed>> */
-    private function checked_get_results(string $sql, string $context): array {
-        global $wpdb;
-        $wpdb->last_error = '';
-        $rows = $wpdb->get_results($sql, ARRAY_A);
-        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
-            throw new \RuntimeException("duo: WooCommerce $context query failed");
-        }
-        return $rows;
     }
 
     /**
@@ -450,7 +401,6 @@ final class WoocommerceProductLookups {
      */
     public function regenerate_batch(array $liveIds, array $deletionContext, ?callable $heartbeat = null): void {
         global $wpdb;
-        $this->assert_runtime_contract();
         // Typed Woo attribute definitions can be applied after Woo's init
         // registration pass. Refresh the public attribute caches and register
         // any newly-created pa_* taxonomies before wc_get_product() parses
@@ -1056,7 +1006,7 @@ final class WoocommerceProductLookups {
     private function sync_parent_price_from_woocommerce(object $store, object $product): void {
         global $wpdb;
         $id = (int) $product->get_id();
-        $inTransaction = $this->checked_get_var(
+        $inTransaction = \Duo\ProviderSdk::checked_get_var(
             'SELECT @@in_transaction',
             "transaction-state inspection for product $id"
         );
@@ -1114,32 +1064,6 @@ final class WoocommerceProductLookups {
         }
     }
 
-    private function assert_runtime_contract(): void {
-        if (!function_exists('wc_get_product')
-            || !class_exists('WC_Data_Store')
-            || !class_exists('WC_Product_Variable')
-            || !class_exists('WC_Product_Grouped')
-            || !function_exists('wc_get_container')
-            || !function_exists('add_filter')
-            || !function_exists('remove_filter')
-            || !function_exists('get_post_meta')
-            || !function_exists('delete_post_meta')
-            || !function_exists('add_post_meta')
-            || !function_exists('wc_maybe_schedule_product_sale_events')
-            || !function_exists('as_unschedule_all_actions')
-            || !function_exists('as_next_scheduled_action')
-            // Meta-lookup verification reads WooCommerce's own derived row out
-            // of the object cache Woo writes it to; without the cache API
-            // there is no channel through which Woo can state what it derived,
-            // and this adapter refuses rather than re-deriving it itself.
-            || !function_exists('wp_cache_get')
-            || !function_exists('wp_cache_delete')) {
-            throw new \RuntimeException(
-                'duo: WooCommerce product lookup regenerator requires WooCommerce 11.x public data-store and sale-schedule APIs'
-            );
-        }
-    }
-
     /**
      * Load the public Woo product class implied by authored source shape.
      *
@@ -1158,7 +1082,7 @@ final class WoocommerceProductLookups {
             return $product;
         }
 
-        $postType = $this->checked_get_var($wpdb->prepare(
+        $postType = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
             "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d LIMIT 1",
             $id
         ), "product source-shape read for product $id");
@@ -1166,7 +1090,7 @@ final class WoocommerceProductLookups {
             return $product;
         }
 
-        $variationId = $this->checked_get_var($wpdb->prepare(
+        $variationId = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
             "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'product_variation' ORDER BY ID LIMIT 1",
             $id
         ), "variation-child discovery for product $id");
@@ -1337,7 +1261,7 @@ final class WoocommerceProductLookups {
         }
         $integerNeedle = '%i:' . $childId . ';%';
         $stringNeedle = '%s:' . strlen((string) $childId) . ':"' . $childId . '";%';
-        $rows = $this->checked_get_col($wpdb->prepare(
+        $rows = \Duo\ProviderSdk::checked_get_col($wpdb->prepare(
             "SELECT DISTINCT pm.post_id
              FROM {$wpdb->postmeta} pm
              INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
@@ -1465,7 +1389,7 @@ final class WoocommerceProductLookups {
         global $wpdb;
         foreach ($deletionIds as $id) {
             $this->heartbeat($heartbeat);
-            $metaCountValue = $this->checked_get_var($wpdb->prepare(
+            $metaCountValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
                 "SELECT COUNT(*) FROM {$wpdb->prefix}" . self::META_LOOKUP . " WHERE product_id = %d",
                 (int) $id
             ), "product lookup deletion verification for product $id");
@@ -1552,7 +1476,7 @@ final class WoocommerceProductLookups {
         if ($applied === null) {
             throw new \RuntimeException("duo: WooCommerce product lookup row missing for product $id");
         }
-        $countValue = $this->checked_get_var($wpdb->prepare(
+        $countValue = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM `$table` WHERE product_id = %d",
             $id
         ), "product lookup cardinality verification for product $id");
@@ -1603,7 +1527,7 @@ final class WoocommerceProductLookups {
     /** @return array<string,mixed>|null */
     private function read_lookup_row(string $table, int $id): ?array {
         global $wpdb;
-        $row = $this->checked_get_row($wpdb->prepare(
+        $row = \Duo\ProviderSdk::checked_get_row($wpdb->prepare(
             "SELECT * FROM `$table` WHERE product_id = %d LIMIT 1",
             $id
         ), "product lookup verification for product $id");
@@ -1716,7 +1640,7 @@ final class WoocommerceProductLookups {
             // way in, so ints, floats and false reach MySQL identically here.
             $params[] = (string) $value;
         }
-        $matches = $this->checked_get_var($wpdb->prepare(
+        $matches = \Duo\ProviderSdk::checked_get_var($wpdb->prepare(
             "SELECT COUNT(*) FROM `$table` WHERE " . implode(' AND ', $conditions),
             ...$params
         ), "product lookup value verification for product $id");
