@@ -421,6 +421,49 @@ run_budget_refusal_case() {
   pass "$label: over-budget refusal precedes DB and site-root mutations"
 }
 
+run_budget_formula_pin_case() { # <label> <cpu> <mem_bytes> <live_count> <expected_budget>
+  # Pin pair_budget()'s exact arithmetic — 2 pairs per docker core after the
+  # 2-core reserve, RAM-guarded at 1GiB per pair after the 3GiB reserve,
+  # min of the two, floor 1 — via the refusal path's own printed number:
+  # fake a host of <cpu>/<mem_bytes> with <expected_budget> pairs already
+  # live, and the next `up` must refuse while printing exactly
+  # "budget for this host: <expected_budget> — 2 pairs per docker core".
+  # Reverting the formula to the old (cores-2)/((mem-3)/2) moves the number
+  # on the RAM-bound and CPU-bound points below, so the pin bites.
+  local label="budget_formula_$1" cpu="$2" mem="$3" live_count="$4" expected="$5" pair=formulapair
+  local case_root="$TMP/$label" \
+    fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
+    output="$TMP/$label/output.log" live_json i
+  mkdir -p "$case_root/sandbox/bin" "$fake_bin"
+  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  chmod +x "$case_root/sandbox/bin/pair.sh"
+  write_fake_docker "$fake_bin"
+  write_fake_git "$fake_bin"
+  live_json='['
+  for i in $(seq 1 "$live_count"); do
+    [ "$i" -gt 1 ] && live_json+=','
+    live_json+='{"ConfigFiles":"/canonical/sandbox/pair.yml","Name":"duo-existing'"$i"'"}'
+  done
+  live_json+=']'
+  export DUO_PAIR_TEST_LOG="$log" \
+    DUO_PAIR_TEST_LIVE_PAIRS="$live_json" \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU="$cpu" DUO_PAIR_TEST_MEM="$mem" \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$case_root" DUO_PAIR_TEST_LIVE_FILE='' \
+    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+    PATH="$fake_bin:$ORIGINAL_PATH"
+
+  if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
+      >"$output" 2>&1; then
+    cat "$output" >&2
+    fail "$label unexpectedly allowed a pair beyond the expected budget of $expected"
+  fi
+  grep -q "refusing to bring up new pair '$pair' over budget" "$output" \
+    || fail "$label did not report the budget refusal"
+  grep -Fq "budget for this host: $expected — 2 pairs per docker core" "$output" \
+    || { cat "$output" >&2; fail "$label did not compute the expected budget of $expected (cpu=$cpu mem=$mem)"; }
+  pass "$label: cpu=$cpu mem_bytes=$mem => budget exactly $expected"
+}
+
 run_start_budget_refusal_case() {
   local label=start_budget_refusal pair=startrefuse
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
@@ -616,13 +659,14 @@ run_concurrent_budget_race_case() {
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
 
-  # Three cores/five GiB yields exactly one budget unit. The fake Compose
+  # Three cores/four GiB yields exactly one budget unit under the 2-per-core
+  # formula (cpu (3-2)*2 = 2, ram 4-3 = 1, min = 1). The fake Compose
   # daemon records the first pair as live only after its web services are
   # created. The second process must remain outside Docker/site state while
   # the first process owns the cross-process reservation, then refuse against
   # the first pair's now-live listing.
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=5368709120 \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
     DUO_PAIR_TEST_CANONICAL_ROOT="$case_root/canonical" \
     DUO_PAIR_TEST_LIVE_FILE="$live_file" DUO_PAIR_TEST_RACE_GATE="$gate" \
     DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 PATH="$fake_bin:$ORIGINAL_PATH"
@@ -678,7 +722,7 @@ run_python_lock_concurrent_case() {
   write_fake_git "$fake_bin"
   install_python_lock_path "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=5368709120 \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
     DUO_PAIR_TEST_CANONICAL_ROOT="$case_root/canonical" \
     DUO_PAIR_TEST_LIVE_FILE="$live_file" DUO_PAIR_TEST_RACE_GATE="$gate" \
     DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0
@@ -736,7 +780,7 @@ run_python_lock_sigkill_case() {
   write_fake_git "$fake_bin"
   install_python_lock_path "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
-    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=5368709120 \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
     DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
     DUO_PAIR_TEST_RACE_GATE="$gate" DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
     DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
@@ -1128,6 +1172,11 @@ run_pair_lock_cancellation_case python TERM
 
 say "Python fcntl contender SIGKILL cancellation (fake compose; no Docker/DB)"
 run_pair_lock_cancellation_case python KILL
+
+say "budget formula pins: 2 pairs per core, 1GiB RAM guard, floor 1"
+run_budget_formula_pin_case ram_bound 10 12884901888 9 9
+run_budget_formula_pin_case cpu_bound 4 68719476736 4 4
+run_budget_formula_pin_case floor 1 2147483648 1 1
 
 say "start budget refusal before pair state or Compose mutation"
 run_start_budget_refusal_case

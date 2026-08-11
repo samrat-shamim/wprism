@@ -39,8 +39,8 @@ bash -n sandbox/bin/pair.sh && ok "pair.sh parses"
 DUO_PAIR=x DUO_PORT1=1 DUO_PORT2=2 docker compose -f sandbox/pair.yml config >/dev/null \
     && ok "pair.yml valid"
 
-# --- current sandbox load (agents must respect the >2-pairs guidance) --------
-echo "--- current pairs on this host (docs/sandbox.md: keep concurrent pairs low):"
+# --- current sandbox load (agents must respect the dynamic pair budget) ------
+echo "--- current pairs on this host (pair.sh warns when over the host budget; stop idle pairs):"
 bash sandbox/bin/pair.sh list || true
 
 echo

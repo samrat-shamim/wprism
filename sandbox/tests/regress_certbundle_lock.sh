@@ -952,15 +952,16 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
       write_broken_shared_flock "$root/bin"
       ;;
   esac
-  # Three cores / 5GiB is exactly one budget unit (see pair_budget()), and one
-  # foreign pair is already live: the host is AT its cap for every case below.
+  # Three cores / 4GiB is exactly one budget unit under the 2-per-core formula
+  # (see pair_budget()); one foreign pair is already live: the host is AT its
+  # cap for every case below.
   # DUO_PAIR_BUDGET_OVERRIDE is always passed EXPLICITLY, 0 unless a case is
   # about it: a value inherited from whoever launched this suite would decide
   # cases that are supposed to be deciding on the reservation.
   env PATH="$path_value" \
     DUO_PAIR_BUDGET_OVERRIDE="$override" \
     CERT_BUNDLE_LOCK_DIR="$rendezvous" \
-    DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=5368709120 \
+    DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
     DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/fake/pair.yml","Name":"duo-existing"}]' \
     DUO_PAIR_TEST_CANONICAL_ROOT="$root/canonical" \
     bash "$root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \

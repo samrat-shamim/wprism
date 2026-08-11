@@ -540,18 +540,26 @@ stopped_pairs() { # stopped_pairs — one stopped pair name per line
 }
 
 pair_budget() {
-  # Dynamic host budget instead of a hardcoded pair count: **1 docker core
-  # per RUNNING pair**, computed from what the docker VM actually has right
+  # Dynamic host budget instead of a hardcoded pair count: **2 RUNNING pairs
+  # per docker core**, computed from what the docker VM actually has right
   # now — a fixed number calibrated to one machine's load (the old "2",
   # set while an unrelated kind cluster ate half this host) goes stale the
-  # moment the machine changes. Two reserves come off the top before the
-  # 1-core-per-pair rule applies:
+  # moment the machine changes. Pairs are DB- and PHP-boot-bound, not
+  # CPU-bound — a sweep spends its wall clock in MariaDB round-trips and
+  # wp-cli boots — so two pairs comfortably share one core (owner throughput
+  # ruling 2026-08-11; was 1 pair per core). Two reserves come off the top
+  # before the per-core rule applies:
   #   - CPU: 2 cores for the shared MariaDB (its own cpus cap is 2.0) plus
   #     daemon/system churn.
   #   - RAM guard: on most machines memory binds before cores — an ACTIVELY
-  #     verifying pair peaks around 2GiB (wp1+wp2 at their 1GiB caps), so
-  #     also cap at (docker mem - 3GiB reserve for the db's 2GiB cap +
-  #     overhead) / 2GiB per pair, and take the smaller of the two budgets.
+  #     verifying pair runs ~1GiB TYPICAL (wp1+wp2 resident well under their
+  #     1GiB mem_limits; cli bursts are ephemeral), so also cap at
+  #     (docker mem - 3GiB reserve for the db's 2GiB cap + overhead) / 1GiB
+  #     per pair, and take the smaller of the two budgets. This sizes
+  #     admission to typical active use rather than the summed worst-case
+  #     caps the old /2GiB rule charged (same ruling); the per-container
+  #     mem_limits in pair.yml stay the hard backstop for a runaway
+  #     container.
   # Floor of 1: a tiny VM still gets one pair (nothing works otherwise).
   local cores mem_bytes mem_gib cpu_budget ram_budget budget
   cores="$(docker info -f '{{.NCPU}}' 2>/dev/null)" || return 1
@@ -561,8 +569,8 @@ pair_budget() {
   [ "$cores" -ge 1 ] || return 1
   [ "$mem_bytes" -ge 1 ] || return 1
   mem_gib=$(( mem_bytes / 1073741824 ))
-  cpu_budget=$(( cores - 2 ))
-  ram_budget=$(( (mem_gib - 3) / 2 ))
+  cpu_budget=$(( (cores - 2) * 2 ))
+  ram_budget=$(( mem_gib - 3 ))
   budget=$(( cpu_budget < ram_budget ? cpu_budget : ram_budget ))
   [ "$budget" -lt 1 ] && budget=1
   printf '%s\n' "$budget"
@@ -939,7 +947,7 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
 
   if [ "$total" -gt "$budget" ]; then
     warn ""
-    warn "!! ${live_count} running pairs (budget for this host: ${budget} — 1 docker core per pair, RAM-guarded; see pair_budget())"
+    warn "!! ${live_count} running pairs (budget for this host: ${budget} — 2 pairs per docker core, RAM-guarded; see pair_budget())"
     warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
     if [ -n "$candidate" ] && [ "$candidate_live" -eq 0 ]; then
