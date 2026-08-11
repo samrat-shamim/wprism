@@ -1012,7 +1012,11 @@ class PromotionLease {
             || !is_int($decoded['begun_at'] ?? null)) {
             throw new \RuntimeException('duo: malformed promotion session record; refusing to guess checkpoint ownership');
         }
-        if (array_key_exists('profile', $decoded)) {
+        $scopedMarkers = [
+            'profile', 'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
+            'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id',
+        ];
+        if (array_intersect($scopedMarkers, array_keys($decoded)) !== []) {
             throw $typedFailure ?? new \RuntimeException('duo: malformed scoped promotion session record');
         }
         return $decoded;

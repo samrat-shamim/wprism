@@ -433,6 +433,20 @@ namespace {
         'requires its exact signed continuation',
         'receipt-less recovery is refused even when no caller-supplied promotion owner is present'
     );
+    $malformedScopedSession = $session;
+    unset($malformedScopedSession['profile']);
+    $malformedScopedBytes = json_encode($malformedScopedSession, JSON_THROW_ON_ERROR);
+    ScopedPromotionTargetLedger::$values['promotion_session'] = $malformedScopedBytes;
+    $expect(
+        static fn() => PromotionLock::assert_no_unbound_scoped_continuation(),
+        'malformed promotion scoped session metadata',
+        'a scoped receipt with its profile marker stripped remains a refused receipt-less continuation'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $malformedScopedBytes,
+        'malformed scoped receipt remains byte-stable while receipt-less recovery is refused'
+    );
+    ScopedPromotionTargetLedger::$values['promotion_session'] = $sessionBytes;
     // DUO-3353 keeps PromotionLock as a compatibility facade; the lease
     // implementation owns the scoped handoff and replacement transaction.
     $lockSource = (string) file_get_contents("$root/agent/src/PromotionLease.php");
