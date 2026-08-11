@@ -1528,7 +1528,7 @@ ordered_contract theme-safe-removal-retry "$THEME_SAFE_REMOVAL_PHASE_BLOCK" \
   'source_wp theme activate "$PARENT_THEME"' \
   'source_wp duo capture --repo=/siterepo' \
   'rm -rf -- "$SITE/code/wp-content/themes/$CHILD_THEME"' \
-  'THEME_SAFE_REMOVE_OUT="$(promote 2>&1)"' \
+  'THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"' \
   "assert_theme_child_removed 'theme safe child removal'" \
   "assert_theme_portable_relationships 'theme safe child removal'" \
   'THEME_SAFE_REMOVE_ARTIFACT="$(artifact_for_promote_output "$THEME_SAFE_REMOVE_OUT")"' \
@@ -1540,7 +1540,7 @@ ordered_contract theme-removal-failure-retry "$THEME_REMOVAL_SEQUENCE" \
   'THEME_PARENT_REMOVE_OUT="$(deploy 2>&1)"' \
   'source_wp theme activate "$PARENT_THEME"' \
   'source_wp duo capture --repo=/siterepo' \
-  'THEME_SAFE_REMOVE_OUT="$(promote 2>&1)"'
+  'THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"'
 
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" "assert_theme_versions 'exact v1 rollback'" \
   'exact rollback does not restore and verify the v1 theme versions'

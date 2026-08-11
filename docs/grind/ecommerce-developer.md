@@ -53,7 +53,8 @@ refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), sco
 plugin/theme replacement (DUO-3357). The proof now exercises a reviewed
 parent/child theme upgrade with failure/retry, a non-forceable incompatible
 downgrade, unsafe parent-removal refusal, dependency-safe child removal after
-a public theme switch, and exact rollback while preserving theme settings,
+a public theme switch with an explicit `--force-theirs` acceptance of the
+reviewed theme-state intent, and exact rollback while preserving theme settings,
 navigation, and media. The separate WordPress-cron move is routed to DUO-3359.
 Reproduced boundaries include unsupported Woo deletion (DUO-3338),
 compatibility refusal (DUO-3326), and dependency refusal (DUO-3338). These

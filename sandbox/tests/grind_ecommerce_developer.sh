@@ -2859,7 +2859,7 @@ git -C "$SITE" add -A
 git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'lifecycle: switch to parent and remove child theme'
 git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
-if ! THEME_SAFE_REMOVE_OUT="$(promote 2>&1)"; then
+if ! THEME_SAFE_REMOVE_OUT="$(promote --force-theirs 2>&1)"; then
   echo "$THEME_SAFE_REMOVE_OUT" >&2
   fail 'safe child-theme removal promote failed'
 fi
