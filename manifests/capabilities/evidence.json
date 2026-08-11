@@ -280,8 +280,8 @@
             },
             {
                 "path": "agent/src/Init.php",
-                "sha256": "a06ffb2b11bb2decc1b4ac4687b2cd43c326a565977023e0745293d33deff1ff",
-                "size": 177917
+                "sha256": "937a459410d2f9b634107382e38a3ad2f9e22d7c25eec4d8cae006b41b8a3e88",
+                "size": 181067
             },
             {
                 "path": "agent/src/Journal.php",
@@ -730,8 +730,8 @@
             },
             {
                 "path": "manifests/providers/woocommerce-product-lookups.php",
-                "sha256": "0f4809b58a390b25f8575030f8f94261ece281fd69ecd8ecad21252da7ee297a",
-                "size": 79095
+                "sha256": "250922f7d3c07b73ce5454cb693267fb29ea69ba320d1bd70c1141dcf4d18221",
+                "size": 75871
             },
             {
                 "path": "manifests/providers/yoast-index.php",
@@ -750,13 +750,23 @@
             },
             {
                 "path": "manifests/woocommerce.json",
-                "sha256": "3f5d84b0e42407dfe0f59466d390227f01774261da287384150e5ceae5af308c",
-                "size": 106575
+                "sha256": "e64cb3b542aaf73e7ec06b7edf55ab7a109743a1d3cd92555d16363ac42cf9bc",
+                "size": 107171
             },
             {
                 "path": "manifests/yoast.json",
                 "sha256": "797f0a0ccd482772ef869af9853829d96a9964f7c5dcb71ca21782538b73240e",
                 "size": 14206
+            },
+            {
+                "path": "sandbox/bin/artifact-archive-root.sh",
+                "sha256": "54fdbb3581aebda4c71b9945df5cd7b745239421bc5302c8beb3ba5d95ee91b0",
+                "size": 1347
+            },
+            {
+                "path": "sandbox/bin/artifact-cache-fetch.sh",
+                "sha256": "e81329fab38de890d026434536e734b22db925fd00c9af760b33173bd16391fc",
+                "size": 5054
             },
             {
                 "path": "sandbox/bin/certification-bundle.php",
@@ -765,13 +775,13 @@
             },
             {
                 "path": "sandbox/bin/fetch-artifact.sh",
-                "sha256": "e2a1c8331cbef044d1c2931b09a4bec5eef488450ec22f3ec02653e15740542e",
-                "size": 5573
+                "sha256": "a05537cb745e6818fffba778f1bd009e7576401a86c4b6a75e57789ded93eb0e",
+                "size": 5192
             },
             {
                 "path": "sandbox/bin/pair.sh",
-                "sha256": "9dc137dcd4dff6cfb5e6aac35779d5a32f9fdef084f7526fcd49d9d9928307e9",
-                "size": 82574
+                "sha256": "20d005b5627ff8c845eb1cfb90b43362995bf7cdba347ed996baae4cf15e4f5e",
+                "size": 90555
             },
             {
                 "path": "sandbox/bin/ssh-rollback-certification.php",
@@ -785,8 +795,8 @@
             },
             {
                 "path": "sandbox/conformance/artifacts.lock.json",
-                "sha256": "d4d519e0e4617b3a364e7b64f7eae66288b85180984814f9bd97ddcd0c2e2c92",
-                "size": 4561
+                "sha256": "36609270f982e746d496f47815bffe52065bcf6f09259bc19199dfa3c99c5152",
+                "size": 5679
             },
             {
                 "path": "sandbox/conformance/asserts.sh",
@@ -855,8 +865,8 @@
             },
             {
                 "path": "sandbox/conformance/manifests.json",
-                "sha256": "20aecc655f003ae14afddd40ee40ad78bb62e8fed583f51507e74907fe8b3a58",
-                "size": 2262
+                "sha256": "38dc6a4327a99fb2cc074fccd7719037efa665997a0f7cf62c56c972a9cd85eb",
+                "size": 2634
             },
             {
                 "path": "sandbox/conformance/postdeploy/contact-form-7.sh",
@@ -880,8 +890,8 @@
             },
             {
                 "path": "sandbox/conformance/run.sh",
-                "sha256": "c62e2af02c75e93f3c1c9537c77e411b8f409b4a19177535a262aa86b67f4a4e",
-                "size": 29150
+                "sha256": "e46dcc0d4c7ce7a1a92a2c3c752f8d8debe06d79fe3f3abd6ac15f60c1635398",
+                "size": 28947
             },
             {
                 "path": "sandbox/conformance/seeds/acf.sh",
@@ -895,8 +905,8 @@
             },
             {
                 "path": "sandbox/conformance/seeds/core.sh",
-                "sha256": "31744531f931d8a6f990093d6d096856cbbcfba5091f6073ac80835401617026",
-                "size": 7872
+                "sha256": "55e0f73cd041a76087b0a9b43a89b205bf07ed529362552bbf5f032b5709660f",
+                "size": 8146
             },
             {
                 "path": "sandbox/conformance/seeds/elementor.sh",
@@ -944,34 +954,44 @@
                 "size": 75
             },
             {
+                "path": "sandbox/pair.artifacts.yml",
+                "sha256": "0995c8c45f0f202f6bc646e580eb5823ff8e7e0322b057a35221a00da9197427",
+                "size": 1795
+            },
+            {
+                "path": "sandbox/pair.wordpress-offline.yml",
+                "sha256": "4f44095efabf2267d662da6a75b17fa47aca96db10b43866509c1858f0004a3f",
+                "size": 673
+            },
+            {
                 "path": "sandbox/pair.yml",
-                "sha256": "f4470465327fa0da1007d52917a5de322835edc81c6cf0dc050328343d32e845",
-                "size": 6331
+                "sha256": "eaf12f83fda0eff12b71aed5c47ead640dba4c9f8e8a551b6433524fa9cf8611",
+                "size": 6811
             },
             {
                 "path": "sandbox/tests/certify_reference_bundle.sh",
-                "sha256": "4758b1a4dd4721ed4f326990e988a1edc118da8e56ddadc10039c71ce2bd3c53",
-                "size": 51114
+                "sha256": "8890a4a8c3e80d0b096bd9753ab3eef1db8efa1d6d1c05176e8e56196449a525",
+                "size": 53766
             },
             {
                 "path": "sandbox/tests/certify_version_matrix.sh",
-                "sha256": "7f2a774989a36b4602caf96cde3031c5b05ca8a1e879c34c9289bfd21633305f",
-                "size": 58991
+                "sha256": "d36ce7b49857b3a914302e413adf6182bce503d43bb02188a3329bd70ef8c558",
+                "size": 59673
             },
             {
                 "path": "sandbox/tests/regress_duo_init.sh",
-                "sha256": "6b423ef4c9cf96595f21789ceac6d652d7f4d2d404e932c12faced65c0f9ca2d",
-                "size": 82467
+                "sha256": "d917e14f50d3cb297e8f420e0db1fe49aa6c477cc00190e287cb18c1500b71b7",
+                "size": 83628
             },
             {
                 "path": "sandbox/tests/regress_init_contract.php",
-                "sha256": "53097be75da0e4913caa6aae52941b693bb85813e445d20678e6e2d1bcb4ec65",
-                "size": 83323
+                "sha256": "47ee78314e807122286ceca0bb7603c17a511dc7ec87654114f08b6d34726d7c",
+                "size": 89031
             },
             {
                 "path": "sandbox/tests/regress_multisite_refusal.sh",
-                "sha256": "7fe7e20849b1137cfaab4af72d2e487191dbfe4da901a9789b4e3aec95ebf04b",
-                "size": 3167
+                "sha256": "6b1a1569a01307ff0e86f830c6b9caba936acb7fd171a08940391475abf127f9",
+                "size": 3779
             },
             {
                 "path": "scripts/capability-registry.php",
@@ -980,19 +1000,295 @@
             },
             {
                 "path": "spec/repo-format.md",
-                "sha256": "21783f1da6e0201e0e22faed99916932dd70817b829879ef039d358267666d4e",
-                "size": 196862
+                "sha256": "c98b14fa8a2fd885a859cb74702a0e6d7a1df941eaf82ee4bdf8612bbe8957bf",
+                "size": 197317
             }
         ],
-        "bundle_digest": "4197de57535bd190737955a596f9618835fea9e9ea1601437099af60c9fa07e2",
-        "created_at": "2026-08-11T08:51:57Z",
+        "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+        "created_at": "2026-08-11T15:15:18Z",
         "environment": {
             "path": "environment.json",
-            "sha256": "9711ef3a04f882da7e7e0271d99bf014408bea1c656510ec463456e635fedc63",
-            "size": 261
+            "sha256": "a5b96262727c6298cab17ef36db0bcdfd512e61d54d40501639b2b716399dc47",
+            "size": 9950
         },
         "environment_summary": {
             "active_plugins": [],
+            "artifact_cache": {
+                "authority": false,
+                "entries": [
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-advanced-custom-fields-5.12.6-66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6.zip",
+                        "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6",
+                        "slug": "advanced-custom-fields",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "5.12.6"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip",
+                        "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341",
+                        "slug": "advanced-custom-fields",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 2,
+                        "version": "6.0.0"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip",
+                        "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
+                        "slug": "advanced-custom-fields",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 4,
+                        "version": "6.8.7"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-contact-form-7-5.9.8-357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4.zip",
+                        "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4",
+                        "slug": "contact-form-7",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "5.9.8"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip",
+                        "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6",
+                        "slug": "contact-form-7",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 2,
+                        "version": "6.0.1"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip",
+                        "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e",
+                        "slug": "contact-form-7",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 4,
+                        "version": "6.1.6"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-elementor-3.35.9-90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc.zip",
+                        "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc",
+                        "slug": "elementor",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "3.35.9"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip",
+                        "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
+                        "slug": "elementor",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 2,
+                        "version": "4.0.0"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip",
+                        "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db",
+                        "slug": "elementor",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 4,
+                        "version": "4.2.2"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip",
+                        "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73",
+                        "slug": "ninja-forms",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 5,
+                        "version": "3.14.11"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-ninja-forms-3.3.21.4-54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f.zip",
+                        "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f",
+                        "slug": "ninja-forms",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "3.3.21.4"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip",
+                        "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687",
+                        "slug": "ninja-forms",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 2,
+                        "version": "3.4.34.2"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-paid-memberships-pro-3.8.3-6c3acc683939e01f203037334c16dddd146aaa30e01e09c41c6503705c1db7bf.zip",
+                        "sha256": "6c3acc683939e01f203037334c16dddd146aaa30e01e09c41c6503705c1db7bf",
+                        "slug": "paid-memberships-pro",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 2,
+                        "version": "3.8.3"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-polylang-3.4.5-adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab.zip",
+                        "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab",
+                        "slug": "polylang",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "3.4.5"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip",
+                        "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1",
+                        "slug": "polylang",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 2,
+                        "version": "3.5"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip",
+                        "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
+                        "slug": "polylang",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 5,
+                        "version": "3.8.6"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-woocommerce-10.9.4-6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9.zip",
+                        "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9",
+                        "slug": "woocommerce",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "10.9.4"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip",
+                        "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
+                        "slug": "woocommerce",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 6,
+                        "version": "11.0.0"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-wordpress-seo-27.9-eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052.zip",
+                        "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052",
+                        "slug": "wordpress-seo",
+                        "sources": [
+                            "network-fetch"
+                        ],
+                        "uses": 1,
+                        "version": "27.9"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip",
+                        "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f",
+                        "slug": "wordpress-seo",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 3,
+                        "version": "28.0"
+                    },
+                    {
+                        "kind": "plugin",
+                        "path": "/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip",
+                        "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
+                        "slug": "wordpress-seo",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 4,
+                        "version": "28.2"
+                    },
+                    {
+                        "kind": "theme",
+                        "path": "/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip",
+                        "sha256": "f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4",
+                        "slug": "twentytwentyfive",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 4,
+                        "version": "1.5"
+                    },
+                    {
+                        "kind": "theme",
+                        "path": "/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip",
+                        "sha256": "6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e",
+                        "slug": "twentytwentyone",
+                        "sources": [
+                            "cache-hit",
+                            "network-fetch"
+                        ],
+                        "uses": 28,
+                        "version": "2.8"
+                    }
+                ],
+                "format": "duo-artifact-cache-usage/v1",
+                "wordpress_org_blocked": false
+            },
             "database_client": "11.8.8",
             "database_server": "11.8.8-MariaDB-ubu2404",
             "multisite": false,
@@ -1004,7 +1300,7 @@
             "wordpress": "7.0.2"
         },
         "force_hatches": [],
-        "git_revision": "cfdb184b45dddab2676b85156584855522212a69",
+        "git_revision": "502ba7445c9f8cea99484f4395874da75f094a3b",
         "harness": {
             "name": "duo-reference-certification",
             "version": 4
@@ -1040,8 +1336,8 @@
                 "id": "conformance-core",
                 "log": {
                     "path": "logs/conformance-core.txt",
-                    "sha256": "0b28282a57ed5a87aa5ea8fb9c129ee81aa7bc5a51a453f5f17ae416807e355c",
-                    "size": 35256
+                    "sha256": "30a2fae22e6b50828734f2a7c1b5b04c8817d2ecbb8e2e032eaff35d5f532e33",
+                    "size": 39617
                 },
                 "result": {
                     "path": "results/conformance-core.json",
@@ -1059,8 +1355,8 @@
                 "id": "conformance-fse",
                 "log": {
                     "path": "logs/conformance-fse.txt",
-                    "sha256": "bb8bb002b0a9adad230d95704386a274955c70606cdc6448bfd23deea1cc7d10",
-                    "size": 17196
+                    "sha256": "0cdf88efb53bdb0fcbc0bae7279cfe2d2746479971c9797a55d844f775bd61d2",
+                    "size": 20412
                 },
                 "result": {
                     "path": "results/conformance-fse.json",
@@ -1078,8 +1374,8 @@
                 "id": "conformance-acf",
                 "log": {
                     "path": "logs/conformance-acf.txt",
-                    "sha256": "150499a1f8c9a0fd1589e91a71687be82f665ee19cc36a8df67c9370c1db977d",
-                    "size": 14776
+                    "sha256": "47a3be5aad1b8b6f52be901bfc9e999338c6e3937dcb640e911567fbebff0cd4",
+                    "size": 17117
                 },
                 "result": {
                     "path": "results/conformance-acf.json",
@@ -1097,8 +1393,8 @@
                 "id": "conformance-contact-form-7",
                 "log": {
                     "path": "logs/conformance-contact-form-7.txt",
-                    "sha256": "787be1246562a58ab93e00c84d61861a1ed0f0d64606193d094df09680d75d07",
-                    "size": 15780
+                    "sha256": "a3bef838045a9d83d59234eb02ce66bb41674cdb1620cc07dc0322c584439dcf",
+                    "size": 18173
                 },
                 "result": {
                     "path": "results/conformance-contact-form-7.json",
@@ -1116,8 +1412,8 @@
                 "id": "conformance-elementor",
                 "log": {
                     "path": "logs/conformance-elementor.txt",
-                    "sha256": "0b7376580b2e10bf3b9d40ca86de24343c60562b588b19d3bcf5e354012f80ad",
-                    "size": 16053
+                    "sha256": "1e8379acdd1a12d040fe542732865a8eb27800923ac2aebda59141a03258d9cc",
+                    "size": 18355
                 },
                 "result": {
                     "path": "results/conformance-elementor.json",
@@ -1135,8 +1431,8 @@
                 "id": "conformance-ninja-forms",
                 "log": {
                     "path": "logs/conformance-ninja-forms.txt",
-                    "sha256": "474846b5a9c1e7b4e8e094653f757c5fd44e35b775f6744104aaefa64c74cc5c",
-                    "size": 19552
+                    "sha256": "0b0bcb542c99bf8e3c71b4841a2a6330e3084c1437937655ef1af4411b350e46",
+                    "size": 21900
                 },
                 "result": {
                     "path": "results/conformance-ninja-forms.json",
@@ -1154,8 +1450,8 @@
                 "id": "conformance-polylang",
                 "log": {
                     "path": "logs/conformance-polylang.txt",
-                    "sha256": "e0bfeaa5ea8f3d36005e62223c568640aca453858f0b75aac02434b92b2dfc32",
-                    "size": 21524
+                    "sha256": "4b6a7cdbcff6efcf081dd6fa9e0d916eb79d5be85d8d682182de3a108304d0be",
+                    "size": 24004
                 },
                 "result": {
                     "path": "results/conformance-polylang.json",
@@ -1173,8 +1469,8 @@
                 "id": "conformance-woocommerce",
                 "log": {
                     "path": "logs/conformance-woocommerce.txt",
-                    "sha256": "91ff197b2c40d5b41868f477cd0b57b95d6025c79aa7be970195152bcbf54816",
-                    "size": 24774
+                    "sha256": "6de6f4be4c641d8208ad05e35d61de5ed485a0fc11a034fa83857ee4e3793a26",
+                    "size": 27236
                 },
                 "result": {
                     "path": "results/conformance-woocommerce.json",
@@ -1192,8 +1488,8 @@
                 "id": "conformance-yoast",
                 "log": {
                     "path": "logs/conformance-yoast.txt",
-                    "sha256": "f35b668431fad09fe56141cb18717f758dba673c9a236863670bb4d4a3b68514",
-                    "size": 17976
+                    "sha256": "a4c4c5623fa106e4f8e5b5b1860f8335734d9ff29f77b53421c9daaaf3b5bd01",
+                    "size": 19841
                 },
                 "result": {
                     "path": "results/conformance-yoast.json",
@@ -1211,8 +1507,8 @@
                 "id": "conformance-paid-memberships-pro",
                 "log": {
                     "path": "logs/conformance-paid-memberships-pro.txt",
-                    "sha256": "e02d8986303dd322a3dd9498bb4bdda87b1772339f4eeed2dc9e1a6e4870b787",
-                    "size": 15120
+                    "sha256": "cc41c452e225050802beed4823246beebb0e74b83dc4460deaeff10896bbb739",
+                    "size": 17118
                 },
                 "result": {
                     "path": "results/conformance-paid-memberships-pro.json",
@@ -1230,8 +1526,8 @@
                 "id": "multisite-refusal",
                 "log": {
                     "path": "logs/multisite-refusal.txt",
-                    "sha256": "67e2465b77d9923eef995420bf738dcfd274167abd68065f5e1db9964087e994",
-                    "size": 9854
+                    "sha256": "29609f680e49bf8c060e1dc82211a6aa8f8e9e3360206809fd76dd928d723a74",
+                    "size": 10711
                 },
                 "result": {
                     "path": "results/multisite-refusal.json",
@@ -1249,8 +1545,8 @@
                 "id": "exact-artifact-version-matrix",
                 "log": {
                     "path": "logs/exact-artifact-version-matrix.txt",
-                    "sha256": "8ce7c7162f804af02cb78f6afdefe87d82880bd82f1e6d689e28818365cc6a95",
-                    "size": 139222
+                    "sha256": "f2c1b437fa0252d6eba7ea2720516b959dfc59af6dc11ff6f8ab41be310eec60",
+                    "size": 152689
                 },
                 "result": {
                     "path": "results/exact-artifact-version-matrix.json",
@@ -1268,8 +1564,8 @@
                 "id": "init-contract",
                 "log": {
                     "path": "logs/init-contract.txt",
-                    "sha256": "c54337de593bc659a20d0d92ab38596ccf148e4beb812440fb147c66a5979e42",
-                    "size": 16803
+                    "sha256": "d6a3d9f4233f03c2b0889880f01b67082acb40d1476f53d22e606e929f2e8918",
+                    "size": 15231
                 },
                 "result": {
                     "path": "results/init-contract.json",
@@ -1287,8 +1583,8 @@
                 "id": "duo-init-golden-path",
                 "log": {
                     "path": "logs/duo-init-golden-path.txt",
-                    "sha256": "d36ec9cdab19929bc70d814d24288499c06c6ea38327c5488c095d3c0d56a513",
-                    "size": 165331
+                    "sha256": "a51d5e95a3ab9c2ac97246c44b4040e88a6774ab99ed21414f4a2fde1f9a5e08",
+                    "size": 166122
                 },
                 "result": {
                     "path": "results/duo-init-golden-path.json",
