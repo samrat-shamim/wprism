@@ -25,7 +25,7 @@ the live grind proves a fail-closed unsupported/refusal boundary; `planned_gap`
 means the proposed public move is explicitly marked unavailable and routed but
 not claimed by this harness.
 
-The current machine-checked report contains 17 exercised moves, 7 planned
+The current machine-checked report contains 18 exercised moves, 6 planned
 gaps, and 2 reproduced fail-closed boundaries. The regression recomputes those
 counts from the rows so the summary cannot drift from the evidence index.
 
@@ -56,8 +56,9 @@ downgrade, unsafe parent-removal refusal, dependency-safe child removal after
 a public theme switch with an explicit `--force-theirs` acceptance of the
 reviewed theme-state intent, and exact rollback while preserving theme settings,
 navigation, and media. The separate WordPress-cron move is routed to DUO-3359.
-Reproduced boundaries include unsupported Woo deletion (DUO-3338),
-compatibility refusal (DUO-3326), and dependency refusal (DUO-3338). These
+Reproduced boundaries include unsupported Woo deletion (DUO-3338) and
+dependency refusal (DUO-3338). Compatibility refusal (DUO-3326) is exercised
+by the live proof. These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.
 

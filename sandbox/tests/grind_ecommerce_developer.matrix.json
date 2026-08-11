@@ -3,7 +3,7 @@
   "issue": "DUO-3337",
   "description": "Executable ecommerce developer move coverage and bounded gaps.",
   "statuses": ["exercised", "planned_gap", "reproduced_gap"],
-  "coverage_summary": {"exercised": 17, "planned_gap": 7, "reproduced_gap": 2},
+  "coverage_summary": {"exercised": 18, "planned_gap": 6, "reproduced_gap": 2},
   "required_move_fields": [
     "id",
     "move",
