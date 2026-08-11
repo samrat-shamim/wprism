@@ -65,6 +65,7 @@ require_once __DIR__ . '/src/PlanCategorySummary.php';
 require_once __DIR__ . '/src/PlanView.php';
 require_once __DIR__ . '/src/CodeStateContract.php';
 require_once __DIR__ . '/src/RefreshExport.php';
+require_once __DIR__ . '/src/ConvergenceVerifier.php';
 require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Deploy.php';
 require_once __DIR__ . '/src/Journal.php';
