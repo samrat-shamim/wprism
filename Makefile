@@ -4,7 +4,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
-.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live
+.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler
@@ -37,7 +37,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-capability-registry-import regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -1037,6 +1037,12 @@ regress-scope-contract:
 # Pure PHP with an injected byte-CAS store; no WordPress or target contact.
 regress-scoped-apply-session:
 	php sandbox/tests/regress_scoped_apply_session.php
+
+# DUO-3344: offline source contract for the scoped live harness itself. It
+# proves a failed pair teardown retains its exact evidence rather than
+# deleting roots and printing a pre-cleanup green verdict.
+regress-scoped-apply-live-cleanup:
+	php sandbox/tests/regress_scoped_apply_live_cleanup.php
 
 # DUO-3344: offline scoped authored-boundary and response-loss recovery matrix.
 # The harness drives the public scoped session/observation/effect seams with

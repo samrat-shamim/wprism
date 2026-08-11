@@ -51,6 +51,7 @@ TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo3344-scoped-live.XXXXXX")"
 ENVS="$TMP/envs.json"
 PAIR_OWNED=0
 PAIR_ATTEMPTED=0
+BODY_COMPLETE=0
 
 say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
@@ -76,30 +77,85 @@ assert_pair_list_parser() {
   fi
 }
 
+print_cleanup_excerpt() { # <label> <path>
+  local label=$1 path=$2
+  printf '%s\n' "--- ${label} (first 240 lines; ${path}) ---" >&2
+  if [ -f "$path" ]; then
+    sed -n '1,240p' "$path" >&2
+  else
+    printf '%s\n' "<cleanup transcript was not created>" >&2
+  fi
+}
+
 cleanup() {
   local status=$?
-  local list
+  local destroy_log="$TMP/pair-destroy.log"
+  local list_log="$TMP/pair-list-after-destroy.log"
+  local cleanup_failed=0 destroy_failed=0 list_failed=0 pair_still_present=0 pair_absent=0
   trap - EXIT INT TERM
   set +e
   if [ "$PAIR_OWNED" -eq 1 ]; then
     if [ "$PAIR_ATTEMPTED" -eq 1 ]; then
-      bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >/dev/null 2>&1 || status=1
-    fi
-    rm -rf -- "$SITE1" "$SITE2" "$ORIGIN" || status=1
-    if [ -e "$SITE1" ] || [ -e "$SITE2" ] || [ -e "$ORIGIN" ]; then
-      printf 'FAIL: cleanup left owned site/origin resource(s): %s %s %s\n' "$SITE1" "$SITE2" "$ORIGIN" >&2
-      status=1
+      if ! bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >"$destroy_log" 2>&1; then
+        destroy_failed=1
+        cleanup_failed=1
+      fi
     fi
   fi
-  rm -rf -- "$TMP" || status=1
-  if [ -e "$TMP" ]; then
-    printf 'FAIL: cleanup left its mktemp allocation: %s\n' "$TMP" >&2
+
+  # The post-destroy list is a durable cleanup witness, not merely progress
+  # chatter. It runs even when destroy failed so the retained artifacts say
+  # whether a pair remains visible and an operator never has to reconstruct
+  # that answer from a later manual teardown.
+  if ! bash "$ROOT/sandbox/bin/pair.sh" list >"$list_log" 2>&1; then
+    list_failed=1
+    cleanup_failed=1
+  elif pair_list_has_exact "$PAIR" <"$list_log"; then
+    pair_still_present=1
+    cleanup_failed=1
+  else
+    pair_absent=1
+  fi
+
+  # A failed handback can be the very condition that prevents destroy from
+  # reaching compose down. Deleting the bind roots after that failure would
+  # both erase its evidence and make a later retry take a different (missing
+  # root) path. Only a successful destroy plus exact absence authorizes any
+  # root or scratch removal.
+  if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ]; then
+    if [ "$PAIR_OWNED" -eq 1 ]; then
+      rm -rf -- "$SITE1" "$SITE2" "$ORIGIN" || cleanup_failed=1
+      if [ -e "$SITE1" ] || [ -e "$SITE2" ] || [ -e "$ORIGIN" ]; then
+        printf 'FAIL: cleanup left owned site/origin resource(s): %s %s %s\n' "$SITE1" "$SITE2" "$ORIGIN" >&2
+        cleanup_failed=1
+      fi
+    fi
+    if [ "$cleanup_failed" -eq 0 ]; then
+      rm -rf -- "$TMP" || cleanup_failed=1
+      if [ -e "$TMP" ]; then
+        printf 'FAIL: cleanup left its mktemp allocation: %s\n' "$TMP" >&2
+        cleanup_failed=1
+      fi
+    fi
+  fi
+
+  if [ "$cleanup_failed" -ne 0 ]; then
+    printf 'FAIL: scoped live cleanup did not complete; preserving owned roots and cleanup artifacts:\n' >&2
+    printf '  pair: %s\n  roots: %s %s %s\n  destroy transcript: %s\n  post-destroy pair list: %s\n' \
+      "$PAIR" "$SITE1" "$SITE2" "$ORIGIN" "$destroy_log" "$list_log" >&2
+    if [ "$destroy_failed" -eq 1 ]; then
+      print_cleanup_excerpt "pair destroy failed for ${PAIR}" "$destroy_log"
+    fi
+    if [ "$list_failed" -eq 1 ]; then
+      print_cleanup_excerpt "post-destroy pair list failed for ${PAIR}" "$list_log"
+    elif [ "$pair_still_present" -eq 1 ]; then
+      print_cleanup_excerpt "exact pair ${PAIR} remains in post-destroy list" "$list_log"
+    fi
     status=1
   fi
-  list="$(bash "$ROOT/sandbox/bin/pair.sh" list 2>&1)" || status=1
-  if pair_list_has_exact "$PAIR" <<<"$list"; then
-    printf 'FAIL: exact cleanup left pair %s in pair.sh list:\n%s\n' "$PAIR" "$list" >&2
-    status=1
+
+  if [ "$cleanup_failed" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ] && [ "$status" -eq 0 ]; then
+    printf '\n✔ REGRESS_SCOPED_APPLY_LIVE PASSED (pair %s destroyed and cleanup verified)\n' "$PAIR"
   fi
   exit "$status"
 }
@@ -1341,4 +1397,6 @@ jq -e '
 assert_generic_scoped_boundary "selected menu tombstone"
 pass "selected menu tombstone removes its sidecarless child and releases only A's location while preserving B's owner/map/sidebar evidence"
 
-printf '\n✔ REGRESS_SCOPED_APPLY_LIVE PASSED (pair %s cleaned exactly on exit)\n' "$PAIR"
+# The final PASS is emitted by cleanup only after the pair is absent and every
+# owned filesystem resource has been removed successfully.
+BODY_COMPLETE=1
