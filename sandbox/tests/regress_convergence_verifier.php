@@ -59,11 +59,14 @@ $check(
     'the canonical-encode path is not special-cased to a single non-post type'
 );
 
-// ---- 2. Apply's private facade genuinely delegates rather than duplicating
-// the logic. Source-scraped, not behavior-tested: verification_hash() is a
-// private instance method, and a bypassed-constructor Apply has no cheap
-// way to prove which code path executed short of reading the source that
-// will actually ship.
+// ---- 2. Apply's private facades genuinely delegate rather than duplicating
+// the logic. Source-scraped, not behavior-tested: both are private instance
+// methods, and a bypassed-constructor Apply has no cheap way to prove which
+// code path executed short of reading the source that will actually ship.
+// Reflection alone (hasMethod()) only proves the method still exists, not
+// that its BODY still delegates -- a future edit could reinline the ~90-line
+// verify_convergence() logic and every other check in this suite would keep
+// passing, so both facades get the same one-line-body regex, not just one.
 $applySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
 $check(
     (bool) preg_match(
@@ -71,6 +74,14 @@ $check(
         $applySource
     ),
     'Apply::verification_hash() must delegate to ConvergenceVerifier::hash(), not reimplement it'
+);
+$check(
+    (bool) preg_match(
+        '/private function verify_convergence\(array \$opts, CompiledRepository \$compiled\): array \{\s*'
+            . 'return \$this->convergence_verifier\(\)->verify\(\$opts, \$compiled\);\s*\}/',
+        $applySource
+    ),
+    'Apply::verify_convergence() must delegate to convergence_verifier()->verify(), not reimplement it'
 );
 
 // Isolate verify_canonical()'s own body: `plan()` and `apply()` legitimately
