@@ -253,10 +253,12 @@ try {
     $wpLog = $logs . '/wp.log';
     $providerLog = $logs . '/provider.log';
     $wireLog = $logs . '/wire.log';
+    $orderLog = $logs . '/order.log';
     $targetSession = $tmp . '/target-session.json';
     $dropMarker = $tmp . '/claim-response-dropped';
+    $completeDropMarker = $tmp . '/complete-response-dropped';
     $exclusionState = $tmp . '/exclusion-provider.json';
-    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog);
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
 
     scoped_host_write($bin . '/ssh', <<<'SH'
 #!/usr/bin/env bash
@@ -274,6 +276,17 @@ if [[ "${DUO3344_DROP_CLAIM_RESPONSE:-0}" == 1 \
   status=$?
   set -e
   [ "$status" -eq 0 ] || exit "$status"
+  exit 75
+fi
+if [[ "${DUO3344_DROP_COMPLETE_RESPONSE:-0}" == 1 \
+  && ! -e "${DUO3344_DROP_COMPLETE_MARKER:?}" \
+  && "$remote" == *"promotion-complete-scoped"* ]]; then
+  set +e
+  /bin/sh -c "$remote"
+  status=$?
+  set -e
+  [ "$status" -eq 0 ] || exit "$status"
+  : > "$DUO3344_DROP_COMPLETE_MARKER"
   exit 75
 fi
 exec /bin/sh -c "$remote"
@@ -367,6 +380,36 @@ if ($sub === 'promotion-complete-scoped') {
         fwrite(STDERR, "scoped completion had no target session\n");
         exit(96);
     }
+    $control = (string) getenv('DUO3344_CONTROL');
+    $providerStatePath = (string) getenv('DUO3344_EXCLUSION_STATE');
+    $orderLog = (string) getenv('DUO3344_ORDER_LOG');
+    if ($control === '' || $providerStatePath === '' || $orderLog === '') {
+        fwrite(STDERR, "scoped completion has no authority-boundary fixture paths\n");
+        exit(98);
+    }
+    try {
+        require_once $control . '/recovery-runtime/rollback-control.php';
+        $authority = \Duo\Recovery\RollbackControl::status($control);
+        $provider = json_decode(
+            (string) file_get_contents($providerStatePath),
+            true,
+            512,
+            JSON_THROW_ON_ERROR
+        );
+    } catch (Throwable $failure) {
+        fwrite(STDERR, "could not read scoped completion boundary: " . $failure->getMessage() . "\n");
+        exit(98);
+    }
+    if (($authority['state'] ?? null) !== 'committed'
+        || ($authority['terminal'] ?? null) !== true
+        || !is_array($provider) || ($provider['state'] ?? null) !== 'held') {
+        fwrite(STDERR, "scoped completion requires committed authority with exclusion still held\n");
+        exit(98);
+    }
+    if (file_put_contents($orderLog, "target-complete:committed-held\n", FILE_APPEND | LOCK_EX) === false) {
+        fwrite(STDERR, "could not record scoped completion boundary\n");
+        exit(99);
+    }
     @unlink((string) getenv('DUO3344_TARGET_SESSION'));
     echo "{\"ok\":true}\n";
     exit(0);
@@ -416,6 +459,11 @@ if ($action === 'probe') {
     $token = (string) $state['token'];
     $providerState = $action === 'release' ? 'released' : 'held';
     if ($action === 'release') {
+        $orderLog = (string) getenv('DUO3344_ORDER_LOG');
+        if ($orderLog === '' || file_put_contents($orderLog, "exclusion:release\n", FILE_APPEND | LOCK_EX) === false) {
+            fwrite(STDERR, "fixture exclusion could not record release order\n");
+            exit(45);
+        }
         file_put_contents((string) $statePath, $json(['state' => 'released', 'token' => $token]) . "\n", LOCK_EX);
     }
 }
@@ -744,7 +792,11 @@ PHP
         'DUO3344_APPLY_RESULT' => $applyResult,
         'DUO3344_COMPILED_ARTIFACT' => $compiledArtifact,
         'DUO3344_COMPILE_SUMMARY' => $compileSummary,
+        'DUO3344_CONTROL' => $control,
+        'DUO3344_DROP_COMPLETE_MARKER' => $completeDropMarker,
         'DUO3344_DROP_MARKER' => $dropMarker,
+        'DUO3344_EXCLUSION_STATE' => $exclusionState,
+        'DUO3344_ORDER_LOG' => $orderLog,
         'DUO3344_PLAN' => $planPath,
         'DUO3344_SCP_LOG' => $scpLog,
         'DUO3344_SSH_LOG' => $sshLog,
@@ -763,7 +815,7 @@ PHP
         'tampered local contract' => ['--scope-contract=' . $badContractPath, '--format=json'],
     ];
     foreach ($noTargetCases as $label => $args) {
-        scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog);
+        scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
         $refused = scoped_host_promote($root, $envs, $contractPath, $args);
         $noContact = scoped_host_lines($sshLog) === []
             && scoped_host_lines($scpLog) === []
@@ -778,7 +830,7 @@ PHP
         );
     }
 
-    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog);
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
     $lost = scoped_host_promote($root, $envs, $contractPath, [], [
         'DUO3344_DROP_CLAIM_RESPONSE' => '1',
         'DUO3344_FAKE_APPLY_FAIL' => null,
@@ -799,7 +851,7 @@ PHP
     );
     $lostReceipt = (string) ($lostStatus['receipt_id'] ?? '');
 
-    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog);
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
     $resumed = scoped_host_promote($root, $envs, $contractPath);
     if ($resumed['exit'] !== 0) {
         scoped_host_fail(
@@ -813,6 +865,7 @@ PHP
     $subcommands = scoped_host_wp_subcommands($requests);
     $compact = scoped_host_compact_requests($requests);
     $successProvider = scoped_host_lines($providerLog);
+    $successOrder = scoped_host_lines($orderLog);
     $expectedSuccessEvents = [
         'prepared/state_transition/promotion-claim',
         'promoting/state_transition/scoped_promotion_start',
@@ -834,8 +887,11 @@ PHP
         $subcommands === [
             'compile', 'plan', 'promotion-begin-scoped', 'apply',
             'promotion-abort', 'promotion-complete-scoped',
+        ] && $successOrder === [
+            'target-complete:committed-held',
+            'exclusion:release',
         ],
-        'public host path orders compile -> plan -> begin -> apply -> record/complete -> commit target controls'
+        'public host path orders compile -> plan -> begin -> apply -> record -> signed commit -> target complete -> exclusion release'
     );
     scoped_host_ok(
         scoped_host_event_steps($control, $lostReceipt) === $expectedSuccessEvents,
@@ -867,7 +923,72 @@ PHP
         'scoped success never invokes ordinary lease/code/lifecycle adapters or full-release provider paths'
     );
 
-    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog);
+    // The target may complete successfully while its SSH response is lost.
+    // The signed commit must remain terminal with the exclusion held, so an
+    // exact retry can replay the target handoff rather than authoring another
+    // controller generation or guessing a rollback.
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
+    $lostComplete = scoped_host_promote($root, $envs, $contractPath, [], [
+        'DUO3344_DROP_COMPLETE_RESPONSE' => '1',
+        'DUO3344_FAKE_APPLY_FAIL' => null,
+    ]);
+    $lostCompleteStatus = RollbackControl::status($control);
+    $lostCompleteProvider = scoped_host_lines($providerLog);
+    $lostCompleteOrder = scoped_host_lines($orderLog);
+    $lostCompleteReceipt = (string) ($lostCompleteStatus['receipt_id'] ?? '');
+    $lostCompleteExclusion = scoped_host_json(
+        (string) file_get_contents($exclusionState),
+        'lost target-complete exclusion state'
+    );
+    scoped_host_ok(
+        $lostComplete['exit'] !== 0
+            && is_file($completeDropMarker)
+            && ($lostCompleteStatus['state'] ?? null) === 'committed'
+            && ($lostCompleteStatus['terminal'] ?? null) === true
+            && ($lostCompleteStatus['generation'] ?? null) === 2
+            && ($lostCompleteExclusion['state'] ?? null) === 'held'
+            && !is_file($targetSession)
+            && $lostCompleteOrder === ['target-complete:committed-held']
+            && !in_array('exclusion:release', $lostCompleteProvider, true)
+            && scoped_host_event_steps($control, $lostCompleteReceipt) === $expectedSuccessEvents,
+        'lost target-complete response leaves the same signed commit terminal with exclusion held and no rollback'
+    );
+
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
+    $replayed = scoped_host_promote($root, $envs, $contractPath);
+    if ($replayed['exit'] !== 0) {
+        scoped_host_fail(
+            'retry after lost target completion failed (' . $replayed['exit'] . "):\n"
+            . $replayed['stderr'] . $replayed['stdout']
+        );
+    }
+    $replayedResult = scoped_host_json($replayed['stdout'], 'replayed scoped promotion result');
+    $replayedStatus = RollbackControl::status($control);
+    $replayedProvider = scoped_host_lines($providerLog);
+    $replayedSubcommands = scoped_host_wp_subcommands(scoped_host_wp_requests($wpLog));
+    $replayedOrder = scoped_host_lines($orderLog);
+    scoped_host_ok(
+        ($replayedResult['format'] ?? null) === 'duo-scoped-promotion-result/v1'
+            && ($replayedStatus['state'] ?? null) === 'committed'
+            && ($replayedStatus['terminal'] ?? null) === true
+            && ($replayedStatus['generation'] ?? null) === 2
+            && ($replayedStatus['receipt_id'] ?? null) === $lostCompleteReceipt
+            && scoped_host_event_steps($control, $lostCompleteReceipt) === $expectedSuccessEvents
+            && !in_array('checkpoint:prepare', $replayedProvider, true)
+            && !in_array('exclusion:acquire', $replayedProvider, true)
+            && $replayedSubcommands === [
+                'compile', 'plan', 'promotion-begin-scoped', 'apply',
+                'promotion-abort', 'promotion-complete-scoped',
+            ]
+            && $replayedOrder === [
+                'target-complete:committed-held',
+                'exclusion:release',
+            ]
+            && !is_file($targetSession),
+        'retry after lost target completion replays Apply/complete on one signed generation, then releases exclusion'
+    );
+
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
     $failed = scoped_host_promote($root, $envs, $contractPath, [], ['DUO3344_FAKE_APPLY_FAIL' => '1']);
     $rolledBack = RollbackControl::status($control);
     $failureProvider = scoped_host_lines($providerLog);
@@ -878,7 +999,7 @@ PHP
         $failed['exit'] !== 0
             && ($rolledBack['state'] ?? null) === 'rolled_back'
             && !empty($rolledBack['terminal'])
-            && ($rolledBack['generation'] ?? null) === 2
+            && ($rolledBack['generation'] ?? null) === 3
             && str_contains($failed['stderr'], 'prior database verified'),
         'pre-commit apply failure restores and verifies the prior checkpoint before reopening the scoped window'
     );
@@ -914,8 +1035,9 @@ PHP
     putenv('PATH=' . $oldPath);
     foreach ([
         'DUO3344_APPLY_RESULT', 'DUO3344_COMPILED_ARTIFACT', 'DUO3344_COMPILE_SUMMARY',
-        'DUO3344_DROP_MARKER', 'DUO3344_PLAN', 'DUO3344_SCP_LOG', 'DUO3344_SSH_LOG',
-        'DUO3344_TARGET_SESSION', 'DUO3344_WIRE_LOG', 'DUO3344_WP_LOG',
+        'DUO3344_CONTROL', 'DUO3344_DROP_COMPLETE_MARKER', 'DUO3344_DROP_MARKER',
+        'DUO3344_EXCLUSION_STATE', 'DUO3344_ORDER_LOG', 'DUO3344_PLAN', 'DUO3344_SCP_LOG',
+        'DUO3344_SSH_LOG', 'DUO3344_TARGET_SESSION', 'DUO3344_WIRE_LOG', 'DUO3344_WP_LOG',
     ] as $name) {
         putenv($name);
     }
