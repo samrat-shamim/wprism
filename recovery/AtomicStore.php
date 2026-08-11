@@ -121,7 +121,7 @@ final class AtomicStore {
 
     public static function assertRegularOrAbsent(string $path, string $label, string $scope): void {
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
-            throw new \RuntimeException("$scope: $label path is not a regular file");
+            throw new \RuntimeException("$scope: $label is not a regular file");
         }
     }
 

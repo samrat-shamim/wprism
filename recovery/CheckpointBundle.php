@@ -726,7 +726,8 @@ final class CheckpointBundle {
             'duo checkpoint: provider failed; provider output is redacted',
             false,
             'duo checkpoint: provider returned malformed JSON',
-            'duo checkpoint: provider returned noncanonical evidence'
+            'duo checkpoint: provider returned noncanonical evidence',
+            'duo checkpoint: could not send provider request'
         );
     }
 

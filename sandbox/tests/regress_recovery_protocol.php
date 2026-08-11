@@ -165,6 +165,10 @@ $badProvider = "$root/bad-provider.php";
 file_put_contents($badProvider, "<?php echo \"{\\\"bad\\\":true}\";\n");
 throws(static fn() => ProviderClient::request([PHP_BINARY, $badProvider], [], 3, 'protocol test', 'start', 'timeout', 'large', 'failed'), 'noncanonical',
     'provider client refuses noncanonical response bytes');
+$largeProvider = "$root/large-provider.php";
+file_put_contents($largeProvider, "<?php echo str_repeat('x', 1048577);\n");
+throws(static fn() => ProviderClient::request([PHP_BINARY, $largeProvider], [], 3, 'protocol test', 'start', 'timeout', 'provider output too large', 'failed'), 'provider output too large',
+    'provider client enforces the output cap after draining an exited process');
 
 echo "== wiring ==\n";
 $wiring = [
@@ -186,6 +190,28 @@ $adopt = (string) file_get_contents($repoRoot . '/cli/src/Adopt.php');
 foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php'] as $file) {
     ok(str_contains($bootstrap, $file) && str_contains($adopt, $file), "$file is part of local and adopted runtime completeness");
 }
+$authority = "$root/authority";
+\Duo\Recovery\RollbackControl::initialize($authority);
+$authorityRuntime = $authority . '/recovery-runtime';
+mkdir($authorityRuntime, 0700, true);
+$runtimeFiles = [
+    'rollback-control.php', 'RecoveryExecutor.php', 'CheckpointBundle.php',
+    'CodeRelease.php', 'UploadBundle.php', 'EffectBundle.php',
+    'CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
+];
+foreach ($runtimeFiles as $file) {
+    copy($repoRoot . '/recovery/' . $file, $authorityRuntime . '/' . $file);
+}
+ok(
+    \Duo\Recovery\RollbackControl::inspectReadOnly($authority)['quiescent'] === true,
+    'read-only rollback inspection accepts a complete shared runtime'
+);
+unlink($authorityRuntime . '/ProviderClient.php');
+throws(
+    static fn() => \Duo\Recovery\RollbackControl::inspectReadOnly($authority),
+    'recovery runtime file',
+    'read-only rollback inspection refuses a runtime missing a shared protocol dependency'
+);
 
 if ($failures !== 0) {
     echo "REGRESS_RECOVERY_PROTOCOL FAILED ($failures failures)\n";

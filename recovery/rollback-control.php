@@ -296,6 +296,10 @@ final class RollbackControl {
             'CodeRelease.php',
             'UploadBundle.php',
             'EffectBundle.php',
+            'CanonicalJson.php',
+            'AtomicStore.php',
+            'ProtocolLock.php',
+            'ProviderClient.php',
         ] as $runtimeFile) {
             self::assertRegularFile($root . '/recovery-runtime/' . $runtimeFile, 'recovery runtime file');
         }

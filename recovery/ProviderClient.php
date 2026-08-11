@@ -24,7 +24,8 @@ final class ProviderClient {
         string $failureMessage,
         bool $includeFailureDetail = false,
         string $malformedMessage = 'duo recovery: provider returned malformed JSON',
-        string $nonCanonicalMessage = 'duo recovery: provider returned noncanonical evidence'
+        string $nonCanonicalMessage = 'duo recovery: provider returned noncanonical evidence',
+        string $writeMessage = ''
     ): array {
         if ($command === []) {
             throw new \RuntimeException($startMessage);
@@ -45,7 +46,7 @@ final class ProviderClient {
             $requestBytes = CanonicalJson::encode($request, $scope) . "\n";
             if (@fwrite($pipes[0], $requestBytes) !== strlen($requestBytes)) {
                 self::terminate($process, $pipes);
-                throw new \RuntimeException($failureMessage);
+                throw new \RuntimeException($writeMessage !== '' ? $writeMessage : $failureMessage);
             }
             fclose($pipes[0]);
             stream_set_blocking($pipes[1], false);
@@ -74,6 +75,10 @@ final class ProviderClient {
             }
             $stdout .= (string) stream_get_contents($pipes[1]);
             $stderr .= (string) stream_get_contents($pipes[2]);
+            if (strlen($stdout) + strlen($stderr) > 1048576) {
+                self::terminate($process, $pipes);
+                throw new \RuntimeException($outputLimitMessage);
+            }
             fclose($pipes[1]);
             fclose($pipes[2]);
             $closedExit = proc_close($process);
