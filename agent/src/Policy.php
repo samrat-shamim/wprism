@@ -522,7 +522,16 @@ self::validate_post_type_children($manifest);
             return [];
         }
 
-        $negotiation = Providers::negotiate($this, $providerActions);
+        try {
+            $negotiation = Providers::negotiate($this, $providerActions);
+        } catch (ProviderPackagingException $failure) {
+            // A missing manifest-shipped provider is a packaging fault, not a
+            // target fact. Keep plan/status/doctor readable by projecting the
+            // same structured row Providers::problems() uses, while leaving
+            // Providers::negotiate() itself throwing for apply's fail-before-
+            // mutation gate.
+            $negotiation = ['problems' => [Providers::packaging_problem($failure)]];
+        }
         $sources = $this->adapter_sources()->diagnostics($this->manifests);
         $rows = [];
         foreach ($negotiation['problems'] as $problem) {

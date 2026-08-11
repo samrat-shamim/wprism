@@ -223,6 +223,8 @@ function delete_transient($transient): bool {
 
 require $root . '/agent/src/Canon.php';
 require $root . '/agent/src/OptionState.php';
+require $root . '/agent/src/ManifestDispositions.php';
+require $root . '/agent/src/CapabilityRegistry.php';
 require $root . '/agent/src/Policy.php';
 require $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Deploy.php';
@@ -244,7 +246,9 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 $dir = sys_get_temp_dir() . '/duo-provider-contract-' . getmypid();
 @mkdir($dir . '/providers', 0700, true);
 register_shutdown_function(static function () use ($dir): void {
+    @unlink($dir . '/probe.json');
     array_map('unlink', glob($dir . '/providers/*.php') ?: []);
+    array_map('unlink', glob($dir . '/providers/*.php.hidden') ?: []);
     @rmdir($dir . '/providers');
     @rmdir($dir);
 });
@@ -941,6 +945,102 @@ $reset();
 $policy = $policyFor($manifest);
 $check(\Duo\Providers::problems($policy) === [], 'a healthy environment reports no provider problems at plan');
 
+echo "\n== missing manifest provider: reporting stays visible while apply stays fail-closed ==\n";
+
+// Policy promotes narrowed provider findings only when the loaded library has
+// the reviewed disposition + generated capability surfaces that real plan /
+// status consumers carry. Build the smallest valid experimental pair here so
+// this exercises Policy::provider_readiness_blockers(), not only the wider
+// Providers::problems() helper above.
+$disposition = [
+    'status' => 'experimental',
+    'reason' => 'provider readiness fixture',
+    'supported_versions' => [
+        'plugin' => 'probe/probe.php',
+        'range' => ['min' => '1.0.0', 'max' => '2.0.0'],
+    ],
+    'capabilities' => [
+        'entity_sections' => [],
+        'field_sections' => [],
+        'operations' => ['apply'],
+        'lifecycle_phases' => [],
+        'deletion_semantics' => ['supported' => [], 'unsupported' => ['fixture-delete']],
+    ],
+    'unsupported' => [[
+        'surface' => 'fixture',
+        'operation' => 'apply',
+        'reason' => 'test-only capability claim',
+    ]],
+    'default_authored_keyspaces' => [],
+];
+$dispositionSnapshot = [
+    'format' => \Duo\ManifestDispositions::FORMAT,
+    'manifests' => ['probe' => $disposition],
+    'profiles' => [],
+];
+$candidateEvidence = [
+    'format' => \Duo\CapabilityRegistry::EVIDENCE_FORMAT,
+    'bundle_schema' => \Duo\ManifestDispositions::BUNDLE_SCHEMA,
+    'bundle_digest' => str_repeat('a', 64),
+    'status' => 'candidate',
+    'tests' => [],
+];
+$capabilitySnapshot = [
+    'format' => \Duo\CapabilityRegistry::FORMAT,
+    'generated_from' => ['fixture' => 'provider-readiness'],
+    'platform' => ['agent_version' => '0.5.0', 'spec_version' => DUO_SPEC_VERSION],
+    'evidence' => $candidateEvidence,
+    'manifests' => ['probe' => [
+        'name' => 'probe',
+        'status' => 'experimental',
+        'adapter_digest' => \Duo\CapabilityRegistry::adapter_digest($manifest, $disposition, $dir),
+        'operations' => ['apply'],
+        'surfaces' => [],
+        'plugin_execution' => ['mode' => 'test', 'status' => 'unverified'],
+        'authored_state' => ['status' => 'experimental'],
+        'evidence' => $candidateEvidence,
+    ]],
+    'profiles' => [],
+];
+file_put_contents($dir . '/probe.json', \Duo\Canon::encode($manifest));
+$reviewedPolicy = \Duo\Policy::from_snapshot([
+    'format' => 'duo-policy-snapshot/v5',
+    'adapter_sources' => [
+        'format' => 'duo-adapter-sources/v2',
+        'certificates' => [],
+        'out_of_tree' => [],
+    ],
+    'capabilities' => $capabilitySnapshot,
+    'dispositions' => $dispositionSnapshot,
+    'site' => [
+        'manifests' => ['probe'],
+        'spec_version' => DUO_SPEC_VERSION,
+        'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+    ],
+    'manifests' => [$manifest],
+]);
+$reset();
+$providerFile = $dir . '/providers/probe-cache.php';
+rename($providerFile, $providerFile . '.hidden');
+$readiness = $reviewedPolicy->provider_readiness_blockers(
+    $reviewedPolicy->actions_for(['post:probe'])
+);
+$check(count($readiness) === 1
+    && ($readiness[0]['code'] ?? '') === 'provider_code_unavailable'
+    && ($readiness[0]['provider'] ?? '') === 'probe-cache'
+    && ($readiness[0]['manifest'] ?? '') === 'probe',
+    'plan/status readiness reports a missing manifest provider as a structured blocker instead of throwing');
+$applyRefusal = false;
+try {
+    \Duo\Providers::negotiate($reviewedPolicy, $reviewedPolicy->actions_for(['post:probe']));
+} catch (\Duo\ProviderPackagingException $failure) {
+    $applyRefusal = str_contains($failure->getMessage(), 'provider code ships with its manifest');
+}
+$check($applyRefusal,
+    'direct negotiation still throws the packaging fault for apply\'s fail-before-mutation gate');
+rename($providerFile . '.hidden', $providerFile);
+@unlink($dir . '/probe.json');
+
 // DUO-3314 shipped the NARROWED, gating diagnosis: build_plan() merges
 // Policy::provider_readiness_blockers($selectedActions) into
 // adapter_dispositions, which duo status's exit code counts. The wide set must
@@ -1090,9 +1190,16 @@ $check(str_contains($problemsSource, 'catch (ProviderPackagingException $t)')
 $check(str_contains($problemsSource, "'provider_diagnosis_failed'")
     && str_contains($problemsSource, "'see the message"),
     'and the generic branch has its own code and points at the message instead of inventing a file to repair');
-$check(substr_count($problemsSource, 'providers/') === 1
-    && !str_contains($problemsSource, '<id>'),
-    'while only the packaging branch names a providers/ path at all, and never as a literal <id> placeholder');
+$packagingSource = implode("\n", array_slice(
+    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getStartLine() - 1,
+    (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getEndLine()
+        - (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getStartLine() + 1
+));
+$check(str_contains($problemsSource, 'self::packaging_problem($t)')
+    && substr_count($packagingSource, 'providers/') === 1
+    && !str_contains($packagingSource, '<id>'),
+    'while only the shared packaging projection names a providers/ path, and never as a literal <id> placeholder');
 
 // DUO-3403 (PR #176 finding 5, site 3): the generic branch's `found` field is
 // the ONE deliberately third-party-transparent string a problem row carries —

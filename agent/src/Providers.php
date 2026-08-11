@@ -714,16 +714,7 @@ final class Providers {
                 }
             ));
         } catch (ProviderPackagingException $t) {
-            return [self::problem(
-                $t->providerId(),
-                $t->manifest(),
-                '?',
-                'provider_code_unavailable',
-                "the manifest-sourced provider '{$t->providerId()}' to resolve to its shipped class",
-                $t->getMessage(),
-                "repair manifests/providers/{$t->providerId()}.php, which ships with manifest "
-                    . "'{$t->manifest()}', or unpin that manifest"
-            )];
+            return [self::packaging_problem($t)];
         } catch (\Throwable $t) {
             return [self::problem(
                 '?',
@@ -736,6 +727,26 @@ final class Providers {
                     . 'established before it threw'
             )];
         }
+    }
+
+    /**
+     * Project the one packaging fault that reporting callers may recover from
+     * without weakening the direct negotiation gate. Policy uses this exact
+     * row when plan/status needs to keep a missing manifest provider visible;
+     * apply still calls negotiate() and therefore still throws before target
+     * mutation.
+     */
+    public static function packaging_problem(ProviderPackagingException $failure): array {
+        return self::problem(
+            $failure->providerId(),
+            $failure->manifest(),
+            '?',
+            'provider_code_unavailable',
+            "the manifest-sourced provider '{$failure->providerId()}' to resolve to its shipped class",
+            $failure->getMessage(),
+            "repair manifests/providers/{$failure->providerId()}.php, which ships with manifest "
+                . "'{$failure->manifest()}', or unpin that manifest"
+        );
     }
 
     /**
