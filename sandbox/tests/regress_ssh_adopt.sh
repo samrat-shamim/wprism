@@ -5,35 +5,161 @@
 # with the source checkout, or docker exec for any product operation. Docker is
 # only the disposable host boundary; every install/verification action after
 # boot travels through cli/duo's SSH path.
+#
+# Run only from a clean standalone candidate clone, with explicitly allocated
+# resources:
+#   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
+#     DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+ROOT="$(cd "$(dirname "$0")/../.." && pwd -P)"
 cd "$ROOT"
 
-PREFIX="${ADOPT_FIXTURE:-codexmac3281}"
-PORT="${ADOPT_SSH_PORT:-8998}"
+PREFIX="${ADOPT_FIXTURE:-}"
+PORT_RAW="${ADOPT_SSH_PORT:-}"
+EXPECTED_SHA="${DUO_EXPECTED_SOURCE_SHA:-}"
+SOURCE_SHA=""
 NET="${PREFIX}-net"
 DB="${PREFIX}-db"
 TARGET="${PREFIX}-target"
 VOLUME="${PREFIX}-wordpress"
 IMAGE="${PREFIX}-ssh-image"
-TMP="$(mktemp -d)"
+PORT=""
+TMP=""
 DUO="$ROOT/cli/duo"
+SUITE_LABEL="regress-ssh-adopt"
+RUN_ID=""
+IMAGE_OWNED=0
+NETWORK_OWNED=0
+VOLUME_OWNED=0
+DATABASE_OWNED=0
+TARGET_OWNED=0
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
-cleanup() {
-  docker rm -f "$TARGET" "$DB" >/dev/null 2>&1 || true
-  docker network rm "$NET" >/dev/null 2>&1 || true
-  docker volume rm "$VOLUME" >/dev/null 2>&1 || true
-  docker image rm "$IMAGE" >/dev/null 2>&1 || true
-  rm -rf "$TMP"
+resource_has_our_labels() {
+  local kind="$1" name="$2" labels=""
+  case "$kind" in
+    container)
+      labels="$(docker container inspect --format '{{index .Config.Labels "duo.live-suite"}}|{{index .Config.Labels "duo.live-run"}}|{{index .Config.Labels "duo.live-source"}}' "$name" 2>/dev/null)" || return 1
+      ;;
+    network)
+      labels="$(docker network inspect --format '{{index .Labels "duo.live-suite"}}|{{index .Labels "duo.live-run"}}|{{index .Labels "duo.live-source"}}' "$name" 2>/dev/null)" || return 1
+      ;;
+    volume)
+      labels="$(docker volume inspect --format '{{index .Labels "duo.live-suite"}}|{{index .Labels "duo.live-run"}}|{{index .Labels "duo.live-source"}}' "$name" 2>/dev/null)" || return 1
+      ;;
+    image)
+      labels="$(docker image inspect --format '{{index .Config.Labels "duo.live-suite"}}|{{index .Config.Labels "duo.live-run"}}|{{index .Config.Labels "duo.live-source"}}' "$name" 2>/dev/null)" || return 1
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+  [ "$labels" = "$SUITE_LABEL|$RUN_ID|$SOURCE_SHA" ]
 }
+
+cleanup_container() {
+  local owned="$1" name="$2"
+  [ "$owned" -eq 1 ] || return 0
+  resource_has_our_labels container "$name" \
+    || { printf 'preserving container %s: ownership labels no longer match this run\n' "$name" >&2; return 1; }
+  docker rm -f "$name" >/dev/null \
+    || { printf 'could not remove owned container %s\n' "$name" >&2; return 1; }
+  ! docker container inspect "$name" >/dev/null 2>&1 \
+    || { printf 'owned container %s remains after cleanup\n' "$name" >&2; return 1; }
+}
+
+cleanup_resource() {
+  local kind="$1" owned="$2" name="$3"
+  local -a remove=()
+  [ "$owned" -eq 1 ] || return 0
+  resource_has_our_labels "$kind" "$name" \
+    || { printf 'preserving %s %s: ownership labels no longer match this run\n' "$kind" "$name" >&2; return 1; }
+  case "$kind" in
+    network) remove=(docker network rm "$name") ;;
+    volume)  remove=(docker volume rm "$name") ;;
+    image)   remove=(docker image rm "$name") ;;
+    *) return 1 ;;
+  esac
+  "${remove[@]}" >/dev/null \
+    || { printf 'could not remove owned %s %s\n' "$kind" "$name" >&2; return 1; }
+  case "$kind" in
+    network) ! docker network inspect "$name" >/dev/null 2>&1 ;;
+    volume)  ! docker volume inspect "$name" >/dev/null 2>&1 ;;
+    image)   ! docker image inspect "$name" >/dev/null 2>&1 ;;
+  esac || { printf 'owned %s %s remains after cleanup\n' "$kind" "$name" >&2; return 1; }
+}
+
+cleanup() {
+  local incoming=$? cleanup_failed=0
+  trap - EXIT
+  cleanup_container "$TARGET_OWNED" "$TARGET" || cleanup_failed=1
+  cleanup_container "$DATABASE_OWNED" "$DB" || cleanup_failed=1
+  cleanup_resource network "$NETWORK_OWNED" "$NET" || cleanup_failed=1
+  cleanup_resource volume "$VOLUME_OWNED" "$VOLUME" || cleanup_failed=1
+  cleanup_resource image "$IMAGE_OWNED" "$IMAGE" || cleanup_failed=1
+  if [ -n "$TMP" ] && [ -d "$TMP" ]; then
+    rm -rf -- "$TMP" || cleanup_failed=1
+  fi
+  if [ "$cleanup_failed" -ne 0 ]; then
+    printf 'FAIL: owned SSH-adoption fixture cleanup was incomplete; preserved unmatched resources\n' >&2
+    exit 1
+  fi
+  exit "$incoming"
+}
+
+for command in git docker lsof; do
+  command -v "$command" >/dev/null 2>&1 || fail "$command is required for SSH-adoption live evidence"
+done
+[[ "$PREFIX" =~ ^[a-z][a-z0-9]{2,31}$ ]] \
+  || fail "ADOPT_FIXTURE is required and must be a unique lowercase 3..32 character name"
+[[ "$PORT_RAW" =~ ^[0-9]+$ ]] \
+  || fail "ADOPT_SSH_PORT is required and must be a decimal port"
+PORT=$((10#$PORT_RAW))
+(( PORT >= 8900 && PORT <= 65535 )) \
+  || fail "ADOPT_SSH_PORT must be within the explicit disposable range 8900..65535"
+[[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] \
+  || fail "DUO_EXPECTED_SOURCE_SHA is required and must be a lowercase 40-character commit SHA"
+GIT_DIR="$(git -C "$ROOT" --no-optional-locks rev-parse --path-format=absolute --git-dir 2>/dev/null)" \
+  || fail "SSH-adoption live evidence requires a Git checkout"
+COMMON_DIR="$(git -C "$ROOT" --no-optional-locks rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+  || fail "could not resolve the Git common directory"
+[ "$GIT_DIR" = "$ROOT/.git" ] && [ "$COMMON_DIR" = "$ROOT/.git" ] && [ -d "$ROOT/.git" ] \
+  || fail "SSH-adoption live evidence requires a standalone clone, not a linked worktree"
+SOURCE_SHA="$(git -C "$ROOT" --no-optional-locks rev-parse --verify 'HEAD^{commit}')" \
+  || fail "SSH-adoption live evidence source has no resolvable Git HEAD"
+[ "$EXPECTED_SHA" = "$SOURCE_SHA" ] \
+  || fail "DUO_EXPECTED_SOURCE_SHA=$EXPECTED_SHA does not equal this checkout HEAD=$SOURCE_SHA"
+git -C "$ROOT" --no-optional-locks diff --check \
+  || fail "SSH-adoption live evidence checkout has unstaged whitespace errors"
+git -C "$ROOT" --no-optional-locks diff --cached --check \
+  || fail "SSH-adoption live evidence checkout has staged whitespace errors"
+SOURCE_STATUS="$(git -C "$ROOT" --no-optional-locks status --porcelain=v1 --untracked-files=all)" \
+  || fail "could not inspect SSH-adoption live evidence source cleanliness"
+[ -z "$SOURCE_STATUS" ] \
+  || fail "SSH-adoption live evidence requires a clean standalone clone at $SOURCE_SHA"
+docker info >/dev/null 2>&1 || fail "Docker daemon is unavailable"
+for container in "$TARGET" "$DB"; do
+  docker container inspect "$container" >/dev/null 2>&1 \
+    && fail "container '$container' already exists; refusing to take ownership"
+done
+docker network inspect "$NET" >/dev/null 2>&1 \
+  && fail "network '$NET' already exists; refusing to take ownership"
+docker volume inspect "$VOLUME" >/dev/null 2>&1 \
+  && fail "volume '$VOLUME' already exists; refusing to take ownership"
+docker image inspect "$IMAGE" >/dev/null 2>&1 \
+  && fail "image '$IMAGE' already exists; refusing to take ownership"
+if lsof -nP -iTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+  fail "ADOPT_SSH_PORT=$PORT is already listening; refusing fixture allocation"
+fi
+export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
+RUN_ID="${PREFIX}-${SOURCE_SHA:0:12}-$$-${RANDOM}${RANDOM}"
+
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
-cleanup
-mkdir -p "$TMP"
 
 ssh_fixture() { ssh -F "$TMP/ssh_config" duo-adopt-fixture "$@"; }
 
@@ -47,19 +173,38 @@ target_checkpoint_state() {
 }
 
 say "build a standalone SSH WordPress host image"
-docker build -q -t "$IMAGE" -f sandbox/tests/fixtures/ssh-adopt.Dockerfile . >/dev/null
-docker network create "$NET" >/dev/null
-docker volume create "$VOLUME" >/dev/null
+docker build -q \
+  --label "duo.live-suite=$SUITE_LABEL" \
+  --label "duo.live-run=$RUN_ID" \
+  --label "duo.live-source=$SOURCE_SHA" \
+  -t "$IMAGE" -f sandbox/tests/fixtures/ssh-adopt.Dockerfile . >/dev/null
+IMAGE_OWNED=1
+docker network create \
+  --label "duo.live-suite=$SUITE_LABEL" \
+  --label "duo.live-run=$RUN_ID" \
+  --label "duo.live-source=$SOURCE_SHA" \
+  "$NET" >/dev/null
+NETWORK_OWNED=1
+docker volume create \
+  --label "duo.live-suite=$SUITE_LABEL" \
+  --label "duo.live-run=$RUN_ID" \
+  --label "duo.live-source=$SOURCE_SHA" \
+  "$VOLUME" >/dev/null
+VOLUME_OWNED=1
 ssh-keygen -q -t ed25519 -N '' -f "$TMP/id_ed25519"
-pass "standalone image, network, volume, and one-run SSH credential created"
+pass "labeled standalone image, network, volume, and one-run SSH credential created"
 
 say "start an independent database and initialize WordPress core"
 docker run -d --name "$DB" --network "$NET" \
+  --label "duo.live-suite=$SUITE_LABEL" \
+  --label "duo.live-run=$RUN_ID" \
+  --label "duo.live-source=$SOURCE_SHA" \
   -e MARIADB_ROOT_PASSWORD=root-pass \
   -e MARIADB_DATABASE=wordpress \
   -e MARIADB_USER=wordpress \
   -e MARIADB_PASSWORD=wordpress-pass \
   mariadb:11.8 >/dev/null
+DATABASE_OWNED=1
 for _ in $(seq 1 60); do
   docker exec "$DB" mariadb-admin ping -h 127.0.0.1 -uroot -proot-pass --silent >/dev/null 2>&1 && break
   sleep 1
@@ -72,6 +217,9 @@ pass "WordPress files initialized without sharing the Duo checkout"
 
 say "start the target and expose only its SSH port"
 docker run -d --name "$TARGET" --network "$NET" \
+  --label "duo.live-suite=$SUITE_LABEL" \
+  --label "duo.live-run=$RUN_ID" \
+  --label "duo.live-source=$SOURCE_SHA" \
   -p "127.0.0.1:${PORT}:22" \
   -e DUO_MANIFESTS_DIR=/container-only-value \
   -v "$VOLUME:/var/www/html" \
@@ -79,6 +227,7 @@ docker run -d --name "$TARGET" --network "$NET" \
   --entrypoint sh "$IMAGE" -lc \
   'cp /tmp/authorized_key /home/duo/.ssh/authorized_keys; chown duo:duo /home/duo/.ssh/authorized_keys; chmod 0600 /home/duo/.ssh/authorized_keys; exec /usr/sbin/sshd -D -e' \
   >/dev/null
+TARGET_OWNED=1
 for _ in $(seq 1 60); do
   ssh-keyscan -p "$PORT" 127.0.0.1 >"$TMP/known_hosts" 2>/dev/null && [ -s "$TMP/known_hosts" ] && break
   sleep 1

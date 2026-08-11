@@ -1085,8 +1085,15 @@ regress-snapshot-meta:
 regress-generic-reference-shapes:
 	bash sandbox/tests/regress_generic_reference_shapes.sh
 
+# DUO-3344 live SSH adoption/scoped-promotion evidence must be allocated by
+# its operator and bind a clean standalone clone's exact candidate commit:
+#   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
+#     DUO_EXPECTED_SOURCE_SHA=$$(git rev-parse HEAD)
 regress-ssh-adopt:
-	bash sandbox/tests/regress_ssh_adopt.sh
+	@test -n "$(ADOPT_FIXTURE)" || { echo 'ADOPT_FIXTURE is required; choose an unused lowercase fixture name' >&2; exit 2; }
+	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
+	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
+	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_ssh_adopt.sh
 
 certify-ssh-adoption-roundtrip:
 	bash sandbox/tests/certify_ssh_adoption_roundtrip.sh
@@ -1199,7 +1206,7 @@ regress-live-list:
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
-	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281/DUO-3344 scoped-promotion path"
+	@echo "  regress-ssh-adopt                         explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/DUO_EXPECTED_SOURCE_SHA standalone SSH scoped-promotion path"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"
