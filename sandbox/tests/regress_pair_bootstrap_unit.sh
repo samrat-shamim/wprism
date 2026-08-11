@@ -1467,7 +1467,7 @@ run_repo_host_shape_refusal_case() {
   fi
   assert_file_contains "$output" 'repository root is not an ordinary directory' \
     "$label did not name the non-directory refusal"
-  if grep -F '<run> <-u> <root>' "$log" >/dev/null; then
+  if [ -f "$log" ] && grep -F '<run> <-u> <root>' "$log" >/dev/null; then
     fail "$label reached the root handback container after a shape refusal"
   fi
   [ -f "$peer/state/marker" ] || fail "$label touched the unselected peer after a shape refusal"
