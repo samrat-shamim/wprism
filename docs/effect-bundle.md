@@ -83,8 +83,10 @@ plus the dynamic `post_parent:<id>` key within `posts` and
 `<taxonomy>_relationships` group families. The selector's declarative
 `members` object contains exact values and finite templates; the only core
 typed placeholders are `{positive_uint}` (a canonical positive decimal id of
-1–19 digits, without leading zeroes) and `{slug}` (a lower-case, bounded
-attribute slug).
+1–19 digits, without leading zeroes) and `{slug}` (a bounded, lower-case or
+case-lacking WordPress-style identifier — Unicode letters and decimal
+digits, e.g. a multibyte WooCommerce ≥11.0.0 attribute taxonomy name, not
+ASCII-only; see `spec/repo-format.md` for the exact grammar, DUO-3437).
 The first four groups and the family names receive concrete runtime keys (for
 example, `post_parent:42` within `posts` and `pa_color_relationships` for a
 product attribute).
