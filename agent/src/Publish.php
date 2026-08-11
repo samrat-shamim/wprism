@@ -781,79 +781,91 @@ final class Publish {
             throw new InitialStateBoundaryException('duo: initial capture staging boundary was not absent');
         }
         $stagingParent = dirname($stagingDir);
-        $createdDirs = [
-            '' => self::create_directory_fresh(
-                $stagingParent,
-                self::path_identity($stagingParent, 'directory'),
-                basename($stagingDir),
-                0777,
-                'capture staging root'
-            ),
-        ];
-        $createdFiles = [];
-        $createdFileCount = 0;
+        // One inode-bound helper for the whole entity walk (DUO-3425): the same
+        // per-op guarantee as run_bound_operation, one subprocess instead of
+        // one per staged file. The finally guarantees a mid-walk throw can never
+        // leak a live child.
+        $helper = new BoundHelper();
         try {
-            foreach ($entities as $entity) {
-                self::assert_path_identity($stagingDir, $createdDirs[''], 'directory');
-                $relative = (string) ($entity['path'] ?? '');
-                self::assert_relative_entity_path($relative);
-                $parts = explode('/', $relative);
-                $fileName = array_pop($parts);
-                $parent = $stagingDir;
-                $prefix = '';
-                foreach ($parts as $part) {
-                    $parentKey = $prefix;
-                    self::assert_path_identity($parent, $createdDirs[$parentKey], 'directory');
-                    $prefix = $prefix === '' ? $part : $prefix . '/' . $part;
-                    if (!isset($createdDirs[$prefix])) {
-                        $createdDirs[$prefix] = self::create_directory_fresh(
-                            $parent,
-                            $createdDirs[$parentKey],
-                            $part,
-                            0777,
-                            'capture staging parent'
-                        );
-                    } else {
-                        self::assert_path_identity($parent . '/' . $part, $createdDirs[$prefix], 'directory');
-                    }
-                    $parent .= '/' . $part;
-                }
-                self::assert_path_identity($stagingDir, $createdDirs[''], 'directory');
-                self::assert_path_identity($parent, $createdDirs[$prefix], 'directory');
-                $destination = $parent . '/' . $fileName;
-                if (file_exists($destination) || is_link($destination)) {
-                    throw new InitialStateBoundaryException(
-                        'duo: initial capture staging gained an unowned entity path'
-                    );
-                }
-                $createdFiles[$relative] = self::write_file_fresh(
-                    $destination,
-                    (string) ($entity['content'] ?? ''),
-                    'capture entity',
-                    $createdDirs[$prefix]
-                );
-                $createdFileCount++;
-                if ($createdFileCount === 1) {
-                    self::fault_checkpoint('initial-staging-partial');
-                }
-            }
-            self::fsync_dir($stagingDir);
-            $manifest = self::tree_ownership_manifest($stagingDir);
-            self::assert_created_entries($manifest, $createdDirs, $createdFiles);
-            return $manifest;
-        } catch (\Throwable $failure) {
+            $createdDirs = [
+                '' => self::create_directory_fresh(
+                    $stagingParent,
+                    self::path_identity($stagingParent, 'directory'),
+                    basename($stagingDir),
+                    0777,
+                    'capture staging root',
+                    $helper
+                ),
+            ];
+            $createdFiles = [];
+            $createdFileCount = 0;
             try {
+                foreach ($entities as $entity) {
+                    self::assert_path_identity($stagingDir, $createdDirs[''], 'directory');
+                    $relative = (string) ($entity['path'] ?? '');
+                    self::assert_relative_entity_path($relative);
+                    $parts = explode('/', $relative);
+                    $fileName = array_pop($parts);
+                    $parent = $stagingDir;
+                    $prefix = '';
+                    foreach ($parts as $part) {
+                        $parentKey = $prefix;
+                        self::assert_path_identity($parent, $createdDirs[$parentKey], 'directory');
+                        $prefix = $prefix === '' ? $part : $prefix . '/' . $part;
+                        if (!isset($createdDirs[$prefix])) {
+                            $createdDirs[$prefix] = self::create_directory_fresh(
+                                $parent,
+                                $createdDirs[$parentKey],
+                                $part,
+                                0777,
+                                'capture staging parent',
+                                $helper
+                            );
+                        } else {
+                            self::assert_path_identity($parent . '/' . $part, $createdDirs[$prefix], 'directory');
+                        }
+                        $parent .= '/' . $part;
+                    }
+                    self::assert_path_identity($stagingDir, $createdDirs[''], 'directory');
+                    self::assert_path_identity($parent, $createdDirs[$prefix], 'directory');
+                    $destination = $parent . '/' . $fileName;
+                    if (file_exists($destination) || is_link($destination)) {
+                        throw new InitialStateBoundaryException(
+                            'duo: initial capture staging gained an unowned entity path'
+                        );
+                    }
+                    $createdFiles[$relative] = self::write_file_fresh(
+                        $destination,
+                        (string) ($entity['content'] ?? ''),
+                        'capture entity',
+                        $createdDirs[$prefix],
+                        $helper
+                    );
+                    $createdFileCount++;
+                    if ($createdFileCount === 1) {
+                        self::fault_checkpoint('initial-staging-partial');
+                    }
+                }
+                self::fsync_dir($stagingDir);
                 $manifest = self::tree_ownership_manifest($stagingDir);
                 self::assert_created_entries($manifest, $createdDirs, $createdFiles);
-                self::remove_owned_tree($stagingDir, $manifest, 'initial capture staging');
-            } catch (\Throwable $cleanupFailure) {
-                throw new InitialStateBoundaryException(
-                    'duo: initial capture refused and retained changed staging evidence: ' . $failure->getMessage(),
-                    0,
-                    $failure
-                );
+                return $manifest;
+            } catch (\Throwable $failure) {
+                try {
+                    $manifest = self::tree_ownership_manifest($stagingDir);
+                    self::assert_created_entries($manifest, $createdDirs, $createdFiles);
+                    self::remove_owned_tree($stagingDir, $manifest, 'initial capture staging');
+                } catch (\Throwable $cleanupFailure) {
+                    throw new InitialStateBoundaryException(
+                        'duo: initial capture refused and retained changed staging evidence: ' . $failure->getMessage(),
+                        0,
+                        $failure
+                    );
+                }
+                throw $failure;
             }
-            throw $failure;
+        } finally {
+            $helper->close();
         }
     }
 
@@ -916,19 +928,23 @@ final class Publish {
         string $path,
         string $bytes,
         string $label,
-        ?array $expectedParent = null
+        ?array $expectedParent = null,
+        ?BoundHelper $helper = null
     ): array {
         $parent = dirname($path);
         if (is_link($parent) || !is_dir($parent) || file_exists($path) || is_link($path)) {
             throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
         }
         $expectedParent ??= self::path_identity($parent, 'directory');
-        $identity = self::run_bound_operation($parent, [
+        $request = [
             'op' => 'write',
             'name' => basename($path),
             'mode' => 0666,
             'parent' => $expectedParent,
-        ], $bytes, $label);
+        ];
+        $identity = $helper !== null
+            ? $helper->run($parent, $request, $bytes, $label)
+            : self::run_bound_operation($parent, $request, $bytes, $label);
         if (self::path_identity($path, 'file') !== $identity) {
             throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound write");
         }
@@ -950,17 +966,21 @@ final class Publish {
         array $expectedParent,
         string $name,
         int $mode,
-        string $label
+        string $label,
+        ?BoundHelper $helper = null
     ): array {
         if (file_exists($parent . '/' . $name) || is_link($parent . '/' . $name)) {
             throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
         }
-        $identity = self::run_bound_operation($parent, [
+        $request = [
             'op' => 'mkdir',
             'name' => $name,
             'mode' => $mode,
             'parent' => $expectedParent,
-        ], '', $label);
+        ];
+        $identity = $helper !== null
+            ? $helper->run($parent, $request, '', $label)
+            : self::run_bound_operation($parent, $request, '', $label);
         if (self::path_identity($parent . '/' . $name, 'directory') !== $identity) {
             throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound mkdir");
         }
@@ -977,20 +997,24 @@ final class Publish {
         string $expectedSha256,
         int $mode,
         string $label,
-        array $expectedParent
+        array $expectedParent,
+        ?BoundHelper $helper = null
     ): array {
         $parent = dirname($path);
         if (file_exists($path) || is_link($path)) {
             throw new InitialStateBoundaryException("duo: initial $label boundary was not absent");
         }
-        $identity = self::run_bound_operation($parent, [
+        $request = [
             'op' => 'copy',
             'name' => basename($path),
             'mode' => $mode,
             'parent' => $expectedParent,
             'source' => $source,
             'sha256' => $expectedSha256,
-        ], '', $label);
+        ];
+        $identity = $helper !== null
+            ? $helper->run($parent, $request, '', $label)
+            : self::run_bound_operation($parent, $request, '', $label);
         if (self::path_identity($path, 'file') !== $identity) {
             throw new InitialStateBoundaryException("duo: initial $label changed immediately after its bound copy");
         }
@@ -2263,5 +2287,314 @@ PHP;
         ] as $label => $path) {
             self::assert_not_symlink_root($path, $label);
         }
+    }
+}
+
+/**
+ * Persistent inode-bound filesystem helper (DUO-3425).
+ *
+ * Publish::run_bound_operation() proves one mutation per fresh `php -r`
+ * subprocess. Its crux is P1, "CWD-as-inode-capability": the child is placed
+ * inside the reviewed parent directory and verifies lstat('.') dev/ino before
+ * naming only direct children of `.`, so a lexical path swap can fail the
+ * identity check but can never redirect the mkdir/open. A staging walk of
+ * thousands of files pays one process spawn per file for that guarantee.
+ *
+ * BoundHelper keeps that guarantee byte-for-byte while spawning ONE subprocess
+ * for a whole walk. Its loop body IS run_bound_operation's child body, wrapped
+ * per-op with the five items the persistence introduces:
+ *
+ *  1. clearstatcache(true) at the TOP of every op. lstat()/is_*() cache by the
+ *     literal string '.', which resolves to a different inode after each chdir.
+ *     A fresh process had an empty cache; a long-lived one does not, so without
+ *     this a STALE '.' stat could satisfy the identity check against the WRONG
+ *     (previous) inode. Global (also drops the realpath cache); required for
+ *     both correctness AND P1.
+ *  2. Verify `.` (the held kernel CWD inode), NEVER $path. The authority stands
+ *     inside a proven inode and names only its direct children; statting the
+ *     lexical $path would reintroduce the swap vulnerability P1 closes. The
+ *     chdir->lstat('.') TOCTOU is closed BECAUSE `.` is the installed CWD
+ *     reference, read with no lexical re-resolution. (The chdir($base) reset
+ *     before chdir($path) reproduces proc_open's one-shot relative resolution:
+ *     run_bound_operation resolves a relative $parent against the agent CWD once
+ *     via proc_open's cwd argument, and Init confirmation binds the repo then
+ *     passes '.'-relative staging paths, so the long-lived process must return
+ *     to its launch CWD before each op.)
+ *  3. The write terminator is bytes_len, NOT EOF. STDIN stays open across ops,
+ *     so a premature EOF while draining the payload is fail-closed -- a
+ *     truncated stream must never yield a short-but-"valid" file.
+ *  4. ANY parse/identity/verify/digest/boundary failure writes its reason to
+ *     STDERR and exit(73): the helper DIES, never report-and-continue. That
+ *     makes a desynced stream unexploitable by construction and matches
+ *     run_bound_operation's blast radius (one refusal aborts the whole
+ *     staging). The parent observes the dead pipe, throws the identical
+ *     exception, and poisons the handle so the anomalous helper is never reused.
+ *  5. Reason strings and the InitialStateBoundaryException message are
+ *     byte-identical to run_bound_operation (P8). The two new reasons
+ *     ('parent path unavailable', and truncation routed through the existing
+ *     'fresh file write failed') are additive only.
+ *
+ * Only the high-volume staging walks (Init::capture_code and
+ * Publish::write_entities_fresh) route through one helper each. The single-op
+ * callers keep run_bound_operation's per-spawn path unchanged.
+ */
+final class BoundHelper {
+    /** @var resource|null */
+    private $process = null;
+    /** @var array<int,resource> */
+    private array $pipes = [];
+    private bool $poisoned = false;
+
+    /**
+     * The per-op loop run by the single helper subprocess. It is
+     * run_bound_operation's child body verbatim except for: the framing (a
+     * per-op header line plus exactly bytes_len payload bytes instead of one op
+     * then STDIN EOF), the mandatory per-op clearstatcache/CWD reset, and
+     * one-op-then-explicit-reset (fclose every handle, free the hash, flush the
+     * response) instead of one-op-then-exit. Exposed for the offline mutation
+     * harness (regress_bound_helper.php), which removes clearstatcache and the
+     * exit(73) to prove both are load-bearing.
+     */
+    public static function loop_script(): string {
+        return <<<'PHP'
+$fail = static function (string $message): void {
+    fwrite(STDERR, $message . "\n");
+    exit(73);
+};
+$base = getcwd();
+while (true) {
+    clearstatcache(true);
+    $line = fgets(STDIN);
+    if ($line === false) {
+        exit(0);
+    }
+    $request = json_decode($line, true);
+    if (!is_array($request)) $fail('invalid request');
+    $name = $request['name'] ?? null;
+    $parent = $request['parent'] ?? null;
+    $op = $request['op'] ?? null;
+    $mode = $request['mode'] ?? null;
+    $path = $request['path'] ?? null;
+    $bytesLen = $request['bytes_len'] ?? null;
+    if (!is_string($name) || $name === '' || $name === '.' || $name === '..'
+        || str_contains($name, '/') || str_contains($name, "\0")
+        || !is_array($parent) || !is_int($mode)
+        || !is_string($path) || $path === ''
+        || !is_int($bytesLen) || $bytesLen < 0) {
+        $fail('unsafe request');
+    }
+    if ($base === false || !@chdir($base) || !@chdir($path)) {
+        $fail('parent path unavailable');
+    }
+    $cwd = @lstat('.');
+    if (!is_array($cwd) || !is_dir('.')
+        || (string) ($cwd['dev'] ?? '') !== (string) ($parent['dev'] ?? '')
+        || (string) ($cwd['ino'] ?? '') !== (string) ($parent['ino'] ?? '')) {
+        $fail('parent identity changed');
+    }
+    if ($op === 'mkdir') {
+        if (file_exists($name) || is_link($name) || !@mkdir($name, $mode & 0777)) {
+            $fail('fresh directory boundary changed');
+        }
+        $stat = @lstat($name);
+        if (!is_array($stat) || is_link($name) || !is_dir($name)) {
+            $fail('fresh directory changed after creation');
+        }
+        fwrite(STDOUT, json_encode([
+            'type' => 'directory', 'dev' => (string) $stat['dev'], 'ino' => (string) $stat['ino'],
+        ], JSON_UNESCAPED_SLASHES) . "\n");
+        fflush(STDOUT);
+        continue;
+    }
+    if ($op !== 'write' && $op !== 'copy') $fail('unsupported operation');
+    $input = STDIN;
+    if ($op === 'copy') {
+        $source = $request['source'] ?? null;
+        if (!is_string($source) || $source === '' || is_link($source) || !is_file($source)) {
+            $fail('copy source changed');
+        }
+        $input = @fopen($source, 'rb');
+        if (!is_resource($input)) $fail('copy source unreadable');
+    }
+    $output = @fopen($name, 'x+b');
+    if (!is_resource($output)) {
+        if ($op === 'copy' && is_resource($input)) fclose($input);
+        $fail('fresh file boundary changed');
+    }
+    $hash = hash_init('sha256');
+    $ok = true;
+    if ($op === 'write') {
+        $remaining = $bytesLen;
+        while ($remaining > 0) {
+            $chunk = fread($input, $remaining < 65536 ? $remaining : 65536);
+            if (!is_string($chunk) || ($chunk === '' && feof($input))) { $ok = false; break; }
+            if ($chunk === '') continue;
+            hash_update($hash, $chunk);
+            $offset = 0;
+            $length = strlen($chunk);
+            while ($offset < $length) {
+                $written = fwrite($output, substr($chunk, $offset));
+                if (!is_int($written) || $written < 1) { $ok = false; break 2; }
+                $offset += $written;
+            }
+            $remaining -= $length;
+        }
+    } else {
+        while (!feof($input)) {
+            $chunk = fread($input, 65536);
+            if (!is_string($chunk)) { $ok = false; break; }
+            if ($chunk === '') continue;
+            hash_update($hash, $chunk);
+            $offset = 0;
+            $length = strlen($chunk);
+            while ($offset < $length) {
+                $written = fwrite($output, substr($chunk, $offset));
+                if (!is_int($written) || $written < 1) { $ok = false; break 2; }
+                $offset += $written;
+            }
+        }
+    }
+    if ($op === 'copy' && is_resource($input)) fclose($input);
+    if (!$ok || !fflush($output) || !@chmod($name, $mode & 0777)) {
+        $opened = @fstat($output);
+        $named = @lstat($name);
+        $same = is_array($opened) && is_array($named) && !is_link($name) && is_file($name)
+            && (string) ($opened['dev'] ?? '') === (string) ($named['dev'] ?? '')
+            && (string) ($opened['ino'] ?? '') === (string) ($named['ino'] ?? '');
+        fclose($output);
+        if ($same) @unlink($name);
+        $fail('fresh file write failed');
+    }
+    if (function_exists('fsync')) @fsync($output);
+    $opened = fstat($output);
+    $digest = hash_final($hash);
+    $named = @lstat($name);
+    $same = is_array($opened) && is_array($named) && !is_link($name) && is_file($name)
+        && (string) ($opened['dev'] ?? '') === (string) ($named['dev'] ?? '')
+        && (string) ($opened['ino'] ?? '') === (string) ($named['ino'] ?? '');
+    if (!$same) {
+        fclose($output);
+        $fail('fresh file name changed after creation');
+    }
+    if ($op === 'copy' && (!is_string($request['sha256'] ?? null)
+        || !hash_equals($request['sha256'], $digest))) {
+        fclose($output);
+        $current = @lstat($name);
+        $stillSame = is_array($current) && !is_link($name) && is_file($name)
+            && (string) ($opened['dev'] ?? '') === (string) ($current['dev'] ?? '')
+            && (string) ($opened['ino'] ?? '') === (string) ($current['ino'] ?? '');
+        if ($stillSame) @unlink($name);
+        $fail('copy source digest changed');
+    }
+    fclose($output);
+    fwrite(STDOUT, json_encode([
+        'type' => 'file', 'dev' => (string) $named['dev'], 'ino' => (string) $named['ino'],
+        'sha256' => $digest,
+    ], JSON_UNESCAPED_SLASHES) . "\n");
+    fflush(STDOUT);
+}
+PHP;
+    }
+
+    private function ensure_started(string $label): void {
+        if ($this->poisoned) {
+            throw new InitialStateBoundaryException(
+                "duo: initial $label cannot reuse a torn-down bound-filesystem helper"
+            );
+        }
+        if ($this->process !== null) {
+            return;
+        }
+        if (!function_exists('proc_open') || !defined('PHP_BINARY') || PHP_BINARY === '') {
+            throw new InitialStateBoundaryException("duo: initial $label requires the bound-filesystem helper");
+        }
+        $pipes = [];
+        $process = @proc_open(
+            [PHP_BINARY, '-r', self::loop_script()],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes
+        );
+        if (!is_resource($process)) {
+            throw new InitialStateBoundaryException("duo: initial $label could not start its bound-filesystem helper");
+        }
+        $this->process = $process;
+        $this->pipes = $pipes;
+    }
+
+    /**
+     * Frame one op to the persistent helper and read its single success
+     * response. Success is one JSON line (byte-identical to run_bound_operation
+     * plus a "\n" frame); a failure is never a frame -- the helper writes its
+     * reason to STDERR and dies. Any refusal (dead pipe, non-array identity, or
+     * a payload write the dying helper stopped draining) tears the anomalous
+     * helper down and throws the identical InitialStateBoundaryException; the
+     * handle is poisoned so it can never be reused.
+     *
+     * @param array<string,mixed> $request
+     * @return array<string,string>
+     */
+    public function run(string $parent, array $request, string $bytes, string $label): array {
+        $this->ensure_started($label);
+        $request['path'] = $parent;
+        $request['bytes_len'] = strlen($bytes);
+        $header = json_encode($request, JSON_UNESCAPED_SLASHES);
+        if (!is_string($header)) {
+            $this->close();
+            throw new InitialStateBoundaryException(
+                "duo: initial $label could not encode its bound-filesystem request"
+            );
+        }
+        $remaining = $header . "\n" . $bytes;
+        $wrote = true;
+        while ($remaining !== '') {
+            $written = @fwrite($this->pipes[0], $remaining);
+            if (!is_int($written) || $written < 1) {
+                $wrote = false;
+                break;
+            }
+            $remaining = (string) substr($remaining, $written);
+        }
+        if ($wrote) {
+            $line = @fgets($this->pipes[1]);
+            $identity = is_string($line) ? json_decode($line, true) : null;
+            if (is_array($identity)) {
+                return array_map('strval', $identity);
+            }
+        }
+        // Refusal: the helper died (exit 73) or produced no valid identity.
+        // Capture its reason, tear the anomalous helper down, and fail closed
+        // with the identical exception run_bound_operation throws.
+        $this->poisoned = true;
+        @proc_terminate($this->process);
+        $reason = '';
+        if (isset($this->pipes[2]) && is_resource($this->pipes[2])) {
+            $stderr = @stream_get_contents($this->pipes[2]);
+            $reason = trim(is_string($stderr) ? $stderr : '');
+        }
+        $this->close();
+        throw new InitialStateBoundaryException(
+            "duo: initial $label refused at its inode-bound parent"
+                . ($reason === '' ? '' : ': ' . $reason)
+        );
+    }
+
+    /**
+     * Release the helper subprocess. Idempotent, and safe to call from a
+     * staging walk's finally so a mid-walk exception can never leak a live
+     * child (proc_terminate + proc_close).
+     */
+    public function close(): void {
+        foreach ($this->pipes as $pipe) {
+            if (is_resource($pipe)) {
+                @fclose($pipe);
+            }
+        }
+        $this->pipes = [];
+        if ($this->process === null) {
+            return;
+        }
+        @proc_terminate($this->process);
+        @proc_close($this->process);
+        $this->process = null;
     }
 }
