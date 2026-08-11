@@ -6,8 +6,9 @@ declare(strict_types=1);
  *
  * This deliberately supplies only PromotionLock's Ledger/Db seam: the
  * random target generation plus its signed external receipt must survive an
- * exact host retry, while a mismatched, ordinary-profile, or pre-random
- * session record must never be silently replaced.
+ * exact host retry. A profile-less completed ordinary residue with no lease
+ * is replaced only through PromotionLock's fresh fenced acquire path, while
+ * scoped mismatches and lifecycle ambiguity must never be silently replaced.
  * The Apply checks use reflection because these are pre-mutation gates; no
  * WordPress bootstrap, database, cache backend, or Docker target is needed
  * to prove their closed selection vocabulary.
@@ -375,22 +376,108 @@ namespace {
     );
     PromotionLock::release($owner, $artifact);
 
+    $ordinaryCompletedOwner = 'ordinary-completed-owner';
+    $ordinaryCompletedArtifact = str_repeat('b', 64);
+    $ordinaryCompletedSessionId = 'ps-' . str_repeat('b', 32);
     ScopedPromotionTargetLedger::$values = [
         'promotion_session' => json_encode([
-            'owner' => $owner,
-            'artifact_hash' => $artifact,
+            'owner' => $ordinaryCompletedOwner,
+            'artifact_hash' => $ordinaryCompletedArtifact,
             'begun_at' => time(),
+            'session_id' => $ordinaryCompletedSessionId,
+            'lifecycle_phases' => ['retire', 'activate'],
         ], JSON_THROW_ON_ERROR),
     ];
+    $ordinaryCompletedBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $ordinaryReclaimed = PromotionLock::begin_scoped(
+        $owner, $artifact, $receipt, $scopeHash, $witness, 300
+    );
+    $ordinaryReclaimedSession = json_decode(
+        (string) (ScopedPromotionTargetLedger::$values['promotion_session'] ?? ''),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $ordinaryReclaimedLock = PromotionLock::current();
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') !== $ordinaryCompletedBytes
+            && preg_match('/^ps-[a-f0-9]{32}$/D', (string) ($ordinaryReclaimed['session_id'] ?? '')) === 1
+            && ($ordinaryReclaimed['session_id'] ?? null) !== $ordinaryCompletedSessionId
+            && ($ordinaryReclaimedSession['session_id'] ?? null) === ($ordinaryReclaimed['session_id'] ?? null)
+            && ($ordinaryReclaimedSession['profile'] ?? null) === 'scoped-checkpoint-v1'
+            && ($ordinaryReclaimedSession['scoped_receipt_sha256'] ?? null) === $receipt
+            && ($ordinaryReclaimedSession['scoped_scope_hash'] ?? null) === $scopeHash
+            && ($ordinaryReclaimedSession['scoped_receipt_id'] ?? null) === $witness['receipt_id']
+            && ($ordinaryReclaimedSession['scoped_generation'] ?? null) === $witness['generation']
+            && ($ordinaryReclaimedSession['scoped_target_id'] ?? null) === $witness['target_id']
+            && ($ordinaryReclaimedSession['scoped_signing_key_id'] ?? null) === $witness['signing_key_id']
+            && ($ordinaryReclaimedSession['scoped_allow_deletes'] ?? null) === false
+            && ($ordinaryReclaimedLock['owner'] ?? null) === $owner
+            && ($ordinaryReclaimedLock['artifact_hash'] ?? null) === $artifact,
+        'stale completed ordinary session without a lease is atomically replaced by one fresh receipt-bound scoped generation'
+    );
+    PromotionLock::release($owner, $artifact);
+
+    $ordinaryAttempt = [
+        'owner' => 'ordinary-ambiguous-owner',
+        'artifact_hash' => $ordinaryCompletedArtifact,
+        'begun_at' => time(),
+        'session_id' => 'ps-' . str_repeat('c', 32),
+        'lifecycle_attempt' => [
+            'entity' => 'options/core',
+            'phase' => 'activate',
+            'before_hash' => str_repeat('1', 64),
+        ],
+    ];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryAttempt, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryAttemptBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
     $expect(
         static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
-        'exact random promotion session generation',
-        'legacy pre-random promotion sessions are refused instead of being silently upgraded'
+        'unresolved lifecycle attempt',
+        'ordinary lifecycle ambiguity refuses scoped replacement'
     );
     $check(
-        !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
-        'legacy scoped-begin refusal creates no replacement lease row'
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryAttemptBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary lifecycle-attempt refusal leaves the retained session and absent lock untouched'
     );
+
+    $ordinaryMalformedAttempt = $ordinaryAttempt;
+    $ordinaryMalformedAttempt['lifecycle_attempt'] = ['phase' => 'activate'];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryMalformedAttempt, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryMalformedAttemptBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'malformed unresolved lifecycle attempt',
+        'malformed ordinary lifecycle ambiguity refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryMalformedAttemptBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'malformed ordinary lifecycle-attempt refusal leaves the retained session and absent lock untouched'
+    );
+
+    ScopedPromotionTargetLedger::$values = [];
+    $ordinaryLiveOwner = 'ordinary-live-owner';
+    $ordinaryLiveArtifact = str_repeat('d', 64);
+    PromotionLock::begin($ordinaryLiveOwner, $ordinaryLiveArtifact, 300);
+    $ordinaryLiveSessionBytes = ScopedPromotionTargetLedger::$values['promotion_session'] ?? '';
+    $ordinaryLiveLockBytes = ScopedPromotionTargetLedger::$values['promotion_lock'] ?? '';
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'live ordinary target promotion lock',
+        'live ordinary promotion lock refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryLiveSessionBytes
+            && (ScopedPromotionTargetLedger::$values['promotion_lock'] ?? '') === $ordinaryLiveLockBytes,
+        'live ordinary lock refusal leaves the exact ordinary session and lease untouched'
+    );
+    PromotionLock::release($ordinaryLiveOwner, $ordinaryLiveArtifact);
 
     // Simulate the remaining initial interruption: the target lock was
     // written, but process loss occurred before any promotion_session row.
@@ -656,11 +743,6 @@ namespace {
             'session_id' => 'ps-' . str_repeat('e', 32),
         ], JSON_THROW_ON_ERROR),
     ];
-    $expect(
-        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
-        'does not match its external signed receipt',
-        'ordinary random promotion sessions cannot be reinterpreted as scoped-checkpoint generations'
-    );
     $expect(
         static fn() => $requestGate->invoke(null, $validScopedOpts, true, $witness),
         'does not match its external signed receipt',
