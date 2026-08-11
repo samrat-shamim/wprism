@@ -125,6 +125,182 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
     }
 }
 
+/**
+ * Runs the generated shell transaction against an isolated local filesystem.
+ * Its optional mv shim deliberately implements a copy+unlink move for the
+ * four adoption surfaces, reproducing the identity rebind boundary without
+ * Docker, SSH, or a mount-specific fixture.
+ */
+final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
+    public bool $forceCopyUnlink = false;
+    public bool $failPolicy = false;
+    public bool $retainCommittedCleanup = false;
+    public ?string $interruptPhase = null;
+
+    /** @var list<string> */
+    public array $rawScripts = [];
+    /** @var list<string> */
+    public array $uploadedArchives = [];
+
+    private string $root;
+    private string $muDir;
+    private string $repo;
+    private string $wp;
+    private string $version;
+
+    public function __construct(string $root, string $sourceRoot) {
+        $this->root = $root;
+        $this->muDir = $root . '/mu';
+        $this->repo = $root . '/repo';
+        $this->wp = $root . '/wordpress';
+        $source = file_get_contents($sourceRoot . '/agent/duo.php');
+        if (!is_string($source) || preg_match("/define\\(\\s*'DUO_AGENT_VERSION'\\s*,\\s*'([^']+)'\\s*\\)/", $source, $m) !== 1) {
+            throw new \RuntimeException('could not read fixture agent version');
+        }
+        $this->version = $m[1];
+
+        foreach ([$this->muDir, $this->repo, $this->wp, $root . '/bin'] as $path) {
+            if (!mkdir($path, 0700, true) && !is_dir($path)) {
+                throw new \RuntimeException('could not create adoption filesystem fixture');
+            }
+        }
+        foreach ([$this->muDir . '/duo', $this->muDir . '/manifests', $this->repo . '/.duo'] as $path) {
+            if (!mkdir($path, 0700, true) && !is_dir($path)) {
+                throw new \RuntimeException('could not create prior adoption surface');
+            }
+        }
+        file_put_contents($this->muDir . '/duo/legacy-agent.txt', "legacy-agent\n");
+        file_put_contents($this->muDir . '/duo-loader.php', "<?php // legacy loader\n");
+        file_put_contents($this->muDir . '/manifests/legacy.json', "{}\n");
+        file_put_contents($this->repo . '/.duo/legacy-state.txt', "legacy-state\n");
+        file_put_contents($this->repo . '/site.duo.json', "{}\n");
+        $this->writeCopyUnlinkMvShim($root . '/bin/mv');
+    }
+
+    public function muDir(): string {
+        return $this->muDir;
+    }
+
+    public function bootstrapCapability(): array {
+        return ['supported' => true, 'reason' => 'isolated adoption filesystem fixture', 'remediation' => ''];
+    }
+
+    public function repoPath(): string {
+        return $this->repo;
+    }
+
+    public function wpPath(): string {
+        return $this->wp;
+    }
+
+    public function captureRaw(string $script): array {
+        $this->rawScripts[] = $script;
+        if ($this->retainCommittedCleanup
+            && str_contains($script, 'committed install retained partial backup cleanup evidence')) {
+            return ['exit' => 73, 'stdout' => '', 'stderr' => 'fixture retained committed cleanup evidence'];
+        }
+
+        $environment = getenv();
+        if (!is_array($environment)) {
+            $environment = [];
+        }
+        $environment['PATH'] = $this->root . '/bin:' . ($environment['PATH'] ?? '/usr/bin:/bin');
+        $environment['DUO_ADOPT_FORCE_COPY_MOVE'] = $this->forceCopyUnlink ? '1' : '0';
+        $environment['DUO_ADOPT_FORCE_COPY_MOVE_ROOT'] = $this->root;
+        if ($this->interruptPhase === null) {
+            unset($environment['DUO_TEST_MODE'], $environment['DUO_TEST_ADOPT_FAIL_PHASE']);
+        } else {
+            $environment['DUO_TEST_MODE'] = '1';
+            $environment['DUO_TEST_ADOPT_FAIL_PHASE'] = $this->interruptPhase;
+        }
+
+        $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+        $process = proc_open('/bin/sh -s', $descriptors, $pipes, $this->root, $environment);
+        if (!is_resource($process)) {
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'could not run isolated adoption shell'];
+        }
+        fwrite($pipes[0], $script);
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]) ?: '';
+        $stderr = stream_get_contents($pipes[2]) ?: '';
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        return ['exit' => proc_close($process), 'stdout' => $stdout, 'stderr' => $stderr];
+    }
+
+    public function captureWp(array $wpArgs): array {
+        if ($wpArgs === ['core', 'is-installed']) {
+            return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+        }
+        if ($wpArgs === ['eval', 'echo WPMU_PLUGIN_DIR;']) {
+            return ['exit' => 0, 'stdout' => $this->muDir . "\n", 'stderr' => ''];
+        }
+        $code = $wpArgs[1] ?? '';
+        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'DUO_AGENT_VERSION')) {
+            return ['exit' => 0, 'stdout' => $this->version . "\n", 'stderr' => ''];
+        }
+        if (($wpArgs[0] ?? '') === 'eval' && is_string($code) && str_contains($code, 'Policy::load')) {
+            return $this->failPolicy
+                ? ['exit' => 72, 'stdout' => '', 'stderr' => 'duo: invalid JSON: Syntax error']
+                : ['exit' => 0, 'stdout' => "duo-policy-ok\n", 'stderr' => ''];
+        }
+        return ['exit' => 96, 'stdout' => '', 'stderr' => 'unexpected isolated wp fixture command'];
+    }
+
+    public function uploadFile(string $localPath, string $remotePath): array {
+        if (!is_file($localPath) || !str_starts_with($remotePath, '/tmp/duo-adopt-') || !copy($localPath, $remotePath)) {
+            return ['exit' => 97, 'stdout' => '', 'stderr' => 'could not stage isolated adoption archive'];
+        }
+        $this->uploadedArchives[] = $remotePath;
+        return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
+    }
+
+    private function writeCopyUnlinkMvShim(string $path): void {
+        $script = <<<'SH'
+#!/bin/sh
+if [ "${DUO_ADOPT_FORCE_COPY_MOVE:-}" = 1 ] && [ "$#" -eq 2 ]; then
+    fixture_root=${DUO_ADOPT_FORCE_COPY_MOVE_ROOT:?}
+    case "$1" in
+        "$fixture_root/mu/duo"|"$fixture_root/mu/duo-loader.php"|"$fixture_root/mu/manifests"|"$fixture_root/repo/.duo"|\
+        "$fixture_root/mu/.duo-new-"*|"$fixture_root/mu/.duo-loader-new-"*|"$fixture_root/mu/.duo-manifests-new-"*|"$fixture_root/repo/.duo-new-"*|\
+        "$fixture_root/mu/.duo-old-"*|"$fixture_root/mu/.duo-loader-old-"*|"$fixture_root/mu/.duo-manifests-old-"*|"$fixture_root/repo/.duo-old-"*)
+            if [ -d "$1" ]; then
+                mkdir "$2" && cp -pR "$1/." "$2/" && rm -rf "$1"
+            else
+                cp -p "$1" "$2" && rm -f "$1"
+            fi
+            exit $?
+            ;;
+    esac
+fi
+exec /bin/mv "$@"
+SH;
+        if (file_put_contents($path, $script) === false || !chmod($path, 0700)) {
+            throw new \RuntimeException('could not write copy-unlink mv fixture');
+        }
+    }
+}
+
+function adopt_remove_fixture(string $root): void {
+    $prefix = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-';
+    if (!str_starts_with($root, $prefix) || !is_dir($root)) {
+        throw new \RuntimeException('refusing to remove an unexpected adoption fixture');
+    }
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($iterator as $entry) {
+        $path = $entry->getPathname();
+        if ($entry->isLink() || $entry->isFile()) {
+            unlink($path);
+        } else {
+            rmdir($path);
+        }
+    }
+    rmdir($root);
+}
+
 function adopt_check(bool $condition, string $message): void {
     if (!$condition) {
         fwrite(STDERR, "FAIL: $message\n");
@@ -153,13 +329,15 @@ $authorityInstall = (string) $installScript->invoke(
     null
 );
 $controlConfigOffset = strpos($authorityInstall, 'scoped-promotion-control.json');
-$agentSwapOffset = strpos($authorityInstall, 'mv "$agent_new" "$agent"');
+$agentSwapOffset = strpos($authorityInstall, 'move_owned "$agent_new" "$agent" "$txn/agent_new.id" "$txn/agent_live_post.id"');
 adopt_check(
     is_int($controlConfigOffset) && is_int($agentSwapOffset) && $controlConfigOffset < $agentSwapOffset
         && str_contains($authorityInstall, '"control_root":"/fixture/repo/.duo/control"')
         && str_contains($authorityInstall, 'source artifact contains target-local scoped promotion configuration')
-        && str_contains($authorityInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
-    'adoption refuses source-supplied trust roots and stages its mode-0600 fixed configuration before publishing the agent'
+        && str_contains($authorityInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"')
+        && str_contains($authorityInstall, '"$txn/rollback_ready"')
+        && str_contains($authorityInstall, '"$txn/agent_old_post.id"'),
+    'adoption refuses source-supplied trust roots and journals immutable pre/post proofs before publishing the agent'
 );
 $ordinaryInstall = (string) $installScript->invoke(
     null,
@@ -244,9 +422,145 @@ adopt_check(
 );
 adopt_check(
     is_string($cleanupScript)
-        && strpos($cleanupScript, 'rollback copy identity changed before committed cleanup')
+        && strpos($cleanupScript, 'assert_journal_ready || { echo \'duo adopt: committed cleanup journal is incomplete\'')
             < strpos($cleanupScript, 'cleanup_failed=0'),
-    'committed cleanup validates every rollback-root identity before deletion begins'
+    'committed cleanup preflights every live and rollback-root proof before deletion begins'
+);
+
+$rollbackScript = (string) (new ReflectionMethod(Adopt::class, 'rollbackScript'))->invoke(
+    null,
+    '/fixture/mu-plugins',
+    '/fixture/repo',
+    '0123456789abcdef01234567'
+);
+$rollbackPreflight = strpos($rollbackScript, 'assert_journal_ready || { echo \'duo adopt: transaction journal is incomplete before rollback');
+$firstRollbackDelete = strpos($rollbackScript, 'remove_owned ');
+adopt_check(
+    is_int($rollbackPreflight) && is_int($firstRollbackDelete) && $rollbackPreflight < $firstRollbackDelete
+        && str_contains($rollbackScript, 'transaction has crossed the commit barrier; retained evidence for operator recovery')
+        && str_contains($rollbackScript, 'duo_live_post.id')
+        && str_contains($rollbackScript, 'duo_old_post.id'),
+    'rollback preflights the complete post-move journal before its first deletion and refuses a crossed commit barrier'
+);
+
+$sourceRoot = dirname(__DIR__, 2);
+$filesystemFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+register_shutdown_function(static function () use ($filesystemFixture): void {
+    if (is_dir($filesystemFixture)) {
+        adopt_remove_fixture($filesystemFixture);
+    }
+});
+$filesystemTransport = new AdoptFilesystemTransactionTransport($filesystemFixture, $sourceRoot);
+
+$firstInstall = Adopt::install($filesystemTransport, $sourceRoot);
+adopt_check($firstInstall['exit'] === 0, 'the real generated filesystem transaction installs an initial update');
+$secondInstall = Adopt::install($filesystemTransport, $sourceRoot);
+adopt_check($secondInstall['exit'] === 0, 'the real generated filesystem transaction supports an idempotent update');
+
+$mu = $filesystemTransport->muDir();
+$repo = $filesystemTransport->repoPath();
+file_put_contents($mu . '/duo/rollback-sentinel.txt', "prior-agent\n");
+file_put_contents($mu . '/duo-loader.php', "<?php // prior loader\n");
+file_put_contents($mu . '/manifests/rollback-sentinel.json', "{\"prior\":true}\n");
+file_put_contents($repo . '/.duo/rollback-sentinel.txt', "prior-duo-state\n");
+$priorRoots = [
+    'agent' => file_get_contents($mu . '/duo/rollback-sentinel.txt'),
+    'loader' => file_get_contents($mu . '/duo-loader.php'),
+    'manifest' => file_get_contents($mu . '/manifests/rollback-sentinel.json'),
+    'duo_state' => file_get_contents($repo . '/.duo/rollback-sentinel.txt'),
+];
+
+$filesystemTransport->forceCopyUnlink = true;
+$filesystemTransport->failPolicy = true;
+$copyUnlinkFailure = Adopt::install($filesystemTransport, $sourceRoot);
+adopt_check(
+    $copyUnlinkFailure['exit'] !== 0 && $copyUnlinkFailure['phase'] === 'policy verification',
+    'a policy-verification failure reaches rollback after controlled copy-unlink moves'
+);
+adopt_check(
+    !str_contains($copyUnlinkFailure['stderr'], 'adoption rollback could not be confirmed'),
+    'post-move proofs rebind every copied root so rollback remains confirmed'
+);
+adopt_check(
+    file_get_contents($mu . '/duo/rollback-sentinel.txt') === $priorRoots['agent']
+        && file_get_contents($mu . '/duo-loader.php') === $priorRoots['loader']
+        && file_get_contents($mu . '/manifests/rollback-sentinel.json') === $priorRoots['manifest']
+        && file_get_contents($repo . '/.duo/rollback-sentinel.txt') === $priorRoots['duo_state'],
+    'copy-unlink policy rollback restores all four exact prior roots'
+);
+adopt_check(
+    !is_dir($mu . '/.duo-adopt-lock') && (glob($mu . '/.duo-adopt-txn-*') ?: []) === [],
+    'a confirmed copy-unlink rollback removes only its completed transaction evidence'
+);
+
+$filesystemTransport->forceCopyUnlink = false;
+$filesystemTransport->failPolicy = false;
+$filesystemTransport->interruptPhase = 'agent-live-after-move';
+$interruptedInstall = Adopt::install($filesystemTransport, $sourceRoot);
+adopt_check(
+    $interruptedInstall['exit'] !== 0 && $interruptedInstall['phase'] === 'remote install'
+        && str_contains($interruptedInstall['stderr'], 'incomplete surface-move journal retained for operator recovery'),
+    'an interruption after the move but before its post-proof retains the transaction for recovery'
+);
+$interruptedTransactions = glob($mu . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+adopt_check(count($interruptedTransactions) === 1, 'the interrupted transaction journal remains present');
+$interruptedTxn = $interruptedTransactions[0];
+$interruptedToken = substr(basename($interruptedTxn), strlen('.duo-adopt-txn-'));
+adopt_check(
+    is_dir($mu . '/.duo-adopt-lock')
+        && is_file($interruptedTxn . '/agent_move_intent')
+        && is_file($interruptedTxn . '/agent_old_post.id')
+        && !file_exists($interruptedTxn . '/agent_live_post.id')
+        && is_dir($mu . '/.duo-old-' . $interruptedToken)
+        && file_get_contents($mu . '/.duo-old-' . $interruptedToken . '/rollback-sentinel.txt') === $priorRoots['agent'],
+    'the interrupted before-postproof state retains old backup, intent, lock, and immutable evidence without deletion'
+);
+
+$filesystemTransport->interruptPhase = null;
+$refusedInstall = Adopt::install($filesystemTransport, $sourceRoot);
+adopt_check(
+    $refusedInstall['exit'] !== 0 && $refusedInstall['phase'] === 'remote install'
+        && str_contains($refusedInstall['stderr'], 'another adoption is active or requires operator recovery'),
+    'the next adoption refuses an incomplete journal instead of guessing a rollback'
+);
+adopt_check(
+    is_dir($mu . '/.duo-adopt-lock') && is_dir($interruptedTxn)
+        && is_dir($mu . '/.duo-old-' . $interruptedToken),
+    'the refusal leaves the interrupted evidence untouched'
+);
+
+$commitFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+register_shutdown_function(static function () use ($commitFixture): void {
+    if (is_dir($commitFixture)) {
+        adopt_remove_fixture($commitFixture);
+    }
+});
+$commitTransport = new AdoptFilesystemTransactionTransport($commitFixture, $sourceRoot);
+$commitTransport->retainCommittedCleanup = true;
+$commitResult = Adopt::install($commitTransport, $sourceRoot);
+adopt_check(
+    $commitResult['exit'] === 0 && str_contains($commitResult['stderr'], 'retained adoption cleanup evidence for operator recovery'),
+    'a response-loss fixture retains a committed transaction after the remote commit barrier'
+);
+$commitTransactions = glob($commitTransport->muDir() . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+adopt_check(count($commitTransactions) === 1 && is_file($commitTransactions[0] . '/commit_started'), 'the retained transaction records its commit barrier');
+$commitTxn = $commitTransactions[0];
+$commitToken = substr(basename($commitTxn), strlen('.duo-adopt-txn-'));
+$commitAgent = $commitTransport->muDir() . '/duo/duo.php';
+$committedAgentSource = file_get_contents($commitAgent);
+$commitRollback = (string) (new ReflectionMethod(Adopt::class, 'rollbackScript'))->invoke(
+    null,
+    $commitTransport->muDir(),
+    $commitTransport->repoPath(),
+    $commitToken
+);
+$commitRollbackResult = $commitTransport->captureRaw($commitRollback);
+adopt_check(
+    $commitRollbackResult['exit'] !== 0
+        && str_contains($commitRollbackResult['stderr'], 'transaction has crossed the commit barrier')
+        && file_get_contents($commitAgent) === $committedAgentSource
+        && is_dir($commitTransport->muDir() . '/.duo-old-' . $commitToken),
+    'response loss after commit refuses rollback without mutating live roots or backups'
 );
 
 echo "REGRESS_ADOPT_ROLLBACK PASSED\n";
