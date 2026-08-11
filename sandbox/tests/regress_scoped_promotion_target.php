@@ -25,6 +25,8 @@ namespace Duo {
         public static int $promotionLockWrites = 0;
         public static int $transactionStarts = 0;
         public static int $transactionRollbacks = 0;
+        public static int $promotionSessionWrites = 0;
+        public static ?string $injectAfterAbsentPromotionSessionRead = null;
         /** @var list<string> */
         public static array $transactionReadKeys = [];
         /** @var list<string> */
@@ -35,13 +37,28 @@ namespace Duo {
                 self::$transactionReadKeys[] = $key;
             }
             $values = self::$transactionValues ?? self::$values;
-            return $values[$key] ?? null;
+            $value = $values[$key] ?? null;
+            if ($key === 'promotion_session'
+                && $value === null
+                && self::$transactionValues === null
+                && self::$injectAfterAbsentPromotionSessionRead !== null) {
+                // Return the absent value seen by begin_scoped(), then place
+                // ordinary recovery residue before acquire_internal() takes
+                // its fenced re-read. This is the exact outer-read race that
+                // must never let initial scoped begin overwrite a receipt.
+                self::$values[$key] = self::$injectAfterAbsentPromotionSessionRead;
+                self::$injectAfterAbsentPromotionSessionRead = null;
+            }
+            return $value;
         }
 
         public static function set(string $key, string $value): void {
             if ($key === 'promotion_session' && self::$failNextPromotionSessionUpsert) {
                 self::$failNextPromotionSessionUpsert = false;
                 throw new \RuntimeException('injected scoped promotion session upsert failure');
+            }
+            if ($key === 'promotion_session') {
+                self::$promotionSessionWrites++;
             }
             if ($key === 'promotion_lock') {
                 self::$promotionLockWrites++;
@@ -505,6 +522,61 @@ namespace {
     );
     PromotionLock::release($owner, $artifact);
 
+    $initialRacePendingSession = [
+        'owner' => 'ordinary-race-owner',
+        'artifact_hash' => str_repeat('b', 64),
+        'begun_at' => time(),
+        'session_id' => 'ps-' . str_repeat('d', 32),
+        'pending_state_transition' => [
+            'entity' => 'options/core',
+            'before_hash' => str_repeat('3', 64),
+            'after_hash' => str_repeat('4', 64),
+        ],
+    ];
+    $initialRacePendingBytes = json_encode($initialRacePendingSession, JSON_THROW_ON_ERROR);
+    ScopedPromotionTargetLedger::$values = [];
+    $initialRacePendingWrites = ScopedPromotionTargetLedger::$promotionSessionWrites;
+    $initialRacePendingLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
+    ScopedPromotionTargetLedger::$injectAfterAbsentPromotionSessionRead = $initialRacePendingBytes;
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'initial begin found a target promotion session after fencing',
+        'initial scoped begin refuses an ordinary pending receipt injected after its outer absent-session read'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $initialRacePendingBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
+            && ScopedPromotionTargetLedger::$promotionSessionWrites === $initialRacePendingWrites
+            && ScopedPromotionTargetLedger::$promotionLockWrites === $initialRacePendingLockWrites
+            && ScopedPromotionTargetLedger::$injectAfterAbsentPromotionSessionRead === null,
+        'initial scoped pending-race refusal preserves the exact ordinary receipt without a scoped write or lease'
+    );
+
+    $initialRaceUnknownSession = [
+        'owner' => 'ordinary-race-owner',
+        'artifact_hash' => str_repeat('b', 64),
+        'begun_at' => time(),
+        'future_recovery_receipt' => ['format' => 'future-ordinary-recovery-v1'],
+    ];
+    $initialRaceUnknownBytes = json_encode($initialRaceUnknownSession, JSON_THROW_ON_ERROR);
+    ScopedPromotionTargetLedger::$values = [];
+    $initialRaceUnknownWrites = ScopedPromotionTargetLedger::$promotionSessionWrites;
+    $initialRaceUnknownLockWrites = ScopedPromotionTargetLedger::$promotionLockWrites;
+    ScopedPromotionTargetLedger::$injectAfterAbsentPromotionSessionRead = $initialRaceUnknownBytes;
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'initial begin found a target promotion session after fencing',
+        'initial scoped begin refuses an unknown ordinary receipt injected after its outer absent-session read'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $initialRaceUnknownBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
+            && ScopedPromotionTargetLedger::$promotionSessionWrites === $initialRaceUnknownWrites
+            && ScopedPromotionTargetLedger::$promotionLockWrites === $initialRaceUnknownLockWrites
+            && ScopedPromotionTargetLedger::$injectAfterAbsentPromotionSessionRead === null,
+        'initial scoped unknown-race refusal preserves the exact ordinary receipt without a scoped write or lease'
+    );
+
     $ordinaryCompletedOwner = 'ordinary-completed-owner';
     $ordinaryCompletedArtifact = str_repeat('b', 64);
     $ordinaryCompletedSessionId = 'ps-' . str_repeat('b', 32);
@@ -689,6 +761,53 @@ namespace {
             && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
         'ordinary malformed session-generation refusal leaves the retained session and absent lock untouched'
     );
+
+    $ordinaryLegacySessionId = $ordinaryCompletedSession;
+    unset($ordinaryLegacySessionId['session_id']);
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryLegacySessionId, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryLegacySessionIdBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $ordinaryLegacyReclaimed = PromotionLock::begin_scoped(
+        $owner, $artifact, $receipt, $scopeHash, $witness, 300
+    );
+    $ordinaryLegacyReclaimedSession = json_decode(
+        (string) (ScopedPromotionTargetLedger::$values['promotion_session'] ?? ''),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') !== $ordinaryLegacySessionIdBytes
+            && preg_match('/^ps-[a-f0-9]{32}$/D', (string) ($ordinaryLegacyReclaimed['session_id'] ?? '')) === 1
+            && ($ordinaryLegacyReclaimedSession['profile'] ?? null) === 'scoped-checkpoint-v1',
+        'an absent legacy session generation remains reclaimable as one fresh scoped generation'
+    );
+    PromotionLock::release($owner, $artifact);
+
+    foreach ([
+        'empty string' => '',
+        'null' => null,
+        'false' => false,
+        'zero' => 0,
+    ] as $invalidSessionIdType => $invalidSessionId) {
+        $ordinaryNonStringSessionId = $ordinaryCompletedSession;
+        $ordinaryNonStringSessionId['session_id'] = $invalidSessionId;
+        ScopedPromotionTargetLedger::$values = [
+            'promotion_session' => json_encode($ordinaryNonStringSessionId, JSON_THROW_ON_ERROR),
+        ];
+        $ordinaryNonStringSessionIdBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+        $expect(
+            static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+            'malformed promotion session generation',
+            "ordinary $invalidSessionIdType session generation refuses scoped replacement"
+        );
+        $check(
+            (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryNonStringSessionIdBytes
+                && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+            "ordinary $invalidSessionIdType session-generation refusal leaves the retained session and absent lock untouched"
+        );
+    }
 
     $ordinaryMalformedTransition = $ordinaryCompletedSession;
     $ordinaryMalformedTransition['state_transition'] = ['entity' => 'options/core'];
