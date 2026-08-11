@@ -181,7 +181,9 @@ final class PlanContract {
      */
     public static function scopedProjections(): array {
         return [
+            'artifact_hash',
             'format',
+            'resolved_adapters',
             'scope',
             'scoped_recovery',
             'selected_actions',
