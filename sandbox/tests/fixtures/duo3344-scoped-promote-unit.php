@@ -9,8 +9,8 @@ declare(strict_types=1);
  * tiny: target PromotionLock/Apply behavior is covered by
  * regress_scoped_promotion_target.php, while this fixture proves the host's
  * strict local contract, compact-wire, signed external checkpoint sequence,
- * response-loss recovery, the forward-only fresh-verification seal, and
- * pre-fresh-verification rollback boundaries.
+ * response-loss and controller-death recovery, the forward-only
+ * fresh-verification seal, and pre-fresh-verification rollback boundaries.
  */
 
 use Duo\Canon;
@@ -214,13 +214,24 @@ function scoped_host_promote(string $root, string $envs, string $contract, array
         }
     }
     try {
-        return scoped_host_run(array_merge([
+        $command = array_merge([
             PHP_BINARY,
             $root . '/cli/duo',
             '--envs-file=' . $envs,
             'promote',
             'scoped',
-        ], $extra === [] ? ['--scope-contract=' . $contract, '--with-deletes', '--format=json'] : $extra));
+        ], $extra === [] ? ['--scope-contract=' . $contract, '--with-deletes', '--format=json'] : $extra);
+        $controllerPidFile = getenv('DUO3344_VERIFYING_NEW_CONTROLLER_PID_FILE');
+        if ((string) getenv('DUO3344_KILL_VERIFYING_NEW_CONTROLLER') === '1'
+            && is_string($controllerPidFile) && $controllerPidFile !== '') {
+            // `exec` preserves this wrapper PID as the controller process,
+            // letting the fake SSH boundary kill precisely that controller
+            // after it has durably published the first seal event.
+            $shell = 'printf "%s\\n" "$$" > ' . escapeshellarg($controllerPidFile)
+                . ' && exec ' . implode(' ', array_map('escapeshellarg', $command));
+            return scoped_host_run(['/bin/sh', '-c', $shell]);
+        }
+        return scoped_host_run($command);
     } finally {
         foreach ($before as $name => $value) {
             if ($value === false) {
@@ -261,7 +272,9 @@ try {
     $dropMarker = $tmp . '/claim-response-dropped';
     $completeDropMarker = $tmp . '/complete-response-dropped';
     $verifyingDropMarker = $tmp . '/verifying-new-response-dropped';
+    $verifyingDeathMarker = $tmp . '/verifying-new-controller-killed';
     $verifyingDropArmed = $tmp . '/verifying-new-response-armed';
+    $verifyingControllerPid = $tmp . '/verifying-new-controller.pid';
     $exclusionState = $tmp . '/exclusion-provider.json';
     if (!mkdir($targetTerminals, 0700, true) && !is_dir($targetTerminals)) {
         scoped_host_fail('could not create target terminal archive directory');
@@ -290,6 +303,26 @@ if [[ "${DUO3344_DROP_CLAIM_RESPONSE:-0}" == 1 \
   set -e
   [ "$status" -eq 0 ] || exit "$status"
   exit 75
+fi
+if [[ "${DUO3344_KILL_VERIFYING_NEW_CONTROLLER:-0}" == 1 \
+  && ! -e "${DUO3344_VERIFYING_NEW_DEATH_MARKER:?}" \
+  && -f "${DUO3344_DROP_VERIFYING_NEW_ARMED:?}" ]]; then
+  request_path="$(<"$DUO3344_DROP_VERIFYING_NEW_ARMED")"
+  if [[ "$request_path" != "" && "$remote" == *"$request_path"* ]]; then
+    set +e
+    /bin/sh -c "$remote"
+    status=$?
+    set -e
+    [ "$status" -eq 0 ] || exit "$status"
+    : > "$DUO3344_VERIFYING_NEW_DEATH_MARKER"
+    rm -f "$DUO3344_DROP_VERIFYING_NEW_ARMED"
+    controller_pid="$(<"${DUO3344_VERIFYING_NEW_CONTROLLER_PID_FILE:?}")"
+    case "$controller_pid" in
+      ''|*[!0-9]*) exit 78 ;;
+    esac
+    kill -KILL "$controller_pid"
+    exit 75
+  fi
 fi
 if [[ "${DUO3344_DROP_VERIFYING_NEW_RESPONSE:-0}" == 1 \
   && ! -e "${DUO3344_DROP_VERIFYING_NEW_MARKER:?}" \
@@ -328,9 +361,12 @@ destination="${2:?missing destination}"
 target="${destination#*:}"
 printf '%s -> %s\n' "$src" "$target" >> "${DUO3344_SCP_LOG:?}"
 cp "$src" "$target"
-if [[ "${DUO3344_DROP_VERIFYING_NEW_RESPONSE:-0}" == 1 \
-  && ! -e "${DUO3344_DROP_VERIFYING_NEW_MARKER:?}" \
-  && "$target" == /tmp/duo-rollback-request-*.json ]]; then
+if [[ "$target" == /tmp/duo-rollback-request-*.json && ( \
+    ( "${DUO3344_DROP_VERIFYING_NEW_RESPONSE:-0}" == 1 \
+      && ! -e "${DUO3344_DROP_VERIFYING_NEW_MARKER:?}" ) \
+    || ( "${DUO3344_KILL_VERIFYING_NEW_CONTROLLER:-0}" == 1 \
+      && ! -e "${DUO3344_VERIFYING_NEW_DEATH_MARKER:?}" ) \
+  ) ]]; then
   if php -r '
     $request = json_decode((string) file_get_contents($argv[1]), true);
     $event = is_array($request) ? ($request["event"]["payload"] ?? null) : null;
@@ -917,6 +953,9 @@ PHP
         'DUO3344_DROP_MARKER' => $dropMarker,
         'DUO3344_DROP_VERIFYING_NEW_ARMED' => $verifyingDropArmed,
         'DUO3344_DROP_VERIFYING_NEW_MARKER' => $verifyingDropMarker,
+        'DUO3344_KILL_VERIFYING_NEW_CONTROLLER' => '0',
+        'DUO3344_VERIFYING_NEW_CONTROLLER_PID_FILE' => $verifyingControllerPid,
+        'DUO3344_VERIFYING_NEW_DEATH_MARKER' => $verifyingDeathMarker,
         'DUO3344_EXCLUSION_STATE' => $exclusionState,
         'DUO3344_ORDER_LOG' => $orderLog,
         'DUO3344_PLAN' => $planPath,
@@ -1233,6 +1272,92 @@ PHP
         'fresh-verification retry seals before target begin, replays the archived terminal, then completes and releases once'
     );
 
+    // A real controller death at exactly the same boundary cannot execute the
+    // catch at all. The next controller must still recognize the durable
+    // verifying_new generation, complete its second seal before target begin,
+    // and replay the archived terminal rather than minting another receipt.
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog, $targetReplayLog);
+    scoped_host_remove($verifyingControllerPid);
+    $killedVerifying = scoped_host_promote($root, $envs, $contractPath, [], [
+        'DUO3344_DROP_VERIFYING_NEW_RESPONSE' => null,
+        'DUO3344_FAKE_APPLY_FAIL' => null,
+        'DUO3344_KILL_VERIFYING_NEW_CONTROLLER' => '1',
+    ]);
+    $killedVerifyingStatus = RollbackControl::status($control);
+    $killedVerifyingReceipt = (string) ($killedVerifyingStatus['receipt_id'] ?? '');
+    $killedVerifyingTargetReceipt = (string) ($killedVerifyingStatus['receipt_payload_sha256'] ?? '');
+    $killedVerifyingProvider = scoped_host_lines($providerLog);
+    $killedVerifyingSubcommands = scoped_host_wp_subcommands(scoped_host_wp_requests($wpLog));
+    $killedVerifyingReplay = scoped_host_lines($targetReplayLog);
+    scoped_host_ok(
+        $killedVerifying['exit'] !== 0
+            && trim($killedVerifying['stdout']) === ''
+            && trim($killedVerifying['stderr']) === ''
+            && is_file($verifyingDeathMarker)
+            && ($killedVerifyingStatus['state'] ?? null) === 'verifying_new'
+            && empty($killedVerifyingStatus['terminal'])
+            && ($killedVerifyingStatus['generation'] ?? null) === 4
+            && is_file($targetSession)
+            && is_file($targetTerminals . '/' . $killedVerifyingTargetReceipt . '.json')
+            && scoped_host_event_steps($control, $killedVerifyingReceipt) === array_slice($expectedSuccessEvents, 0, 5),
+        'controller death after durable first seal leaves the exact verifying_new generation and target handoff held'
+    );
+    scoped_host_ok(
+        $killedVerifyingSubcommands === [
+            'compile', 'plan', 'promotion-begin-scoped', 'apply', 'promotion-abort',
+        ]
+            && $killedVerifyingReplay === ['begin:promoting:' . $killedVerifyingTargetReceipt]
+            && count(array_filter($killedVerifyingProvider, static fn(string $line): bool => $line === 'checkpoint:prepare')) === 1
+            && !in_array('checkpoint:restore', $killedVerifyingProvider, true)
+            && !in_array('checkpoint:verify-prior', $killedVerifyingProvider, true)
+            && !in_array('exclusion:release', $killedVerifyingProvider, true),
+        'controller death performs no rollback catch, restore, prior verification, completion, or exclusion release'
+    );
+
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog, $targetReplayLog);
+    $resumedAfterDeath = scoped_host_promote($root, $envs, $contractPath);
+    if ($resumedAfterDeath['exit'] !== 0) {
+        scoped_host_fail(
+            'retry after controller death at fresh verification failed (' . $resumedAfterDeath['exit'] . "):\n"
+            . $resumedAfterDeath['stderr'] . $resumedAfterDeath['stdout']
+        );
+    }
+    $resumedAfterDeathResult = scoped_host_json($resumedAfterDeath['stdout'], 'controller-death replay result');
+    $resumedAfterDeathStatus = RollbackControl::status($control);
+    $resumedAfterDeathProvider = scoped_host_lines($providerLog);
+    $resumedAfterDeathSubcommands = scoped_host_wp_subcommands(scoped_host_wp_requests($wpLog));
+    $resumedAfterDeathReplay = scoped_host_lines($targetReplayLog);
+    $resumedAfterDeathOrder = scoped_host_lines($orderLog);
+    scoped_host_ok(
+        ($resumedAfterDeathResult['format'] ?? null) === 'duo-scoped-promotion-result/v1'
+            && ($resumedAfterDeathStatus['state'] ?? null) === 'committed'
+            && ($resumedAfterDeathStatus['terminal'] ?? null) === true
+            && ($resumedAfterDeathStatus['generation'] ?? null) === 4
+            && ($resumedAfterDeathStatus['receipt_id'] ?? null) === $killedVerifyingReceipt
+            && scoped_host_event_steps($control, $killedVerifyingReceipt) === $expectedSuccessEvents
+            && !is_file($targetSession),
+        'controller-death retry seals and commits the existing generation without a new checkpoint'
+    );
+    scoped_host_ok(
+        !in_array('checkpoint:prepare', $resumedAfterDeathProvider, true)
+            && !in_array('exclusion:acquire', $resumedAfterDeathProvider, true)
+            && !in_array('checkpoint:restore', $resumedAfterDeathProvider, true)
+            && !in_array('checkpoint:verify-prior', $resumedAfterDeathProvider, true)
+            && $resumedAfterDeathSubcommands === [
+                'compile', 'plan', 'promotion-begin-scoped', 'apply',
+                'promotion-abort', 'promotion-complete-scoped',
+            ]
+            && $resumedAfterDeathReplay === [
+                'begin:committed:' . $killedVerifyingTargetReceipt,
+                'replay:' . $killedVerifyingTargetReceipt,
+            ]
+            && $resumedAfterDeathOrder === [
+                'target-complete:committed-held',
+                'exclusion:release',
+            ],
+        'controller-death retry seals before target begin, replays the archived terminal, then completes and releases once'
+    );
+
     scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
     $failed = scoped_host_promote($root, $envs, $contractPath, [], ['DUO3344_FAKE_APPLY_FAIL' => '1']);
     $rolledBack = RollbackControl::status($control);
@@ -1246,7 +1371,7 @@ PHP
         $failed['exit'] !== 0
             && ($rolledBack['state'] ?? null) === 'rolled_back'
             && !empty($rolledBack['terminal'])
-            && ($rolledBack['generation'] ?? null) === 4
+            && ($rolledBack['generation'] ?? null) === 5
             && ($failedRefusal['reason_code'] ?? null) === 'scoped_promotion_rolled_back'
             && $failed['stderr'] === ''
             && !str_contains($failedPublicBytes, 'PRIVATE_TARGET_PATH')
@@ -1288,7 +1413,9 @@ PHP
         'DUO3344_APPLY_RESULT', 'DUO3344_COMPILED_ARTIFACT', 'DUO3344_COMPILE_SUMMARY',
         'DUO3344_CONTROL', 'DUO3344_DROP_COMPLETE_MARKER', 'DUO3344_DROP_MARKER',
         'DUO3344_DROP_VERIFYING_NEW_ARMED', 'DUO3344_DROP_VERIFYING_NEW_MARKER',
-        'DUO3344_DROP_VERIFYING_NEW_RESPONSE', 'DUO3344_EXCLUSION_STATE', 'DUO3344_FAIL_AUTHORITY_STATUS',
+        'DUO3344_DROP_VERIFYING_NEW_RESPONSE', 'DUO3344_KILL_VERIFYING_NEW_CONTROLLER',
+        'DUO3344_VERIFYING_NEW_CONTROLLER_PID_FILE', 'DUO3344_VERIFYING_NEW_DEATH_MARKER',
+        'DUO3344_EXCLUSION_STATE', 'DUO3344_FAIL_AUTHORITY_STATUS',
         'DUO3344_ORDER_LOG', 'DUO3344_PLAN', 'DUO3344_SCP_LOG', 'DUO3344_SSH_LOG',
         'DUO3344_TARGET_REPLAY_LOG', 'DUO3344_TARGET_SESSION', 'DUO3344_TARGET_TERMINALS',
         'DUO3344_WIRE_LOG', 'DUO3344_WP_LOG',
