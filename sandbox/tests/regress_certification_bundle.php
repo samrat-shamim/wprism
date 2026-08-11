@@ -79,6 +79,14 @@ check(
         && str_contains($referenceRunner, '$lock[0][(.kind + "s")][.slug][.version].sha256 == .sha256'),
     'reference environment binds typed cache usage and makes offline proof cache-hit-only'
 );
+$wordpressOfflineOverlay = (string) file_get_contents(__DIR__ . '/../pair.wordpress-offline.yml');
+check(
+    substr_count($wordpressOfflineOverlay, '- "api.wordpress.org:127.0.0.1"') === 1
+        && substr_count($wordpressOfflineOverlay, '- "downloads.wordpress.org:127.0.0.1"') === 1
+        && substr_count($wordpressOfflineOverlay, '- "wordpress.org:127.0.0.1"') === 1
+        && substr_count($wordpressOfflineOverlay, 'extra_hosts: *wordpress_offline_hosts') === 3,
+    'WordPress.org-offline overlay pins all three catalog/download hosts to loopback on every pair service'
+);
 
 echo "\n== bound-input enumeration is locale-pinned (DUO-3361) ==\n";
 // bound_inputs is a JSON ARRAY, and cert_canonical() sorts object keys while

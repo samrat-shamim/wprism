@@ -1253,6 +1253,15 @@ cmd_up() {
   # every container operation. A refusal here has touched nothing at all.
   assert_candidate_source up
 
+  # The typed artifact registry is mutation authority for the explicit
+  # artifact-backed bootstrap. Validate its complete closed shape before the
+  # budget lock, shared database, pair roots, or Docker are touched; a later
+  # fetch must not be the first place an unknown role/key is discovered.
+  if [ "$artifacts" = 1 ]; then
+    validate_artifact_lock conformance/artifacts.lock.json \
+      || fail "up: artifact lock is malformed; no pair resources were changed"
+  fi
+
   # Reserve the host budget before touching the shared DB, creating pair
   # schemas, or creating bind roots.  The reservation lock remains held
   # through web/CLI creation so a concurrent `up` cannot observe the same

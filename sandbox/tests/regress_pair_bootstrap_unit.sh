@@ -408,6 +408,41 @@ run_artifact_theme_case() {
   pass "$label: offline bootstrap consumes only the exact warm cached theme and verifies its version"
 }
 
+run_invalid_artifact_lock_preflight_case() {
+  local label=invalid_artifact_lock_preflight pair=pairinvalid
+  local case_root="$TMP/$label"
+  local fake_bin="$case_root/fake-bin"
+  local log="$case_root/docker.log" output="$case_root/output.log"
+  local canonical_root="$case_root/canonical"
+  mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
+  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
+  jq '.plugins.woocommerce["11.0.0"].role = "unknown-role"' \
+    "$ROOT/sandbox/conformance/artifacts.lock.json" \
+    > "$case_root/sandbox/conformance/artifacts.lock.json"
+  chmod +x "$case_root/sandbox/bin/pair.sh"
+  write_fake_docker "$fake_bin"
+  write_fake_git "$fake_bin"
+  export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$canonical_root" DUO_PAIR_TEST_LIVE_FILE='' \
+    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' \
+    PATH="$fake_bin:$ORIGINAL_PATH"
+
+  if "$case_root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless --artifacts \
+      >"$output" 2>&1; then
+    fail "$label accepted an artifact lock with an unknown role"
+  fi
+  assert_file_contains "$output" 'artifact lock is malformed' \
+    "$label did not return the bounded preflight refusal"
+  [ ! -e "$log" ] || [ ! -s "$log" ] \
+    || fail "$label contacted Docker before refusing the malformed lock"
+  [ ! -e "$case_root/sandbox/siterepo" ] \
+    || fail "$label created pair state before refusing the malformed lock"
+  pass "$label: malformed typed lock refuses before Docker, DB, or pair-root mutation"
+}
+
 run_python_lock_fallback_case() {
   local label=python_lock_fallback pair=pylock
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
@@ -1457,6 +1492,9 @@ run_case codebind pairbind demo-plugin canonical
 
 say "warm-cache WordPress.org-offline bootstrap (fake compose; no Docker/DB)"
 run_artifact_theme_case
+
+say "malformed artifact-lock preflight (fake compose; no Docker/DB)"
+run_invalid_artifact_lock_preflight_case
 
 say "bounded theme lookup retry + exact active-state proof (fake compose; no Docker/DB)"
 run_theme_retry_case

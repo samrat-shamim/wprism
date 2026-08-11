@@ -31,7 +31,9 @@ validate_artifact_lock() {
         all(.value | to_entries[];
           (.key | safe_version) and (.value | safe_entry)));
     type == "object" and keys == ["plugins","themes"] and
-    (.plugins | safe_namespace) and (.themes | safe_namespace)
+    (.plugins | safe_namespace) and (.themes | safe_namespace) and
+    all(.themes | to_entries[] | .value | to_entries[];
+      .value.role == "exercise-fixture")
   ' "$lockfile" >/dev/null 2>&1 || {
     echo "FAIL: artifact lock is malformed or contains an unsupported namespace, key, role, URL, digest, or archive root" >&2
     return 1

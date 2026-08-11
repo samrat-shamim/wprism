@@ -158,6 +158,18 @@ validate_artifact_lock conformance/artifacts.lock.json \
   || fail "valid typed artifact lock was refused"
 pass "unknown roles fail closed before download or bundle execution"
 
+say "theme entries cannot claim plugin-only certification or refusal roles"
+cp conformance/artifacts.lock.json "$TMP/valid-artifacts.lock.json"
+jq '.themes.fixture["1.0"].role = "certified-boundary"' \
+  conformance/artifacts.lock.json > "$TMP/invalid-artifacts.lock.json"
+mv "$TMP/invalid-artifacts.lock.json" conformance/artifacts.lock.json
+if validate_artifact_lock conformance/artifacts.lock.json; then
+  fail "typed artifact lock accepted a certified-boundary theme that the bundle cannot inventory"
+fi
+[ ! -s "$FAKE_CURL_LOG" ] || fail "invalid theme role reached curl"
+mv "$TMP/valid-artifacts.lock.json" conformance/artifacts.lock.json
+pass "themes remain execution fixtures and cannot disappear from plugin-only boundary evidence"
+
 say "two transient download failures recover on the bounded third attempt"
 path="$(fetch_artifact fixture 1.0 cli1)"
 [ "$path" = "/artifacts-cache/plugin-fixture-1.0-$DIGEST.zip" ] \

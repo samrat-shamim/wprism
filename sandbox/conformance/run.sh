@@ -197,6 +197,8 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 # shellcheck source=../bin/fetch-artifact.sh
 . bin/fetch-artifact.sh
+validate_artifact_lock conformance/artifacts.lock.json \
+  || fail "artifact lock is malformed; conformance refused before pair reset"
 wp_env() { # wp_env <conf1|conf2> <wp args...>
   local env="$1"; shift
   local side="${env#conf}"   # conf1 -> 1, conf2 -> 2 (pair.sh's generic side numbering)

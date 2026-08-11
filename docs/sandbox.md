@@ -445,7 +445,9 @@ means the artifact is an admitted supported version; `refusal-fixture` means it
 is deliberately below range and exists only to prove loud refusal;
 `exercise-fixture` means exact bytes used to execute a harness (currently PMPro
 and the bootstrap themes) but never promoted into the bundle's certified
-plugin-artifact claim. A nonstandard ZIP may additionally pin `archive_root`;
+plugin-artifact claim. Plugin entries may use any of those three closed roles;
+theme entries must be `exercise-fixture` because the current bundle boundary
+inventory is plugin-only. A nonstandard ZIP may additionally pin `archive_root`;
 the harness then renames only that exact extracted directory to the typed slug
 before activation and still requires the installed version readback. Missing
 or unknown roles fail the closed lock validator before any resolver or bundle
