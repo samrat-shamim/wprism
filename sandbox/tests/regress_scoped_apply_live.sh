@@ -853,7 +853,7 @@ update_option('sidebars_widgets', [
 ]);
 " >/dev/null
 publish_source_capture nested-initial 'capture: DUO-3344 scoped sidebar/menu fixture'
-MENU_A_SLUG="$(source_wp term get "$MENU_A_SOURCE_ID" nav_menu --field=slug | tr -d '\r\n')"
+MENU_A_SLUG="$(source_wp term get nav_menu "$MENU_A_SOURCE_ID" --field=slug | tr -d '\r\n')"
 [[ "$MENU_A_SLUG" =~ ^[a-z0-9-]+$ ]] || fail "source menu A did not receive a safe slug"
 MENU_A_UUID="$(source_wp eval "echo (string) get_term_meta($MENU_A_SOURCE_ID, '_duo_uuid', true);" | tr -d '\r\n')"
 MENU_B_UUID="$(source_wp eval "echo (string) get_term_meta($MENU_B_SOURCE_ID, '_duo_uuid', true);" | tr -d '\r\n')"
