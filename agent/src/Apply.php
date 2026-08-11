@@ -175,6 +175,12 @@ final class Apply {
             // is called from plan.
             $diagnosis = Providers::negotiate_scoped($policy, $selectedActions);
             $plan['format'] = ScopedApply::PLAN_FORMAT;
+            // ScopedRollbackProfile binds its checkpoint/recovery authority to
+            // the exact compiled artifact and adapter-resolution set. Keep
+            // both immutable witnesses in the public plan before the target
+            // can negotiate or claim the scoped handoff.
+            $plan['artifact_hash'] = $compiled->artifact_hash();
+            $plan['resolved_adapters'] = $compiled->resolved_adapters();
             $plan['scope'] = [
                 'format' => ScopeContract::FORMAT,
                 'scope_hash' => (string) $a->scopeContract['scope_hash'],

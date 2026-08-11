@@ -1252,6 +1252,12 @@ $buildPlanAt = strpos($applySource, 'private function build_plan(');
 $check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
     'Apply::plan() and Apply::build_plan() are both present, in that order (the slice below depends on it)');
 $planSource = substr($applySource, (int) $planAt, (int) $buildPlanAt - (int) $planAt);
+$formatAt = strpos($planSource, "$" . "plan['format'] = ScopedApply::PLAN_FORMAT;");
+$artifactAt = strpos($planSource, "$" . "plan['artifact_hash'] = $" . "compiled->artifact_hash();");
+$adaptersAt = strpos($planSource, "$" . "plan['resolved_adapters'] = $" . "compiled->resolved_adapters();");
+$check($formatAt !== false && $artifactAt !== false && $adaptersAt !== false
+    && $formatAt < $artifactAt && $artifactAt < $adaptersAt,
+    'scoped Apply::plan() publishes the exact compiled artifact hash and resolved adapter witnesses required by scoped rollback authority');
 $check((bool) preg_match(
     "/\\\$plan\\['provider_problems'\\]\s*=\s*Providers::problems\(\s*\\\$policy,"
     . "\s*\\\$plan\\['adapter_dispositions'\\] \?\? \[\]\s*\);/",
