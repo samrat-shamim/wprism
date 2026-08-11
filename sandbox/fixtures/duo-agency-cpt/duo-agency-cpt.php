@@ -306,6 +306,10 @@ final class Duo_Agency_Index_Provider {
                 'scope' => 'site',
                 'idempotent' => true,
                 'timeout_seconds' => 60,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -336,6 +340,31 @@ final class Duo_Agency_Index_Provider {
             );
         }
         return ['before' => $before, 'after' => $stored, 'verified' => true];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => duo_agency_cpt_read_project_index(),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== 'rebuild_project_index') {
+            throw new RuntimeException(
+                "duo-agency-cpt: provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => duo_agency_cpt_read_project_index(),
+            'verified' => true,
+        ];
     }
 }
 

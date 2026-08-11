@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/CommandRefusal.php';
 
 /** Canonical sidebar ownership and ledger-only widget instance identity. */
 final class SidebarState {
@@ -130,6 +131,52 @@ final class SidebarState {
             ];
         }
         return ['entities' => $entities, 'warnings' => $warnings];
+    }
+
+    /**
+     * Bind one selected widget ledger tuple to the exact live option instance
+     * and selected sidebar assignment. This is read-only and deliberately
+     * separate from global dead-map pruning: unselected widget rows are not
+     * this scoped authority's evidence to repair or reinterpret.
+     */
+    public static function assert_read_only_selected_mapping(
+        Policy $policy,
+        string $uuid,
+        string $type,
+        int $localId,
+        string $sidebar
+    ): void {
+        $declared = $policy->widget_types();
+        if (!isset($declared[$type]) || $localId <= 0 || $sidebar === '') {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        try {
+            $options = self::load_widget_options($policy, $declared, false);
+            $sidebars = self::load_sidebars_option();
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+        }
+        $key = "$type-$localId";
+        if (!isset($options[$type][$localId])
+            || !in_array($key, (array) ($sidebars[$sidebar] ?? []), true)) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        foreach ($sidebars as $owner => $keys) {
+            if ((string) $owner !== $sidebar && in_array($key, (array) $keys, true)) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+        }
+        try {
+            Ledger::require_read_only_mapping(
+                $uuid,
+                'widget',
+                self::kind($type),
+                $localId,
+                "selected widget '$key'"
+            );
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+        }
     }
 
     /** Validate the multi-instance family before any row is used. */
@@ -351,9 +398,24 @@ final class SidebarState {
         }
     }
 
-    /** Phase 2: reconcile one file-owned sidebar and delete displaced defaults. */
+    /**
+     * Phase 2: reconcile one file-owned sidebar and delete displaced defaults.
+     *
+     * $writeTouchedOnly is the scoped write bound. The complete compiled tree
+     * remains necessary for the read-only global desired-key scan: a widget
+     * owned by a different sidebar must prevent this selected sidebar from
+     * deleting the instance during a move. In bounded mode, however, only
+     * widget families actually changed by this sidebar may be sorted/upserted
+     * or have their option caches invalidated. The default preserves the
+     * historical full-apply write behavior exactly.
+     */
     public static function finalize_sidebar(
-        Policy $policy, Tokens $tokens, array $front, string $sidebar, array $tree
+        Policy $policy,
+        Tokens $tokens,
+        array $front,
+        string $sidebar,
+        array $tree,
+        bool $writeTouchedOnly = false
     ): void {
         $declared = $policy->widget_types();
         $options = self::load_widget_options($policy, $declared, false);
@@ -367,13 +429,17 @@ final class SidebarState {
                 if ($local !== null) $globallyDesired["$type-$local"] = true;
             }
         }
+        $touchedTypes = [];
         foreach ((array) ($sidebars[$sidebar] ?? []) as $oldKey) {
             if (!is_string($oldKey) || isset($globallyDesired[$oldKey])
                 || !preg_match('/^(.+)-([1-9][0-9]*)$/', $oldKey, $m)) continue;
             $oldType = $m[1];
             $oldLocal = (int) $m[2];
             if (isset($declared[$oldType])) {
-                unset($options[$oldType][$oldLocal]);
+                if (array_key_exists($oldLocal, $options[$oldType])) {
+                    unset($options[$oldType][$oldLocal]);
+                    $touchedTypes[$oldType] = true;
+                }
                 $oldUuid = Ledger::uuid_for($oldLocal, self::kind($oldType));
                 if ($oldUuid !== null) Ledger::forget($oldUuid);
             }
@@ -387,9 +453,14 @@ final class SidebarState {
             $options[$type][$local] = self::apply_settings(
                 $type, (array) $widget['settings'], $declared[$type], $policy, $tokens
             );
+            $touchedTypes[$type] = true;
             $keys[] = "$type-$local";
         }
-        foreach ($declared as $type => $_) {
+        if ($writeTouchedOnly) {
+            ksort($touchedTypes, SORT_STRING);
+        }
+        $optionWriteTypes = $writeTouchedOnly ? array_keys($touchedTypes) : array_keys($declared);
+        foreach ($optionWriteTypes as $type) {
             ksort($options[$type], SORT_NUMERIC);
             $stored = $options[$type];
             $stored['_multiwidget'] = 1;

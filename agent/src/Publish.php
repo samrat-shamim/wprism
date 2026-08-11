@@ -556,7 +556,7 @@ final class Publish {
                 self::rrmdir($backup);
                 $log[] = "recovered: removed retained post-commit backup $backup";
             }
-            if (is_file(self::intent_path($stateDir))) {
+            if ($intent !== null) {
                 self::remove_record(self::intent_path($stateDir), 'intent', $intent);
                 $log[] = 'recovered: finalized the durable capture intent after its commit receipt was found';
             }
@@ -1588,12 +1588,12 @@ PHP;
         $staging = self::stage_dir($stateDir);
         $intent = self::intent_path($stateDir);
         $hadRetainedArtifacts = is_dir($backup) || is_dir($staging);
-        if ($hadRetainedArtifacts && !is_file($intent)) {
+        $onDisk = self::read_record($intent, 'intent');
+        if ($hadRetainedArtifacts && $onDisk === null) {
             throw self::ambiguous_recovery('post-commit cleanup found retained artifacts with no matching intent');
         }
-        if (is_file($intent)) {
-            $onDisk = self::read_record($intent, 'intent');
-            if ($onDisk === null || ($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)) {
+        if ($onDisk !== null) {
+            if (($onDisk['id'] ?? null) !== ($receipt['intent_id'] ?? null)) {
                 throw self::ambiguous_recovery('post-commit cleanup found an intent id that differs from its receipt');
             }
         }
@@ -1614,7 +1614,7 @@ PHP;
         if (is_dir($staging)) {
             self::rrmdir($staging);
         }
-        if (is_file($intent)) {
+        if ($onDisk !== null) {
             self::remove_record($intent, 'intent', $onDisk);
         }
         self::fsync_dir(dirname($stateDir));
@@ -1812,12 +1812,17 @@ PHP;
         array $record,
         string $label
     ): bool {
+        clearstatcache(true, $nextPath);
         $anchor = @lstat($nextPath);
-        if (!is_array($anchor) || is_link($nextPath) || !is_file($nextPath)) {
+        $anchorMode = is_array($anchor) ? (int) ($anchor['mode'] ?? 0) : 0;
+        if (!is_array($anchor) || ($anchorMode & 0170000) !== 0100000) {
             return false;
         }
+        clearstatcache(true, $candidatePath);
         $candidateStat = @lstat($candidatePath);
+        $candidateMode = is_array($candidateStat) ? (int) ($candidateStat['mode'] ?? 0) : 0;
         if (!is_array($candidateStat)
+            || ($candidateMode & 0170000) !== 0100000
             || (string) ($candidateStat['dev'] ?? '') !== (string) ($anchor['dev'] ?? '')
             || (string) ($candidateStat['ino'] ?? '') !== (string) ($anchor['ino'] ?? '')) {
             return false;
@@ -1897,7 +1902,10 @@ PHP;
             throw self::ambiguous_recovery("capture $label temporary-record directory cannot be enumerated");
         }
         $prefix = basename($path) . '.tmp.';
-        if (!is_array(@lstat($nextPath)) || is_link($nextPath) || !is_file($nextPath)) {
+        clearstatcache(true, $nextPath);
+        $anchor = @lstat($nextPath);
+        $anchorMode = is_array($anchor) ? (int) ($anchor['mode'] ?? 0) : 0;
+        if (!is_array($anchor) || ($anchorMode & 0170000) !== 0100000) {
             throw self::ambiguous_recovery("capture $label next-transition has no regular-file identity");
         }
         foreach ($entries as $entry) {
@@ -1990,13 +1998,61 @@ PHP;
         // refuses exactly as before.
         clearstatcache(true, $path);
         self::assert_not_symlink_root($path, "$label record");
-        if (!file_exists($path) && !is_link($path)) {
+        // Every phase transition above publishes a regular file through a
+        // same-filesystem hard link. Docker Desktop bind mounts have been
+        // observed returning stale is_file() metadata immediately after the
+        // successful link(2): the canonical path and the retained temp were
+        // both regular links to one sealed inode, but readback called it a
+        // non-file boundary and the finally block retained the temp. Use a
+        // fresh lstat rather than PHP's cached path predicate, then bind both
+        // validation and bytes to an opened descriptor. The pre-open type
+        // check keeps known FIFOs/devices from crossing the fail-closed
+        // special-file boundary; under the capture lock's documented
+        // external-writer exclusion, the post-open identity check also binds
+        // the canonical name to that descriptor through the read.
+        clearstatcache(true, $path);
+        $before = @lstat($path);
+        if (!is_array($before)) {
             return null;
         }
-        if (!is_file($path)) {
+        $beforeMode = (int) ($before['mode'] ?? 0);
+        if (($beforeMode & 0170000) !== 0100000) {
             throw self::ambiguous_recovery("capture recovery found a non-file $label record boundary $path");
         }
-        $bytes = @file_get_contents($path);
+        $handle = @fopen($path, 'rb');
+        if ($handle === false) {
+            throw new \RuntimeException("duo: capture recovery cannot read $label record $path");
+        }
+        try {
+            $opened = @fstat($handle);
+            clearstatcache(true, $path);
+            $named = @lstat($path);
+            $openedMode = is_array($opened) ? (int) ($opened['mode'] ?? 0) : 0;
+            $namedMode = is_array($named) ? (int) ($named['mode'] ?? 0) : 0;
+            if (!is_array($opened) || !is_array($named)
+                || ($openedMode & 0170000) !== 0100000
+                || ($namedMode & 0170000) !== 0100000
+                || (string) ($before['dev'] ?? '') !== (string) ($opened['dev'] ?? '')
+                || (string) ($before['ino'] ?? '') !== (string) ($opened['ino'] ?? '')
+                || (string) ($opened['dev'] ?? '') !== (string) ($named['dev'] ?? '')
+                || (string) ($opened['ino'] ?? '') !== (string) ($named['ino'] ?? '')) {
+                throw self::ambiguous_recovery("capture recovery found a non-file or changed $label record boundary $path");
+            }
+            $bytes = stream_get_contents($handle);
+            clearstatcache(true, $path);
+            $after = @lstat($path);
+            $afterMode = is_array($after) ? (int) ($after['mode'] ?? 0) : 0;
+            if (!is_array($after)
+                || ($afterMode & 0170000) !== 0100000
+                || (string) ($before['dev'] ?? '') !== (string) ($opened['dev'] ?? '')
+                || (string) ($before['ino'] ?? '') !== (string) ($opened['ino'] ?? '')
+                || (string) ($opened['dev'] ?? '') !== (string) ($after['dev'] ?? '')
+                || (string) ($opened['ino'] ?? '') !== (string) ($after['ino'] ?? '')) {
+                throw self::ambiguous_recovery("capture recovery found a changed $label record boundary $path");
+            }
+        } finally {
+            fclose($handle);
+        }
         if ($bytes === false) {
             throw new \RuntimeException("duo: capture recovery cannot read $label record $path");
         }
@@ -2108,13 +2164,14 @@ PHP;
             }
             self::fsync_dir(dirname($path));
         } finally {
-            // Refresh the owned temp's identity before removing it, so a stale
-            // cached stat cannot make is_file() miss the regular inode we
-            // created and leak the .tmp.<pid>.<rand> hard link. $tmp is a
-            // unique path we created, so a fresh is_file() is the correct
-            // owned-file check.
+            // The temp is this run's create-if-absent inode. Refresh path
+            // metadata before deciding whether it still exists: the same
+            // bind-mount cache window that affected canonical readback can
+            // otherwise strand an owned hard link beside a valid intent.
             clearstatcache(true, $tmp);
-            if (is_file($tmp)) {
+            $tmpStat = @lstat($tmp);
+            $tmpMode = is_array($tmpStat) ? (int) ($tmpStat['mode'] ?? 0) : 0;
+            if (is_array($tmpStat) && ($tmpMode & 0170000) === 0100000) {
                 @unlink($tmp);
             }
         }
@@ -2374,7 +2431,10 @@ PHP;
         if ($probe === '') {
             $probe = $path;
         }
-        if (is_link($probe)) {
+        clearstatcache(true, $probe);
+        $stat = @lstat($probe);
+        $mode = is_array($stat) ? (int) ($stat['mode'] ?? 0) : 0;
+        if (is_array($stat) && ($mode & 0170000) === 0120000) {
             throw new \RuntimeException("duo: refusing to operate on symlinked $label root $path");
         }
     }

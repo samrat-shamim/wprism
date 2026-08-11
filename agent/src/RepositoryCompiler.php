@@ -731,6 +731,7 @@ final class RepositoryCompiler {
         usort($sourceRows, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
         $this->policy->prime_interpreters_from_repository($tree);
         $this->validate_natural_identities($tree);
+        $this->validate_menu_locations($tree);
         $this->validate_graph($tree);
         $this->validate_portable_shapes($tree);
         // A comparison revision may predate code opt-in. Keep compiling and
@@ -1193,6 +1194,17 @@ final class RepositoryCompiler {
                 }
             }
         }
+        if ($kind === 'menu' && $this->policy->menu_field_class('locations') !== 'derived') {
+            if (!isset($data['locations']) || !is_array($data['locations']) || !array_is_list($data['locations'])) {
+                $this->add('schema_content_mismatch', $path, 'locations', 'menu locations must be an ordered string list');
+            } else {
+                foreach ($data['locations'] as $i => $location) {
+                    if (!is_string($location) || $location === '') {
+                        $this->add('schema_content_mismatch', $path, "locations[$i]", 'menu location must be a non-empty string');
+                    }
+                }
+            }
+        }
         if ($kind === SidebarState::ENTITY_TYPE) {
             $unknown = array_values(array_diff(array_keys($data), ['widgets']));
             if ($unknown) {
@@ -1401,6 +1413,43 @@ final class RepositoryCompiler {
                 $this->add('duplicate_natural_identity', $entity['path'], 'slug', "natural identity collides with {$seen[$key]}", $seen[$key]);
             } else {
                 $seen[$key] = $entity['path'];
+            }
+        }
+    }
+
+    /**
+     * One active theme location may name one menu. This is a compiler
+     * invariant rather than an apply-time overwrite rule: it rejects both an
+     * malformed full source tree and a scoped candidate that combines a
+     * selected source menu with an excluded target holder before any scoped
+     * authority/session or target mutation can be created. A manifest that
+     * classifies locations as derived owns that whole surface and is exempt.
+     */
+    private function validate_menu_locations(array $tree): void {
+        if ($this->policy->menu_field_class('locations') === 'derived') {
+            return;
+        }
+        $holders = [];
+        foreach ($tree as $entity) {
+            if (($entity['type'] ?? '') !== 'menu') {
+                continue;
+            }
+            $path = (string) ($entity['path'] ?? '');
+            foreach ((array) ($entity['data']['locations'] ?? []) as $i => $location) {
+                if (!is_string($location) || $location === '') {
+                    continue; // validate_schema() owns the shape diagnostic.
+                }
+                if (isset($holders[$location])) {
+                    $this->add(
+                        'duplicate_menu_location',
+                        $path,
+                        "locations[$i]",
+                        "menu location '$location' is already assigned by {$holders[$location]}",
+                        $holders[$location]
+                    );
+                    continue;
+                }
+                $holders[$location] = $path;
             }
         }
     }

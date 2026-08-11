@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/PlainData.php';
+require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/OrderPreserved.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/ReferenceRules.php';
@@ -2786,5 +2787,65 @@ final class Snapshot {
             return (bool) $wpdb->get_var($wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d", $localId));
         }
         return false;
+    }
+
+    /**
+     * Re-prove one selected authored_snapshot map tuple against its physical
+     * row without pruning or repairing it. Unlike row_exists_for_kind(), this
+     * path supports composite_ref's packed local id because scoped recovery
+     * must bind the exact retained tuple rather than merely classify an
+     * option-name reference.
+     */
+    public static function assert_read_only_selected_mapping(
+        Policy $policy,
+        string $table,
+        string $uuid,
+        string $idKind,
+        int $localId
+    ): void {
+        global $wpdb;
+        $decl = self::row_tables($policy)[$table] ?? null;
+        if (!is_array($decl) || (string) ($decl['id_kind'] ?? '') !== $idKind || $localId <= 0) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        if (!self::read_only_mapped_row_exists($policy, $table, $localId)) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        try {
+            Ledger::require_read_only_mapping($uuid, $table, $idKind, $localId, "selected table '$table' row");
+        } catch (\Throwable $failure) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired($failure);
+        }
+    }
+
+    /** Checked SELECT-only physical existence for regular and composite rows. */
+    public static function read_only_mapped_row_exists(Policy $policy, string $table, int $localId): bool {
+        global $wpdb;
+        $decl = self::row_tables($policy)[$table] ?? null;
+        if (!is_array($decl) || $localId <= 0) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        $prefixed = $wpdb->prefix . $table;
+        if (self::is_composite_ref($decl)) {
+            [$left, $right] = self::unpack_composite_id($localId);
+            $columns = array_values((array) ($decl['identity']['columns'] ?? []));
+            if (count($columns) !== 2) {
+                throw CommandRefusalException::scopedIdentityRecoveryRequired();
+            }
+            $sql = $wpdb->prepare(
+                "SELECT 1 FROM `$prefixed` WHERE `{$columns[0]}` = %d AND `{$columns[1]}` = %d LIMIT 1",
+                $left,
+                $right
+            );
+        } else {
+            $pk = (string) ($decl['pk'] ?? '');
+            $sql = $wpdb->prepare("SELECT 1 FROM `$prefixed` WHERE `$pk` = %d LIMIT 1", $localId);
+        }
+        $wpdb->last_error = '';
+        $exists = $wpdb->get_var($sql);
+        if ($exists === false || !empty($wpdb->last_error)) {
+            throw CommandRefusalException::scopedIdentityRecoveryRequired();
+        }
+        return $exists !== null;
     }
 }

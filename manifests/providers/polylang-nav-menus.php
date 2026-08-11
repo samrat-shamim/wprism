@@ -51,6 +51,10 @@ final class PolylangNavMenus {
                 'scope' => 'site',
                 'idempotent' => true,
                 'timeout_seconds' => 30,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -63,6 +67,74 @@ final class PolylangNavMenus {
                 "duo: Polylang nav-menu provider does not implement capability '$capability'"
             ),
         };
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== 'sync_nav_menu_locations') {
+            throw new \RuntimeException(
+                "duo: Polylang nav-menu provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @return array<string,mixed> */
+    private function scoped_postcondition(): array {
+        foreach (['get_option', 'get_theme_mod'] as $required) {
+            if (!function_exists($required)) {
+                throw new \RuntimeException(
+                    "duo: Polylang nav-menu reconciliation requires WordPress's $required()"
+                );
+            }
+        }
+        $polylang = get_option('polylang');
+        $stylesheet = (string) get_option('stylesheet');
+        $written = $this->observe_locations();
+        if (!is_array($polylang) || empty($polylang['nav_menus'][$stylesheet])) {
+            return [
+                'stylesheet' => $stylesheet,
+                'nav_menu_locations' => $written,
+                'expected_nav_menu_locations' => [],
+                'outcome' => 'no-op (no nav_menus for active theme)',
+            ];
+        }
+        $defaultLang = $polylang['default_lang'] ?? null;
+        $map = [];
+        foreach ((array) $polylang['nav_menus'][$stylesheet] as $location => $byLanguage) {
+            $map[$location] = is_array($byLanguage) && isset($byLanguage[$defaultLang])
+                ? $byLanguage[$defaultLang]
+                : 0;
+        }
+        foreach ($map as $location => $menuId) {
+            if (!array_key_exists($location, $written) || $written[$location] !== $menuId) {
+                throw new \RuntimeException(
+                    'duo: Polylang nav_menu_locations readback does not hold the computed value for '
+                    . "location '$location' on theme '$stylesheet'; recovery_required"
+                );
+            }
+        }
+        return [
+            'stylesheet' => $stylesheet,
+            'nav_menu_locations' => $written,
+            'expected_nav_menu_locations' => $map,
+            'outcome' => 'synchronized',
+        ];
     }
 
     /**

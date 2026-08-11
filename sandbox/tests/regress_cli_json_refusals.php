@@ -333,6 +333,19 @@ namespace {
     check(($scopeRoots['error'] ?? null) === 'invalid_arguments', 'scope missing roots has a stable argument error code');
     check(($scopeRoots['message'] ?? null) === '--roots is required for scope', 'scope refusal identifies the missing roots argument');
 
+    $scopedView = invoke_json(static fn() => $cli->plan([], [
+        'repo' => '/fixture',
+        'scope-request-b64' => 'deliberately-not-decoded',
+        'action' => 'create',
+        'format' => 'json',
+    ]));
+    check(
+        ($scopedView['command'] ?? null) === 'plan'
+            && ($scopedView['reason_code'] ?? null) === 'plan_view_unavailable'
+            && !str_contains(json_encode($scopedView), 'deliberately-not-decoded'),
+        'direct agent plan typed-refuses scoped view flags before decoding or echoing scope evidence'
+    );
+
     echo "\n== deliberately public gates keep stable diagnostics ==\n";
     \Duo\Capture::$failure = new \Duo\CommandRefusalException(
         'incomplete_state_discovery',
@@ -528,6 +541,19 @@ namespace {
             && ($accident['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($accident), 'TypeError-shaped'),
         'an unprefixed Throwable stays fully redacted under the same catch-all rule'
+    );
+
+    \Duo\Apply::$applyFailure = \Duo\CommandRefusalException::applyRefused(
+        'scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created',
+        'review the selected tombstones and rerun scoped apply with --with-deletes to authorize their removal',
+        'duo: scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created'
+    );
+    $scopedApplyRefusal = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    check(
+        ($scopedApplyRefusal['reason_code'] ?? null) === 'apply_refused'
+            && str_contains((string) ($scopedApplyRefusal['message'] ?? ''), '--with-deletes')
+            && ($scopedApplyRefusal['details_redacted'] ?? false) === false,
+        'known value-free scoped apply preconditions retain actionable typed machine guidance'
     );
 
     $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');

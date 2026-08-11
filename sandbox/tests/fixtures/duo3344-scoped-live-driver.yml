@@ -1,0 +1,59 @@
+# Ephemeral public-CLI driver services for regress_scoped_apply_live.sh.
+#
+# `pair.sh` is the only owner of the WordPress pair.  These one-shot CLI
+# containers attach only the pair's already-created volumes/network so the
+# host's public `cli/duo` path exercises its normal DockerTransport endpoint.
+# They deliberately publish no ports and own neither a database nor a
+# long-lived service.  The plugin bind is the pair's own repository codebind,
+# not a host-installed fixture, so provider discovery stays product-real.
+services:
+  source:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    working_dir: /var/www/html
+    networks: [duo-shared]
+    environment: &wp_env
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_HOST: duo-shared-db
+      WORDPRESS_DB_NAME: wp_${DUO3344_PAIR}1
+      DUO_MANIFESTS_DIR: /duo-manifests
+      WORDPRESS_CONFIG_EXTRA: |
+        define('WP_ENVIRONMENT_TYPE', 'local');
+        define('DISABLE_WP_CRON', true);
+    volumes:
+      - source_wp:/var/www/html
+      - ${DUO3344_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ${DUO3344_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ${DUO3344_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3344_SITE1}:/siterepo
+      - ${DUO3344_SITE1}/code/wp-content/plugins/${DUO3344_PLUGIN_DIR}:/var/www/html/wp-content/plugins/${DUO3344_PLUGIN_DIR}:ro
+
+  target:
+    image: wordpress:cli-php8.3
+    user: "33:33"
+    working_dir: /var/www/html
+    networks: [duo-shared]
+    environment:
+      <<: *wp_env
+      WORDPRESS_DB_NAME: wp_${DUO3344_PAIR}2
+    volumes:
+      - target_wp:/var/www/html
+      - ${DUO3344_AGENT_SRC}:/var/www/html/wp-content/mu-plugins/duo:ro
+      - ${DUO3344_AGENT_SRC}/duo-loader.php:/var/www/html/wp-content/mu-plugins/duo-loader.php:ro
+      - ${DUO3344_MANIFESTS_SRC}:/duo-manifests:ro
+      - ${DUO3344_SITE2}:/siterepo
+      - ${DUO3344_SITE2}/code/wp-content/plugins/${DUO3344_PLUGIN_DIR}:/var/www/html/wp-content/plugins/${DUO3344_PLUGIN_DIR}:ro
+
+networks:
+  duo-shared:
+    name: duo-shared
+    external: true
+
+volumes:
+  source_wp:
+    name: duo-${DUO3344_PAIR}_wp1
+    external: true
+  target_wp:
+    name: duo-${DUO3344_PAIR}_wp2
+    external: true

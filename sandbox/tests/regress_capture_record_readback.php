@@ -16,12 +16,11 @@
  * write_record() `finally` cleanup's is_file($tmp) miss the owned temp hard
  * link and leak it.
  *
- * The fix (agent/src/Publish.php): read_record() now calls
- * clearstatcache(true, $path) as its FIRST statement — the same discipline
- * lock_new()/assert_lock_path() already use before their fresh is_file/inode
- * checks — so the type check is a FRESH regular-file identity check; and the
- * write_record() finally now calls clearstatcache(true, $tmp) before
- * is_file($tmp), so the owned temp's identity is refreshed before removal.
+ * The fix (agent/src/Publish.php): read_record() uses a fresh lstat regular-file
+ * check, opens the path read-only, and binds the opened descriptor to the named
+ * inode before and after reading. write_record() likewise fresh-lstats its
+ * owned temp before cleanup. Cached path predicates therefore grant neither
+ * read nor cleanup authority.
  *
  * This suite runs the REAL, unmodified agent/src/{Canon,Publish}.php on real
  * files. PHP keeps its OWN single-entry userland stat cache, so the stale
@@ -30,10 +29,11 @@
  * link inside a pcntl_fork()ed CHILD — the parent process's cached stat stays
  * stale (fork + pipe I/O never re-stat a path), the offline stand-in for the
  * bind mount's stale kernel stat. The mutation proof loads a COPY of
- * Publish.php with the read_record clearstatcache line removed and shows the
- * primed-stale readback then throws the non-file boundary again — i.e. the fix
- * genuinely bites. A real directory, symlink, malformed, or unsealed record
- * still refuses exactly as before (the fresh stat only changes freshness).
+ * Publish.php with the inode-bound pre-open check reverted to the old cached
+ * file_exists()/is_file()/is_link() boundary and shows the primed-stale
+ * readback then throws the non-file boundary again — i.e. the fix genuinely
+ * bites. A real directory, symlink, malformed, or unsealed record still
+ * refuses exactly as before.
  *
  * Exit 0 and "ALL PASSED" on success; any failed check prints "FAIL: ..." and
  * the script exits 1.
@@ -200,10 +200,11 @@ if ($pcntl) {
 
 // ======================================================================
 // R1' — MUTATION PROOF: the same primed-stale readback, run against a copy of
-// Publish.php with the read_record clearstatcache line removed, MUST throw the
-// non-file boundary again. This is what proves the fix is load-bearing.
+// Publish.php whose inode-bound pre-open check is reverted to the old cached
+// path predicates, MUST throw the non-file boundary again. This proves the
+// stronger readback boundary is load-bearing.
 // ======================================================================
-echo "\n== R1': mutation proof (remove read_record clearstatcache -> the boundary fires) ==\n";
+echo "\n== R1': mutation proof (restore cached path predicates -> the boundary fires) ==\n";
 if ($pcntl) {
     $root = fresh_root('mutation');
     $realSrc = "$repoRoot/agent/src";
@@ -222,19 +223,38 @@ if ($pcntl) {
     check($cpRc === 0, 'R1\'a: engine source tree copied for mutation' . ($cpRc === 0 ? '' : " ($cpErr)"));
     $mutantPublish = "$mutantSrc/Publish.php";
 
-    // Remove ONLY read_record()'s clearstatcache — the clearstatcache that sits
-    // immediately before its assert_not_symlink_root is unique to read_record
-    // (write_record/remove_record have no clearstatcache before theirs).
-    $needle = "        clearstatcache(true, \$path);\n        self::assert_not_symlink_root(\$path, \"\$label record\");";
-    $replacement = "        self::assert_not_symlink_root(\$path, \"\$label record\");";
     $srcText = (string) file_get_contents($mutantPublish);
-    check(substr_count($srcText, $needle) === 1,
-        'R1\'b: the read_record clearstatcache line is present exactly once (mutation target is unambiguous)');
-    file_put_contents($mutantPublish, str_replace($needle, $replacement, $srcText));
+    $methodNeedle = "    private static function read_record(string \$path, string \$label): ?array {\n";
+    $handleNeedle = "        \$handle = @fopen(\$path, 'rb');\n";
+    $methodOffset = strpos($srcText, $methodNeedle);
+    $bodyOffset = is_int($methodOffset) ? $methodOffset + strlen($methodNeedle) : false;
+    $handleOffset = is_int($bodyOffset) ? strpos($srcText, $handleNeedle, $bodyOffset) : false;
+    check(is_int($methodOffset) && is_int($bodyOffset) && is_int($handleOffset),
+        'R1\'b: the inode-bound read_record pre-open boundary is present once (mutation target is unambiguous)');
+    if (is_int($bodyOffset) && is_int($handleOffset)) {
+        $legacyPrelude = <<<'PHP'
+        if (is_link($path)) {
+            throw new \RuntimeException("duo: refusing to operate on symlinked $label record root $path");
+        }
+        if (!file_exists($path) && !is_link($path)) {
+            return null;
+        }
+        if (!is_file($path)) {
+            throw self::ambiguous_recovery("capture recovery found a non-file $label record boundary $path");
+        }
+        $before = @stat($path);
+PHP;
+        $legacyPrelude .= "\n";
+        $srcText = substr($srcText, 0, $bodyOffset)
+            . $legacyPrelude
+            . substr($srcText, $handleOffset);
+        file_put_contents($mutantPublish, $srcText);
+    }
 
     // The driver reproduces the primed-stale readback (via its own pcntl_fork)
     // and calls read_record() DIRECTLY, so the ONLY difference between the real
-    // and mutated run is that single removed line. It prints one RESULT: line.
+    // and mutated run is the restored cached-predicate pre-open boundary. It
+    // prints one RESULT: line.
     $driver = "$root/readback_driver.php";
     file_put_contents($driver, <<<'DRIVER'
 <?php
@@ -328,12 +348,12 @@ DRIVER);
     check(str_starts_with($realResult, 'OK'),
         'R1\'c: fixed source reads the stale-cached hard link back as the sealed record (control: ' . $realResult . ')');
 
-    // Mutation: with read_record's clearstatcache removed, the identical
+    // Mutation: with the old cached path predicates restored, the identical
     // primed-stale readback throws the false non-file boundary again.
     $mutResult = $runDriver($mutantPublish, "$root/work_mutant");
     check(str_starts_with($mutResult, 'REFUSED')
             && str_contains($mutResult, 'non-file') && str_contains($mutResult, 'boundary'),
-        'R1\'d: removing read_record\'s clearstatcache reintroduces the non-file boundary refusal (mutation bites: ' . $mutResult . ')');
+        'R1\'d: restoring cached path predicates reintroduces the non-file boundary refusal (mutation bites: ' . $mutResult . ')');
 }
 
 // ======================================================================

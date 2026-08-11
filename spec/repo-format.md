@@ -638,7 +638,7 @@ removes both handoff files after the child exits.
 
 ## Scope resolution (DUO-3344)
 
-`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by the bounded capture/refresh/rebase workflow below; apply, promote, verification, and rollback remain whole-revision operations at this spec version.
+`wp duo scope --repo=<p> --roots=<selectors>` resolves a bounded set of canonical entities from explicit roots and reports what it would carry. It is read-only: it compiles a revision and walks it, and it captures, promotes, and deletes nothing. Without `--contract`, its existing `duo-scope/v1` preview shape is unchanged. The immutable contract form is consumed by bounded capture/refresh/rebase and by the separately authorized scoped plan/apply/verification workflow below. Promote, rollback, and code lifecycle remain whole-revision operations at this spec version.
 
 A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
 
@@ -755,9 +755,95 @@ snapshot before the new ref is created. Because the contract excludes code and
 lifecycle effects, scoped rebase preserves W's code and ancestry and changes
 state/media only.
 
-Per-option capture, code dependency movement, scoped apply/promote/verification,
-and scoped rollback require later versioned authority and receipt contracts;
-v1 does not infer them from this state-only overlay.
+Per-option capture, code dependency movement, scoped promote, and scoped
+rollback require later contracts. Scoped apply does not infer authority from
+this state-only overlay; it uses the separate target-bound protocol below.
+
+### Scoped plan, apply, and verification
+
+`duo plan <env> --scope-contract=<local-path>` and `duo apply <env>
+--scope-contract=<local-path>` use the same host validation and compact
+`duo-scope-request/v1` handoff as scoped capture. The target recompiles and
+re-associates the complete contract. Planning is strict observation: it does
+not repair or create ledger schema, invoke native/provider effects, or write
+the target. It may load a selected provider and inspect its identity and
+capabilities so the report uses the exact scoped reconciliation gate apply
+will enforce. Its `duo-scoped-plan/v1` result projects ordinary three-way buckets to
+selected identities while retaining global code and recovery preconditions,
+and reports hash-only selected/protected target roots, canonical surfaces,
+selected declarations, and provider problems.
+
+The scope contract remains `mutation_authority=false`. After acquiring one
+target promotion lease with a random `session_id`, apply performs a second
+plan/guard/target observation and seals a separate
+`duo-scoped-mutation-authority/v1`. The authority binds the exact scope and
+source artifact/revision/manifest, lease owner/artifact/generation, selected
+and protected authored and ledger-map roots, locked plan and guard witnesses,
+hash-safe original work/deletion/action/effect identities, negotiated scoped
+capability digests, and a separate code compatibility witness. Because menu
+items and widgets are nested ledger identities while their menu/sidebar file
+is the scope unit, authority also seals a sorted hash-only membership set for
+the selected ledger-map partition. The set includes direct selected UUIDs,
+source-new nested UUIDs, and target-old nested UUIDs observed under selected
+owners; every recovery, verifier, and terminal read reuses that exact set
+rather than reclassifying identities after a create, move, or removal. Raw
+UUIDs never enter the durable authority or compact scope wire. Before sealing
+authority, every existing selected map row must be backed by the same strict
+target observation, including its direct entity or nested owner kind; a stale
+selected map refuses through the identity-recovery route while unselected stale
+rows remain untouched. Recovery, verification, and terminal replay repeat that
+check, so a dead or reused local id can never become selected write authority.
+A stale or tampered contract, changed source, replaced lease, changed
+selected/protected target, changed guard, missing capability, triggerless
+global action, legacy unreconciled regenerator, or attachment metadata rebuild
+refuses before the first authored write.
+
+Execution is journaled in one append-only `duo-scoped-apply-session/v1` with
+the phases `planned`, `authoring`, `authored_committed`, `effects_pending`,
+`verifying`, `complete`, and `recovery_required`. Every mutation intent binds
+the authority, lease generation, ordinal, action, operation, input, effect,
+and before-witness hashes; every receipt repeats that binding and adds an
+after-witness hash. At the authored COMMIT boundary, retry compares a fresh
+target observation: the exact pre-root may execute once, exact desired state
+advances without replay, and any mixed or protected change becomes
+`recovery_required`.
+
+Scoped native/provider effects additionally use
+`duo-scoped-effect-operation/v1`. A provider explicitly advertises scoped
+reconciliation; invocation durably records the operation before plugin code,
+and recovery first reconciles the same `operation_id` and `input_hash`.
+Only a missing operation is `not_started`; a verified receipt is read back,
+while intent-only, mismatched, malformed, or changed postcondition evidence is
+`recovery_required` and is never reinvoked. Provider `before`/`after` values
+are bounded, secret-screened, and retained only as hashes. Empty entity
+batches receive an explicit bounded-skip receipt. Ordinary unscoped provider
+negotiation/invocation bytes remain unchanged. Recovery reconciles every
+already-journaled native/provider effect again before trusting its outer
+receipt, and re-reads the engine-owned schedule/count witness before trusting
+that receipt too. The environment-local `deletions` and `reparents` provider
+context channels remain outside scoped v1: their target-local IDs cannot be
+reconstructed from the immutable authority after a crash, so selecting either
+channel refuses before the scoped session or any target mutation instead of
+writing or consuming the ordinary `regen_*` recovery keyspaces.
+
+The verifier launches a fresh frozen artifact/policy process, opens the exact
+active `verifying` session from the target ledger, compares the caller's
+authority/effect roots to that live session, proves selected live rows and
+tombstones, and requires exact equality of every protected out-of-scope
+authored and ledger-map root. Its terminal transaction advances only selected ledger base rows and
+the scoped terminal receipt; that receipt binds the post-finalization selected
+identity-map root while the authority continues to bind the protected map.
+It never clears global recovery debt and never writes `applied_revision`.
+Full plan/apply refuse while a scoped session is nonterminal; a terminal retry
+returns the same receipt bytes only after desired authored state and those
+post/protected map roots are re-proved. Rotating a complete active slot writes
+an immutable terminal archive plus a hash-only index derived from the stable
+`scope_hash` and source `artifact_hash`; a later public retry can therefore
+locate and re-prove the archived receipt without guessing the old random lease
+session, while a missing, mismatched, or changed archive fails closed. Scoped
+promotion, code materialization, lifecycle, rollback, attachment derivative
+generation, legacy `regen_dependency`, triggerless actions, and per-option
+mutation remain explicitly outside this version.
 
 ### Host-only redacted refresh field relation (DUO-3345)
 
@@ -1259,7 +1345,7 @@ unrelated runtime traffic available; a global maintenance page is not implied.
 - During deploy's deliberately hook-firing window, a reporting-only observer records attempted `wp_mail` and outbound HTTP calls in `external_side_effects` and human warnings. It neither blocks those calls nor changes the apply canary's fixed meaning; apply still treats content hooks, mail, or HTTP as a hard failure.
 - **Plan's `code_drift` bucket** (DUO-3231): a narrower, separate question from `code_mismatch` above — not "is the installed version compatible with the manifest's declared range" but "did this exact plugin/theme's version change since Duo last observed this environment," the direct code-half analogue of state's own drift concept, catching the case a wide `version_range` can't (a wp-admin one-click update landing comfortably inside a pinned range is invisible to `code_mismatch`, yet is exactly the out-of-band mutation risk this bucket exists for). The baseline it compares against — one JSON blob under `duo_kv['code_versions']` — is written by `Deploy::record_code_versions()` at the end of every successful `duo deploy` **and** `duo capture` (either is a moment Duo legitimately observed the environment's code); no baseline yet for a given plugin means nothing to compare, not a false positive. Scoped to exactly the plugins/theme slots `code_mismatch` already scopes to (the target state's own `active_plugins`/`template`/`stylesheet`). Same blocking posture and escape hatch as `code_mismatch`: `deploy`/`apply` refuse while non-empty, `--force-code-drift` proceeds while still reporting every overridden finding (Architecture Rulings §1) — in JSON output always, and in ordinary human output too, seeded as `WP_CLI::warning()` lines precisely because reaching that code path at all means the flag was set.
 - **Plan category summary** (DUO-3345): the plan entry point adds an additive top-level `category_summary` object with `format: "duo-plan-category-summary/v1"`. It is a value-free projection of the unchanged detailed buckets, emitted as a fixed ordered list of categories `code`, `lifecycle`, `authored_state`, `generated_effects`, `media`, `secrets`, `environment_state`, `capabilities`, and `deletions`. Each category has closed, zero-filled count maps named `metrics`, `entity_actions`, and `contained_entities`; those facets intentionally overlap. Deletion rows live in `deletions`, not `authored_state`; attachment classification uses compiled tree/tombstone context rather than a path guess. Code metrics split compatibility, lifecycle, revision-stale, drift, and future/other findings; lifecycle deliberately overlaps its code findings and adds `incomplete_lifecycle`. Generated metrics distinguish declared effects, Apply's exact selected native/provider actions, `regen_pending`, and `incomplete_apply` without claiming execution. Capability metrics distinguish certification/source blockers, selected provider blockers, and declared-but-unselected provider problems. Nested menu-item, widget, and option deletion candidates are reduced from the same coherent target snapshot and final plan; no post-plan query or guessed cascade is allowed. The secrets category emits only `visibility: "redacted"` and never scans or counts warning text or environment names. The public label `generated` is intentional product vocabulary; the shipped policy/wire class remains `derived`, and the summary's `vocabulary` records `public_label: "generated"` plus `wire_class: "derived"` without adding a manifest class. The projection never carries canonical values, secrets, PII, target-local ids, or plugin-specific logic. Host `duo status` strictly validates and renders the projection when present, omits it when absent or malformed, and never lets this optional display data alter plan completeness/readiness, promotion, or convergence.
-- **Bounded plan view** (DUO-3345): no-flag `wp duo plan` JSON, detailed buckets, and direct human rendering remain byte/shape-compatible. Filtered direct-plan row labels and host status plan-row labels safely normalize C0/DEL controls. An explicit `--category=<csv>`, `--action=<csv>`, `--entity=<csv>`, or canonical `--limit=<1..200>` request adds only `plan_view` with `format: "duo-plan-view/v1"` beside the complete detailed plan; it never removes, reorders, or authorizes its buckets. The closed category vocabulary is the nine summary ids above; actions are `create`, `update`, `adopt`, `unchanged`, `drift`, `conflict`, `collision`, `delete`, `delete_conflict`, `deleted`; entities are `post`, `attachment`, `term`, `menu`, `sidebar`, `options`, `user_meta`, `typed_table`. CSV tokens are exact and comma-only, deduped/canonicalized in vocabulary order; OR applies within one dimension and AND across supplied dimensions. An explicit view defaults to and caps ordinary rows at 200; there is no cursor in v1, so an unfiltered full JSON plan is the complete escape hatch. `plan_view` states `authoritative: false`, normalized filters/order, exact ordinary `full`/`matching`/`shown`/`omitted` and `forced_safety` evidence, complete action/global/readiness counters, and selected value-free refs only: closed bucket/entity/category facets, safety bit, and a hashed explain selector. The selector resolves by a unique UUID scan within the full bucket, so no source position leaks into or destabilizes the view. Display rows sort by fixed action rank then bytewise UUID; the authoritative bucket arrays retain their original order. Facets are explicit and overlapping: normal live actions are `authored_state`, attachments also `media`, drift also `environment_state`, and tombstones are `deletions` (attachments also `media`). Every drift/conflict/collision/delete-conflict/blocked-delete row bypasses filters and the cap. Global diagnostics and readiness are always from the full plan, including `regen_context`; filtering cannot hide a blocker or affect apply, promotion, or convergence. A category request additionally requires a valid same-snapshot `category_summary`. `duo status` forwards one normalized request to its single full-plan fetch and typed-refuses `plan_view_unavailable` if that requested index is absent, malformed, or does not bind that full snapshot; unfiltered status remains compatible with legacy agents. Human filtered output dereferences refs only from that complete plan and strips C0/DEL control bytes from newly itemized path/title labels. Field/text/value searching, raw-value views, plugin-specific engine filters, interactive diffs, and cursors remain out of scope.
+- **Bounded plan view** (DUO-3345): no-flag `wp duo plan` JSON, detailed buckets, and direct human rendering remain byte/shape-compatible. Filtered direct-plan row labels and host status plan-row labels safely normalize C0/DEL controls. An explicit `--category=<csv>`, `--action=<csv>`, `--entity=<csv>`, or canonical `--limit=<1..200>` request adds only `plan_view` with `format: "duo-plan-view/v1"` beside the complete detailed plan; it never removes, reorders, or authorizes its buckets. The closed category vocabulary is the nine summary ids above; actions are `create`, `update`, `adopt`, `unchanged`, `drift`, `conflict`, `collision`, `delete`, `delete_conflict`, `deleted`; entities are `post`, `attachment`, `term`, `menu`, `sidebar`, `options`, `user_meta`, `typed_table`. CSV tokens are exact and comma-only, deduped/canonicalized in vocabulary order; OR applies within one dimension and AND across supplied dimensions. An explicit view defaults to and caps ordinary rows at 200; there is no cursor in v1, so an unfiltered full JSON plan is the complete escape hatch. `plan_view` states `authoritative: false`, normalized filters/order, exact ordinary `full`/`matching`/`shown`/`omitted` and `forced_safety` evidence, complete action/global/readiness counters, and selected value-free refs only: closed bucket/entity/category facets, safety bit, and a hashed explain selector. The selector resolves by a unique UUID scan within the full bucket, so no source position leaks into or destabilizes the view. Display rows sort by fixed action rank then bytewise UUID; the authoritative bucket arrays retain their original order. Facets are explicit and overlapping: normal live actions are `authored_state`, attachments also `media`, drift also `environment_state`, and tombstones are `deletions` (attachments also `media`). Every drift/conflict/collision/delete-conflict/blocked-delete row bypasses filters and the cap. Global diagnostics and readiness are always from the full plan, including `regen_context`; filtering cannot hide a blocker or affect apply, promotion, or convergence. A category request additionally requires a valid same-snapshot `category_summary`. `duo status` forwards one normalized request to its single full-plan fetch and typed-refuses `plan_view_unavailable` if that requested index is absent, malformed, or does not bind that full snapshot; unfiltered status remains compatible with legacy agents. V1 view flags and `--scope-contract` are mutually exclusive because `duo-scoped-plan/v1` is already a separate selected-contract projection rather than the complete detailed plan a view indexes; their combination typed-refuses `plan_view_unavailable`. Human filtered output dereferences refs only from that complete plan and strips C0/DEL control bytes from newly itemized path/title labels. Field/text/value searching, raw-value views, plugin-specific engine filters, interactive diffs, and cursors remain out of scope.
 - **`wp duo doctor` DISALLOW_FILE_MODS check** (DUO-3231, `cli/src/Doctor.php`): advisory-only (never fails `doctor`'s own exit code) — reports when a target's `wp-config.php` does not `define('DISALLOW_FILE_MODS', true)`, the source-closing complement to `code_drift`'s after-the-fact detection (docs/proposals/code-half.md risk register #1).
 - Operational note: with a plugin active in the DB but missing from disk, the `wp plugin deactivate` *command* refuses (it pre-resolves its argument against a disk scan) — but `wp duo deploy` handles this case fine: it calls core's `deactivate_plugins()` directly with basenames from the option, no disk resolution on the deactivation side (verified live). Manual `update_option('active_plugins', …)` surgery is the last resort only when duo itself is unavailable.
 

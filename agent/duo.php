@@ -58,6 +58,8 @@ require_once __DIR__ . '/src/Init.php';
 require_once __DIR__ . '/src/CanonicalSurfaces.php';
 require_once __DIR__ . '/src/ScopeContract.php';
 require_once __DIR__ . '/src/ScopedStateOverlay.php';
+require_once __DIR__ . '/src/ScopedApplySession.php';
+require_once __DIR__ . '/src/ScopedApply.php';
 require_once __DIR__ . '/src/PlanExplanation.php';
 require_once __DIR__ . '/src/PlanCategorySummary.php';
 require_once __DIR__ . '/src/PlanView.php';

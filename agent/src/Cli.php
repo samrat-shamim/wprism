@@ -244,6 +244,74 @@ final class Cli {
     }
 
     /**
+     * Decode the only scope value that may cross a host/target boundary.
+     *
+     * A local contract is accepted for direct wp-cli callers and remains a
+     * full, real ScopeContract object.  The host transport sends only the
+     * compact request below; keeping its schema and canonical bytes strict
+     * prevents a target from treating an arbitrary JSON blob as scope
+     * evidence.  Errors are intentionally collapsed so a malformed request
+     * cannot echo a path, selector, or secret in a JSON refusal.
+     *
+     * @return ?array<string,mixed>
+     */
+    private static function scope_request(
+        array $assoc,
+        string $command,
+        bool $allowLocalContract = true
+    ): ?array {
+        $hasContract = array_key_exists('scope-contract', $assoc);
+        $hasWire = array_key_exists('scope-request-b64', $assoc);
+        if ($hasContract && $hasWire) {
+            throw new \RuntimeException("duo: $command received more than one scope request source");
+        }
+        if ($hasContract) {
+            if (!$allowLocalContract) {
+                throw new \RuntimeException("duo: $command accepts only an internal compact scope request");
+            }
+            try {
+                return ScopedStateOverlay::load_contract((string) $assoc['scope-contract']);
+            } catch (\Throwable $_failure) {
+                throw new \RuntimeException("duo: $command received a malformed or unsupported scope contract");
+            }
+        }
+        if (!$hasWire) {
+            return null;
+        }
+
+        try {
+            $encoded = $assoc['scope-request-b64'];
+            if (!is_string($encoded) || $encoded === '' || strlen($encoded) > 4 * 1024 * 1024) {
+                throw new \RuntimeException('bounded request');
+            }
+            $bytes = base64_decode($encoded, true);
+            if ($bytes === false || $bytes === '' || strlen($bytes) > 262144
+                || base64_encode($bytes) !== $encoded) {
+                throw new \RuntimeException('canonical base64');
+            }
+            $decoded = Canon::decode($bytes);
+            if (!is_array($decoded)) {
+                throw new \RuntimeException('request object');
+            }
+            $keys = array_keys($decoded);
+            sort($keys, SORT_STRING);
+            if ($keys !== ['format', 'scope_hash', 'selectors']
+                || ($decoded['format'] ?? null) !== 'duo-scope-request/v1'
+                || !is_string($decoded['scope_hash'] ?? null)
+                || preg_match('/^[a-f0-9]{64}$/D', $decoded['scope_hash']) !== 1
+                || !is_array($decoded['selectors'] ?? null)
+                || !array_is_list($decoded['selectors'])
+                || ScopeContract::normalize_selectors($decoded['selectors']) !== $decoded['selectors']
+                || Canon::encode($decoded) !== $bytes) {
+                throw new \RuntimeException('request schema');
+            }
+            return $decoded;
+        } catch (\Throwable $_failure) {
+            throw new \RuntimeException("duo: $command received an invalid compact scope request");
+        }
+    }
+
+    /**
      * Compile a canonical revision into Duo's immutable, content-addressed
      * apply artifact without reading or mutating the target environment.
      *
@@ -675,6 +743,8 @@ final class Cli {
      * [--adopt-by-slug=<kinds>] : e.g. terms,posts,menus
      * [--force-unresolved-refs] : see `duo capture`'s option of the same name — plan's own drift
      *   detection captures the live environment too, so it hits the identical gate.
+     * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The direct
+     *   agent accepts the local evidence; host transports replace it with a compact request.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
@@ -696,6 +766,21 @@ final class Cli {
             ];
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
+            }
+            if ($viewRequest !== null
+                && (array_key_exists('scope-contract', $assoc)
+                    || array_key_exists('scope-request-b64', $assoc))) {
+                throw new CommandRefusalException(
+                    'plan_view_unavailable',
+                    'the requested plan view is unavailable for a scoped plan',
+                    'rerun the scoped plan without view filters; its closed scoped projection is already bounded to the selected contract',
+                    [],
+                    'duo: scoped plan view filters are unsupported'
+                );
+            }
+            $scopeRequest = self::scope_request($assoc, 'plan');
+            if ($scopeRequest !== null) {
+                $options['scope_request'] = $scopeRequest;
             }
             $plan = Apply::plan(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('plan', '--repo'),
@@ -1214,6 +1299,8 @@ final class Cli {
      *   outside 'duo deploy'/'duo capture' since the last recorded baseline.
      * [--force-unresolved-refs] : see `duo capture`'s option of the same name — apply's own drift
      *   detection captures the live environment too, so it hits the identical gate.
+     * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The direct
+     *   agent accepts the local evidence; host transports replace it with a compact request.
      * [--default-author=<login>]
      * [--revision=<rev>]
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
@@ -1223,7 +1310,7 @@ final class Cli {
      */
     public function apply($args, $assoc) {
         try {
-            $summary = Apply::apply($assoc['repo'] ?? throw CommandRefusalException::invalidArgument('apply', '--repo'), [
+            $opts = [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'with_deletes' => isset($assoc['with-deletes']),
                 'force_delete_referenced' => isset($assoc['force-delete-referenced']),
@@ -1236,7 +1323,15 @@ final class Cli {
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
-            ]);
+            ];
+            $scopeRequest = self::scope_request($assoc, 'apply');
+            if ($scopeRequest !== null) {
+                $opts['scope_request'] = $scopeRequest;
+            }
+            $summary = Apply::apply(
+                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('apply', '--repo'),
+                $opts
+            );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'apply');
             WP_CLI::error($t->getMessage());
@@ -1326,6 +1421,11 @@ final class Cli {
      * --policy-snapshot=<path>
      * [--with-deletes]
      * [--force-unresolved-refs]
+     * [--scope-request-b64=<canonical internal request>] : Orchestrator-only compact scope proof.
+     * [--expected-protected-root=<sha256>] : Orchestrator-only scoped verifier witness.
+     * [--expected-protected-map-root=<sha256>] : Orchestrator-only scoped verifier witness.
+     * [--expected-authority-hash=<sha256>] : Orchestrator-only scoped verifier witness.
+     * [--expected-effects-root=<sha256>] : Orchestrator-only scoped verifier witness.
      * [--format=<format>] : Output format. Accepts json.
      *
      * @subcommand verify-canonical
@@ -1337,15 +1437,31 @@ final class Cli {
             // them and apply's own internal verifier — a pure machine caller —
             // got human stderr.  Typed refusals reach the same formatter as
             // every convergence gate they precede, in the same order.
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--repo');
+            $opts = [
+                'expected_artifact' => $assoc['expected-artifact'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--expected-artifact'),
+                'compiled' => $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--compiled'),
+                'policy_snapshot' => $assoc['policy-snapshot'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--policy-snapshot'),
+                'with_deletes' => isset($assoc['with-deletes']),
+                'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
+            ];
+            foreach ([
+                'expected-protected-root' => 'expected_protected_root',
+                'expected-protected-map-root' => 'expected_protected_map_root',
+                'expected-authority-hash' => 'expected_authority_hash',
+                'expected-effects-root' => 'expected_effects_root',
+            ] as $input => $output) {
+                if (array_key_exists($input, $assoc)) {
+                    $opts[$output] = $assoc[$input];
+                }
+            }
+            $scopeRequest = self::scope_request($assoc, 'verify-canonical', false);
+            if ($scopeRequest !== null) {
+                $opts['scope_request'] = $scopeRequest;
+            }
             $summary = Apply::verify_canonical(
-                $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--repo'),
-                [
-                    'expected_artifact' => $assoc['expected-artifact'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--expected-artifact'),
-                    'compiled' => $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--compiled'),
-                    'policy_snapshot' => $assoc['policy-snapshot'] ?? throw CommandRefusalException::invalidArgument('verify-canonical', '--policy-snapshot'),
-                    'with_deletes' => isset($assoc['with-deletes']),
-                    'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
-                ]
+                $repo,
+                $opts
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'verify-canonical');

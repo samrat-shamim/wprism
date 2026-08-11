@@ -27,6 +27,7 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (harness + support driver + the code under test)"
 php -l regress_capture_publish.php >/dev/null || fail "regress_capture_publish.php has a syntax error"
+php -l fixtures/duo-publish-stale-is-file.php >/dev/null || fail "duo-publish-stale-is-file.php has a syntax error"
 php -l support/capture_publish_kill_driver.php >/dev/null || fail "support/capture_publish_kill_driver.php has a syntax error"
 php -l ../../agent/src/Publish.php >/dev/null || fail "agent/src/Publish.php has a syntax error"
 php -l ../../agent/src/TransientDbException.php >/dev/null || fail "agent/src/TransientDbException.php has a syntax error"

@@ -24,6 +24,7 @@ namespace Duo;
  * be reached outside execute().
  */
 final class NativeActions {
+    private const SCOPED_OWNER = 'native-actions';
     /**
      * action name => argument schema (key => {type, required, pattern?}).
      *
@@ -160,6 +161,180 @@ final class NativeActions {
         return match ($action) {
             'transient.delete' => self::delete_transient_action($args),
         };
+    }
+
+    /**
+     * Hash the exact closed native action input a scoped operation authorizes.
+     * This is deliberately separate from the action digest: input_hash binds
+     * this invocation's typed arguments; scoped_action_digest() binds the
+     * implementation vocabulary/argument schema Apply may seal in authority.
+     *
+     * @param array<string,mixed> $args
+     */
+    public static function scoped_input_hash(string $action, array $args): string {
+        self::ensure_scoped_support_loaded();
+        self::validate($action, $args, "native action '$action'");
+        return hash('sha256', Canon::encode([
+            'kind' => 'native',
+            'action' => $action,
+            'args' => $args,
+        ]));
+    }
+
+    /** Bind the closed native action semantics for scoped authority. */
+    public static function scoped_action_digest(string $action): string {
+        self::ensure_scoped_support_loaded();
+        $schema = self::ACTIONS[$action] ?? null;
+        if ($schema === null) {
+            self::validate($action, [], "native action '$action'");
+        }
+        return hash('sha256', Canon::encode([
+            'format' => Providers::SCOPED_OPERATION_FORMAT,
+            'kind' => 'native',
+            'action' => $action,
+            'args' => $schema,
+        ]));
+    }
+
+    /**
+     * Invoke one native effect exactly once under a durable intent/receipt.
+     * Returned evidence is hash-only; raw transient state stays on the stack
+     * long enough to be screened and written as hashes by Providers.
+     *
+     * @param array<string,mixed> $args
+     * @param array<string,mixed> $operation
+     * @return array{format:string,operation:array<string,string>,capability_digest:string,before_hash:string,after_hash:string,verified:true,status:'verified'}
+     */
+    public static function invoke_scoped(string $action, array $args, array $operation): array {
+        self::ensure_scoped_support_loaded();
+        self::validate($action, $args, "native action '$action'");
+        $operation = Providers::validate_scoped_operation($operation);
+        $inputHash = self::scoped_input_hash($action, $args);
+        if (!hash_equals($inputHash, $operation['input_hash'])) {
+            throw new \RuntimeException(
+                "duo: scoped native action '$action' operation input_hash does not bind the exact typed invocation"
+            );
+        }
+        Providers::begin_scoped_operation(self::SCOPED_OWNER, $action, $operation);
+        try {
+            $receipt = self::execute($action, $args);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException("duo: scoped native action '$action' invocation failed");
+        }
+        $stored = Providers::complete_scoped_operation(
+            self::SCOPED_OWNER,
+            $action,
+            $operation,
+            $receipt['before'],
+            $receipt['after']
+        );
+        return self::reviewed_scoped_result($action, $operation, $stored, true);
+    }
+
+    /**
+     * Reconcile a native operation without executing it again.  An absent
+     * transient cannot prove this operation ran — it may have pre-existed — so
+     * only an exact verified durable receipt returns verified. An intent-only
+     * record is rejected by Providers::scoped_operation_state() as unknown.
+     *
+     * @param array<string,mixed> $args
+     * @param array<string,mixed> $operation
+     * @return array{format:string,operation:array<string,string>,capability_digest:string,before_hash:?string,after_hash:?string,verified:bool,status:'verified'|'not_started'}
+     */
+    public static function reconcile_scoped(string $action, array $args, array $operation): array {
+        self::ensure_scoped_support_loaded();
+        self::validate($action, $args, "native action '$action'");
+        $operation = Providers::validate_scoped_operation($operation);
+        $inputHash = self::scoped_input_hash($action, $args);
+        if (!hash_equals($inputHash, $operation['input_hash'])) {
+            throw new \RuntimeException(
+                "duo: scoped native action '$action' operation input_hash does not bind the exact typed invocation"
+            );
+        }
+        $stored = Providers::scoped_operation_state(self::SCOPED_OWNER, $action, $operation);
+        if ($stored['status'] === 'not_started') {
+            return self::reviewed_scoped_result($action, $operation, $stored, false);
+        }
+        $after = match ($action) {
+            'transient.delete' => self::reconcile_deleted_transient((string) $args['name']),
+        };
+        if (!hash_equals($stored['after_hash'], Providers::scoped_evidence_digest($after))) {
+            throw new \RuntimeException(
+                "duo: scoped native action '$action' effect readback does not match its durable operation receipt; recovery_required"
+            );
+        }
+        return self::reviewed_scoped_result($action, $operation, $stored, true);
+    }
+
+    /** @param array<string,mixed> $operation @param array<string,mixed> $state */
+    private static function reviewed_scoped_result(
+        string $action,
+        array $operation,
+        array $state,
+        bool $verified
+    ): array {
+        $digest = self::scoped_action_digest($action);
+        if (!$verified) {
+            if (($state['status'] ?? null) !== 'not_started') {
+                throw new \RuntimeException('duo: scoped native action receipt has an invalid not_started state');
+            }
+            return [
+                'format' => Providers::SCOPED_RECEIPT_FORMAT,
+                'operation' => $operation,
+                'capability_digest' => $digest,
+                'before_hash' => null,
+                'after_hash' => null,
+                'verified' => false,
+                'status' => 'not_started',
+            ];
+        }
+        if (($state['status'] ?? null) !== 'verified'
+            || !is_string($state['before_hash'] ?? null)
+            || !is_string($state['after_hash'] ?? null)) {
+            throw new \RuntimeException('duo: scoped native action receipt has an invalid verified state');
+        }
+        return [
+            'format' => Providers::SCOPED_RECEIPT_FORMAT,
+            'operation' => $operation,
+            'capability_digest' => $digest,
+            'before_hash' => $state['before_hash'],
+            'after_hash' => $state['after_hash'],
+            'verified' => true,
+            'status' => 'verified',
+        ];
+    }
+
+    /** @return array{value_row:bool, timeout_row:bool, cached:bool} */
+    private static function reconcile_deleted_transient(string $name): array {
+        $after = self::transient_state($name);
+        $survivors = [];
+        if ($after['value_row']) {
+            $survivors[] = "option row _transient_$name";
+        }
+        if ($after['timeout_row']) {
+            $survivors[] = "option row _transient_timeout_$name";
+        }
+        if ($after['cached']) {
+            $survivors[] = "object cache entry transient/$name";
+        }
+        if ($survivors !== []) {
+            throw new \RuntimeException(
+                "duo: scoped native action 'transient.delete' left '$name' present during read-only reconciliation ("
+                . implode(', ', $survivors) . ') — recovery_required'
+            );
+        }
+        return $after;
+    }
+
+    /** Load scoped-only helpers lazily so Policy's offline native vocabulary
+     * remains loadable under its long-standing include order. */
+    private static function ensure_scoped_support_loaded(): void {
+        if (!class_exists(Canon::class, false)) {
+            require_once __DIR__ . '/Canon.php';
+        }
+        if (!class_exists(Providers::class, false)) {
+            require_once __DIR__ . '/Providers.php';
+        }
     }
 
     /**

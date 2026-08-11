@@ -3,6 +3,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
+.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 
@@ -34,7 +35,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-capability-registry-import regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-conformance-asserts \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -958,6 +959,42 @@ regress-scope-closure:
 regress-scope-contract:
 	bash sandbox/tests/regress_scope_contract.sh
 
+# DUO-3344 slice 4: target-bound scoped apply authority/session protocol.
+# Pure PHP with an injected byte-CAS store; no WordPress or target contact.
+regress-scoped-apply-session:
+	php sandbox/tests/regress_scoped_apply_session.php
+
+# DUO-3344: offline scoped authored-boundary and response-loss recovery matrix.
+# The harness drives the public scoped session/observation/effect seams with
+# injected CAS and target stubs; no Docker or WordPress target is required.
+regress-scoped-apply-recovery:
+	php sandbox/tests/regress_scoped_apply_recovery.php
+
+# DUO-3344/DUO-3338: offline operation-bound provider/native effect recovery.
+regress-scoped-effect-reconciliation:
+	php sandbox/tests/regress_scoped_effect_reconciliation.php
+
+# DUO-3344: host/agent scope transport boundary — canonical compact request
+# forwarding, refusal before target contact, and ordinary unscoped passthrough.
+regress-scope-wire:
+	php sandbox/tests/regress_scope_wire.php
+
+# DUO-3344 slice 4 live proof: public host CLI -> DockerTransport -> scoped
+# target plan/apply/verification.  It requires an explicitly allocated,
+# disposable pair and a clean exact-source SHA; unlike offline regressions it
+# is intentionally absent from regress-offline-all.
+#
+#   make regress-scoped-apply-live \
+#     SCOPED_APPLY_LIVE_PAIR=codexmacb3344 \
+#     SCOPED_APPLY_LIVE_PORT1=8900 SCOPED_APPLY_LIVE_PORT2=8901 \
+#     DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
+regress-scoped-apply-live:
+	@test -n "$(SCOPED_APPLY_LIVE_PAIR)" || { echo 'SCOPED_APPLY_LIVE_PAIR is required; use an unused disposable pair name' >&2; exit 2; }
+	@test -n "$(SCOPED_APPLY_LIVE_PORT1)" || { echo 'SCOPED_APPLY_LIVE_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
+	@test -n "$(SCOPED_APPLY_LIVE_PORT2)" || { echo 'SCOPED_APPLY_LIVE_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
+	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_scoped_apply_live.sh
+
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
@@ -1030,8 +1067,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper
-	@echo "regress-offline-all: 113 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire
+	@echo "regress-offline-all: 117 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -1060,6 +1097,7 @@ regress-live-list:
 	@echo "  regress-local-bootstrap-live              own disposable pair (parameterized: LOCAL_BOOTSTRAP_PAIR/LOCAL_BOOTSTRAP_PORT1/LOCAL_BOOTSTRAP_PORT2; exact candidate gate)"
 	@echo "  regress-plan-category-summary-live        pair codexsma3345 9060/9061 (parameterized: PLAN_CATEGORY_SUMMARY_PAIR/PLAN_CATEGORY_SUMMARY_PORT1/PLAN_CATEGORY_SUMMARY_PORT2)"
 	@echo "  regress-provider-requirements-live        pair claudemacb3317 8930/8931 (parameterized: PROVIDER_REQUIREMENTS_PAIR/PROVIDER_REQUIREMENTS_PORT1/PROVIDER_REQUIREMENTS_PORT2)"
+	@echo "  regress-scoped-apply-live                 explicit SCOPED_APPLY_LIVE_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (public scoped plan/apply exact-source proof)"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."

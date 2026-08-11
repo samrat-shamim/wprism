@@ -35,6 +35,7 @@
 
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
+require __DIR__ . '/fixtures/duo-publish-stale-is-file.php';
 require __DIR__ . '/../../agent/src/Publish.php';
 require __DIR__ . '/../../agent/src/TransientDbException.php';
 require __DIR__ . '/../../agent/src/Capture.php';
@@ -700,7 +701,16 @@ echo "\n== P9: transaction-bound capture publication recovery ==\n";
     $stateDir = "$root/state";
     $firstIntent = $publishCandidate($stateDir, ['revision.txt' => "one\n"]);
     $firstReceipt = Publish::write_receipt($stateDir, $firstIntent);
-    Publish::cleanup_committed($stateDir, $firstReceipt);
+    putenv('DUO_TEST_STALE_IS_FILE_PATH=' . Publish::intent_path($stateDir));
+    try {
+        Publish::cleanup_committed($stateDir, $firstReceipt);
+    } finally {
+        putenv('DUO_TEST_STALE_IS_FILE_PATH');
+    }
+    check(
+        !is_dir(Publish::backup_dir($stateDir)) && !is_file(Publish::intent_path($stateDir)),
+        'P9d: stale intent-path metadata cannot strand verified post-commit cleanup'
+    );
     write_tree(Publish::stage_dir($stateDir), ['revision.txt' => "two\n"]);
     $secondIntent = Publish::begin_intent($stateDir, Publish::stage_dir($stateDir));
     Publish::recover($stateDir, static fn(array $found): bool => false);
@@ -889,6 +899,84 @@ echo "\n== P12: generic intent transition crash recovery ==\n";
                 "P12f $phase: recovery consumes only its sealed transition artifacts"
             );
         }
+
+        // A kill after the fixed `.next` link but before the canonical link
+        // retains two ordinary hard links to one sealed record inode. Model
+        // a stale negative is_file() result for that `.next` name: recovery
+        // must validate its fresh lstat identity, remove only the matching
+        // owned temp, and discard the unpublished transition without touching
+        // the prior state tree.
+        $root = fresh_root('generic_record_create_next_cache');
+        $stateDir = "$root/state";
+        mkdir($stateDir);
+        Canon::write_file("$stateDir/revision.txt", "stable\n");
+        $staging = Publish::stage_dir($stateDir);
+        mkdir($staging);
+        Canon::write_file("$staging/revision.txt", "candidate\n");
+        $pid = pcntl_fork();
+        if ($pid === 0) {
+            putenv('DUO_TEST_MODE=1');
+            putenv('DUO_TEST_PUBLISH_KILL_PHASE=record-create-next');
+            Publish::begin_intent($stateDir, $staging);
+            exit(99);
+        }
+        check($pid > 0, 'P12g-next-cache: record-create-next crash child spawned');
+        pcntl_waitpid($pid, $status);
+        check(
+            pcntl_wifsignaled($status) && pcntl_wtermsig($status) === 9,
+            'P12g-next-cache: child died after publishing the fixed next-transition link'
+        );
+        $intentPath = Publish::intent_path($stateDir);
+        $nextPath = $intentPath . '.next';
+        check(
+            is_file($nextPath) && count(glob($intentPath . '.tmp.*')) === 1,
+            'P12g-next-cache: interrupted create retains one regular next slot and its matching temp hard link'
+        );
+        putenv("DUO_TEST_STALE_IS_FILE_PATH=$nextPath");
+        try {
+            $notes = Publish::recover($stateDir, static fn(array $found): bool => false);
+        } finally {
+            putenv('DUO_TEST_STALE_IS_FILE_PATH');
+        }
+        check(
+            str_contains(implode("\n", $notes), 'unpublished')
+                && file_get_contents("$stateDir/revision.txt") === "stable\n"
+                && !file_exists($nextPath)
+                && glob($intentPath . '.tmp.*') === [],
+            'P12g-next-cache: stale next-path metadata cannot block exact unpublished-transition recovery'
+        );
+
+        // A capture record is published by hard-linking a freshly-written
+        // temp into the canonical name. Model the stale negative is_file()
+        // result Docker Desktop returned for that new canonical hard link.
+        // Record readback must use a fresh lstat and bind the opened
+        // descriptor to the canonical dev+ino through the read. A real
+        // non-file boundary remains covered immediately below.
+        $root = fresh_root('generic_record_hardlink_readback');
+        $stateDir = "$root/state";
+        $staging = Publish::stage_dir($stateDir);
+        write_tree($staging, ['revision.txt' => "candidate\n"]);
+        $intentPath = Publish::intent_path($stateDir);
+        putenv('DUO_TEST_STALE_IS_FILE_PREFIX=' . $intentPath . '.tmp.');
+        try {
+            $intent = Publish::begin_intent($stateDir, $staging);
+        } finally {
+            putenv('DUO_TEST_STALE_IS_FILE_PREFIX');
+        }
+        check(
+            glob($intentPath . '.tmp.*') === [],
+            'P12g-cache: stale temp-path metadata cannot strand the owned record hard link'
+        );
+        putenv("DUO_TEST_STALE_IS_FILE_PATH=$intentPath");
+        try {
+            $readback = Publish::intent_record($stateDir);
+        } finally {
+            putenv('DUO_TEST_STALE_IS_FILE_PATH');
+        }
+        check(
+            ($readback['id'] ?? null) === ($intent['id'] ?? null),
+            'P12g-cache: stale canonical-path metadata cannot hide the sealed regular record inode'
+        );
 
         $root = fresh_root('generic_record_nonfile_slot');
         $stateDir = "$root/state";

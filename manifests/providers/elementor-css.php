@@ -54,6 +54,10 @@ final class ElementorCss {
                 'scope' => 'site',
                 'idempotent' => true,
                 'timeout_seconds' => 600,
+                'scoped' => [
+                    'operation_envelope' => \Duo\Providers::SCOPED_OPERATION_FORMAT,
+                    'reconcile' => true,
+                ],
             ],
         ];
     }
@@ -66,6 +70,39 @@ final class ElementorCss {
                 "duo: Elementor CSS provider does not implement capability '$capability'"
             ),
         };
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function invoke_scoped(string $capability, array $args, array $operation): array {
+        $receipt = $this->invoke($capability, $args);
+        return [
+            'operation' => $operation,
+            'before' => $receipt['before'],
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @param array<string,mixed> $args @param array<string,mixed> $operation */
+    public function reconcile_scoped(string $capability, array $args, array $operation): array {
+        if ($capability !== 'regenerate_css') {
+            throw new \RuntimeException(
+                "duo: Elementor CSS provider does not implement capability '$capability'"
+            );
+        }
+        return [
+            'operation' => $operation,
+            'after' => $this->scoped_postcondition(),
+            'verified' => true,
+        ];
+    }
+
+    /** @return array{builder_documents:int,css_files:array<string,array{bytes:int,mtime:int}>} */
+    private function scoped_postcondition(): array {
+        return [
+            'builder_documents' => $this->builder_document_count(),
+            'css_files' => $this->css_inventory(),
+        ];
     }
 
     /**
