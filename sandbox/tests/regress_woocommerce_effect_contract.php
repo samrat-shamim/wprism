@@ -225,6 +225,10 @@ function woo_effect_product_attribute_refresh_hooks(string $prefix): array {
         woo_effect_hook($prefix . '-attribute-set-transient-hook', 'set_transient_wc_attribute_taxonomies'),
         woo_effect_hook($prefix . '-attribute-taxonomies-filter', 'woocommerce_attribute_taxonomies'),
         woo_effect_hook($prefix . '-attribute-nav-menu-filter', 'woocommerce_attribute_show_in_nav_menus'),
+        woo_effect_hook($prefix . '-permalink-pre-option-filter', 'pre_option_woocommerce_permalinks'),
+        woo_effect_hook($prefix . '-permalink-pre-option-generic-filter', 'pre_option'),
+        woo_effect_hook($prefix . '-permalink-option-filter', 'option_woocommerce_permalinks'),
+        woo_effect_hook($prefix . '-permalink-default-option-filter', 'default_option_woocommerce_permalinks'),
         woo_effect_hook($prefix . '-attribute-deleted-transient-hook', 'deleted_transient'),
         woo_effect_hook($prefix . '-attribute-set-transient-generic-hook', 'set_transient'),
         woo_effect_hook($prefix . '-attribute-setted-transient-hook', 'setted_transient'),
@@ -232,19 +236,12 @@ function woo_effect_product_attribute_refresh_hooks(string $prefix): array {
 }
 
 /** @return array<string,mixed> */
-function woo_effect_attribute_registration_filter_aggregate(string $prefix): array {
+function woo_effect_attribute_registration_filter_family(string $prefix): array {
     return woo_effect_irreversible(
         $prefix . '-attribute-taxonomy-registration-filters',
         'external',
         'provider_resource',
-        'woocommerce-attribute-taxonomy-registration-filters:v1',
-        [
-            'exact' => [],
-            'templates' => [
-                'woocommerce_taxonomy_objects_pa_{slug}',
-                'woocommerce_taxonomy_args_pa_{slug}',
-            ],
-        ]
+        'woocommerce-attribute-taxonomy-registration-filters:v1'
     );
 }
 
@@ -287,7 +284,7 @@ function woo_effect_product_regenerator(string $postType): array {
         woo_effect_hook($prefix . '-updated-price-hook', 'woocommerce_updated_product_price'),
         ...woo_effect_product_fixed_transient_hooks($prefix),
         ...woo_effect_product_attribute_refresh_hooks($prefix),
-        woo_effect_attribute_registration_filter_aggregate($prefix),
+        woo_effect_attribute_registration_filter_family($prefix),
         woo_effect_hook($prefix . '-transient-version-pre-filter', 'pre_transient_product-transient-version'),
         woo_effect_hook($prefix . '-transient-version-filter', 'transient_product-transient-version'),
         woo_effect_hook($prefix . '-transient-version-pre-set-filter', 'pre_set_transient_product-transient-version'),
@@ -451,8 +448,8 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
     count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 40
-        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 89
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 129,
+        && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 97
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 137,
     'Woo inventory exposes exact transient/version, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 2) . '/manifests/providers/woocommerce-cache.php');
@@ -540,13 +537,6 @@ $registrationFilterSelector = [
     'scope' => 'external',
     'type' => 'provider_resource',
     'value' => 'woocommerce-attribute-taxonomy-registration-filters:v1',
-    'members' => [
-        'exact' => [],
-        'templates' => [
-            'woocommerce_taxonomy_objects_pa_{slug}',
-            'woocommerce_taxonomy_args_pa_{slug}',
-        ],
-    ],
 ];
 woo_effect_check(
     ($lookupEffectsById['woocommerce-product-attribute-nav-menu-filter']['selector'] ?? null) === [
@@ -563,7 +553,7 @@ woo_effect_check(
             === $registrationFilterSelector
         && ($lookupEffectsById['woocommerce-variation-attribute-taxonomy-registration-filters']['selector'] ?? null)
             === $registrationFilterSelector,
-    'late Woo attribute registration declares the exact nav callback and bounded dynamic pa_* object/args filter family for both trigger halves'
+    'late Woo attribute registration declares the exact nav callback and one provider-owned object/args filter-family resource for both trigger halves'
 );
 woo_effect_check(
     !array_key_exists('regen_dependency', (array) ($wooManifest['post_types']['product'] ?? []))
@@ -590,7 +580,9 @@ woo_effect_check(
                     'wc_get_container',
                     'wc_get_attribute_taxonomies',
                     'wc_attribute_taxonomy_name',
-                    'wc_get_permalink_structure',
+                    'get_option',
+                    'wp_parse_args',
+                    'untrailingslashit',
                     'add_filter',
                     'remove_filter',
                     'get_post_meta',
@@ -674,14 +666,8 @@ foreach (['product', 'product_variation'] as $postType) {
             && str_contains($providerValue, 'wc_product_children')
             && str_contains($providerValue, 'product-transient-version')
             && str_contains($providerValue, 'wc_layered_nav_counts')
-            && ($registrationProviderResources[0]['selector']['members'] ?? null) === [
-                'exact' => [],
-                'templates' => [
-                    'woocommerce_taxonomy_objects_pa_{slug}',
-                    'woocommerce_taxonomy_args_pa_{slug}',
-                ],
-            ],
-        "$postType provider-resource aggregates are explicit, finite, and wildcard-free"
+            && !array_key_exists('members', (array) ($registrationProviderResources[0]['selector'] ?? [])),
+        "$postType provider-resource aggregates are explicit, finite, wildcard-free, and do not falsely narrow valid multibyte Woo filter names"
     );
     $selectorMatcher = new ReflectionMethod(EffectBundle::class, 'matchesDeclaredSelector');
     $selectorMatcher->setAccessible(true);
@@ -719,35 +705,20 @@ foreach (['product', 'product_variation'] as $postType) {
             ]),
         "$postType aggregate matcher reconciles concrete product IDs, attribute transients, and taxonomy cache groups"
     );
-    $registrationAggregateSelector = (array) ($registrationProviderResources[0]['selector'] ?? []);
-    $registrationSelectorMatches = static function (array $actual) use (
-        $selectorMatcher,
-        $registrationAggregateSelector
-    ): bool {
-        return (bool) $selectorMatcher->invoke(null, $registrationAggregateSelector, $actual);
-    };
+    $registrationFamilySelector = (array) ($registrationProviderResources[0]['selector'] ?? []);
     woo_effect_check(
-        $registrationSelectorMatches([
-            'scope' => 'external',
-            'type' => 'provider_resource',
-            'value' => 'woocommerce_taxonomy_objects_pa_grind-size',
-        ])
-            && $registrationSelectorMatches([
+        (bool) $selectorMatcher->invoke(null, $registrationFamilySelector, $registrationFamilySelector)
+            && !(bool) $selectorMatcher->invoke(null, $registrationFamilySelector, [
                 'scope' => 'external',
                 'type' => 'provider_resource',
-                'value' => 'woocommerce_taxonomy_args_pa_color',
+                'value' => 'woocommerce_taxonomy_objects_pa_color',
             ])
-            && !$registrationSelectorMatches([
+            && !(bool) $selectorMatcher->invoke(null, $registrationFamilySelector, [
                 'scope' => 'external',
                 'type' => 'provider_resource',
-                'value' => 'woocommerce_taxonomy_args_product_cat',
-            ])
-            && !$registrationSelectorMatches([
-                'scope' => 'external',
-                'type' => 'provider_resource',
-                'value' => 'woocommerce_taxonomy_objects_pa_*',
+                'value' => 'woocommerce_taxonomy_args_pa_尺寸',
             ]),
-        "$postType registration-filter aggregate admits only concrete dynamic pa_ slug callback names"
+        "$postType registration callbacks are declared as one exact provider-owned family resource, not a false ASCII member grammar"
     );
     woo_effect_check(
         !$selectorMatches(['scope' => 'external', 'type' => 'provider_resource', 'value' => 'transient'])

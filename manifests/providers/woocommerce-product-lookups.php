@@ -1130,7 +1130,18 @@ final class WoocommerceProductLookups {
         \WC_Cache_Helper::invalidate_cache_group('woocommerce-attributes');
 
         $attributes = (array) wc_get_attribute_taxonomies();
-        $permalinks = wc_get_permalink_structure();
+
+        // wc_get_permalink_structure() normalizes and persists the whole
+        // woocommerce_permalinks option when defaults are missing. This
+        // post-apply registry repair only needs Woo 11.0.0's derived
+        // attribute rewrite base, so reproduce that option-write-free projection without
+        // turning taxonomy registration into an unrelated option write.
+        $savedPermalinks = (array) get_option('woocommerce_permalinks', []);
+        $permalinks = wp_parse_args(
+            array_filter($savedPermalinks),
+            ['attribute_base' => '']
+        );
+        $attributeRewriteSlug = untrailingslashit($permalinks['attribute_base']);
         $registeredTaxonomies = [];
         global $wc_product_attributes;
         if (!is_array($wc_product_attributes)) {
@@ -1201,7 +1212,7 @@ final class WoocommerceProductLookups {
             ];
             if (1 === $attribute->attribute_public && sanitize_title($attributeName)) {
                 $taxonomyData['rewrite'] = [
-                    'slug' => trailingslashit($permalinks['attribute_rewrite_slug'])
+                    'slug' => trailingslashit($attributeRewriteSlug)
                         . urldecode(sanitize_title($attributeName)),
                     'with_front' => false,
                     'hierarchical' => true,

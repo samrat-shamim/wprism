@@ -1604,7 +1604,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "c73760e0e03b64486c2e7f88190ce3214c0d5493a27d22684320ed1817855381",
+            "adapter_digest": "a04dc5f910a1362f9eb8d97d2495c367fe2afc1231d2770bb48abf4d25c2f985",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
