@@ -127,12 +127,16 @@ final class AdoptCommittedCleanupFailureTransport implements AdoptionTransport {
 
 /**
  * Runs the generated shell transaction against an isolated local filesystem.
- * Its optional mv shim deliberately implements a copy+unlink move for the
- * four adoption surfaces, reproducing the identity rebind boundary without
- * Docker, SSH, or a mount-specific fixture.
+ * Its optional shims deliberately rebind inodes after a move, after content
+ * population, or after a journal-container child publication. They reproduce
+ * the Docker Desktop identity boundaries without Docker, SSH, or a
+ * mount-specific fixture.
  */
 final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
     public bool $forceCopyUnlink = false;
+    public bool $rebindLoaderAfterPopulation = false;
+    public bool $rebindLockAfterChildPublish = false;
+    public bool $rebindTxnAfterChildPublish = false;
     public bool $failPolicy = false;
     public bool $retainCommittedCleanup = false;
     public ?string $interruptPhase = null;
@@ -174,6 +178,7 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
         file_put_contents($this->muDir . '/manifests/legacy.json', "{}\n");
         file_put_contents($this->repo . '/.duo/legacy-state.txt', "legacy-state\n");
         file_put_contents($this->repo . '/site.duo.json', "{}\n");
+        $this->writePopulationRebindCpShim($root . '/bin/cp');
         $this->writeCopyUnlinkMvShim($root . '/bin/mv');
     }
 
@@ -207,6 +212,10 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
         $environment['PATH'] = $this->root . '/bin:' . ($environment['PATH'] ?? '/usr/bin:/bin');
         $environment['DUO_ADOPT_FORCE_COPY_MOVE'] = $this->forceCopyUnlink ? '1' : '0';
         $environment['DUO_ADOPT_FORCE_COPY_MOVE_ROOT'] = $this->root;
+        $environment['DUO_ADOPT_REBIND_LOADER_AFTER_POPULATION'] = $this->rebindLoaderAfterPopulation ? '1' : '0';
+        $environment['DUO_ADOPT_REBIND_LOCK_AFTER_CHILD_PUBLISH'] = $this->rebindLockAfterChildPublish ? '1' : '0';
+        $environment['DUO_ADOPT_REBIND_TXN_AFTER_CHILD_PUBLISH'] = $this->rebindTxnAfterChildPublish ? '1' : '0';
+        $environment['DUO_ADOPT_REBIND_ROOT'] = $this->root;
         if ($this->interruptPhase === null) {
             unset($environment['DUO_TEST_MODE'], $environment['DUO_TEST_ADOPT_FAIL_PHASE']);
         } else {
@@ -255,9 +264,66 @@ final class AdoptFilesystemTransactionTransport implements AdoptionTransport {
         return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
     }
 
+    private function writePopulationRebindCpShim(string $path): void {
+        $script = <<<'SH'
+#!/bin/sh
+if [ "${DUO_ADOPT_REBIND_LOADER_AFTER_POPULATION:-}" = 1 ] && [ "$#" -eq 2 ]; then
+    fixture_root=${DUO_ADOPT_REBIND_ROOT:?}
+    case "$2" in
+        "$fixture_root/mu/.duo-loader-new-"*)
+            /bin/cp "$@" || exit $?
+            rebound="${2}.rebound-$$"
+            [ ! -e "$rebound" ] && [ ! -L "$rebound" ] || exit 96
+            /bin/cp -p "$2" "$rebound" || exit $?
+            /bin/mv "$rebound" "$2" || exit $?
+            : > "$fixture_root/loader-population-rebound"
+            exit 0
+            ;;
+    esac
+fi
+exec /bin/cp "$@"
+SH;
+        if (file_put_contents($path, $script) === false || !chmod($path, 0700)) {
+            throw new \RuntimeException('could not write population-rebind cp fixture');
+        }
+    }
+
     private function writeCopyUnlinkMvShim(string $path): void {
         $script = <<<'SH'
 #!/bin/sh
+if [ "$#" -eq 2 ]; then
+    fixture_root=${DUO_ADOPT_REBIND_ROOT:-}
+    rebind_parent=""
+    rebind_marker=""
+    if [ "${DUO_ADOPT_REBIND_LOCK_AFTER_CHILD_PUBLISH:-}" = 1 ]; then
+        case "$2" in
+            "$fixture_root/mu/.duo-adopt-lock/"*)
+                rebind_parent="$fixture_root/mu/.duo-adopt-lock"
+                rebind_marker="$fixture_root/lock-container-rebound"
+                ;;
+        esac
+    fi
+    if [ -z "$rebind_parent" ] && [ "${DUO_ADOPT_REBIND_TXN_AFTER_CHILD_PUBLISH:-}" = 1 ]; then
+        case "$2" in
+            "$fixture_root/mu/.duo-adopt-txn-"*/*)
+                rebind_parent=${2%/*}
+                rebind_marker="$fixture_root/txn-container-rebound"
+                ;;
+        esac
+    fi
+    if [ -n "$rebind_parent" ]; then
+        /bin/mv "$@" || exit $?
+        rebound="${rebind_parent}.rebound-$$"
+        [ ! -e "$rebound" ] && [ ! -L "$rebound" ] || exit 98
+        mkdir "$rebound" \
+            && /bin/cp -pR "$rebind_parent/." "$rebound/" \
+            && /bin/rm -rf "$rebind_parent" \
+            && /bin/mv "$rebound" "$rebind_parent" \
+            && : > "$rebind_marker" \
+            || exit 99
+        exit 0
+    fi
+fi
 if [ "${DUO_ADOPT_FORCE_COPY_MOVE:-}" = 1 ] && [ "$#" -eq 2 ]; then
     fixture_root=${DUO_ADOPT_FORCE_COPY_MOVE_ROOT:?}
     case "$1" in
@@ -309,6 +375,21 @@ function adopt_check(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
+/** @param list<string> $needles */
+function adopt_assert_ordered(string $script, array $needles, string $message): void {
+    $previous = -1;
+    $ordered = true;
+    foreach ($needles as $needle) {
+        $position = strpos($script, $needle);
+        if (!is_int($position) || $position <= $previous) {
+            $ordered = false;
+            break;
+        }
+        $previous = $position;
+    }
+    adopt_check($ordered, $message);
+}
+
 $installScript = new ReflectionMethod(Adopt::class, 'installScript');
 $recoveryConfig = [
     'adapters' => [],
@@ -354,6 +435,63 @@ adopt_check(
     !str_contains($ordinaryInstall, 'duo-scoped-promotion-control/v1')
         && !str_contains($ordinaryInstall, 'chmod 600 "$agent_new/scoped-promotion-control.json"'),
     'adoption without a verified recovery configuration exposes no scoped-promotion trust root'
+);
+adopt_assert_ordered(
+    $authorityInstall,
+    [
+        'record_identity "$stage" "$txn/stage_construction.id"',
+        'tar --no-same-owner -xf "$archive" -C "$stage"',
+        'chmod 600 "$stage/recovery-config.json"',
+        'record_identity "$stage" "$txn/stage.id"',
+    ],
+    'the staged artifact identity is bound only after extraction and generated recovery configuration complete'
+);
+adopt_assert_ordered(
+    $authorityInstall,
+    [
+        'record_identity "$agent_new" "$txn/agent_new_construction.id"',
+        'cp -R "$stage/agent/." "$agent_new/"',
+        'chmod 600 "$agent_new/scoped-promotion-control.json"',
+        'record_identity "$agent_new" "$txn/agent_new.id"',
+    ],
+    'the agent publish proof follows copied bytes and target-local configuration'
+);
+adopt_assert_ordered(
+    $ordinaryInstall,
+    [
+        'record_identity "$loader_new" "$txn/loader_new_construction.id"',
+        'cp "$stage/agent/duo-loader.php" "$loader_new"',
+        'record_identity "$loader_new" "$txn/loader_new.id"',
+    ],
+    'the loader publish proof follows its content population'
+);
+adopt_assert_ordered(
+    $ordinaryInstall,
+    [
+        'record_identity "$manifest_new" "$txn/manifest_new_construction.id"',
+        'cp -R "$stage/manifests/." "$manifest_new/"',
+        'record_identity "$manifest_new" "$txn/manifest_new.id"',
+    ],
+    'the manifest publish proof follows copied manifest bytes'
+);
+adopt_assert_ordered(
+    $authorityInstall,
+    [
+        'record_identity "$duo_new" "$txn/duo_new_construction.id"',
+        'cp -R "$stage/recovery" "$runtime_new"',
+        'recovery-probe --root="$control_new"',
+        'record_identity "$duo_new" "$txn/duo_new.id"',
+    ],
+    'the authority publish proof follows state copy, runtime initialization, and recovery configuration'
+);
+adopt_assert_ordered(
+    $ordinaryInstall,
+    [
+        'record_identity "$site_new" "$txn/site_new_construction.id"',
+        '> "$site_new"; record_identity "$site_new" "$txn/site_new.id"',
+        'site seed publish source',
+    ],
+    'the seed publish proof follows seed-byte population'
 );
 
 $transport = new AdoptDoubleFailureTransport();
@@ -493,6 +631,51 @@ adopt_check(
     'a confirmed copy-unlink rollback removes only its completed transaction evidence'
 );
 
+$populationFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+register_shutdown_function(static function () use ($populationFixture): void {
+    if (is_dir($populationFixture)) {
+        adopt_remove_fixture($populationFixture);
+    }
+});
+$populationTransport = new AdoptFilesystemTransactionTransport($populationFixture, $sourceRoot);
+$populationTransport->rebindLoaderAfterPopulation = true;
+$populationTransport->failPolicy = true;
+$populationMu = $populationTransport->muDir();
+$populationRepo = $populationTransport->repoPath();
+$populationPriorRoots = [
+    'agent' => file_get_contents($populationMu . '/duo/legacy-agent.txt'),
+    'loader' => file_get_contents($populationMu . '/duo-loader.php'),
+    'manifest' => file_get_contents($populationMu . '/manifests/legacy.json'),
+    'duo_state' => file_get_contents($populationRepo . '/.duo/legacy-state.txt'),
+];
+$populationResult = Adopt::install($populationTransport, $sourceRoot);
+adopt_check(
+    is_file($populationFixture . '/loader-population-rebound'),
+    'the fixture replaces the loader inode after cp finishes its content population'
+);
+adopt_check(
+    $populationResult['exit'] !== 0
+        && $populationResult['phase'] === 'policy verification'
+        && !str_contains($populationResult['stderr'], 'loader source identity changed before publish'),
+    'a populated-loader inode rebind reaches post-swap policy rollback instead of the old source-proof refusal'
+);
+adopt_check(
+    !str_contains($populationResult['stderr'], 'adoption rollback could not be confirmed'),
+    'the final loader source proof permits a confirmed rollback after a populated-loader inode rebind'
+);
+adopt_check(
+    file_get_contents($populationMu . '/duo/legacy-agent.txt') === $populationPriorRoots['agent']
+        && file_get_contents($populationMu . '/duo-loader.php') === $populationPriorRoots['loader']
+        && file_get_contents($populationMu . '/manifests/legacy.json') === $populationPriorRoots['manifest']
+        && file_get_contents($populationRepo . '/.duo/legacy-state.txt') === $populationPriorRoots['duo_state'],
+    'the populated-loader rebind rollback restores all four exact prior roots'
+);
+adopt_check(
+    !is_dir($populationMu . '/.duo-adopt-lock')
+        && (glob($populationMu . '/.duo-adopt-txn-*') ?: []) === [],
+    'the populated-loader rebind does not retain a completed rollback journal'
+);
+
 $filesystemTransport->forceCopyUnlink = false;
 $filesystemTransport->failPolicy = false;
 $filesystemTransport->interruptPhase = 'agent-live-after-move';
@@ -561,6 +744,66 @@ adopt_check(
         && file_get_contents($commitAgent) === $committedAgentSource
         && is_dir($commitTransport->muDir() . '/.duo-old-' . $commitToken),
     'response loss after commit refuses rollback without mutating live roots or backups'
+);
+
+$lockContainerFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+register_shutdown_function(static function () use ($lockContainerFixture): void {
+    if (is_dir($lockContainerFixture)) {
+        adopt_remove_fixture($lockContainerFixture);
+    }
+});
+$lockContainerTransport = new AdoptFilesystemTransactionTransport($lockContainerFixture, $sourceRoot);
+$lockContainerTransport->rebindLockAfterChildPublish = true;
+$lockContainerResult = Adopt::install($lockContainerTransport, $sourceRoot);
+$lockContainerMu = $lockContainerTransport->muDir();
+$lockContainerTxns = glob($lockContainerMu . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+adopt_check(
+    is_file($lockContainerFixture . '/lock-container-rebound'),
+    'the fixture rebinds the lock container after an immutable child proof is published'
+);
+adopt_check(
+    $lockContainerResult['exit'] !== 0
+        && $lockContainerResult['phase'] === 'install commit'
+        && str_contains($lockContainerResult['stderr'], 'transaction identity changed before commit')
+        && str_contains($lockContainerResult['stderr'], 'adoption rollback could not be confirmed: duo adopt: transaction lock identity changed before rollback'),
+    'a rebinding lock container fails both commit and rollback rather than weakening its ownership fence'
+);
+adopt_check(
+    is_dir($lockContainerMu . '/.duo-adopt-lock')
+        && count($lockContainerTxns) === 1
+        && is_file($lockContainerMu . '/duo/duo.php')
+        && count(glob($lockContainerMu . '/.duo-old-*', GLOB_ONLYDIR) ?: []) === 1,
+    'a rebinding lock container retains live roots, backups, lock, and journal for operator recovery'
+);
+
+$txnContainerFixture = rtrim(sys_get_temp_dir(), '/') . '/duo-adopt-regress-' . bin2hex(random_bytes(8));
+register_shutdown_function(static function () use ($txnContainerFixture): void {
+    if (is_dir($txnContainerFixture)) {
+        adopt_remove_fixture($txnContainerFixture);
+    }
+});
+$txnContainerTransport = new AdoptFilesystemTransactionTransport($txnContainerFixture, $sourceRoot);
+$txnContainerTransport->rebindTxnAfterChildPublish = true;
+$txnContainerResult = Adopt::install($txnContainerTransport, $sourceRoot);
+$txnContainerMu = $txnContainerTransport->muDir();
+$txnContainerTxns = glob($txnContainerMu . '/.duo-adopt-txn-*', GLOB_ONLYDIR) ?: [];
+adopt_check(
+    is_file($txnContainerFixture . '/txn-container-rebound'),
+    'the fixture rebinds the transaction container after a journal child proof is published'
+);
+adopt_check(
+    $txnContainerResult['exit'] !== 0
+        && $txnContainerResult['phase'] === 'install commit'
+        && str_contains($txnContainerResult['stderr'], 'transaction identity changed before commit')
+        && str_contains($txnContainerResult['stderr'], 'adoption rollback could not be confirmed: duo adopt: transaction journal identity changed before rollback'),
+    'a rebinding transaction container fails both commit and rollback rather than weakening its journal fence'
+);
+adopt_check(
+    is_dir($txnContainerMu . '/.duo-adopt-lock')
+        && count($txnContainerTxns) === 1
+        && is_file($txnContainerMu . '/duo/duo.php')
+        && count(glob($txnContainerMu . '/.duo-old-*', GLOB_ONLYDIR) ?: []) === 1,
+    'a rebinding transaction container retains live roots, backups, lock, and journal for operator recovery'
 );
 
 echo "REGRESS_ADOPT_ROLLBACK PASSED\n";
