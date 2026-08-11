@@ -1103,19 +1103,25 @@ check(
 // flock) and deleted in `finally` so no ordinary failure leaves residue — but
 // `finally` does not run through a SIGKILL, and #151 later pointed init's
 // SIGKILL fault seams at this same path. Every killed init committed one row
-// nothing would read and no rollback would clear. It is now written only for
-// the pause seam that reads it. Pinned as an ordering, because the behaviour
-// itself needs a database: gate, then marker, then the pause.
+// nothing would read and no rollback would clear. It is now written only when
+// a READING seam is requested — the bounded pause, or DUO-3430's
+// wait-for-release gate, whose controller (regress_capture_concurrency) polls
+// this exact marker cross-process; a run requesting neither seam writes no
+// marker. Pinned as an ordering, because the behaviour itself needs a
+// database: gate, then marker, then the wait branch, then the pause.
 $captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-$markerGate = strpos($captureSource, '&& $pauseMs > 0 && $pauseMs <= 10000) {');
+$markerGate = strpos($captureSource, '&& (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {');
 $markerSet = strpos($captureSource, "Ledger::kv_set('capture_test_phase', 'locked');");
+$markerWait = strpos($captureSource, 'if ($waitForRelease) {');
 $markerPause = strpos($captureSource, 'usleep($pauseMs * 1000);');
 check(
-    $markerGate !== false && $markerSet !== false && $markerPause !== false
-        && $markerGate < $markerSet && $markerSet < $markerPause
+    $markerGate !== false && $markerSet !== false && $markerWait !== false
+        && $markerPause !== false
+        && $markerGate < $markerSet && $markerSet < $markerWait
+        && $markerWait < $markerPause
         && substr_count($captureSource, "Ledger::kv_set('capture_test_phase'") === 1
         && substr_count($captureSource, "Ledger::kv_delete('capture_test_phase')") === 1,
-    'the test-only capture phase marker is written only for the pause seam that reads it, so a killed init leaves no ledger residue'
+    'the test-only capture phase marker is written only for a reading seam — pause or wait-for-release — so a killed init leaves no ledger residue'
 );
 
 // DUO-3421: the interrupted-init compensation runs over the same artifacts
