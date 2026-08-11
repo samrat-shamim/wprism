@@ -153,7 +153,8 @@ final class ScopedApply {
         CompiledRepository $compiled,
         Policy $policy,
         array $contract,
-        array $actual
+        array $actual,
+        ?array $sealedLedgerMapIdentityHashes = null
     ): array {
         ScopeContract::assert_associated($contract, $compiled, $policy);
         $selected = self::selected_set($contract);
@@ -225,7 +226,15 @@ final class ScopedApply {
             [$a['identity_hash'], $a['type'], $a['content_hash']]
                 <=> [$b['identity_hash'], $b['type'], $b['content_hash']]
         );
-        $mapRoots = self::ledger_map_roots($contract);
+        // The first pre-mutation observation derives opaque UUID hashes from
+        // both the frozen source and the selected target rows. Once authority
+        // exists, reuse its sealed hashes: a widget/menu-item removal must not
+        // turn its former ledger row into protected state merely because it is
+        // absent from the post-mutation tree.
+        $ledgerMapIdentityHashes = $sealedLedgerMapIdentityHashes === null
+            ? self::ledger_map_identity_hashes($contract, $compiled, $actual)
+            : self::normalize_ledger_map_identity_hashes($sealedLedgerMapIdentityHashes);
+        $mapRoots = self::ledger_map_roots($ledgerMapIdentityHashes);
         $roots = [
             'selected_before_root' => self::hash_rows(array_values($selectedRows)),
             'protected_out_of_scope_root' => self::hash_rows($protectedRows),
@@ -236,16 +245,60 @@ final class ScopedApply {
             // session records consume the roots above, never these raw rows.
             '_selected_rows' => $selectedRows,
             '_protected_rows' => $protectedRows,
+            '_ledger_map_identity_hashes' => $ledgerMapIdentityHashes,
         ];
     }
 
     /**
-     * Hash-only identity-map roots for the exact selected/protected partition.
+     * Expand selected file identities to opaque UUID hashes whose ledger rows
+     * their owned nested records may legitimately change. A selected
+     * sidebar/menu is a file-level scope root, while its widget/menu-item
+     * UUIDs are nested identities, so both the frozen source (new children)
+     * and the selected pre-mutation target record (removed/target-only
+     * children) contribute. Raw UUIDs never leave this helper.
+     *
+     * @param array<string,array{type:string,hash:string,content:string,path:string}> $actual
+     * @return list<string>
+     */
+    public static function ledger_map_identity_hashes(
+        array $contract,
+        CompiledRepository $compiled,
+        array $actual
+    ): array {
+        $selectedEntities = self::selected_set($contract);
+        $selectedMapIdentities = [];
+        foreach (array_keys($selectedEntities) as $identity) {
+            if (Uuid::is((string) $identity)) {
+                $selectedMapIdentities[(string) $identity] = true;
+            }
+        }
+        foreach ([
+            ReferenceGraph::owners($compiled->tree()),
+            ReferenceGraph::owners(self::selected_observed_owner_tree($actual, $selectedEntities)),
+        ] as $owners) {
+            foreach ($owners as $uuid => $owner) {
+                if (isset($selectedEntities[(string) ($owner['entity'] ?? '')])) {
+                    $uuid = (string) $uuid;
+                    if (!Uuid::is($uuid)) {
+                        throw new \RuntimeException('duo: scoped ledger map owner has an invalid UUID identity');
+                    }
+                    $selectedMapIdentities[$uuid] = true;
+                }
+            }
+        }
+        return self::normalize_ledger_map_identity_hashes(array_map(
+            static fn(string $uuid): string => hash('sha256', $uuid),
+            array_keys($selectedMapIdentities)
+        ));
+    }
+
+    /**
+     * Hash-only identity-map roots for one sealed selected/protected partition.
      *
      * @return array{ledger_map_root:string,protected_ledger_map_root:string,selected_ledger_map_root:string}
      */
-    public static function ledger_map_roots(array $contract): array {
-        $selected = self::selected_set($contract);
+    public static function ledger_map_roots(array $ledgerMapIdentityHashes): array {
+        $selected = array_fill_keys(self::normalize_ledger_map_identity_hashes($ledgerMapIdentityHashes), true);
         $map = Ledger::all_map();
         usort($map, static fn(array $a, array $b): int => [
             (string) ($a['uuid'] ?? ''), (string) ($a['id_kind'] ?? ''), (int) ($a['local_id'] ?? 0),
@@ -254,17 +307,71 @@ final class ScopedApply {
         ]);
         $protectedMap = array_values(array_filter(
             $map,
-            static fn(array $row): bool => !isset($selected[(string) ($row['uuid'] ?? '')])
+            static fn(array $row): bool => !isset($selected[hash('sha256', (string) ($row['uuid'] ?? ''))])
         ));
         $selectedMap = array_values(array_filter(
             $map,
-            static fn(array $row): bool => isset($selected[(string) ($row['uuid'] ?? '')])
+            static fn(array $row): bool => isset($selected[hash('sha256', (string) ($row['uuid'] ?? ''))])
         ));
         return [
             'ledger_map_root' => hash('sha256', Canon::encode($map)),
             'protected_ledger_map_root' => hash('sha256', Canon::encode($protectedMap)),
             'selected_ledger_map_root' => hash('sha256', Canon::encode($selectedMap)),
         ];
+    }
+
+    /**
+     * ReferenceGraph expects typed tree rows, while a target observation is a
+     * compact capture projection. Only sidebar/menu records can own nested
+     * ledger identities, so decode just selected records of those two generic
+     * owner types instead of introducing a second owner walker.
+     *
+     * @param array<string,array{type:string,hash:string,content:string,path:string}> $actual
+     * @param array<string,true> $selectedEntities
+     * @return array<string,array<string,mixed>>
+     */
+    private static function selected_observed_owner_tree(array $actual, array $selectedEntities): array {
+        $tree = [];
+        foreach ($actual as $identity => $row) {
+            $identity = (string) $identity;
+            if (!isset($selectedEntities[$identity])) {
+                continue;
+            }
+            $type = (string) ($row['type'] ?? '');
+            if ($type !== 'menu' && $type !== SidebarState::ENTITY_TYPE) {
+                continue;
+            }
+            try {
+                $data = Canon::decode((string) ($row['content'] ?? ''));
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException(
+                    "duo: scoped target observation has malformed selected $type owner '$identity'",
+                    0,
+                    $failure
+                );
+            }
+            if (!is_array($data)) {
+                throw new \RuntimeException(
+                    "duo: scoped target observation has non-object selected $type owner '$identity'"
+                );
+            }
+            $tree[$identity] = ['type' => $type, 'data' => $data];
+        }
+        return $tree;
+    }
+
+    /** @param list<string> $identityHashes @return list<string> */
+    private static function normalize_ledger_map_identity_hashes(array $identityHashes): array {
+        $out = [];
+        foreach ($identityHashes as $identityHash) {
+            if (!is_string($identityHash) || preg_match('/^[a-f0-9]{64}$/D', $identityHash) !== 1) {
+                throw new \RuntimeException('duo: scoped ledger map selection has an invalid opaque identity hash');
+            }
+            $out[$identityHash] = true;
+        }
+        $identityHashes = array_keys($out);
+        sort($identityHashes, SORT_STRING);
+        return $identityHashes;
     }
 
     /**

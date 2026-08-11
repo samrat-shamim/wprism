@@ -25,7 +25,11 @@ function get_taxonomies($args = [], $output = 'names'): array { return []; }
 function get_taxonomy($name) { return false; }
 function esc_sql($value): string { return addslashes((string) $value); }
 function wp_json_encode($value) { return json_encode($value, JSON_UNESCAPED_SLASHES); }
-function wp_cache_delete(...$args): bool { return true; }
+$GLOBALS['lifecycle_cache_deletes'] = [];
+function wp_cache_delete(...$args): bool {
+    $GLOBALS['lifecycle_cache_deletes'][] = $args;
+    return true;
+}
 function maybe_serialize($value) {
     return is_array($value) || is_object($value) ? serialize($value) : $value;
 }
@@ -73,6 +77,8 @@ final class LifecycleOptionsFakeWpdb {
     public array $map = [];
     /** @var list<string> */
     public array $queries = [];
+    /** @var list<array{sql:string,args:array}> */
+    public array $queryCalls = [];
     /** @var list<array{table:string,data:array,where?:array}> */
     public array $writes = [];
     /** @var list<object> */
@@ -90,6 +96,7 @@ final class LifecycleOptionsFakeWpdb {
     public function query($sql) {
         [$sql, $args] = $this->unwrap($sql);
         $this->queries[] = $sql;
+        $this->queryCalls[] = ['sql' => $sql, 'args' => $args];
         if (preg_match('/DELETE m FROM wp_duo_map m LEFT JOIN `wp_([A-Za-z0-9_]+)` src ON src.`([A-Za-z0-9_]+)` = m\.local_id/', $sql, $m)) {
             $kind = (string) ($args[0] ?? '');
             $table = (string) $m[1];
@@ -440,6 +447,28 @@ $check(
                 'unmanaged' => 'keep',
             ],
     'Apply assign_locations preserves exact serialized array semantics while merging locations'
+);
+
+$wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize([
+    'nav_menu_locations' => ['primary' => 42, 'footer' => 7],
+    'unmanaged' => 'keep',
+]);
+$wpdb->writes = [];
+$assignLocations->invoke($apply, 42, []);
+$deleteLocationWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
+$applySourceForMenuDelete = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$check(
+    is_array($deleteLocationWrite)
+        && PlainData::decode(
+            (string) ($deleteLocationWrite['data']['option_value'] ?? ''),
+            'Apply menu deletion location output'
+        ) === [
+            'nav_menu_locations' => ['footer' => 7],
+            'unmanaged' => 'keep',
+        ]
+        && is_string($applySourceForMenuDelete)
+        && str_contains($applySourceForMenuDelete, '$this->assign_locations($termId, []);'),
+    'menu deletion removes only the selected term locations and preserves other menu assignments'
 );
 
 $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = 'ordinary scalar string';
@@ -828,6 +857,105 @@ $check(
     SidebarState::witness('text', 3) === $expectedSidebarWitness,
     'SidebarState witness accepts canonical serialized widget settings'
 );
+
+// Scoped sidebar mutation is bounded twice: Apply gives the allocator only
+// selected sidebar rows, and the finalizer writes only widget families that
+// selected rows actually touch. An unrelated desired source sidebar whose
+// widget is absent from the target must not acquire a map row or have its
+// option family rewritten merely because selected A has work.
+$sidebarPolicy->manifests[0]['widgets']['block'] = [
+    'settings' => ['content' => ['class' => 'authored']],
+];
+$selectedSidebarWidget = '00000000-0000-4000-8000-000000000701';
+$protectedSidebarWidget = '00000000-0000-4000-8000-000000000702';
+$selectedSidebarTree = [
+    'sidebar/selected' => [
+        'type' => SidebarState::ENTITY_TYPE,
+        'data' => ['widgets' => [[
+            'uuid' => $selectedSidebarWidget,
+            'type' => 'text',
+            'settings' => ['title' => 'Selected'],
+        ]]],
+    ],
+];
+$completeSidebarTree = $selectedSidebarTree + [
+    'sidebar/protected' => [
+        'type' => SidebarState::ENTITY_TYPE,
+        'data' => ['widgets' => [[
+            'uuid' => $protectedSidebarWidget,
+            'type' => 'block',
+            'settings' => ['content' => 'Protected'],
+        ]]],
+    ],
+];
+$wpdb->map = [];
+$wpdb->queryCalls = [];
+$wpdb->optionRows = [
+    'widget_text' => ['option_value' => serialize(['_multiwidget' => 1]), 'autoload' => 'yes'],
+    'widget_block' => ['option_value' => serialize([9 => ['content' => 'Protected'], '_multiwidget' => 1]), 'autoload' => 'yes'],
+    'sidebars_widgets' => ['option_value' => serialize([
+        'selected' => [], 'protected' => ['block-9'], 'array_version' => 3,
+    ]), 'autoload' => 'yes'],
+];
+SidebarState::ensure_widgets($sidebarPolicy, $selectedSidebarTree);
+$allocatedWidgetUuids = [];
+foreach ($wpdb->queryCalls as $call) {
+    if (str_contains($call['sql'], 'INSERT INTO wp_duo_map')) {
+        $allocatedWidgetUuids[] = (string) ($call['args'][0] ?? '');
+    }
+}
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$check(
+    $allocatedWidgetUuids === [$selectedSidebarWidget]
+        && !in_array($protectedSidebarWidget, $allocatedWidgetUuids, true)
+        && is_string($applySource)
+        && str_contains($applySource, 'array_intersect_key($tree, ScopedApply::selected_set($this->scopeContract))'),
+    'scoped sidebar allocation receives the selected projection and never maps an unselected desired widget'
+);
+
+$wpdb->map = [
+    ['uuid' => $selectedSidebarWidget, 'entity_type' => 'widget', 'kind' => SidebarState::kind('text'), 'id' => 1],
+    ['uuid' => $protectedSidebarWidget, 'entity_type' => 'widget', 'kind' => SidebarState::kind('block'), 'id' => 9],
+];
+$wpdb->queryCalls = [];
+$GLOBALS['lifecycle_cache_deletes'] = [];
+SidebarState::finalize_sidebar(
+    $sidebarPolicy,
+    $tokens,
+    $selectedSidebarTree['sidebar/selected']['data'],
+    'selected',
+    $completeSidebarTree,
+    true
+);
+$widgetOptionWrites = [];
+$storedSidebarAssignments = null;
+foreach ($wpdb->queryCalls as $call) {
+    if (str_contains($call['sql'], 'INSERT INTO wp_options')
+        && isset($call['args'][0]) && is_string($call['args'][0])) {
+        if (str_starts_with($call['args'][0], 'widget_')) {
+            $widgetOptionWrites[] = $call['args'][0];
+        } elseif (str_contains($call['sql'], "VALUES ('sidebars_widgets'")) {
+            $storedSidebarAssignments = maybe_unserialize($call['args'][0]);
+        }
+    }
+}
+$cacheDeleteKeys = array_map(
+    static fn(array $args): string => (string) ($args[0] ?? ''),
+    $GLOBALS['lifecycle_cache_deletes']
+);
+$check(
+    $widgetOptionWrites === ['widget_text']
+        && !in_array('widget_block', $cacheDeleteKeys, true)
+        && is_array($storedSidebarAssignments)
+        && ($storedSidebarAssignments['protected'] ?? null) === ['block-9'],
+    'scoped sidebar finalization writes only selected touched families and preserves protected assignments/cache state'
+);
+
+// Restore the canonical loader fixture used by the hostile-value matrix.
+$wpdb->optionRows = [
+    'widget_text' => ['option_value' => serialize($sidebarWidgetValue), 'autoload' => 'yes'],
+    'sidebars_widgets' => ['option_value' => serialize($sidebarAssignmentsValue), 'autoload' => 'yes'],
+];
 $check(
     PlainData::decode('i:7;', 'scalar') === 7
         && PlainData::decode('b:0;', 'false') === false

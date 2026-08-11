@@ -220,6 +220,56 @@ put("$repo/state/deletions/{$ids['otherTombstone']}.json", Canon::encode([
 $policy = Policy::load($repo);
 $compiled = RepositoryCompiler::compile($repo, $policy);
 
+// Menu locations are one shared authored namespace. A selected source menu
+// and a protected target menu cannot both own the same slot: the complete
+// mixed candidate compiler must refuse before scoped authority or mutation.
+$menuSourceRows = [];
+foreach ($compiled->tree() as $identity => $row) {
+    $data = $row['data'];
+    $content = $row['content'];
+    if ((string) $identity === $ids['menu']) {
+        $data['locations'] = ['primary'];
+        $content = Canon::encode($data);
+    }
+    $menuSourceRows[] = [
+        'uuid' => (string) $identity,
+        'type' => (string) $row['type'],
+        'path' => (string) $row['path'],
+        'content' => (string) $content,
+    ];
+}
+$singleMenuView = ScopedStateOverlay::stage_state_view($menuSourceRows);
+try {
+    $singleMenuCompiled = RepositoryCompiler::compile_staged($singleMenuView, $repo, $policy);
+    check(
+        ($singleMenuCompiled->tree()[$ids['menu']]['data']['locations'] ?? null) === ['primary'],
+        'compiler accepts one authored holder for a menu location'
+    );
+} finally {
+    ScopedStateOverlay::discard_state_view($singleMenuView);
+}
+$protectedMenu = uuid(12);
+$menuTakeoverRows = $menuSourceRows;
+$menuTakeoverRows[] = [
+    'uuid' => $protectedMenu,
+    'type' => 'menu',
+    'path' => 'menus/protected.json',
+    'content' => Canon::encode([
+        'items' => [], 'locations' => ['primary'], 'name' => 'Protected',
+        'slug' => 'protected', 'uuid' => $protectedMenu,
+    ]),
+];
+$menuTakeoverView = ScopedStateOverlay::stage_state_view($menuTakeoverRows);
+try {
+    expect_throw(
+        static fn() => RepositoryCompiler::compile_staged($menuTakeoverView, $repo, $policy),
+        'duplicate_menu_location',
+        'mixed scoped candidate refuses selected menu takeover of a protected target location pre-authority'
+    );
+} finally {
+    ScopedStateOverlay::discard_state_view($menuTakeoverView);
+}
+
 // Baseline v1 is still ScopeClosure's exact legacy report. Contract creation
 // must neither change its version nor mutate its output.
 $legacyBefore = ScopeClosure::resolve($compiled, $policy, ['post:' . $ids['page']]);

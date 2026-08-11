@@ -134,7 +134,8 @@ final class Apply {
                 $compiled,
                 $policy,
                 $a->scopeContract,
-                $actual
+                $actual,
+                $a->scoped_ledger_map_identity_hashes()
             );
             $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false);
             $surfaces = $a->rebuild_surfaces(
@@ -2550,7 +2551,8 @@ final class Apply {
                     $compiled,
                     $policy,
                     $preflightContract,
-                    $actual
+                    $actual,
+                    (array) $authority['selection']['ledger_map_identity_hashes']
                 );
                 $terminalReceipt = $terminalReplaySession->terminal_receipt();
                 if (!ScopedApply::terminal_replay_matches(
@@ -2844,7 +2846,8 @@ final class Apply {
                 $compiled,
                 $this->policy,
                 $this->scopeContract,
-                $actual
+                $actual,
+                $this->scoped_ledger_map_identity_hashes()
             );
         }
 
@@ -3179,7 +3182,8 @@ final class Apply {
                 $compiled,
                 $this->policy,
                 $this->scopeContract,
-                $freshActual
+                $freshActual,
+                $this->scoped_ledger_map_identity_hashes()
             );
             foreach ([
                 'selected_before_root', 'protected_out_of_scope_root',
@@ -3194,6 +3198,14 @@ final class Apply {
                         'duo: scoped target observation changed after planning; no target mutation attempted'
                     );
                 }
+            }
+            if (!hash_equals(
+                ScopedApplySession::hash_value((array) ($this->scopedObservation['_ledger_map_identity_hashes'] ?? [])),
+                ScopedApplySession::hash_value((array) ($freshObservation['_ledger_map_identity_hashes'] ?? []))
+            )) {
+                throw new \RuntimeException(
+                    'duo: scoped ledger-map identity selection changed after planning; no target mutation attempted'
+                );
             }
             $this->scopedObservation = $freshObservation;
         }
@@ -3410,9 +3422,18 @@ final class Apply {
                 $this->adopt($r, $tree[$r['uuid']]);
             }
 
+            // Widget allocation is a ledger mutation. In a bounded apply the
+            // selected entity set is its only authority, so never hand the
+            // allocator an unrelated sidebar merely because it shares the
+            // frozen compiled tree with the selected work. Finalization still
+            // receives the full tree below for its read-only global desired
+            // scan, which prevents cross-sidebar widget-instance deletion.
+            $sidebarAllocationTree = $scoped
+                ? array_intersect_key($tree, ScopedApply::selected_set($this->scopeContract))
+                : $tree;
             foreach ($work as $r) {
                 if (($tree[$r['uuid']]['type'] ?? '') === SidebarState::ENTITY_TYPE) {
-                    SidebarState::ensure_widgets($this->policy, $tree);
+                    SidebarState::ensure_widgets($this->policy, $sidebarAllocationTree);
                     break;
                 }
             }
@@ -3477,7 +3498,14 @@ final class Apply {
                     if ($sidebar === null) {
                         throw new \RuntimeException("duo: invalid compiled sidebar path {$e['path']}");
                     }
-                    SidebarState::finalize_sidebar($this->policy, $this->tokens, $e['data'], $sidebar, $tree);
+                    SidebarState::finalize_sidebar(
+                        $this->policy,
+                        $this->tokens,
+                        $e['data'],
+                        $sidebar,
+                        $tree,
+                        $scoped
+                    );
                 }
             }
 
@@ -3551,7 +3579,8 @@ final class Apply {
                     $compiled,
                     $this->policy,
                     $this->scopeContract,
-                    $afterActual
+                    $afterActual,
+                    $this->scoped_ledger_map_identity_hashes()
                 );
                 if (!hash_equals(
                     (string) $this->scopedSession->authority()['target']['protected_out_of_scope_hash'],
@@ -3729,7 +3758,9 @@ final class Apply {
                 // database transaction, so COMMIT resolves to either a still-
                 // active verifying session or one terminal receipt plus all
                 // selected base updates. Global applied_revision never moves.
-                $terminalMapRoots = ScopedApply::ledger_map_roots($this->scopeContract);
+                $terminalMapRoots = ScopedApply::ledger_map_roots(
+                    (array) $this->scopedSession->authority()['selection']['ledger_map_identity_hashes']
+                );
                 if (!hash_equals(
                     (string) $this->scopedSession->authority()['target']['protected_ledger_map_hash'],
                     (string) $terminalMapRoots['protected_ledger_map_root']
@@ -3924,6 +3955,7 @@ final class Apply {
                 'duo: scoped apply requires operation-bound action reconciliation before target mutation'
             );
         }
+        $ledgerMapIdentityHashes = $this->scoped_ledger_map_identity_hashes_from_observation();
         return ScopedApplySession::make_authority(
             (string) $this->scopeContract['scope_hash'],
             [
@@ -3960,9 +3992,48 @@ final class Apply {
                 'capabilities_hash' => hash('sha256', Canon::encode($capabilities)),
                 'effects_hash' => hash('sha256', Canon::encode($effectRows)),
                 'effect_items' => $effectRows,
+                'ledger_map_identity_hashes' => $ledgerMapIdentityHashes,
+                'ledger_map_identity_set_hash' => ScopedApplySession::hash_value($ledgerMapIdentityHashes),
             ],
             ScopedApply::code_witness_hash($plan, $compiled)
         );
+    }
+
+    /** @return ?list<string> opaque SHA-256 UUID hashes sealed by an active authority */
+    private function scoped_ledger_map_identity_hashes(): ?array {
+        if ($this->scopedSession === null) {
+            return null;
+        }
+        $hashes = $this->scopedSession->authority()['selection']['ledger_map_identity_hashes'] ?? null;
+        return $this->assert_scoped_ledger_map_identity_hashes($hashes, 'authority');
+    }
+
+    /** @return list<string> opaque SHA-256 UUID hashes derived before authority minting */
+    private function scoped_ledger_map_identity_hashes_from_observation(): array {
+        if ($this->scopedObservation === null) {
+            throw new \RuntimeException('duo: scoped mutation authority has no ledger-map identity observation');
+        }
+        return $this->assert_scoped_ledger_map_identity_hashes(
+            $this->scopedObservation['_ledger_map_identity_hashes'] ?? null,
+            'observation'
+        );
+    }
+
+    /** @return list<string> */
+    private function assert_scoped_ledger_map_identity_hashes(mixed $hashes, string $source): array {
+        if (!is_array($hashes) || !array_is_list($hashes)) {
+            throw new \RuntimeException("duo: scoped ledger-map $source has no canonical opaque identity hashes");
+        }
+        $previous = null;
+        foreach ($hashes as $identityHash) {
+            if (!is_string($identityHash)
+                || preg_match('/^[a-f0-9]{64}$/D', $identityHash) !== 1
+                || ($previous !== null && strcmp($previous, $identityHash) >= 0)) {
+                throw new \RuntimeException("duo: scoped ledger-map $source has invalid opaque identity hashes");
+            }
+            $previous = $identityHash;
+        }
+        return $hashes;
     }
 
     private function scoped_guard_witnesses_hash(array $deleteWork): string {
@@ -4720,7 +4791,8 @@ final class Apply {
             $compiled,
             $this->policy,
             $this->scopeContract,
-            $actual
+            $actual,
+            (array) $verifyingSession->authority()['selection']['ledger_map_identity_hashes']
         );
         if (!hash_equals($expectedProtectedRoot, (string) $observation['protected_out_of_scope_root'])
             || !hash_equals($expectedProtectedMapRoot, (string) $observation['protected_ledger_map_root'])) {
@@ -6213,6 +6285,15 @@ final class Apply {
                 throw new \RuntimeException("duo: cannot delete $type $uuid: target term identity mapping is incomplete");
             }
             if ($type === 'menu') {
+                // Authored menu locations are part of this selected menu's
+                // owned state. Remove only slots whose current value is this
+                // exact term id before deleting it; assign_locations() keeps
+                // every other menu's location byte-for-byte. Derived
+                // locations remain wholly adapter-owned and are never
+                // rewritten by the generic engine.
+                if ($this->policy->menu_field_class('locations') !== 'derived') {
+                    $this->assign_locations($termId, []);
+                }
                 $itemIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
                     "SELECT p.ID FROM {$wpdb->posts} p
                      JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID

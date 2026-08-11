@@ -450,7 +450,8 @@ rather than working around it.
   inbound referrer. Scoped plan/apply/verification now consume the same
   evidence only through a separate target-observation and lease-bound mutation
   authority. The durable session retains hash-safe original work/action
-  identities, journals authored/effect phases, reconciles provider/native
+  identities plus an opaque sealed membership set for nested widget/menu-item
+  map rows owned by selected sidebar/menu files, journals authored/effect phases, reconciles provider/native
   response loss by exact operation id, verifies selected intent plus protected
   out-of-scope roots in a fresh process, and advances selected ledger rows
   without claiming a global applied revision. A nonterminal scoped session

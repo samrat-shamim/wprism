@@ -94,6 +94,11 @@ $effectItems = [[
     'action_hash' => $h('effect-action-declaration'),
     'effect_hash' => $h('effect-declaration'),
 ]];
+$privateMapUuid = '00000000-0000-4000-8000-000000000099';
+$privateMapUuid2 = '00000000-0000-4000-8000-000000000098';
+$ledgerMapIdentityHashes = [hash('sha256', $privateMapUuid), hash('sha256', $privateMapUuid2)];
+$canonicalLedgerMapIdentityHashes = $ledgerMapIdentityHashes;
+sort($canonicalLedgerMapIdentityHashes, SORT_STRING);
 $authority = ScopedApplySession::make_authority(
     $h('scope'),
     [
@@ -123,6 +128,8 @@ $authority = ScopedApplySession::make_authority(
         'capabilities_hash' => $h('capabilities'),
         'effects_hash' => ScopedApplySession::hash_value($effectItems),
         'effect_items' => $effectItems,
+        'ledger_map_identity_hashes' => $ledgerMapIdentityHashes,
+        'ledger_map_identity_set_hash' => ScopedApplySession::hash_value($canonicalLedgerMapIdentityHashes),
     ],
     $h('code-witness')
 );
@@ -132,8 +139,43 @@ $check(
     'authority is closed, canonical, and self-hashing'
 );
 $check(
-    !str_contains(Canon::encode($authority), 'raw-content') && !str_contains(Canon::encode($authority), 'secret'),
-    'authority contains no raw content or secret witness'
+    !str_contains(Canon::encode($authority), 'raw-content')
+        && !str_contains(Canon::encode($authority), 'secret')
+        && !str_contains(Canon::encode($authority), $privateMapUuid)
+        && !str_contains(Canon::encode($authority), $privateMapUuid2)
+        && ($authority['selection']['ledger_map_identity_hashes'] ?? null) === $canonicalLedgerMapIdentityHashes,
+    'authority retains only opaque map-identity hashes, never raw content, secret, or UUID'
+);
+
+$duplicateMapSelection = $authority;
+unset($duplicateMapSelection['authority_hash']);
+$duplicateMapSelection['selection']['ledger_map_identity_hashes'] = [
+    $canonicalLedgerMapIdentityHashes[0], $canonicalLedgerMapIdentityHashes[0],
+];
+$duplicateMapSelection['selection']['ledger_map_identity_set_hash'] = ScopedApplySession::hash_value(
+    $duplicateMapSelection['selection']['ledger_map_identity_hashes']
+);
+$expectThrow(
+    static fn() => ScopedApplySession::seal_authority($duplicateMapSelection),
+    'sorted and unique',
+    'authority refuses duplicate opaque map identities instead of silently widening its partition'
+);
+$mismatchedMapSelection = $authority;
+unset($mismatchedMapSelection['authority_hash']);
+$mismatchedMapSelection['selection']['ledger_map_identity_set_hash'] = $h('wrong-map-set');
+$expectThrow(
+    static fn() => ScopedApplySession::seal_authority($mismatchedMapSelection),
+    'does not match',
+    'authority refuses a map identity set whose sealed digest does not match its canonical members'
+);
+$rawMapSelection = $authority;
+unset($rawMapSelection['authority_hash']);
+$rawMapSelection['selection']['ledger_map_identity_hashes'] = [$privateMapUuid];
+$rawMapSelection['selection']['ledger_map_identity_set_hash'] = ScopedApplySession::hash_value([$privateMapUuid]);
+$expectThrow(
+    static fn() => ScopedApplySession::seal_authority($rawMapSelection),
+    'invalid opaque identity hash',
+    'authority rejects raw target UUIDs at the hash-only durable privacy boundary'
 );
 
 $store = new ScopedApplySessionMemoryStore();
@@ -311,6 +353,16 @@ $expectThrow(
     static fn() => ScopedApplySession::open($store),
     'phase history',
     'tampering with a persisted phase is detected by the phase history and hash'
+);
+$store->values[ScopedApplySession::STORAGE_KEY] = $session->canonical();
+
+$tamperedMapSelection = json_decode((string) $store->values[ScopedApplySession::STORAGE_KEY], true, 512, JSON_THROW_ON_ERROR);
+$tamperedMapSelection['authority']['selection']['ledger_map_identity_hashes'][0] = $h('tampered-map-identity');
+$store->values[ScopedApplySession::STORAGE_KEY] = Canon::encode($tamperedMapSelection);
+$expectThrow(
+    static fn() => ScopedApplySession::open($store),
+    'sorted and unique',
+    'tampering with sealed opaque map selection is detected before session recovery'
 );
 $store->values[ScopedApplySession::STORAGE_KEY] = $session->canonical();
 

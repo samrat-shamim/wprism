@@ -156,10 +156,12 @@ function scope_wire_observation(array $result, array $contract): array {
     $request = is_string($decoded) ? json_decode($decoded, true) : null;
     check_wire(
         is_array($request)
+            && array_keys($request) === ['format', 'scope_hash', 'selectors']
             && ($request['format'] ?? null) === 'duo-scope-request/v1'
             && ($request['scope_hash'] ?? null) === $contract['scope_hash']
-            && ($request['selectors'] ?? null) === $contract['selectors'],
-        'compact request is canonical format/hash/selectors evidence'
+            && ($request['selectors'] ?? null) === $contract['selectors']
+            && !str_contains((string) $decoded, 'ledger_map_identity'),
+        'compact request is only canonical format/hash/selectors evidence, never durable map membership'
     );
     return ['request' => is_array($request) ? $request : [], 'args' => $args];
 }

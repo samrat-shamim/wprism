@@ -88,6 +88,8 @@ final class ScopedRecoveryEffectWpdb {
     public array $optionRows = [];
     /** @var array<string,string> */
     public array $kvRows = [];
+    /** @var list<array{uuid:string,entity_type:string,id_kind:string,local_id:int}> */
+    public array $mapRows = [];
 
     public function get_charset_collate(): string {
         return '';
@@ -126,6 +128,9 @@ final class ScopedRecoveryEffectWpdb {
             return false;
         }
         $this->last_error = '';
+        if (str_contains($query, 'FROM wp_duo_map')) {
+            return $this->mapRows;
+        }
         return [];
     }
 }
@@ -395,6 +400,8 @@ $selection = [
     'capabilities_hash' => ScopedApplySession::hash_value([]),
     'effects_hash' => ScopedApplySession::hash_value([]),
     'effect_items' => [],
+    'ledger_map_identity_hashes' => [],
+    'ledger_map_identity_set_hash' => ScopedApplySession::hash_value([]),
 ];
 $artifactHash = $compiled->artifact_hash();
 $authority = ScopedApplySession::make_authority(
@@ -588,6 +595,149 @@ $check(
         && count($projected['update']) === 1 && $projected['update'][0]['uuid'] === $selectedId,
     'scoped plan projection excludes the protected identity from authored work'
 );
+
+// File-level sidebar/menu selection owns nested widget/menu-item ledger UUIDs.
+// Seal the union of source-new and target-old children before mutation so a
+// removal cannot reclassify its old map row as protected during recovery.
+$selectedSidebar = 'sidebar/selected';
+$selectedMenu = $uuid(20);
+$sourceWidget = $uuid(21);
+$targetWidget = $uuid(22);
+$sourceMenuItem = $uuid(23);
+$targetMenuItem = $uuid(24);
+$protectedWidget = $uuid(25);
+$protectedMenuItem = $uuid(26);
+$nestedContract = $contract;
+$nestedContract['selectors'] = ['menu:selected', 'sidebar:selected'];
+$nestedRootEntities = [$selectedMenu, $selectedSidebar];
+sort($nestedRootEntities, SORT_STRING);
+$nestedContract['resolution'] = [
+    'live_root_entities' => $nestedRootEntities,
+    'tombstone_uuids' => [],
+];
+$nestedContract['live'] = [
+    'roots' => [[
+        'entity' => $selectedMenu,
+        'entity_hash' => $hash('nested-menu-entity'),
+        'path' => 'menus/selected.json',
+        'type' => 'menu',
+        'source_hash' => $hash('nested-menu-source'),
+        'provenance' => ['kind' => 'root', 'selector' => 'menu:selected'],
+    ], [
+        'entity' => $selectedSidebar,
+        'entity_hash' => $hash('nested-sidebar-entity'),
+        'path' => 'sidebars/selected.json',
+        'type' => 'sidebar',
+        'source_hash' => $hash('nested-sidebar-source'),
+        'provenance' => ['kind' => 'root', 'selector' => 'sidebar:selected'],
+    ]],
+    'closure' => [],
+    'excluded' => [],
+    'inbound' => [],
+];
+$nestedContract['tombstones'] = [];
+unset($nestedContract['scope_hash']);
+$nestedContract['scope_hash'] = $hash(Canon::encode($nestedContract));
+$nestedContract = ScopeContract::from_array($nestedContract);
+$nestedCompiled = CompiledRepository::create([
+    'tree' => [
+        $selectedSidebar => [
+            'type' => 'sidebar', 'hash' => $hash('selected-sidebar'),
+            'path' => 'sidebars/selected.json', 'content' => '',
+            'data' => ['widgets' => [[
+                'uuid' => $sourceWidget, 'type' => 'text', 'settings' => (object) [],
+            ]]],
+        ],
+        'sidebar/protected' => [
+            'type' => 'sidebar', 'hash' => $hash('protected-sidebar'),
+            'path' => 'sidebars/protected.json', 'content' => '',
+            'data' => ['widgets' => [[
+                'uuid' => $protectedWidget, 'type' => 'block', 'settings' => (object) [],
+            ]]],
+        ],
+        $selectedMenu => [
+            'type' => 'menu', 'hash' => $hash('selected-menu'),
+            'path' => 'menus/selected.json', 'content' => '',
+            'data' => ['uuid' => $selectedMenu, 'items' => [['uuid' => $sourceMenuItem]]],
+        ],
+        $uuid(27) => [
+            'type' => 'menu', 'hash' => $hash('protected-menu'),
+            'path' => 'menus/protected.json', 'content' => '',
+            'data' => ['uuid' => $uuid(27), 'items' => [['uuid' => $protectedMenuItem]]],
+        ],
+    ],
+    'deletions' => [],
+    'revision_hash' => $hash('nested-revision'),
+    'manifest_hash' => $hash('nested-manifest'),
+    'site_hash' => $hash('nested-site'),
+    'effects_inventory' => [],
+]);
+$nestedActual = [
+    $selectedSidebar => [
+        'type' => 'sidebar', 'hash' => $hash('target-sidebar'), 'path' => 'sidebars/selected.json',
+        'content' => Canon::encode(['widgets' => [[
+            'uuid' => $targetWidget, 'type' => 'text', 'settings' => (object) [],
+        ]]]),
+    ],
+    'sidebar/protected' => [
+        'type' => 'sidebar', 'hash' => $hash('target-protected-sidebar'),
+        'path' => 'sidebars/protected.json',
+        'content' => Canon::encode(['widgets' => [[
+            'uuid' => $protectedWidget, 'type' => 'block', 'settings' => (object) [],
+        ]]]),
+    ],
+    $selectedMenu => [
+        'type' => 'menu', 'hash' => $hash('target-menu'), 'path' => 'menus/selected.json',
+        'content' => Canon::encode([
+            'uuid' => $selectedMenu, 'items' => [['uuid' => $targetMenuItem]],
+        ]),
+    ],
+];
+$nestedIdentityHashes = ScopedApply::ledger_map_identity_hashes(
+    $nestedContract,
+    $nestedCompiled,
+    $nestedActual
+);
+$expectedNestedHashes = array_map($hash, [
+    $selectedMenu, $sourceWidget, $targetWidget, $sourceMenuItem, $targetMenuItem,
+]);
+sort($expectedNestedHashes, SORT_STRING);
+$check(
+    $nestedIdentityHashes === $expectedNestedHashes
+        && !in_array($hash($protectedWidget), $nestedIdentityHashes, true)
+        && !in_array($hash($protectedMenuItem), $nestedIdentityHashes, true),
+    'sealed map membership includes selected source-new and target-old nested owners but excludes protected owners'
+);
+$GLOBALS['wpdb']->mapRows = [
+    ['uuid' => $selectedMenu, 'entity_type' => 'term', 'id_kind' => 'term', 'local_id' => 20],
+    ['uuid' => $selectedMenu, 'entity_type' => 'term', 'id_kind' => 'term_taxonomy', 'local_id' => 120],
+    ['uuid' => $sourceWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_text', 'local_id' => 3],
+    ['uuid' => $targetMenuItem, 'entity_type' => 'menu_item', 'id_kind' => 'post', 'local_id' => 24],
+    ['uuid' => $protectedWidget, 'entity_type' => 'widget', 'id_kind' => 'widget_block', 'local_id' => 9],
+];
+$mapRows = $GLOBALS['wpdb']->mapRows;
+usort($mapRows, static fn(array $a, array $b): int => [
+    $a['uuid'], $a['id_kind'], $a['local_id'], $a['entity_type'],
+] <=> [
+    $b['uuid'], $b['id_kind'], $b['local_id'], $b['entity_type'],
+]);
+$expectedSelectedMapRows = array_values(array_filter(
+    $mapRows,
+    static fn(array $row): bool => in_array(hash('sha256', $row['uuid']), $expectedNestedHashes, true)
+));
+$expectedProtectedMapRows = array_values(array_filter(
+    $mapRows,
+    static fn(array $row): bool => !in_array(hash('sha256', $row['uuid']), $expectedNestedHashes, true)
+));
+$nestedMapRoots = ScopedApply::ledger_map_roots($nestedIdentityHashes);
+$check(
+    $nestedMapRoots['selected_ledger_map_root'] === $hash(Canon::encode($expectedSelectedMapRows))
+        && $nestedMapRoots['protected_ledger_map_root'] === $hash(Canon::encode($expectedProtectedMapRows))
+        && count($expectedSelectedMapRows) === 4
+        && count($expectedProtectedMapRows) === 1,
+    'ledger partition keeps every id_kind row for selected owners together and protects unselected owner rows'
+);
+$GLOBALS['wpdb']->mapRows = [];
 
 // Operation-bound provider response loss: invocation is durable exactly once,
 // reconciliation calls the provider's readback hook, and a mismatched readback

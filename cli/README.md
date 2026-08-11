@@ -459,6 +459,9 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   active session rather than trusting caller-supplied roots. It advances selected ledger rows plus its terminal
   receipt only; the receipt binds their post-finalization identity-map root,
   while global `applied_revision` and unrelated recovery debt are untouched.
+  Nested widget/menu-item map membership follows its selected owning
+  sidebar/menu and is sealed as opaque hashes before mutation, so removals and
+  recovery cannot reclassify those rows or expose target UUIDs on the wire.
   Full plan/apply refuse while that session is nonterminal.
   Triggerless actions, legacy regenerators, environment-local provider
   deletion/reparent context channels, attachment metadata generation,

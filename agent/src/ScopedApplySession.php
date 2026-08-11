@@ -1331,9 +1331,12 @@ final class ScopedApplySession {
     private static function assert_selection(mixed $selection): void {
         self::assert_keys($selection, [
             'action_declarations_hash', 'action_items', 'capabilities_hash', 'deletion_items', 'deletions_hash',
-            'effect_items', 'effects_hash', 'work_hash', 'work_items',
+            'effect_items', 'effects_hash', 'ledger_map_identity_hashes', 'ledger_map_identity_set_hash', 'work_hash', 'work_items',
         ], 'scoped mutation authority selection');
-        foreach (['work_hash', 'deletions_hash', 'action_declarations_hash', 'capabilities_hash', 'effects_hash'] as $key) {
+        foreach ([
+            'work_hash', 'deletions_hash', 'action_declarations_hash', 'capabilities_hash', 'effects_hash',
+            'ledger_map_identity_set_hash',
+        ] as $key) {
             self::assert_hash($selection[$key], "selection $key");
         }
         self::assert_item_list($selection['work_items'], 'work_items', static function (mixed $row): void {
@@ -1362,6 +1365,7 @@ final class ScopedApplySession {
             self::assert_hash($row['action_hash'], 'effect item action_hash');
             self::assert_hash($row['effect_hash'], 'effect item effect_hash');
         });
+        self::assert_hash_identity_list($selection['ledger_map_identity_hashes'], 'ledger_map_identity_hashes');
         foreach (['work_items', 'deletion_items', 'action_items', 'effect_items'] as $key) {
             $previous = null;
             foreach ($selection[$key] as $row) {
@@ -1377,6 +1381,7 @@ final class ScopedApplySession {
             'deletions_hash' => 'deletion_items',
             'action_declarations_hash' => 'action_items',
             'effects_hash' => 'effect_items',
+            'ledger_map_identity_set_hash' => 'ledger_map_identity_hashes',
         ] as $hashKey => $itemsKey) {
             if (!hash_equals((string) $selection[$hashKey], self::hash_value($selection[$itemsKey]))) {
                 throw new \RuntimeException("duo: scoped selection $hashKey does not match its retained items");
@@ -1388,7 +1393,7 @@ final class ScopedApplySession {
     private static function canonical_selection(array $selection): array {
         self::assert_keys($selection, [
             'action_declarations_hash', 'action_items', 'capabilities_hash', 'deletion_items', 'deletions_hash',
-            'effect_items', 'effects_hash', 'work_hash', 'work_items',
+            'effect_items', 'effects_hash', 'ledger_map_identity_hashes', 'ledger_map_identity_set_hash', 'work_hash', 'work_items',
         ], 'scoped mutation authority selection');
         foreach (['work_items', 'deletion_items', 'action_items', 'effect_items'] as $key) {
             if (!is_array($selection[$key]) || !array_is_list($selection[$key])) {
@@ -1399,6 +1404,10 @@ final class ScopedApplySession {
                 static fn(mixed $a, mixed $b): int => strcmp(self::canonical_encode($a), self::canonical_encode($b))
             );
         }
+        if (!is_array($selection['ledger_map_identity_hashes']) || !array_is_list($selection['ledger_map_identity_hashes'])) {
+            throw new \RuntimeException('duo: scoped selection ledger_map_identity_hashes must be a list');
+        }
+        sort($selection['ledger_map_identity_hashes'], SORT_STRING);
         self::assert_selection($selection);
         return self::canonical_copy($selection);
     }
@@ -1410,6 +1419,23 @@ final class ScopedApplySession {
         }
         foreach ($items as $row) {
             $validator($row);
+        }
+    }
+
+    /** @param mixed $identities */
+    private static function assert_hash_identity_list(mixed $identityHashes, string $field): void {
+        if (!is_array($identityHashes) || !array_is_list($identityHashes)) {
+            throw new \RuntimeException("duo: scoped selection $field must be a list");
+        }
+        $previous = null;
+        foreach ($identityHashes as $identityHash) {
+            if (!is_string($identityHash) || preg_match(self::HASH_RE, $identityHash) !== 1) {
+                throw new \RuntimeException("duo: scoped selection $field has an invalid opaque identity hash");
+            }
+            if ($previous !== null && strcmp($previous, $identityHash) >= 0) {
+                throw new \RuntimeException("duo: scoped selection $field must be sorted and unique");
+            }
+            $previous = $identityHash;
         }
     }
 
