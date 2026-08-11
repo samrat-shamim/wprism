@@ -6,6 +6,7 @@ require_once __DIR__ . '/Providers.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/CanonicalSurfaces.php';
+require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
 require_once __DIR__ . '/PlanView.php';
@@ -898,16 +899,9 @@ final class Apply {
     }
 
     /**
-     * Project nested deletion candidates from the exact snapshot/build-plan
-     * evidence already in memory. No target, ledger, policy, provider, or
-     * filesystem call is permitted here: a later read could describe a
-     * different target moment from the plan it annotates.
-     *
-     * Menu observations are Capture's internal side channel from the same
-     * MVCC build. Widget rows are narrowed against the GLOBAL desired UUID
-     * set, matching SidebarState::finalize_sidebar() so a sidebar move is not
-     * reported as deletion. Option names are deduplicated across the exact
-     * three buckets Apply::run() turns into pending option deletes.
+     * Thin compatibility facade over ApplyPlanner::nested_delete_candidate_counts()
+     * (DUO-3347 slice 2) — kept so this method's existing internal call site
+     * (build_plan(), unchanged) needs no edit while this decomposition proceeds.
      *
      * @param array<string,array<string,mixed>> $env
      * @param array<string,array<string,mixed>> $tree
@@ -921,221 +915,7 @@ final class Apply {
         array $plan,
         ?array $observations
     ): ?array {
-        if (!is_array($observations) || !is_array($observations['menus_by_term_id'] ?? null)) {
-            return null;
-        }
-        $menuObservationsByTerm = [];
-        $menuObservationsByUuid = [];
-        foreach ($observations['menus_by_term_id'] as $termId => $observation) {
-            $termKey = (string) $termId;
-            if ($termKey === '' || !ctype_digit($termKey) || (int) $termKey < 1
-                || !is_array($observation)
-                || !array_key_exists('uuid', $observation)
-                || !($observation['uuid'] === null
-                    || (is_string($observation['uuid']) && $observation['uuid'] !== ''))
-                || !is_array($observation['managed_menu_item_uuids'] ?? null)
-                || !array_is_list($observation['managed_menu_item_uuids'])
-                || !is_int($observation['all_menu_item_count'] ?? null)
-                || $observation['all_menu_item_count'] < 0) {
-                return null;
-            }
-            $managedMenuItems = [];
-            foreach ($observation['managed_menu_item_uuids'] as $itemUuid) {
-                if (!is_string($itemUuid) || $itemUuid === ''
-                    || isset($managedMenuItems[$itemUuid])) {
-                    return null;
-                }
-                $managedMenuItems[$itemUuid] = true;
-            }
-            if (count($managedMenuItems) > $observation['all_menu_item_count']) {
-                return null;
-            }
-            $menuObservationsByTerm[$termKey] = $observation;
-            $menuUuid = $observation['uuid'];
-            if (is_string($menuUuid)) {
-                if (isset($menuObservationsByUuid[$menuUuid])) {
-                    return null;
-                }
-                $menuObservationsByUuid[$menuUuid] = $observation;
-            }
-        }
-        $menuCandidates = 0;
-        $widgetCandidates = [];
-        $optionCandidates = [];
-        $globallyDesiredWidgets = [];
-
-        foreach ($tree as $entry) {
-            if (!is_array($entry)) {
-                return null;
-            }
-            if (($entry['type'] ?? null) !== 'sidebar') {
-                continue;
-            }
-            if (!is_array($entry['data'] ?? null)) {
-                return null;
-            }
-            if (!array_key_exists('widgets', $entry['data'])) {
-                return null;
-            }
-            $widgets = $entry['data']['widgets'];
-            if (!is_array($widgets) || !array_is_list($widgets)) {
-                return null;
-            }
-            foreach ($widgets as $widget) {
-                if (!is_array($widget)) {
-                    return null;
-                }
-                $type = $widget['type'] ?? null;
-                $uuid = $widget['uuid'] ?? null;
-                if (!is_string($type) || $type === '' || !is_string($uuid) || $uuid === '') {
-                    return null;
-                }
-                $globallyDesiredWidgets[$type . "\0" . $uuid] = true;
-            }
-        }
-
-        foreach (['create', 'adopt', 'update', 'conflict'] as $bucket) {
-            if (!array_key_exists($bucket, $plan)
-                || !is_array($plan[$bucket])
-                || !array_is_list($plan[$bucket])) {
-                return null;
-            }
-            $rows = $plan[$bucket];
-            foreach ($rows as $row) {
-                if (!is_array($row)) {
-                    return null;
-                }
-                $uuid = $row['uuid'] ?? null;
-                if (!is_string($uuid) || $uuid === '' || !is_array($tree[$uuid] ?? null)) {
-                    return null;
-                }
-                $entry = $tree[$uuid];
-                if (($entry['type'] ?? null) === 'menu') {
-                    if ($bucket === 'adopt') {
-                        $termId = $row['env_id'] ?? null;
-                        if (!is_int($termId) || $termId < 1) {
-                            return null;
-                        }
-                        $observation = $menuObservationsByTerm[(string) $termId] ?? null;
-                    } elseif (!isset($env[$uuid])) {
-                        // A genuinely new menu has no target items to remove.
-                        continue;
-                    } else {
-                        $observation = $menuObservationsByUuid[$uuid] ?? null;
-                    }
-                    if (!is_array($observation)) {
-                        return null;
-                    }
-                    $desired = [];
-                    if (!is_array($entry['data'] ?? null)) {
-                        return null;
-                    }
-                    if (!array_key_exists('items', $entry['data'])) {
-                        return null;
-                    }
-                    $items = $entry['data']['items'];
-                    if (!is_array($items) || !array_is_list($items)) {
-                        return null;
-                    }
-                    foreach ($items as $item) {
-                        $itemUuid = is_array($item) ? ($item['uuid'] ?? null) : null;
-                        if (!is_string($itemUuid) || $itemUuid === '' || isset($desired[$itemUuid])) {
-                            return null;
-                        }
-                        $desired[$itemUuid] = true;
-                    }
-                    foreach ($observation['managed_menu_item_uuids'] as $itemUuid) {
-                        if (!is_string($itemUuid) || $itemUuid === '') {
-                            return null;
-                        }
-                        if (!isset($desired[$itemUuid])) {
-                            $menuCandidates++;
-                        }
-                    }
-                    continue;
-                }
-                if (!isset($env[$uuid])) {
-                    continue;
-                }
-                if (($entry['type'] ?? null) === 'sidebar') {
-                    $widgetDeletes = $row['widget_deletes'] ?? [];
-                    if (!is_array($widgetDeletes) || !array_is_list($widgetDeletes)) {
-                        return null;
-                    }
-                    foreach ($widgetDeletes as $widget) {
-                        if (!is_array($widget)) {
-                            return null;
-                        }
-                        $type = $widget['type'] ?? null;
-                        $widgetUuid = $widget['uuid'] ?? null;
-                        if (!is_string($type) || $type === ''
-                            || !is_string($widgetUuid) || $widgetUuid === '') {
-                            return null;
-                        }
-                        $key = $type . "\0" . $widgetUuid;
-                        if (!isset($globallyDesiredWidgets[$key])) {
-                            $widgetCandidates[$key] = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        foreach (['delete', 'delete_conflict'] as $bucket) {
-            if (!array_key_exists($bucket, $plan)
-                || !is_array($plan[$bucket])
-                || !array_is_list($plan[$bucket])) {
-                return null;
-            }
-            $rows = $plan[$bucket];
-            foreach ($rows as $row) {
-                if (!is_array($row)) {
-                    return null;
-                }
-                if (($row['deletion_kind'] ?? null) !== 'menu') {
-                    continue;
-                }
-                $uuid = $row['uuid'] ?? null;
-                if (!is_string($uuid) || $uuid === '') {
-                    return null;
-                }
-                $observation = $menuObservationsByUuid[$uuid] ?? null;
-                if (!isset($env[$uuid]) || !is_array($observation)) {
-                    return null;
-                }
-                $menuCandidates += $observation['all_menu_item_count'];
-            }
-        }
-
-        foreach (['create', 'update', 'conflict'] as $bucket) {
-            if (!array_key_exists($bucket, $plan)
-                || !is_array($plan[$bucket])
-                || !array_is_list($plan[$bucket])) {
-                return null;
-            }
-            $rows = $plan[$bucket];
-            foreach ($rows as $row) {
-                if (!is_array($row)) {
-                    return null;
-                }
-                $optionDeletes = $row['option_deletes'] ?? [];
-                if (!is_array($optionDeletes) || !array_is_list($optionDeletes)) {
-                    return null;
-                }
-                foreach ($optionDeletes as $name) {
-                    if (!is_string($name) || $name === '') {
-                        return null;
-                    }
-                    $optionCandidates[$name] = true;
-                }
-            }
-        }
-
-        return [
-            'menu' => $menuCandidates,
-            'widget' => count($widgetCandidates),
-            'option' => count($optionCandidates),
-        ];
+        return ApplyPlanner::nested_delete_candidate_counts($env, $tree, $plan, $observations);
     }
 
     /**
@@ -1318,51 +1098,17 @@ final class Apply {
         ?string $targetHash,
         array $applyRequirements
     ): array {
-        $destructiveEffect = $repositoryIntent === 'delete'
-            ? 'delete_target_authored_state'
-            : 'replace_target_authored_state';
-
-        return [
-            'format' => 'duo-plan-conflict/v1',
-            'kind' => $repositoryIntent === 'delete' ? 'tombstone_conflict' : 'concurrent_change',
-            'reason_code' => $reasonCode,
-            'base' => [
-                'role' => 'last_synced',
-                'source' => 'duo_state',
-                'state' => $baseState,
-                'content_hash' => $baseHash,
-            ],
-            'repository' => [
-                'role' => 'repository_intent',
-                'source' => 'compiled_repository',
-                'intent' => $repositoryIntent,
-                'content_hash' => $repositoryHash,
-                'expected_base_hash' => $expectedBaseHash,
-                'intent_receipt_hash' => $intentReceiptHash,
-            ],
-            'target' => [
-                'role' => 'target_observation',
-                'source' => 'live_target_snapshot',
-                'intent' => 'preserve_target_change',
-                'state' => 'present',
-                'content_hash' => $targetHash,
-            ],
-            'recommended_choice' => 'reconcile_in_repository',
-            'choices' => [
-                [
-                    'id' => 'reconcile_in_repository',
-                    'effect' => 'preserve_and_reconcile_both_intents',
-                    'requires' => [],
-                    'destructive' => false,
-                ],
-                [
-                    'id' => 'apply_repository',
-                    'effect' => $destructiveEffect,
-                    'requires' => array_values($applyRequirements),
-                    'destructive' => true,
-                ],
-            ],
-        ];
+        return ApplyPlanner::conflict_view(
+            $reasonCode,
+            $repositoryIntent,
+            $baseState,
+            $baseHash,
+            $repositoryHash,
+            $expectedBaseHash,
+            $intentReceiptHash,
+            $targetHash,
+            $applyRequirements
+        );
     }
 
     /**
@@ -1381,71 +1127,7 @@ final class Apply {
      * @return array<string,mixed>
      */
     private static function forced_override_evidence(array $row, string $bucket, array $opts): array {
-        $view = (array) ($row['conflict_view'] ?? []);
-        $choice = [];
-        foreach ((array) ($view['choices'] ?? []) as $candidate) {
-            if (is_array($candidate) && ($candidate['id'] ?? null) === 'apply_repository') {
-                $choice = $candidate;
-                break;
-            }
-        }
-        $kind = in_array($view['kind'] ?? null, ['concurrent_change', 'tombstone_conflict'], true)
-            ? (string) $view['kind']
-            : 'concurrent_change';
-        $reasonCode = preg_match('/^[a-z][a-z0-9_]{2,63}$/', (string) ($view['reason_code'] ?? '')) === 1
-            ? (string) $view['reason_code']
-            : 'plan_conflict';
-        $isDeletion = $bucket === 'delete_conflict' || $kind === 'tombstone_conflict';
-        $effect = in_array(
-            $choice['effect'] ?? null,
-            ['replace_target_authored_state', 'delete_target_authored_state'],
-            true
-        ) ? (string) $choice['effect'] : ($isDeletion
-            ? 'delete_target_authored_state'
-            : 'replace_target_authored_state');
-        $choiceId = $choice === [] ? 'explicit_force_flags' : 'apply_repository';
-        $requiredFlags = $choice === []
-            ? ($isDeletion ? ['--with-deletes', '--force-theirs'] : ['--force-theirs'])
-            : array_values(array_filter(
-                (array) ($choice['requires'] ?? []),
-                static fn($flag): bool => is_string($flag)
-                    && in_array($flag, ['--force-theirs', '--with-deletes'], true)
-        ));
-        $guardOverride = $isDeletion && array_key_exists('blocked', $row);
-        if ($guardOverride) {
-            $requiredFlags[] = '--force-delete-referenced';
-        }
-        $requiredFlags = array_values(array_unique($requiredFlags));
-        $flagOptions = [
-            '--with-deletes' => 'with_deletes',
-            '--force-theirs' => 'force_theirs',
-            '--force-delete-referenced' => 'force_delete_referenced',
-        ];
-        $suppliedFlags = [];
-        foreach ($requiredFlags as $flag) {
-            $option = $flagOptions[$flag] ?? null;
-            if ($option !== null && !empty($opts[$option])) {
-                $suppliedFlags[] = $flag;
-            }
-        }
-        $status = $suppliedFlags === $requiredFlags ? 'authorized' : 'incomplete';
-
-        $evidence = [
-            'format' => 'duo-forced-plan-override/v1',
-            'plan_bucket' => $bucket === 'delete_conflict' ? 'delete_conflict' : 'conflict',
-            'entity_identity_sha256' => hash('sha256', (string) ($row['uuid'] ?? '')),
-            'conflict_kind' => $kind,
-            'reason_code' => $reasonCode,
-            'choice' => $choiceId,
-            'effect' => $effect,
-            'required_flags' => $requiredFlags,
-            'supplied_flags' => $suppliedFlags,
-            'status' => $status,
-        ];
-        if ($guardOverride && in_array('--force-delete-referenced', $suppliedFlags, true)) {
-            $evidence['guard_override'] = 'force_delete_referenced';
-        }
-        return $evidence;
+        return ApplyPlanner::forced_override_evidence($row, $bucket, $opts);
     }
 
     /**
@@ -1456,15 +1138,7 @@ final class Apply {
      * @param list<array<string,mixed>> $evidence
      */
     private static function incomplete_override_refusal(array $evidence, string $operatorMessage): CommandRefusalException {
-        return new CommandRefusalException(
-            'apply_conflict_override_incomplete',
-            'apply refused an incomplete plan conflict override authorization',
-            'supply every flag listed in required_flags or reconcile the target and repository intents before applying again',
-            [],
-            $operatorMessage,
-            null,
-            $evidence
-        );
+        return ApplyPlanner::incomplete_override_refusal($evidence, $operatorMessage);
     }
 
     /**
@@ -1477,16 +1151,7 @@ final class Apply {
      * any display sanitization.
      */
     private static function entity_display_title(mixed $data): ?string {
-        if (!is_array($data)) {
-            return null;
-        }
-        foreach (['title', 'name'] as $key) {
-            $value = $data[$key] ?? null;
-            if (is_string($value) && trim($value) !== '') {
-                return $value;
-            }
-        }
-        return null;
+        return ApplyPlanner::entity_display_title($data);
     }
 
     /**
@@ -1503,11 +1168,7 @@ final class Apply {
         ?string $environmentHash,
         ?array $transition
     ): ?string {
-        if ($uuid === 'options/core' && $environmentHash !== null && $transition !== null
-            && hash_equals((string) $transition['after_hash'], $environmentHash)) {
-            return (string) $transition['before_hash'];
-        }
-        return $environmentHash;
+        return ApplyPlanner::lifecycle_comparison_hash($uuid, $environmentHash, $transition);
     }
 
     /**
