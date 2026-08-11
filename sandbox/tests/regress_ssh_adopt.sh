@@ -40,6 +40,7 @@ SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
 AUTHORITY_STATUS_STDOUT=""
+AUTHORITY_STATUS_STDERR=""
 AUTHORITY_STATUS_EXIT=""
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
@@ -194,8 +195,9 @@ SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
+AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_EXIT"; do
+for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -541,11 +543,13 @@ else
   FAILURE_CODE=$?
 fi
 printf '%s\n' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"
-# Capture the read-only authority status before removing the injected fault.
-# The separate diagnostic directory deliberately contains only these bounded
-# promote/status observations, never the SSH config, keys, or DB credentials
-# from TMP. Its contents are private and must not be printed into CI output.
-if ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>/dev/null; then
+# Capture only the raw signed authority status before removing the injected
+# fault. The decorated `status` action probes recovery providers and therefore
+# is not observation-only. The separate diagnostic directory deliberately
+# contains only these bounded promote/authority observations, never the SSH
+# config, keys, or DB credentials from TMP. Its contents are private and must
+# not be printed into CI output.
+if ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php authority-status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"; then
   AUTHORITY_STATUS_CODE=0
 else
   AUTHORITY_STATUS_CODE=$?
@@ -564,9 +568,9 @@ grep -q 'prior database verified; generation .* rolled_back and exclusion releas
   || fail "scoped failure authority status probe did not complete"
 jq -e '
   .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
-  and .state == "rolled_back" and .terminal == true and .exclusion_state == "released"
+  and .state == "rolled_back" and .terminal == true
 ' "$AUTHORITY_STATUS_STDOUT" >/dev/null \
-  || fail "scoped failure did not leave a signed rolled_back terminal receipt with v2 exclusion released"
+  || fail "scoped failure did not leave a signed rolled_back terminal receipt"
 FAIL_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
 jq -e '
   .status.state == "rolled_back"

@@ -64,6 +64,7 @@ $diagnosticAssignments = [
     'SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"',
     'SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"',
     'AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"',
+    'AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"',
     'AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"',
 ];
 $check(
@@ -72,7 +73,7 @@ $check(
         static fn(bool $ok, string $assignment): bool => $ok && str_contains($harness, $assignment),
         true
     )
-        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_EXIT"; do')
+        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
         && str_contains($harness, '( umask 077; : >"$diagnostic_file" )')
         && str_contains($harness, 'chmod 0600 "$diagnostic_file"'),
     'only the bounded promote/status streams and numeric exits are precreated mode 0600'
@@ -82,6 +83,7 @@ $actualDiagnosticNames = array_values(array_unique($diagnosticNames[1] ?? []));
 sort($actualDiagnosticNames);
 $expectedDiagnosticNames = [
     'authority-status.exit',
+    'authority-status.stderr',
     'authority-status.stdout',
     'scoped-promote.exit',
     'scoped-promote.stderr',
@@ -105,7 +107,7 @@ $faultCapture = substr($harness, $faultStart, $faultEnd - $faultStart);
 $promoteRedirect = '"$DUO" --envs-file="$TMP/envs.json" promote target --scope-contract="$TMP/duo3344-failure-scope.json" >"$SCOPED_PROMOTE_STDOUT" 2>"$SCOPED_PROMOTE_STDERR"';
 $promoteExit = 'printf \'%s\\n\' "$FAILURE_CODE" >"$SCOPED_PROMOTE_EXIT"';
 $statusCapture = <<<'SH'
-ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>/dev/null
+ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php authority-status --root=/home/duo/site/.duo/control' >"$AUTHORITY_STATUS_STDOUT" 2>"$AUTHORITY_STATUS_STDERR"
 SH;
 $statusExit = 'printf \'%s\\n\' "$AUTHORITY_STATUS_CODE" >"$AUTHORITY_STATUS_EXIT"';
 $promoteAt = strpos($faultCapture, $promoteRedirect);
@@ -114,8 +116,9 @@ $statusAt = strpos($faultCapture, $statusCapture);
 $statusExitAt = strpos($faultCapture, $statusExit);
 $check(
     is_int($promoteAt) && is_int($promoteExitAt) && is_int($statusAt) && is_int($statusExitAt)
-        && $promoteAt < $promoteExitAt && $promoteExitAt < $statusAt && $statusAt < $statusExitAt,
-    'controlled promote stdout, stderr, numeric exit, and immediate read-only authority status are captured in order'
+        && $promoteAt < $promoteExitAt && $promoteExitAt < $statusAt && $statusAt < $statusExitAt
+        && !str_contains($faultCapture, 'rollback-control.php status --root=/home/duo/site/.duo/control'),
+    'controlled promote streams and immediate raw authority-status streams/exits are captured in order without decorated recovery probes'
 );
 $check(
     !str_contains($harness, 'FAILURE_OUT')
@@ -130,7 +133,17 @@ $check(
         && str_contains($harness, 'jq -e --argjson failed_generation "$(jq -r \'.generation\' "$AUTHORITY_STATUS_STDOUT")"'),
     'the captured authority status is consumed privately without copying it back into TMP'
 );
-foreach (['SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT'] as $diagnosticVariable) {
+$rawStatusStart = strpos($harness, '[ "$AUTHORITY_STATUS_CODE" -eq 0 ]', $faultEnd);
+$rawStatusEnd = strpos($harness, 'FAIL_EVIDENCE=', is_int($rawStatusStart) ? $rawStatusStart : 0);
+$check(
+    is_int($rawStatusStart) && is_int($rawStatusEnd) && $rawStatusStart < $rawStatusEnd
+        && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.receipt_format == "duo-scoped-promotion-receipt/v1"')
+        && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.state == "rolled_back" and .terminal == true')
+        && !str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), 'exclusion_state')
+        && str_contains($harness, "jq -e '.state == \"released\"' <<<\"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')\""),
+    'raw authority-status proves the signed terminal receipt while the existing provider-state assertion independently proves exclusion release'
+);
+foreach (['SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
     $check(
         preg_match('/(?:\\bcat\\b|\\becho\\b|\\bprintf\\b)[^\\n]*\\$' . $diagnosticVariable . '\\b/', $harness) !== 1,
         "$diagnosticVariable is never printed or catted into terminal/CI output"
