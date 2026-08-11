@@ -22,6 +22,10 @@
 #   * provider/native actions are real changed-surface effects with public
 #     hash-only receipts, while an unrelated target project stays untouched;
 #   * scoped work never advances generic applied_revision/debt;
+#   * selected sidebar/menu nested identities are allowed to allocate and
+#     retire, while a separate unselected sidebar/menu stays byte-exact;
+#   * a selected menu cannot take a live location from an unselected holder,
+#     and a selected menu tombstone releases only its own location; and
 #   * active and archived terminal replay return byte-stable receipt evidence,
 #     stale terminal and stale source authority refuse without a follow-on
 #     mutation, and a tampered local contract is rejected by the host before
@@ -224,15 +228,117 @@ target_kv() {
     | tr -d '\r\n'
 }
 
-# The digest covers exactly the selected authored row(s), durable mapping/state,
-# generated provider/native surfaces, and generic apply marker vocabulary.
+assert_uuid() { # <label> <uuid>
+  local label=$1 uuid=$2
+  [[ "$uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] \
+    || fail "$label is not a canonical UUID (got '${uuid:-empty}')"
+}
+
+target_map_count() { # <uuid>
+  local uuid=$1
+  assert_uuid "target map UUID" "$uuid"
+  target_wp db query "SELECT COUNT(*) FROM wp_duo_map WHERE uuid = '$uuid'" --skip-column-names \
+    | tr -d '[:space:]'
+}
+
+target_map_bytes() { # <uuid>
+  local uuid=$1
+  assert_uuid "target map UUID" "$uuid"
+  target_wp db query "SELECT uuid, entity_type, id_kind, local_id FROM wp_duo_map WHERE uuid = '$uuid' ORDER BY entity_type, id_kind, local_id" --skip-column-names \
+    | tr -d '\r'
+}
+
+# Read the stored option bytes directly.  The protected sidebar family is
+# deliberately asserted as serialized bytes, so an accidental full-tree
+# cache/write/reorder cannot hide behind WordPress's normal unserialization.
+target_option_bytes() { # <known-safe-option-name>
+  local name=$1
+  [[ "$name" =~ ^[a-z0-9_]+$ ]] || fail "internal fixture error: unsafe option name '$name'"
+  target_wp eval "
+global \$wpdb;
+\$raw = \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT option_value FROM {\$wpdb->options} WHERE option_name = %s LIMIT 1\", '$name'
+));
+echo \$raw === null ? '__DUO_NULL__' : base64_encode(\$raw);
+" | tr -d '\r\n'
+}
+
+target_sidebar_assignment_bytes() { # <known-safe-sidebar-id>
+  local sidebar=$1
+  [[ "$sidebar" =~ ^[a-z0-9-]+$ ]] || fail "internal fixture error: unsafe sidebar id '$sidebar'"
+  target_wp eval "
+\$all = get_option('sidebars_widgets', null);
+if (!is_array(\$all) || !array_key_exists('$sidebar', \$all)) {
+    echo '__DUO_ABSENT__';
+} else {
+    echo base64_encode(serialize(\$all['$sidebar']));
+}
+" | tr -d '\r\n'
+}
+
+target_widget_local_id() { # <uuid> <known-safe-widget-type>
+  local uuid=$1 type=$2
+  assert_uuid "target widget UUID" "$uuid"
+  [[ "$type" =~ ^[a-z0-9_]+$ ]] || fail "internal fixture error: unsafe widget type '$type'"
+  target_wp db query "SELECT local_id FROM wp_duo_map WHERE uuid = '$uuid' AND id_kind = 'widget_$type' ORDER BY local_id LIMIT 1" --skip-column-names \
+    | tr -d '[:space:]'
+}
+
+target_sidebar_widget_keys() { # <known-safe-sidebar-id>
+  local sidebar=$1
+  [[ "$sidebar" =~ ^[a-z0-9-]+$ ]] || fail "internal fixture error: unsafe sidebar id '$sidebar'"
+  target_wp eval "
+\$all = get_option('sidebars_widgets', []);
+echo implode(',', is_array(\$all) ? (array) (\$all['$sidebar'] ?? []) : []);
+" | tr -d '\r\n'
+}
+
+target_menu_term_id() { # <uuid>
+  local uuid=$1
+  assert_uuid "target menu UUID" "$uuid"
+  target_wp eval "
+global \$wpdb;
+echo (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT tm.term_id FROM {\$wpdb->termmeta} tm JOIN {\$wpdb->term_taxonomy} tt ON tt.term_id = tm.term_id WHERE tm.meta_key = '_duo_uuid' AND tm.meta_value = %s AND tt.taxonomy = 'nav_menu' ORDER BY tm.meta_id ASC LIMIT 1\", '$uuid'
+));
+" | tr -d '[:space:]'
+}
+
+target_menu_item_id() { # <uuid>
+  local uuid=$1
+  assert_uuid "target menu-item UUID" "$uuid"
+  target_wp eval "
+global \$wpdb;
+echo (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT p.ID FROM {\$wpdb->posts} p JOIN {\$wpdb->postmeta} pm ON pm.post_id = p.ID WHERE p.post_type = 'nav_menu_item' AND pm.meta_key = '_duo_uuid' AND pm.meta_value = %s ORDER BY pm.meta_id ASC LIMIT 1\", '$uuid'
+));
+" | tr -d '[:space:]'
+}
+
+target_menu_location_id() { # <known-safe-location>
+  local location=$1
+  [[ "$location" =~ ^[a-z0-9_-]+$ ]] || fail "internal fixture error: unsafe menu location '$location'"
+  target_wp eval "
+\$locations = get_theme_mod('nav_menu_locations', []);
+echo (int) (is_array(\$locations) ? (\$locations['$location'] ?? 0) : 0);
+" | tr -d '[:space:]'
+}
+
+# The digest covers the existing selected core rows plus sidebar/menu rows,
+# their protected raw option surfaces, durable mapping/state, generated
+# provider/native surfaces, and generic apply marker vocabulary.
 # The promotion lock is included too: it must be absent once each command
 # returns, even where the product briefly acquires it internally.
 target_boundary_digest() {
   local file="$TMP/boundary-$RANDOM.txt"
   target_wp db query "
     SELECT 'post', ID, post_type, post_status, post_title FROM wp_posts WHERE post_type IN ('post','project') ORDER BY ID;
-    SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache') ORDER BY option_name;
+    SELECT 'menu-term', t.term_id, t.name, t.slug, tt.term_taxonomy_id FROM wp_terms t JOIN wp_term_taxonomy tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id, tt.term_taxonomy_id;
+    SELECT 'menu-term-meta', tm.term_id, tm.meta_key, tm.meta_value FROM wp_termmeta tm JOIN wp_term_taxonomy tt ON tt.term_id = tm.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY tm.term_id, tm.meta_id;
+    SELECT 'menu-item', p.ID, p.post_status, p.post_title, p.menu_order FROM wp_posts p WHERE p.post_type = 'nav_menu_item' ORDER BY p.ID;
+    SELECT 'menu-item-meta', pm.post_id, pm.meta_key, pm.meta_value FROM wp_postmeta pm JOIN wp_posts p ON p.ID = pm.post_id WHERE p.post_type = 'nav_menu_item' ORDER BY pm.post_id, pm.meta_id;
+    SELECT 'menu-item-rel', tr.object_id, tr.term_taxonomy_id, tr.term_order FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id WHERE tt.taxonomy = 'nav_menu' ORDER BY tr.object_id, tr.term_taxonomy_id;
+    SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache','sidebars_widgets','widget_text','widget_nav_menu') OR option_name = CONCAT('theme_mods_', (SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1)) ORDER BY option_name;
     SELECT 'map', uuid, entity_type, id_kind, local_id FROM wp_duo_map ORDER BY uuid, id_kind;
     SELECT 'state', uuid, entity_type, content_hash FROM wp_duo_state ORDER BY uuid;
     SELECT 'kv', k, v FROM wp_duo_kv WHERE k IN ('applied_revision','apply_in_progress','promotion_lock','scoped_apply_session') OR k LIKE 'regen_pending:%' ORDER BY k;
@@ -248,7 +354,12 @@ target_non_terminal_digest() {
   local file="$TMP/non-terminal-$RANDOM.txt"
   target_wp db query "
     SELECT 'post', ID, post_type, post_status, post_title FROM wp_posts WHERE post_type IN ('post','project') ORDER BY ID;
-    SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache') ORDER BY option_name;
+    SELECT 'menu-term', t.term_id, t.name, t.slug, tt.term_taxonomy_id FROM wp_terms t JOIN wp_term_taxonomy tt ON tt.term_id = t.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id, tt.term_taxonomy_id;
+    SELECT 'menu-term-meta', tm.term_id, tm.meta_key, tm.meta_value FROM wp_termmeta tm JOIN wp_term_taxonomy tt ON tt.term_id = tm.term_id WHERE tt.taxonomy = 'nav_menu' ORDER BY tm.term_id, tm.meta_id;
+    SELECT 'menu-item', p.ID, p.post_status, p.post_title, p.menu_order FROM wp_posts p WHERE p.post_type = 'nav_menu_item' ORDER BY p.ID;
+    SELECT 'menu-item-meta', pm.post_id, pm.meta_key, pm.meta_value FROM wp_postmeta pm JOIN wp_posts p ON p.ID = pm.post_id WHERE p.post_type = 'nav_menu_item' ORDER BY pm.post_id, pm.meta_id;
+    SELECT 'menu-item-rel', tr.object_id, tr.term_taxonomy_id, tr.term_order FROM wp_term_relationships tr JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id WHERE tt.taxonomy = 'nav_menu' ORDER BY tr.object_id, tr.term_taxonomy_id;
+    SELECT 'option', option_name, option_value FROM wp_options WHERE option_name IN ('duo_agency_project_index','_transient_duo_agency_project_cache','_transient_timeout_duo_agency_project_cache','sidebars_widgets','widget_text','widget_nav_menu') OR option_name = CONCAT('theme_mods_', (SELECT option_value FROM wp_options WHERE option_name = 'stylesheet' LIMIT 1)) ORDER BY option_name;
     SELECT 'map', uuid, entity_type, id_kind, local_id FROM wp_duo_map ORDER BY uuid, id_kind;
     SELECT 'state', uuid, entity_type, content_hash FROM wp_duo_state ORDER BY uuid;
     SELECT 'kv', k, v FROM wp_duo_kv WHERE k IN ('applied_revision','apply_in_progress') OR k LIKE 'regen_pending:%' ORDER BY k;
@@ -324,6 +435,15 @@ assert_scoped_plan() { # <plan> <contract> <selector> <surface> <action-count>
     and (.selected_actions | length == $action_count)
     and ($action_count == 0 or all(.selected_actions[]; .manifest == "duo-agency-cpt" and (.declaration_hash | test("^[a-f0-9]{64}$"))))
   ' "$plan" >/dev/null || fail "scoped plan lacked target-bound roots/selected action evidence for $selector"
+}
+
+publish_source_capture() { # <label> <commit-subject>
+  local label=$1 subject=$2
+  run_duo_json "${label}-capture" "$TMP/${label}-capture.json" capture source --format=json
+  git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test add -A
+  git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm "$subject"
+  git -C "$SITE1" push -q origin main
+  git -C "$SITE2" pull -q --ff-only origin main
 }
 
 if ! [[ "$PAIR" =~ ^[a-z][a-z0-9]{2,31}$ ]]; then
@@ -694,5 +814,329 @@ assert_outside_preserved "stale source authority refusal"
 assert_stale_protected_preserved "stale source authority refusal"
 assert_generic_scoped_boundary "stale source authority refusal"
 pass "stale source artifact cannot reuse old scoped authority and leaves target untouched"
+
+say "seed scoped sidebar/menu fixtures with a protected target-only owner"
+MENU_A_TITLE='DUO-3344 selected menu A'
+MENU_B_TITLE='DUO-3344 protected menu B'
+MENU_A_ITEM_TITLE='DUO-3344 selected menu item'
+MENU_B_ITEM_TITLE='DUO-3344 protected menu item'
+MENU_A_SOURCE_ID="$(source_wp menu create "$MENU_A_TITLE" --porcelain)"
+MENU_B_SOURCE_ID="$(source_wp menu create "$MENU_B_TITLE" --porcelain)"
+MENU_A_SOURCE_ITEM_ID="$(source_wp menu item add-custom "$MENU_A_SOURCE_ID" "$MENU_A_ITEM_TITLE" 'https://example.test/duo3344-a' --porcelain)"
+MENU_B_SOURCE_ITEM_ID="$(source_wp menu item add-custom "$MENU_B_SOURCE_ID" "$MENU_B_ITEM_TITLE" 'https://example.test/duo3344-b' --porcelain)"
+[[ "$MENU_A_SOURCE_ID" =~ ^[1-9][0-9]*$ && "$MENU_B_SOURCE_ID" =~ ^[1-9][0-9]*$ \
+  && "$MENU_A_SOURCE_ITEM_ID" =~ ^[1-9][0-9]*$ && "$MENU_B_SOURCE_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "could not manufacture source menu/sidebar fixture ids"
+source_wp eval "
+\$menuB = (int) $MENU_B_SOURCE_ID;
+update_option('widget_text', [
+    31 => ['title' => 'DUO-3344 selected sidebar A', 'text' => 'Selected sidebar body', 'filter' => false, 'visual' => true],
+    '_multiwidget' => 1,
+]);
+update_option('widget_nav_menu', [
+    32 => ['title' => 'DUO-3344 protected sidebar B desired', 'nav_menu' => \$menuB],
+    '_multiwidget' => 1,
+]);
+update_option('sidebars_widgets', [
+    'sidebar-a' => ['text-31'],
+    'sidebar-b' => ['nav_menu-32'],
+    'wp_inactive_widgets' => [],
+    'array_version' => 3,
+]);
+" >/dev/null
+publish_source_capture nested-initial 'capture: DUO-3344 scoped sidebar/menu fixture'
+MENU_A_SLUG="$(source_wp term get "$MENU_A_SOURCE_ID" nav_menu --field=slug | tr -d '\r\n')"
+[[ "$MENU_A_SLUG" =~ ^[a-z0-9-]+$ ]] || fail "source menu A did not receive a safe slug"
+MENU_A_UUID="$(source_wp eval "echo (string) get_term_meta($MENU_A_SOURCE_ID, '_duo_uuid', true);" | tr -d '\r\n')"
+MENU_B_UUID="$(source_wp eval "echo (string) get_term_meta($MENU_B_SOURCE_ID, '_duo_uuid', true);" | tr -d '\r\n')"
+MENU_A_ITEM_UUID="$(source_uuid "$MENU_A_SOURCE_ITEM_ID")"
+MENU_B_ITEM_UUID="$(source_uuid "$MENU_B_SOURCE_ITEM_ID")"
+for pair in \
+  "source selected menu:$MENU_A_UUID" \
+  "source protected menu:$MENU_B_UUID" \
+  "source selected menu item:$MENU_A_ITEM_UUID" \
+  "source protected menu item:$MENU_B_ITEM_UUID"; do
+  assert_uuid "${pair%%:*}" "${pair#*:}"
+done
+SIDEBAR_A_FILE="$SITE1/state/sidebars/sidebar-a.json"
+SIDEBAR_B_FILE="$SITE1/state/sidebars/sidebar-b.json"
+[ -f "$SIDEBAR_A_FILE" ] && [ -f "$SIDEBAR_B_FILE" ] \
+  || fail "source capture did not materialize both scoped sidebar files"
+SIDEBAR_A_WIDGET_UUID="$(jq -r '[.widgets[] | select(.type == "text") | .uuid] | if length == 1 then .[0] else empty end' "$SIDEBAR_A_FILE")"
+SIDEBAR_B_WIDGET_UUID="$(jq -r '[.widgets[] | select(.type == "nav_menu") | .uuid] | if length == 1 then .[0] else empty end' "$SIDEBAR_B_FILE")"
+assert_uuid "source selected sidebar widget" "$SIDEBAR_A_WIDGET_UUID"
+assert_uuid "source protected sidebar widget" "$SIDEBAR_B_WIDGET_UUID"
+
+TARGET_B_MENU_ID="$(target_wp menu create "$MENU_B_TITLE" --porcelain)"
+TARGET_B_ITEM_ID="$(target_wp menu item add-custom "$TARGET_B_MENU_ID" 'DUO-3344 target-only protected item' 'https://example.test/duo3344-target-b' --porcelain)"
+[[ "$TARGET_B_MENU_ID" =~ ^[1-9][0-9]*$ && "$TARGET_B_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "could not manufacture protected target menu fixture ids"
+target_wp eval "
+global \$wpdb;
+\$menu = (int) $TARGET_B_MENU_ID;
+\$item = (int) $TARGET_B_ITEM_ID;
+\$tt = (int) \$wpdb->get_var(\$wpdb->prepare(
+    \"SELECT term_taxonomy_id FROM {\$wpdb->term_taxonomy} WHERE term_id = %d AND taxonomy = 'nav_menu' LIMIT 1\", \$menu
+));
+if (\$tt < 1) { fwrite(STDERR, 'missing target nav_menu taxonomy'); exit(1); }
+\$menuUuid = wp_generate_uuid4();
+\$itemUuid = wp_generate_uuid4();
+update_term_meta(\$menu, '_duo_uuid', \$menuUuid);
+update_post_meta(\$item, '_duo_uuid', \$itemUuid);
+\\Duo\\Ledger::set(\$menuUuid, 'menu', \\Duo\\Ledger::KIND_TERM, \$menu);
+\\Duo\\Ledger::set(\$menuUuid, 'menu', \\Duo\\Ledger::KIND_TT, \$tt);
+\\Duo\\Ledger::set(\$itemUuid, 'menu_item', \\Duo\\Ledger::KIND_POST, \$item);
+echo wp_json_encode(['menu_uuid' => \$menuUuid, 'item_uuid' => \$itemUuid]);
+" >"$TMP/target-menu-b-identities.json"
+jq -e '
+  (.menu_uuid | test("^[0-9a-f-]{36}$"))
+  and (.item_uuid | test("^[0-9a-f-]{36}$"))
+' "$TMP/target-menu-b-identities.json" >/dev/null \
+  || fail "could not establish durable protected target menu identities"
+TARGET_B_MENU_UUID="$(jq -r '.menu_uuid' "$TMP/target-menu-b-identities.json")"
+TARGET_B_ITEM_UUID="$(jq -r '.item_uuid' "$TMP/target-menu-b-identities.json")"
+assert_uuid "target protected menu" "$TARGET_B_MENU_UUID"
+assert_uuid "target protected menu item" "$TARGET_B_ITEM_UUID"
+target_wp eval "
+\$menu = (int) $TARGET_B_MENU_ID;
+update_option('widget_text', ['_multiwidget' => 1]);
+update_option('widget_nav_menu', [
+    7 => ['title' => 'DUO-3344 target B family must remain raw', 'nav_menu' => \$menu],
+    '_multiwidget' => 1,
+]);
+update_option('sidebars_widgets', [
+    'sidebar-a' => [],
+    'sidebar-b' => [],
+    'wp_inactive_widgets' => [],
+    'array_version' => 3,
+]);
+" >/dev/null
+TARGET_B_MENU_MAP_BEFORE="$(target_map_bytes "$TARGET_B_MENU_UUID")"
+TARGET_B_ITEM_MAP_BEFORE="$(target_map_bytes "$TARGET_B_ITEM_UUID")"
+TARGET_B_WIDGET_FAMILY_BEFORE="$(target_option_bytes widget_nav_menu)"
+TARGET_B_SIDEBAR_BEFORE="$(target_sidebar_assignment_bytes sidebar-b)"
+[ -n "$TARGET_B_MENU_MAP_BEFORE" ] && [ -n "$TARGET_B_ITEM_MAP_BEFORE" ] \
+  || fail "protected target menu/map fixture was not durable"
+[ "$(target_map_count "$SIDEBAR_B_WIDGET_UUID")" = 0 ] \
+  || fail "unselected source sidebar B widget unexpectedly has a target map before scoped apply"
+pass "nested source owners and distinct protected target menu/sidebar evidence are ready"
+
+say "refuse a stale selected menu-item mapping before session or target mutation"
+MENU_A_CONTRACT="$TMP/menu-a.scope.json"
+run_duo_json menu-a-scope "$MENU_A_CONTRACT" scope source "--roots=menu:${MENU_A_SLUG}" --contract --format=json
+jq -e --arg selector "menu:${MENU_A_SLUG}" '
+  .format == "duo-scope-contract/v1"
+  and .selectors == [$selector]
+  and (.live.roots | length == 1)
+' "$MENU_A_CONTRACT" >/dev/null || fail "selected menu scope did not resolve exactly one live menu root"
+target_wp db query "INSERT INTO wp_duo_map (uuid, entity_type, id_kind, local_id) VALUES ('$MENU_A_ITEM_UUID', 'menu_item', 'post', 999999)" >/dev/null
+[ "$(target_map_count "$MENU_A_ITEM_UUID")" = 1 ] \
+  || fail "could not manufacture stale selected menu-item map fixture"
+STALE_MENU_MAP_SESSION_BEFORE="$(target_kv scoped_apply_session)"
+STALE_MENU_MAP_BOUNDARY_BEFORE="$(target_boundary_digest)"
+run_duo_refusal_json stale-selected-menu-item-map "$TMP/stale-selected-menu-item-map.json" apply target "--scope-contract=$MENU_A_CONTRACT" --format=json
+jq -e '.command == "apply" and .reason_code == "scoped_identity_recovery_required"' "$TMP/stale-selected-menu-item-map.json" >/dev/null \
+  || fail "stale selected menu-item map did not surface a public scoped apply refusal"
+[ "$(target_kv scoped_apply_session)" = "$STALE_MENU_MAP_SESSION_BEFORE" ] \
+  || fail "stale selected menu-item map opened or changed a scoped session"
+[ "$(target_boundary_digest)" = "$STALE_MENU_MAP_BOUNDARY_BEFORE" ] \
+  || fail "stale selected menu-item map refusal changed maps/options/protected target state"
+assert_generic_scoped_boundary "stale selected menu-item map refusal"
+target_wp db query "DELETE FROM wp_duo_map WHERE uuid = '$MENU_A_ITEM_UUID' AND id_kind = 'post'" >/dev/null
+[ "$(target_map_count "$MENU_A_ITEM_UUID")" = 0 ] \
+  || fail "stale selected menu-item map fixture cleanup left a live map"
+pass "stale selected nested map refuses before session/mutation and is cleaned from the fixture"
+
+say "apply a selected menu nested-item create without widening into target menu B"
+MENU_CREATE_BOUNDARY_BEFORE="$(target_boundary_digest)"
+run_duo_json menu-create-plan "$TMP/menu-create-plan.json" plan target "--scope-contract=$MENU_A_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-plan/v1"
+  and (.target | keys | sort == ["ledger_map_root","protected_ledger_map_root","protected_out_of_scope_root","selected_before_root","selected_ledger_map_root","target_observation_hash"])
+' "$TMP/menu-create-plan.json" >/dev/null || fail "selected menu plan did not publish bounded map/protected roots"
+[ "$(target_boundary_digest)" = "$MENU_CREATE_BOUNDARY_BEFORE" ] \
+  || fail "read-only selected menu plan changed target sidebar/menu/map evidence"
+run_duo_json menu-create-apply "$TMP/menu-create-apply.json" apply target "--scope-contract=$MENU_A_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and .verification.selected_live == 1
+  and .scoped_receipt.phase == "complete"
+' "$TMP/menu-create-apply.json" >/dev/null || fail "selected menu nested-item create did not converge"
+TARGET_A_MENU_ID="$(target_menu_term_id "$MENU_A_UUID")"
+TARGET_A_ITEM_ID="$(target_menu_item_id "$MENU_A_ITEM_UUID")"
+[[ "$TARGET_A_MENU_ID" =~ ^[1-9][0-9]*$ && "$TARGET_A_ITEM_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "selected menu create did not materialize its menu and nested item"
+[ "$(target_map_count "$MENU_A_ITEM_UUID")" = 1 ] \
+  || fail "selected menu nested item did not receive a selected ledger map"
+[ "$(target_map_bytes "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_MAP_BEFORE" ] \
+  || fail "selected menu create changed protected menu B map bytes"
+[ "$(target_map_bytes "$TARGET_B_ITEM_UUID")" = "$TARGET_B_ITEM_MAP_BEFORE" ] \
+  || fail "selected menu create changed protected B nested-item map bytes"
+assert_generic_scoped_boundary "selected menu nested-item create"
+pass "selected menu nested map is writable while protected menu B maps remain exact"
+
+say "remove the selected menu nested item through a fresh target-bound scope"
+source_wp post delete "$MENU_A_SOURCE_ITEM_ID" --force >/dev/null
+publish_source_capture menu-item-remove 'capture: DUO-3344 selected menu item removal'
+MENU_REMOVE_CONTRACT="$TMP/menu-a-remove.scope.json"
+run_duo_json menu-remove-scope "$MENU_REMOVE_CONTRACT" scope source "--roots=menu:${MENU_A_SLUG}" --contract --format=json
+run_duo_json menu-remove-apply "$TMP/menu-remove-apply.json" apply target "--scope-contract=$MENU_REMOVE_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and .verification.selected_live == 1
+  and .scoped_receipt.phase == "complete"
+' "$TMP/menu-remove-apply.json" >/dev/null || fail "selected menu nested-item removal did not converge"
+[ "$(target_menu_item_id "$MENU_A_ITEM_UUID")" = 0 ] \
+  || fail "selected menu nested item survived its scoped removal"
+[ "$(target_map_count "$MENU_A_ITEM_UUID")" = 0 ] \
+  || fail "selected menu nested-item map survived its scoped removal"
+[ "$(target_map_bytes "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_MAP_BEFORE" ] \
+  || fail "selected menu removal changed protected menu B map bytes"
+[ "$(target_map_bytes "$TARGET_B_ITEM_UUID")" = "$TARGET_B_ITEM_MAP_BEFORE" ] \
+  || fail "selected menu removal changed protected B nested-item map bytes"
+assert_generic_scoped_boundary "selected menu nested-item removal"
+pass "fresh scope seals the target-only selected nested item for removal without unprotecting menu B"
+
+say "create and remove selected sidebar A widgets without allocating sidebar B"
+SIDEBAR_CREATE_CONTRACT="$TMP/sidebar-a.scope.json"
+run_duo_json sidebar-create-scope "$SIDEBAR_CREATE_CONTRACT" scope source --roots=sidebar:sidebar-a --contract --format=json
+SIDEBAR_B_WIDGET_MAP_BEFORE="$(target_map_count "$SIDEBAR_B_WIDGET_UUID")"
+SIDEBAR_CREATE_BOUNDARY_BEFORE="$(target_boundary_digest)"
+run_duo_json sidebar-create-plan "$TMP/sidebar-create-plan.json" plan target "--scope-contract=$SIDEBAR_CREATE_CONTRACT" --format=json
+[ "$(target_boundary_digest)" = "$SIDEBAR_CREATE_BOUNDARY_BEFORE" ] \
+  || fail "read-only selected sidebar plan changed protected sidebar/menu/map evidence"
+run_duo_json sidebar-create-apply "$TMP/sidebar-create-apply.json" apply target "--scope-contract=$SIDEBAR_CREATE_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and .verification.selected_live == 1
+  and .scoped_receipt.phase == "complete"
+' "$TMP/sidebar-create-apply.json" >/dev/null || fail "selected sidebar widget create did not converge"
+SIDEBAR_A_WIDGET_LOCAL_ID="$(target_widget_local_id "$SIDEBAR_A_WIDGET_UUID" text)"
+[[ "$SIDEBAR_A_WIDGET_LOCAL_ID" =~ ^[1-9][0-9]*$ ]] \
+  || fail "selected sidebar widget create did not allocate a text-widget mapping"
+[ "$(target_sidebar_widget_keys sidebar-a)" = "text-${SIDEBAR_A_WIDGET_LOCAL_ID}" ] \
+  || fail "selected sidebar A did not receive its mapped text widget assignment"
+[ "$(target_map_count "$SIDEBAR_B_WIDGET_UUID")" = "$SIDEBAR_B_WIDGET_MAP_BEFORE" ] \
+  || fail "selected sidebar A create allocated unselected sidebar B's desired widget map"
+[ "$(target_option_bytes widget_nav_menu)" = "$TARGET_B_WIDGET_FAMILY_BEFORE" ] \
+  || fail "selected sidebar A create rewrote protected sidebar B widget-family bytes"
+[ "$(target_sidebar_assignment_bytes sidebar-b)" = "$TARGET_B_SIDEBAR_BEFORE" ] \
+  || fail "selected sidebar A create changed protected sidebar B assignment bytes"
+assert_generic_scoped_boundary "selected sidebar widget create"
+
+source_wp eval "
+\$all = get_option('sidebars_widgets', []);
+\$all['sidebar-a'] = [];
+update_option('sidebars_widgets', \$all);
+update_option('widget_text', ['_multiwidget' => 1]);
+" >/dev/null
+publish_source_capture sidebar-widget-remove 'capture: DUO-3344 selected sidebar widget removal'
+SIDEBAR_REMOVE_CONTRACT="$TMP/sidebar-a-remove.scope.json"
+run_duo_json sidebar-remove-scope "$SIDEBAR_REMOVE_CONTRACT" scope source --roots=sidebar:sidebar-a --contract --format=json
+run_duo_json sidebar-remove-apply "$TMP/sidebar-remove-apply.json" apply target "--scope-contract=$SIDEBAR_REMOVE_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and .verification.selected_live == 1
+  and .scoped_receipt.phase == "complete"
+' "$TMP/sidebar-remove-apply.json" >/dev/null || fail "selected sidebar widget removal did not converge"
+[ "$(target_map_count "$SIDEBAR_A_WIDGET_UUID")" = 0 ] \
+  || fail "selected sidebar A widget map survived its scoped removal"
+[ -z "$(target_sidebar_widget_keys sidebar-a)" ] \
+  || fail "selected sidebar A retained a widget assignment after removal"
+[ "$(target_map_count "$SIDEBAR_B_WIDGET_UUID")" = "$SIDEBAR_B_WIDGET_MAP_BEFORE" ] \
+  || fail "selected sidebar A removal allocated/protected sidebar B desired widget map"
+[ "$(target_option_bytes widget_nav_menu)" = "$TARGET_B_WIDGET_FAMILY_BEFORE" ] \
+  || fail "selected sidebar A removal rewrote protected sidebar B widget-family bytes"
+[ "$(target_sidebar_assignment_bytes sidebar-b)" = "$TARGET_B_SIDEBAR_BEFORE" ] \
+  || fail "selected sidebar A removal changed protected sidebar B assignment bytes"
+assert_generic_scoped_boundary "selected sidebar widget removal"
+pass "sidebar A create/remove keeps B's desired map absent and B's family/assignment byte-exact"
+
+say "refuse selected menu location takeover before session or protected target mutation"
+source_wp eval "set_theme_mod('nav_menu_locations', ['duo3344_primary' => (int) $MENU_A_SOURCE_ID]);" >/dev/null
+publish_source_capture menu-location-source 'capture: DUO-3344 selected menu location'
+target_wp eval "set_theme_mod('nav_menu_locations', ['duo3344_primary' => (int) $TARGET_B_MENU_ID]);" >/dev/null
+MENU_LOCATION_TAKEOVER_CONTRACT="$TMP/menu-a-location-takeover.scope.json"
+run_duo_json menu-location-takeover-scope "$MENU_LOCATION_TAKEOVER_CONTRACT" scope source "--roots=menu:${MENU_A_SLUG}" --contract --format=json
+MENU_LOCATION_TAKEOVER_SESSION_BEFORE="$(target_kv scoped_apply_session)"
+MENU_LOCATION_TAKEOVER_BOUNDARY_BEFORE="$(target_boundary_digest)"
+run_duo_refusal_json menu-location-takeover "$TMP/menu-location-takeover.json" apply target "--scope-contract=$MENU_LOCATION_TAKEOVER_CONTRACT" --format=json
+jq -e '.command == "apply" and (.reason_code | type == "string" and length > 0)' "$TMP/menu-location-takeover.json" >/dev/null \
+  || fail "selected menu location takeover did not return a public scoped refusal"
+[ "$(target_kv scoped_apply_session)" = "$MENU_LOCATION_TAKEOVER_SESSION_BEFORE" ] \
+  || fail "selected menu location takeover opened or changed a scoped session"
+[ "$(target_boundary_digest)" = "$MENU_LOCATION_TAKEOVER_BOUNDARY_BEFORE" ] \
+  || fail "selected menu location takeover changed protected maps/options/menu rows"
+[ "$(target_menu_location_id duo3344_primary)" = "$TARGET_B_MENU_ID" ] \
+  || fail "selected menu location takeover displaced the protected target menu B holder"
+assert_generic_scoped_boundary "selected menu location takeover refusal"
+pass "compiler-bounded selected menu location takeover refuses before session or target mutation"
+
+say "author selected menu A location, then tombstone it without releasing menu B's location"
+target_wp eval "set_theme_mod('nav_menu_locations', []);" >/dev/null
+MENU_LOCATION_CONTRACT="$TMP/menu-a-location.scope.json"
+run_duo_json menu-location-scope "$MENU_LOCATION_CONTRACT" scope source "--roots=menu:${MENU_A_SLUG}" --contract --format=json
+run_duo_json menu-location-apply "$TMP/menu-location-apply.json" apply target "--scope-contract=$MENU_LOCATION_CONTRACT" --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and .verification.selected_live == 1
+' "$TMP/menu-location-apply.json" >/dev/null || fail "selected menu A location authoring did not converge"
+[ "$(target_menu_location_id duo3344_primary)" = "$TARGET_A_MENU_ID" ] \
+  || fail "selected menu A did not author its own primary location"
+target_wp eval "
+\$locations = get_theme_mod('nav_menu_locations', []);
+if (!is_array(\$locations)) { \$locations = []; }
+\$locations['duo3344_secondary'] = (int) $TARGET_B_MENU_ID;
+set_theme_mod('nav_menu_locations', \$locations);
+" >/dev/null
+[ "$(target_menu_location_id duo3344_secondary)" = "$TARGET_B_MENU_ID" ] \
+  || fail "could not manufacture protected target menu B secondary location"
+source_wp menu delete "$MENU_A_SOURCE_ID" >/dev/null
+publish_source_capture menu-tombstone 'capture: DUO-3344 selected menu tombstone'
+MENU_TOMBSTONE_CONTRACT="$TMP/menu-a-tombstone.scope.json"
+run_duo_json menu-tombstone-scope "$MENU_TOMBSTONE_CONTRACT" scope source "--roots=tombstone:${MENU_A_UUID}" --contract --format=json
+jq -e --arg uuid "$MENU_A_UUID" '
+  .format == "duo-scope-contract/v1"
+  and .selectors == ["tombstone:" + $uuid]
+  and (.tombstones | length == 1 and .[0].uuid == $uuid)
+' "$MENU_TOMBSTONE_CONTRACT" >/dev/null || fail "selected menu tombstone scope did not bind only menu A"
+run_duo_json menu-tombstone-apply "$TMP/menu-tombstone-apply.json" apply target "--scope-contract=$MENU_TOMBSTONE_CONTRACT" --with-deletes --format=json
+jq -e '
+  .format == "duo-scoped-apply-result/v1"
+  and .canary == "clean"
+  and .verification.result == "pass"
+  and (.verification.selected_deletions >= 1)
+  and .scoped_receipt.phase == "complete"
+' "$TMP/menu-tombstone-apply.json" >/dev/null || fail "selected menu tombstone did not converge through the public delete path"
+[ "$(target_menu_term_id "$MENU_A_UUID")" = 0 ] \
+  || fail "selected menu A survived its scoped tombstone"
+[ "$(target_map_count "$MENU_A_UUID")" = 0 ] \
+  || fail "selected menu A ledger maps survived its scoped tombstone"
+[ "$(target_menu_location_id duo3344_primary)" = 0 ] \
+  || fail "selected menu tombstone did not release its own primary location"
+[ "$(target_menu_location_id duo3344_secondary)" = "$TARGET_B_MENU_ID" ] \
+  || fail "selected menu tombstone removed protected menu B's secondary location"
+[ "$(target_map_bytes "$TARGET_B_MENU_UUID")" = "$TARGET_B_MENU_MAP_BEFORE" ] \
+  || fail "selected menu tombstone changed protected menu B map bytes"
+[ "$(target_map_bytes "$TARGET_B_ITEM_UUID")" = "$TARGET_B_ITEM_MAP_BEFORE" ] \
+  || fail "selected menu tombstone changed protected B nested-item map bytes"
+[ "$(target_map_count "$SIDEBAR_B_WIDGET_UUID")" = "$SIDEBAR_B_WIDGET_MAP_BEFORE" ] \
+  || fail "selected menu tombstone allocated the protected sidebar B desired widget map"
+[ "$(target_option_bytes widget_nav_menu)" = "$TARGET_B_WIDGET_FAMILY_BEFORE" ] \
+  || fail "selected menu tombstone rewrote protected sidebar B widget-family bytes"
+[ "$(target_sidebar_assignment_bytes sidebar-b)" = "$TARGET_B_SIDEBAR_BEFORE" ] \
+  || fail "selected menu tombstone changed protected sidebar B assignment bytes"
+assert_generic_scoped_boundary "selected menu tombstone"
+pass "selected menu tombstone releases only A's authored location and preserves B's owner/map/sidebar evidence"
 
 printf '\n✔ REGRESS_SCOPED_APPLY_LIVE PASSED (pair %s cleaned exactly on exit)\n' "$PAIR"
