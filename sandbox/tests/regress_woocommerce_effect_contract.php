@@ -257,7 +257,6 @@ function woo_effect_product_regenerator(string $postType): array {
         woo_effect_db_table($prefix . '-posts', 'posts'),
         woo_effect_db_table($prefix . '-postmeta', 'postmeta'),
         woo_effect_db_table($prefix . '-meta-lookup', 'wc_product_meta_lookup'),
-        woo_effect_db_table($prefix . '-attributes-lookup', 'wc_product_attributes_lookup'),
         woo_effect_db_table($prefix . '-sale-actions', 'actionscheduler_actions'),
         woo_effect_db_table($prefix . '-sale-action-groups', 'actionscheduler_groups'),
         woo_effect_db_table($prefix . '-sale-action-logs', 'actionscheduler_logs'),
@@ -407,7 +406,8 @@ foreach (woo_effect_shipping_tax_action() as $effect) {
         'effect' => $effect,
     ];
 }
-// DUO-3342: these 108 effects are unchanged bytes that MOVED. They were two
+// DUO-3342: these effects moved with the dispatch; DUO-3411 then removed the
+// two unsupported attribute-lookup table writes from the verified capability.
 // post_types.<type>.regen_dependency.effects lists, inventoried under the
 // `regenerator` phase and sourced by post type; they are now one action's
 // effects list, inventoried under `rebuild` and sourced by the exact provider
@@ -431,9 +431,9 @@ usort($expectedWooRows, static fn(array $a, array $b): int => strcmp(
 ));
 woo_effect_check($wooRows === $expectedWooRows, 'Woo manifest compiles the exact lifecycle, rebuild, and regenerator inventory');
 woo_effect_check(
-    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 42
+    count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'restorable')) === 40
         && count(array_filter($wooRows, static fn(array $row): bool => ($row['effect']['mode'] ?? '') === 'irreversible')) === 85
-        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 127,
+        && count(array_unique(array_map(static fn(array $row): string => (string) ($row['effect']['id'] ?? ''), $wooRows))) === 125,
     'Woo inventory exposes exact transient/version, bounded sale-action, and Action Scheduler hook boundaries, keeps every unproven boundary irreversible, and uses unique effect IDs'
 );
 $cacheProviderSource = (string) file_get_contents(dirname(__DIR__, 2) . '/manifests/providers/woocommerce-cache.php');

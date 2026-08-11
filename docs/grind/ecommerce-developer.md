@@ -155,8 +155,9 @@ The live sequence covers:
   authority is intentionally not claimed: generic child/typed-row deletion
   machinery is exercised by offline synthetic/certification regressions, while
   relation repair and provider-cache cleanup remain manual adapter gaps;
-- target derived index rows and Store API price/attribute filters, including
-  exact `wc_product_meta_lookup` and `wc_product_attributes_lookup` values;
+- target derived product-meta index rows and Store API price/attribute
+  behavior, without treating Store API filtering as an independent
+  `wc_product_attributes_lookup` value oracle;
 - missing-file compile refusal and retry;
 - explicit extension deactivation followed by a deliberately inactive-to-active
   v2 broken activation, checkpoint recovery, and fixed v2 migration. The
@@ -243,10 +244,11 @@ guard/tombstone ordering; this live scenario proves the public Woo/manual
 boundary and target preservation.
 
 Automatic Woo derived-state repair is similarly scoped, but independently of
-deletion authority. Apply dispatches the manifest product regenerator only for
+deletion authority. Apply dispatches the manifest product provider only for
 the affected product/variation batch; that batch verifies effective prices,
-product and global-attribute lookup rows, and exact per-product sale schedules
-with lease heartbeats around its bounded loops. Manifest cache commands are
+`wc_product_meta_lookup`, and exact per-product sale schedules with lease
+heartbeats around its bounded loops. `wc_product_attributes_lookup` is an
+explicit manual regeneration/verification boundary. Manifest cache commands are
 selected only when the current authored table or option surfaces intersect
 their exact triggers. The legacy whole-catalog `WooCommerceContract::rebuild()`
 projection is deleted from engine core outright (DUO-3341); the bounded batch

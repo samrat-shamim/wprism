@@ -152,7 +152,6 @@ $large = wc_get_product_id_by_sku("CONF-VAR-L-BLUE");
 $variable = (int) get_post_field("post_parent", $small);
 $parent_prices = $wpdb->get_col($wpdb->prepare("SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id=%d AND meta_key=\"_price\" ORDER BY meta_value+0", $variable));
 $lookup = $wpdb->get_row($wpdb->prepare("SELECT min_price,max_price FROM {$wpdb->prefix}wc_product_meta_lookup WHERE product_id=%d", $variable), ARRAY_A);
-$attrs = (int) $wpdb->get_var($wpdb->prepare("SELECT COUNT(*) FROM {$wpdb->prefix}wc_product_attributes_lookup WHERE product_or_parent_id=%d", $variable));
 $sale = as_next_scheduled_action("wc_product_end_scheduled_sale", ["product_id" => $simple], "woocommerce-sales");
 $empty_stock_cart = new WC_Cart();
 $blocked_without_target_stock = !$empty_stock_cart->add_to_cart($simple, 1);
@@ -197,7 +196,6 @@ echo wp_json_encode([
   "large_price" => wc_get_product($large)->get_price(),
   "parent_prices" => $parent_prices,
   "lookup" => $lookup,
-  "attribute_rows" => $attrs,
   "sale_scheduled" => $sale !== false,
   "cart_blocked_without_target_stock" => $blocked_without_target_stock,
   "cart_after_target_stock" => $simple_added && $variation_added && $cart->get_cart_contents_count() === 2,
@@ -208,11 +206,11 @@ jq -e '
   .simple_price == "14.99" and .small_price == "9.99" and .large_price == "12.99" and
   .parent_prices == ["9.99", "12.99"] and
   (.lookup.min_price | tonumber) == 9.99 and (.lookup.max_price | tonumber) == 12.99 and
-  .attribute_rows >= 4 and .sale_scheduled == true and
+  .sale_scheduled == true and
   .cart_blocked_without_target_stock == true and .cart_after_target_stock == true
 ' <<<"$PROJECTION_OUT" >/dev/null \
-  || fail "price/lookup/attribute/scheduling/cart projection is stale (got: $PROJECTION_OUT)"
-pass "price/filter/schedule projections are current; cart refuses absent source inventory then accepts target-local simple+variation stock"
+  || fail "price/product-meta/scheduling/cart projection is stale (got: $PROJECTION_OUT)"
+pass "price/product-meta/schedule projections are current; cart refuses absent source inventory then accepts target-local simple+variation stock"
 
 FILTER_OUT=$(curl -fsSG "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/products" \
   --data-urlencode 'attributes[0][attribute]=pa_conf-size' \
@@ -226,7 +224,7 @@ pass "Store API attribute filtering returns the visible, purchasable variable ca
 # this Apply. WooCommerce 11.0.0 exposes only a whole-catalog public rebuild
 # for wc_category_lookup, so category lookup repair is an explicit manual
 # boundary and is not claimed by this conformance run.
-pass "bounded Woo product/attribute/sale projections verified; category lookup remains an explicit manual boundary"
+pass "bounded Woo price/product-meta/sale projections verified; attribute and category lookups remain explicit manual boundaries"
 
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/product/conformance-widget/") \
   || fail "conf2 Conformance Widget page did not return 200"

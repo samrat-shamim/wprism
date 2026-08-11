@@ -165,6 +165,18 @@ woo_ok(($wooDisposition['capabilities']['deletion_semantics']['supported'] ?? nu
 $declaredUnsupportedDeletes = $wooDisposition['capabilities']['deletion_semantics']['unsupported'] ?? null;
 woo_ok($declaredUnsupportedDeletes === $unsupportedDeletes,
     'external capability registry enumerates every shipped Woo deletion selector as unsupported');
+$unsupportedApplySurfaces = array_values(array_filter(
+    (array) ($wooDisposition['unsupported'] ?? []),
+    static fn(array $row): bool => ($row['operation'] ?? null) === 'apply'
+));
+woo_ok(array_column($unsupportedApplySurfaces, 'surface') === [
+    'derived.wc_category_lookup',
+    'derived.wc_product_attributes_lookup',
+], 'external capability registry makes the two Woo derived tables without bounded independent value oracles explicit');
+$attributeLookupBoundary = $unsupportedApplySurfaces[1] ?? [];
+woo_ok(str_contains((string) ($attributeLookupBoundary['reason'] ?? ''), 'does not mutate this table')
+    && str_contains((string) ($attributeLookupBoundary['reason'] ?? ''), 'explicitly'),
+    'attribute lookup disposition forbids best-effort mutation under a verified receipt and names manual repair');
 $matrixHarness = (string) file_get_contents($root . '/sandbox/tests/certify_version_matrix.sh');
 woo_ok(str_contains($matrixHarness, 'update_option("default_category", (int) $category->term_id)'), 'version-matrix resets the core default-category reference before each plugin boundary');
 

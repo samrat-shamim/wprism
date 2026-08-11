@@ -22,7 +22,7 @@
             "name": "duo-reference-certification",
             "version": 4
         },
-        "status": "current",
+        "status": "candidate",
         "tests": [
             {
                 "id": "conformance-core",
@@ -77,7 +77,7 @@
     "format": "duo-capability-registry/v1",
     "generated_from": {
         "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
-        "dispositions_sha256": "a5d092a0dc1fd4b5f4b1b7c22a21d7bc49e474363ce17c2d1d8a2ddc028e9880",
+        "dispositions_sha256": "ebe89c8e7a8be66dfbcac54281770983c555d0a0c62234c5cf04bf808169824d",
         "evidence_sha256": "49e38b64969355dc0ebc07a790e1b45b8a699b0e017144dfb13a1a943c9daff0"
     },
     "manifests": {
@@ -115,7 +115,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-acf",
                     "exact-artifact-version-matrix"
@@ -202,7 +202,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-contact-form-7",
                     "exact-artifact-version-matrix"
@@ -296,7 +296,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -458,7 +458,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -527,7 +527,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -591,7 +591,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -665,7 +665,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -733,7 +733,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -798,7 +798,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
@@ -894,7 +894,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-ninja-forms",
                     "exact-artifact-version-matrix"
@@ -1003,7 +1003,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-paid-memberships-pro"
                 ]
@@ -1149,7 +1149,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1240,7 +1240,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1317,7 +1317,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "a6026c623d71a3a0330714ea2761746588e0b5f0a727ae40efadf500ebbdfaf0",
+            "adapter_digest": "f48b1bb478a58b482d68a2c36c871162ee1da8840a27fdc5e2d73cffabe3b764",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1357,7 +1357,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
@@ -1383,7 +1383,7 @@
                 "mode": "unmodified",
                 "status": "verified"
             },
-            "reason": "Certified product/catalog creation and update with bounded product/attribute/sale projection repair, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed deletion boundaries.",
+            "reason": "Certified product/catalog creation and update with bounded product-meta/price/sale repair, typed-table configuration, option-name reference, HPOS runtime-sovereignty, lifecycle, and explicit fail-closed attribute/category lookup and deletion boundaries.",
             "status": "certified",
             "supported_versions": {
                 "plugin": "woocommerce/woocommerce.php",
@@ -1573,6 +1573,11 @@
                     "surface": "derived.wc_category_lookup"
                 },
                 {
+                    "operation": "apply",
+                    "reason": "WooCommerce 11.0.0 exposes no stable bounded expected-output or independent value-verification API for product-attribute lookup rows, so the verified provider does not mutate this table; operators must run and verify WooCommerce's regeneration explicitly.",
+                    "surface": "derived.wc_product_attributes_lookup"
+                },
+                {
                     "operation": "capture",
                     "reason": "Orders, customers, sessions, stock reservations, and Action Scheduler rows remain runtime-sovereign.",
                     "surface": "tables.runtime"
@@ -1613,7 +1618,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -1723,7 +1728,7 @@
                 "bundle_digest": "71b4a28d9cf41fc9704ea0c363ad006d9fb31ebd37b0cbedad430bda250c5277",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-fse"
                 ]

@@ -219,6 +219,7 @@ TARGET_TEE_UNCHANGED_HELPER_BLOCK="$(function_block assert_target_tee_unchanged 
 TARGET_ORDER_SNAPSHOT_HELPER_BLOCK="$(function_block assert_target_order_snapshot | strip_static_comments)"
 TARGET_ORDER_ABSENT_HELPER_BLOCK="$(function_block assert_target_order_absent | strip_static_comments)"
 DELETION_PROBE_PRESENT_HELPER_BLOCK="$(function_block assert_deletion_probe_lookup_present | strip_static_comments)"
+DERIVED_INDEX_HELPER_BLOCK="$(function_block assert_derived_indexes | strip_static_comments)"
 PRELUDE_BLOCK="$(awk '/^say "/ { exit } { print }' "$SCRIPT_SOURCE" | strip_static_comments)"
 LIVE_CHECKOUT_HELPER_BLOCK="$(function_block assert_clean_live_checkout | strip_static_comments)"
 DEPLOY_ARTIFACT_FILES_HELPER_BLOCK="$(function_block deploy_artifact_files | strip_static_comments)"
@@ -412,7 +413,7 @@ SOURCE_MANAGED_CODE_TREE_HASH_HELPER_GOLDEN_HASH=830daaccf4702c0f2dbb27efd6b4aa5
 TARGET_TEE_UNCHANGED_HELPER_GOLDEN_HASH=d2dba3b69d1c9faba4ee697313197c02616d7686e537f953c482bdaf3163bad0
 TARGET_ORDER_SNAPSHOT_HELPER_GOLDEN_HASH=7bfecd258305c19f28e31c9058ede01bfbc844479030369fc7e14f83d03bcfb8
 TARGET_ORDER_ABSENT_HELPER_GOLDEN_HASH=25473f5c9ff32ce4ae0834dcda96c10bd5eca04a4f0577254bbf63087ad7c99d
-DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=e24bc5069b3f4f905e12bf04fcf30c14308c9c7cc007c8a56e9052cd2490ae82
+DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4983d9395645cbe79418dd286ba
 LIVE_CHECKOUT_HELPER_GOLDEN_HASH=1ef4a9c1f02943311c2767a7f336fe24588ce0f6d7e641ca826adfb7588edea2
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
@@ -709,6 +710,7 @@ assert_helper_contracts target-order-absent "$TARGET_ORDER_ABSENT_HELPER_BLOCK" 
   '"$label absent HPOS/order-item/customer-lookup rows"' 'target order absent helper does not require order, item, metadata, and Woo customer absence' \
   '"$label absent order"' 'target order absent helper does not label the absence assertion'
 assert_helper_contracts deletion-probe-present "$DELETION_PROBE_PRESENT_HELPER_BLOCK" "$DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH" \
+  'manual_regenerate_attribute_lookup' 'deletion probe does not establish the explicit manual Woo attribute baseline' \
   'local id="$1" meta_rows attribute_rows' 'deletion probe present helper does not bind ID and lookup counts' \
   '[[ "$id" =~ ^[0-9]+$ ]] || fail' 'deletion probe present helper does not validate a numeric ID' \
   'target_wp post list --post_type=product --name=duo-grind-delete-probe --field=ID' 'deletion probe present helper does not query the canonical probe slug' \
@@ -719,6 +721,10 @@ assert_helper_contracts deletion-probe-present "$DELETION_PROBE_PRESENT_HELPER_B
   'taxonomy = '\''pa_grind-size'\''' 'deletion probe present helper does not bind the probe attribute taxonomy' \
   '[ "$meta_rows" -ge 1 ] || fail' 'deletion probe present helper does not require its meta lookup row' \
   '[ "$attribute_rows" -ge 1 ] || fail' 'deletion probe present helper does not require its attribute lookup row'
+block_contains derived-index "$DERIVED_INDEX_HELPER_BLOCK" \
+  'manual_regenerate_attribute_lookup' 'derived-index audit does not establish the explicit manual Woo attribute baseline'
+grep -Fq 'initiate_regeneration(false)' "$SCRIPT" || fail 'manual Woo attribute baseline is not synchronous'
+grep -Fq 'do_regeneration_step(64, false)' "$SCRIPT" || fail 'manual Woo attribute baseline is not capped to one bounded fixture step'
 assert_helper_contracts live-checkout "$LIVE_CHECKOUT_HELPER_BLOCK" "$LIVE_CHECKOUT_HELPER_GOLDEN_HASH" \
   'git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir' 'live checkout guard does not resolve the checkout git-dir' \
   'git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir' 'live checkout guard does not resolve the canonical common-dir' \

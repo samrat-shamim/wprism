@@ -101,7 +101,6 @@ $source = file_get_contents($providerFile);
 check(is_string($source), 'Woo adapter source is readable');
 $needles = [
     'refresh_product_lookup_table' => 'public product meta lookup refresh API is used',
-    'create_data_for_product' => 'attribute lookup generation is synchronous',
     'sync_price' => 'variable roots use Woo variable data-store price sync',
     "'product-grouped'" => 'grouped roots use Woo grouped data-store price sync',
     'groupedRoots' => 'grouped roots are deduplicated before synthesis and lookup refresh',
@@ -111,15 +110,18 @@ $needles = [
     '$wpdb->get_col' => 'grouped reverse discovery reads only candidate parent ids',
     '$wpdb->posts' => 'grouped reverse discovery validates product post candidates in SQL',
     'delete_from_lookup_table' => 'product lookup deletion uses the public delete API',
-    'ACTION_DELETE' => 'attribute lookup deletion uses ACTION_DELETE',
     'wc_get_attribute_taxonomies' => 'Woo attribute definitions are refreshed through the public API',
     "delete_transient('wc_attribute_taxonomies')" => 'Woo attribute transient is invalidated before regeneration',
     "invalidate_cache_group('woocommerce-attributes')" => 'Woo attribute object-cache group is invalidated',
     'register_taxonomy' => 'new Woo attribute taxonomies are registered for products',
     "'update_count_callback' => '_update_post_term_count'" => 'registered Woo attribute taxonomy keeps its count callback',
-    'recompute_simple_price' => 'derived _price is recomputed from authored inputs',
-    '_regular_price' => 'price recomputation reads authored regular price',
-    '_sale_price_dates_from' => 'price recomputation honors sale windows',
+    "is_on_sale('edit')" => 'simple active-price selection comes from WooCommerce public sale semantics',
+    "get_sale_price('edit')" => 'simple sale-price value comes from WooCommerce public accessors',
+    "get_regular_price('edit')" => 'simple regular-price value comes from WooCommerce public accessors',
+    'sync_parent_price_from_woocommerce' => 'parent price synthesis has a named WooCommerce-owned boundary',
+    "add_filter('delete_post_metadata'" => 'authored parent rows are protected at the public WordPress metadata boundary',
+    "query('START TRANSACTION')" => 'parent public sync establishes provider-local failure atomicity after Apply commit',
+    "query('ROLLBACK')" => 'a throwing parent sync rolls back its partial derived-price mutation',
     'wc_maybe_schedule_product_sale_events' => 'sale actions use Woo public per-product scheduling',
     'as_unschedule_all_actions' => 'deleted sale actions use bounded public unscheduling',
     'as_next_scheduled_action' => 'sale actions have exact Action Scheduler readback',
@@ -160,6 +162,16 @@ $retired = [
     "get_option('woocommerce_schema_version'" => 'no copied global_unique_id schema-version gate',
     'CostOfGoodsSoldController' => 'no copied Cost of Goods Sold lookup-column feature gate',
     '_cogs_total_value' => 'no Duo-side derivation of the COGS lookup column',
+    'recompute_simple_price' => 'no Duo-authored simple-price sale/date rule',
+    'sync_price_preserving_authored_meta' => 'no snapshot/restore copy around Woo parent price synthesis',
+    'restore_authored_price_meta' => 'no Duo-authored metadata restore loop around Woo parent price synthesis',
+    'expected_attribute_rows' => 'no Duo-authored attribute lookup row synthesis',
+    'append_attribute_rows' => 'no Duo-authored attribute lookup row builder',
+    'term_slug_ids' => 'no Duo-authored variation term fallback map',
+    'create_data_for_product' => 'unsupported attribute lookup rows are not written by the verified provider',
+    'ProductAttributesLookup\\LookupDataStore' => 'provider claims no private/internal attribute lookup store contract',
+    'attribute_lookup_rows' => 'verified receipt does not observe or imply the unsupported attribute table',
+    'table:wc_product_attributes_lookup' => 'provider capability declares no unsupported attribute-table write',
 ];
 foreach ($retired as $needle => $message) {
     check(is_string($source) && !str_contains($source, $needle), $message);
@@ -194,11 +206,11 @@ $lookupAction = $actions[2] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 108 && count(array_unique($effectIds)) === 108,
-    'both post types\' effect lists moved onto it in full (54 + 54), ids still distinct — the manifest note '
+check(count($effectIds) === 106 && count(array_unique($effectIds)) === 106,
+    'both post types\' supported effect lists remain distinct (53 + 53) after the unsupported attribute-table effects are removed — the manifest note '
     . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 54
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 54,
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 53
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 53,
     'and neither half was dropped or renamed on the way');
 $inventory = $policy->effects_inventory();
 check(array_filter($inventory, static fn(array $row): bool =>
@@ -206,7 +218,7 @@ check(array_filter($inventory, static fn(array $row): bool =>
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 108,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 106,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {
