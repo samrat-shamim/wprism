@@ -393,7 +393,7 @@ check(
         && str_contains($agentSource, "rename(\$stagedCode, \$codeRoot . '/wp-content')"),
     'code baseline reserves an owned root before publishing its verified child'
 );
-$publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php');
+$publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
 $captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
 $liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
 check(
@@ -583,7 +583,7 @@ check(
         && substr_count($captureSource, 'self::assert_no_interrupted_init($repoPath);') === 2,
     'the pre-lock init-recovery gate fires only where acquiring the lock would create it; a live race is answered by the lock itself'
 );
-$publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php');
+$publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
 check(
     str_contains($publishSourceLock, "'capture_lock_held',")
         && str_contains($publishSourceLock, "'capture refused because another publisher holds the destination lock',")
