@@ -745,13 +745,14 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   widened target-side.
 
   Success records the scoped terminal receipt, seals the external generation
-  `committed` while exclusion remains held, retires the exact target handoff,
-  and only then releases the exclusion. Response-loss retries reuse that same
-  generation, delete capability, and terminal receipt. Before commit, failure can run only the
+  through `verifying_new` to `committed` while exclusion remains held, retires
+  the exact target handoff, and only then releases the exclusion. Response-loss
+  retries reuse that same generation, delete capability, and terminal receipt.
+  Before durable `scoped_fresh_verification`, failure can run only the
   checkpoint `database_restore` and `prior_verify` path and finishes
-  `rolled_back`; after commit, rollback is never guessed and no later public
-  scoped rollback is offered. Local/Docker drivers and direct target-local
-  scope contracts refuse this host-only profile.
+  `rolled_back`; after that forward-only seal, rollback is never guessed and
+  no later public scoped rollback is offered. Local/Docker drivers and direct
+  target-local scope contracts refuse this host-only profile.
 
 - **`duo promote <env> [apply flags...]`** — the normal fail-closed
   code-and-state promotion path. It compiles the repository once into

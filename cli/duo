@@ -2440,7 +2440,21 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
             $profile->rollback();
             throw new \RuntimeException('the prior scoped promotion was rolled back; retry to start a new generation');
         }
-        $profile->startPromotion();
+        // `verifying_new` is the durable forward-only boundary: the target
+        // accepted the exact scoped Apply terminal receipt before the
+        // controller published it, and the first seal event can survive a
+        // response/process loss on its own.  Target begin deliberately does
+        // not trust that nonterminal state, so finish the second signed seal
+        // transition before asking it to recreate the receipt-bound handoff.
+        // In particular, never route this state through the ordinary
+        // pre-fresh-verification rollback catch below: that would restore an
+        // already fresh-verified Apply solely because the first response was lost.
+        if ((string) ($status['state'] ?? '') === 'verifying_new') {
+            $sealAttempted = true;
+            $status = $profile->sealCommit();
+        } else {
+            $status = $profile->startPromotion();
+        }
 
         echo $json ? '' : "scoped promote phase: promotion-begin-scoped\n";
         $begin = $t->captureWp(CodeDeploy::beginScopedArgs(
@@ -2526,7 +2540,7 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
             echo json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
         } else {
             echo "scoped promote complete: generation {$result['generation']} committed; "
-                . "traffic exclusion released (post-commit rollback is intentionally unavailable)\n";
+                . "traffic exclusion released (automatic rollback was closed by fresh verification)\n";
         }
         return 0;
     } catch (\Throwable $failure) {
@@ -2540,15 +2554,24 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
         if ($claimed) {
             try {
                 $recoveryStatus = $profile->status();
-                if ((string) ($recoveryStatus['state'] ?? '') === 'committed') {
+                // The first successful seal transition is not terminal, but
+                // it is already a proven fresh-world boundary: it follows
+                // exact completed scoped_apply evidence and can proceed only
+                // to committed.  Do not restore that world merely because a
+                // controller lost the transition response or a later target
+                // completion response.  Both states resume through the
+                // committed target replay/complete/release path.
+                if (in_array((string) ($recoveryStatus['state'] ?? ''), [
+                    'verifying_new', 'committed',
+                ], true)) {
                     if (!$json) {
                         fwrite(
                             STDERR,
-                            'duo: scoped promote: the signed generation is committed but target cleanup/exclusion release is incomplete or uncertain; retry this exact scoped promote to finish without reauthoring state' . "\n"
+                            'duo: scoped promote: the signed generation has accepted fresh-world evidence but target cleanup/exclusion release is incomplete or uncertain; retry this exact scoped promote to finish without reauthoring state' . "\n"
                         );
                     }
                     $publicReason = 'scoped_promotion_completion_pending';
-                    $publicMessage = 'the signed scoped generation is committed but target cleanup or exclusion release is incomplete';
+                    $publicMessage = 'the signed scoped generation has accepted fresh-world evidence but target cleanup or exclusion release is incomplete';
                     $publicRemediation = 'retry this exact scoped promote to finish without reauthoring target state';
                     if ($json) {
                         return scope_wire_refusal(
@@ -2566,11 +2589,12 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
                     );
                 }
                 $publicReason = 'scoped_promotion_rolled_back';
-                $publicMessage = 'the scoped promotion failed before commit and the prior database was restored and verified';
+                $publicMessage = 'the scoped promotion failed before durable fresh-world verification '
+                    . 'and the prior database was restored and verified';
                 $publicRemediation = 'inspect private operator logs, repair the failed target boundary, and retry as a new generation';
             } catch (\Throwable $rollbackFailure) {
                 $boundary = $sealAttempted
-                    ? 'signed commit status is uncertain; automatic rollback was not guessed'
+                    ? 'fresh-verification/commit status is uncertain; automatic rollback was not guessed'
                     : 'signed recovery remains nonterminal with exclusion held';
                 if (!$json) {
                     fwrite(

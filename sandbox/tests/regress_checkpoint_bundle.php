@@ -379,6 +379,42 @@ try {
         'exact scoped apply receipt recording is operation-idempotent');
     checkpoint_refuses(fn() => $scopedProfile->recordScopedApply(checkpoint_scoped_terminal('different')),
         'completed scoped apply evidence refuses a mismatched terminal receipt');
+
+    // Model a controller loss after the first durable seal event: the target
+    // has accepted fresh-world verification, but the controller has not yet
+    // observed the following committed transition.  This boundary resumes
+    // only forward; checkpoint restoration would undo a verified Apply.
+    $firstSeal = $scopedAuthority->appendScoped(
+        'verifying_new', 'state_transition', 'scoped_fresh_verification', 1, $scopedClaimant,
+        $hash('scoped_fresh_verification:input'), $hash('scoped_fresh_verification:result')
+    );
+    checkpoint_ok(($firstSeal['state'] ?? '') === 'verifying_new' && empty($firstSeal['terminal']),
+        'durable first scoped seal transition leaves a resumable forward-only verification boundary');
+    checkpoint_refuses(fn() => $scopedProfile->rollback(),
+        'fresh-verified scoped promotion refuses automatic checkpoint rollback after controller response loss');
+    $firstSealHead = RollbackAuthority::scopedStatus($scopedTransport);
+    $rawScopedRollback = checkpoint_event(
+        $scopedReceipt,
+        $firstSealHead,
+        'rollback_pending',
+        'state_transition',
+        'scoped_promotion_failed',
+        $scopedClaimant,
+        gmdate('Y-m-d\\TH:i:s\\Z', time() + 60),
+        $hash('scoped-forward-only-rollback-input'),
+        str_repeat('0', 64)
+    );
+    checkpoint_refuses(
+        fn() => checkpoint_authority_submit($scopedRoot, $rawScopedRollback, null, $keyId, $secret),
+        'raw signed scoped rollback transition is refused after durable fresh verification'
+    );
+    $afterRawRefusal = RollbackAuthority::scopedStatus($scopedTransport);
+    checkpoint_ok(
+        RollbackControl::canonical($firstSealHead) === RollbackControl::canonical($afterRawRefusal)
+            && !is_file($scopedProviderState . '.restore.log')
+            && (RollbackAuthority::status($scopedTransport)['exclusion_state'] ?? '') === 'held',
+        'forward-only raw refusal preserves the signed head and performs no restore or exclusion release'
+    );
     $sealed = $scopedProfile->sealCommit();
     checkpoint_ok(($sealed['state'] ?? '') === 'committed'
         && (RollbackAuthority::status($scopedTransport)['exclusion_state'] ?? '') === 'held',

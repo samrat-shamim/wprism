@@ -20,10 +20,11 @@ A separate SSH-only checkpoint profile serves
 `duo promote <env> --scope-contract=<path>`. It accepts only the bounded
 DB-contained scoped-plan surfaces documented in `spec/repo-format.md`, invokes
 no ordinary code/upload/lifecycle/effect recovery provider, and uses only the
-encrypted database checkpoint plus prior verifier before commit. A precommit
-failure restores and verifies that checkpoint. Signed commit closes rollback:
-an exact retry may finish target-session cleanup and exclusion release, but no
-later public scoped rollback exists.
+encrypted database checkpoint plus prior verifier before its durable
+`scoped_fresh_verification` seal. A failure before that seal restores and
+verifies the checkpoint. The seal is forward-only: an exact retry first
+finishes signed commit, then target-session cleanup and exclusion release, and
+no later public scoped rollback exists.
 
 The authority's deterministic crash hooks are inert on adopted production
 roots even if `DUO_ROLLBACK_CRASH_AT` reaches the non-interactive SSH

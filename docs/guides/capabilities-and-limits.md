@@ -469,12 +469,13 @@ rather than working around it.
   binding includes the exact delete capability and external generation, so
   target-local retries cannot add `--with-deletes` or reuse an older terminal.
   It invokes no code, upload,
-  lifecycle, native/provider-action, or ordinary release path. A precommit
-  failure restores and verifies the checkpoint; after signed commit the host
-  may only finish the exact target handoff and release the exclusion—there is
-  no later scoped rollback.
+  lifecycle, native/provider-action, or ordinary release path. A failure
+  before the durable `scoped_fresh_verification` seal restores and verifies
+  the checkpoint; after that forward-only seal the host may only finish the
+  exact signed commit, target handoff, and exclusion release—there is no later
+  scoped rollback.
   Per-option capture, code dependency movement, scoped code lifecycle, and
-  user-invoked or post-commit scoped rollback remain planned rather than
+  user-invoked or post-seal scoped rollback remain planned rather than
   inferred.
 - Redacted field-level refresh diff and interactive conflict resolver —
   **Bounded slice shipped (DUO-3345)**. `duo refresh --field-diff` emits a

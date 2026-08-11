@@ -913,19 +913,23 @@ an ordinary session or another receipt into the profile. Scoped apply then
 mints its normal target-bound mutation authority/session, performs the bounded
 write, and returns its canonical terminal receipt. The host releases the
 short target lease, appends that receipt to the external signed generation,
-and seals `committed` while the database-writer exclusion is still held. Only
-then may it retire the exact target profile session and release the exclusion.
+then seals `verifying_new` and `committed` while the database-writer exclusion
+is still held. `scoped_fresh_verification` is forward-only: a response loss
+after that first seal resumes commit before target begin, never checkpoint
+restore. Only then may the host retire the exact target profile session and
+release the exclusion.
 
 Controller loss is idempotent at every boundary. A matching active or
 terminal-but-still-held generation resumes by immutable artifact, scope,
 owner, claimant, and delete capability; terminal apply replay must reproduce
 the same external tuple and receipt.
-Before signed commit, any failure advances only through `database_restore`
-and `prior_verify`, proves the prior world, records `rolled_back`, and releases
-the exclusion. After signed commit, rollback is never guessed: retry completes
-the target handoff and release. Once the exclusion is released, unrelated
-writes may resume, so this protocol deliberately offers no later public or
-automatic rollback.
+Before durable `scoped_fresh_verification`, any failure advances only through
+`database_restore` and `prior_verify`, proves the prior world, records
+`rolled_back`, and releases the exclusion. After that forward-only seal,
+rollback is never guessed: retry commits, completes the target handoff, and
+releases the exclusion. Once the exclusion is released, unrelated writes may
+resume, so this protocol deliberately offers no later public or automatic
+rollback.
 
 ### Host-only redacted refresh field relation (DUO-3345)
 

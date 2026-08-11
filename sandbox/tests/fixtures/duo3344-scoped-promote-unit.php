@@ -9,7 +9,8 @@ declare(strict_types=1);
  * tiny: target PromotionLock/Apply behavior is covered by
  * regress_scoped_promotion_target.php, while this fixture proves the host's
  * strict local contract, compact-wire, signed external checkpoint sequence,
- * response-loss recovery, and pre-commit rollback boundaries.
+ * response-loss recovery, the forward-only fresh-verification seal, and
+ * pre-fresh-verification rollback boundaries.
  */
 
 use Duo\Canon;
@@ -254,11 +255,18 @@ try {
     $providerLog = $logs . '/provider.log';
     $wireLog = $logs . '/wire.log';
     $orderLog = $logs . '/order.log';
+    $targetReplayLog = $logs . '/target-replay.log';
     $targetSession = $tmp . '/target-session.json';
+    $targetTerminals = $tmp . '/target-terminals';
     $dropMarker = $tmp . '/claim-response-dropped';
     $completeDropMarker = $tmp . '/complete-response-dropped';
+    $verifyingDropMarker = $tmp . '/verifying-new-response-dropped';
+    $verifyingDropArmed = $tmp . '/verifying-new-response-armed';
     $exclusionState = $tmp . '/exclusion-provider.json';
-    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
+    if (!mkdir($targetTerminals, 0700, true) && !is_dir($targetTerminals)) {
+        scoped_host_fail('could not create target terminal archive directory');
+    }
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog, $targetReplayLog);
 
     scoped_host_write($bin . '/ssh', <<<'SH'
 #!/usr/bin/env bash
@@ -283,6 +291,21 @@ if [[ "${DUO3344_DROP_CLAIM_RESPONSE:-0}" == 1 \
   [ "$status" -eq 0 ] || exit "$status"
   exit 75
 fi
+if [[ "${DUO3344_DROP_VERIFYING_NEW_RESPONSE:-0}" == 1 \
+  && ! -e "${DUO3344_DROP_VERIFYING_NEW_MARKER:?}" \
+  && -f "${DUO3344_DROP_VERIFYING_NEW_ARMED:?}" ]]; then
+  request_path="$(<"$DUO3344_DROP_VERIFYING_NEW_ARMED")"
+  if [[ "$request_path" != "" && "$remote" == *"$request_path"* ]]; then
+    set +e
+    /bin/sh -c "$remote"
+    status=$?
+    set -e
+    [ "$status" -eq 0 ] || exit "$status"
+    : > "$DUO3344_DROP_VERIFYING_NEW_MARKER"
+    rm -f "$DUO3344_DROP_VERIFYING_NEW_ARMED"
+    exit 75
+  fi
+fi
 if [[ "${DUO3344_DROP_COMPLETE_RESPONSE:-0}" == 1 \
   && ! -e "${DUO3344_DROP_COMPLETE_MARKER:?}" \
   && "$remote" == *"promotion-complete-scoped"* ]]; then
@@ -305,6 +328,20 @@ destination="${2:?missing destination}"
 target="${destination#*:}"
 printf '%s -> %s\n' "$src" "$target" >> "${DUO3344_SCP_LOG:?}"
 cp "$src" "$target"
+if [[ "${DUO3344_DROP_VERIFYING_NEW_RESPONSE:-0}" == 1 \
+  && ! -e "${DUO3344_DROP_VERIFYING_NEW_MARKER:?}" \
+  && "$target" == /tmp/duo-rollback-request-*.json ]]; then
+  if php -r '
+    $request = json_decode((string) file_get_contents($argv[1]), true);
+    $event = is_array($request) ? ($request["event"]["payload"] ?? null) : null;
+    exit(is_array($event)
+      && ($event["state"] ?? null) === "verifying_new"
+      && ($event["operation_status"] ?? null) === "state_transition"
+      && ($event["operation_id"] ?? null) === "scoped_fresh_verification" ? 0 : 1);
+  ' "$src"; then
+    printf '%s\n' "$target" > "${DUO3344_DROP_VERIFYING_NEW_ARMED:?}"
+  fi
+fi
 SH
     , 0700);
     scoped_host_write($bin . '/wp', <<<'PHP'
@@ -359,21 +396,86 @@ if ($sub === 'plan') {
     exit(0);
 }
 if ($sub === 'promotion-begin-scoped') {
-    file_put_contents((string) getenv('DUO3344_TARGET_SESSION'), $json(['state' => 'begun']) . "\n", LOCK_EX);
+    $receipt = $find('--scoped-promotion-receipt=');
+    $control = (string) getenv('DUO3344_CONTROL');
+    $sessionPath = (string) getenv('DUO3344_TARGET_SESSION');
+    $replayLog = (string) getenv('DUO3344_TARGET_REPLAY_LOG');
+    if (!is_string($receipt) || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1
+        || $control === '' || $sessionPath === '' || $replayLog === '') {
+        fwrite(STDERR, "scoped target begin has malformed authority binding\n");
+        exit(98);
+    }
+    try {
+        require_once $control . '/recovery-runtime/rollback-control.php';
+        $authority = \Duo\Recovery\RollbackControl::status($control);
+    } catch (Throwable $failure) {
+        fwrite(STDERR, "scoped target begin could not read authority: " . $failure->getMessage() . "\n");
+        exit(98);
+    }
+    // Mirror the real target gate: a forward-only first seal must be finished
+    // by the host before target begin may recreate its receipt-bound session.
+    $state = (string) ($authority['state'] ?? '');
+    if (!in_array($state, ['promoting', 'committed'], true)) {
+        fwrite(STDERR, "scoped target begin requires promoting or committed authority\n");
+        exit(98);
+    }
+    if (is_file($sessionPath)) {
+        $session = json_decode((string) file_get_contents($sessionPath), true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($session) || !hash_equals($receipt, (string) ($session['receipt'] ?? ''))) {
+            fwrite(STDERR, "scoped target begin found a different target handoff\n");
+            exit(98);
+        }
+    } elseif (file_put_contents($sessionPath, $json(['receipt' => $receipt, 'state' => 'begun']) . "\n", LOCK_EX) === false) {
+        fwrite(STDERR, "scoped target begin could not persist target handoff\n");
+        exit(98);
+    }
+    if (file_put_contents($replayLog, "begin:$state:$receipt\n", FILE_APPEND | LOCK_EX) === false) {
+        fwrite(STDERR, "scoped target begin could not record authority witness\n");
+        exit(99);
+    }
     echo "{\"ok\":true}\n";
     exit(0);
 }
 if ($sub === 'apply') {
     $recordWire();
-    if (!is_file((string) getenv('DUO3344_TARGET_SESSION'))) {
+    $receipt = $find('--scoped-promotion-receipt=');
+    $sessionPath = (string) getenv('DUO3344_TARGET_SESSION');
+    $terminalRoot = (string) getenv('DUO3344_TARGET_TERMINALS');
+    $replayLog = (string) getenv('DUO3344_TARGET_REPLAY_LOG');
+    if (!is_string($receipt) || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1
+        || $terminalRoot === '' || $replayLog === '') {
+        fwrite(STDERR, "scoped apply has malformed target terminal binding\n");
+        exit(95);
+    }
+    if (!is_file($sessionPath)) {
         fwrite(STDERR, "scoped apply had no begun target session\n");
+        exit(95);
+    }
+    $session = json_decode((string) file_get_contents($sessionPath), true, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($session) || !hash_equals($receipt, (string) ($session['receipt'] ?? ''))) {
+        fwrite(STDERR, "scoped apply target handoff did not match the signed receipt\n");
         exit(95);
     }
     if ((string) getenv('DUO3344_FAKE_APPLY_FAIL') === '1') {
         fwrite(STDERR, "PRIVATE_TARGET_PATH=/srv/target-secret; provider-token=apply-do-not-publish\n");
         exit(23);
     }
-    echo file_get_contents((string) getenv('DUO3344_APPLY_RESULT'));
+    $archive = $terminalRoot . '/' . $receipt . '.json';
+    if (is_file($archive)) {
+        $result = file_get_contents($archive);
+        if (!is_string($result) || file_put_contents($replayLog, "replay:$receipt\n", FILE_APPEND | LOCK_EX) === false) {
+            fwrite(STDERR, "scoped apply could not replay the archived terminal\n");
+            exit(95);
+        }
+        echo $result;
+        exit(0);
+    }
+    $result = file_get_contents((string) getenv('DUO3344_APPLY_RESULT'));
+    if (!is_string($result) || file_put_contents($archive, $result, LOCK_EX) === false) {
+        fwrite(STDERR, "scoped apply could not archive the terminal receipt\n");
+        exit(95);
+    }
+    echo $result;
     exit(0);
 }
 if ($sub === 'promotion-abort') {
@@ -381,8 +483,21 @@ if ($sub === 'promotion-abort') {
     exit(0);
 }
 if ($sub === 'promotion-complete-scoped') {
-    if (!is_file((string) getenv('DUO3344_TARGET_SESSION'))) {
+    $receipt = $find('--scoped-promotion-receipt=');
+    $sessionPath = (string) getenv('DUO3344_TARGET_SESSION');
+    $terminalRoot = (string) getenv('DUO3344_TARGET_TERMINALS');
+    if (!is_string($receipt) || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1
+        || $terminalRoot === '' || !is_file($terminalRoot . '/' . $receipt . '.json')) {
+        fwrite(STDERR, "scoped completion had no exact archived target terminal\n");
+        exit(96);
+    }
+    if (!is_file($sessionPath)) {
         fwrite(STDERR, "scoped completion had no target session\n");
+        exit(96);
+    }
+    $session = json_decode((string) file_get_contents($sessionPath), true, 512, JSON_THROW_ON_ERROR);
+    if (!is_array($session) || !hash_equals($receipt, (string) ($session['receipt'] ?? ''))) {
+        fwrite(STDERR, "scoped completion target handoff did not match the signed receipt\n");
         exit(96);
     }
     $control = (string) getenv('DUO3344_CONTROL');
@@ -415,7 +530,7 @@ if ($sub === 'promotion-complete-scoped') {
         fwrite(STDERR, "could not record scoped completion boundary\n");
         exit(99);
     }
-    @unlink((string) getenv('DUO3344_TARGET_SESSION'));
+    @unlink($sessionPath);
     echo "{\"ok\":true}\n";
     exit(0);
 }
@@ -800,12 +915,16 @@ PHP
         'DUO3344_CONTROL' => $control,
         'DUO3344_DROP_COMPLETE_MARKER' => $completeDropMarker,
         'DUO3344_DROP_MARKER' => $dropMarker,
+        'DUO3344_DROP_VERIFYING_NEW_ARMED' => $verifyingDropArmed,
+        'DUO3344_DROP_VERIFYING_NEW_MARKER' => $verifyingDropMarker,
         'DUO3344_EXCLUSION_STATE' => $exclusionState,
         'DUO3344_ORDER_LOG' => $orderLog,
         'DUO3344_PLAN' => $planPath,
         'DUO3344_SCP_LOG' => $scpLog,
         'DUO3344_SSH_LOG' => $sshLog,
+        'DUO3344_TARGET_REPLAY_LOG' => $targetReplayLog,
         'DUO3344_TARGET_SESSION' => $targetSession,
+        'DUO3344_TARGET_TERMINALS' => $targetTerminals,
         'DUO3344_WIRE_LOG' => $wireLog,
         'DUO3344_WP_LOG' => $wpLog,
     ] as $name => $value) {
@@ -1026,6 +1145,94 @@ PHP
         'retry after lost target completion replays Apply/complete on one signed generation, then releases exclusion'
     );
 
+    // The first seal transition itself can publish before the controller gets
+    // its response.  That leaves a durable verifying_new generation after a
+    // completed target Apply and target-terminal archive; the catch must not
+    // turn this successful forward boundary into a checkpoint rollback.
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog, $targetReplayLog);
+    $lostVerifying = scoped_host_promote($root, $envs, $contractPath, [], [
+        'DUO3344_DROP_VERIFYING_NEW_RESPONSE' => '1',
+        'DUO3344_FAKE_APPLY_FAIL' => null,
+    ]);
+    $lostVerifyingStatus = RollbackControl::status($control);
+    $lostVerifyingReceipt = (string) ($lostVerifyingStatus['receipt_id'] ?? '');
+    $lostVerifyingTargetReceipt = (string) ($lostVerifyingStatus['receipt_payload_sha256'] ?? '');
+    $lostVerifyingProvider = scoped_host_lines($providerLog);
+    $lostVerifyingSubcommands = scoped_host_wp_subcommands(scoped_host_wp_requests($wpLog));
+    $lostVerifyingReplay = scoped_host_lines($targetReplayLog);
+    $lostVerifyingRefusal = scoped_host_json($lostVerifying['stdout'], 'fresh-verification response-loss refusal');
+    scoped_host_ok(
+        $lostVerifying['exit'] !== 0
+            && is_file($verifyingDropMarker)
+            && ($lostVerifyingRefusal['reason_code'] ?? null) === 'scoped_promotion_completion_pending'
+            && ($lostVerifyingStatus['state'] ?? null) === 'verifying_new'
+            && empty($lostVerifyingStatus['terminal'])
+            && ($lostVerifyingStatus['generation'] ?? null) === 3
+            && is_file($targetSession)
+            && is_file($targetTerminals . '/' . $lostVerifyingTargetReceipt . '.json')
+            && scoped_host_event_steps($control, $lostVerifyingReceipt) === array_slice($expectedSuccessEvents, 0, 5),
+        'lost first seal response leaves the exact completed scoped generation verifying_new with its target handoff held'
+    );
+    scoped_host_ok(
+        // Apply releases its target lease before the first seal; the generic
+        // catch then repeats that idempotent target-only cleanup after the
+        // response loss. Neither command is checkpoint rollback authority.
+        $lostVerifyingSubcommands === [
+            'compile', 'plan', 'promotion-begin-scoped', 'apply',
+            'promotion-abort', 'promotion-abort',
+        ]
+            && $lostVerifyingReplay === ['begin:promoting:' . $lostVerifyingTargetReceipt]
+            && count(array_filter($lostVerifyingProvider, static fn(string $line): bool => $line === 'checkpoint:prepare')) === 1
+            && !in_array('checkpoint:restore', $lostVerifyingProvider, true)
+            && !in_array('checkpoint:verify-prior', $lostVerifyingProvider, true)
+            && !in_array('exclusion:release', $lostVerifyingProvider, true),
+        'fresh-verification response-loss catch performs no restore, prior verification, rollback, completion, or exclusion release'
+    );
+
+    scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog, $targetReplayLog);
+    $resumedVerifying = scoped_host_promote($root, $envs, $contractPath);
+    if ($resumedVerifying['exit'] !== 0) {
+        scoped_host_fail(
+            'retry after fresh-verification response loss failed (' . $resumedVerifying['exit'] . "):\n"
+            . $resumedVerifying['stderr'] . $resumedVerifying['stdout']
+        );
+    }
+    $resumedVerifyingResult = scoped_host_json($resumedVerifying['stdout'], 'fresh-verification replay result');
+    $resumedVerifyingStatus = RollbackControl::status($control);
+    $resumedVerifyingProvider = scoped_host_lines($providerLog);
+    $resumedVerifyingSubcommands = scoped_host_wp_subcommands(scoped_host_wp_requests($wpLog));
+    $resumedVerifyingReplay = scoped_host_lines($targetReplayLog);
+    $resumedVerifyingOrder = scoped_host_lines($orderLog);
+    scoped_host_ok(
+        ($resumedVerifyingResult['format'] ?? null) === 'duo-scoped-promotion-result/v1'
+            && ($resumedVerifyingStatus['state'] ?? null) === 'committed'
+            && ($resumedVerifyingStatus['terminal'] ?? null) === true
+            && ($resumedVerifyingStatus['generation'] ?? null) === 3
+            && ($resumedVerifyingStatus['receipt_id'] ?? null) === $lostVerifyingReceipt
+            && scoped_host_event_steps($control, $lostVerifyingReceipt) === $expectedSuccessEvents
+            && !is_file($targetSession),
+        'fresh-verification retry seals only the existing generation and commits it without a new checkpoint'
+    );
+    scoped_host_ok(
+        !in_array('checkpoint:prepare', $resumedVerifyingProvider, true)
+            && !in_array('exclusion:acquire', $resumedVerifyingProvider, true)
+            && !in_array('checkpoint:restore', $resumedVerifyingProvider, true)
+            && !in_array('checkpoint:verify-prior', $resumedVerifyingProvider, true)
+            && $resumedVerifyingSubcommands === [
+                'compile', 'plan', 'promotion-begin-scoped', 'apply',
+                'promotion-abort', 'promotion-complete-scoped',
+            ]
+            && $resumedVerifyingReplay === [
+                'begin:committed:' . $lostVerifyingTargetReceipt,
+                'replay:' . $lostVerifyingTargetReceipt,
+            ]
+            && $resumedVerifyingOrder === [
+                'target-complete:committed-held',
+                'exclusion:release',
+            ],
+        'fresh-verification retry seals before target begin, replays the archived terminal, then completes and releases once'
+    );
+
     scoped_host_clear($sshLog, $scpLog, $wpLog, $providerLog, $wireLog, $orderLog);
     $failed = scoped_host_promote($root, $envs, $contractPath, [], ['DUO3344_FAKE_APPLY_FAIL' => '1']);
     $rolledBack = RollbackControl::status($control);
@@ -1033,30 +1240,30 @@ PHP
     $failureRequests = scoped_host_wp_requests($wpLog);
     $failureSubcommands = scoped_host_wp_subcommands($failureRequests);
     $failedReceipt = (string) ($rolledBack['receipt_id'] ?? '');
-    $failedRefusal = scoped_host_json($failed['stdout'], 'precommit rollback refusal');
+    $failedRefusal = scoped_host_json($failed['stdout'], 'pre-fresh-verification rollback refusal');
     $failedPublicBytes = $failed['stdout'] . $failed['stderr'];
     scoped_host_ok(
         $failed['exit'] !== 0
             && ($rolledBack['state'] ?? null) === 'rolled_back'
             && !empty($rolledBack['terminal'])
-            && ($rolledBack['generation'] ?? null) === 3
+            && ($rolledBack['generation'] ?? null) === 4
             && ($failedRefusal['reason_code'] ?? null) === 'scoped_promotion_rolled_back'
             && $failed['stderr'] === ''
             && !str_contains($failedPublicBytes, 'PRIVATE_TARGET_PATH')
             && !str_contains($failedPublicBytes, 'provider-token')
             && !str_contains($failedPublicBytes, '/srv/target-secret'),
-        'pre-commit apply failure restores/verifies the checkpoint and emits one redacted public JSON refusal'
+        'pre-fresh-verification apply failure restores/verifies the checkpoint and emits one redacted public JSON refusal'
     );
     scoped_host_ok(
         $failureSubcommands === ['compile', 'plan', 'promotion-begin-scoped', 'apply', 'promotion-abort'],
-        'pre-commit failure stops before scoped completion or commit and compensates only the exact lease'
+        'pre-fresh-verification failure stops before the durable seal and compensates only the exact lease'
     );
     scoped_host_ok(
         in_array('checkpoint:prepare', $failureProvider, true)
             && in_array('checkpoint:restore', $failureProvider, true)
             && in_array('checkpoint:verify-prior', $failureProvider, true)
             && array_filter($failureProvider, static fn(string $line): bool => str_starts_with($line, 'adapter:')) === [],
-        'pre-commit rollback uses only the checkpoint restore/prior-verifier profile, never ordinary recovery adapters'
+        'pre-fresh-verification rollback uses only the checkpoint restore/prior-verifier profile, never ordinary recovery adapters'
     );
     scoped_host_ok(
         scoped_host_event_steps($control, $failedReceipt) === [
@@ -1071,7 +1278,7 @@ PHP
             'verifying_prior/completed/prior_verify',
             'rolled_back/state_transition/scoped_rolled_back_verified',
         ],
-        'pre-commit failure appends the complete signed rollback and prior-world verification chain'
+        'pre-fresh-verification failure appends the complete signed rollback and prior-world verification chain'
     );
 
     echo "PASS: DUO-3344 public SSH scoped-promotion host regression\n";
@@ -1080,8 +1287,11 @@ PHP
     foreach ([
         'DUO3344_APPLY_RESULT', 'DUO3344_COMPILED_ARTIFACT', 'DUO3344_COMPILE_SUMMARY',
         'DUO3344_CONTROL', 'DUO3344_DROP_COMPLETE_MARKER', 'DUO3344_DROP_MARKER',
-        'DUO3344_EXCLUSION_STATE', 'DUO3344_FAIL_AUTHORITY_STATUS', 'DUO3344_ORDER_LOG', 'DUO3344_PLAN', 'DUO3344_SCP_LOG',
-        'DUO3344_SSH_LOG', 'DUO3344_TARGET_SESSION', 'DUO3344_WIRE_LOG', 'DUO3344_WP_LOG',
+        'DUO3344_DROP_VERIFYING_NEW_ARMED', 'DUO3344_DROP_VERIFYING_NEW_MARKER',
+        'DUO3344_DROP_VERIFYING_NEW_RESPONSE', 'DUO3344_EXCLUSION_STATE', 'DUO3344_FAIL_AUTHORITY_STATUS',
+        'DUO3344_ORDER_LOG', 'DUO3344_PLAN', 'DUO3344_SCP_LOG', 'DUO3344_SSH_LOG',
+        'DUO3344_TARGET_REPLAY_LOG', 'DUO3344_TARGET_SESSION', 'DUO3344_TARGET_TERMINALS',
+        'DUO3344_WIRE_LOG', 'DUO3344_WP_LOG',
     ] as $name) {
         putenv($name);
     }

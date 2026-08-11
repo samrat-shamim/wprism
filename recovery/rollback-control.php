@@ -44,7 +44,14 @@ final class RollbackControl {
     /** @var list<string> */
     private const TERMINAL_STATES = ['committed', 'rolled_back'];
 
-    /** @var array<string,list<string>> */
+    /**
+     * Ordinary releases may enter rollback certification after a failed fresh
+     * verification. Scoped receipts reject that transition separately in
+     * SCOPED_STATE_TRANSITION_OPERATIONS once their completed target Apply
+     * evidence has been sealed as fresh-world verification.
+     *
+     * @var array<string,list<string>>
+     */
     private const TRANSITIONS = [
         'prepared' => ['promoting', 'rollback_pending'],
         'promoting' => ['verifying_new', 'rollback_pending'],
@@ -70,7 +77,8 @@ final class RollbackControl {
         'verifying_new>committed' => 'scoped_committed_verified',
         'prepared>rollback_pending' => 'scoped_promotion_failed',
         'promoting>rollback_pending' => 'scoped_promotion_failed',
-        'verifying_new>rollback_pending' => 'scoped_promotion_failed',
+        // Deliberately no verifying_new>rollback_pending: this scoped first
+        // seal follows completed scoped_apply evidence and resumes forward.
         'rollback_pending>rolling_back' => 'scoped_rollback_start',
         'rolling_back>verifying_prior' => 'scoped_verifying_prior',
         'verifying_prior>rolled_back' => 'scoped_rolled_back_verified',

@@ -11,9 +11,10 @@ use Duo\Recovery\RollbackControl;
  * This is intentionally a sibling of VerifiedRollbackProfile, not a mode on
  * it.  A scope contract excludes code/lifecycle semantics, so this profile
  * admits only the externally excluded encrypted-database checkpoint needed to
- * restore the pre-window world if the bounded apply fails before commit.  It
- * never prepares/releases code, uploads, lifecycle, or effect providers, and
- * it never offers a post-commit rollback operation.
+ * restore the pre-window world if the bounded apply fails before durable
+ * fresh-world verification. It never prepares/releases code, uploads,
+ * lifecycle, or effect providers, and never offers a post-seal rollback
+ * operation.
  */
 final class ScopedRollbackProfile {
     private RollbackAuthority $authority;
@@ -383,22 +384,30 @@ final class ScopedRollbackProfile {
 
     /**
      * Automatically restore the pre-window whole database only before a
-     * scoped promotion commits.  This is an exclusive-window failure path,
-     * not a public scoped rollback capability after commit.
+     * scoped promotion accepts its durable fresh-world verification.  This is
+     * an exclusive-window failure path, not a public scoped rollback
+     * capability after the forward-only seal boundary.
      *
      * @return array<string,mixed>
      */
     public function rollback(): array {
         $status = $this->status();
-        if ((string) $status['state'] === 'committed') {
-            throw new \RuntimeException('duo rollback: committed scoped promotion has no automatic rollback authority');
+        if (in_array((string) $status['state'], ['verifying_new', 'committed'], true)) {
+            // `verifying_new` is written only by sealCommit() after it has
+            // re-read exact completed scoped_apply evidence.  A lost reply
+            // after that first signed transition must resume forward to
+            // committed, never restore a target Apply that has already
+            // passed the fresh-world boundary.
+            throw new \RuntimeException(
+                'duo rollback: fresh-verified scoped promotion has no automatic rollback authority'
+            );
         }
         if ((string) $status['state'] === 'rolled_back') {
             return $this->release();
         }
-        if (in_array((string) $status['state'], ['prepared', 'promoting', 'verifying_new'], true)) {
+        if (in_array((string) $status['state'], ['prepared', 'promoting'], true)) {
             $status = $this->transition('rollback_pending', 'scoped_promotion_failed', [
-                'prepared', 'promoting', 'verifying_new',
+                'prepared', 'promoting',
             ]);
         }
         if ((string) $status['state'] === 'rollback_pending') {
