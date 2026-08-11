@@ -1636,7 +1636,36 @@ run_repo_host_platform_ownership_proof_case() {
   [ ! -e "$marker" ] && [ ! -e "$normalized_marker" ] && [ ! -s "$log" ] \
     || fail "$label reached Docker after a host-side probe chgrp failure"
 
-  # Negative 3: translation is never uid-only, even when its probe reads the
+  # Negative 3: chgrp may return success while the host readback still carries
+  # the inherited wheel group. That is not an empirical Docker translation:
+  # refuse before mounting the root, retain no probe, and leave both pair
+  # roots byte-identical.
+  : > "$log"
+  rm -f "$marker" "$normalized_marker"
+  if env \
+    DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+    DUO_PAIR_TEST_HOST_UID=501 DUO_PAIR_TEST_HOST_GID=20 DUO_PAIR_TEST_HOST_OS=Darwin \
+    DUO_PAIR_TEST_STAT_FLAVOR=bsd DUO_PAIR_TEST_STAT_ROOT="$root_abs" DUO_PAIR_TEST_STAT_ROOT_LEXICAL="siterepo/${pair}1" \
+    DUO_PAIR_TEST_STAT_PROBE_PREFIX="$probe_prefix" DUO_PAIR_TEST_STAT_ROOT_INODE=424242 \
+    DUO_PAIR_TEST_STAT_ROOT_OWNER_AFTER=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_INITIAL=501:0 \
+    DUO_PAIR_TEST_STAT_PROBE_OWNER_NORMALIZED=501:0 DUO_PAIR_TEST_STAT_PROBE_OWNER_AFTER=501:0 \
+    DUO_PAIR_TEST_PROBE_NORMALIZED_MARKER="$normalized_marker" DUO_PAIR_TEST_REPO_HANDOFF_MARKER="$marker" \
+    DUO_PAIR_TEST_FAIL_PROBE_CHGRP=0 DUO_PAIR_TEST_FAIL_REPO_HANDOFF=0 \
+    PATH="$fake_bin:$ORIGINAL_PATH" \
+    "$case_root/sandbox/bin/pair.sh" repo-host "$pair" 1 >"$output" 2>&1; then
+    fail "$label continued after a successful but ineffective host-side probe chgrp"
+  fi
+  assert_file_contains "$output" 'capability probe did not normalize to host 501:20: 501:0' \
+    "$label did not report the ineffective host chgrp refusal"
+  [ -e "$normalized_marker" ] && [ ! -e "$marker" ] && [ ! -s "$log" ] \
+    || fail "$label reached Docker after a successful but ineffective host-side probe chgrp"
+  if find "$(dirname "$root_abs")" -maxdepth 1 -name '.duo-owner-probe.*' -print -quit | grep -q .; then
+    fail "$label retained a capability probe after an ineffective host chgrp"
+  fi
+  [ -f "$root/state/nested/record.json" ] && [ -f "$peer/state/marker" ] \
+    || fail "$label changed a pair root after an ineffective host chgrp"
+
+  # Negative 4: translation is never uid-only, even when its probe reads the
   # expected normalized group.
   rm -f "$marker" "$normalized_marker"
   if env \
@@ -1655,7 +1684,7 @@ run_repo_host_platform_ownership_proof_case() {
   assert_file_contains "$output" 'has a foreign uid after handback (root 502:0; probe 501:0; expected uid 501)' \
     "$label did not report the foreign-UID ownership refusal"
 
-  # Negative 4: root and probe must agree exactly; a desktop group is not a
+  # Negative 5: root and probe must agree exactly; a desktop group is not a
   # blanket waiver for a root whose post-chown readback differs from its own
   # same-filesystem capability witness.
   rm -f "$marker" "$normalized_marker"
@@ -1675,7 +1704,7 @@ run_repo_host_platform_ownership_proof_case() {
   assert_file_contains "$output" 'ownership 501:0 does not match same-filesystem capability probe 501:7 after handback' \
     "$label did not report the root/probe ownership refusal"
 
-  # Negative 5: Linux's established exact uid:gid requirement remains even
+  # Negative 6: Linux's established exact uid:gid requirement remains even
   # when both real root and empirical probe agree on a translated group.
   rm -f "$marker" "$normalized_marker"
   if env \
@@ -1698,7 +1727,7 @@ run_repo_host_platform_ownership_proof_case() {
   if find "$(dirname "$root_abs")" -maxdepth 1 -name '.duo-owner-probe.*' -print -quit | grep -q .; then
     fail "$label retained a capability probe after a proof refusal"
   fi
-  pass "$label: same-filesystem probe admits only measured translation; foreign UID, root/probe mismatch, and Linux GID mismatch refuse"
+  pass "$label: inherited-group normalization is proved before Docker; ineffective chgrp, foreign UID, root/probe mismatch, and Linux GID mismatch refuse"
 }
 
 # --- DUO-3412: the needs-install marker's whole lifecycle --------------------
