@@ -9,7 +9,7 @@ require_once __DIR__ . '/PlanView.php';
 use WP_CLI;
 
 /**
- * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
+ * wp duo <capture|refresh-export|plan|explain|apply|scope|capabilities|adapter-observe|adapter-survey|orphans|deploy|code-preflight|code-stage|code-finalize|promotion-begin|promotion-abort|manifest-pin|identity-export|identity-import|journal-report|journal-reset>
  */
 final class Cli {
     private const REFUSAL_FORMAT = 'duo-command-refusal/v1';
@@ -216,6 +216,7 @@ final class Cli {
             'explain' => 'run the existing capture, identity-recovery, or attachment-materialization gate if needed, then copy a current entity selector from plan and rerun explain',
             'apply' => 'inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase',
             'deploy' => 'inspect lifecycle and promotion evidence, then restore or recover the exact recorded code and state release',
+            'code-preflight' => 'correct the staged plugin/theme runtime header or target PHP/WordPress evidence before beginning promotion',
             'code-stage' => 'inspect the staging receipt and promotion lease, then resume or recover the exact immutable artifact',
             'code-finalize' => 'inspect the staged receipt and promotion lease, then resume or recover the exact immutable artifact',
             'refresh-export' => 'inspect private operator evidence, then complete or recover the interrupted apply, promotion lease, identity, or code receipt before observing production again',
@@ -340,6 +341,52 @@ final class Cli {
             'compiled artifact %s (revision %s, manifests %s)%s',
             $artifact->artifact_hash(), $artifact->revision_hash(), $artifact->manifest_hash(),
             !empty($assoc['out']) ? ' -> ' . $assoc['out'] : ''
+        ));
+    }
+
+    /**
+     * Compare the frozen code payload's standard runtime requirement headers
+     * with this target's exact PHP/WordPress versions. This is a read-only
+     * host-orchestrated gate and therefore requires the immutable artifact
+     * hash but no promotion lease.
+     *
+     * ## OPTIONS
+     * --repo=<path> : Site repo root (contains site.duo.json).
+     * --compiled=<path> : Frozen compiler artifact selected by the host.
+     * --artifact-hash=<sha256> : Required host-observed outer artifact hash.
+     * [--json] : JSON report.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand code-preflight
+     */
+    public function code_preflight($args, $assoc) {
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('code-preflight', '--repo');
+            $compiledPath = $assoc['compiled'] ?? throw CommandRefusalException::invalidArgument('code-preflight', '--compiled');
+            $artifactHash = $assoc['artifact-hash'] ?? throw CommandRefusalException::invalidArgument('code-preflight', '--artifact-hash');
+            $policy = Policy::load($repo);
+            $compiled = RepositoryCompiler::read_artifact((string) $compiledPath, $policy);
+            $summary = Code::preflight((string) $repo, $compiled, [
+                'artifact_hash' => (string) $artifactHash,
+            ]);
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'code-preflight');
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        if (!$summary['enabled']) {
+            WP_CLI::success('code runtime preflight is disabled for this legacy repository');
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'code runtime preflight passed for revision %s on PHP %s / WordPress %s (%d requirement-bearing component(s))',
+            $summary['code_revision'],
+            $summary['target']['php'],
+            $summary['target']['wordpress'],
+            count($summary['requirements'])
         ));
     }
 
@@ -894,13 +941,27 @@ final class Cli {
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) === 'code_revision_stale'
         ));
+        $runtimeCompatibility = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && !empty($r['non_forceable'])
+        ));
         $forceableCodeMismatch = array_values(array_filter(
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && empty($r['non_forceable'])
         ));
         foreach ($codeRevisionStale as $r) {
             WP_CLI::line('CODE_REVISION_STALE code payload');
             WP_CLI::line('  ' . ($r['message'] ?? 'run the host duo deploy workflow'));
+        }
+        foreach ($runtimeCompatibility as $r) {
+            WP_CLI::line(
+                'CODE_RUNTIME_INCOMPATIBLE ' . strtoupper((string) ($r['issue'] ?? '?')) . ' '
+                . ($r['plugin'] ?? $r['theme'] ?? $r['identity'] ?? '?')
+            );
+            WP_CLI::line('  ' . ($r['message'] ?? 'target runtime requirement is not satisfied'));
+            WP_CLI::line('  non-forceable: correct the header or target runtime; certification evidence is separate');
         }
         foreach ($forceableCodeMismatch as $r) {
             WP_CLI::line('CODE_MISMATCH ' . strtoupper($r['issue']) . ' ' . ($r['plugin'] ?? $r['theme'] ?? '?'));

@@ -16,6 +16,7 @@ FAKE_WP="$FIX/bin"
 SITE="$FIX/site"
 ENVS="$FIX/envs.json"
 LOG="$FIX/wp.log"
+TRACE="$FIX/wp.trace"
 
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
@@ -27,7 +28,6 @@ mkdir -p "$FAKE_WP" "$SITE"
 cat > "$FAKE_WP/wp" <<'FAKE'
 #!/usr/bin/env bash
 set -euo pipefail
-printf '%s\n' "$*" >> "$FAKE_WP_LOG"
 args=("$@")
 pos=0
 while true; do
@@ -38,6 +38,21 @@ while true; do
 done
 first="${args[$pos]:-}"
 second="${args[$((pos + 1))]:-}"
+printf '%s\n' "$*" >> "$FAKE_WP_TRACE"
+
+if [ "$first" = duo ] && [ "$second" = code-preflight ]; then
+  if [ "${FAKE_PREFLIGHT_FAIL:-0}" != 0 ]; then
+    printf '%s\n' '{"format":"duo-command-refusal/v1","ok":false,"command":"code-preflight","error":"code_compilation_failed","diagnostics":[{"code":"code_source_requires_wordpress_incompatible","path":"themes/inactive/style.css","required_version":"99.0","target_version":"6.8.2"}]}'
+    exit 14
+  fi
+  printf '%s\n' '{"format":"duo-code-runtime/v1","enabled":true,"compatible":true,"code_revision":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","target":{"php":"8.3.0","wordpress":"6.8.2","source":"target-control-plane"},"requirements":[],"diagnostics":[]}'
+  exit 0
+fi
+
+# Preserve the historical phase log used by the detailed state-machine
+# assertions below; the all-call trace separately proves the newly inserted
+# no-write preflight ordering without mechanically weakening those checks.
+printf '%s\n' "$*" >> "$FAKE_WP_LOG"
 
 if [ "$first" = duo ] && [ "$second" = compile ]; then
   if [ "${FAKE_COMPILE_FAIL:-0}" != 0 ]; then
@@ -122,7 +137,7 @@ cat > "$ENVS" <<EOF
 {"envs":{"unit":{"transport":"local","wp_path":"$FAKE_WP","repo_path":"$SITE"}}}
 EOF
 
-export PATH="$FAKE_WP:$PATH" FAKE_WP_LOG="$LOG"
+export PATH="$FAKE_WP:$PATH" FAKE_WP_LOG="$LOG" FAKE_WP_TRACE="$TRACE"
 
 call_artifact() { grep -o -- '--compiled=[^ ]*' <<<"$1"; }
 call_owner() { grep -o -- '--promotion-owner=[^ ]*' <<<"$1"; }
@@ -225,6 +240,7 @@ assert_code_recovery_guidance() {
 run_promote() {
   local code="$1"; shift
   : > "$LOG"
+  : > "$TRACE"
   if OUT="$(FAKE_CODE_ENABLED="$code" "$@" "$DUO" --envs-file="$ENVS" promote unit --default-author=admin --force-unresolved-refs 2>&1)"; then
     CODE=0
   else
@@ -316,6 +332,19 @@ if has "${CALLS[*]}" 'promotion-abort'; then
 fi
 pass "code artifact sequences begin -> checkpoint -> stage -> retire -> activate -> finalize -> apply"
 
+mapfile -t TRACED_CALLS < "$TRACE"
+[ "${#TRACED_CALLS[@]}" -eq 9 ] || fail "code path expected compile/preflight plus eight existing calls"
+[[ "${TRACED_CALLS[0]}" == *"duo compile"* \
+  && "${TRACED_CALLS[1]}" == *"duo code-preflight"* \
+  && "${TRACED_CALLS[2]}" == *"duo promotion-begin"* ]] \
+  || fail "code target-runtime preflight did not run after compile and before promotion-begin"
+assert_control_call "${TRACED_CALLS[1]}" "promotion target-runtime preflight"
+[ "$(call_artifact "${TRACED_CALLS[1]}")" = "$(call_artifact "${TRACED_CALLS[4]}")" ] \
+  || fail "promotion preflight and code-stage did not inspect one frozen artifact"
+[ "$(call_hash "${TRACED_CALLS[1]}")" = "$(call_hash "${TRACED_CALLS[2]}")" ] \
+  || fail "promotion preflight and promotion-begin did not bind one artifact hash"
+pass "code target-runtime preflight is control-plane, immutable, and before lease/checkpoint"
+
 # A stage failure is after the checkpoint but before every later mutation.
 run_promote 1 env FAKE_STAGE_FAIL=1
 [ "$CODE" -eq 8 ] || fail "code-stage failure exit was not propagated (got $CODE)"
@@ -396,6 +425,27 @@ if has "$OUT" 'code may be staged or partially finalized'; then
   fail "legacy apply failure incorrectly received code recovery guidance"
 fi
 pass "legacy apply failure gives ordered DB/lease recovery without code warning"
+
+# Target runtime/header compatibility is an earlier read-only control-plane
+# gate. Its refusal has no lease to abort and no checkpoint/code/state effect
+# to recover; the structured component/target diagnostic remains visible.
+run_promote 1 env FAKE_PREFLIGHT_FAIL=1
+[ "$CODE" -eq 14 ] || fail "target-runtime preflight failure exit was not propagated (got $CODE)"
+mapfile -t CALLS < "$LOG"
+[ "${#CALLS[@]}" -eq 1 ] || fail "target-runtime preflight failure ran begin/checkpoint/mutation calls"
+[[ "${CALLS[0]}" == *"duo compile"* ]] || fail "target-runtime refusal did not retain compile as its only historical phase"
+mapfile -t TRACED_CALLS < "$TRACE"
+[ "${#TRACED_CALLS[@]}" -eq 2 ] || fail "target-runtime refusal did not stop at compile/preflight"
+[[ "${TRACED_CALLS[1]}" == *"duo code-preflight"* ]] || fail "second traced call was not target-runtime preflight"
+assert_control_call "${TRACED_CALLS[1]}" "failed promotion target-runtime preflight"
+has "$OUT" 'code_source_requires_wordpress_incompatible' \
+  || fail "target-runtime refusal lost its component/target diagnostic"
+has "$OUT" 'refusing before promotion-begin/checkpoint' \
+  || fail "target-runtime refusal did not name its pre-lease/checkpoint boundary"
+if has "$(cat "$TRACE")" 'promotion-abort'; then
+  fail "target-runtime refusal attempted cleanup for a lease it never acquired"
+fi
+pass "target-runtime incompatibility stops promotion before lease/checkpoint without cleanup fiction"
 
 # The lease is acquired before export. A begin refusal makes no checkpoint and
 # never attempts an abort that could touch another owner's lock.

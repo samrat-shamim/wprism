@@ -419,7 +419,14 @@ explicitly `present`: `active_plugins` (an empty list is valid deactivation
 intent), `template`, and `stylesheet`. Missing/`absent`/`deleted` records are
 ambiguous and compilation/stage refuses before target writes.
 
-The public host path is one lease-bound sequence with fresh WordPress processes:
+Before that lease, the public host path runs descriptor-bound
+`code-preflight`: standard `Requires PHP` / `Requires at least` headers from
+the frozen source are compared with exact target-control-plane PHP/WordPress
+evidence. Target values remain ephemeral and separate from both the artifact
+and Duo certification evidence; missing/malformed evidence or an unmet
+requirement is non-forceable. The check is repeated under the lease
+immediately before the first stage rename. The subsequent lease-bound sequence
+uses fresh WordPress processes:
 `code-stage → lifecycle-retire → lifecycle-activate → code-finalize → apply`.
 Retirement and activation each publish an ordered success receipt in the exact
 owner/artifact session, including when the phase is a verified no-op. Activation

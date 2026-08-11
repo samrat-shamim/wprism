@@ -2210,6 +2210,79 @@ V1_DEACTIVATE_ARTIFACT="$(artifact_for_promote_output "$V1_DEACTIVATE_OUT")"
 assert_receipt "$V1_DEACTIVATE_ARTIFACT" 'v1 extension deactivation promote' "$V1_REVISION"
 pass "public lifecycle retire deactivated only the custom extension and observed both available extensions still active"
 
+say "target runtime compatibility: inactive vendored plugin refuses before promotion-begin and force flags cannot bypass"
+INACTIVE_COMPAT_SOURCE="$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE"
+INACTIVE_COMPAT_TARGET_RUNTIME="$(target_wp eval 'global $wp_version; echo wp_json_encode(["php" => PHP_VERSION, "wordpress" => (string) $wp_version]);')"
+INACTIVE_COMPAT_TARGET_PHP="$(jq -r '.php' <<<"$INACTIVE_COMPAT_TARGET_RUNTIME")"
+INACTIVE_COMPAT_TARGET_WORDPRESS="$(jq -r '.wordpress' <<<"$INACTIVE_COMPAT_TARGET_RUNTIME")"
+[ -n "$INACTIVE_COMPAT_TARGET_PHP" ] && [ "$INACTIVE_COMPAT_TARGET_PHP" != null ] \
+  || fail 'target runtime compatibility probe returned no PHP version'
+[ -n "$INACTIVE_COMPAT_TARGET_WORDPRESS" ] && [ "$INACTIVE_COMPAT_TARGET_WORDPRESS" != null ] \
+  || fail 'target runtime compatibility probe returned no WordPress version'
+target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail 'inactive compatibility probe started with the extension active'
+INACTIVE_COMPAT_TREE_BEFORE="$(target_managed_code_tree_hash)"
+INACTIVE_COMPAT_PLUGIN_TREE_BEFORE="$(target_plugin_tree_hash)"
+INACTIVE_COMPAT_REVISION_BEFORE="$(ledger_revision)"
+INACTIVE_COMPAT_ACTIVE_BEFORE="$(active_plugins_json)"
+INACTIVE_COMPAT_TRACE_BEFORE="$(target_wp option get duo_commerce_extension_trace --format=json)"
+INACTIVE_COMPAT_SESSION_BEFORE="$(ledger_value promotion_session)"
+INACTIVE_COMPAT_LOCK_BEFORE="$(ledger_value promotion_lock)"
+php -r '
+$path = $argv[1];
+$bytes = file_get_contents($path);
+$needle = " * Version: 1.0.0\n";
+if (!is_string($bytes) || substr_count($bytes, $needle) !== 1) { exit(2); }
+$next = str_replace($needle, $needle . " * Requires PHP: 99.0\n", $bytes);
+if (file_put_contents($path, $next) === false) { exit(3); }
+' "$INACTIVE_COMPAT_SOURCE"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: inactive extension requires a newer target PHP'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+INACTIVE_COMPAT_PLAN="$(plan_json)"
+jq -e \
+  --arg plugin "$EXT_BASENAME" \
+  --arg php "$INACTIVE_COMPAT_TARGET_PHP" \
+  --arg wordpress "$INACTIVE_COMPAT_TARGET_WORDPRESS" \
+  '[.code_mismatch[] | select(
+      .issue == "code_source_requires_php_incompatible"
+      and .kind == "plugin"
+      and .plugin == $plugin
+      and .target_php == $php
+      and .target_wordpress == $wordpress
+      and .required_version == "99.0"
+      and .non_forceable == true
+      and (.code_revision | test("^[0-9a-f]{64}$"))
+      and (.component_sha256 | test("^[0-9a-f]{64}$"))
+    )] | length == 1' <<<"$INACTIVE_COMPAT_PLAN" >/dev/null \
+  || fail 'semantic plan did not bind the inactive plugin requirement to exact target/runtime code evidence'
+if INACTIVE_COMPAT_OUT="$(deploy --force-code-mismatch 2>&1)"; then
+  echo "$INACTIVE_COMPAT_OUT" >&2
+  fail 'inactive extension with incompatible Requires PHP unexpectedly deployed'
+fi
+echo "$INACTIVE_COMPAT_OUT"
+grep -Fq 'code_source_requires_php_incompatible' <<<"$INACTIVE_COMPAT_OUT" \
+  || fail 'inactive extension refusal did not retain its structured runtime diagnostic'
+grep -Fq "$EXT_BASENAME" <<<"$INACTIVE_COMPAT_OUT" \
+  || fail 'inactive extension refusal did not name the exact plugin identity'
+grep -Fq "target PHP is $INACTIVE_COMPAT_TARGET_PHP" <<<"$INACTIVE_COMPAT_OUT" \
+  || fail 'inactive extension refusal did not name the exact target PHP value'
+assert_absent "$INACTIVE_COMPAT_OUT" 'deploy phase: promotion-begin' 'inactive extension runtime compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_TREE_BEFORE" "$(target_managed_code_tree_hash)" 'managed code tree after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_PLUGIN_TREE_BEFORE" "$(target_plugin_tree_hash)" 'plugin tree after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_REVISION_BEFORE" "$(ledger_revision)" 'code revision after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_ACTIVE_BEFORE" "$(active_plugins_json)" 'active plugin order after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_TRACE_BEFORE" "$(target_wp option get duo_commerce_extension_trace --format=json)" 'lifecycle trace after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_SESSION_BEFORE" "$(ledger_value promotion_session)" 'promotion session after inactive compatibility refusal'
+assert_eq "$INACTIVE_COMPAT_LOCK_BEFORE" "$(ledger_value promotion_lock)" 'promotion lock after inactive compatibility refusal'
+target_wp plugin is-active "$EXT_SLUG" >/dev/null && fail 'runtime compatibility refusal activated the inactive extension'
+cp "$FIXTURE/v1/wp-content/plugins/$EXT_SLUG/$EXT_FILE" "$INACTIVE_COMPAT_SOURCE"
+git -C "$SITE" add -A
+git -C "$SITE" -c user.name=duo-ecommerce -c user.email=ecommerce@example.test commit -qm 'test: restore headerless inactive extension compatibility control'
+git -C "$SITE" push -qu origin main
+git -C "$OTHER_SITE" pull -q --ff-only
+pass "inactive incompatible plugin produced an exact non-forceable plan/refusal with no lease, replacement, or lifecycle effect; headerless control restored"
+
 say "v2 reviewed change: migrate scalar setting/table and deliberately fail activation"
 cp "$FIXTURE/v2/broken/$EXT_FILE" "$SITE/code/wp-content/plugins/$EXT_SLUG/$EXT_FILE"
 cp -a "$FIXTURE/v2/wp-content/themes/$PARENT_THEME" "$SITE/code/wp-content/themes/"
@@ -2226,7 +2299,7 @@ if V2_BROKEN_OUT="$(promote 2>&1)"; then
   fail 'broken v2 activation unexpectedly succeeded'
 fi
 echo "$V2_BROKEN_OUT"
-assert_phase_order "$V2_BROKEN_OUT" 'promote phase: compile' 'promote phase: promotion-begin' 'promote phase: checkpoint' 'promote phase: code-stage' 'promote phase: lifecycle-retire' 'promote phase: lifecycle-activate'
+assert_phase_order "$V2_BROKEN_OUT" 'promote phase: compile' 'promote phase: code-preflight' 'promote phase: promotion-begin' 'promote phase: checkpoint' 'promote phase: code-stage' 'promote phase: lifecycle-retire' 'promote phase: lifecycle-activate'
 grep -Fq 'Duo Commerce Extension reviewed v2 activation failure' <<<"$V2_BROKEN_OUT" || fail 'controlled v2 activation failure did not reach reviewed hook'
 assert_absent "$V2_BROKEN_OUT" 'promote phase: code-finalize' 'broken v2 activation'
 assert_absent "$V2_BROKEN_OUT" 'promote phase: apply' 'broken v2 activation'
@@ -2310,7 +2383,7 @@ if ! V2_OUT="$(promote 2>&1)"; then
   fail 'fixed v2 retry failed'
 fi
 echo "$V2_OUT"
-assert_phase_order "$V2_OUT" 'promote phase: compile' 'promote phase: promotion-begin' 'promote phase: checkpoint' 'promote phase: code-stage' 'promote phase: lifecycle-retire' 'promote phase: lifecycle-activate' 'promote phase: code-finalize' 'promote phase: apply'
+assert_phase_order "$V2_OUT" 'promote phase: compile' 'promote phase: code-preflight' 'promote phase: promotion-begin' 'promote phase: checkpoint' 'promote phase: code-stage' 'promote phase: lifecycle-retire' 'promote phase: lifecycle-activate' 'promote phase: code-finalize' 'promote phase: apply'
 assert_theme_and_dependency "$AUTHORED_ACTIVE_PLUGINS_JSON"
 assert_frontend_child_parent 'fixed v2 retry' 1
 assert_extension_rest_status '2.0.0' 2 'fixed v2 retry'

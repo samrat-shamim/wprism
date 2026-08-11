@@ -170,6 +170,12 @@ The live sequence covers:
 - pinned WooCommerce 10.9.4 source compatibility refusal before
   `promotion-begin`, with the entire target plugin tree and code revision
   unchanged;
+- generic plugin/theme `Requires PHP` / `Requires at least` enforcement from
+  exact target control-plane evidence: an inactive vendored extension with an
+  incompatible requirement is a non-forceable plan/deploy refusal before
+  `promotion-begin`, with code, lifecycle trace, lease/session, and revision
+  unchanged; the fixed v2 extension and themes carry compatible requirements
+  and pass the same preflight before their reviewed promotion;
 - native WordPress alphabetical `active_plugins` order accepted after
   provider-first lifecycle activation, while a custom-without-Woo dependency
   request is refused before target mutation;

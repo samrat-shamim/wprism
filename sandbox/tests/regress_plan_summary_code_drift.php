@@ -115,9 +115,31 @@ $check(str_contains($staleLines, 'duo deploy <env>'), 'stale code revision must 
 $check(str_contains($staleLines, 'cannot be bypassed by force flags'), 'stale code revision must state non-forceable ordering');
 $check(!str_contains($staleLines, '--force-code-mismatch'), 'stale-only status must not advertise a force-code-mismatch bypass');
 
+$runtimeBlocked = $empty;
+$runtimeBlocked['code_mismatch'] = [[
+    'issue' => 'code_source_requires_php_incompatible',
+    'kind' => 'plugin',
+    'plugin' => 'inactive/inactive.php',
+    'path' => 'plugins/inactive/inactive.php',
+    'code_revision' => str_repeat('d', 64),
+    'component_sha256' => str_repeat('e', 64),
+    'required_version' => '8.4',
+    'target_version' => '8.3.0',
+    'non_forceable' => true,
+    'message' => "plugin 'inactive/inactive.php' requires PHP >=8.4, but target PHP is 8.3.0",
+]];
+$runtimeRendered = PlanSummary::render($runtimeBlocked);
+$runtimeLines = implode("\n", $runtimeRendered['lines']);
+$check($runtimeRendered['ok'] === false, 'runtime incompatibility alone must make status not safe to promote');
+$check(str_contains($runtimeLines, 'CODE_RUNTIME_INCOMPATIBLE'), 'runtime incompatibility has its own visible section');
+$check(str_contains($runtimeLines, 'inactive/inactive.php'), 'runtime incompatibility names the frozen component');
+$check(str_contains($runtimeLines, '8.4') && str_contains($runtimeLines, '8.3.0'), 'runtime incompatibility reports requirement and target values');
+$check(str_contains($runtimeLines, 'non-forceable'), 'runtime incompatibility states its non-forceable safety contract');
+$check(!str_contains($runtimeLines, '--force-code-mismatch'), 'runtime incompatibility never advertises the lifecycle mismatch bypass');
+
 if ($failures) {
     fwrite(STDERR, "FAIL\n - " . implode("\n - ", $failures) . "\n");
     exit(1);
 }
 
-echo "ok: PlanSummary blocks code drift, stale revisions, and incomplete lifecycle receipts\n";
+echo "ok: PlanSummary blocks code drift, runtime incompatibility, stale revisions, and incomplete lifecycle receipts\n";

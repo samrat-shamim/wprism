@@ -109,9 +109,15 @@ final class PlanSummary {
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) === 'code_revision_stale'
         ));
+        $runtimeCompatibility = array_values(array_filter(
+            $codeMismatch,
+            static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && !empty($r['non_forceable'])
+        ));
         $forceableCodeMismatch = array_values(array_filter(
             $codeMismatch,
             static fn(array $r): bool => ($r['issue'] ?? null) !== 'code_revision_stale'
+                && empty($r['non_forceable'])
         ));
         $codeDrift = $plan['code_drift'] ?? [];
         $incompleteApply = $plan['incomplete_apply'] ?? [];
@@ -240,6 +246,16 @@ final class PlanSummary {
                     . ($r['message'] ?? 'run the host duo deploy workflow');
             }
             $lines[] = 'code revision is stale — run `duo deploy <env>`; this ordering invariant cannot be bypassed by force flags';
+        }
+
+        if ($runtimeCompatibility) {
+            $lines[] = 'CODE_RUNTIME_INCOMPATIBLE (frozen plugin/theme requirements exceed or lack exact target PHP/WordPress evidence):';
+            foreach ($runtimeCompatibility as $r) {
+                $what = $r['plugin'] ?? $r['theme'] ?? $r['identity'] ?? '?';
+                $lines[] = '  - ' . strtoupper((string) ($r['issue'] ?? 'runtime_requirement_unmet'))
+                    . ' ' . $what . ': ' . ($r['message'] ?? 'target runtime requirement is not satisfied');
+            }
+            $lines[] = 'code runtime compatibility is non-forceable — correct the header or target runtime; certification baselines and force flags cannot bypass it';
         }
 
         if ($forceableCodeMismatch) {
