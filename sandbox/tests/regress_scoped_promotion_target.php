@@ -564,6 +564,25 @@ namespace {
     );
     PromotionLock::release($owner, $artifact);
 
+    $ordinaryFutureRecoveryReceipt = $ordinaryCompletedSession;
+    $ordinaryFutureRecoveryReceipt['future_recovery_receipt'] = [
+        'format' => 'future-ordinary-recovery-v1',
+    ];
+    ScopedPromotionTargetLedger::$values = [
+        'promotion_session' => json_encode($ordinaryFutureRecoveryReceipt, JSON_THROW_ON_ERROR),
+    ];
+    $ordinaryFutureRecoveryReceiptBytes = ScopedPromotionTargetLedger::$values['promotion_session'];
+    $expect(
+        static fn() => PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300),
+        'unknown ordinary promotion session recovery field',
+        'ordinary future recovery receipt refuses scoped replacement'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_session'] ?? '') === $ordinaryFutureRecoveryReceiptBytes
+            && !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values),
+        'ordinary future recovery receipt refusal leaves the retained session and absent lock untouched'
+    );
+
     $ordinaryPendingTransition = $ordinaryCompletedSession;
     $ordinaryPendingTransition['pending_state_transition'] = [
         'entity' => 'options/core',
