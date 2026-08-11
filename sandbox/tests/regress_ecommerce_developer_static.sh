@@ -397,7 +397,7 @@ helper_noop_rejected visibility-helper "$VISIBILITY_STATE_ASSERT"
 helper_noop_rejected eq-helper "$EQ_PREDICATE"
 helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
-CLEANUP_HELPER_GOLDEN_HASH=54239920ca1e5f97582c7c4dfe97daab159852fbf49fb651feead54ef235ab76
+CLEANUP_HELPER_GOLDEN_HASH=c66ba5d1dde0bd04352f59a624a988c7b16f478b666589cda9b8789f33969cb5
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
@@ -419,7 +419,7 @@ DELETION_PROBE_PRESENT_HELPER_GOLDEN_HASH=bd7116812eb69a82f6f3cc8b3594955be85ce4
 LIVE_CHECKOUT_HELPER_GOLDEN_HASH=ddca827bf0b7e746c3aa30c8f85fea9e16296564eb0dd9aca5655b4ff140eadc
 DEPLOY_ARTIFACT_FILES_HELPER_GOLDEN_HASH=74c60dc1cd6c256058840f36863e0f14e8b84c994a97036642e6ba0bf3d53eb4
 NEW_DEPLOY_ARTIFACT_HELPER_GOLDEN_HASH=021e208799477388afb71a60c933bd8ceab7145a48485c7f319f9687a569ff1d
-PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=877ea91d017f105aa689e7d68e64fdeea0d06138fe0f552f9ad7e781867d94a8
+PROMOTE_ARTIFACT_HELPER_GOLDEN_HASH=9fc8327f20d2796edeee613f0bbdb8db2208802f40b8aacd8aafd36a7710c15b
 SOURCE_EVENT_BASELINE_HELPER_GOLDEN_HASH=2dae7f427f639ab1bcb9d4e1e12122a2c8fba8499e6fdc81d8d1cf245ea4120c
 RUNTIME_ISOLATION_HELPER_GOLDEN_HASH=b785e1dffaf6ee68c850bc3e78af0573220af20ff3e2255457386f54aa18c5da
 RUNTIME_STATE_EXCLUSION_HELPER_GOLDEN_HASH=09055c952a6e0f470c482a20317b2e0eb0b51321226782cea81aa3da70473b71
@@ -1234,6 +1234,31 @@ grep -Fq 'target_wp action-scheduler action run "$TARGET_ORDER_IMPORT_ACTION_ID"
 grep -Fq 'target_wp action-scheduler action list --hook=wc-admin_import_orders --args="[$TARGET_ORDER_ID]" --status=complete --format=ids' "$SCRIPT" || fail 'target order does not prove its exact Woo analytics import completed'
 if grep -Eq 'action-scheduler[[:space:]]+run|action-scheduler[[:space:]]+action[[:space:]]+run[[:space:]]+\$\(' "$SCRIPT"; then
   fail 'ecommerce grind drains an unbounded Action Scheduler queue'
+fi
+grep -Fq 'target_cron_inventory()' "$SCRIPT" || fail 'bounded WordPress cron proof does not snapshot its public event inventory'
+grep -Fq 'target_action_scheduler_inventory()' "$SCRIPT" || fail 'bounded WordPress cron proof does not snapshot Action Scheduler inventory'
+grep -Fq 'TARGET_CRON_INVENTORY_BEFORE=' "$SCRIPT" || fail 'bounded WordPress cron proof is missing its pre-seed cron baseline'
+grep -Fq 'TARGET_ACTION_SCHEDULER_INVENTORY_BEFORE=' "$SCRIPT" || fail 'bounded WordPress cron proof is missing its pre-seed Action Scheduler baseline'
+grep -Fq 'TARGET_CRON_FREEZE_CANDIDATE="/var/www/html/wp-content/mu-plugins/duo-cron-freeze-${PAIR}.php"' "$SCRIPT" || fail 'bounded WordPress cron proof does not create a uniquely named freeze file'
+grep -Fq 'target_root_php_args()' "$SCRIPT" || fail 'bounded WordPress cron freeze filesystem operations are not root-scoped'
+grep -Fq 'run --rm -T -u root cli2 php -r "$code" -- "$@"' "$SCRIPT" || fail 'bounded WordPress cron freeze root helper is not argv-safe'
+grep -Fq 'fopen($path, "xb")' "$SCRIPT" || fail 'bounded WordPress cron freeze is not exclusive-create'
+grep -Fq 'DISABLE_WP_CRON' "$SCRIPT" || fail 'bounded WordPress cron proof does not disable automatic cron spawning'
+grep -Fq 'TARGET_CRON_FREEZE_SHA="$(target_root_php_args' "$SCRIPT" || fail 'bounded WordPress cron freeze does not claim its path only after creation'
+grep -Fq 'hash_file("sha256", $path)' "$SCRIPT" || fail 'bounded WordPress cron freeze cleanup does not verify owned bytes'
+grep -Fq 'remove_target_cron_freeze' "$SCRIPT" || fail 'bounded WordPress cron proof does not remove its scoped freeze file'
+grep -Fq 'assert_eq 1 "$(target_wp eval' "$SCRIPT" || fail 'bounded WordPress cron proof does not assert the freeze premise through WordPress'
+grep -Fq 'TARGET_CRON_POST_ID="$(target_wp eval' "$SCRIPT" || fail 'bounded WordPress cron proof does not seed a deterministic named post'
+grep -Fq 'target_wp cron event list --hook=publish_future_post --fields=hook,time,args,schedule,interval --format=json' "$SCRIPT" || fail 'bounded WordPress cron proof does not list the named public event with exact args/time fields'
+grep -Fq 'target_wp cron event run publish_future_post --due-now' "$SCRIPT" || fail 'bounded WordPress cron proof does not execute the exact named public event'
+grep -Fq 'TARGET_CRON_DUE=' "$SCRIPT" || fail 'bounded WordPress cron proof does not prove the named event is the only due event'
+grep -Fq 'assert_eq publish "$(target_wp post get "$TARGET_CRON_POST_ID" --field=post_status)"' "$SCRIPT" || fail 'bounded WordPress cron proof does not assert the future post was published'
+grep -Fq 'target_wp post delete "$TARGET_CRON_POST_ID" --force' "$SCRIPT" || fail 'bounded WordPress cron proof does not clean up its runtime-only post'
+grep -Fq 'assert_eq "$TARGET_CRON_INVENTORY_BEFORE" "$(target_cron_inventory)"' "$SCRIPT" || fail 'bounded WordPress cron proof does not compare unrelated WP-Cron inventory'
+grep -Fq 'assert_eq "$TARGET_ACTION_SCHEDULER_INVENTORY_BEFORE" "$(target_action_scheduler_inventory)"' "$SCRIPT" || fail 'bounded WordPress cron proof does not compare unrelated Action Scheduler inventory'
+grep -Fq 'assert_eq "$TARGET_RUNTIME_IDENTITY_BASELINE" "$(runtime_identity_inventory target_wp)"' "$SCRIPT" || fail 'bounded WordPress cron proof does not compare runtime identities after cleanup'
+if grep -Eq 'cron event run[[:space:]]+--(all|due-now)|cron event run[[:space:]]+[^[:space:]]+[[:space:]]+--due-now[[:space:]]+--|cron event run[[:space:]]+\$\(' "$SCRIPT"; then
+  fail 'ecommerce grind permits an unbounded WordPress cron drain'
 fi
 grep -Fq '200 Target Runtime Way' "$SCRIPT" || fail 'target order does not seed an exact billing address'
 grep -Fq '201 Target Fulfillment Way' "$SCRIPT" || fail 'target order does not seed an exact shipping address'

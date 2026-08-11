@@ -100,12 +100,24 @@ check_matrix() {
       exercised|reproduced_gap)
         case "$public_command" in
           'wp duo '*|'php cli/duo '*) ;;
+          'wp cron '*)
+            [[ "$public_command" =~ ^wp[[:space:]]cron[[:space:]]event[[:space:]]run[[:space:]][A-Za-z0-9_.:-]+[[:space:]]--due-now$ ]] || {
+              echo "matrix row '$id' names an unbounded or malformed WP-Cron command: $public_command" >&2
+              return 1
+            }
+            ;;
           *) echo "matrix row '$id' does not name an existing public entrypoint: $public_command" >&2; return 1 ;;
         esac
         ;;
       planned_gap)
         case "$public_command" in
           PROPOSED/UNAVAILABLE:*|'wp duo '*|'php cli/duo '*) ;;
+          'wp cron '*)
+            [[ "$public_command" =~ ^wp[[:space:]]cron[[:space:]]event[[:space:]]run[[:space:]][A-Za-z0-9_.:-]+[[:space:]]--due-now$ ]] || {
+              echo "matrix gap row '$id' names an unbounded or malformed WP-Cron command: $public_command" >&2
+              return 1
+            }
+            ;;
           *) echo "matrix gap row '$id' names neither a proposed nor existing public entrypoint: $public_command" >&2; return 1 ;;
         esac
         ;;
@@ -164,8 +176,10 @@ pass 'DUO-3337 matrix schema, required coverage IDs, harness anchors, and bounde
 MUTATED_ANCHOR="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-anchor.XXXXXX")"
 MUTATED_ROUTE="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-route.XXXXXX")"
 MUTATED_CONTRACT="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-contract.XXXXXX")"
+MUTATED_CRON_COMMAND="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-cron.XXXXXX")"
+MUTATED_CRON_FLAGS="$(mktemp "${TMPDIR:-/tmp}/duo-ecommerce-matrix-cron-flags.XXXXXX")"
 cleanup_matrix() {
-  rm -f -- "$MUTATED_ANCHOR" "$MUTATED_ROUTE" "$MUTATED_CONTRACT"
+  rm -f -- "$MUTATED_ANCHOR" "$MUTATED_ROUTE" "$MUTATED_CONTRACT" "$MUTATED_CRON_COMMAND" "$MUTATED_CRON_FLAGS"
 }
 trap cleanup_matrix EXIT
 
@@ -196,5 +210,22 @@ if check_matrix "$MUTATED_CONTRACT" >/dev/null 2>&1; then
   fail 'self-mutation proof: empty rollback_rule unexpectedly passed'
 fi
 pass 'self-mutation proof: empty required rollback contract is rejected'
+
+# Self-mutation proof: the cron row may not silently widen from one named hook
+# to WP-CLI's global --all/--due-now drain.
+jq '(.moves[] | select(.id == "wordpress-cron") | .public_command) = "wp cron event run --all"' \
+  "$MATRIX" >"$MUTATED_CRON_COMMAND"
+if check_matrix "$MUTATED_CRON_COMMAND" >/dev/null 2>&1; then
+  fail 'self-mutation proof: unbounded WP-Cron command unexpectedly passed'
+fi
+pass 'self-mutation proof: unbounded WP-Cron command is rejected'
+
+# A named hook must not be made unbounded by appending a global-drain flag.
+jq '(.moves[] | select(.id == "wordpress-cron") | .public_command) = "wp cron event run publish_future_post --due-now --all"' \
+  "$MATRIX" >"$MUTATED_CRON_FLAGS"
+if check_matrix "$MUTATED_CRON_FLAGS" >/dev/null 2>&1; then
+  fail 'self-mutation proof: trailing WP-Cron drain flag unexpectedly passed'
+fi
+pass 'self-mutation proof: trailing WP-Cron drain flag is rejected'
 
 pass 'DUO-3337 ecommerce developer move matrix regression passed offline'

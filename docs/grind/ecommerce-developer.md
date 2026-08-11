@@ -25,17 +25,18 @@ the live grind proves a fail-closed unsupported/refusal boundary; `planned_gap`
 means the proposed public move is explicitly marked unavailable and routed but
 not claimed by this harness.
 
-The current machine-checked report contains 15 exercised moves, 8 planned
-gaps, and 3 reproduced fail-closed boundaries. The regression recomputes those
+The current machine-checked report contains 17 exercised moves, 7 planned
+gaps, and 2 reproduced fail-closed boundaries. The regression recomputes those
 counts from the rows so the summary cannot drift from the evidence index.
 
 The exercised slice includes state-only capture, managed code deploy and
 apply, Woo products/variations/taxonomies/media/options, ACF, ordered menus,
 extension migration/lifecycle, bounded generated-index and queue work,
 explicit dependency-aware plugin removal, semantic preview, drift/conflict
-handling, complete promotion, recovery, exact rollback, and final semantic
+handling, compatibility refusal, complete promotion, recovery, exact rollback, and final semantic
 recapture. The Action Scheduler row is intentionally separate from the
-unimplemented WordPress-cron row. The menu proof is anchored by
+bounded native WordPress-cron row, which names one `publish_future_post` event
+and refuses to drain unrelated scheduler work. The menu proof is anchored by
 `source_wp menu` and `assert_ecommerce_menu` and is checked again after v1
 apply and exact rollback.
 
@@ -50,9 +51,8 @@ The explicit gaps are initialization/adoption (DUO-3336), branch
 materialization (DUO-3324), authored-user synchronization (DUO-3344),
 refresh/rebase live-grind coverage (the public workflow landed in DUO-3343), scoped promotion (DUO-3344), and provider-backed
 plugin/theme replacement (DUO-3357). Theme upgrade, downgrade refusal, and
-removal are routed to DUO-3358; the separate WordPress-cron move is routed to
-DUO-3359. Reproduced boundaries include unsupported Woo deletion (DUO-3338),
-compatibility refusal (DUO-3326), and dependency refusal (DUO-3338). These
+removal are routed to DUO-3358. Reproduced boundaries include unsupported Woo deletion (DUO-3338)
+and dependency refusal (DUO-3338). These
 statuses prevent the current clone-based setup from being mistaken for
 coverage of the missing public workflows.
 
