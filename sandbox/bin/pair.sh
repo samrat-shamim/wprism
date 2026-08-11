@@ -50,6 +50,14 @@
 #   `DUO_EXPECTED_SOURCE_SHA` is set and that source is not exactly that
 #   commit, clean — DUO-3377's exact-source gate, see
 #   assert_candidate_source() below.
+#
+# - `reset` DROPs both databases, so it also RECORDS that fact per side
+#   (siterepo/.<name>{1,2}.needs-install) and `up` consumes the record:
+#   after this script has emptied a database it never re-derives "is this
+#   side installed?" from a single `wp core is-installed` probe against that
+#   same database. `up` then refuses loudly if a side it just bootstrapped is
+#   still not installed, instead of handing a caller a "ready" pair with no
+#   WordPress in it — DUO-3412, see needs_install_marker() below.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # sandbox/bin/pair.sh -> sandbox/
 
@@ -482,6 +490,60 @@ prepare_siterepo_roots() { # prepare_siterepo_roots <name>
   # could acquire state.capture.lock. Keep this deliberately scoped to the two
   # throwaway sandbox roots; it is not a production permission recommendation.
   chmod 0777 "siterepo/${name}1" "siterepo/${name}2"
+}
+
+# DUO-3412: the "this side's database was dropped out from under it" record —
+# the one piece of state that lets `up` know it must not trust the
+# `is-installed` probe it is about to make.
+#
+# The hazard is specific to reset->up, which is exactly the sequence every
+# conformance sweep opens with (sandbox/conformance/run.sh's first two pair.sh
+# calls). `reset` DROP/CREATEs both databases while this pair's wp1/wp2
+# containers and their webroot volumes KEEP RUNNING — it deliberately does not
+# restart or reinstall anything, see cmd_reset's own summary — and `up` then
+# asks that still-warm site `wp core is-installed` and SKIPS `wp core install`
+# on TRUE. One probe answering TRUE against a database this script itself
+# emptied seconds earlier (shared-MariaDB propagation lag, a probe that
+# reached the wrong database, any cached answer) is enough for `up` to skip
+# the reinstall and hand back a "ready" pair with no wp_options in it. The
+# sweep then dies a long way from the cause, at its first seed's `wp_conf1`
+# call, on wp-cli's bare "Error: The site you have requested is not
+# installed" — observed live during DUO-3410's degraded-host era. That the
+# probe actually raced is a HYPOTHESIS (that host was failing other ways
+# too); that a harness must not re-derive a premise it just destroyed from a
+# single probe is not — it is DUO-3381/DUO-3391's premise-before-behavior
+# family applied to bootstrap instead of to a seed hook.
+#
+# So `reset` records what it did and `up` consumes the record: after a DROP
+# there is nothing to probe FOR, because installing is definitionally correct.
+#
+# Location: sandbox/siterepo/ — this script's own dot-file state directory
+# (the shared .pair-budget.lock and its helper dirs already live there),
+# gitignored as a whole tree, and removed by `make clean`. Deliberately NOT
+# inside siterepo/<name>{1,2}: those two are bind-mounted into the containers
+# as /siterepo and ARE the site repository the agent captures and commits, so
+# a stray dot-file there is content drift in someone's evidence — and
+# cmd_reset's own clear_siterepo_root() empties them, which would delete the
+# marker in the same breath that wrote it.
+needs_install_marker() { # needs_install_marker <name> <side (1|2)> -> marker path
+  printf 'siterepo/.%s%s.needs-install\n' "$1" "$2"
+}
+
+mark_sides_need_install() { # mark_sides_need_install <name>
+  local name="$1" side
+  # siterepo/ normally already exists by now; mkdir keeps this callable from
+  # anywhere in reset's ordering without depending on that.
+  mkdir -p siterepo
+  for side in 1 2; do
+    : > "$(needs_install_marker "$name" "$side")"
+  done
+}
+
+clear_needs_install_markers() { # clear_needs_install_markers <name>
+  local name="$1" side
+  for side in 1 2; do
+    rm -f -- "$(needs_install_marker "$name" "$side")"
+  done
 }
 
 live_pairs() { # live_pairs — one live pair name per line
@@ -1077,21 +1139,64 @@ install_and_activate_theme() { # install_and_activate_theme <cli service> <theme
   done
 }
 
-install_side() { # install_side <side (1|2)> <url> <title>
-  local side="$1" url="$2" title="$3" cli="cli$1"
-  if "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1; then
+install_side() { # install_side <name> <side (1|2)> <url> <title>
+  local name="$1" side="$2" url="$3" title="$4" cli="cli$2" marker forced=0
+  marker="$(needs_install_marker "$name" "$side")"
+
+  # DUO-3412: the marker beats the probe, and when it is present the probe is
+  # not made at all — `reset` dropped this side's database, so `wp core
+  # install` is the definitionally correct action and a TRUE from
+  # `is-installed` here could only be wrong. With no marker this is
+  # byte-for-byte the old idempotent behavior: one probe, skip on TRUE, so a
+  # plain `up` (or an `up` after stop/start) on a healthy pair still never
+  # reinstalls.
+  if [ -e "$marker" ]; then
+    forced=1
+    echo "  side $side: $marker present — reset emptied wp_${name}${side}, so installing unconditionally (is-installed is not consulted across our own DROP)"
+  elif "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1; then
+    # The premise for THIS path is the probe that just established it. Asking
+    # the identical question again at the bottom of the function would cost
+    # another container per side per `up` and could not return new
+    # information, so the skip path returns here.
     echo "  side $side already installed"
     return 0
   fi
+
   "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core install \
     --url="$url" --title="$title" \
     --admin_user=admin --admin_password=admin \
     --admin_email=admin@example.test --skip-email
+  # Cleared HERE, on the success of the install itself, rather than at the end
+  # of the function: everything below is idempotent post-install configuration
+  # that the no-marker path skips wholesale on a re-run anyway. If the theme
+  # fetch (say) fails after core installed, keeping the marker would turn the
+  # obvious recovery — re-run `up` — into a guaranteed "Error: WordPress is
+  # already installed" refusal, i.e. a second, worse failure mode invented by
+  # the fix for the first one. Narrow window by construction: the marker is
+  # true exactly from reset's DROP until this line.
+  if [ "$forced" = 1 ]; then
+    rm -f -- "$marker"
+  fi
   install_and_activate_theme "$cli" twentytwentyone
   "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp option update permalink_structure '/%postname%/'
   "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp rewrite flush
   write_htaccess "$side"
   echo "  side $side installed ($url)"
+
+  # DUO-3412, DUO-3381/DUO-3391's premise-before-behavior family: assert the
+  # premise the entire sweep is about to depend on, in the domain that owns
+  # it. Every path that reaches this line just ran `core install`, and wp-cli
+  # has more than one way to leave a database with no WordPress in it without
+  # ever returning non-zero. Unasserted, the next thing to notice would be the
+  # first seed's `wp_conf1` call, one manifest and several minutes later,
+  # saying only "Error: The site you have requested is not installed" — a
+  # message that names neither the pair, nor the side, nor the bootstrap.
+  # Fail-closed and deliberately unretried: a `core install` that reports
+  # success over a database that is still empty is not a flake to ride out,
+  # and install_and_activate_theme above already owns the only genuinely
+  # transient dependency in this function.
+  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1 \
+    || fail "pair bootstrap premise failed: side $side (wp_${name}${side}) is not installed after install_side — the sweep would die at its first seed call with wp-cli's bare 'Error: The site you have requested is not installed'"
 }
 
 # --- subcommands -------------------------------------------------------------
@@ -1209,8 +1314,8 @@ cmd_up() {
   fi
 
   say "pair '$name': generic WordPress bootstrap (idempotent)"
-  install_side 1 "$url1" "Duo ${name}1"
-  install_side 2 "$url2" "Duo ${name}2"
+  install_side "$name" 1 "$url1" "Duo ${name}1"
+  install_side "$name" 2 "$url2" "Duo ${name}2"
 
   say "pair '$name' ready"
   if [ "$http_mode" = 1 ]; then
@@ -1293,6 +1398,14 @@ cmd_reset() {
   say "pair '$name': reset"
   drop_pair_dbs "$name"
   create_pair_dbs "$name"
+  # DUO-3412: record the DROP for `up`, immediately after it and before
+  # anything else here can fail. From this line on, both sides of this pair
+  # are KNOWN uninstalled, and the next install_side must not re-derive that
+  # from a probe it makes against the two databases these lines just emptied
+  # (see needs_install_marker above). Written after the CREATE, never before
+  # the DROP: a marker left behind by a reset that failed to drop anything
+  # would force `wp core install` onto a site that is still installed.
+  mark_sides_need_install "$name"
   clear_siterepo_root "siterepo/${name}1"
   clear_siterepo_root "siterepo/${name}2"
   rm -rf -- "siterepo/origin-${name}.git"
@@ -1306,6 +1419,9 @@ cmd_reset() {
   echo "  the next wp-cli call against this pair sees an empty, uninstalled site."
   echo "  Re-run 'pair.sh up ${name} <port1> <port2> ...' (or your script's own"
   echo "  install_env) before using it again."
+  echo "  reset also recorded siterepo/.${name}{1,2}.needs-install: that 'up' will"
+  echo "  reinstall both sides unconditionally rather than trust an is-installed"
+  echo "  probe against the databases just dropped here (DUO-3412)."
 }
 
 cmd_stop() {
@@ -1330,6 +1446,15 @@ cmd_start() {
   # (same ports, same overlay config they were created with), so none of
   # up's flags or port args are needed — and none can be changed here; a
   # config change means destroy + up.
+  #
+  # DUO-3412: `start` deliberately neither consumes nor clears a needs-install
+  # marker, and that is a decision, not an omission. It installs nothing, so
+  # there is nothing here to consume; and after reset + stop + start the pair
+  # genuinely IS uninstalled, so clearing the marker here would silently
+  # re-arm the exact race the marker closes — the eventual `up` (which reset's
+  # own output tells you to run) must still install unconditionally. A marker
+  # is therefore not "stale at start" in any sequence this script can produce;
+  # it is simply not `start`'s business.
   local name="${1:?usage: pair.sh start <name>}"
   validate_name "$name"
   # DUO-3377: `start` resumes containers with the bind-mount sources baked in
@@ -1369,6 +1494,16 @@ cmd_destroy() {
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
   ensure_db_up
   drop_pair_dbs "$name"
+  # DUO-3412: the needs-install markers are this pair's state, and destroy is
+  # where this pair's state goes — leaving them would make the next `up` on a
+  # recycled pair name act on a record about a pair that no longer exists.
+  # Destroy does NOT write markers of its own, even though it drops the same
+  # two databases: `down -v` took the containers AND the webroot volumes with
+  # them, so the next `up` builds a brand-new site over a brand-new database
+  # and probes it from a container younger than the drop. The asymmetry that
+  # makes reset hazardous — live containers and surviving volumes spanning the
+  # DROP — simply cannot arise here.
+  clear_needs_install_markers "$name"
   pass "containers + webroot volumes removed; wp_${name}1/wp_${name}2 dropped"
   echo "  siterepo/${name}{1,2} left on disk untouched — remove by hand if you want it gone too."
 }
@@ -1420,8 +1555,10 @@ usage:
            wp1/wp2, waits for their nested MU mountpoints, then brings up
            cli1/cli2 and waits for DB-level readiness on both sides,
            runs the generic WordPress bootstrap (core install, theme,
-           permalinks, .htaccess) on each side if not already installed,
-           then prints the wp-cli invocation pattern for the pair.
+           permalinks, .htaccess) on each side if not already installed —
+           unconditionally on a side reset marked needs-install, and
+           refusing if a side is still not installed afterwards
+           (DUO-3412) — then prints the wp-cli invocation pattern.
              --journal          turn on DUO_JOURNAL (pair.journal.yml)
              --codebind <dir>   bind wp-content/plugins/<dir> from this
                                  pair's own siterepo/<name>{1,2}/code/ tree
@@ -1430,10 +1567,12 @@ usage:
              --headless         don't publish any host port for this pair
 
   reset    DROP/CREATE this pair's two databases + clear ordinary site-repo
-           contents in place. Refuses if a live/stopped codebind mount is
-           detected (destroy + up --codebind is the safe clean-room path).
-           Does NOT touch webroot volumes, restart containers, or reinstall
-           WordPress.
+           contents in place, and record siterepo/.<name>{1,2}.needs-install
+           so the next `up` reinstalls both sides unconditionally instead of
+           probing the databases it just emptied (DUO-3412). Refuses if a
+           live/stopped codebind mount is detected (destroy + up --codebind
+           is the safe clean-room path). Does NOT touch webroot volumes,
+           restart containers, or reinstall WordPress.
 
   stop     Free the pair's RAM/CPU without losing anything: containers
            stopped, webroot volumes and databases untouched. Use while

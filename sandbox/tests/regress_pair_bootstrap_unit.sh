@@ -80,8 +80,16 @@ if [ -n "$theme_state_dir" ]; then
   case " $* " in
     *" cli1 wp core is-installed "*) [ -f "$theme_state_dir/core1" ]; exit $? ;;
     *" cli2 wp core is-installed "*) [ -f "$theme_state_dir/core2" ]; exit $? ;;
-    *" cli1 wp core install "*) : > "$theme_state_dir/core1"; exit 0 ;;
-    *" cli2 wp core install "*) : > "$theme_state_dir/core2"; exit 0 ;;
+    # DUO-3412: NOOP models the DUO-3381 shape at the bootstrap layer — wp-cli
+    # exits 0 while the database still has no WordPress in it, so every later
+    # is-installed answer stays FALSE. Default 0 leaves every pre-existing
+    # case's install semantics untouched.
+    *" cli1 wp core install "*)
+      [ "${DUO_PAIR_TEST_CORE_INSTALL_NOOP:-0}" = 1 ] || : > "$theme_state_dir/core1"
+      exit 0 ;;
+    *" cli2 wp core install "*)
+      [ "${DUO_PAIR_TEST_CORE_INSTALL_NOOP:-0}" = 1 ] || : > "$theme_state_dir/core2"
+      exit 0 ;;
     *" wp theme install twentytwentyone --activate "*)
       attempts=0
       [ ! -f "$theme_state_dir/attempts" ] || attempts="$(cat "$theme_state_dir/attempts")"
@@ -1117,6 +1125,251 @@ run_reset_inode_preservation_case() {
   pass "$label: ordinary reset clears contents while preserving bind-root inode"
 }
 
+# --- DUO-3412: the needs-install marker's whole lifecycle --------------------
+#
+# reset DROP/CREATEs both databases and then leaves the containers running;
+# `up` decides whether to install by asking that still-warm site `wp core
+# is-installed`. One TRUE from a probe made against a database this harness
+# itself emptied seconds earlier is enough to skip the reinstall, and the
+# sweep then dies a manifest later on wp-cli's bare "Error: The site you have
+# requested is not installed". These cases pin the structural answer: reset
+# RECORDS the drop, `up` acts on the record instead of on a probe, and a
+# bootstrap that ends with an uninstalled side refuses in its own domain.
+#
+# The stale probe is the fake's whole point here: DUO_PAIR_TEST_THEME_STATE_DIR
+# seeded with core1/core2 makes `wp core is-installed` answer TRUE for a pair
+# whose databases were just dropped — a state the real world can only reach
+# through the bug, and the fake reaches deterministically.
+marker_path() { # marker_path <case-root> <pair> <side>
+  printf '%s/sandbox/siterepo/.%s%s.needs-install\n' "$1" "$2" "$3"
+}
+
+# Shared fixture for the marker-lifecycle cases: one copied pair.sh, one fake
+# docker/git, one env block. Sets CASE_ROOT/FAKE_BIN/LOG/OUTPUT/THEME_STATE.
+prepare_marker_case() { # prepare_marker_case <label>
+  local label="$1"
+  CASE_ROOT="$TMP/$label"
+  FAKE_BIN="$CASE_ROOT/fake-bin"
+  LOG="$CASE_ROOT/docker.log"
+  OUTPUT="$CASE_ROOT/output.log"
+  THEME_STATE="$CASE_ROOT/theme-state"
+  mkdir -p "$CASE_ROOT/sandbox/bin" "$FAKE_BIN"
+  cp "$ROOT/sandbox/bin/pair.sh" "$CASE_ROOT/sandbox/bin/pair.sh"
+  chmod +x "$CASE_ROOT/sandbox/bin/pair.sh"
+  write_fake_docker "$FAKE_BIN"
+  write_fake_git "$FAKE_BIN"
+  export DUO_PAIR_TEST_LOG="$LOG" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
+    DUO_PAIR_TEST_INSPECT_MOUNTS='' DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+    DUO_PAIR_TEST_CANONICAL_ROOT="$CASE_ROOT" DUO_PAIR_TEST_LIVE_FILE='' \
+    DUO_PAIR_TEST_RACE_GATE='' DUO_PAIR_TEST_FAIL_INFO=0 DUO_PAIR_TEST_FAIL_LIVE=0 \
+    DUO_PAIR_TEST_CONTAINERS='' DUO_PAIR_TEST_FAIL_PS=0 \
+    DUO_PAIR_TEST_FAIL_INSPECT_CONTAINER='' DUO_PAIR_BUDGET_OVERRIDE=0 \
+    DUO_PAIR_TEST_CORE_INSTALL_NOOP=0 DUO_PAIR_TEST_THEME_FAILURES=0 \
+    PATH="$FAKE_BIN:$ORIGINAL_PATH"
+  unset DUO_PAIR_TEST_THEME_STATE_DIR
+}
+
+assert_markers_present() { # assert_markers_present <label> <case-root> <pair> <what>
+  local label="$1" case_root="$2" pair="$3" what="$4" side
+  for side in 1 2; do
+    [ -f "$(marker_path "$case_root" "$pair" "$side")" ] \
+      || fail "$label: side $side has no needs-install marker ($what)"
+  done
+}
+
+assert_markers_absent() { # assert_markers_absent <label> <case-root> <pair> <what>
+  local label="$1" case_root="$2" pair="$3" what="$4" side
+  for side in 1 2; do
+    [ ! -e "$(marker_path "$case_root" "$pair" "$side")" ] \
+      || fail "$label: side $side still carries a needs-install marker ($what)"
+  done
+}
+
+run_reset_marks_needs_install_case() {
+  local label=reset_marks_needs_install pair=resetmark root inode_before inode_after stray
+  prepare_marker_case "$label"
+  root="$CASE_ROOT/sandbox/siterepo/${pair}1"
+  mkdir -p "$root/code/wp-content" "$CASE_ROOT/sandbox/siterepo/${pair}2/code"
+  printf 'old state\n' > "$root/code/wp-content/marker.php"
+  inode_before="$(inode_of "$root")"
+
+  "$CASE_ROOT/sandbox/bin/pair.sh" reset "$pair" >"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
+
+  assert_markers_present "$label" "$CASE_ROOT" "$pair" "reset must record its own DROP"
+  # The marker belongs beside pair.sh's other dot-file state, never inside a
+  # site-repo root: those are bind-mounted into the containers as /siterepo and
+  # are the repository the agent captures and commits, and reset's own
+  # clear_siterepo_root() empties them. Both roots must be completely empty
+  # after reset — which proves the clearing contract and the location at once.
+  stray="$(find "$CASE_ROOT/sandbox/siterepo/${pair}1" "$CASE_ROOT/sandbox/siterepo/${pair}2" -mindepth 1)"
+  [ -z "$stray" ] || fail "$label left content inside a site-repo root after reset: $stray"
+  # reset's pre-existing contract, unchanged by the new record.
+  inode_after="$(inode_of "$root")"
+  [ "$inode_before" = "$inode_after" ] || fail "$label replaced the ordinary site-repo root inode"
+  assert_file_contains "$OUTPUT" 'dropped + recreated empty' \
+    "$label changed reset's own completion report"
+  assert_file_contains "$OUTPUT" "reset also recorded siterepo/.${pair}{1,2}.needs-install" \
+    "$label did not tell the operator what the next up will do"
+  pass "$label: reset records both needs-install markers beside pair.sh's own state"
+}
+
+run_reset_up_stale_probe_case() {
+  local label=reset_up_stale_probe pair=staleprobe side second_log
+  prepare_marker_case "$label"
+  mkdir -p "$THEME_STATE"
+  # THE stale probe: is-installed answers TRUE on both sides even though reset
+  # is about to drop both databases. This is the false positive DUO-3412 says
+  # `up` must not act on.
+  : > "$THEME_STATE/core1"
+  : > "$THEME_STATE/core2"
+  export DUO_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE"
+
+  "$CASE_ROOT/sandbox/bin/pair.sh" reset "$pair" >"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
+  assert_markers_present "$label" "$CASE_ROOT" "$pair" "fixture premise for the race case"
+
+  "$CASE_ROOT/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless >>"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label up failed over the stale is-installed probe"; }
+
+  for side in 1 2; do
+    # THE load-bearing assertion: the install happened anyway.
+    assert_file_contains "$LOG" "<run> <--rm> <-T> <cli${side}> <wp> <core> <install>" \
+      "$label skipped side $side's install on a stale is-installed TRUE"
+    if grep -F "  side $side already installed" "$OUTPUT" >/dev/null; then
+      fail "$label trusted the stale probe and reported side $side already installed"
+    fi
+  done
+  assert_markers_absent "$label" "$CASE_ROOT" "$pair" "a successful install must consume the marker"
+  assert_file_contains "$OUTPUT" "reset emptied wp_${pair}1" \
+    "$label did not name why side 1's install was unconditional"
+  assert_file_contains "$OUTPUT" "pair '$pair' ready" "$label did not finish the bootstrap"
+
+  # Consumed, not merely overridden: a second `up` finds no marker, takes the
+  # ordinary probe path, and installs nothing.
+  second_log="$CASE_ROOT/docker-second-up.log"
+  DUO_PAIR_TEST_LOG="$second_log" "$CASE_ROOT/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
+    >>"$OUTPUT" 2>&1 || { cat "$OUTPUT" >&2; fail "$label second up failed"; }
+  if grep -F '<wp> <core> <install>' "$second_log" >/dev/null; then
+    fail "$label reinstalled on the second up — the marker was not consumed"
+  fi
+  unset DUO_PAIR_TEST_THEME_STATE_DIR
+  pass "$label: reset->up installs across a stale is-installed TRUE and consumes the marker exactly once"
+}
+
+run_reset_up_stale_probe_mutation_case() {
+  local label=reset_up_stale_probe_mutation pair=staleprobemut side launcher anchor
+  prepare_marker_case "$label"
+  launcher="$CASE_ROOT/sandbox/bin/pair.sh"
+  # THE MUTATION, stated exactly: remove install_side's marker consumption by
+  # making its branch unreachable, which leaves the pre-DUO-3412 code path
+  # verbatim — one is-installed probe, skip on TRUE. Nothing else is touched.
+  # The anchor count is asserted first: a drifted anchor would silently turn
+  # this proof into a second copy of the passing case.
+  anchor='if [ -e "$marker" ]; then'
+  [ "$(grep -cF "$anchor" "$launcher")" = 1 ] \
+    || fail "$label could not uniquely locate install_side's marker branch to mutate ($anchor)"
+  sed 's/if \[ -e "\$marker" \]; then/if false; then/' "$launcher" > "$launcher.mutant"
+  mv "$launcher.mutant" "$launcher"
+  chmod +x "$launcher"
+  [ "$(grep -cF "$anchor" "$launcher")" = 0 ] || fail "$label mutation did not remove the marker branch"
+  grep -qF 'if false; then' "$launcher" || fail "$label mutation did not apply"
+
+  mkdir -p "$THEME_STATE"
+  : > "$THEME_STATE/core1"
+  : > "$THEME_STATE/core2"
+  export DUO_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE"
+  "$launcher" reset "$pair" >"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
+  "$launcher" up "$pair" 9911 9912 --headless >>"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label up failed"; }
+
+  # The mutant exits 0 and reports the pair ready — the DUO-3412 failure is
+  # silent at bootstrap by construction — while skipping the install that the
+  # unmutated case above asserts. That skip IS reset_up_stale_probe's
+  # load-bearing assertion failing.
+  for side in 1 2; do
+    if grep -F "<run> <--rm> <-T> <cli${side}> <wp> <core> <install>" "$LOG" >/dev/null; then
+      fail "$label: mutant still installed side $side — the marker branch is not what makes the race case pass"
+    fi
+    assert_file_contains "$OUTPUT" "  side $side already installed" \
+      "$label: mutant did not take the pre-fix probe-and-skip path on side $side"
+  done
+  assert_markers_present "$label" "$CASE_ROOT" "$pair" "mutant never consumes the marker"
+  unset DUO_PAIR_TEST_THEME_STATE_DIR
+  pass "$label: with marker consumption removed, the stale TRUE skips the install (race case fails on the mutant)"
+}
+
+run_install_idempotence_case() {
+  local label=install_idempotence pair=idempotent side
+  prepare_marker_case "$label"
+  # No reset, so no marker, and the fake's default `wp core is-installed`
+  # answers TRUE (every pre-existing case in this suite depends on that). The
+  # no-marker path must be byte-for-byte today's contract: exactly one probe
+  # per side, no install, nothing reinstalled.
+  "$CASE_ROOT/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless >"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label up failed"; }
+  if grep -F '<wp> <core> <install>' "$LOG" >/dev/null; then
+    fail "$label reinstalled a healthy pair that carried no needs-install marker"
+  fi
+  for side in 1 2; do
+    assert_file_contains "$OUTPUT" "  side $side already installed" \
+      "$label did not take the idempotent skip on side $side"
+    [ "$(grep -cF "<run> <--rm> <-T> <cli${side}> <wp> <core> <is-installed>" "$LOG")" = 1 ] \
+      || fail "$label did not probe side $side exactly once — the no-marker path is not byte-preserved"
+  done
+  assert_markers_absent "$label" "$CASE_ROOT" "$pair" "up must not invent markers"
+  pass "$label: no marker + is-installed TRUE still probes once per side and installs nothing"
+}
+
+run_install_premise_assert_case() { # run_install_premise_assert_case <marker|nomarker>
+  local mode="$1" label pair
+  label="install_premise_assert_${mode}"
+  pair="premise${mode}"
+  prepare_marker_case "$label"
+  mkdir -p "$THEME_STATE"
+  # `core install` "succeeds" without installing anything, so is-installed
+  # keeps answering FALSE. Reached through the forced path (after reset) and
+  # through the ordinary probe path, because both must refuse.
+  export DUO_PAIR_TEST_THEME_STATE_DIR="$THEME_STATE" DUO_PAIR_TEST_CORE_INSTALL_NOOP=1
+  if [ "$mode" = marker ]; then
+    "$CASE_ROOT/sandbox/bin/pair.sh" reset "$pair" >"$OUTPUT" 2>&1 \
+      || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
+    assert_markers_present "$label" "$CASE_ROOT" "$pair" "fixture premise"
+  fi
+
+  if "$CASE_ROOT/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless >>"$OUTPUT" 2>&1; then
+    cat "$OUTPUT" >&2
+    fail "$label reported a healthy pair over a database that never got WordPress"
+  fi
+  assert_file_contains "$OUTPUT" \
+    "pair bootstrap premise failed: side 1 (wp_${pair}1) is not installed after install_side" \
+    "$label did not name the bootstrap premise failure in pair.sh's own domain"
+  assert_file_contains "$OUTPUT" 'the sweep would die at its first seed call' \
+    "$label did not say what the unasserted failure would have looked like"
+  if grep -F "pair '$pair' ready" "$OUTPUT" >/dev/null; then
+    fail "$label proceeded to report the pair ready after the premise failure"
+  fi
+  unset DUO_PAIR_TEST_THEME_STATE_DIR
+  export DUO_PAIR_TEST_CORE_INSTALL_NOOP=0
+  pass "$label: an install that leaves the side uninstalled refuses at bootstrap, not at the first seed"
+}
+
+run_destroy_clears_marker_case() {
+  local label=destroy_clears_marker pair=destroymark
+  prepare_marker_case "$label"
+  "$CASE_ROOT/sandbox/bin/pair.sh" reset "$pair" >"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label reset failed"; }
+  assert_markers_present "$label" "$CASE_ROOT" "$pair" "fixture premise"
+
+  "$CASE_ROOT/sandbox/bin/pair.sh" destroy "$pair" >>"$OUTPUT" 2>&1 \
+    || { cat "$OUTPUT" >&2; fail "$label destroy failed"; }
+  assert_markers_absent "$label" "$CASE_ROOT" "$pair" "destroy owns this pair's state"
+  assert_file_contains "$OUTPUT" 'containers + webroot volumes removed' \
+    "$label did not complete destroy's own contract"
+  pass "$label: destroy leaves no needs-install marker behind for a recycled pair name"
+}
+
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
@@ -1198,5 +1451,26 @@ run_reset_container_query_failure_case inspect
 
 say "ordinary reset preserves bind-root inode (fake compose; no Docker/DB)"
 run_reset_inode_preservation_case
+
+say "DUO-3412: reset records a needs-install marker for both sides"
+run_reset_marks_needs_install_case
+
+say "DUO-3412: reset->up installs across a stale is-installed TRUE (the race)"
+run_reset_up_stale_probe_case
+
+say "DUO-3412 mutation proof: marker consumption removed => stale TRUE skips the install"
+run_reset_up_stale_probe_mutation_case
+
+say "DUO-3412: no marker + is-installed TRUE stays idempotent (no reinstall)"
+run_install_idempotence_case
+
+say "DUO-3412: a still-uninstalled side refuses at bootstrap (forced path)"
+run_install_premise_assert_case marker
+
+say "DUO-3412: a still-uninstalled side refuses at bootstrap (probe path)"
+run_install_premise_assert_case nomarker
+
+say "DUO-3412: destroy clears this pair's needs-install markers"
+run_destroy_clears_marker_case
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_BOOTSTRAP_UNIT PASSED\033[0m\n'
