@@ -456,6 +456,12 @@ regress-adapter-authoring-live:
 
 adapter-authoring-exercise: regress-adapter-authoring-live
 
+# DUO-3348 first extraction slice: ManifestGrammar (table/widget declaration
+# grammar out of Policy.php), OFFLINE (no WordPress, DB, providers, or docker)
+# — belongs in regress-offline-all and its count.
+regress-manifest-grammar:
+	php sandbox/tests/regress_manifest_grammar.php
+
 # DUO-3345 (#189): value-free plan category summaries, OFFLINE (no WordPress,
 # DB, providers, or docker) — belongs in regress-offline-all and its count.
 regress-plan-category-summary:
@@ -1087,8 +1093,9 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-path-safety regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire
-	@echo "regress-offline-all: 120 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire \
+	regress-manifest-grammar
+	@echo "regress-offline-all: 121 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

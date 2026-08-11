@@ -139,7 +139,7 @@ require_once __DIR__ . '/ReferenceRules.php';
  *   duo_map's local_id stays that plain scalar — no packing, so delete,
  *   adopt, and `invalidate` all keep working exactly as they do for any
  *   other row table. Filenames need `slug_column` for this form (a tuple has
- *   no portable one-line spelling; see Policy::assert_natural_key_grammar()).
+ *   no portable one-line spelling; see ManifestGrammar::assert_natural_key_grammar()).
  * - `"identity": {"mode": "composite_ref", "columns": ["<col1>", "<col2>"]}`
  *   (DUO-3235, task #125) — for a PURE JOIN table: no surrogate `pk` column
  *   exists at all, and its real, live composite PRIMARY KEY is exactly the
