@@ -828,46 +828,46 @@ final class Init {
             && (is_link($gitDir) || !is_dir($gitDir))) {
             return 'the sealed attempt has a non-directory Git metadata boundary';
         }
-        // DUO-3421: exactly the authority compensate_interrupted_precommit()
-        // demands below before it may delete this root — a complete
-        // git_identity, or a git_empty_identity that STILL describes the
-        // reserved root as it stands. Presence alone is not deletion
-        // authority: initialize_git() runs between the `git-reserved` journal
-        // (which records git_empty_identity for the empty root) and the
-        // `git-ready` one (which records git_identity for the populated one),
-        // so an attempt interrupted inside that window carries an empty-root
-        // manifest that no longer describes the tree. Testing presence here
-        // made the proposal advertise `verify-interrupted-precommit-init` and
-        // report itself ready, and the confirmation the operator was invited
-        // to give then refused mid-protocol with the unclassified redacted
-        // envelope — the one shape this whole recovery contract exists to
-        // prevent. Both sites now ask the same question through
-        // git_empty_identity_current() so they cannot drift apart again.
+        // The same exact-tree authority recovery demands before it may delete
+        // this root. A complete git_identity must still describe the populated
+        // root; an earlier git_empty_identity is sufficient only if the root
+        // still has that empty shape. A failed recursive cleanup can restore
+        // the original root inode after deleting one child, so the presence of
+        // a string-valued git_identity alone is not deletion authority. Both
+        // sites ask git_deletion_identity_current() to keep preflight and
+        // recovery symmetric.
         if (($owned['git_created'] ?? false) === true && $present($gitDir)
-            && !is_string($owned['git_identity'] ?? null)
-            && !self::git_empty_identity_current($repo, $owned)) {
+            && self::git_deletion_identity_current($repo, $owned) === null) {
             return 'the sealed attempt has incomplete Git metadata without a complete ownership manifest';
         }
         return null;
     }
 
     /**
-     * True when the sealed empty-root manifest still describes the reserved
-     * Git metadata root exactly — i.e. the attempt was interrupted after the
-     * root was reserved but before anything was written into it, which is the
-     * only unmanifested Git shape that carries complete deletion authority.
+     * Return the sealed Git root identity that still describes the current
+     * ordinary root exactly. A populated git-ready identity takes precedence;
+     * the earlier empty-root identity also authorizes deletion if a failed
+     * cleanup has returned the root to that exact original shape.
      *
      * @param array<string,mixed> $owned
      */
-    private static function git_empty_identity_current(string $repo, array $owned): bool {
-        $identity = $owned['git_empty_identity'] ?? null;
-        if (!is_string($identity)) {
-            return false;
+    private static function git_deletion_identity_current(string $repo, array $owned): ?string {
+        $gitDir = rtrim($repo, '/') . '/.git';
+        if (is_link($gitDir) || !is_dir($gitDir)) {
+            return null;
         }
-        return hash_equals(
-            $identity,
-            self::directory_identity(rtrim($repo, '/') . '/.git', 'Git metadata root')
-        );
+        try {
+            $actual = self::directory_identity($gitDir, 'Git metadata root');
+        } catch (\Throwable $failure) {
+            return null;
+        }
+        foreach (['git_identity', 'git_empty_identity'] as $key) {
+            $identity = $owned[$key] ?? null;
+            if (is_string($identity) && hash_equals($identity, $actual)) {
+                return $identity;
+            }
+        }
+        return null;
     }
 
     /** @param array<string,mixed> $attempt @return array{previous:?string,published:string} */
@@ -1205,17 +1205,11 @@ final class Init {
         if (($owned['git_created'] ?? false) === true) {
             $gitDir = rtrim($repo, '/') . '/.git';
             if (is_dir($gitDir) || is_link($gitDir)) {
-                $gitIdentity = $owned['git_identity'] ?? null;
+                $gitIdentity = self::git_deletion_identity_current($repo, $owned);
                 if (!is_string($gitIdentity)) {
-                    // The same predicate the proposal refuses on (DUO-3421),
-                    // so a confirmation is never invited for a root this
-                    // branch would then refuse to delete.
-                    if (!self::git_empty_identity_current($repo, $owned)) {
-                        throw new \RuntimeException(
-                            'duo: interrupted init retained incomplete Git metadata without a complete ownership manifest; manual recovery is required'
-                        );
-                    }
-                    $gitIdentity = (string) $owned['git_empty_identity'];
+                    throw new \RuntimeException(
+                        'duo: interrupted init retained incomplete Git metadata without a complete ownership manifest; manual recovery is required'
+                    );
                 }
                 self::remove_owned_tree($gitDir, $gitIdentity, 'Git metadata root');
             }

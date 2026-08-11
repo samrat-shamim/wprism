@@ -857,17 +857,13 @@ require_once __DIR__ . '/../../agent/src/AdapterSources.php';
 require_once __DIR__ . '/../../agent/src/Init.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 
-// DUO-3421: the proposal-time manual-recovery gate and the recovery-time
-// deletion authority must answer the SAME question about an unmanifested Git
-// root. They did not: the gate tested only that `git_empty_identity` was
-// PRESENT, while the compensation path additionally requires it to still
-// describe the root. initialize_git() runs between the `git-reserved` journal
-// that records that key and the `git-ready` journal that records
-// `git_identity`, so an attempt interrupted inside that window was proposed as
-// a ready, confirmable `verify-interrupted-precommit-init` plan whose
-// confirmation then refused mid-protocol with the unclassified envelope.
-// Exercised against the real private predicate with real directory identities,
-// offline: no docker, no WordPress.
+// The proposal-time manual-recovery gate and the recovery-time deletion
+// authority must answer the SAME question about a Git root. A populated
+// git-ready identity is deletion authority only while it still describes the
+// complete current tree: strict cleanup can restore the root after deleting a
+// child, which leaves a partial canonical tree behind. Exercised against the
+// real private predicate with real directory identities, offline: no docker,
+// no WordPress.
 // The predicate resolves the fixed capture-record slots through Publish.
 require_once __DIR__ . '/../../agent/src/Publish.php';
 $recoveryReason = (new ReflectionClass(\Duo\Init::class))
@@ -954,26 +950,31 @@ check(
     ) === $incompleteGitReason,
     'a Git root written into after its empty-root manifest was sealed is non-confirmable — presence is not deletion authority'
 );
+$gitReadyConfig = $gitFixtureRepo . '/.git/config';
+file_put_contents($gitReadyConfig, "[core]\nrepositoryformatversion = 0\n");
+$gitReadyIdentity = (string) $directoryIdentity->invoke(
+    null,
+    $gitFixtureRepo . '/.git',
+    'Git metadata root'
+);
+$gitReadyAttempt = $gitAttempt([
+    'git_empty_identity' => $emptyRootIdentity,
+    'git_identity' => $gitReadyIdentity,
+]);
 check(
-    $recoveryReason->invoke(
-        null,
-        $gitFixtureRepo,
-        $gitAttempt([
-            'git_empty_identity' => $emptyRootIdentity,
-            'git_identity' => (string) $directoryIdentity->invoke(
-                null,
-                $gitFixtureRepo . '/.git',
-                'Git metadata root'
-            ),
-        ])
-    ) === null,
+    $recoveryReason->invoke(null, $gitFixtureRepo, $gitReadyAttempt) === null,
     'a completed git-ready manifest remains automatically recoverable'
+);
+unlink($gitReadyConfig);
+check(
+    $recoveryReason->invoke(null, $gitFixtureRepo, $gitReadyAttempt) === $incompleteGitReason,
+    'a partially deleted Git root restored to its canonical path is non-confirmable before recovery mutates it'
 );
 $initAuthoritySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Init.php');
 check(
-    substr_count($initAuthoritySource, 'self::git_empty_identity_current($repo, $owned)') === 2
-        && str_contains($initAuthoritySource, 'private static function git_empty_identity_current('),
-    'the proposal gate and the compensation authority resolve the empty-root manifest through one shared predicate'
+    substr_count($initAuthoritySource, 'self::git_deletion_identity_current($repo, $owned)') === 2
+        && str_contains($initAuthoritySource, 'private static function git_deletion_identity_current('),
+    'the proposal gate and recovery resolve full and empty Git manifests through one shared exact-tree predicate'
 );
 
 // DUO-3427: the same asymmetry family, one authority over. Every ownership
