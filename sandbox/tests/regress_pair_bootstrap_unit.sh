@@ -10,6 +10,15 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-bootstrap.XXXXXX")"
+# DUO-3438: resolve to the physical path once, up front, the same way
+# DUO-3420's repo_host_one() resolves its own bind-mount source
+# (`cd "$(dirname "$root")" && pwd -P`). macOS's $TMPDIR sits under
+# /var/folders, and /var -> /private/var is an OS-provided symlink (the same
+# class DUO-3432 hit for /tmp); every path this suite builds from $TMP must
+# already be canonical so a later `pwd -P` inside pair.sh is a no-op against
+# it, not a silent second resolution the fixed-string assertions below never
+# anticipated. A no-op on Linux, where no such alias exists.
+TMP="$(cd "$TMP" && pwd -P)"
 trap 'rm -rf "$TMP"' EXIT
 ORIGINAL_PATH="$PATH"
 # DUO-3396: pair.sh's budget refusal now consults the host certification
