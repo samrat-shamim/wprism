@@ -174,6 +174,41 @@ $check(
 );
 $check($getVerifierProp('scopedSession') === $sessionSentinel, 'scopedSession must pass through by identity, unchanged');
 
+// ---- 6. DUO-3440: Apply.php must self-require ConvergenceVerifier.php, the
+// same way it already self-requires ApplyPlanner.php/PlanExplanation.php/
+// PlanCategorySummary.php/PlanView.php -- every sibling collaborator
+// extracted FROM Apply FOR Apply. This suite's own top-of-file requires
+// (line 22, above) load ConvergenceVerifier.php before Apply.php, so every
+// check above would keep passing even if Apply.php's own require were
+// missing -- that masking is exactly how this gap first shipped undetected.
+// Proving it needs a genuinely separate process: PHP class loading is
+// process-global, so nothing in THIS process can "unrequire"
+// ConvergenceVerifier.php once loaded above.
+$applyPhpAbsolutePath = realpath(__DIR__ . '/../../agent/src/Apply.php');
+$isolatedProbe = tempnam(sys_get_temp_dir(), 'duo-convergence-verifier-isolation-');
+file_put_contents($isolatedProbe, '<?php'
+    . "\nrequire " . var_export($applyPhpAbsolutePath, true) . ';'
+    . <<<'PHP'
+
+$rm = new ReflectionMethod(\Duo\Apply::class, 'verification_hash');
+$rm->setAccessible(true);
+$apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
+echo $rm->invoke($apply, ['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
+PHP);
+$isolatedOutput = [];
+$isolatedExit = null;
+exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($isolatedProbe) . ' 2>&1', $isolatedOutput, $isolatedExit);
+unlink($isolatedProbe);
+$isolatedOutput = implode("\n", $isolatedOutput);
+$check(
+    $isolatedExit === 0 && str_contains($isolatedOutput, 'duo-3440-isolation-probe'),
+    'Apply.php must carry its OWN collaborator requires when required standalone: a fresh process '
+        . 'requiring only agent/src/Apply.php (not the full agent/duo.php bootstrap) must reach a '
+        . 'ConvergenceVerifier-touching method without a "Class ...ConvergenceVerifier not found" '
+        . 'fatal (exit=' . var_export($isolatedExit, true)
+        . ($isolatedExit === 0 ? '' : "; output: $isolatedOutput") . ')'
+);
+
 if ($failures) {
     fwrite(STDERR, "FAIL\n - " . implode("\n - ", $failures) . "\n");
     exit(1);
