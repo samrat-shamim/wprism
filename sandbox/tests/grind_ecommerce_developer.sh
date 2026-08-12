@@ -3450,6 +3450,13 @@ ROLLBACK_MAINTENANCE_HELD=1
 if ! "${PAIR_COMPOSE[@]}" stop wp2 >/dev/null; then
   fail 'could not stop target web service before v1 checkpoint import'
 fi
+# Apache's graceful stop can leave an in-flight PHP request alive until the
+# container timeout. A request that already loaded the staged v2 plugin can
+# still finish its migration after the graceful stop returns, so close the
+# disposable worker with an idempotent hard fence before restoring the v1 DB.
+if ! "${PAIR_COMPOSE[@]}" kill -s SIGKILL wp2 >/dev/null; then
+  fail 'could not hard-stop target web service before v1 checkpoint import'
+fi
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
 prepare_v1_checkpoint_target
 mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"
