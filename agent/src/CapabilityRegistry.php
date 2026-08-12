@@ -875,15 +875,28 @@ final class CapabilityRegistry {
         }
         // evidence.json lives at <repo>/manifests/capabilities/evidence.json.
         $root = dirname(dirname(dirname($evidenceFile)));
+        $fullSource = is_file($root . '/Makefile') && !is_link($root . '/Makefile');
+        if ($fullSource) {
+            $boundInputs = ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']);
+            $artifacts = self::scopedArtifacts($root, $manifest);
+        } else {
+            // The deployed extension carries agent/ and manifests/, but not
+            // host-only Makefile, CLI, or conformance-harness inputs. The
+            // importer validates that full closure before publishing this
+            // current record; runtime still rechecks every installed member.
+            ScopedCertificationBundle::assertRuntimeInputsCurrent($root, $record['closure']['inputs']);
+            $boundInputs = $record['closure']['inputs'];
+            $artifacts = $record['artifacts'];
+        }
         ScopedCertificationBundle::assertCurrent(
             $record,
             $name,
             self::adapter_digest($manifest, $disposition, $root . '/manifests'),
             $platform,
-            ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']),
+            $boundInputs,
             $disposition['evidence']['tests'] ?? [],
             $disposition ?? [],
-            self::scopedArtifacts($root, $manifest)
+            $artifacts
         );
     }
 

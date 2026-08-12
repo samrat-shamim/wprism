@@ -165,6 +165,40 @@ final class ScopedCertificationBundle {
         return $out;
     }
 
+    /**
+     * Recheck the closed subset of an imported certificate that a deployed
+     * Duo installation actually ships. Full-source certification also binds
+     * harness, CLI, and Makefile inputs; those are verified by the host-side
+     * importer and deliberately are not present in a runtime installation.
+     *
+     * This is not a relaxed closure check: every agent and manifest byte named
+     * by the sealed record must be present and exact, and a record with no
+     * target-installed inputs is refused. Callers retain the original full
+     * closure when subsequently checking its digest.
+     *
+     * @param list<array{path:string,sha256:string,size:int}> $recorded
+     */
+    public static function assertRuntimeInputsCurrent(string $root, array $recorded): void {
+        $inputs = self::normalizeInputs($recorded, 'scoped certification closure');
+        $checked = 0;
+        foreach ($inputs as $input) {
+            if (!str_starts_with($input['path'], 'agent/')
+                && !str_starts_with($input['path'], 'manifests/')) {
+                continue;
+            }
+            $actual = self::fileAsset($root, $input['path']);
+            if (Canon::encode($actual) !== Canon::encode($input)) {
+                throw new \RuntimeException(
+                    "duo: scoped certification runtime input is not current: {$input['path']}"
+                );
+            }
+            $checked++;
+        }
+        if ($checked === 0) {
+            throw new \RuntimeException('duo: scoped certification closure has no target-installed inputs');
+        }
+    }
+
     public static function digest(array $bundle): string {
         $unsigned = $bundle;
         unset($unsigned['bundle_digest']);
