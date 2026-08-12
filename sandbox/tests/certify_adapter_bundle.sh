@@ -66,6 +66,12 @@ DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA" \
   bash conformance/run.sh "$MANIFEST" >"$CONFORMANCE_LOG" 2>&1
 CONFORMANCE_RC=$?
 set -e
+# Docker Compose progress output commonly has a trailing space.  Evidence logs
+# are source-controlled artifacts, so normalize that presentation-only byte
+# before it is content-addressed; command status and substantive output remain
+# unchanged.
+sed -i.bak -E 's/[[:space:]]+$//' "$CONFORMANCE_LOG"
+rm -f -- "$CONFORMANCE_LOG.bak"
 tail -40 "$CONFORMANCE_LOG"
 bash bin/pair.sh destroy "$PAIR"
 [ "$CONFORMANCE_RC" -eq 0 ] \
@@ -90,6 +96,8 @@ DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA" \
   bash tests/certify_version_matrix.sh >"$MATRIX_LOG" 2>&1
 MATRIX_RC=$?
 set -e
+sed -i.bak -E 's/[[:space:]]+$//' "$MATRIX_LOG"
+rm -f -- "$MATRIX_LOG.bak"
 tail -40 "$MATRIX_LOG"
 bash bin/pair.sh destroy "$PAIR"
 MATRIX_REASON=passed
