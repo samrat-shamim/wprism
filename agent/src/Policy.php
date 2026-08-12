@@ -41,6 +41,9 @@ require_once __DIR__ . '/OptionReferenceGrammar.php';
 // DUO-3348 slice 12: the closed post-type body/phase declaration grammar,
 // required here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/PostTypeGrammar.php';
+// DUO-3348 slice 13: the pure option-namespace/authored-meta discovery
+// grammar, required here for the same "loads alone" reason as its neighbors.
+require_once __DIR__ . '/DiscoveryGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -269,7 +272,7 @@ self::validate_post_type_children($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
-            self::validate_discovery_contract($manifest);
+            DiscoveryGrammar::validate_discovery_contract($manifest);
             self::validate_reference_shapes($manifest, "manifest '$name'");
             $p->manifests[] = $manifest;
         }
@@ -405,7 +408,7 @@ self::validate_post_type_children($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
-            self::validate_discovery_contract($manifest);
+            DiscoveryGrammar::validate_discovery_contract($manifest);
             self::validate_reference_shapes($manifest, "frozen manifest '$name'");
             $p->manifests[] = $manifest;
         }
@@ -3201,57 +3204,6 @@ self::validate_post_type_children($manifest);
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);
-    }
-
-    /** Validate the journal-independent discovery vocabulary at load time. */
-    private static function validate_discovery_contract(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        $namespaces = $manifest['option_namespaces'] ?? [];
-        if (!is_array($namespaces)) {
-            throw new \RuntimeException("duo: manifest '$name' option_namespaces must be an array");
-        }
-        foreach ($namespaces as $i => $decl) {
-            $match = is_array($decl) ? ($decl['match'] ?? null) : null;
-            if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' option_namespaces[$i].match must be a non-empty valid regex"
-                );
-            }
-        }
-
-        foreach ($manifest['tables'] ?? [] as $table => $decl) {
-            if (($decl['class'] ?? '') !== 'authored_snapshot_meta' || !isset($decl['keyspace'])) {
-                continue;
-            }
-            $keyspace = $decl['keyspace'];
-            $range = is_array($keyspace) ? ($keyspace['version_range'] ?? null) : null;
-            self::assert_min_max_range(
-                is_array($range) ? $range : [],
-                "manifest '$name' table '$table' keyspace version_range"
-            );
-            $keys = $keyspace['keys'] ?? [];
-            $patterns = $keyspace['patterns'] ?? [];
-            if (!is_array($keys) || !is_array($patterns)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' table '$table' keyspace keys/patterns must be arrays"
-                );
-            }
-            foreach ($keys as $key) {
-                if (!is_string($key) || $key === '') {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' table '$table' keyspace.keys must contain non-empty strings"
-                    );
-                }
-            }
-            foreach ($patterns as $i => $pattern) {
-                $match = is_array($pattern) ? ($pattern['match'] ?? null) : null;
-                if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' table '$table' keyspace.patterns[$i].match must be a valid regex"
-                    );
-                }
-            }
-        }
     }
 
     /**
