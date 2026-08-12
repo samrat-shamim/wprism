@@ -67,6 +67,15 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 warn() { printf '\033[1;33m%s\033[0m\n' "$*" >&2; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
+# Identity is separate from lifecycle: every subcommand needs the same
+# namespace and canonical-checkout rules, while only a few mutate a pair.
+# Keep the historical facade names below so callers and diagnostics remain
+# byte-compatible as the implementation gains shared users.
+[ -r "lib/pair_identity.sh" ] \
+  || fail "pair identity library is missing: lib/pair_identity.sh (the launcher cannot safely resolve a pair name or canonical checkout)"
+# shellcheck source=../lib/pair_identity.sh
+source "lib/pair_identity.sh"
+
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/manifests sources must always live, regardless of
@@ -90,10 +99,7 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 # "duo-wp-main" in another -- a hardcoded name would only ever match one
 # of them, exactly the fragility this function exists to avoid).
 canonical_root() {
-  local common_dir
-  common_dir=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) \
-    || return 1
-  dirname "$common_dir"
+  pair_identity_canonical_root
 }
 
 # DUO-3277: `start` (unlike `up`) never touches container config -- compose
@@ -357,19 +363,7 @@ PAIR_BUDGET_LOCK_HELPER_DIR=""
 PAIR_BUDGET_LIVE_PAIRS=""
 
 validate_name() { # validate_name <name>
-  # Used bare both as a MySQL identifier fragment (wp_<name>1/2) and as a
-  # docker compose project suffix (duo-<name>) — lowercase letters/digits
-  # only, starting with a letter, keeps it unambiguously safe in both
-  # without needing identifier-quoting gymnastics anywhere in this script.
-  [[ "$1" =~ ^[a-z][a-z0-9]*$ ]] \
-    || fail "pair name '$1' invalid — lowercase letters/digits only, starting with a letter"
-  # Reserved: "db" is duo-db, this file's own shared-MariaDB project — `pair.sh
-  # destroy db` would otherwise `down -v` the server every other pair depends
-  # on. "sandbox" is duo-sandbox, the legacy mega-compose's project — same
-  # risk, against a file this tool must never touch. Neither is a real pair.
-  case "$1" in
-    db|sandbox) fail "pair name '$1' is reserved (duo-$1 is already a different project — see pair.sh's validate_name)" ;;
-  esac
+  pair_identity_validate_name "$1"
 }
 
 # --- shared db: bring-up, readiness, admin SQL ------------------------------

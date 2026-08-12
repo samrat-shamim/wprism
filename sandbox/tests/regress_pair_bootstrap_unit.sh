@@ -402,6 +402,13 @@ abort_lock_cancellation_case() {
   fail "$message"
 }
 
+copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
+  local bin_dir="$1"
+  mkdir -p "$bin_dir/../lib"
+  cp "$ROOT/sandbox/bin/pair.sh" "$bin_dir/pair.sh"
+  cp "$ROOT/sandbox/lib/pair_identity.sh" "$bin_dir/../lib/pair_identity.sh"
+}
+
 run_case() {
   local label="$1" pair="$2" codebind="$3" git_mode="${4:-canonical}"
   local artifacts="${5:-0}" wordpress_offline="${6:-0}"
@@ -410,7 +417,7 @@ run_case() {
   local up_args=(up "$pair" 9911 9912 --headless)
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
   canonical_root="$case_root/canonical"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
   cp "$ROOT/sandbox/conformance/artifacts.lock.json" "$case_root/sandbox/conformance/artifacts.lock.json"
   if [ -n "${DUO_PAIR_TEST_LOCK_OVERRIDE:-}" ]; then
@@ -543,7 +550,7 @@ run_invalid_artifact_lock_preflight_case() {
   local log="$case_root/docker.log" output="$case_root/output.log"
   local canonical_root="$case_root/canonical"
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
   jq '.plugins.woocommerce["11.0.0"].role = "unknown-role"' \
     "$ROOT/sandbox/conformance/artifacts.lock.json" \
@@ -580,7 +587,7 @@ run_invalid_bootstrap_theme_preflight_case() {
     output="$case_root/output.log"
     canonical_root="$case_root/canonical"
     mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/conformance" "$fake_bin"
-    cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+    copy_pair_launcher "$case_root/sandbox/bin"
     cp "$ROOT/sandbox/bin/fetch-artifact.sh" "$case_root/sandbox/bin/fetch-artifact.sh"
     case "$variant" in
       missing)
@@ -626,7 +633,7 @@ run_python_lock_fallback_case() {
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" \
     canonical_root="$TMP/$label/canonical" utility
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -657,7 +664,7 @@ run_non_git_failure_case() {
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -687,7 +694,7 @@ run_budget_refusal_case() {
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" \
@@ -729,7 +736,7 @@ run_budget_formula_pin_case() { # <label> <cpu> <mem_bytes> <live_count> <expect
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log" live_json i
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -763,7 +770,7 @@ run_start_budget_refusal_case() {
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -799,7 +806,7 @@ run_start_safe_case() {
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" \
     live_file="$TMP/$label/live.json"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -828,7 +835,7 @@ run_start_budget_override_case() {
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" \
     live_file="$TMP/$label/live.json"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -854,7 +861,7 @@ run_live_reconverge_case() {
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -881,7 +888,7 @@ run_budget_query_failure_case() {
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -914,7 +921,7 @@ run_live_query_failure_case() {
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   export DUO_PAIR_TEST_LOG="$log" DUO_PAIR_TEST_LIVE_PAIRS='[]' \
@@ -948,7 +955,7 @@ run_concurrent_budget_race_case() {
     live_file="$TMP/$label/live.json" output1="$TMP/$label/one.log" \
     output2="$TMP/$label/two.log" p1 p2 first_ready=0 i status1 status2
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$gate"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -1010,7 +1017,7 @@ run_python_lock_concurrent_case() {
     live_file="$TMP/$label/live.json" output1="$TMP/$label/one.log" \
     output2="$TMP/$label/two.log" p1 p2 first_ready=0 i status1 status2
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$gate"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -1068,7 +1075,7 @@ run_python_lock_sigkill_case() {
     output="$TMP/$label/output.log" canonical_root="$TMP/$label/canonical" \
     pid residue i first_ready=0
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$gate"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -1117,7 +1124,7 @@ run_flock_lock_sigkill_case() {
     canonical_root="$TMP/$label/canonical" lock_path \
     holder=flockholder holder_pid contender_pid first_ready=0 helper_count=1 i status2=0
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$gate"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -1191,7 +1198,7 @@ run_pair_lock_cancellation_case() {
     first_pid contender_pid first_ready=0 i status1=0 status2=0 \
     helper_count ls_held ls_before ls_after waiter path_value
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$gate"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
   write_fake_git "$fake_bin"
@@ -1304,7 +1311,7 @@ run_reset_codebind_refusal_case() {
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log" root nested mount_line inode_before inode_after
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   root="$case_root/sandbox/siterepo/${pair}1"
   nested="$root/code/wp-content/plugins/demo-plugin"
@@ -1345,7 +1352,7 @@ run_reset_container_query_failure_case() {
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" \
     root="$TMP/$label/sandbox/siterepo/${pair}1" expected
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$root"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   printf 'must survive failed reset preflight\n' > "$root/marker.txt"
   write_fake_docker "$fake_bin"
@@ -1385,7 +1392,7 @@ run_reset_inode_preservation_case() {
     fake_bin="$TMP/$label/fake-bin" log="$TMP/$label/docker.log" \
     output="$TMP/$label/output.log" root root1_abs root2_abs inode_before inode_after
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   root="$case_root/sandbox/siterepo/${pair}1"
   mkdir -p "$root/code/wp-content/plugins/demo-plugin" "$case_root/sandbox/siterepo/${pair}2"
@@ -1423,7 +1430,7 @@ run_repo_host_scope_case() {
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root1 root2 root1_abs root2_abs inode_before inode_after
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   root1="$case_root/sandbox/siterepo/${pair}1"
   root2="$case_root/sandbox/siterepo/${pair}2"
@@ -1460,7 +1467,7 @@ run_repo_host_shape_refusal_case() {
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root peer outside
   mkdir -p "$case_root/sandbox/bin" "$fake_bin" "$case_root/outside"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   root="$case_root/sandbox/siterepo/${pair}1"
   peer="$case_root/sandbox/siterepo/${pair}2"
@@ -1499,7 +1506,7 @@ run_repo_host_refusal_case() {
   local case_root="$TMP/$label" fake_bin="$TMP/$label/fake-bin" \
     log="$TMP/$label/docker.log" output="$TMP/$label/output.log" root
   mkdir -p "$case_root/sandbox/bin" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   root="$case_root/sandbox/siterepo/${pair}1"
   mkdir -p "$root/state/nested" "$case_root/sandbox/siterepo/${pair}2"
@@ -1533,7 +1540,7 @@ run_repo_host_platform_ownership_proof_case() {
     log="${TMP}/${label}/docker.log" output="${TMP}/${label}/output.log" \
     chgrp_log marker normalized_marker replaced_root root peer root_abs peer_abs inode_before inode_after
   mkdir -p "${case_root}/sandbox/bin" "${fake_bin}"
-  cp "${ROOT}/sandbox/bin/pair.sh" "${case_root}/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "${case_root}/sandbox/bin/pair.sh"
   root="${case_root}/sandbox/siterepo/${pair}1"
   peer="${case_root}/sandbox/siterepo/${pair}2"
@@ -1705,7 +1712,7 @@ prepare_marker_case() { # prepare_marker_case <label>
   OUTPUT="$CASE_ROOT/output.log"
   THEME_STATE="$CASE_ROOT/theme-state"
   mkdir -p "$CASE_ROOT/sandbox/bin" "$FAKE_BIN"
-  cp "$ROOT/sandbox/bin/pair.sh" "$CASE_ROOT/sandbox/bin/pair.sh"
+  copy_pair_launcher "$CASE_ROOT/sandbox/bin"
   chmod +x "$CASE_ROOT/sandbox/bin/pair.sh"
   write_fake_docker "$FAKE_BIN"
   write_fake_git "$FAKE_BIN"
@@ -1922,7 +1929,8 @@ run_destroy_clears_marker_case() {
 }
 
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" \
+  "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
 grep -Fq 'GIT_CONFIG_KEY_0: safe.directory' "$ROOT/sandbox/pair.yml" \
   || fail "pair CLI services do not declare the exact Git trust key"
@@ -1946,7 +1954,7 @@ assert_before "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"
   || fail "pair handback retained a sibling capability probe"
 ! grep -Fq 'chgrp -R' "$ROOT/sandbox/bin/pair.sh" \
   || fail "pair handback widened exact-root group normalization recursively"
-pass "pair launcher and offline regression parse cleanly"
+pass "pair launcher, identity library, and offline regression parse cleanly"
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case default pairunit "" canonical

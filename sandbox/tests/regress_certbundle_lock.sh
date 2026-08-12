@@ -839,6 +839,9 @@ pass "every helper this suite started cleaned up its own control directory"
 # is ever started, and nothing outside this run's own $SCRATCH is touched.
 PAIR_SH="$(cd .. && pwd)/bin/pair.sh"
 [ -f "$PAIR_SH" ] || fail "cannot find the pair tool under test: $PAIR_SH"
+PAIR_IDENTITY_SH="$(dirname "$PAIR_SH")/../lib/pair_identity.sh"
+[ -f "$PAIR_IDENTITY_SH" ] \
+  || fail "cannot find the pair-identity library required by the pair tool: $PAIR_IDENTITY_SH"
 # Empty on a host with no util-linux flock(1) (an ordinary macOS/BSD box):
 # the probe cases that need a REAL flock to shim say so and skip.
 REAL_FLOCK="$(command -v flock 2>/dev/null || true)"
@@ -926,8 +929,9 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
   local root="$SCRATCH/pair.$label" path_value
   PAIR_UP_STATUS=0
   PAIR_UP_SKIPPED=
-  mkdir -p "$root/sandbox/bin" "$root/bin"
+  mkdir -p "$root/sandbox/bin" "$root/sandbox/lib" "$root/bin"
   cp "$PAIR_SH" "$root/sandbox/bin/pair.sh"
+  cp "$PAIR_IDENTITY_SH" "$root/sandbox/lib/pair_identity.sh"
   chmod +x "$root/sandbox/bin/pair.sh"
   write_pair_fakes "$root/bin"
   path_value="$root/bin:$PATH"

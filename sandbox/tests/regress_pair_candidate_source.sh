@@ -82,6 +82,13 @@ assert_before() {
   [ "$first_line" -lt "$second_line" ] || fail "expected '$first' before '$second'"
 }
 
+copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
+  local bin_dir="$1"
+  mkdir -p "$bin_dir/../lib"
+  cp "$ROOT/sandbox/bin/pair.sh" "$bin_dir/pair.sh"
+  cp "$ROOT/sandbox/lib/pair_identity.sh" "$bin_dir/../lib/pair_identity.sh"
+}
+
 # Every mutation pair.sh can perform before it reaches a container, expressed
 # as evidence in the fake Docker log or on disk. A refusal case asserts ALL of
 # them, which is what "refuses before pair mutation" has to mean concretely.
@@ -204,7 +211,7 @@ build_fixture() { # build_fixture <label>
   mkdir -p "$CANONICAL/sandbox/bin" "$CANONICAL/agent" "$CANONICAL/manifests" "$FAKE_BIN"
   write_fake_docker "$FAKE_BIN"
 
-  cp "$ROOT/sandbox/bin/pair.sh" "$CANONICAL/sandbox/bin/pair.sh"
+  copy_pair_launcher "$CANONICAL/sandbox/bin"
   chmod +x "$CANONICAL/sandbox/bin/pair.sh"
   printf 'canonical (stale) agent bytes\n' > "$CANONICAL/agent/duo.php"
   printf '{"canonical":true}\n' > "$CANONICAL/manifests/demo.json"
@@ -519,7 +526,7 @@ run_non_git_copy_case() {
   local log="$TMP/$label/docker.log" output="$TMP/$label/output.log"
   mkdir -p "$case_root/sandbox/bin" "$case_root/sandbox/siterepo/${pair}1" \
            "$case_root/sandbox/siterepo/${pair}2" "$fake_bin"
-  cp "$ROOT/sandbox/bin/pair.sh" "$case_root/sandbox/bin/pair.sh"
+  copy_pair_launcher "$case_root/sandbox/bin"
   chmod +x "$case_root/sandbox/bin/pair.sh"
   write_fake_docker "$fake_bin"
 
@@ -611,10 +618,20 @@ run_conformance_passthrough_case() {
 }
 
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/conformance/run.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/conformance/run.sh" \
   "$ROOT/sandbox/tests/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
-pass "pair launcher, conformance runner, and this regression parse cleanly"
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \
+  'pair launcher no longer loads its pair-identity library'
+assert_file_contains "$ROOT/sandbox/lib/pair_identity.sh" 'pair_identity_canonical_root()' \
+  'pair-identity library no longer owns canonical checkout resolution'
+assert_file_contains "$ROOT/sandbox/lib/pair_identity.sh" 'pair_identity_validate_name()' \
+  'pair-identity library no longer owns safe pair namespace validation'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" '  pair_identity_canonical_root' \
+  'canonical_root compatibility facade no longer delegates to pair identity'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" '  pair_identity_validate_name "$1"' \
+  'validate_name compatibility facade no longer delegates to pair identity'
+pass "pair launcher, identity library, conformance runner, and this regression parse cleanly"
 
 say "unset gate: stale canonical source is mounted and printed (prior behavior)"
 run_unset_gate_documents_stale_source_case
