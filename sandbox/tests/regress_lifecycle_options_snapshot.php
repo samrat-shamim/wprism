@@ -464,7 +464,14 @@ $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize([
 $wpdb->writes = [];
 $assignLocations->invoke($apply, 42, []);
 $deleteLocationWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
-$applySourceForMenuDelete = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+// DUO-3347 slice 12 moved delete_entity() itself off Apply onto
+// DeleteExecutor, which calls assign_locations() on its own
+// constructor-injected MenuMaterializer directly rather than through
+// Apply's facade (the same "calling back through Apply would be circular"
+// reasoning every sibling extraction in this series applies) -- so the
+// exact call-site text this sanity check looks for now lives in
+// DeleteExecutor.php, not Apply.php.
+$deleteExecutorSourceForMenuDelete = file_get_contents(__DIR__ . '/../../agent/src/DeleteExecutor.php');
 $check(
     is_array($deleteLocationWrite)
         && PlainData::decode(
@@ -474,8 +481,8 @@ $check(
             'nav_menu_locations' => ['footer' => 7],
             'unmanaged' => 'keep',
         ]
-        && is_string($applySourceForMenuDelete)
-        && str_contains($applySourceForMenuDelete, '$this->assign_locations($termId, []);'),
+        && is_string($deleteExecutorSourceForMenuDelete)
+        && str_contains($deleteExecutorSourceForMenuDelete, '$this->menuMaterializer->assign_locations($termId, []);'),
     'menu deletion removes only the selected term locations and preserves other menu assignments'
 );
 

@@ -429,6 +429,7 @@ $knownGapsByFile = [
     'ConvergenceVerifier' => ['Capture', 'CompiledRepository', 'LedgerScopedApplySessionStorage', 'Policy', 'ScopedApply', 'ScopedApplySession'],
     'Coverage' => ['Policy'],
     'Db' => ['TransientDbException'],
+    'DeleteExecutor' => ['Db', 'Ledger'],
     'Deletion' => ['Canon', 'CompiledRepository', 'Policy', 'SidebarState', 'Snapshot'],
     'Deploy' => ['Canary', 'Canon', 'Capture', 'Code', 'CompiledRepository', 'Ledger', 'OptionState', 'Policy', 'PromotionLock', 'RepositoryCompiler'],
     'Identity' => ['Canon', 'SidebarState', 'Uuid'],

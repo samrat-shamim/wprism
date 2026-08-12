@@ -78,23 +78,28 @@ $check(
     'reconcile_relationships() keeps its four original parameters and gains the new explicit "taxesForPostType" one'
 );
 
-// === Prove the extraction itself. delete_post_relationships()/
-// delete_term_relationships() are still called from Apply's own
-// delete_entity() (part of the still-unextracted DeleteGuardEvaluator/
-// DeleteExecutor seam), so both stay thin facades. reconcile_relationships()
-// lost its only caller when DUO-3347 slice 11 moved finalize_post() itself
-// to PostMaterializer -- the new PostMaterializer::finalize_post() calls
+// === Prove the extraction itself. reconcile_relationships() lost its only
+// caller when DUO-3347 slice 11 moved finalize_post() itself to
+// PostMaterializer -- the new PostMaterializer::finalize_post() calls
 // RelationshipMaterializer::reconcile_relationships() directly (calling
 // back through Apply's own facade would be circular), so Apply's
-// reconcile_relationships() facade is now genuinely dead code and was
+// reconcile_relationships() facade became genuinely dead code and was
 // removed entirely rather than kept, the same "no other caller, no facade
 // needed" treatment TermMaterializer's encode_description()/
 // reconcile_term_relationships() already established (slice 6).
+// delete_post_relationships()/delete_term_relationships() outlived that
+// slice as thin Apply facades because delete_entity() -- their one
+// remaining caller -- was still on Apply itself. DUO-3347 slice 12 moved
+// delete_entity() to DeleteExecutor, which calls RelationshipMaterializer
+// directly the same way PostMaterializer does; grepping repo-wide
+// (including reflection-based callers, not just bare method-name mentions)
+// found no other caller of either, so both facades were removed entirely
+// too -- the identical treatment, one slice later.
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
 $check(
-    str_contains($applySource, '$this->relationship_materializer()->delete_post_relationships($id, $postType);')
-        && str_contains($applySource, '$this->relationship_materializer()->delete_term_relationships($termId);'),
-    'Apply\'s two delete-side relationship methods are still thin facades delegating to RelationshipMaterializer'
+    !str_contains($applySource, 'private function delete_post_relationships(')
+        && !str_contains($applySource, 'private function delete_term_relationships('),
+    'Apply.php no longer defines delete_post_relationships()/delete_term_relationships() at all (moved to DeleteExecutor\'s own call site, no facade needed -- neither had another caller)'
 );
 $check(
     !str_contains($applySource, 'private function reconcile_relationships('),

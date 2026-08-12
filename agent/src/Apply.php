@@ -15,6 +15,7 @@ require_once __DIR__ . '/OptionsMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/PostMaterializer.php';
+require_once __DIR__ . '/DeleteExecutor.php';
 require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -40,6 +41,7 @@ final class Apply {
     private ?RelationshipMaterializer $relationshipMaterializer = null;
     private ?AttachmentMaterializer $attachmentMaterializer = null;
     private ?PostMaterializer $postMaterializer = null;
+    private ?DeleteExecutor $deleteExecutor = null;
     private CompiledRepository $compiled;
     private string $repo;
     /** @var string[] */
@@ -143,6 +145,14 @@ final class Apply {
             $this->field_materializer(),
             $this->relationship_materializer(),
             $this->attachment_materializer()
+        );
+    }
+
+    private function delete_executor(): DeleteExecutor {
+        return $this->deleteExecutor ??= new DeleteExecutor(
+            $this->policy,
+            $this->relationship_materializer(),
+            $this->menu_materializer()
         );
     }
 
@@ -4846,9 +4856,13 @@ final class Apply {
 
     /**
      * Thin compatibility facade over MenuMaterializer::assign_locations()
-     * (DUO-3347 slice 4) — kept so this method's existing internal call site
-     * (delete_entity(), unchanged) and the regress_lifecycle_options_snapshot.php
-     * Reflection-based test need no change.
+     * (DUO-3347 slice 4). DUO-3347 slice 12 moved delete_entity() itself off
+     * Apply, so this method's own last production call site is gone; it is
+     * kept solely because regress_lifecycle_options_snapshot.php invokes it
+     * via ReflectionMethod(Apply::class, 'assign_locations') for a genuine
+     * behavioral test of exact serialized-array merge/deletion semantics —
+     * a hidden reflection-based caller, not a bare method-name mention,
+     * caught by grepping for it before this slice's code was written.
      */
     private function assign_locations(int $menuTermId, array $locations): void {
         $this->menu_materializer()->assign_locations($menuTermId, $locations);
@@ -4915,171 +4929,31 @@ final class Apply {
         $this->field_materializer()->upsert_meta($table, $fkCol, $objectId, $key, $value, $context, $idCol);
     }
 
-    private function delete_entity(string $uuid, string $type): void {
-        global $wpdb;
-        if (isset($this->snapshotRowTables()[$type])) {
-            $idKind = (string) $this->snapshotRowTables()[$type]['id_kind'];
-            $localId = Ledger::id_for($uuid, $idKind);
-            if ($localId === null) {
-                throw new \RuntimeException("duo: cannot delete $type $uuid: target identity mapping is missing");
-            }
-            Snapshot::delete_row($this->policy, $uuid, $type);
-            Snapshot::assert_row_deleted($this->policy, $type, $localId);
-            $this->warnings[] = "deleted $type $uuid";
-            return;
-        }
-        if ($type === 'post') {
-            $id = Ledger::id_for($uuid, Ledger::KIND_POST);
-            if ($id === null) {
-                throw new \RuntimeException("duo: cannot delete post $uuid: target identity mapping is missing");
-            }
-            $postType = (string) $wpdb->get_var($wpdb->prepare(
-                "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d", $id
-            ));
-            $revisionIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
-                "SELECT ID FROM {$wpdb->posts} WHERE post_parent = %d AND post_type = 'revision' ORDER BY ID ASC",
-                $id
-            )) ?: []);
-            foreach ($revisionIds as $revisionId) {
-                Db::delete(
-                    $wpdb->postmeta,
-                    ['post_id' => $revisionId],
-                    null,
-                    'apply delete post revision meta'
-                );
-                Db::delete($wpdb->posts, ['ID' => $revisionId], null, 'apply delete post revision');
-                $this->assert_zero(
-                    "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
-                    [$revisionId],
-                    "post $uuid revision $revisionId"
-                );
-                $this->assert_zero(
-                    "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
-                    [$revisionId],
-                    "post $uuid revision $revisionId metadata"
-                );
-            }
-            $this->delete_post_relationships($id, $postType);
-            Db::delete($wpdb->postmeta, ['post_id' => $id], null, 'apply delete post meta');
-            Db::delete($wpdb->posts, ['ID' => $id], null, 'apply delete post');
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
-                [$id],
-                "post $uuid row"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
-                [$id],
-                "post $uuid metadata"
-            );
-            // DUO-3234: a deleted post can never usefully retry regeneration
-            // again — clear any outstanding marker so it doesn't linger
-            // forever for a uuid that no longer resolves to anything.
-            if ($this->scopeContract === null) {
-                Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
-            }
-        } elseif ($type === 'term' || $type === 'menu') {
-            $termId = Ledger::id_for($uuid, Ledger::KIND_TERM);
-            $tt = Ledger::id_for($uuid, Ledger::KIND_TT);
-            if ($termId === null || $tt === null) {
-                throw new \RuntimeException("duo: cannot delete $type $uuid: target term identity mapping is incomplete");
-            }
-            if ($type === 'menu') {
-                // Authored menu locations are part of this selected menu's
-                // owned state. Remove only slots whose current value is this
-                // exact term id before deleting it; assign_locations() keeps
-                // every other menu's location byte-for-byte. Derived
-                // locations remain wholly adapter-owned and are never
-                // rewritten by the generic engine.
-                if ($this->policy->menu_field_class('locations') !== 'derived') {
-                    $this->assign_locations($termId, []);
-                }
-                $itemIds = array_map('intval', $wpdb->get_col($wpdb->prepare(
-                    "SELECT p.ID FROM {$wpdb->posts} p
-                     JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
-                     WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'
-                     ORDER BY p.ID ASC",
-                    $tt
-                )) ?: []);
-                foreach ($itemIds as $itemId) {
-                    $itemUuid = Ledger::uuid_for($itemId, Ledger::KIND_POST);
-                    $this->delete_post_relationships($itemId, 'nav_menu_item');
-                    Db::delete($wpdb->postmeta, ['post_id' => $itemId], null, 'apply delete menu item meta');
-                    Db::delete($wpdb->posts, ['ID' => $itemId], null, 'apply delete menu item');
-                    if ($itemUuid !== null) {
-                        Ledger::forget($itemUuid);
-                    }
-                    $this->assert_zero(
-                        "SELECT COUNT(*) FROM {$wpdb->posts} WHERE ID = %d",
-                        [$itemId],
-                        "menu $uuid item $itemId"
-                    );
-                    $this->assert_zero(
-                        "SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE post_id = %d",
-                        [$itemId],
-                        "menu $uuid item $itemId metadata"
-                    );
-                }
-            }
-            // This term's OWN outbound relationships (term-object taxonomies
-            // where THIS term is object_id) go before target-side cleanup.
-            $this->delete_term_relationships($termId);
-            Db::delete(
-                $wpdb->term_relationships,
-                ['term_taxonomy_id' => $tt],
-                null,
-                'apply delete taxonomy relationships'
-            );
-            Db::delete($wpdb->term_taxonomy, ['term_taxonomy_id' => $tt], null, 'apply delete term taxonomy');
-            Db::delete($wpdb->termmeta, ['term_id' => $termId], null, 'apply delete term meta');
-            Db::delete($wpdb->terms, ['term_id' => $termId], null, 'apply delete term');
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->terms} WHERE term_id = %d",
-                [$termId],
-                "$type $uuid term row"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->term_taxonomy} WHERE term_taxonomy_id = %d",
-                [$tt],
-                "$type $uuid taxonomy row"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->termmeta} WHERE term_id = %d",
-                [$termId],
-                "$type $uuid metadata"
-            );
-            $this->assert_zero(
-                "SELECT COUNT(*) FROM {$wpdb->term_relationships} WHERE term_taxonomy_id = %d",
-                [$tt],
-                "$type $uuid inbound relationships"
-            );
-        } else {
-            throw new \RuntimeException("duo: cannot delete unsupported entity type '$type'");
-        }
-        $this->warnings[] = "deleted $type $uuid";
-    }
-
-    /** A post-delete assertion inside the active transaction. */
-    private function assert_zero(string $sql, array $args, string $label): void {
-        global $wpdb;
-        $count = (int) $wpdb->get_var($wpdb->prepare($sql, ...$args));
-        if ($count !== 0) {
-            throw new \RuntimeException("duo: deletion verification failed: $count $label row(s) remain");
-        }
-    }
-
     /**
-     * Thin compatibility facades over RelationshipMaterializer::
-     * delete_post_relationships()/delete_term_relationships() (DUO-3347
-     * slice 8) — kept so delete_entity()'s existing internal call sites
-     * (unchanged) need no edit while this decomposition proceeds.
+     * Thin compatibility facade over DeleteExecutor::delete_entity()
+     * (DUO-3347 slice 12) — kept so this method's existing internal call
+     * site (run()'s own delete loop, unchanged) needs no edit while this
+     * decomposition proceeds. $this->snapshotRowTables() and $this->warnings
+     * travel as explicit parameters (the latter by reference), matching
+     * every prior slice's established idiom for shared, memoized/mutable,
+     * per-call-computed state.
+     *
+     * The trailing REGEN_PENDING_PREFIX marker cleanup (DUO-3234) stays here
+     * rather than moving into DeleteExecutor: clearing a stale regen-pending
+     * marker for a uuid that no longer resolves to anything is
+     * reconciliation bookkeeping (this issue's own separately-named
+     * ReconciliationCoordinator territory, not yet extracted), not "execute
+     * this entity's row deletion" — a real conceptual boundary, not just a
+     * convenient place to stop. Running it after delete_executor()'s call
+     * returns only reorders it after the (unrelated) "deleted $type $uuid"
+     * warning append rather than before; the two never interact, so this is
+     * not an observable behavior change.
      */
-    private function delete_post_relationships(int $id, string $postType): void {
-        $this->relationship_materializer()->delete_post_relationships($id, $postType);
-    }
-
-    private function delete_term_relationships(int $termId): void {
-        $this->relationship_materializer()->delete_term_relationships($termId);
+    private function delete_entity(string $uuid, string $type): void {
+        $this->delete_executor()->delete_entity($uuid, $type, $this->snapshotRowTables(), $this->warnings);
+        if ($type === 'post' && $this->scopeContract === null) {
+            Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);
+        }
     }
 
     /**
