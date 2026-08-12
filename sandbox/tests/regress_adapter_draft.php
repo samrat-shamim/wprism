@@ -14,7 +14,7 @@
  * Covers the design's suite plan 1–8. The load-bearing one is #2 (INERTNESS): a
  * `_draft.proposals.tables[…]` referencing an UNDECLARED id_kind must still
  * `manifest-validate` `ok`, because the trigger keys are RENAMED so the blind
- * ref-kind walk (Policy::collect_ref_kind_claims) cannot collect it — and the same
+ * ref-kind walk (ReferenceKindGrammar::collect_ref_kind_claims) cannot collect it — and the same
  * fragment with ONE trigger key un-renamed must then FAIL with the closed-vocabulary
  * refusal, proving the rename is what makes the sidecar inert.
  *

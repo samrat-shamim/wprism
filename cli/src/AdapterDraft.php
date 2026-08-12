@@ -41,7 +41,7 @@ use Duo\Secrets;
  *      and their per-candidate `evidence`/`questions` nest under ONE neutral,
  *      non-reserved top-level key: `_draft`. (`_draft` is not on that reserved list.)
  *
- *   B. `Policy::validate_ref_kinds()` → `collect_ref_kind_claims()` blind-walks the
+ *   B. `ReferenceKindGrammar::validate_ref_kinds()` → `collect_ref_kind_claims()` blind-walks the
  *      WHOLE manifest, skipping only top-level `notes`/`actions`/`providers`/
  *      `lifecycle_effects`, and collects the literal keys `ref`/`refs`/`json_refs`/
  *      `key_refs` at ANY depth against the closed ref-kind vocabulary. `_draft` IS

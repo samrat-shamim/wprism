@@ -127,7 +127,7 @@ final class AdapterCatalog {
             ],
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
-                'check' => 'Policy::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
+                'check' => 'ReferenceKindGrammar::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 // Three states, not two: a run that WAS given --repo but whose
                 // source carries a refusal did not get to use it either, and
                 // saying otherwise would be the one claim on this list that is
