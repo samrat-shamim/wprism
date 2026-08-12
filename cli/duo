@@ -25,6 +25,7 @@ require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
+require __DIR__ . '/src/EnvironmentListCommand.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/RollbackAuthority.php';
 require __DIR__ . '/src/VerifiedRollbackProfile.php';
@@ -93,6 +94,7 @@ use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
 use Duo\Orchestrator\EnvironmentCommandOptions;
 use Duo\Orchestrator\DriverCapabilitiesCommand;
+use Duo\Orchestrator\EnvironmentListCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshFieldResolutionCancelled;
 use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
@@ -1199,21 +1201,7 @@ function cmd_rebase(EnvironmentDriver $t, array $extra): int {
 }
 
 function cmd_envs(?string $envsFileOverride): int {
-    $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
-    if (!$envs) {
-        fwrite(STDERR, "duo: no environments defined (looked for an 'envs' object in site.duo.json and .duo-envs.json)\n");
-        return 1;
-    }
-    $width = max(array_map('strlen', array_keys($envs)));
-    foreach ($envs as $name => $cfg) {
-        try {
-            $t = Transport::make($name, $cfg);
-            printf("%-{$width}s  %s\n", $name, $t->describe());
-        } catch (\Throwable $e) {
-            printf("%-{$width}s  ERROR: %s\n", $name, $e->getMessage());
-        }
-    }
-    return 0;
+    return EnvironmentListCommand::run($envsFileOverride, getcwd() ?: '.');
 }
 
 function cmd_doctor(EnvironmentDriver $t): int {
