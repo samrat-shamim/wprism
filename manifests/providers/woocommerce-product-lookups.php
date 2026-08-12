@@ -1461,10 +1461,10 @@ final class WoocommerceProductLookups {
      *      runs with a cleared cache, so WC_Data_Store_WP::update_lookup_table()
      *      always REPLACEs, and a readback taken only afterwards would be
      *      reading a row this verification had itself just written — passing
-     *      for a row the apply left divergent. That is reachable rather than
-     *      theoretical: sibling variations of a variable root reached through
-     *      the variation path are verified here but are not in the batch's own
-     *      refresh set above.
+     *      for a row the apply left divergent. The variation path now expands
+     *      the loaded variable root's finite child set before this verifier,
+     *      so sibling rows converge in the same pass; the before-read remains
+     *      required for every row already selected by the batch itself.
      *
      *   2. The derivation WooCommerce published is compared against what is
      *      actually stored after the refresh. update_lookup_table() does not
