@@ -1,0 +1,10 @@
+{
+  "status": "clean",
+  "manifest": "woocommerce",
+  "diffs": [
+    "woocommerce-in-range-recapture"
+  ],
+  "negative_controls": [
+    "woocommerce-10.9.4-refused"
+  ]
+}
