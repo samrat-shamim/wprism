@@ -8,6 +8,7 @@ require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/CanonicalSurfaces.php';
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
 require_once __DIR__ . '/PlanView.php';
