@@ -440,6 +440,7 @@ $knownGapsByFile = [
     'ManifestDispositions' => ['Canon'],
     'MenuMaterializer' => ['Db', 'Ledger', 'PlainData', 'Policy', 'Tokens'],
     'OptionState' => ['Canon'],
+    'OptionsMaterializer' => ['Db'],
     'Orphans' => ['Canary', 'DatabaseMutationException', 'Db', 'Ledger', 'Policy', 'Snapshot'],
     'Pending' => ['Capture', 'CommandRefusalException', 'Journal', 'Ledger', 'Policy', 'Secrets', 'Snapshot'],
     'PinResolver' => ['Policy', 'RepositoryCompiler'],

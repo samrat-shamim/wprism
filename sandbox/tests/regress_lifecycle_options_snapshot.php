@@ -426,8 +426,16 @@ $apply = $applyReflection->newInstanceWithoutConstructor();
 $applyConstructor->invoke($apply, '/unused', $policy(false), $compiled);
 $assignLocations = new ReflectionMethod(Apply::class, 'assign_locations');
 $assignLocations->setAccessible(true);
-$applyOptionSubKeys = new ReflectionMethod(Apply::class, 'apply_option_sub_keys');
+// DUO-3347 slice 7: apply_option_sub_keys() moved from Apply onto
+// OptionsMaterializer (Apply keeps only apply_options() as a facade). Fetched
+// via Apply's own options_materializer() factory rather than hand-built, so
+// this test's OptionsMaterializer is wired with the exact same Policy/Tokens/
+// ApplyFieldMaterializer instances the real facade would use.
+$applyOptionSubKeys = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'apply_option_sub_keys');
 $applyOptionSubKeys->setAccessible(true);
+$optionsMaterializerAccessor = new ReflectionMethod(Apply::class, 'options_materializer');
+$optionsMaterializerAccessor->setAccessible(true);
+$optionsMaterializer = $optionsMaterializerAccessor->invoke($apply);
 
 $wpdb->optionRows = [
     'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],
@@ -491,13 +499,14 @@ $wpdb->optionRows['owned_blob'] = [
     'option_value' => serialize(['owned' => 'old', 'runtime' => 'keep']),
     'autoload' => 'yes',
 ];
-$applyOptionSubKeys->invoke(
-    $apply,
+$subKeysWarnings = [];
+$applyOptionSubKeys->invokeArgs($optionsMaterializer, [
     'owned_blob',
     ['owned' => 'new'],
     ['owned' => ['class' => 'authored'], 'runtime' => ['class' => 'runtime']],
-    'yes'
-);
+    'yes',
+    &$subKeysWarnings,
+]);
 $subKeysWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
 $check(
     is_array($subKeysWrite)
@@ -523,13 +532,14 @@ ApplySerializedWakeupProbe::$woke = false;
 ApplySerializedWakeupProbe::$unserialized = false;
 $applySubKeysObjectRejected = false;
 try {
-    $applyOptionSubKeys->invoke(
-        $apply,
+    $objectRejectWarnings = [];
+    $applyOptionSubKeys->invokeArgs($optionsMaterializer, [
         'owned_blob',
         ['owned' => 'new'],
         ['owned' => ['class' => 'authored']],
-        'yes'
-    );
+        'yes',
+        &$objectRejectWarnings,
+    ]);
 } catch (Throwable $e) {
     $applySubKeysObjectRejected = str_contains($e->getMessage(), 'PHP object');
 }
