@@ -756,11 +756,18 @@ unlink($missingProviderLibrary . '/providers/woocommerce-cache.php');
 $missingManifest = Canon::decode(Canon::read_file($missingProviderLibrary . '/woocommerce.json'));
 $missingDispositions = Canon::decode(Canon::read_file($missingProviderLibrary . '/dispositions.json'));
 $missingRegistry = Canon::decode(Canon::read_file($missingProviderLibrary . '/capabilities/registry.json'));
-$missingRegistry['manifests']['woocommerce']['adapter_digest'] = \Duo\CapabilityRegistry::adapter_digest(
+$missingAdapterDigest = \Duo\CapabilityRegistry::adapter_digest(
     $missingManifest,
     $missingDispositions['manifests']['woocommerce'],
     $missingProviderLibrary
 );
+$missingRegistry['manifests']['woocommerce']['adapter_digest'] = $missingAdapterDigest;
+// The scoped Woo certificate binds the manifest-shipped provider.  Removing
+// that file makes its evidence candidate in this isolated doctor fixture;
+// otherwise the runtime loader correctly stops at the stale current claim
+// before the catalog can report the provider-specific blocker under test.
+$missingRegistry['manifests']['woocommerce']['evidence']['status'] = 'candidate';
+$missingRegistry['manifests']['woocommerce']['evidence']['adapter_digest'] = $missingAdapterDigest;
 Canon::write_file(
     $missingProviderLibrary . '/capabilities/registry.json',
     Canon::encode($missingRegistry)
