@@ -362,7 +362,7 @@
     "generated_from": {
         "compatibility_sha256": "4a6726dd5feaf47fe0c6f7e2c1b27711d22d4c44609c34d0f13c227b6025e5c8",
         "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
-        "evidence_sha256": "ec0e5cf89227a1d842a21a50a043fad9f14bde72e14d913335060abb0c0a67ac"
+        "evidence_sha256": "f2a32bfcc0286ac5565ec0b36b10f1ea2e967d9476876c9bfd68314946c698fa"
     },
     "manifests": {
         "acf": {
@@ -1657,12 +1657,12 @@
             },
             "evidence": {
                 "adapter_digest": "12fb092f964fa1010fe1c238cb9905f7c526500491317c89db1cedf6772cb355",
-                "bundle_digest": "fcd43ad5d5683ea53c4b534d8c73ddd6d9f6699e6998ef41c2d206e0d2864b73",
+                "bundle_digest": "494d2707eb64fab0a1a51bb5f0a166ce89f6fb1c7664a9d2c9a0943bf5f67c42",
                 "bundle_schema": "duo-adapter-certification-bundle/v1",
-                "closure_digest": "dc1d1b3685bab5a218b3c269f7666e4aee19ce0a37444b205d01a4628a1fcc31",
+                "closure_digest": "84b4f8ab04c6d44e6d8c71447c1839f20f8979ea6493012c69b118726b638d6e",
                 "force_hatches": [],
-                "git_revision": "6a32f0df6dfc3e47204dcbd2fafef6d1da3f7498",
-                "status": "candidate",
+                "git_revision": "7057b3163388fb6ce25687c58f88b86ded1c922e",
+                "status": "current",
                 "subject": "woocommerce",
                 "tests": [
                     "conformance-woocommerce",
