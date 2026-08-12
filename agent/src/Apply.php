@@ -46,8 +46,6 @@ final class Apply {
     private array $warnings = [];
     /** @var list<array<string,mixed>> reviewed public evidence for forced plan conflicts */
     private array $forcedOverrideEvidence = [];
-    /** @var array<string,int> login -> user id */
-    private array $userIds = [];
     private ?int $defaultAuthor = null;
     /** @var array{by_post_type: array<string,string[]>, term_object: string[]}|null
      *  memoized — see taxes_by_object_type() */
@@ -139,7 +137,13 @@ final class Apply {
     }
 
     private function post_materializer(): PostMaterializer {
-        return $this->postMaterializer ??= new PostMaterializer($this->tokens);
+        return $this->postMaterializer ??= new PostMaterializer(
+            $this->policy,
+            $this->tokens,
+            $this->field_materializer(),
+            $this->relationship_materializer(),
+            $this->attachment_materializer()
+        );
     }
 
     // ------------------------------------------------------------------ plan
@@ -4617,101 +4621,26 @@ final class Apply {
         $this->term_materializer()->finalize_term($front, $this->term_object_taxes());
     }
 
+    /**
+     * Thin compatibility facade over PostMaterializer::finalize_post()
+     * (DUO-3347 slice 11) — kept so this method's existing internal call
+     * site (run(), unchanged) needs no edit while this decomposition
+     * proceeds. $this->warnings is passed by reference, the same
+     * array-output-parameter idiom apply_options() already uses across this
+     * class boundary; $this->defaultAuthor and the memoized
+     * taxes_for_post_type() roster are per-apply-run-computed state that
+     * travels as explicit parameters rather than constructor collaborators,
+     * matching TermMaterializer's/RelationshipMaterializer's own
+     * $termObjectTaxes/$taxesForPostType precedent.
+     */
     private function finalize_post(array $front, string $body): void {
-        global $wpdb;
-        $id = Ledger::id_for($front['uuid'], Ledger::KIND_POST)
-            ?? throw new \RuntimeException("duo: post {$front['uuid']} missing from ledger after phase 1");
-
-        $parentId = 0;
-        if (!empty($front['parent'])) {
-            $parentId = $this->tokens->token_to_id($front['parent']);
-        }
-        $authorId = 0;
-        if (!empty($front['author'])) {
-            $login = substr((string) $front['author'], 5); // strip "user:"
-            $authorId = $this->resolve_login($login)
-                ?? $this->defaultAuthor
-                ?? 1;
-            if ($this->resolve_login($login) === null) {
-                $this->warnings[] = "post {$front['slug']}: author '$login' not in this environment; fell back to user #$authorId";
-            }
-        }
-
-        $content = $this->policy->body_mode($front['type']) === 'verbatim'
-            ? $body
-            : Blocks::apply_rewrite($body, $this->policy, $this->tokens);
-        $fields = [
-            'post_author' => $authorId,
-            'post_date' => $front['date'],
-            'post_date_gmt' => $front['date_gmt'],
-            'post_content' => $content,
-            'post_title' => $front['title'],
-            'post_excerpt' => $this->tokens->detokenize_text((string) $front['excerpt']),
-            'post_status' => $front['status'],
-            'comment_status' => $front['comment_status'],
-            'ping_status' => $front['ping_status'],
-            'post_name' => $front['slug'],
-            'post_modified' => $front['modified'] ?? $front['modified_gmt'],
-            'post_modified_gmt' => $front['modified_gmt'],
-            'post_parent' => $parentId,
-            'menu_order' => (int) ($front['menu_order'] ?? 0),
-            'post_mime_type' => $front['mime'] ?? '',
-        ];
-        // Post-FIELD classification (task #88 / Woo timestamp extension):
-        // a field this post_type classifies 'derived' is dropped from this
-        // UPDATE entirely rather than overwritten with the captured byte
-        // string, once the row already exists. The front-matter-name =>
-        // wp_posts-column translation is Policy's (DUO-3318): this loop used
-        // to carry its own literal copy of it, so widening the allowlist
-        // without widening the copy would have left a field a manifest may
-        // legally declare `derived` still overwritten here — the
-        // classification honored by capture and the hash basis but silently
-        // not by apply. Only fields in that map can be omitted; an
-        // undeclared front key remains authored.
-        // ensure_post_row() (phase 1, moments ago in this same apply for a
-        // brand-new row) already wrote captured derived values as real
-        // starting values — there's no rebuild action to conjure them the way
-        // _wp_attachment_metadata gets one on create, and WordPress
-        // requires SOME value on insert — so this only ever skips touching
-        // an ALREADY-populated column, never leaves one null.
-        //
-        // Argued explicitly in the post-field classification report: the alternative —
-        // overwrite it on every apply, same as any authored field — would
-        // make a target environment's own, more-progressed self-heal
-        // regress to a stale source snapshot on every single apply cycle,
-        // only to re-heal itself on the very next ordinary WooCommerce read
-        // (an admin view, a Store API request) — a pointless oscillation
-        // for a value nothing authored actually controls. Letting the
-        // plugin's own derivation stand once the row exists is what
-        // 'derived' is supposed to mean; Canon::post_hash_basis() (see
-        // load_tree() above) is the other half — it keeps these fields'
-        // divergence from ever registering as drift/conflict in the first
-        // place, so skipping the write here is consistent with what plan
-        // already told the operator would happen.
-        foreach (Policy::DERIVABLE_FIELD_COLUMNS as $frontField => $dbColumn) {
-            if ($this->policy->field_class($front['type'], $frontField) === 'derived') {
-                unset($fields[$dbColumn]);
-            }
-        }
-        Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
-
-        // Authored post-meta is reconciled after the post row, as before. The
-        // positional shortcode codec uses the frozen canonical meta map, not a
-        // live read, so body rewriting remains independent of mutation order.
-        $this->reconcile_authored_meta($id, (array) ($front['meta'] ?? []), 'post');
-
-        // term relationships for owned taxonomies
-        $this->reconcile_relationships(
-            $id,
-            $front['type'],
-            (array) ($front['terms'] ?? []),
-            (array) ($front['term_orders'] ?? [])
+        $this->post_materializer()->finalize_post(
+            $front,
+            $body,
+            $this->defaultAuthor,
+            $this->warnings,
+            $this->taxes_for_post_type($front['type'])
         );
-
-        // attachment binary + managed meta
-        if ($front['type'] === 'attachment') {
-            $this->place_attachment($id, $front);
-        }
     }
 
     private function register_shortcode_alternates(array $tree): void {
@@ -4748,30 +4677,6 @@ final class Apply {
             }
         }
         $this->tokens->seal_shortcode_alternates();
-    }
-
-    /**
-     * Thin compatibility facade over RelationshipMaterializer::reconcile_relationships()
-     * (DUO-3347 slice 8) — kept so this method's existing internal call site
-     * (finalize_post(), unchanged) needs no edit while this decomposition
-     * proceeds. taxes_for_post_type() stays here (not on
-     * RelationshipMaterializer): it wraps Apply's own memoized,
-     * WordPress-registry-reading taxes_by_object_type(), shared with the
-     * still-Apply-resident term-relationship path (term_object_taxes()).
-     */
-    private function reconcile_relationships(
-        int $postId,
-        string $postType,
-        array $termsField,
-        array $termOrders = []
-    ): void {
-        $this->relationship_materializer()->reconcile_relationships(
-            $postId,
-            $postType,
-            $termsField,
-            $termOrders,
-            $this->taxes_for_post_type($postType)
-        );
     }
 
     /**
@@ -4931,16 +4836,6 @@ final class Apply {
     }
 
     /**
-     * Thin compatibility facade over AttachmentMaterializer::place_attachment()
-     * (DUO-3347 slice 9) — kept so this method's existing internal call site
-     * (finalize_post(), unchanged) needs no edit while this decomposition
-     * proceeds.
-     */
-    private function place_attachment(int $id, array $front): void {
-        $this->attachment_materializer()->place_attachment($id, $front);
-    }
-
-    /**
      * Thin compatibility facade over MenuMaterializer::finalize_menu()
      * (DUO-3347 slice 4) — kept so this method's existing internal call site
      * (run(), unchanged) needs no edit while this decomposition proceeds.
@@ -4985,26 +4880,6 @@ final class Apply {
      */
     private function option_wire_value($value): string {
         return $this->field_materializer()->option_wire_value($value);
-    }
-
-    /**
-     * DUO-3266: authored postmeta reconciliation for one owner ($id) —
-     * factored out of finalize_post() so a second postmeta owner (menu
-     * items, finalize_menu() below) gets the SAME ownership discipline
-     * instead of a second, drift-prone copy. "We own exactly the
-     * authored-classified keys": every key in $frontMeta is resolved
-     * (ref/json_refs/key_refs/detokenize as its rule declares) and
-     * upserted; any row ALREADY on the target that policy classifies
-     * `authored` but is no longer in $frontMeta is deleted (removed from
-     * policy, or from this owner's captured state, since the last apply);
-     * everything else on the target — non-authored, or a key this owner's
-     * own structural fields already handle bespoke (menu items' 8
-     * `_menu_item_*` keys are classified `managed`/`runtime` in
-     * manifests/core.json, never `authored`, so they never appear here as
-     * either desired or deletable) — is left byte-untouched.
-     */
-    private function reconcile_authored_meta(int $id, array $frontMeta, string $ownerLabel): void {
-        $this->field_materializer()->reconcile_authored_meta($id, $frontMeta, $ownerLabel);
     }
 
     /**
@@ -5207,18 +5082,14 @@ final class Apply {
         $this->relationship_materializer()->delete_term_relationships($termId);
     }
 
+    /**
+     * Thin compatibility facade over PostMaterializer::resolve_login()
+     * (DUO-3347 slice 11) — kept so this method's existing internal call
+     * site (run(), seeding $defaultAuthor, unchanged) needs no edit while
+     * this decomposition proceeds.
+     */
     private function resolve_login(string $login): ?int {
-        global $wpdb;
-        if ($login === '') {
-            return null;
-        }
-        if (!isset($this->userIds[$login])) {
-            $id = $wpdb->get_var($wpdb->prepare(
-                "SELECT ID FROM {$wpdb->users} WHERE user_login = %s LIMIT 1", $login
-            ));
-            $this->userIds[$login] = $id ? (int) $id : 0;
-        }
-        return $this->userIds[$login] ?: null;
+        return $this->post_materializer()->resolve_login($login);
     }
 
     // --------------------------------------------------------------- rebuild
