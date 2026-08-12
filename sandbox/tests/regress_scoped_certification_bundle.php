@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../../agent/src/ScopedCertificationBundle.php';
+require __DIR__ . '/certification_fixture.php';
 
 use Duo\Canon;
+use Duo\CapabilityRegistry;
+use Duo\ManifestDispositions;
 use Duo\ScopedCertificationBundle;
 
 $failures = 0;
@@ -73,6 +76,79 @@ function scoped_bundle(array $overrides = []): array {
     $bundle['bundle_digest'] = ScopedCertificationBundle::digest($bundle);
     return $bundle;
 }
+function remove_tree(string $root): void {
+    if (!is_dir($root)) {
+        return;
+    }
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($entries as $entry) {
+        $path = $entry->getPathname();
+        if ($entry->isDir() && !$entry->isLink()) {
+            rmdir($path);
+        } else {
+            unlink($path);
+        }
+    }
+    rmdir($root);
+}
+/** @return array{exit:int,stdout:string,stderr:string} */
+function runtime_registry_load(string $runtimeRoot, string $scratch): array {
+    $runner = $scratch . '/runtime-registry-loader.php';
+    $program = <<<'PHP'
+<?php
+declare(strict_types=1);
+
+$root = $argv[1];
+require $root . '/agent/src/Canon.php';
+require $root . '/agent/src/ManifestDispositions.php';
+require $root . '/agent/src/CapabilityRegistry.php';
+
+try {
+    $dir = $root . '/manifests';
+    $dispositions = Duo\ManifestDispositions::load($dir);
+    $manifests = [];
+    foreach (glob($dir . '/*.json') ?: [] as $file) {
+        if (basename($file) !== 'dispositions.json') {
+            $manifest = Duo\Canon::decode(Duo\Canon::read_file($file));
+            $manifests[] = $manifest;
+        }
+    }
+    $registry = Duo\CapabilityRegistry::load($dir, $dispositions, $manifests);
+    if (($registry->claim('woocommerce')['evidence']['status'] ?? null) !== 'current') {
+        throw new RuntimeException('Woo scoped claim did not load current');
+    }
+    fwrite(STDOUT, "current\n");
+} catch (Throwable $e) {
+    fwrite(STDERR, $e->getMessage() . "\n");
+    exit(1);
+}
+PHP;
+    if (file_put_contents($runner, $program) === false) {
+        throw new RuntimeException('could not create deployed-runtime loader');
+    }
+    $pipes = [];
+    $process = proc_open([PHP_BINARY, $runner, $runtimeRoot], [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('could not start deployed-runtime loader');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return [
+        'exit' => proc_close($process),
+        'stdout' => is_string($stdout) ? $stdout : '',
+        'stderr' => is_string($stderr) ? $stderr : '',
+    ];
+}
 
 $bundle = scoped_bundle();
 $valid = ScopedCertificationBundle::validate($bundle);
@@ -134,6 +210,48 @@ foreach (['./agent/src/Engine.php', 'agent//src/Engine.php', 'agent/src/'] as $a
 $missingVerdict = $bundle;
 unset($missingVerdict['verdict']);
 expect_refusal(fn() => ScopedCertificationBundle::validate($missingVerdict), 'unsupported keys', 'missing verdict is refused rather than defaulted');
+
+echo "\n== deployed scoped-certification runtime layout ==\n";
+$repo = realpath(__DIR__ . '/../..');
+$scratch = sys_get_temp_dir() . '/duo-scoped-runtime-' . bin2hex(random_bytes(8));
+try {
+    $sealedManifests = duo_cert_seal_library($repo, $scratch . '/source');
+    $runtimeRoot = $scratch . '/runtime';
+    duo_cert_copy_tree($scratch . '/source/agent', $runtimeRoot . '/agent');
+    duo_cert_copy_tree($sealedManifests, $runtimeRoot . '/manifests');
+    check(
+        !file_exists($runtimeRoot . '/Makefile')
+        && !file_exists($runtimeRoot . '/cli')
+        && !file_exists($runtimeRoot . '/sandbox'),
+        'runtime fixture contains only deployed agent and manifests trees, not host certification inputs'
+    );
+    $runtimeLoad = runtime_registry_load($runtimeRoot, $scratch);
+    check(
+        $runtimeLoad['exit'] === 0 && trim($runtimeLoad['stdout']) === 'current',
+        'the copied deployed agent loads a current scoped record without host-only certification files'
+    );
+    $runtimeEvidence = Canon::decode(Canon::read_file($runtimeRoot . '/manifests/capabilities/evidence.json'));
+    $runtimeInputs = $runtimeEvidence['scoped']['woocommerce']['bundle']['closure']['inputs'] ?? [];
+    $agentInput = null;
+    foreach ($runtimeInputs as $input) {
+        if (is_array($input) && str_starts_with((string) ($input['path'] ?? ''), 'agent/')) {
+            $agentInput = $input['path'];
+            break;
+        }
+    }
+    check(is_string($agentInput), 'sealed Woo closure contains an installed agent input');
+    if (is_string($agentInput)) {
+        file_put_contents($runtimeRoot . '/' . $agentInput, "\n// runtime drift\n", FILE_APPEND);
+        $runtimeDrift = runtime_registry_load($runtimeRoot, $scratch);
+        check(
+            $runtimeDrift['exit'] !== 0
+            && str_contains($runtimeDrift['stderr'], 'scoped certification runtime input is not current: ' . $agentInput),
+            'a changed deployed agent input expires the scoped record without host source access'
+        );
+    }
+} finally {
+    remove_tree($scratch);
+}
 
 if ($failures !== 0) {
     fwrite(STDERR, "$failures scoped certification assertion(s) failed\n");

@@ -24,12 +24,12 @@
  * it. Nothing here writes to the shipped library; every mutated directory is a
  * scratch copy.
  *
- * Two callers, two languages, ONE re-seal (DUO-3421). The re-seal has to agree
+ * Three callers, two languages, ONE re-seal (DUO-3421). The re-seal has to agree
  * with the bundle builder (sandbox/bin/certification-bundle.php::cert_json) and
  * the importer (scripts/capability-registry.php::cap_bundle_digest) on the
  * exact compact-canonical bundle-identity basis; a second implementation of
  * that agreement is a third notion of bundle identity waiting to drift, so
- * both callers share this one:
+ * all callers share this one:
  *
  *   - sandbox/tests/regress_adapter_sources.php (DUO-3379, the original)
  *     requires this file; its certified_library() is now the scratch-root
@@ -44,6 +44,9 @@
  *     pristine main between refreshes, is "expired". Without it the suite's
  *     paused confirmations refuse instantly with an unsupported-row proposal
  *     and the swap-link TOCTOU cases can never acquire the init lease.
+ *   - sandbox/tests/regress_scoped_certification_bundle.php (DUO-3454)
+ *     requires this file to build a sealed source fixture, then strips it to
+ *     the deployed agent/manifests layout before exercising runtime checks.
  *
  * Deliberately NOT named regress_*: this file is a fixture source, not a suite,
  * and sandbox/tests/regress_bundle_coverage.sh's survey (rightly) expects every
