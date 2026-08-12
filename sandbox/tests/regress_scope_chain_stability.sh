@@ -174,6 +174,15 @@ selected_identities() { # <contract-json-path>
 command -v jq >/dev/null || fail "jq is required"
 command -v lsof >/dev/null || fail "lsof is required for the no-collision port preflight"
 
+# The shared driver fixture's compose file always references these
+# DUO3344_* variables (even for the config validation below, before any
+# pair exists), so they must be exported before the very first preflight
+# check, not merely before pair.sh up. This suite needs no custom plugin
+# (core posts/terms only), so both sides get an empty, otherwise-inert
+# directory to satisfy the fixture's generic codebind mount.
+export DUO3344_PAIR="$PAIR" DUO3344_AGENT_SRC="$ROOT/agent" DUO3344_MANIFESTS_SRC="$ROOT/manifests"
+export DUO3344_SITE1="$SITE1" DUO3344_SITE2="$SITE2" DUO3344_PLUGIN_DIR="duo-3344-scope-chain-noop"
+
 say "static/exact-source preflight before allocating pair resources"
 bash -n "$0" || fail "live harness shell syntax failed"
 [ "$(git rev-parse HEAD)" = "$EXPECTED_SOURCE_SHA" ] \
@@ -204,12 +213,6 @@ git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example
 git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm 'init: DUO-3344 scope-chain-stability fixture'
 git -C "$SITE1" push -qu origin main
 git clone -q "$ORIGIN" "$SITE2"
-
-# The shared driver fixture mounts a codebind plugin path unconditionally;
-# this suite needs no custom plugin (core posts/terms only), so both sides
-# get an empty, otherwise-inert directory to satisfy that generic mount.
-export DUO3344_PAIR="$PAIR" DUO3344_AGENT_SRC="$ROOT/agent" DUO3344_MANIFESTS_SRC="$ROOT/manifests"
-export DUO3344_SITE1="$SITE1" DUO3344_SITE2="$SITE2" DUO3344_PLUGIN_DIR="duo-3344-scope-chain-noop"
 mkdir -p "$SITE1/code/wp-content/plugins/$DUO3344_PLUGIN_DIR" "$SITE2/code/wp-content/plugins/$DUO3344_PLUGIN_DIR"
 
 PAIR_ATTEMPTED=1
