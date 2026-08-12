@@ -1040,7 +1040,6 @@ block_absent exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_P
 
 ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'control_wp_command maintenance-mode activate' \
-  '"${PAIR_COMPOSE[@]}" stop wp2' \
   '"${PAIR_COMPOSE[@]}" kill -s SIGKILL wp2' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
   'prepare_v1_checkpoint_target' \
@@ -1062,6 +1061,9 @@ ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'control_wp_command maintenance-mode deactivate' \
   'ROLLBACK_MAINTENANCE_HELD=0' \
   'assert_phase_order "$RESTORE_OUT"'
+block_absent exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
+  '"${PAIR_COMPOSE[@]}" stop wp2' \
+  'exact v1 rollback must not gracefully stop before the hard worker fence'
 if grep -Fq 'target_wp db import' "$SCRIPT"; then
   fail 'exact v1 rollback bypasses the isolated control-plane database import'
 fi

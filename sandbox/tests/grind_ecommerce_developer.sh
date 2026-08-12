@@ -3459,16 +3459,11 @@ fi
 ROLLBACK_MAINTENANCE_HELD=1
 # Maintenance mode is a request boundary, not a process fence: the target
 # web worker can still boot the currently staged v2 plugin while the database
-# is being restored.  Stop only this disposable target worker so its v2
-# migration cannot race the v1 import; the CLI control plane remains available
-# for the isolated import and the subsequent public v1 promotion.
-if ! "${PAIR_COMPOSE[@]}" stop wp2 >/dev/null; then
-  fail 'could not stop target web service before v1 checkpoint import'
-fi
-# Apache's graceful stop can leave an in-flight PHP request alive until the
-# container timeout. A request that already loaded the staged v2 plugin can
-# still finish its migration after the graceful stop returns, so close the
-# disposable worker with an idempotent hard fence before restoring the v1 DB.
+# is being restored. Close only this disposable target worker with a hard
+# fence so its v2 migration cannot race the v1 import; the CLI control plane
+# remains available for the isolated import and the subsequent public v1
+# promotion. A single kill is intentional: a preceding graceful stop would
+# make Docker compose kill return nonzero after the container exits.
 if ! "${PAIR_COMPOSE[@]}" kill -s SIGKILL wp2 >/dev/null; then
   fail 'could not hard-stop target web service before v1 checkpoint import'
 fi
