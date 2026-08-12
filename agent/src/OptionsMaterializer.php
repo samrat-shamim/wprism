@@ -7,14 +7,19 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/OptionState.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/PlainData.php';
-// Deliberately NOT require_once('Db.php') here: sandbox/tests/regress_code_revision_enforcement.php
-// and regress_scoped_promotion_target.php both stub a fake Duo\Db and reach this
-// file transitively through Apply.php (the first via its own direct require of
-// both Deploy.php and Apply.php, the second via a direct require of Apply.php)
-// without ever loading the real Db.php; requiring it here fatals both suites
-// with "Cannot redeclare class Duo\Db" (caught by regress-offline-all while
-// verifying this file) -- the identical exclusion UserMetaMaterializer.php and
-// TermMaterializer.php already document for the same reason.
+// Deliberately NOT require_once('Db.php') here: sandbox/tests/regress_scoped_promotion_target.php
+// stubs a fake Duo\Db and reaches this file transitively through Apply.php
+// (a direct require of "$root/agent/src/Apply.php") without ever loading the
+// real Db.php; requiring it here fatals that suite with "Cannot redeclare
+// class Duo\Db" (caught by regress-offline-all while verifying this file) --
+// the identical exclusion UserMetaMaterializer.php and TermMaterializer.php
+// already document for the same reason. (regress_code_revision_enforcement.php
+// also reaches this file transitively and stubs a fake class of its own, but
+// it fakes Duo\Ledger, not Duo\Db -- irrelevant here since this file never
+// references Ledger; verified via grep 'class (Db|Ledger)' against both
+// suites individually rather than assumed, after an earlier slice in this
+// same effort got exactly this kind of asymmetric-verification mistake wrong
+// for a different class pair.)
 
 /**
  * The options entity materializer (DUO-3347 slice 7, one of the "Entity
