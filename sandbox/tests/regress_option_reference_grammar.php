@@ -251,6 +251,7 @@ manifest_fixture_code_cleanup($loadManifests);
 @rmdir($loadRoot);
 
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $optionGrammarReflection = new ReflectionClass(OptionReferenceGrammar::class);
 foreach (['validate_option_name_refs', 'validate_no_overlapping_option_name_refs'] as $method) {
@@ -265,9 +266,10 @@ foreach (['validate_option_name_refs', 'validate_no_overlapping_option_name_refs
     );
 }
 $check(
-    substr_count($policySource, 'OptionReferenceGrammar::validate_option_name_refs(') === 2
+    substr_count($policySource, 'OptionReferenceGrammar::validate_option_name_refs(') === 0
+        && substr_count($manifestValidatorSource, 'OptionReferenceGrammar::validate_option_name_refs(') === 1
         && substr_count($policySource, 'OptionReferenceGrammar::validate_no_overlapping_option_name_refs(') === 2,
-    'both Policy loader paths call the extracted grammar directly'
+    'ManifestValidator owns local option-name refs while Policy retains the cross-manifest guard'
 );
 $check(
     Policy::CLASSES === ['authored', 'runtime', 'derived', 'env', 'managed'],

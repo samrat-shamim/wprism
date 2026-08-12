@@ -339,14 +339,16 @@ check_throws(fn() => $policy4->regenerators(), 'must define', 'a regenerator fil
 // this seam asserted so a future compatibility facade cannot silently put the
 // validator back into Policy.php while the behavior suite remains green.
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
 $postTypeGrammar = new \ReflectionClass('Duo\\PostTypeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $postTypeGrammar->hasMethod('validate_regen_dependencies')
         && $postTypeGrammar->getMethod('validate_regen_dependencies')->isPublic()
         && !$policyReflection->hasMethod('validate_regen_dependencies')
-        && substr_count($policySource, 'PostTypeGrammar::validate_regen_dependencies($manifest)') === 2,
-    'regen_dependency shape validation lives in PostTypeGrammar and both Policy load paths call it directly'
+        && substr_count($policySource, 'PostTypeGrammar::validate_regen_dependencies($manifest)') === 0
+        && substr_count($manifestValidatorSource, 'PostTypeGrammar::validate_regen_dependencies($manifest)') === 1,
+    'regen_dependency shape validation lives in PostTypeGrammar through ManifestValidator'
 );
 
 // ======================================================================

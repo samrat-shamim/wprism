@@ -217,6 +217,7 @@ manifest_fixture_code_cleanup($loadManifests);
 @rmdir($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$manifestValidatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $grammarReflection = new ReflectionClass(DiscoveryGrammar::class);
 $check(
@@ -229,8 +230,9 @@ $check(
     'DiscoveryGrammar exposes the public moved entry point'
 );
 $check(
-    substr_count($policySource, 'DiscoveryGrammar::validate_discovery_contract($manifest)') === 2,
-    'both Policy loader paths call the extracted discovery grammar directly'
+    substr_count($policySource, 'DiscoveryGrammar::validate_discovery_contract($manifest)') === 0
+        && substr_count($manifestValidatorSource, 'DiscoveryGrammar::validate_discovery_contract($manifest)') === 1,
+    'ManifestValidator owns the shared discovery grammar call for both Policy loader paths'
 );
 
 if ($failures) {
