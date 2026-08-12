@@ -905,9 +905,15 @@ check(Canon::read_file("$refreshTree/media/$orphanHash.txt") === $orphanBytes,
 check(!is_file("$refreshTree/media/$refreshLiteralName"),
     'scoped refresh does not materialize a media blob named only as literal selected-post text');
 
-// options/core is one atomic v1 scope record. Legacy unscoped refresh keeps
-// per-option planning, but scoped refresh must never synthesize a mixed P/W
-// document or treat a record-level option omission as entity absence.
+// options/core is a whole SURFACE under a v1 scope's authority (no other
+// manifest/adapter may reach into it), but the internal merge is per-option
+// three-way planning -- the same expand()/plan() machinery legacy refresh
+// already used (DUO-3344 slice 8). Two option names that each
+// independently changed on only one side must resolve without a manual
+// decision; only a genuine same-name conflict needs one, and
+// materializeScoped() recombines the selected per-option records into one
+// options/core document rather than refusing or treating a record-level
+// option omission as entity absence.
 $optionsContract = ScopeContract::resolve($compiled, $policy, ['options']);
 $optionsBase = $snapshotOf($compiled);
 $optionsBranch = $optionsBase;
@@ -916,12 +922,12 @@ $branchOptionsContent = options([
     'blogdescription' => OptionState::present('branch-only description', 'yes'),
     'blogname' => OptionState::present('Scope Contract', 'yes'),
     'page_on_front' => OptionState::present('{{post:' . $ids['page'] . '}}', 'yes'),
-    'show_on_front' => OptionState::present('page', 'yes'),
+    'show_on_front' => OptionState::present('branch-genuine-conflict', 'yes'),
 ]);
 $productionOptionsContent = options([
     'blogname' => OptionState::present('production-only title', 'yes'),
     'page_on_front' => OptionState::present('{{post:' . $ids['page'] . '}}', 'yes'),
-    'show_on_front' => OptionState::present('page', 'yes'),
+    'show_on_front' => OptionState::present('production-genuine-conflict', 'yes'),
 ]);
 foreach ([
     [&$optionsBranch, $branchOptionsContent],
@@ -958,30 +964,40 @@ $optionsContext = [
     'scope_contract' => $optionsContract,
 ];
 $optionsPlan = RefreshPlan::plan($optionsBase, $optionsProduction, $optionsBranch, $optionsContext);
-$optionsEntries = array_values(array_filter(
-    $optionsPlan['entries'],
-    static fn(array $entry): bool => ($entry['identity'] ?? null) === 'options/core'
-));
-check(count($optionsEntries) === 1
-    && ($optionsEntries[0]['identity'] ?? null) === 'options/core'
-    && ($optionsEntries[0]['category'] ?? null) === 'conflicting'
-    && !array_filter($optionsPlan['entries'], static fn(array $entry): bool => str_starts_with((string) ($entry['identity'] ?? ''), 'option:')),
-    'scoped options plan is one whole-file conflict, never per-option mixed state');
+$optionsById = [];
+foreach ($optionsPlan['entries'] as $entry) {
+    $optionsById[(string) ($entry['identity'] ?? '')] = $entry;
+}
+check(!isset($optionsById['options/core'])
+    && isset($optionsById['option:blogname'], $optionsById['option:blogdescription'], $optionsById['option:show_on_front']),
+    'scoped options plan decomposes into per-option identities, never a bare whole-file options/core entry');
+check(($optionsById['option:blogname']['category'] ?? null) === 'production-only'
+    && ($optionsById['option:blogdescription']['category'] ?? null) === 'branch-only'
+    && ($optionsById['option:page_on_front']['category'] ?? null) === 'unchanged'
+    && ($optionsById['option:active_plugins']['category'] ?? null) === 'unchanged'
+    && ($optionsById['option:show_on_front']['category'] ?? null) === 'conflicting',
+    'unrelated production-only and branch-only option changes resolve independently; only the genuinely contested show_on_front name conflicts');
+check($optionsPlan['unresolved'] === ['option:show_on_front'],
+    'the only unresolved scoped option conflict is the one genuinely contested name, not the whole options surface');
 
 $optionsResolved = RefreshPlan::plan(
     $optionsBase,
     $optionsProduction,
     $optionsBranch,
-    $optionsContext + ['resolution' => ['strategy' => 'theirs']]
+    $optionsContext + ['resolution' => ['strategy' => 'manual', 'records' => ['option:show_on_front' => 'theirs']]]
 );
 $optionsTree = "$tmp/scoped-options-worktree";
 mkdir($optionsTree, 0700, true);
 put("$optionsTree/.git", "gitdir: disposable\n");
 put("$optionsTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
 RefreshPlan::materialize($optionsResolved, $optionsTree);
-check(Canon::read_file("$optionsTree/state/options/core.json") === $productionOptionsContent
-    && !str_contains(Canon::read_file("$optionsTree/state/options/core.json"), 'branch-only description'),
-    'scoped options resolution selects one exact canonical side instead of merging P and W records');
+$mergedOptions = OptionState::records(Canon::decode(Canon::read_file("$optionsTree/state/options/core.json")));
+check(($mergedOptions['blogname']['value'] ?? null) === 'production-only title'
+    && ($mergedOptions['blogdescription']['value'] ?? null) === 'branch-only description'
+    && ($mergedOptions['show_on_front']['value'] ?? null) === 'production-genuine-conflict'
+    && ($mergedOptions['page_on_front']['value'] ?? null) === '{{post:' . $ids['page'] . '}}'
+    && ($mergedOptions['active_plugins']['state'] ?? null) === 'absent',
+    'scoped refresh recombines independently-resolved per-option choices into one document: a branch-only addition is no longer silently dropped by a whole-file resolution, an explicit conflict resolution applies to only its own name, and an untouched name stays exactly as the baseline had it');
 
 $removedOptionProduction = $optionsProduction;
 $removedOptionContent = options([
@@ -1000,14 +1016,24 @@ $removedPlan = RefreshPlan::plan(
     $optionsBase,
     array_replace($optionsContext, ['production_snapshot_hash' => $removedOptionProduction['snapshot_hash']])
 );
-$removedEntry = array_values(array_filter(
-    $removedPlan['entries'],
-    static fn(array $entry): bool => ($entry['identity'] ?? null) === 'options/core'
-))[0] ?? null;
-check(is_array($removedEntry)
-    && ($removedEntry['category'] ?? null) === 'production-only'
-    && ($removedEntry['selected_source'] ?? null) === 'production',
-    'scoped option removal is a valid whole-file production state, not absence without tombstone authority');
+$removedById = [];
+foreach ($removedPlan['entries'] as $entry) {
+    $removedById[(string) ($entry['identity'] ?? '')] = $entry;
+}
+check(($removedById['option:blogname']['category'] ?? null) === 'production-only'
+    && ($removedById['option:blogname']['selected_source'] ?? null) === 'production'
+    && ($removedById['option:blogname']['selected']['content'] ?? null) === Canon::encode(OptionState::absent()),
+    'a scoped option explicitly turned absent() on production is a valid production-only resolution, not absence without tombstone authority');
+$removedTree = "$tmp/scoped-options-removed-worktree";
+mkdir($removedTree, 0700, true);
+put("$removedTree/.git", "gitdir: disposable\n");
+put("$removedTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+RefreshPlan::materialize($removedPlan, $removedTree);
+$removedOptions = OptionState::records(Canon::decode(Canon::read_file("$removedTree/state/options/core.json")));
+check(($removedOptions['blogname']['state'] ?? null) === 'absent'
+    && ($removedOptions['show_on_front']['value'] ?? null) === 'page'
+    && ($removedOptions['active_plugins']['state'] ?? null) === 'absent',
+    'materializing the resolved plan writes blogname as absent() while leaving every other option byte-for-byte untouched');
 
 // Selected source bytes and immutable policy/action/effect bytes each flow
 // into a new compiled binding and contract scope hash.
