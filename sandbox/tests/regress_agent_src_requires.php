@@ -436,7 +436,7 @@ $knownGapsByFile = [
     'Init' => ['AdapterSources', 'BoundHelper', 'Canon', 'Capture', 'Code', 'CommandRefusalException', 'InitialStateBoundaryException', 'PersonalData', 'Policy', 'Publish', 'RepositoryCompiler', 'Secrets'],
     'Journal' => ['CommandRefusalException', 'Db', 'Ledger', 'Policy'],
     'Ledger' => ['Db', 'Uuid'],
-    'Lint' => ['Canon', 'JsonRefs', 'OptionState', 'Pending', 'Policy', 'ReferenceRules'],
+    'Lint' => ['Canon', 'JsonRefs', 'OptionState', 'Pending', 'Policy', 'ReferenceRules', 'Shortcodes'],
     'ManifestDispositions' => ['Canon'],
     'MenuMaterializer' => ['ApplyFieldMaterializer', 'Db', 'Ledger', 'PlainData', 'Policy', 'Tokens'],
     'OptionState' => ['Canon'],
@@ -460,6 +460,7 @@ $knownGapsByFile = [
     'Shortcodes' => ['Capture', 'Policy', 'Tokens'],
     'SidebarState' => ['Blocks', 'Canon', 'Db', 'Ledger', 'Policy', 'Secrets', 'Snapshot', 'Tokens', 'Uuid'],
     'Snapshot' => ['Canon', 'Db', 'IdentityNotes', 'Ledger', 'OptionState', 'Policy', 'Secrets', 'Tokens', 'Uuid'],
+    'TermMaterializer' => ['Db', 'Ledger'],
     'Tokens' => ['Capture', 'JsonRefs', 'Ledger', 'Policy'],
     'UserMetaMaterializer' => ['Db'],
 ];

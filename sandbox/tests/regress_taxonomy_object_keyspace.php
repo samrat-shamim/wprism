@@ -461,12 +461,22 @@ tok_expect_failure(
     'object_keyspace',
     'Apply post relationship reconcile with a term-keyspace taxonomy'
 );
-$termReconcile = $applyReflection->getMethod('reconcile_term_relationships');
+// DUO-3347 slice 6: reconcile_term_relationships() moved from Apply onto
+// TermMaterializer (Apply keeps only finalize_term() as a facade); this
+// early keyspace-mismatch throw fires from the method's first loop, before
+// its new $termObjectTaxes parameter is ever read, so an empty array is a
+// safe, correct stand-in here.
+$termMaterializerReflection = new ReflectionClass(\Duo\TermMaterializer::class);
+$termMaterializer = $termMaterializerReflection->newInstanceWithoutConstructor();
+$termMaterializerPolicy = $termMaterializerReflection->getProperty('policy');
+$termMaterializerPolicy->setAccessible(true);
+$termMaterializerPolicy->setValue($termMaterializer, $policy);
+$termReconcile = $termMaterializerReflection->getMethod('reconcile_term_relationships');
 $termReconcile->setAccessible(true);
 tok_expect_failure(
-    fn() => $termReconcile->invoke($apply, 23, 'duo_keyspace_term_links', ['duo_keyspace_post_links' => []]),
+    fn() => $termReconcile->invoke($termMaterializer, 23, 'duo_keyspace_term_links', ['duo_keyspace_post_links' => []], []),
     'object_keyspace',
-    'Apply term relationship reconcile with a post-keyspace taxonomy'
+    'TermMaterializer term relationship reconcile with a post-keyspace taxonomy'
 );
 
 echo "\n== shipped Polylang migration ==\n";

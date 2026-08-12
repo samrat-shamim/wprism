@@ -10,6 +10,7 @@ require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 require_once __DIR__ . '/MenuMaterializer.php';
 require_once __DIR__ . '/UserMetaMaterializer.php';
+require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -30,6 +31,7 @@ final class Apply {
     private ?ApplyFieldMaterializer $fieldMaterializer = null;
     private ?MenuMaterializer $menuMaterializer = null;
     private ?UserMetaMaterializer $userMetaMaterializer = null;
+    private ?TermMaterializer $termMaterializer = null;
     private CompiledRepository $compiled;
     private string $repo;
     /** @var string[] */
@@ -110,6 +112,10 @@ final class Apply {
 
     private function user_meta_materializer(): UserMetaMaterializer {
         return $this->userMetaMaterializer ??= new UserMetaMaterializer($this->policy, $this->tokens, $this->field_materializer());
+    }
+
+    private function term_materializer(): TermMaterializer {
+        return $this->termMaterializer ??= new TermMaterializer($this->policy, $this->tokens, $this->field_materializer());
     }
 
     // ------------------------------------------------------------------ plan
@@ -4606,108 +4612,16 @@ final class Apply {
         return true;
     }
 
+    /**
+     * Thin compatibility facade over TermMaterializer::finalize_term()
+     * (DUO-3347 slice 6) — kept so this method's existing internal call site
+     * (run(), unchanged) needs no edit while this decomposition proceeds.
+     * term_object_taxes() stays here (not on TermMaterializer): it wraps
+     * Apply's own memoized, WordPress-registry-reading taxes_by_object_type(),
+     * shared with the still-Apply-resident post-relationship reconciler.
+     */
     private function finalize_term(array $front): void {
-        global $wpdb;
-        $termId = Ledger::id_for($front['uuid'], Ledger::KIND_TERM);
-        $parentId = 0;
-        if (!empty($front['parent'])) {
-            $parentId = Ledger::id_for($front['parent'], Ledger::KIND_TERM)
-                ?? throw new \RuntimeException("duo: term {$front['slug']}: parent {$front['parent']} not resolvable");
-        }
-        Db::update($wpdb->terms, ['name' => $front['name'], 'slug' => $front['slug']], ['term_id' => $termId], null, null, 'apply update term');
-        Db::update($wpdb->term_taxonomy, [
-            'description' => $this->encode_description($front['taxonomy'], $front['description']),
-            'parent' => $parentId,
-        ], ['term_id' => $termId, 'taxonomy' => $front['taxonomy']], null, null, 'apply update term taxonomy');
-        $this->reconcile_authored_term_meta($termId, (array) ($front['meta'] ?? []));
-        $this->reconcile_term_relationships($termId, $front['taxonomy'], (array) ($front['relationships'] ?? []));
-    }
-
-    /**
-     * Mirror of Capture::term_description(): a taxonomy declaring
-     * `taxonomies.<tax>.description_refs` gets its token-bearing map
-     * resolved back through the ledger and re-serialized with PHP's OWN
-     * serialize() — so int-typed ids come back as `i:N;`, matching
-     * Polylang's own writes byte-for-byte in TYPE, not just in decoded
-     * value (docs/frontier/polylang.md verified this column is genuinely
-     * int-typed, not the digit-string convention ACF/Yoast use elsewhere).
-     * Every other taxonomy keeps the plain detokenize_text() treatment.
-     */
-    private function encode_description(string $taxonomy, $description): string {
-        $rule = $this->policy->description_reference_rule($taxonomy);
-        if ($rule === null) {
-            return $this->tokens->detokenize_text((string) $description);
-        }
-        $decoded = $this->tokens->struct_apply(
-            $description,
-            $rule['json_refs'],
-            $rule['key_refs']
-        );
-        return serialize($decoded);
-    }
-
-    /**
-     * Term-keyspace symmetry of reconcile_relationships(): a term's own
-     * membership in OTHER taxonomies as object_id (docs/frontier/
-     * polylang.md's "term-object relationship capture/apply" — Polylang's
-     * term_language/term_translations). Scoped to term_object_taxes() — the
-     * same manifest-keyspace collision guard reconcile_relationships() applies
-     * for posts — so this never touches a colliding POST's own
-     * relationship rows just because the numeric id matches. Two-phase-
-     * safe for free: this only ever runs in phase 2 (finalize_term()),
-     * after phase 1 has already inserted every term row (source AND
-     * target) and its ledger entries for this whole apply run.
-     */
-    private function reconcile_term_relationships(int $termId, string $taxonomy, array $relField): void {
-        global $wpdb;
-        foreach (array_keys($relField) as $tax) {
-            $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
-            if ($keyspace !== 'term') {
-                throw new \RuntimeException(
-                    "duo: term $termId ($taxonomy) declares relationships.$tax, but manifest object_keyspace "
-                    . "is '$keyspace' — term relationships require object_keyspace=term"
-                );
-            }
-        }
-        $taxes = $this->term_object_taxes();
-        if (!$taxes) {
-            return;
-        }
-        $desiredTt = [];
-        foreach ($relField as $tax => $uuids) {
-            if (!in_array($tax, $taxes, true)) {
-                // Not a taxonomy this environment currently owns as term-
-                // object (stale file from before this capability existed,
-                // or a hand edit) — never let it reach the ledger lookup /
-                // INSERT below, mirroring reconcile_relationships()'s
-                // identical guard on the post side.
-                continue;
-            }
-            foreach ((array) $uuids as $u) {
-                $tt = Ledger::id_for($u, Ledger::KIND_TT)
-                    ?? throw new \RuntimeException("duo: term {$termId} ($taxonomy) references unresolvable term $u ($tax)");
-                $desiredTt[$tt] = true;
-            }
-        }
-        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $current = $wpdb->get_col($wpdb->prepare(
-            "SELECT tr.term_taxonomy_id FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            $termId
-        )) ?: [];
-        foreach ($current as $tt) {
-            if (!isset($desiredTt[(int) $tt])) {
-                Db::delete($wpdb->term_relationships, ['object_id' => $termId, 'term_taxonomy_id' => (int) $tt], null, 'apply delete term-object relationship');
-            }
-        }
-        foreach (array_keys($desiredTt) as $tt) {
-            if (!in_array((string) $tt, array_map('strval', $current), true)) {
-                Db::insert($wpdb->term_relationships, [
-                    'object_id' => $termId, 'term_taxonomy_id' => $tt, 'term_order' => 0,
-                ], null, 'apply insert term-object relationship');
-            }
-        }
+        $this->term_materializer()->finalize_term($front, $this->term_object_taxes());
     }
 
     private function finalize_post(array $front, string $body): void {
