@@ -1648,6 +1648,7 @@ check(
 // deletion guards also consume it. Keep both loader paths and both published
 // attribute vocabularies wired directly to the extracted collaborator.
 $policySource = file_get_contents($repo . '/agent/src/Policy.php');
+$manifestValidatorSource = file_get_contents($repo . '/agent/src/ManifestValidator.php');
 $attributeGrammar = new \ReflectionClass('Duo\\AttributeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
@@ -1656,7 +1657,8 @@ check(
         && $attributeGrammar->hasMethod('attributeValueTypes')
         && $attributeGrammar->hasMethod('attributeTokenizeCodecs')
         && !$policyReflection->hasMethod('validate_attr_rules')
-        && substr_count($policySource, 'AttributeGrammar::validate_attr_rules($manifest, self::CASTS)') === 2
+        && substr_count($policySource, 'AttributeGrammar::validate_attr_rules(') === 0
+        && substr_count($manifestValidatorSource, 'AttributeGrammar::validate_attr_rules(') === 1
         && substr_count($policySource, 'AttributeGrammar::attributeValueTypes()') === 1
         && substr_count($policySource, 'AttributeGrammar::attributeTokenizeCodecs()') === 1
         && !str_contains($policySource, 'ATTR_VALUE_TYPES')
@@ -1673,7 +1675,8 @@ check(
     $referenceShapeGrammar->hasMethod('validate_reference_shapes')
         && $referenceShapeGrammar->getMethod('validate_reference_shapes')->isPublic()
         && !$policyReflection->hasMethod('validate_reference_shapes')
-        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 4,
+        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 2
+        && substr_count($manifestValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1,
     'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while Policy retains keyspace resolution'
 );
 
@@ -1688,9 +1691,11 @@ check(
         && $fieldGrammar->getMethod('validate_menu_field_classes')->isPublic()
         && !$policyReflection->hasMethod('validate_field_classes')
         && !$policyReflection->hasMethod('validate_menu_field_classes')
-        && substr_count($policySource, 'FieldGrammar::validate_field_classes($manifest, self::DERIVABLE_FIELD_COLUMNS, self::FIELD_CLASSES)') === 2
-        && substr_count($policySource, 'FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES)') === 2,
-    'post/menu field declaration grammar lives in FieldGrammar while Policy retains shared field vocabularies'
+        && !str_contains($policySource, 'FieldGrammar::validate_field_classes($manifest,')
+        && !str_contains($policySource, 'FieldGrammar::validate_menu_field_classes($manifest,')
+        && substr_count($manifestValidatorSource, 'FieldGrammar::validate_field_classes(') === 1
+        && substr_count($manifestValidatorSource, 'FieldGrammar::validate_menu_field_classes(') === 1,
+    'post/menu field declaration grammar lives in ManifestValidator while Policy retains shared field vocabularies'
 );
 
 // UserMetaGrammar owns the same safety check for static declarations and
@@ -1704,7 +1709,8 @@ check(
         && $userMetaGrammar->getMethod('validate_user_meta_rule')->isPublic()
         && !$policyReflection->hasMethod('validate_user_meta_rules')
         && !$policyReflection->hasMethod('validate_user_meta_rule')
-        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rules(') === 4
+        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rules(') === 2
+        && substr_count($manifestValidatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
         && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rule(') === 4,
     'user-meta safety grammar lives in UserMetaGrammar for both declarations and interpreter rules'
 );
@@ -1721,7 +1727,8 @@ check(
         && $scopeGrammar->getMethod('scopeClasses')->isPublic()
         && !$policyReflection->hasMethod('validate_scope_classes')
         && !str_contains($policySource, 'SCOPE_CLASSES')
-        && substr_count($policySource, 'ScopeGrammar::validate_scope_classes(') === 4
+        && substr_count($policySource, 'ScopeGrammar::validate_scope_classes(') === 2
+        && substr_count($manifestValidatorSource, 'ScopeGrammar::validate_scope_classes(') === 1
         && substr_count($policySource, 'ScopeGrammar::scopeClasses()') === 3,
     'whole-entity scope declaration grammar and its vocabulary live in ScopeGrammar'
 );

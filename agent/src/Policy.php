@@ -80,6 +80,9 @@ require_once __DIR__ . '/CodeConfigGrammar.php';
 // DUO-3348 slice 27: pure manifest export projection, required here so the
 // stable Policy::export_manifest() facade remains independently loadable.
 require_once __DIR__ . '/PolicyWriter.php';
+// DUO-3348 slice 28: shared per-manifest validation orchestration, required
+// here so the live and frozen loaders retain one grammar pipeline.
+require_once __DIR__ . '/ManifestValidator.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -205,6 +208,33 @@ final class Policy {
         }
     }
 
+    /**
+     * Supply the engine-owned vocabularies used by the pure manifest-local
+     * validator without making ManifestValidator duplicate runtime policy
+     * constants.
+     *
+     * @return array{
+     *   derivable_field_columns: array<string,string>,
+     *   field_classes: list<string>,
+     *   menu_derivable_fields: list<string>,
+     *   menu_field_classes: list<string>,
+     *   casts: list<string>,
+     *   classes: list<string>,
+     *   missing_user_modes: list<string>
+     * }
+     */
+    private static function manifest_validator_vocabulary(): array {
+        return [
+            'derivable_field_columns' => self::DERIVABLE_FIELD_COLUMNS,
+            'field_classes' => self::FIELD_CLASSES,
+            'menu_derivable_fields' => self::MENU_DERIVABLE_FIELDS,
+            'menu_field_classes' => self::MENU_FIELD_CLASSES,
+            'casts' => self::CASTS,
+            'classes' => self::CLASSES,
+            'missing_user_modes' => self::MISSING_USER_MODES,
+        ];
+    }
+
     public static function load(
         ?string $repo,
         ?array $manifestNames = null,
@@ -230,6 +260,7 @@ final class Policy {
             SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
             ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
+        $manifestValidatorVocabulary = self::manifest_validator_vocabulary();
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = PinResolver::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
@@ -287,29 +318,11 @@ final class Policy {
                 // every plugin-bundled manifest.
                 $p->adapterSources->assert_installed_contract($key, $manifest);
             }
-            FieldGrammar::validate_field_classes($manifest, self::DERIVABLE_FIELD_COLUMNS, self::FIELD_CLASSES);
-            FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES);
-            PostTypeGrammar::validate_post_type_children($manifest);
-            PostTypeGrammar::validate_post_type_contracts($manifest);
-            ManifestGrammar::validate_tables($manifest, "manifest '$name'");
-            AttributeGrammar::validate_attr_rules($manifest, self::CASTS);
-            ManifestGrammar::validate_widgets($manifest);
-            PostTypeGrammar::validate_regen_dependencies($manifest);
-            ActionProviderGrammar::validate_providers($manifest);
-            ActionProviderGrammar::validate_actions($manifest);
-            OptionGrammar::validate_env_options($manifest, "manifest '$name'");
-            UserMetaGrammar::validate_user_meta_rules($manifest, "manifest '$name'", self::CLASSES, self::MISSING_USER_MODES);
-            ScopeGrammar::validate_scope_classes($manifest, "manifest '$name'", false);
-            SubKeyGrammar::validate_sub_keys($manifest, "manifest '$name'");
-            TaxonomyGrammar::validate_object_type_option_refs($manifest);
-            TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
-            SubKeyGrammar::validate_dynamic_options($manifest);
-            OptionReferenceGrammar::validate_option_name_refs($manifest);
-            OptionGrammar::validate_option_storage($manifest, "manifest '$name'");
-            AdapterContractGrammar::validate_adapter_contract($manifest);
-            ActionProviderGrammar::validate_effect_contracts($manifest);
-            DiscoveryGrammar::validate_discovery_contract($manifest);
-            ReferenceShapeGrammar::validate_reference_shapes($manifest, "manifest '$name'");
+            ManifestValidator::validate_manifest(
+                $manifest,
+                "manifest '$name'",
+                $manifestValidatorVocabulary
+            );
             $p->manifests[] = $manifest;
         }
         CrossManifestGuards::validate_no_conflicting_option_rules(
@@ -407,6 +420,7 @@ final class Policy {
         ManifestGrammar::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
         SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
         ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
+        $manifestValidatorVocabulary = self::manifest_validator_vocabulary();
 
         $pins = PinResolver::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
         if (count($pins) !== count($snapshot['manifests'])) {
@@ -420,36 +434,12 @@ final class Policy {
             if ($name === '' || !hash_equals((string) $pins[$i]['name'], $name)) {
                 throw new \RuntimeException("duo: frozen policy snapshot manifest order/name disagrees with site pin $i");
             }
-            FieldGrammar::validate_field_classes($manifest, self::DERIVABLE_FIELD_COLUMNS, self::FIELD_CLASSES);
-            FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES);
-            PostTypeGrammar::validate_post_type_children($manifest);
-            PostTypeGrammar::validate_post_type_contracts($manifest);
-            ManifestGrammar::validate_tables($manifest, "frozen manifest '$name'");
-            AttributeGrammar::validate_attr_rules($manifest, self::CASTS);
-            ManifestGrammar::validate_widgets($manifest);
-            PostTypeGrammar::validate_regen_dependencies($manifest);
-            ActionProviderGrammar::validate_providers($manifest);
-            ActionProviderGrammar::validate_actions($manifest);
-            OptionGrammar::validate_env_options($manifest, "frozen manifest '$name'");
-            UserMetaGrammar::validate_user_meta_rules($manifest, "frozen manifest '$name'", self::CLASSES, self::MISSING_USER_MODES);
-            ScopeGrammar::validate_scope_classes($manifest, "frozen manifest '$name'", false);
-            SubKeyGrammar::validate_sub_keys($manifest, "frozen manifest '$name'");
-            TaxonomyGrammar::validate_object_type_option_refs($manifest);
-            // DUO-3318: validate_dynamic_options() was missing here while
-            // load() had called it since DUO-3264. A frozen snapshot is
-            // re-validated precisely so a verification process reaches the
-            // same verdict as the process that froze it; one skipped
-            // validator makes that promise conditional on which entry point
-            // ran, which is exactly the class of divergence this method
-            // exists to rule out.
-            SubKeyGrammar::validate_dynamic_options($manifest);
-            TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
-            OptionReferenceGrammar::validate_option_name_refs($manifest);
-            OptionGrammar::validate_option_storage($manifest, "frozen manifest '$name'");
-            AdapterContractGrammar::validate_adapter_contract($manifest);
-            ActionProviderGrammar::validate_effect_contracts($manifest);
-            DiscoveryGrammar::validate_discovery_contract($manifest);
-            ReferenceShapeGrammar::validate_reference_shapes($manifest, "frozen manifest '$name'");
+            ManifestValidator::validate_manifest(
+                $manifest,
+                "frozen manifest '$name'",
+                $manifestValidatorVocabulary,
+                true
+            );
             $p->manifests[] = $manifest;
         }
         // Provenance is reconstructed before the reviewed registries so both of

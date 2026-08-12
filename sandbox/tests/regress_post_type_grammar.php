@@ -157,12 +157,15 @@ post_type_check(
 );
 
 $policySource = (string) file_get_contents($repo . '/agent/src/Policy.php');
+$manifestValidatorSource = (string) file_get_contents($repo . '/agent/src/ManifestValidator.php');
 post_type_check(
-    substr_count($policySource, 'PostTypeGrammar::validate_post_type_contracts($manifest)') === 2
-        && substr_count($policySource, 'PostTypeGrammar::validate_post_type_children($manifest)') === 2
+    substr_count($policySource, 'PostTypeGrammar::validate_post_type_contracts($manifest)') === 0
+        && substr_count($policySource, 'PostTypeGrammar::validate_post_type_children($manifest)') === 0
+        && substr_count($manifestValidatorSource, 'PostTypeGrammar::validate_post_type_contracts($manifest)') === 1
+        && substr_count($manifestValidatorSource, 'PostTypeGrammar::validate_post_type_children($manifest)') === 1
         && !str_contains($policySource, 'private static function validate_post_type_contracts')
         && !str_contains($policySource, 'private static function validate_post_type_children'),
-    'both Policy loader paths call the collaborators and no private duplicates remain'
+    'ManifestValidator owns both per-manifest post-type calls and no private duplicates remain'
 );
 
 if ($failures !== 0) {

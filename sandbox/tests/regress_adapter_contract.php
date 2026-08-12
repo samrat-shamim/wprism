@@ -390,6 +390,7 @@ check($inRange->invoke(null, '2.0.1', '1.0.0', '2.0.0') === false, 'installed ab
 
 $adapterContractGrammar = new \ReflectionClass('Duo\\AdapterContractGrammar');
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $adapterContractGrammar->hasMethod('validate_adapter_contract')
@@ -398,9 +399,10 @@ check(
         && $adapterContractGrammar->getMethod('validate_no_conflicting_adapter_claims')->isPublic()
         && !$policyReflection->hasMethod('validate_adapter_contract')
         && !$policyReflection->hasMethod('validate_no_conflicting_adapter_claims')
-        && substr_count($policySource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 2
+        && substr_count($policySource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 0
+        && substr_count($manifestValidatorSource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 1
         && substr_count($policySource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests)') === 2,
-    'adapter compatibility contract grammar and its cross-manifest guard live in AdapterContractGrammar'
+    'adapter compatibility grammar lives in ManifestValidator while its cross-manifest guard remains in Policy'
 );
 
 // ======================================================================
