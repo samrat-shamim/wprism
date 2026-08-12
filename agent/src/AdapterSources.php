@@ -46,7 +46,7 @@ namespace Duo;
  *    it is DROPPED and REPORTED, as a `not_installed` row naming its winner, on
  *    every run. The reviewed definition always wins, the loser is never loaded,
  *    and a pin that writes down `source: "plugin"` for that name still refuses
- *    loudly through Policy::validate_manifest_sources(). Refusing the whole
+ *    loudly through PinResolver::validate_manifest_sources(). Refusing the whole
  *    scan instead — the site source's rule — would mean that the day a popular
  *    plugin starts shipping a `duo-adapter.json` whose name this project also
  *    ships, every site running that plugin loses every command through an
