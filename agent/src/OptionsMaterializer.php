@@ -217,7 +217,7 @@ final class OptionsMaterializer {
      * Policy::dynamic_option_rule_for_name()'s matching `continue` then
      * turned that into an unclassified option instead of an error. Built
      * from the declarations instead, the map is complete by construction:
-     * adding a resolver to Policy::DYNAMIC_OPTION_RESOLVERS without teaching
+     * adding a resolver to SubKeyGrammar::DYNAMIC_OPTION_RESOLVERS without teaching
      * this match arm about it now fails loudly, at the first manifest that
      * declares it, naming the missing engine step.
      *
