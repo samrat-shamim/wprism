@@ -325,15 +325,19 @@ final class RefreshPlan {
                 $selectedScope[$identity] = true;
             }
         }
-        // Legacy refresh keeps its valuable per-option three-way planning.
-        // A v1 scope, however, grants authority over options/core as one
-        // atomic canonical record; it may never manufacture a field-level
-        // mixed document from P and W.
-        $wholeOptions = isset($selectedScope['options/core']);
+        // Per-option three-way planning applies uniformly whether or not a
+        // scope contract is present: expand() always explodes options/core
+        // into one virtual identity per authored option name. A v1 scope
+        // grants authority over options/core as a whole SURFACE (no other
+        // manifest/adapter may reach into it), never as one atomic byte
+        // string -- materializeScoped() recombines in-scope per-option
+        // resolutions into the whole document, preserving every
+        // out-of-scope option's baseline bytes untouched, the same
+        // preservation discipline as every other identity.
         $snapshots = [
-            'base' => self::expand($base, $wholeOptions),
-            'production' => self::expand($production, $wholeOptions),
-            'branch' => self::expand($branch, $wholeOptions),
+            'base' => self::expand($base),
+            'production' => self::expand($production),
+            'branch' => self::expand($branch),
         ];
         $keys = [];
         foreach ($snapshots as $snapshot) {
@@ -653,6 +657,22 @@ final class RefreshPlan {
                 $stateByIdentity[(string) $identity] = $row;
             }
         }
+        // Options are not one-identity-one-path like every other surface:
+        // options/core.json holds every authored option in a single
+        // OptionState document, so an in-scope `option:<name>` entry
+        // (expand()'s per-option explosion) must be recombined into ONE
+        // options/core row, never written to its own path. Seed from the
+        // baseline's whole document -- preserving every out-of-scope
+        // option's exact bytes, same discipline as every other identity
+        // below -- and overlay only in-scope per-option resolutions. A null
+        // `selected` here is exactly as safe as it is for any other
+        // identity: applyResolution() already refused an unresolved
+        // conflict before this ever runs, and OptionState never represents
+        // "removed" as a missing map key (only as an explicit 'deleted'
+        // record state), so a genuinely null selection only occurs when
+        // base itself had no row for that option either -- nothing to
+        // preserve.
+        $optionRecords = null;
         foreach ($plan['entries'] as $entry) {
             if (($entry['in_scope'] ?? null) !== true) {
                 continue;
@@ -660,12 +680,34 @@ final class RefreshPlan {
             $identity = (string) ($entry['identity'] ?? '');
             $row = $entry['selected'] ?? null;
             if (str_starts_with($identity, 'option:')) {
-                throw new \RuntimeException('scoped refresh leaked a virtual option row into whole options/core authority');
+                if ($optionRecords === null) {
+                    $baselineOptions = $stateByIdentity['options/core'] ?? null;
+                    $optionRecords = $baselineOptions !== null
+                        ? \Duo\OptionState::records(\Duo\Canon::decode((string) $baselineOptions['content']))
+                        : [];
+                }
+                $name = substr($identity, strlen('option:'));
+                if ($row === null) {
+                    unset($optionRecords[$name]);
+                } else {
+                    $optionRecords[$name] = \Duo\Canon::decode((string) $row['content']);
+                }
+                continue;
             }
             unset($stateByIdentity[$identity]);
             if ($row !== null) {
                 $stateByIdentity[$identity] = $row;
             }
+        }
+        if ($optionRecords !== null) {
+            $content = self::encode(\Duo\OptionState::document($optionRecords));
+            $stateByIdentity['options/core'] = [
+                'identity' => 'options/core',
+                'type' => 'options',
+                'path' => 'options/core.json',
+                'hash' => hash('sha256', $content),
+                'content' => $content,
+            ];
         }
         $stateRows = [];
         foreach ($stateByIdentity as $row) {
@@ -868,11 +910,11 @@ final class RefreshPlan {
     }
 
     /** @return array{states:array<string,mixed>,media:array<string,mixed>} */
-    private static function expand(array $snapshot, bool $wholeOptions = false): array {
+    private static function expand(array $snapshot): array {
         self::loadCompiler();
         $states = [];
         foreach ((array) ($snapshot['records'] ?? []) as $identity => $row) {
-            if ((string) $identity === 'options/core' && !$wholeOptions) {
+            if ((string) $identity === 'options/core') {
                 $document = \Duo\Canon::decode((string) $row['content']);
                 foreach (\Duo\OptionState::records($document) as $name => $record) {
                     $content = \Duo\Canon::encode($record);
