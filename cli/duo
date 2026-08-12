@@ -20,6 +20,7 @@ require __DIR__ . '/src/CommandOutput.php';
 require __DIR__ . '/src/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/PassthroughCommand.php';
 require __DIR__ . '/src/EnvironmentCommandOptions.php';
+require __DIR__ . '/src/DriverCapabilitiesCommand.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -91,6 +92,7 @@ use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
 use Duo\Orchestrator\EnvironmentCommandOptions;
+use Duo\Orchestrator\DriverCapabilitiesCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshFieldResolutionCancelled;
 use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
@@ -683,58 +685,7 @@ function cmd_adapter_observe(EnvironmentDriver $driver, array $extra): int {
 
 /** The one canonical report drives both human and JSON output/exit status. */
 function cmd_driver_capabilities(EnvironmentDriver $driver, array $extra): int {
-    $operation = 'attach';
-    $operationSeen = false;
-    $json = false;
-    foreach ($extra as $arg) {
-        if ($arg === '--format=json') {
-            if ($json) {
-                fwrite(STDERR, "duo: driver-capabilities: duplicate --format=json\n");
-                return 1;
-            }
-            $json = true;
-            continue;
-        }
-        if (str_starts_with($arg, '--operation=')) {
-            if ($operationSeen) {
-                fwrite(STDERR, "duo: driver-capabilities: duplicate --operation\n");
-                return 1;
-            }
-            $operationSeen = true;
-            $operation = substr($arg, strlen('--operation='));
-            if ($operation === '') {
-                fwrite(STDERR, "duo: driver-capabilities: --operation cannot be empty\n");
-                return 1;
-            }
-            continue;
-        }
-        fwrite(STDERR, "duo: driver-capabilities: unsupported flag '$arg'\n");
-        return 1;
-    }
-
-    try {
-        $report = $driver->capabilityReport($operation);
-    } catch (\Throwable $e) {
-        fwrite(STDERR, "duo: driver-capabilities: {$e->getMessage()}\n");
-        return 1;
-    }
-    $body = $report->toArray();
-    if ($json) {
-        echo json_encode($body, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) . "\n";
-    } else {
-        $state = $report->ready() ? 'READY' : 'BLOCKED';
-        echo "driver {$body['driver']['id']} protocol {$body['driver']['protocol']} "
-            . "environment {$body['driver']['environment']} operation {$body['operation']}: $state\n";
-        foreach ($body['requirements'] as $check) {
-            $mark = $check['state'] === 'supported' ? 'PASS' : 'BLOCKED';
-            echo "[$mark] {$check['capability']} — {$check['reason']}\n";
-            if ($check['state'] !== 'supported') {
-                echo "  remediation: {$check['remediation']}\n";
-            }
-        }
-        echo "report {$body['digest']}\n";
-    }
-    return $report->ready() ? 0 : 1;
+    return DriverCapabilitiesCommand::run($driver, $extra);
 }
 
 function render_driver_blockers(DriverCapabilityReport $report): void {
