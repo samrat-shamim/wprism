@@ -21,7 +21,7 @@
     "contact-form-7": {
       "capabilities": {
         "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
-        "entity_sections": [],
+        "entity_sections": ["post_types"],
         "field_sections": ["post_meta", "shortcode_attrs"],
         "lifecycle_phases": ["retire", "activate", "verify"],
         "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]

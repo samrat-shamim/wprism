@@ -361,7 +361,7 @@
     "format": "duo-capability-registry/v1",
     "generated_from": {
         "compatibility_sha256": "31775767564833d8d4963faaaa10e0c79ac52fa0ba57c1b14227ad57edbb2ebe",
-        "dispositions_sha256": "6b5faad0e142911a41a2b001561e97dc44d3be1a2e4528206c3d91a7f6b97d99",
+        "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
         "evidence_sha256": "2e2332ecff9ffebb3f2a628d455ef46a1f1274a89ce43ae96582656d6f8989bc"
     },
     "manifests": {
@@ -453,7 +453,7 @@
             ]
         },
         "contact-form-7": {
-            "adapter_digest": "518589e801f71ffb25eb6bf327ad59f20dcbb08fe7c9bed616224b2b554e0beb",
+            "adapter_digest": "fe0d1cfa814cf32b53fc8d190861a647faf8c693a983440c00c2aed06ac7de72",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -531,6 +531,8 @@
                 "post_meta._mail_2",
                 "post_meta._messages",
                 "post_meta._old_cf7_unit_id",
+                "post_types",
+                "post_types.wpcf7_contact_form",
                 "shortcode_attrs",
                 "shortcode_attrs.contact-form"
             ],

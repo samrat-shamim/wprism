@@ -9,7 +9,7 @@
     "CF7 6.1.6's legacy formatter emits [contact-form <old_id> \"<title>\"], and the runtime resolves that positional integer through _old_cf7_unit_id. The positional shortcode_attrs rule canonicalizes that value to the form's post token in post bodies and structured string leaves (including Elementor payloads), then restores the target form's own alternate on apply; missing, duplicate, non-positive, non-decimal, or wrong-domain alternates refuse loudly.",
     "_hash: a persisted per-form random opaque string (wpcf7_generate_contact_form_hash(), add_post_meta()'d once on first save, never regenerated) — NOT a secret (doesn't match Secrets::HARD_PATTERNS or the suspicious key-name heuristic) and NOT a ref. It matters structurally though: CF7's own shortcode embeds `id=\"<first 7 chars of _hash>\"`, not the numeric post id — WPCF7_ContactForm::find()/hash lookup resolves the shortcode to whichever post currently holds that hash, fresh at every render. Confirmed empirically (docs/grind/r1a-forms.md's round-trip section): because _hash round-trips as ordinary opaque authored postmeta, a page's `[contact-form-7 id=\"...\"]` shortcode text needs no rewriting at all and resolves correctly on a second environment even though the form's own numeric post id differs there — CF7's embedding is ref-safe by construction, unlike Ninja Forms' block/shortcode (see manifests/ninja-forms.json).",
     "_form/_mail/_mail_2/_messages/_additional_settings/_locale: CF7's own save() path (contact-form.php save()) writes each contact-form 'property' as its own postmeta key via update_post_meta($post_id, '_'.$prop, ...) — _form is a plain string (the field markup), _mail/_mail_2 are nested arrays (recipient/subject/body/etc, all plain strings — the whole-structure string-leaf tokenizer handles them for free, same as any other authored nested value), _messages is a flat string map, _locale a locale code string, _additional_settings an opaque multi-line string. None observed to ever contain an id in this exploration.",
-    "wpcf7_contact_form must be added to site.duo.json's policy.post_types for any of this to take effect (manifests cannot declare post_type scope) — see spec/repo-format.md's Manifest registry section."
+    "The manifest declares the non-public wpcf7_contact_form post type so Capture can discover and gate CF7 forms; site.duo.json still controls the site's broader post_type scope."
   ],
   "post_meta": {
     "_additional_settings": {"class": "authored"},
@@ -20,6 +20,9 @@
     "_mail": {"class": "authored"},
     "_mail_2": {"class": "authored"},
     "_messages": {"class": "authored"}
+  },
+  "post_types": {
+    "wpcf7_contact_form": {}
   },
   "shortcode_attrs": {
     "contact-form": [
