@@ -47,6 +47,9 @@ require_once __DIR__ . '/DiscoveryGrammar.php';
 // DUO-3348 slice 16: option declaration/storage grammar, required here for
 // the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/OptionGrammar.php';
+// DUO-3348 slice 17: block/shortcode attribute declaration grammar, required
+// here for the same "loads alone" reason as its neighbors.
+require_once __DIR__ . '/AttributeGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -259,7 +262,7 @@ final class Policy {
             PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "manifest '$name'");
-            self::validate_attr_rules($manifest);
+            AttributeGrammar::validate_attr_rules($manifest, self::CASTS);
             self::validate_widgets($manifest);
             PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
@@ -388,7 +391,7 @@ final class Policy {
             PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "frozen manifest '$name'");
-            self::validate_attr_rules($manifest);
+            AttributeGrammar::validate_attr_rules($manifest, self::CASTS);
             self::validate_widgets($manifest);
             PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
@@ -2961,207 +2964,6 @@ final class Policy {
     }
 
     /**
-     * Loud, load-time guard for the two attribute-rewriting registries
-     * (DUO-3318): `block_attrs` (blockName => list of rules) and its flatter
-     * shortcode twin `shortcode_attrs` (tagName => list of rules).
-     *
-     * Structure only — the ref KIND vocabulary is checked once, across every
-     * pinned manifest, by validate_ref_kinds() below, because a legal kind
-     * includes any declared table's id_kind and no single manifest can see
-     * that set. What this catches is the shape errors that used to fail
-     * silently: Blocks::apply_rewrite() skips any rule whose `path` names an
-     * attribute the block does not carry, so a misspelled `path` is
-     * indistinguishable from "this block simply had no such attribute" — a
-     * declared ref that is never rewritten, leaving a raw environment-local
-     * id in canonical state. `type` decides scalar-vs-list handling and
-     * defaults to 'int', so 'array' or 'int[] ' quietly truncated a gallery's
-     * id list to one dropped attribute.
-     *
-     * Every rule must carry exactly one disposition, because the four are
-     * mutually exclusive dispatch branches in Blocks.php, not composable
-     * flags: `lint_ok` (declared non-ref, nothing to rewrite),
-     * `tokenize: "text"` (a URL-bearing string attribute), `kind` (a static
-     * ref kind), or `kind_from` (a ref kind dispatched from a sibling
-     * attribute's value). A rule with none of them reaches
-     * Blocks::resolve_kind()'s own throw at REWRITE time, mid-capture, on
-     * whichever post happened to contain that block first.
-     */
-    private static function validate_attr_rules(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach (['block_attrs', 'shortcode_attrs'] as $section) {
-            $registry = $manifest[$section] ?? [];
-            if (!is_array($registry) || (array_is_list($registry) && $registry !== [])) {
-                throw new \RuntimeException("duo: manifest '$name' $section must be an object keyed by name");
-            }
-            foreach ($registry as $subject => $rules) {
-                $where = "manifest '$name' $section.$subject";
-                if (!is_array($rules) || !array_is_list($rules) || $rules === []) {
-                    throw new \RuntimeException("duo: $where must be a non-empty list of rules");
-                }
-                $hasPositionRule = false;
-                $hasPathRule = false;
-                foreach ($rules as $candidate) {
-                    if (!is_array($candidate)) {
-                        continue;
-                    }
-                    $hasPositionRule = $hasPositionRule || array_key_exists('position', $candidate);
-                    $hasPathRule = $hasPathRule || array_key_exists('path', $candidate);
-                }
-                if ($hasPositionRule && $hasPathRule) {
-                    throw new \RuntimeException(
-                        "duo: $where cannot mix positional and named path rules; positional callbacks consume "
-                        . 'the first parsed value and have no defined selector for named attributes'
-                    );
-                }
-                $seenPositions = [];
-                foreach ($rules as $i => $rule) {
-                    if (is_array($rule) && array_key_exists('position', $rule)) {
-                        $position = $rule['position'];
-                        if (is_int($position) && isset($seenPositions[$position])) {
-                            throw new \RuntimeException(
-                                "duo: $where[$i].position duplicates position $position already declared at index "
-                                . $seenPositions[$position]
-                            );
-                        }
-                        if (is_int($position)) {
-                            $seenPositions[$position] = $i;
-                        }
-                    }
-                    self::validate_attr_rule($rule, $section, $where . "[$i]");
-                }
-            }
-        }
-    }
-
-    /** The closed `block_attrs`/`shortcode_attrs` `type` vocabulary. */
-    private const ATTR_VALUE_TYPES = ['int', 'int[]'];
-    /** The closed attribute `tokenize` codec vocabulary (the home/uploads URL pass). */
-    private const ATTR_TOKENIZE_CODECS = ['text'];
-
-    /** One `block_attrs`/`shortcode_attrs` entry. @see validate_attr_rules() */
-    private static function validate_attr_rule(mixed $rule, string $section, string $where): void {
-        if (!is_array($rule) || (array_is_list($rule) && $rule !== [])) {
-            throw new \RuntimeException("duo: $where must be an object");
-        }
-        $hasPathKey = array_key_exists('path', $rule);
-        $hasPath = is_string($rule['path'] ?? null) && $rule['path'] !== '';
-        $hasPosition = array_key_exists('position', $rule);
-        if ($hasPosition && $hasPathKey) {
-            throw new \RuntimeException(
-                "duo: $where must declare exactly one of path or position — the two locator forms cannot be combined"
-            );
-        }
-        if ($hasPathKey && !$hasPath && !$hasPosition) {
-            // Preserve the long-standing diagnostic for malformed path rules;
-            // callers and the manifest grammar regression depend on this
-            // precise refusal while positional rules use their own vocabulary.
-            throw new \RuntimeException(
-                "duo: $where.path must be a non-empty attribute name — an unmatched path is silently skipped at "
-                . 'rewrite time, so a declared ref would never actually be tokenized'
-            );
-        }
-        if (($hasPath ? 1 : 0) + ($hasPosition ? 1 : 0) !== 1) {
-            throw new \RuntimeException(
-                "duo: $where must declare exactly one non-empty path or positional index — an unmatched path is "
-                . 'silently skipped at rewrite time, so a declared ref would never actually be tokenized'
-            );
-        }
-        if ($hasPosition) {
-            if ($section !== 'shortcode_attrs' || !is_int($rule['position']) || $rule['position'] < 0) {
-                throw new \RuntimeException(
-                    "duo: $where.position must be a non-negative integer and is supported only for shortcode_attrs"
-                );
-            }
-            $ruleKeys = array_keys($rule);
-            $expectedRuleKeys = ['kind', 'position', 'lookup'];
-            sort($ruleKeys, SORT_STRING);
-            sort($expectedRuleKeys, SORT_STRING);
-            if ($ruleKeys !== $expectedRuleKeys) {
-                throw new \RuntimeException(
-                    "duo: $where positional refs have a closed vocabulary: exactly {kind,position,lookup}"
-                );
-            }
-            if (!is_array($rule['lookup'] ?? null)
-                || !is_string($rule['lookup']['post_meta'] ?? null)
-                || $rule['lookup']['post_meta'] === ''
-                || !is_string($rule['lookup']['post_type'] ?? null)
-                || $rule['lookup']['post_type'] === '') {
-                throw new \RuntimeException(
-                    "duo: $where.lookup must declare non-empty post_meta and post_type domains for a positional ref"
-                );
-            }
-            if (array_diff(array_keys($rule['lookup']), ['post_meta', 'post_type']) !== []
-                || count(array_unique(array_keys($rule['lookup']))) !== 2
-                || array_key_exists('cast', $rule)
-                || array_key_exists('type', $rule)
-                || array_key_exists('lint_ok', $rule)) {
-                throw new \RuntimeException("duo: $where positional refs have a closed vocabulary: lookup={post_meta,post_type}, kind=post, position only");
-            }
-            if (($rule['kind'] ?? null) !== 'post'
-                || array_key_exists('kind_from', $rule)
-                || array_key_exists('tokenize', $rule)) {
-                throw new \RuntimeException(
-                    "duo: $where positional refs require static kind=post and cannot use kind_from, tokenize, or lint_ok"
-                );
-            }
-        } elseif (array_key_exists('lookup', $rule)) {
-            throw new \RuntimeException("duo: $where.lookup is allowed only on positional shortcode refs");
-        }
-        if (array_key_exists('lint_ok', $rule) && !is_bool($rule['lint_ok'])) {
-            throw new \RuntimeException("duo: $where.lint_ok must be a boolean");
-        }
-        if (array_key_exists('type', $rule) && !in_array($rule['type'], self::ATTR_VALUE_TYPES, true)) {
-            throw new \RuntimeException(
-                "duo: $where.type=" . var_export($rule['type'], true) . ' but the attribute-value vocabulary is '
-                . 'closed and engine-owned (int, int[]); an id-bearing attribute is either one id or a native '
-                . 'list of them, and any other shape needs engine support before it can be declared'
-            );
-        }
-        if (array_key_exists('cast', $rule) && !in_array($rule['cast'], self::CASTS, true)) {
-            throw new \RuntimeException(
-                "duo: $where.cast=" . var_export($rule['cast'], true) . ' but only '
-                . implode('|', self::CASTS) . ' are supported'
-            );
-        }
-        if (array_key_exists('tokenize', $rule) && !in_array($rule['tokenize'], self::ATTR_TOKENIZE_CODECS, true)) {
-            throw new \RuntimeException(
-                "duo: $where.tokenize=" . var_export($rule['tokenize'], true)
-                . " but the only supported codec for an attribute is \"text\" (the ordinary home/uploads URL pass)"
-            );
-        }
-        if (array_key_exists('kind_from', $rule)) {
-            $from = $rule['kind_from'];
-            if (!is_array($from) || !is_string($from['attr'] ?? null) || ($from['attr'] ?? '') === ''
-                || !is_array($from['map'] ?? null) || ($from['map'] ?? []) === []) {
-                throw new \RuntimeException(
-                    "duo: $where.kind_from must declare a non-empty sibling `attr` and a non-empty `map` of that "
-                    . "attribute's values to ref kinds"
-                );
-            }
-            if (array_key_exists('kind', $rule)) {
-                throw new \RuntimeException(
-                    "duo: $where declares BOTH kind and kind_from — a rule's ref kind is either static or "
-                    . 'dispatched from a sibling attribute, never both'
-                );
-            }
-        }
-        $dispositions = array_filter([
-            'lint_ok' => !empty($rule['lint_ok']),
-            'tokenize' => array_key_exists('tokenize', $rule),
-            'kind' => array_key_exists('kind', $rule),
-            'kind_from' => array_key_exists('kind_from', $rule),
-        ]);
-        if ($dispositions === []) {
-            throw new \RuntimeException(
-                "duo: $where declares none of kind, kind_from, tokenize, or lint_ok — every "
-                . ($section === 'block_attrs' ? 'block' : 'shortcode') . ' attribute rule must say what the '
-                . 'engine should do with the value it names; a rule with no disposition is refused here rather '
-                . 'than reaching its throw mid-capture, on whichever entity happened to carry it first'
-            );
-        }
-    }
-
-    /**
      * Loud, load-time guard for the widget registry (DUO-3318).
      *
      * SidebarState::assert_declared_types() has always checked this shape,
@@ -4531,8 +4333,8 @@ final class Policy {
             'engine_ref_kinds' => self::ENGINE_REF_KINDS,
             'engine_token_kinds' => self::ENGINE_TOKEN_KINDS,
             'engine_ledger_kinds' => self::ENGINE_LEDGER_KINDS,
-            'attribute_value_types' => self::ATTR_VALUE_TYPES,
-            'attribute_tokenize_codecs' => self::ATTR_TOKENIZE_CODECS,
+            'attribute_value_types' => AttributeGrammar::attributeValueTypes(),
+            'attribute_tokenize_codecs' => AttributeGrammar::attributeTokenizeCodecs(),
             'widget_setting_codecs' => ManifestGrammar::widgetSettingCodecs(),
             'widget_setting_refs' => ManifestGrammar::widgetSettingRefs(),
             'action_kinds' => ActionProviderGrammar::actionKinds(),
