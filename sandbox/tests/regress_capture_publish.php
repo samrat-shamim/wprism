@@ -33,6 +33,43 @@
  * and the script exits 1.
  */
 
+// DUO-3442: Capture owns a direct Canary dependency. Keep this probe in a
+// fresh PHP process so the parent harness cannot accidentally preload Canary
+// through duo.php or another fixture. The call deliberately stops at the
+// next legitimate dependency wall in this WordPress-free harness; the
+// regression is that Canary must not be the first failure.
+$captureStandalone = __DIR__ . '/../../agent/src/Capture.php';
+$probeCode = 'require_once ' . var_export($captureStandalone, true) . ';'
+    . 'if (!class_exists("Duo\\\\Canary", false)) {'
+    . ' fwrite(STDERR, "Capture.php did not load Duo\\\\Canary\\n"); exit(2);'
+    . '}'
+    . 'try { Duo\\Capture::snapshot("/tmp/duo-capture-canary-probe"); }'
+    . ' catch (Throwable $e) {'
+    . ' if (strpos($e->getMessage(), "Canary") !== false) {'
+    . '  fwrite(STDERR, "Capture reached a Canary class failure: " . $e->getMessage() . "\\n"); exit(3);'
+    . ' }'
+    . ' exit(0);'
+    . '}'
+    . 'exit(0);';
+$probe = proc_open([PHP_BINARY, '-d', 'display_errors=1', '-r', $probeCode], [
+    0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
+], $probePipes);
+if (!is_resource($probe)) {
+    fwrite(STDERR, "FAIL: could not start Capture standalone-load probe\n");
+    exit(1);
+}
+fclose($probePipes[0]);
+$probeStdout = stream_get_contents($probePipes[1]);
+$probeStderr = stream_get_contents($probePipes[2]);
+fclose($probePipes[1]);
+fclose($probePipes[2]);
+$probeExit = proc_close($probe);
+if ($probeExit !== 0) {
+    fwrite(STDERR, "FAIL: Capture standalone-load probe exited $probeExit: " . trim($probeStderr . $probeStdout) . "\n");
+    exit(1);
+}
+fwrite(STDOUT, "ok: Capture standalone load reaches its next dependency wall without a Canary class failure\n");
+
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/fixtures/duo-publish-stale-is-file.php';

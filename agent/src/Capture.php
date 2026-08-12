@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
+require_once __DIR__ . '/Canary.php';
 
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/StructuredValue.php';
