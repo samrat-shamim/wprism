@@ -60,8 +60,13 @@
 if (!class_exists('Duo\\Canon', false)) {
     require_once dirname(__DIR__, 2) . '/agent/src/Canon.php';
 }
+require_once dirname(__DIR__, 2) . '/agent/src/ManifestDispositions.php';
+require_once dirname(__DIR__, 2) . '/agent/src/CapabilityRegistry.php';
 
 use Duo\Canon;
+use Duo\CapabilityRegistry;
+use Duo\ManifestDispositions;
+use Duo\ScopedCertificationBundle;
 
 /** Recursive byte-for-byte directory copy into a (created) destination. */
 function duo_cert_copy_tree(string $from, string $to): void {
@@ -122,6 +127,128 @@ function duo_cert_library_bytes(string $manifestDir): array {
     return $out;
 }
 
+/** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
+function duo_cert_scoped_artifacts(string $root, array $manifest): array {
+    $plugin = $manifest['plugin'] ?? null;
+    if (!is_string($plugin) || !str_contains($plugin, '/')) {
+        throw new \RuntimeException('certification fixture manufacture failed: scoped subject is not plugin-backed');
+    }
+    $slug = strstr($plugin, '/', true);
+    $lock = Canon::decode(Canon::read_file("$root/sandbox/conformance/artifacts.lock.json"));
+    $entries = is_array($lock) ? ($lock['plugins'][$slug] ?? null) : null;
+    if (!is_array($entries) || array_is_list($entries)) {
+        throw new \RuntimeException("certification fixture manufacture failed: scoped subject '$slug' has no artifact lock entries");
+    }
+    $out = [];
+    foreach ($entries as $version => $entry) {
+        if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
+            continue;
+        }
+        $out[] = [
+            'name' => $slug,
+            'role' => $entry['role'],
+            'sha256' => $entry['sha256'] ?? null,
+            'url' => $entry['url'] ?? null,
+            'version' => (string) $version,
+        ];
+    }
+    usort($out, static fn(array $a, array $b): int => strcmp(
+        $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
+        $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
+    ));
+    if ($out === []) {
+        throw new \RuntimeException("certification fixture manufacture failed: scoped subject '$slug' has no certified artifact boundary");
+    }
+    return $out;
+}
+
+/**
+ * Re-derive every scoped record on the fixture root while retaining its real,
+ * passing durable assets.  A generic bound-input edit expires the checked-in
+ * record deliberately; a hermetic fixture must refresh its closure, platform,
+ * reviewed ratification, and content address or its synthetic `current` claim
+ * would be the very stale projection runtime validation is meant to reject.
+ */
+function duo_cert_reseal_scoped_evidence(array &$evidence, array &$registry, string $root): void {
+    $scopedEntries = $evidence['scoped'] ?? [];
+    if (!is_array($scopedEntries) || array_is_list($scopedEntries)) {
+        throw new \RuntimeException('certification fixture manufacture failed: scoped evidence collection is malformed');
+    }
+    $dispositions = ManifestDispositions::load("$root/manifests");
+    if ($dispositions === null) {
+        throw new \RuntimeException('certification fixture manufacture failed: fixture dispositions are absent');
+    }
+    foreach ($scopedEntries as $name => $entry) {
+        $record = is_array($entry) ? ($entry['bundle'] ?? null) : null;
+        $oldPath = is_array($entry) ? ($entry['path'] ?? null) : null;
+        if (!is_string($name) || !is_array($record) || !is_string($oldPath)) {
+            throw new \RuntimeException('certification fixture manufacture failed: scoped evidence entry is malformed');
+        }
+        ScopedCertificationBundle::validate($record, "fixture scoped certification '$name'");
+        if (!hash_equals('scoped/' . $name . '/' . $record['bundle_digest'], $oldPath)) {
+            throw new \RuntimeException("certification fixture manufacture failed: scoped evidence path for '$name' is not canonical");
+        }
+        $manifest = Canon::decode(Canon::read_file("$root/manifests/$name.json"));
+        $disposition = $dispositions->entry($name);
+        if (!is_array($manifest) || !is_array($disposition)) {
+            throw new \RuntimeException("certification fixture manufacture failed: scoped subject '$name' is absent");
+        }
+        $claim = $registry['manifests'][$name] ?? null;
+        if (!is_array($claim)) {
+            throw new \RuntimeException("certification fixture manufacture failed: scoped claim '$name' is absent");
+        }
+        $requiredTests = $disposition['evidence']['tests'] ?? null;
+        if (!is_array($requiredTests) || !array_is_list($requiredTests)) {
+            throw new \RuntimeException("certification fixture manufacture failed: scoped test citations for '$name' are malformed");
+        }
+        $record['adapter_digest'] = CapabilityRegistry::adapter_digest($manifest, $disposition, "$root/manifests");
+        $record['artifacts'] = duo_cert_scoped_artifacts($root, $manifest);
+        $record['platform'] = $registry['platform'];
+        $record['ratification'] = [
+            'disposition' => $disposition,
+            'manifest' => $name,
+            'sha256' => hash('sha256', Canon::encode($disposition)),
+        ];
+        $inputs = ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']);
+        $record['closure'] = [
+            'digest' => ScopedCertificationBundle::closureDigest($inputs),
+            'inputs' => $inputs,
+        ];
+        $record['claims'] = ['manifests.' . $name => $requiredTests];
+        $record['bundle_digest'] = ScopedCertificationBundle::digest($record);
+        ScopedCertificationBundle::validate($record, "fixture scoped certification '$name'");
+
+        $oldDir = "$root/manifests/capabilities/$oldPath";
+        $newPath = 'scoped/' . $name . '/' . $record['bundle_digest'];
+        $newDir = "$root/manifests/capabilities/$newPath";
+        if (!is_dir($oldDir) || is_link($oldDir)) {
+            throw new \RuntimeException("certification fixture manufacture failed: durable scoped evidence for '$name' is absent");
+        }
+        duo_cert_copy_tree($oldDir, $newDir);
+        Canon::write_file("$newDir/bundle.json", Canon::encode($record));
+        ScopedCertificationBundle::assertEvidenceAssets($record, $newDir);
+        ScopedCertificationBundle::assertCurrent(
+            $record,
+            $name,
+            $record['adapter_digest'],
+            $registry['platform'],
+            ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']),
+            $requiredTests,
+            $disposition,
+            duo_cert_scoped_artifacts($root, $manifest)
+        );
+        $evidence['scoped'][$name] = ['bundle' => $record, 'path' => $newPath];
+        $claim['evidence']['adapter_digest'] = $record['adapter_digest'];
+        $claim['evidence']['bundle_digest'] = $record['bundle_digest'];
+        $claim['evidence']['closure_digest'] = $record['closure']['digest'];
+        $claim['evidence']['force_hatches'] = [];
+        $claim['evidence']['status'] = 'current';
+        $claim['evidence']['subject'] = $name;
+        $claim['evidence']['tests'] = $requiredTests;
+        $registry['manifests'][$name] = $claim;
+    }
+}
+
 /**
  * Copy $repo's shipped library into $root and re-seal its attestation against
  * $repo's working tree. Returns the sealed manifests directory ("$root/manifests").
@@ -161,8 +288,7 @@ function duo_cert_seal_library(string $repo, string $root): string {
     // durable evidence path, rather than trusting the generated projection.
     // Preserve that invariant in this hermetic fixture: copy every declared
     // scoped closure byte from the real source tree beside the copied manifest
-    // library.  Re-sealing only the global attestation must not make a scoped
-    // claim look current while its closure is absent.
+    // library before re-sealing its raw record below.
     foreach ($evidence['scoped'] ?? [] as $name => $entry) {
         $scoped = is_array($entry) ? ($entry['bundle'] ?? null) : null;
         $inputs = is_array($scoped) ? ($scoped['closure']['inputs'] ?? null) : null;
@@ -188,6 +314,8 @@ function duo_cert_seal_library(string $repo, string $root): string {
             }
         }
     }
+
+    duo_cert_reseal_scoped_evidence($evidence, $registry, $root);
 
     // Bind the attestation to the bytes this tree actually has — what
     // re-running certification on it would record. A bound input the branch
