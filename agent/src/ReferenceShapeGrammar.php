@@ -12,8 +12,8 @@ require_once __DIR__ . '/ReferenceRules.php';
  * This class enumerates the declaration surfaces that carry a generic
  * reference value rule and delegates each rule's local vocabulary to
  * ReferenceRules. It deliberately does not resolve keyspaces against a
- * loaded policy: that cross-manifest operation still belongs to Policy's
- * reference-keyspace pass, which needs declared table state.
+ * loaded policy: that cross-manifest operation belongs to
+ * ReferenceKeyspaceGrammar, which receives declared table state explicitly.
  */
 final class ReferenceShapeGrammar {
     /**

@@ -65,6 +65,10 @@ require_once __DIR__ . '/ScopeGrammar.php';
 // DUO-3348 slice 22: adapter compatibility contract grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/AdapterContractGrammar.php';
+// DUO-3348 slice 23: cross-source reference-keyspace and attached-meta
+// ownership grammar, required here for the same "loads alone" reason as its
+// neighbors above.
+require_once __DIR__ . '/ReferenceKeyspaceGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -310,7 +314,11 @@ final class Policy {
         CrossManifestGuards::validate_unique_table_id_kinds($p->declared_tables());
         CrossManifestGuards::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
         CrossManifestGuards::validate_no_conflicting_description_reference_rules($p->manifests);
-        self::validate_reference_keyspaces_and_sidecars($p);
+        ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(
+            $p->site['policy'] ?? [],
+            $p->manifests,
+            $p->declared_tables()
+        );
         PinResolver::validate_manifest_pins($pins, $p);
         $p->adapterSources->bind_explicit_pins($pins);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
@@ -472,7 +480,11 @@ final class Policy {
         CrossManifestGuards::validate_unique_table_id_kinds($p->declared_tables());
         CrossManifestGuards::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
         CrossManifestGuards::validate_no_conflicting_description_reference_rules($p->manifests);
-        self::validate_reference_keyspaces_and_sidecars($p);
+        ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(
+            $p->site['policy'] ?? [],
+            $p->manifests,
+            $p->declared_tables()
+        );
         PinResolver::validate_manifest_pins($pins, $p);
         $p->adapterSources->bind_explicit_pins($pins);
         return $p;
@@ -2695,118 +2707,6 @@ final class Policy {
     /** @return array{rule:?array, source:?string} */
     public function menu_field_rule_details(string $field): array {
         return $this->rule_details('menu_fields', $field);
-    }
-
-    /**
-     * Resolve keyspace names only after every pinned manifest is loaded, so
-     * one adapter may safely refer to an authored table declared by another
-     * without making pin order semantic. Also reject the pre-existing flat
-     * wire ambiguity where two EAV sidecars attach to one row table.
-     */
-    private static function validate_reference_keyspaces_and_sidecars(self $policy): void {
-        $allowed = ['post', 'term', 'tt'];
-        foreach ($policy->declared_tables() as $table => $declaration) {
-            if (($declaration['class'] ?? '') === 'authored_snapshot') {
-                $kind = (string) ($declaration['id_kind'] ?? '');
-                if ($kind !== '') {
-                    $allowed[] = $kind;
-                }
-            }
-        }
-        $allowed = array_values(array_unique($allowed));
-
-        $checkSource = static function (array $source, string $label) use ($allowed): void {
-            foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
-                foreach (($source[$section] ?? []) as $name => $rule) {
-                    if (is_array($rule) && !array_is_list($rule)) {
-                        self::assert_reference_rule_keyspaces($rule, $allowed, "$label.$section.$name");
-                    }
-                }
-            }
-            foreach (['option_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
-                foreach (($source[$section] ?? []) as $i => $rule) {
-                    if (is_array($rule) && !array_is_list($rule)) {
-                        self::assert_reference_rule_keyspaces($rule, $allowed, "$label.{$section}[$i]");
-                    }
-                }
-            }
-            foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
-                foreach (($declaration['sub_keys'] ?? []) as $key => $rule) {
-                    if (is_array($rule) && !array_is_list($rule)) {
-                        self::assert_reference_rule_keyspaces(
-                            $rule,
-                            $allowed,
-                            "$label.dynamic_options.$name.sub_keys.$key"
-                        );
-                    }
-                }
-            }
-            foreach (($source['taxonomies'] ?? []) as $taxonomy => $declaration) {
-                if (isset($declaration['description_refs'])) {
-                    $normalized = ReferenceRules::description(
-                        $declaration['description_refs'],
-                        "$label.taxonomies.$taxonomy.description_refs"
-                    );
-                    ReferenceRules::assert_keyspaces(
-                        $normalized,
-                        $allowed,
-                        "$label.taxonomies.$taxonomy.description_refs"
-                    );
-                }
-            }
-            foreach (($source['tables'] ?? []) as $table => $declaration) {
-                if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
-                    continue;
-                }
-                foreach (($declaration['keys'] ?? []) as $key => $rule) {
-                    if (is_array($rule) && !array_is_list($rule)) {
-                        self::assert_reference_rule_keyspaces(
-                            $rule,
-                            $allowed,
-                            "$label.tables.$table.keys.$key"
-                        );
-                    }
-                }
-            }
-        };
-
-        $checkSource($policy->site['policy'] ?? [], 'site.duo.json');
-        foreach ($policy->manifests as $manifest) {
-            $checkSource($manifest, "manifest '" . ($manifest['name'] ?? '?') . "'");
-        }
-
-        $owners = [];
-        foreach ($policy->declared_tables() as $table => $declaration) {
-            if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
-                continue;
-            }
-            $attached = $declaration['attached_to'] ?? null;
-            if (!is_array($attached) || array_is_list($attached)
-                || !is_string($attached['table'] ?? null) || $attached['table'] === ''
-                || !is_string($attached['column'] ?? null) || $attached['column'] === '') {
-                throw new \RuntimeException(
-                    "duo: attached-meta table '$table' must declare attached_to {table, column}"
-                );
-            }
-            $owner = $attached['table'];
-            if (isset($owners[$owner])) {
-                throw new \RuntimeException(
-                    "duo: attached-meta tables '{$owners[$owner]}' and '$table' both attach to '$owner'; "
-                    . 'the canonical row has one flat meta map, so multiple sidecars are ambiguous'
-                );
-            }
-            $owners[$owner] = $table;
-        }
-    }
-
-    /** @param string[] $allowed */
-    private static function assert_reference_rule_keyspaces(array $rule, array $allowed, string $where): void {
-        ReferenceRules::assert_keyspaces($rule, $allowed, $where);
-        foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
-            if (is_array($subRule) && !array_is_list($subRule)) {
-                self::assert_reference_rule_keyspaces($subRule, $allowed, "$where.sub_keys.$name");
-            }
-        }
     }
 
     /**
