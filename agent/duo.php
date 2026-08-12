@@ -25,6 +25,7 @@ require_once __DIR__ . '/src/PersonalData.php';
 require_once __DIR__ . '/src/ManifestDispositions.php';
 require_once __DIR__ . '/src/AdapterSources.php';
 require_once __DIR__ . '/src/CapabilityRegistry.php';
+require_once __DIR__ . '/src/ScopedCertificationBundle.php';
 require_once __DIR__ . '/src/NativeActions.php';
 require_once __DIR__ . '/src/ReferenceRules.php';
 require_once __DIR__ . '/src/ManifestGrammar.php';
