@@ -49,6 +49,35 @@ assert_redacted_json_refusal() {
     || fail "$label did not use the reviewed redacted JSON envelope: $json"
 }
 
+assert_typed_json_refusal() {
+  local error_code="$1" message="$2" remediation="$3" key="$4" shape_key="$5" shape="$6" output="$7" label="$8" json
+  json=$(tail -n 1 <<<"$output")
+  jq -e \
+    --arg error_code "$error_code" \
+    --arg message "$message" \
+    --arg remediation "$remediation" \
+    --arg key "$key" \
+    --arg shape_key "$shape_key" \
+    --arg shape "$shape" '
+      (keys | sort) == ["command", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
+      and .format == "duo-command-refusal/v1"
+      and .ok == false
+      and .command == "capture"
+      and .error == $error_code
+      and .reason_code == $error_code
+      and .message == $message
+      and .remediation == $remediation
+      and (.diagnostics | length == 1)
+      and .diagnostics[0].code == $error_code
+      and .diagnostics[0].surface == "user_meta"
+      and .diagnostics[0].key == $key
+      and .diagnostics[0][$shape_key] == $shape
+      and (.diagnostics[0].message | type) == "string"
+      and (.diagnostics[0].remediation | type) == "string"
+    ' <<<"$json" >/dev/null \
+    || fail "$label did not use the reviewed typed JSON refusal envelope: $json"
+}
+
 command -v jq >/dev/null || fail "jq required"
 
 say "reset and converge this test's own pair"
@@ -181,7 +210,11 @@ wp1 user meta update "$SOURCE_PII" contact_email editor@example.test >/dev/null
 if PII_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "PII-bearing authored user meta should refuse without allow_pii"
 fi
-assert_redacted_json_refusal capture "$PII_FAIL" "PII refusal"
+assert_typed_json_refusal \
+  personal_data_refused \
+  "capture found personal data on an authored user-meta surface" \
+  "keep the named field environment-local, or record an explicit reviewed allow-pii decision" \
+  contact_email personal_data_shape "email address" "$PII_FAIL" "PII refusal"
 
 tmp_policy=$(mktemp)
 jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
@@ -190,7 +223,11 @@ wp1 user meta update "$SOURCE_PII" api_token ghp_abcdefghijklmnopqrstuvwxyz12345
 if SECRET_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "secret-bearing authored user meta should refuse without allow_secret"
 fi
-assert_redacted_json_refusal capture "$SECRET_FAIL" "secret refusal"
-pass "PII and hard-secret scanning refuse in JSON with the reviewed redacted envelope"
+assert_typed_json_refusal \
+  secret_state_refused \
+  "capture found secret-shaped data on an authored surface" \
+  "reclassify the named surface as environment/runtime state, or explicitly review and allow the false positive" \
+  api_token secret_shape "github token" "$SECRET_FAIL" "secret refusal"
+pass "PII and hard-secret scanning refuse in JSON with reviewed typed envelopes"
 
 printf '\nREGRESS_USER_META PASSED\n'
