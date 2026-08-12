@@ -1035,6 +1035,51 @@ check(($removedOptions['blogname']['state'] ?? null) === 'absent'
     && ($removedOptions['active_plugins']['state'] ?? null) === 'absent',
     'materializing the resolved plan writes blogname as absent() while leaving every other option byte-for-byte untouched');
 
+// A scope contract can select options/core even when a PARTICULAR
+// checkout's baseline never captured one at all (e.g. a fresh site with no
+// authored option ever captured, or a branch created before this repo
+// authored any). materializeScoped() must synthesize a fresh document
+// instead of assuming a baseline row exists to seed from.
+$noOptionsBase = $optionsBase;
+unset($noOptionsBase['records']['options/core']);
+$noOptionsBranch = $noOptionsBase;
+$newOptionContent = options(['blogname' => OptionState::present('brand-new-title', 'yes')]);
+$noOptionsProduction = $noOptionsBase;
+$noOptionsProduction['records']['options/core'] = [
+    'identity' => 'options/core', 'type' => 'options', 'path' => 'options/core.json',
+    'hash' => hash('sha256', $newOptionContent), 'content' => $newOptionContent,
+];
+$noOptionsProduction['format'] = 'duo-refresh-production/v1';
+$noOptionsProduction['records'] = array_filter(
+    $noOptionsProduction['records'],
+    static fn(string $identity): bool => isset($optionsSelectedSet[$identity]),
+    ARRAY_FILTER_USE_KEY
+);
+$noOptionsProduction['deletions'] = array_filter(
+    $noOptionsProduction['deletions'],
+    static fn(string $identity): bool => isset($optionsSelectedSet[$identity]),
+    ARRAY_FILTER_USE_KEY
+);
+$noOptionsProduction['scope'] = $optionsProduction['scope'];
+$noOptionsProductionBasis = $noOptionsProduction;
+unset($noOptionsProductionBasis['snapshot_hash']);
+$noOptionsProduction['snapshot_hash'] = hash('sha256', Canon::encode($noOptionsProductionBasis));
+$noOptionsPlan = RefreshPlan::plan(
+    $noOptionsBase,
+    $noOptionsProduction,
+    $noOptionsBranch,
+    array_replace($optionsContext, ['production_snapshot_hash' => $noOptionsProduction['snapshot_hash']])
+);
+$noOptionsTree = "$tmp/scoped-options-no-baseline-worktree";
+mkdir($noOptionsTree, 0700, true);
+put("$noOptionsTree/.git", "gitdir: disposable\n");
+put("$noOptionsTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+RefreshPlan::materialize($noOptionsPlan, $noOptionsTree);
+$noBaselineOptions = OptionState::records(Canon::decode(Canon::read_file("$noOptionsTree/state/options/core.json")));
+check(($noBaselineOptions['blogname']['value'] ?? null) === 'brand-new-title'
+    && ($noBaselineOptions['show_on_front']['state'] ?? null) === 'absent',
+    'scoped refresh synthesizes a fresh options/core document when the checkout baseline never captured one at all');
+
 // Selected source bytes and immutable policy/action/effect bytes each flow
 // into a new compiled binding and contract scope hash.
 $firstHash = $contract['scope_hash'];
