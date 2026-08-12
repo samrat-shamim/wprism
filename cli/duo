@@ -17,6 +17,7 @@ require __DIR__ . '/src/Registry.php';
 require __DIR__ . '/src/EnvironmentDriver.php';
 require __DIR__ . '/src/EnvironmentLifecycle.php';
 require __DIR__ . '/src/CommandOutput.php';
+require __DIR__ . '/src/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -85,6 +86,7 @@ use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
 use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\CommandOutput;
+use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshFieldResolutionCancelled;
 use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
@@ -537,8 +539,6 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
-
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
     }
@@ -563,7 +563,7 @@ function main(array $argv): int {
 
     // Same shape, same reason (DUO-3339): the adapter catalog reports what is
     // installed on THIS machine and where it came from. It sits beside
-    // manifest-validate rather than in $verbsNeedingEnv deliberately — the
+    // manifest-validate rather than in the environment-bound vocabulary deliberately — the
     // operator most likely to run `duo adapter doctor` is the one whose
     // repository is in a state that makes every environment-bound command
     // refuse, and requiring an <env> would put the answer behind the problem.
@@ -571,7 +571,7 @@ function main(array $argv): int {
         return AdapterCatalog::run($rest);
     }
 
-    if (!in_array($verb, $verbsNeedingEnv, true)) {
+    if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {
         fwrite(STDERR, "duo: unknown verb '$verb'\n\n" . duo_usage() . "\n");
         return 1;
     }
@@ -599,9 +599,7 @@ function main(array $argv): int {
     $jsonRefusal = wants_agent_refusal_json($verb, $extra);
 
     try {
-        $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
-        $cfg = Registry::get($envs, $envName);
-        $transport = Transport::make($envName, $cfg);
+        $transport = EnvironmentCommandPreflight::resolveTransport($envsFileOverride, getcwd() ?: '.', $envName);
     } catch (\Throwable $e) {
         if ($jsonRefusal) {
             return render_agent_refusal_json(
@@ -619,7 +617,7 @@ function main(array $argv): int {
     }
 
     try {
-        $driverReport = $transport->capabilityReport($verb);
+        $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $verb);
     } catch (\Throwable $e) {
         if ($jsonRefusal) {
             return render_agent_refusal_json(

@@ -49,6 +49,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HOST_CLI="$ROOT/cli/duo"
+HOST_PREFLIGHT="$ROOT/cli/src/EnvironmentCommandPreflight.php"
 AGENT_CLI="$ROOT/agent/src/Cli.php"
 GUIDE_DIR="$ROOT/docs/guides"
 
@@ -56,7 +57,7 @@ TMPDIR_SELFTEST=""
 cleanup() { [ -n "$TMPDIR_SELFTEST" ] && rm -rf "$TMPDIR_SELFTEST"; return 0; }
 trap cleanup EXIT
 
-for required in "$HOST_CLI" "$AGENT_CLI"; do
+for required in "$HOST_CLI" "$HOST_PREFLIGHT" "$AGENT_CLI"; do
     if [ ! -f "$required" ]; then
         echo "check_guide_commands: missing source of truth: $required" >&2
         exit 1
@@ -65,13 +66,22 @@ done
 
 # --- the two allowlists, read out of the source, never hardcoded -------------
 
-# cli/duo dispatch: the $verbsNeedingEnv array plus every verb main() compares
-# directly (that is where `envs` and `driver-capabilities` are handled).
+# cli/duo dispatch: the environment preflight vocabulary plus every verb main()
+# compares directly (that is where offline commands such as `envs` and
+# `driver-capabilities` are handled). The vocabulary is read from the runtime
+# collaborator rather than copied from the host entrypoint.
 host_verbs() {
     {
-        sed -n 's/.*verbsNeedingEnv = \[\(.*\)\];.*/\1/p' "$HOST_CLI"
+        php -r '
+            require $argv[1];
+            foreach (Duo\Orchestrator\EnvironmentCommandPreflight::environmentVerbs() as $verb) {
+                echo $verb, "\n";
+            }
+        ' "$HOST_PREFLIGHT"
         grep -oE "verb === '[a-z][a-z0-9-]*'" "$HOST_CLI"
-    } | grep -oE "'[a-z][a-z0-9-]*'" | tr -d "'" | sort -u
+    } | sed -nE \
+        -e "s/.*'([a-z][a-z0-9-]*)'.*/\\1/p" \
+        -e "/^[a-z][a-z0-9-]*$/p" | sort -u
 }
 
 # agent/src/Cli.php registers the whole class as `wp duo`, so every public
