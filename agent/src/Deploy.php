@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/CodeCompatibility.php';
 require_once __DIR__ . '/DeployPlanner.php';
 require_once __DIR__ . '/LifecyclePlanner.php';
+require_once __DIR__ . '/StateHandoffVerifier.php';
 
 /**
  * docs/proposals/code-half.md §3.4/§6: reconciles active_plugins/template/
@@ -654,86 +655,48 @@ final class Deploy {
         return $out;
     }
 
-    /** @return array{hash:string,document:array<string,mixed>} */
+    /**
+     * Thin compatibility facade over StateHandoffVerifier::options_snapshot()
+     * (DUO-3350 slice 7) -- kept so this method's existing internal call
+     * sites (run(), both the before- and after-mutation snapshots,
+     * unchanged) need no edit while this decomposition proceeds.
+     *
+     * @return array{hash:string,document:array<string,mixed>}
+     */
     private static function options_snapshot(
         string $repo,
         Policy $policy,
         CompiledRepository $compiled,
         bool $forceUnresolvedRefs
     ): array {
-        $snapshot = Capture::snapshot_options_core($repo, $forceUnresolvedRefs, $compiled, $policy);
-        $row = $snapshot['options/core'] ?? null;
-        $hash = is_array($row) ? (string) ($row['hash'] ?? '') : '';
-        $content = is_array($row) ? (string) ($row['content'] ?? '') : '';
-        if (!preg_match('/^[a-f0-9]{64}$/', $hash) || $content === '') {
-            throw new \RuntimeException('duo: lifecycle state handoff could not snapshot canonical options/core');
-        }
-        try {
-            $document = Canon::decode($content);
-            if (!is_array($document)) {
-                throw new \RuntimeException('snapshot document is not an object');
-            }
-            OptionState::records($document);
-            $desired = $compiled->tree()['options/core']['data'] ?? null;
-            if (is_array($desired)) {
-                $document = self::bind_lifecycle_missing_options($document, $desired);
-                $content = Canon::encode($document);
-                $hash = hash('sha256', $content);
-            }
-        } catch (\Throwable $t) {
-            throw new \RuntimeException(
-                'duo: lifecycle state handoff captured malformed canonical options/core',
-                0,
-                $t
-            );
-        }
-        return ['hash' => $hash, 'document' => $document];
+        return StateHandoffVerifier::options_snapshot($repo, $policy, $compiled, $forceUnresolvedRefs);
     }
 
     /**
-     * Bind a lifecycle snapshot's missing portable projection to the frozen
-     * desired record. This is intentionally local to the deploy handoff: an
-     * ordinary canonical state=absent remains non-authoritative, and this
-     * transient document is never consumed as apply intent.
-     *
-     * Exact authored options already arrive as bound tombstones when their
-     * row is absent before a hook. After activation, however, a hook-created
-     * ref-bearing option may exist while its new target-local entity has no
-     * Duo identity yet; the non-minting snapshot correctly projects that row
-     * as state=absent. Elementor's elementor_active_kit is the proven case.
-     * Rebinding that post-hook missing projection makes it byte-identical to
-     * the pre-hook proof. Sub-key/dynamic options can have the same absent
-     * projection because Duo owns only part of their value. Converting only
-     * desired-present/missing observations gives the record gate the same
-     * proof without granting deletion authority or reviving the unsafe
-     * generic absent-to-present exception.
+     * Thin compatibility facade over
+     * StateHandoffVerifier::bind_lifecycle_missing_options() (DUO-3350
+     * slice 7) -- kept solely because
+     * sandbox/tests/regress_lifecycle_state_handoff.php invokes it via
+     * ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options') for
+     * a genuine behavioral test; options_snapshot() was this method's only
+     * production caller and that call moved with it, so this facade has no
+     * remaining production caller of its own -- caught by grepping for
+     * reflection-based callers specifically before writing any code, the
+     * same discipline this series has used since DUO-3347 slice 12's
+     * assign_locations() precedent.
      */
     private static function bind_lifecycle_missing_options(array $observedDocument, array $desiredDocument): array {
-        $observed = OptionState::records($observedDocument);
-        foreach (OptionState::records($desiredDocument) as $name => $desiredRecord) {
-            $observedRecord = $observed[$name] ?? null;
-            if (($desiredRecord['state'] ?? null) === 'present'
-                && ($observedRecord === null || ($observedRecord['state'] ?? null) === 'absent')) {
-                // The immutable desired document is already available to the
-                // record gate, so this transient marker needs only its hash.
-                // Omitting a classification witness also makes a ref-bearing
-                // post-hook projection that remains unresolved byte-identical
-                // to the pre-hook bound tombstone instead of manufacturing a
-                // false lifecycle change from witness metadata alone.
-                $observed[$name] = OptionState::deleted($desiredRecord);
-            }
-        }
-        return OptionState::document($observed);
+        return StateHandoffVerifier::bind_lifecycle_missing_options($observedDocument, $desiredDocument);
     }
 
     /**
-     * A whole-entity hash handoff may cover lifecycle-managed records,
-     * authored records whose post-hook value is exactly the frozen desired
-     * value, or a missing authored record whose pre-hook deleted tombstone is
-     * cryptographically bound to that desired present record. Otherwise
-     * apply could mistake an unrelated hook migration for expected lifecycle
-     * progress and overwrite it with stale repository data. Return every
-     * unsafe name so deploy can stop before state apply.
+     * Thin compatibility facade over
+     * StateHandoffVerifier::unexpected_lifecycle_state_changes() (DUO-3350
+     * slice 7) -- kept so this method's existing internal call site (run(),
+     * unchanged) and the two reflection-based test callers
+     * (sandbox/tests/regress_lifecycle_options_snapshot.php,
+     * sandbox/tests/regress_lifecycle_state_handoff.php) need no edit while
+     * this decomposition proceeds.
      *
      * @return list<string>
      */
@@ -742,50 +705,7 @@ final class Deploy {
         array $afterDocument,
         array $desiredDocument
     ): array {
-        $before = OptionState::records($beforeDocument);
-        $after = OptionState::records($afterDocument);
-        $desired = OptionState::records($desiredDocument);
-        $managed = array_fill_keys(['active_plugins', 'template', 'stylesheet'], true);
-        $names = array_unique(array_merge(array_keys($before), array_keys($after)));
-        sort($names, SORT_STRING);
-        $unexpected = [];
-        foreach ($names as $name) {
-            $beforeRecord = $before[$name] ?? null;
-            $afterRecord = $after[$name] ?? null;
-            if (Canon::encode($beforeRecord) === Canon::encode($afterRecord)
-                || isset($managed[$name])) {
-                continue;
-            }
-            $desiredRecord = $desired[$name] ?? null;
-            // On a first activation Capture::build_options(previous desired)
-            // represents a missing exact authored row as a deleted tombstone
-            // whose expected_hash is the hash of the frozen desired present
-            // record. The hook may then create an ordinary default (present),
-            // or a ref-bearing row may be omitted as absent until its identity
-            // is minted. Only that cryptographic proof authorizes Apply to
-            // reconcile the hook result; a plain state=absent record, a stale
-            // expected_hash, or absent/deleted desired intent stays blocked.
-            $beforeWasBoundMissing = is_array($beforeRecord)
-                && ($beforeRecord['state'] ?? null) === 'deleted'
-                && is_array($desiredRecord)
-                && ($desiredRecord['state'] ?? null) === 'present'
-                && is_array($afterRecord)
-                && in_array(($afterRecord['state'] ?? null), ['present', 'absent'], true)
-                && hash_equals(
-                    (string) $beforeRecord['expected_hash'],
-                    OptionState::record_hash($desiredRecord)
-                );
-            if ($beforeWasBoundMissing) {
-                continue;
-            }
-            if (is_array($afterRecord) && is_array($desiredRecord)
-                && ($desiredRecord['state'] ?? null) !== 'absent'
-                && Canon::encode($afterRecord) === Canon::encode($desiredRecord)) {
-                continue;
-            }
-            $unexpected[] = (string) $name;
-        }
-        return $unexpected;
+        return StateHandoffVerifier::unexpected_lifecycle_state_changes($beforeDocument, $afterDocument, $desiredDocument);
     }
 
     /**
