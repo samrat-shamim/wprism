@@ -22,7 +22,7 @@ Evidence bundle: `0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e
 ## Platform and environment boundary
 
 - Site mode: **single-site**; multisite is unsupported.
-- WordPress: exact evidence-bound version **7.0.2**.
+- WordPress: exact evidence-bound version **7.0.3**.
 - PHP: **>=8.3.0 <8.4.0**.
 - Database: **MariaDB >=11.0.0 <12.0.0**.
 

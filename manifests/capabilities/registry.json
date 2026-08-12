@@ -360,7 +360,7 @@
     },
     "format": "duo-capability-registry/v1",
     "generated_from": {
-        "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
+        "compatibility_sha256": "31775767564833d8d4963faaaa10e0c79ac52fa0ba57c1b14227ad57edbb2ebe",
         "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
         "evidence_sha256": "2e2332ecff9ffebb3f2a628d455ef46a1f1274a89ce43ae96582656d6f8989bc"
     },
@@ -391,7 +391,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -478,7 +478,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -577,7 +577,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -739,7 +739,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -808,7 +808,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -872,7 +872,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -946,7 +946,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1014,7 +1014,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1079,7 +1079,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1175,7 +1175,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1284,7 +1284,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1430,7 +1430,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1521,7 +1521,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1638,7 +1638,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -1899,7 +1899,7 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.2",
+                    "last_verified": "7.0.3",
                     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
@@ -2002,7 +2002,7 @@
                 "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
             },
             "wordpress": {
-                "last_verified": "7.0.2",
+                "last_verified": "7.0.3",
                 "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
             }
         },
