@@ -2707,7 +2707,7 @@ control_wp recoveryDbImportArgs "$V2_FAILED_CHECKPOINT" >/dev/null
 control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT" >/dev/null
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'full managed v1 code tree after checkpoint recovery'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'v1 revision after failed-v2 checkpoint restore'
-assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" 'v1 scalar after checkpoint restore'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'v1 scalar after checkpoint restore'
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'v1 table shape after checkpoint restore'
 assert_extension_runtime_event 0 "" 'v1 runtime row after checkpoint restore'
 # The failed-v2 checkpoint was intentionally taken after the preceding

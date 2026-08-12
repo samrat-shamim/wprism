@@ -186,6 +186,7 @@ COMMENT_BLOCK_INPUT="$(printf '%s\n' '    /* PHP comment */' '    $url = "https:
 
 [ -x "$SCRIPT" ] || fail "$SCRIPT must be executable"
 bash -n "$SCRIPT"
+grep -Fq 'assert_eq retail "$(target_db_scalar' "$SCRIPT" || fail 'checkpoint recovery scalar assertion must use the raw database probe'
 
 # The generic pair is the candidate-bound live harness.  Keep its WordPress
 # image tied to the one project-level evidence boundary instead of allowing a
