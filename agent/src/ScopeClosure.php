@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/ReferenceGraph.php';
+require_once __DIR__ . '/OptionState.php';
 
 /**
  * Resolve a bounded set of canonical entities from explicit roots, closing
@@ -37,6 +38,19 @@ require_once __DIR__ . '/ReferenceGraph.php';
  * associated with the exact source revision; their separate overlay layer
  * owns mutation bounds, deletion checks, and durable receipts. Scoped apply,
  * promote, verification, and rollback remain outside v1.
+ *
+ * DUO-3344: an `option:<name>` root names one authored option instead of
+ * the whole `options/core` surface (`options` remains the coarse selector).
+ * Every other root is a real compiled tree key; an option is not -- it is
+ * one record inside one file -- so it resolves to a synthetic key
+ * (option_key()) carrying its own report row and its own attributed
+ * outbound edges (attribute_option_edges(), matched against the option's
+ * OWN declared references only, never another option's). This is
+ * deliberately preview-only: ScopeContract::resolve() refuses a contract
+ * containing one (see its own docblock) because no mutation consumer
+ * (capture, refresh, apply, promote) has an option-granular overlay yet --
+ * exactly the boundary slice 1 drew for the original whole-entity closure
+ * before any command accepted a scope at all.
  */
 final class ScopeClosure {
     public const FORMAT = 'duo-scope/v1';
@@ -47,6 +61,16 @@ final class ScopeClosure {
      * of a second code path that can drift from the scoped one.
      */
     public const SELECTOR_ALL = 'all';
+
+    /**
+     * Prefix for the synthetic per-option identity option_key() mints.
+     * Provably disjoint from every real tree key: a post/term uuid is
+     * 36 hex-and-dash characters, `options/core` is this exact literal with
+     * nothing appended, SidebarState::key() starts with 'sidebar/', and
+     * UserMetaState::key() is a bare 64-char sha256 hex digest -- none can
+     * ever equal 'options/core#' followed by anything, for any option name.
+     */
+    private const OPTION_KEY_PREFIX = 'options/core#';
 
     /**
      * @param list<string> $selectors typed root selectors
@@ -78,10 +102,40 @@ final class ScopeClosure {
             }
         }
 
+        // A requested option root has no tree entry of its own to carry
+        // $outbound[...] -- attribute options/core's edges to their owning
+        // option name (computed once, only for options actually requested)
+        // and wire that in as if it were the option's own adjacency list.
+        $optionNames = [];
+        foreach ($roots as $root) {
+            if (self::is_option_key($root['entity'])) {
+                $optionNames[] = self::option_name_from_key($root['entity']);
+            }
+        }
+        if ($optionNames) {
+            $optionEdges = self::attribute_option_edges($tree, $edges, $optionNames);
+            foreach ($optionNames as $name) {
+                $outbound[self::option_key($name)] = $optionEdges[$name] ?? [];
+            }
+        }
+
         $included = [];
         $queue = [];
         foreach ($roots as $root) {
             if (isset($included[$root['entity']])) {
+                continue;
+            }
+            if (self::is_option_key($root['entity'])) {
+                $included[$root['entity']] = [
+                    'entity' => $root['entity'],
+                    'path' => (string) $tree['options/core']['path'],
+                    'type' => 'option',
+                    'option' => self::option_name_from_key($root['entity']),
+                    'reason' => 'root',
+                    'selector' => $root['selector'],
+                    'from' => null, 'from_path' => null, 'locator' => null,
+                ];
+                $queue[] = $root['entity'];
                 continue;
             }
             $included[$root['entity']] = [
@@ -97,7 +151,6 @@ final class ScopeClosure {
 
         while ($queue) {
             $key = array_shift($queue);
-            $entity = $tree[$key];
 
             foreach ($outbound[$key] ?? [] as $edge) {
                 $owner = $owners[$edge['target']] ?? null;
@@ -131,10 +184,14 @@ final class ScopeClosure {
             // incomplete without the child types its adapter declares — a
             // product without its variations is not a smaller product. The
             // engine learns which types those are from the manifest, never
-            // from a branch naming a plugin.
-            if (($entity['type'] ?? '') !== 'post') {
+            // from a branch naming a plugin. An option root has no post
+            // children to descend into and no tree entry to read a type
+            // from -- is_option_key() short-circuits before $tree[$key] is
+            // ever touched for one.
+            if (self::is_option_key($key) || ($tree[$key]['type'] ?? '') !== 'post') {
                 continue;
             }
+            $entity = $tree[$key];
             $childTypes = $policy->child_post_types((string) ($entity['data']['type'] ?? ''));
             if (!$childTypes) {
                 continue;
@@ -216,6 +273,8 @@ final class ScopeClosure {
                 return self::require_key($tree, SidebarState::key($rest), $selector);
             case 'user-meta':
                 return self::require_key($tree, UserMetaState::key($rest), $selector);
+            case 'option':
+                return self::require_option($tree, $rest, $selector);
             case 'table':
                 [$table, $uuid] = array_pad(explode(':', $rest, 2), 2, null);
                 if ($uuid === null || $uuid === '') {
@@ -229,13 +288,142 @@ final class ScopeClosure {
         throw new \RuntimeException("duo: root selector '$selector' is not understood — " . self::GRAMMAR);
     }
 
-    private const GRAMMAR = 'roots are post:<uuid>, term:<uuid>, table:<table>:<uuid>, menu:<slug>, sidebar:<id>, user-meta:<login>, options, path:<state-relative-path>, or all';
+    private const GRAMMAR = 'roots are post:<uuid>, term:<uuid>, table:<table>:<uuid>, menu:<slug>, sidebar:<id>, user-meta:<login>, options, option:<name>, path:<state-relative-path>, or all';
 
     private static function require_key(array $tree, string $key, string $selector): string {
         if (!isset($tree[$key])) {
             throw new \RuntimeException("duo: root selector '$selector' names no entity in this revision");
         }
         return $key;
+    }
+
+    /**
+     * Resolve `option:<name>` against the compiled document's own authored
+     * records -- the same "a scope root is refused rather than silently
+     * retyped" discipline require_uuid() already applies to post/term, just
+     * checked against record presence instead of tree membership, since an
+     * option is not its own tree entry.
+     */
+    private static function require_option(array $tree, string $name, string $selector): string {
+        if (!isset($tree['options/core'])) {
+            throw new \RuntimeException("duo: root selector '$selector' names no entity in this revision");
+        }
+        $records = OptionState::records($tree['options/core']['data']);
+        if (!array_key_exists($name, $records)) {
+            throw new \RuntimeException("duo: root selector '$selector' names no authored option in this revision");
+        }
+        return self::option_key($name);
+    }
+
+    private static function option_key(string $name): string {
+        return self::OPTION_KEY_PREFIX . $name;
+    }
+
+    private static function is_option_key(string $key): bool {
+        return str_starts_with($key, self::OPTION_KEY_PREFIX);
+    }
+
+    private static function option_name_from_key(string $key): string {
+        return substr($key, strlen(self::OPTION_KEY_PREFIX));
+    }
+
+    /**
+     * True for any entity key ScopeClosure minted rather than a real
+     * compiled tree key. ScopeContract uses this to refuse contract/
+     * mutation evidence for a per-option root explicitly (see its own
+     * docblock) instead of relying only on the generic "disappeared from
+     * the compiled tree" guard every tree-key lookup already has.
+     */
+    public static function is_option_root(string $key): bool {
+        return self::is_option_key($key);
+    }
+
+    /**
+     * Attribute options/core's own outbound reference edges to the specific
+     * option record each one actually came from, so that selecting one
+     * option's closure never silently pulls in (or silently omits) another
+     * option's dependencies.
+     *
+     * A locator is matched by exact-prefix-plus-boundary against every
+     * authored record name's own locator prefix (mirroring exactly the one
+     * more segment ReferenceGraph::walk_tokens() would append one level
+     * below "$.records", including its int-key bracket form for a
+     * numeric-string option name PHP's own array-key coercion turns into an
+     * int) -- never by splitting the locator string on ".", which an option
+     * name may itself legally contain. Two authored names can make a
+     * locator match more than one prefix at once (one name a literal
+     * structural prefix of another once dot-segmented); rather than guess
+     * via longest-match, which is not always correct once a value can be
+     * arbitrarily nested, an ambiguous locator refuses loudly -- but ONLY
+     * when the ambiguity actually touches a requested name: an unrelated
+     * collision between two options nobody selected must not block this
+     * call's own, unaffected selection (matching every root against the
+     * FULL document is still required to detect that collision correctly
+     * in the first place -- checking only the requested names' own
+     * prefixes could misattribute an edge that truly belongs to an
+     * unrequested name that happens to also match).
+     *
+     * @param array<string,array<string,mixed>> $tree
+     * @param list<array<string,mixed>> $edges
+     * @param list<string> $requestedNames
+     * @return array<string,list<array<string,mixed>>> option name => its own outbound edges
+     */
+    private static function attribute_option_edges(array $tree, array $edges, array $requestedNames): array {
+        if (!isset($tree['options/core'])) {
+            return [];
+        }
+        $requested = array_flip($requestedNames);
+        $names = array_keys(OptionState::records($tree['options/core']['data']));
+        $prefixes = [];
+        foreach ($names as $name) {
+            $prefixes[(string) $name] = '$.records' . (is_int($name) ? "[$name]" : '.' . $name);
+        }
+        $byName = [];
+        foreach ($edges as $edge) {
+            if ($edge['from'] !== 'options/core') {
+                continue;
+            }
+            $locator = (string) $edge['locator'];
+            $matches = [];
+            foreach ($prefixes as $name => $prefix) {
+                if (self::locator_belongs_to_prefix($locator, $prefix)) {
+                    $matches[] = $name;
+                }
+            }
+            if (count($matches) === 1) {
+                $byName[$matches[0]][] = $edge;
+                continue;
+            }
+            // Zero matches is a structural impossibility for a well-formed
+            // document (every edge's locator was itself derived by walking
+            // this exact records map, so its root segment must correspond
+            // to some key in it) -- if it ever fires, it means this
+            // function's own prefix logic has drifted from
+            // ReferenceGraph::walk_tokens()'s, a bug worth surfacing
+            // regardless of what was requested, not data this call can
+            // safely ignore.
+            if (count($matches) === 0 || array_intersect($matches, array_keys($requested))) {
+                $matchedNames = implode("', '", $matches);
+                throw new \RuntimeException(
+                    count($matches) === 0
+                        ? "duo: option reference edge '$locator' does not resolve to any authored option name"
+                        : "duo: option reference edge '$locator' matches more than one option name ('$matchedNames') -- "
+                            . 'refusing rather than guessing which option owns this dependency'
+                );
+            }
+        }
+        return $byName;
+    }
+
+    private static function locator_belongs_to_prefix(string $locator, string $prefix): bool {
+        if ($locator === $prefix) {
+            return true;
+        }
+        if (!str_starts_with($locator, $prefix)) {
+            return false;
+        }
+        $boundary = $locator[strlen($prefix)];
+        return $boundary === '.' || $boundary === '[' || $boundary === ' ';
     }
 
     private static function require_typed_slug(array $tree, string $type, string $field, string $value, string $selector): string {
@@ -285,10 +473,23 @@ final class ScopeClosure {
         $rows = array_values($included);
         usort($rows, static fn(array $a, array $b): int => strcmp($a['path'], $b['path']));
 
+        // A partially-included options/core (one or more of its options
+        // selected, but not the whole surface) must not ALSO count as
+        // wholly excluded -- that would report the same file as both
+        // included and excluded at once, which is not honest.
+        $anyOptionIncluded = false;
+        foreach ($included as $includedKey => $_) {
+            if (self::is_option_key((string) $includedKey)) {
+                $anyOptionIncluded = true;
+                break;
+            }
+        }
+
         $excludedByType = [];
         $excludedTotal = 0;
         foreach ($tree as $key => $entity) {
-            if (isset($included[(string) $key])) {
+            $key = (string) $key;
+            if (isset($included[$key]) || ($key === 'options/core' && $anyOptionIncluded)) {
                 continue;
             }
             $excludedTotal++;
@@ -299,9 +500,13 @@ final class ScopeClosure {
 
         // Media blobs an included attachment owns. They are artifacts rather
         // than tree entities, so they are named separately instead of being
-        // counted as entities that were "included".
+        // counted as entities that were "included". An option root is never
+        // an attachment.
         $media = [];
         foreach ($rows as $row) {
+            if (self::is_option_key((string) $row['entity'])) {
+                continue;
+            }
             $entity = $tree[$row['entity']];
             if ((string) $entity['type'] === 'post' && (string) ($entity['data']['type'] ?? '') === 'attachment') {
                 $blob = (string) ($entity['data']['media'] ?? '');
@@ -344,6 +549,16 @@ final class ScopeClosure {
         $rootRows = [];
         foreach ($roots as $root) {
             if (isset($rootRows[$root['entity']])) {
+                continue;
+            }
+            if (self::is_option_key($root['entity'])) {
+                $rootRows[$root['entity']] = [
+                    'selector' => $root['selector'],
+                    'entity' => $root['entity'],
+                    'path' => (string) $tree['options/core']['path'],
+                    'type' => 'option',
+                    'option' => self::option_name_from_key($root['entity']),
+                ];
                 continue;
             }
             $rootRows[$root['entity']] = [

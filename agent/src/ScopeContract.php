@@ -40,6 +40,23 @@ final class ScopeContract {
         $closure = $liveSelectors === []
             ? ['roots' => [], 'included' => []]
             : ScopeClosure::resolve($compiled, $policy, $liveSelectors);
+        // DUO-3344: option:<name> is preview-only (see ScopeClosure's own
+        // docblock) -- no mutation consumer (scoped capture/refresh/apply/
+        // promote) has an option-granular overlay yet, so a contract must
+        // never carry one. live_rows() below would already refuse this
+        // (an option's synthetic key has no compiled tree entry, tripping
+        // its "disappeared from compiled tree" guard), but that message is
+        // written for an entity that genuinely vanished, not one that was
+        // never eligible for contract evidence -- this refuses the same
+        // input earlier, with the accurate reason.
+        foreach ($closure['roots'] as $closureRoot) {
+            if (ScopeClosure::is_option_root((string) $closureRoot['entity'])) {
+                throw new \RuntimeException(
+                    "duo: scope contracts do not yet support per-option roots ('"
+                    . $closureRoot['selector'] . "'); select the whole 'options' surface instead"
+                );
+            }
+        }
         $live = self::live_rows($closure, $tree);
         $tombstones = self::tombstone_rows($compiled, $policy, $all, $tombstoneSelectors);
 
