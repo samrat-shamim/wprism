@@ -1040,6 +1040,7 @@ block_absent exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_P
 ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'target_wp maintenance-mode activate' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
+  'prepare_v1_checkpoint_target' \
   'mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"' \
   'cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET"' \

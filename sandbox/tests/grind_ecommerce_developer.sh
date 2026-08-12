@@ -286,6 +286,16 @@ target_root_php_args() {
   shift
   "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 php -r "$code" -- "$@"
 }
+prepare_v1_checkpoint_target() {
+  # The target CLI runs as uid 33 and may leave .duo/checkpoints host-owned
+  # but non-writable. Prepare only this disposable checkpoint directory
+  # through the pair's root service; the dump bytes remain host-retained and
+  # are still copied and hashed at the host boundary below.
+  "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 sh -c '
+    mkdir -p /siterepo/.duo/checkpoints
+    chmod 0777 /siterepo/.duo/checkpoints
+  ' >/dev/null
+}
 remove_target_cron_freeze() {
   [ -n "${TARGET_CRON_FREEZE_FILE:-}" ] || return 0
   [ -n "${TARGET_CRON_FREEZE_SHA:-}" ] || return 1
@@ -3425,6 +3435,7 @@ if ! target_wp maintenance-mode activate >/dev/null; then
 fi
 ROLLBACK_MAINTENANCE_HELD=1
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
+prepare_v1_checkpoint_target
 mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"
 cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"
 chmod 0644 "$V1_CHECKPOINT_TARGET"
