@@ -3,7 +3,7 @@
   "php": {
     "min": "8.3.0",
     "max": "8.4.0",
-    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
+    "note": "Pinned by the sandbox harness's own Docker tags (wordpress:7.0.3-php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
   },
   "database": {
     "engine": "MariaDB",

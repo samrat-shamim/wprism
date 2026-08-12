@@ -96,7 +96,7 @@ volumes:
 
 services:
   wp1:
-    image: wordpress:php8.3-apache
+    image: ${DUO_WP_IMAGE:-wordpress:7.0.3-php8.3-apache}
     networks: [duo-shared]
     environment:
       <<: *wp-env-base
@@ -122,7 +122,7 @@ services:
     cpus: "0.75"
 
   wp2:
-    image: wordpress:php8.3-apache
+    image: ${DUO_WP_IMAGE:-wordpress:7.0.3-php8.3-apache}
     networks: [duo-shared]
     environment:
       <<: *wp-env-base

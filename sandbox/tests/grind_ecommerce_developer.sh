@@ -40,6 +40,7 @@ ECOMMERCE_HOST_GID="$(id -g)"
 SITE="siterepo/${PAIR}1"
 OTHER_SITE="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
+V1_CHECKPOINT_TARGET="$OTHER_SITE/.duo/checkpoints/ecommerce-v1.sql"
 for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do
   if [ -e "$pair_path" ] || [ -L "$pair_path" ]; then
     fail "refusing to reuse pre-existing pair path: $pair_path"
@@ -142,7 +143,7 @@ cleanup() {
   # target, and an uncertain teardown keeps the pair paths diagnosable with
   # maintenance still held.
   if [ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" = 1 ] && [ "$PAIR_UP" = 1 ]; then
-    if ! target_wp maintenance-mode deactivate >/dev/null 2>&1; then
+    if ! control_wp_command maintenance-mode deactivate >/dev/null 2>&1; then
       printf 'FAIL: ecommerce rollback maintenance release failed for %s\n' "$PAIR" >&2
       status=1
       teardown_verified=0
@@ -285,6 +286,16 @@ target_root_php_args() {
   shift
   "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 php -r "$code" -- "$@"
 }
+prepare_v1_checkpoint_target() {
+  # The target CLI runs as uid 33 and may leave .duo/checkpoints host-owned
+  # but non-writable. Prepare only this disposable checkpoint directory
+  # through the pair's root service; the dump bytes remain host-retained and
+  # are still copied and hashed at the host boundary below.
+  "${PAIR_COMPOSE[@]}" run --rm -T -u root cli2 sh -c '
+    mkdir -p /siterepo/.duo/checkpoints
+    chmod 0777 /siterepo/.duo/checkpoints
+  ' >/dev/null
+}
 remove_target_cron_freeze() {
   [ -n "${TARGET_CRON_FREEZE_FILE:-}" ] || return 0
   [ -n "${TARGET_CRON_FREEZE_SHA:-}" ] || return 1
@@ -347,12 +358,35 @@ echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
   mapfile -t args < <(jq -r '.[]' <<<"$encoded")
   target_wp "${args[@]}"
 }
+# Maintenance is part of the exact recovery boundary, not a regular runtime
+# operation. Route it through the same isolated control bootstrap as database
+# import so a staged plugin cannot migrate the database while recovery holds
+# the target worker stopped.
+control_wp_command() {
+  local encoded
+  encoded="$(DUO_CODE_DEPLOY="$CODE_DEPLOY" php -r '
+require getenv("DUO_CODE_DEPLOY");
+$args = Duo\Orchestrator\CodeDeploy::controlArgs(array_slice($argv, 1));
+echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+' "$@")"
+  local -a args
+  mapfile -t args < <(jq -r '.[]' <<<"$encoded")
+  target_wp "${args[@]}"
+}
 target_file() { target_php "echo is_file('$1') ? 'present' : 'absent';"; }
 target_directory() { target_php "echo is_dir('$1') ? 'present' : 'absent';"; }
 target_path() {
   target_php "echo (file_exists('$1') || is_link('$1')) ? 'present' : 'absent';"
 }
-target_hash() { target_php "echo hash_file('sha256', '$1');"; }
+# WP-CLI's `php` subcommand still boots WordPress, so using target_php for a
+# byte probe can execute the currently installed plugin. Recovery assertions
+# run between database import and v1 code promotion; that process boundary must
+# inspect bytes without giving the still-staged v2 plugin a chance to migrate
+# the freshly restored v1 scalar. Invoke the container PHP binary directly.
+target_raw_php() {
+  "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec php "$@"' _ -r "$1"
+}
+target_hash() { target_raw_php "echo hash_file('sha256', '$1');"; }
 source_hash() { sha256sum "$1" | awk '{print $1}'; }
 state_tree_hash() {
   local root="$1"
@@ -2291,12 +2325,15 @@ assert_receipt "$V1_ARTIFACT" 'v1 deploy/apply' "$V1_REVISION"
 V1_TARGET_MANAGED_CODE_TREE_HASH="$(target_managed_code_tree_hash)"
 assert_eq "$V1_SOURCE_MANAGED_CODE_TREE_HASH" "$V1_TARGET_MANAGED_CODE_TREE_HASH" 'v1 source/target managed code tree checkpoint'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'recorded v1 target code revision'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'raw v1 setting before database checkpoint export'
 target_wp db export /siterepo/.tmp-ecommerce-v1-db.sql --porcelain >/dev/null
 cp "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" "$V1_DB_DUMP"
 [ -s "$V1_DB_DUMP" ] || fail "v1 exact rollback checkpoint was not exported"
 V1_DB_DUMP_SHA256="$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')"
 [[ "$V1_DB_DUMP_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "v1 pair-local database checkpoint SHA-256 is malformed"
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before runtime order'
+grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_DB_DUMP" \
+  || fail 'v1 database checkpoint does not contain the raw scalar option value'
 TARGET_ORDER_ID="$(target_wp eval '
 $customer = wc_create_new_customer("runtime-customer@example.invalid", "runtime-customer", "runtime-customer-password", ["first_name" => "Target", "last_name" => "Runtime"]);
 if (is_wp_error($customer)) { throw new RuntimeException("target runtime customer seed failed: " . $customer->get_error_message()); }
@@ -2685,7 +2722,7 @@ control_wp recoveryDbImportArgs "$V2_FAILED_CHECKPOINT" >/dev/null
 control_wp abortArgs "$V2_FAILED_OWNER" "$V2_FAILED_ARTIFACT" >/dev/null
 assert_eq "$V1_TARGET_MANAGED_CODE_TREE_HASH" "$(target_managed_code_tree_hash)" 'full managed v1 code tree after checkpoint recovery'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'v1 revision after failed-v2 checkpoint restore'
-assert_eq retail "$(target_wp option get duo_commerce_extension_settings)" 'v1 scalar after checkpoint restore'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'v1 scalar after checkpoint restore'
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'v1 table shape after checkpoint restore'
 assert_extension_runtime_event 0 "" 'v1 runtime row after checkpoint restore'
 # The failed-v2 checkpoint was intentionally taken after the preceding
@@ -3416,13 +3453,31 @@ git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 ROLLBACK_MAINTENANCE_HELD=0
 ROLLBACK_PROMOTION_SUCCEEDED=0
-if ! target_wp maintenance-mode activate >/dev/null; then
+if ! control_wp_command maintenance-mode activate >/dev/null; then
   fail 'could not establish target maintenance before v1 checkpoint recovery'
 fi
 ROLLBACK_MAINTENANCE_HELD=1
+# Maintenance mode is a request boundary, not a process fence: the target
+# web worker can still boot the currently staged v2 plugin while the database
+# is being restored. Close only this disposable target worker with a hard
+# fence so its v2 migration cannot race the v1 import; the CLI control plane
+# remains available for the isolated import and the subsequent public v1
+# promotion. A single kill is intentional: a preceding graceful stop would
+# make Docker compose kill return nonzero after the container exits.
+if ! "${PAIR_COMPOSE[@]}" kill -s SIGKILL wp2 >/dev/null; then
+  fail 'could not hard-stop target web service before v1 checkpoint import'
+fi
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
-assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before rollback import'
-control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql" >/dev/null
+prepare_v1_checkpoint_target
+mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"
+cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"
+chmod 0644 "$V1_CHECKPOINT_TARGET"
+assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET" | awk '{print $1}')" 'immutable v1 database checkpoint bytes before rollback import'
+grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_CHECKPOINT_TARGET" \
+  || fail 'immutable v1 database checkpoint lost the raw scalar option value before rollback import'
+control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql" >/dev/null
+ROLLBACK_SETTING_AFTER_IMPORT="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")"
+printf 'exact v1 raw setting immediately after checkpoint import: %s\n' "$ROLLBACK_SETTING_AFTER_IMPORT" >&2
 ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1")"
 if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r '
 $value = unserialize((string) ($argv[1] ?? ""), ["allowed_classes" => false]);
@@ -3434,7 +3489,7 @@ fi
 assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON" 'v1 checkpoint active plugin order before code staging'
 assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")" 'exact v2 extension bytes before v1 control-plane staging'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'exact v1 code revision after checkpoint import'
-assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'exact v1 setting after checkpoint import'
+assert_eq retail "$ROLLBACK_SETTING_AFTER_IMPORT" 'exact v1 setting after checkpoint import'
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'exact v1 runtime table shape'
 assert_extension_runtime_event 0 "" 'exact v1 runtime row after rollback'
 if ! RESTORE_OUT="$(promote 2>&1)"; then
@@ -3442,7 +3497,10 @@ if ! RESTORE_OUT="$(promote 2>&1)"; then
   fail 'v1 rollback promotion failed'
 fi
 ROLLBACK_PROMOTION_SUCCEEDED=1
-if ! target_wp maintenance-mode deactivate >/dev/null; then
+if ! "${PAIR_COMPOSE[@]}" start wp2 >/dev/null; then
+  fail 'could not restart target web service after v1 checkpoint promotion'
+fi
+if ! control_wp_command maintenance-mode deactivate >/dev/null; then
   fail 'could not release target maintenance after successful v1 rollback promotion'
 fi
 ROLLBACK_MAINTENANCE_HELD=0
