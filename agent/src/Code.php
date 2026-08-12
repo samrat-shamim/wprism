@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/CodeDescriptorCompiler.php';
 require_once __DIR__ . '/PathSafety.php';
+require_once __DIR__ . '/CodeStageTransaction.php';
 
 /**
  * v0 code-half payload support.
@@ -30,15 +31,15 @@ final class Code {
     /** Keys in duo_kv. These are intentionally stable integration points. */
     public const CODE_REVISION_KEY = 'code_revision';
     public const CODE_DESCRIPTOR_KEY = 'code_descriptor';
-    public const CODE_STAGE_REVISION_KEY = 'code_stage_revision';
+    public const CODE_STAGE_REVISION_KEY = CodeStageTransaction::REVISION_KEY;
     /** Temporary descriptor retained until finalize succeeds. */
-    public const CODE_STAGE_DESCRIPTOR_KEY = 'code_stage_descriptor';
+    public const CODE_STAGE_DESCRIPTOR_KEY = CodeStageTransaction::DESCRIPTOR_KEY;
     /** Artifact identity bound to the temporary staged descriptor. */
-    public const CODE_STAGE_ARTIFACT_KEY = 'code_stage_artifact';
+    public const CODE_STAGE_ARTIFACT_KEY = CodeStageTransaction::ARTIFACT_KEY;
     /** Canonical list of prior staged descriptors retained for recovery. */
-    public const CODE_STAGE_HISTORY_KEY = 'code_stage_history';
+    public const CODE_STAGE_HISTORY_KEY = CodeStageTransaction::HISTORY_KEY;
     /** Canonical paths proven absent before Duo first staged them. */
-    public const CODE_STAGE_CREATED_PATHS_KEY = 'code_stage_created_paths';
+    public const CODE_STAGE_CREATED_PATHS_KEY = CodeStageTransaction::CREATED_PATHS_KEY;
 
     /** @var list<string> */
     private const ROOTS = ['mu-plugins', 'plugins', 'themes'];
@@ -569,32 +570,7 @@ final class Code {
         string $artifact,
         array $createdPaths
     ): void {
-        $transactionStarted = false;
-        try {
-            Db::start('code stage ledger transaction start');
-            $transactionStarted = true;
-            Ledger::kv_set(self::CODE_STAGE_HISTORY_KEY, Canon::encode(array_values($history)));
-            Ledger::kv_set(self::CODE_STAGE_DESCRIPTOR_KEY, Canon::encode($descriptor));
-            Ledger::kv_set(self::CODE_STAGE_ARTIFACT_KEY, $artifact);
-            Ledger::kv_set(self::CODE_STAGE_CREATED_PATHS_KEY, Canon::encode($createdPaths));
-            Ledger::kv_set(self::CODE_STAGE_REVISION_KEY, $descriptor['code_revision']);
-            Db::commit('code stage ledger transaction commit');
-            $transactionStarted = false;
-        } catch (\Throwable $t) {
-            if ($transactionStarted) {
-                try {
-                    Db::rollback('code stage ledger transaction rollback');
-                } catch (\Throwable $rollback) {
-                    throw new \RuntimeException(
-                        'duo: code stage ledger transaction failed and rollback could not be confirmed: '
-                        . $rollback->getMessage(),
-                        0,
-                        $t
-                    );
-                }
-            }
-            throw $t;
-        }
+        CodeStageTransaction::publish($history, $descriptor, $artifact, $createdPaths);
     }
 
     /**
