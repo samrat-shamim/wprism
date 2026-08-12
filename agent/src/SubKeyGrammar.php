@@ -1,6 +1,12 @@
 <?php
 namespace Duo;
 
+// Circular with Policy.php's own require_once of this file: safe for the
+// same reason ActionProviderGrammar.php's and CrossManifestGuards.php's
+// identical circular requires are (DUO-3348 slices 6-7) -- require_once
+// marks Policy.php's path included the moment Policy.php's own require
+// statement for this file runs, before Policy.php's body finishes
+// executing, so this resolves to a no-op rather than a re-include.
 require_once __DIR__ . '/Policy.php';
 
 /**
@@ -118,8 +124,8 @@ final class SubKeyGrammar {
     /**
      * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
      * manifest's `resolver` value must appear here, mirroring
-     * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1 scope tight"
-     * posture elsewhere in this file. Deliberately just 'active_stylesheet':
+     * Policy::MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1
+     * scope tight" posture. Deliberately just 'active_stylesheet':
      * the one proven case (theme_mods_<stylesheet>). A future resolver is
      * anticipated by the ruling's own wording but not invented ahead of a
      * second real, grounded need.
