@@ -363,9 +363,10 @@ final class Lint {
 
         // (b) escaped_home / unrewritten_url_query_ref — recursively
         // through meta values, and the raw body as one unit.
-        self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $shortcodeRules) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
             self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
+            self::scan_shortcodes($s, $shortcodeRules, $rel, $findings, $path);
         });
         self::flag_escaped_home($findings, $rel, 'body', $body, $home, $homeEscaped);
         self::flag_unrewritten_url_query_ref($findings, $rel, 'body', $body);
@@ -677,12 +678,22 @@ final class Lint {
      * splice-based rewrite, which avoids shortcode_parse_atts() for
      * exactly that lossiness reason).
      */
-    private static function scan_shortcodes(string $body, array $shortcodeRules, string $rel, array &$findings): void {
+    private static function scan_shortcodes(
+        string $body,
+        array $shortcodeRules,
+        string $rel,
+        array &$findings,
+        string $locatorPrefix = ''
+    ): void {
         if ($shortcodeRules === [] || !str_contains($body, '[')) {
             return;
         }
         $pattern = '/' . get_shortcode_regex(array_keys($shortcodeRules)) . '/';
-        if (!preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
+        $matched = preg_match_all($pattern, $body, $matches, PREG_SET_ORDER);
+        if ($matched === false) {
+            throw new \RuntimeException('duo: shortcode lint regex failed; refusing unproven content');
+        }
+        if ($matched === 0) {
             return;
         }
         foreach ($matches as $m) {
@@ -696,7 +707,32 @@ final class Lint {
             }
             $rulesByAttr = [];
             foreach ($rules as $r) {
-                $rulesByAttr[$r['path']] = $r;
+                if (!array_key_exists('position', $r)) {
+                    $rulesByAttr[$r['path']] = $r;
+                }
+            }
+            foreach ($rules as $r) {
+                if (!array_key_exists('position', $r)) {
+                    continue;
+                }
+                $position = (int) $r['position'];
+                $positional = Shortcodes::positional_spans($m[3]);
+                if (!isset($positional[$position])) {
+                    continue;
+                }
+                $value = trim((string) $positional[$position][0], "\\\"'");
+                if (preg_match('/^[0-9]+$/D', $value) !== 1) {
+                    continue;
+                }
+                $findings[] = self::finding(
+                    'unrewritten_registered_shortcode_ref',
+                    $rel,
+                    ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.positional[$position]",
+                    (int) $value,
+                    null,
+                    "shortcode '$tag' positional[$position] has a numeric alternate id still present in captured state; "
+                    . 'the declared alternate post-meta locator did not produce a canonical token'
+                );
             }
             $atts = shortcode_parse_atts($m[3]);
             foreach ($atts as $attrKey => $attrVal) {
@@ -722,7 +758,7 @@ final class Lint {
                             $hit = Pending::resolve_id($id);
                             $findings[] = self::finding(
                                 'unregistered_shortcode_attr', $rel,
-                                "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
+                                ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
                                 "shortcode '$tag' has no shortcode_attrs registry rule for attribute '$attrKey'; "
                                 . "this numeric value passes through capture/apply untouched and will point at "
                                 . "the wrong entity (or nothing) once ids diverge on another environment."
@@ -735,7 +771,7 @@ final class Lint {
                     $hit = Pending::resolve_id($id);
                     $findings[] = self::finding(
                         'unrewritten_registered_shortcode_ref', $rel,
-                        "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
+                        ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
                         "shortcode '$tag' attribute '$attrKey' has a shortcode_attrs registry rule declaring it a "
                         . "reference, but this value is still numeric in captured state — the declared rewrite to "
                         . "a {{...}} token never ran (an unmapped/dangling id). This id is silently environment-"

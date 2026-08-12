@@ -402,6 +402,65 @@ refuses(
     'block_attrs.acme/b[0].path must be a non-empty attribute name',
     'an empty attribute path is refused, and the path in the message walks straight to the rule'
 );
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [[
+        'kind' => 'term', 'position' => 0,
+        'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form'],
+    ]]]]),
+    'shortcode_attrs.contact-form[0] positional refs require static kind=post',
+    'a positional post-meta lookup cannot be declared in the term or arbitrary id namespace'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [[
+        'kind' => 'post', 'position' => 0, 'lint_ok' => false,
+        'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form'],
+    ]]]]),
+    'shortcode_attrs.contact-form[0] positional refs have a closed vocabulary',
+    'false-present lint_ok is not silently accepted on a positional codec'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [[
+        'kind' => 'post', 'position' => 0, 'cast' => 'string',
+        'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form'],
+    ]]]]),
+    'shortcode_attrs.contact-form[0] positional refs have a closed vocabulary',
+    'named casts are not silently ignored by positional rules'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [
+        ['kind' => 'post', 'position' => 0, 'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form']],
+        ['kind' => 'post', 'position' => 0, 'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form']],
+    ]]]),
+    'a.position duplicates position 0',
+    'two positional rules cannot rewrite the same shortcode span'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [[
+        'kind' => 'post', 'position' => 0,
+        'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form', 'extra' => true],
+    ]]]]),
+    'shortcode_attrs.contact-form[0] positional refs have a closed vocabulary',
+    'positional lookup domains reject undeclared keys regardless of JSON key order'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [[
+        'kind' => 'post', 'position' => 0, 'lookup' => [
+            'post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form',
+        ], 'future' => true,
+    ]]]]),
+    'shortcode_attrs.contact-form[0] positional refs have a closed vocabulary: exactly {kind,position,lookup}',
+    'positional rules reject unknown top-level keys instead of silently ignoring future declarations'
+);
+refuses(
+    solo_b(['shortcode_attrs' => ['contact-form' => [
+        ['kind' => 'post', 'position' => 0, 'lookup' => [
+            'post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form',
+        ]],
+        ['kind' => 'post', 'path' => 'id'],
+    ]]]),
+    'shortcode_attrs.contact-form cannot mix positional and named path rules',
+    'a shortcode tag cannot declare incompatible positional and named callback selectors'
+);
 
 // --- invalid RANGES / bounds
 refuses(

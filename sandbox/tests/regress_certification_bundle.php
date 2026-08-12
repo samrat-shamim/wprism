@@ -241,6 +241,18 @@ check(
     'CF7 checker rejects zero or multiple source form IDs explicitly'
 );
 check(
+    str_contains($cf7Checker, 'conformance-contact-legacy')
+        && str_contains($cf7Checker, '_old_cf7_unit_id')
+        && str_contains($cf7Checker, 'raw legacy shortcode id'),
+    'CF7 checker covers the legacy positional shortcode through its alternate post-meta domain and rejects raw canonical ids'
+);
+$cf7Seed = (string) file_get_contents(__DIR__ . '/../conformance/seeds/contact-form-7.sh');
+check(
+    str_contains($cf7Seed, 'required legacy positional shortcode')
+        && str_contains($cf7Seed, 'CF7_LEGACY_SHORTCODE" =~ ^\\[contact-form'),
+    'CF7 seed asserts that the generated fixture is the legacy positional shortcode, not the modern hash form'
+);
+check(
     !preg_match('/\\$COMPOSE[^\n]*\\|[[:space:]]*head(?:[[:space:]]|$)/', $cf7Checker),
     'CF7 checker never pipes Docker output into head under pipefail'
 );

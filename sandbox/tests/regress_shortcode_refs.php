@@ -55,6 +55,11 @@ if (!function_exists('untrailingslashit')) {
         return rtrim((string) $string, '/\\');
     }
 }
+if (!function_exists('get_post_stati')) {
+    function get_post_stati($args = []) {
+        return ($args['exclude_from_search'] ?? false) ? ['auto-draft', 'inherit', 'trash'] : [];
+    }
+}
 
 require __DIR__ . '/support/wp-shortcode-stub.php';
 require __DIR__ . '/support/wp-block-parser-stub.php'; // S18 only: Blocks.php integration check
@@ -73,6 +78,8 @@ require __DIR__ . '/support/wp-block-parser-stub.php'; // S18 only: Blocks.php i
 final class FakeWpdb {
     public $prefix = 'wp_';
     public $posts = 'wp_posts';
+    public $postmeta = 'wp_postmeta';
+    public $last_error = '';
     public $terms = 'wp_terms';
     public $term_taxonomy = 'wp_term_taxonomy';
 
@@ -80,6 +87,9 @@ final class FakeWpdb {
     public $identity = [];
     /** @var array<int, array{post_type:string, post_title:string, post_status?:string}> */
     public $postsById = [];
+    /** @var array<int, array<string, list<string>>> */
+    public $postMetaById = [];
+    public $injectGetColError = false;
     /** @var array<int, array{name:string, taxonomy:string}> */
     public $termsById = [];
 
@@ -121,6 +131,44 @@ final class FakeWpdb {
             return $this->termsById[$id]['taxonomy'] ?? null;
         }
         throw new \RuntimeException("FakeWpdb::get_var: unrecognized query shape: $sql");
+    }
+
+    public function get_col($prepared) {
+        [$sql, $args] = $this->unwrap($prepared);
+        if ($this->injectGetColError) {
+            $this->last_error = 'injected SQL failure';
+            return [];
+        }
+        if (str_contains($sql, 'SELECT pm.post_id FROM') && str_contains($sql, $this->postmeta)) {
+            [$key, $value, $postType] = array_pad($args, 3, null);
+            $numeric = str_contains($sql, 'CAST(pm.meta_value AS DECIMAL');
+            $excluded = array_slice($args, 3);
+            $out = [];
+            foreach ($this->postMetaById as $postId => $meta) {
+                $values = array_map('strval', (array) ($meta[$key] ?? []));
+                $matches = $numeric
+                    ? array_filter($values, static fn(string $candidate): bool => preg_match('/^[+-]?[0-9]+(?:\.[0-9]+)?$/', $candidate) === 1
+                        && (int) $candidate === (int) $value)
+                    : (in_array((string) $value, $values, true) ? [$value] : []);
+                if (($this->postsById[(int) $postId]['post_type'] ?? null) === $postType
+                    && !in_array((string) ($this->postsById[(int) $postId]['post_status'] ?? 'publish'), $excluded, true)
+                    && $matches !== []) {
+                    foreach ($matches as $_) {
+                        $out[] = $postId;
+                    }
+                }
+            }
+            sort($out, SORT_NUMERIC);
+            return $out;
+        }
+        if (str_contains($sql, 'SELECT post_type FROM') && str_contains($sql, $this->posts)) {
+            return $this->postsById[(int) $args[0]]['post_type'] ?? null;
+        }
+        if (str_contains($sql, 'SELECT meta_value FROM') && str_contains($sql, $this->postmeta)) {
+            [$postId, $key] = $args;
+            return array_values(array_map('strval', (array) (($this->postMetaById[(int) $postId] ?? [])[$key] ?? [])));
+        }
+        throw new \RuntimeException("FakeWpdb::get_col: unrecognized query shape: $sql");
     }
 
     public function get_row($prepared, $output = ARRAY_A) {
@@ -168,6 +216,7 @@ require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Blocks.php';
 require __DIR__ . '/../../agent/src/Shortcodes.php';
 require __DIR__ . '/../../agent/src/Lint.php';
+require __DIR__ . '/../../agent/src/Apply.php';
 // DUO-3259: Shortcodes::queue_unscoped() calls Capture::
 // classify_unscoped_ref() directly (public static, itself built on the
 // zero-instance-dependency ref_target_type() -- see both docblocks)
@@ -194,6 +243,9 @@ const UNMINTED_ID = 434; // never in identity, but a REAL row of an IN-scope typ
 $wpdb->identity['post'] = [MAPPED_ID => MAPPED_UUID, MAPPED2_ID => MAPPED2_UUID];
 $wpdb->postsById[UNSCOPED_ID] = ['post_type' => 'elementor_library', 'post_title' => 'A Real Elementor Template'];
 $wpdb->postsById[UNMINTED_ID] = ['post_type' => 'page', 'post_title' => 'A Real But Unminted Page'];
+$wpdb->postsById[MAPPED_ID] = ['post_type' => 'wpcf7_contact_form', 'post_title' => 'Legacy Form'];
+$wpdb->postMetaById[MAPPED_ID] = ['_old_cf7_unit_id' => ['77']];
+$wpdb->postsById[MAPPED2_ID] = ['post_type' => 'wpcf7_contact_form', 'post_title' => 'Second Form'];
 // L3's unregistered-attr regression case -- deliberately DOES resolve.
 $wpdb->postsById[701] = ['post_type' => 'post', 'post_title' => 'Some Real Post'];
 
@@ -206,9 +258,13 @@ $policy->manifests = [[
             ['cast' => 'csv', 'kind' => 'post', 'path' => 'include'],
             ['cast' => 'csv', 'kind' => 'post', 'path' => 'exclude'],
         ],
+        'contact-form' => [
+            ['kind' => 'post', 'lookup' => ['post_meta' => '_old_cf7_unit_id', 'post_type' => 'wpcf7_contact_form'], 'position' => 0],
+        ],
     ],
 ]];
 $tokens = new Tokens();
+$tokens->policy = $policy;
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -246,6 +302,195 @@ $s1out = Shortcodes::capture_rewrite_text($s1in, $policy, $tokens);
 check($s1out === 'See the gallery: [gallery id="{{post:' . MAPPED_UUID . '}}" columns="4" /] end.',
     'S1: mapped scalar id rewritten to token, everything else byte-identical (got: ' . $s1out . ')');
 check($tokens->warnings === [], 'S1: no warnings on a clean mapped capture (got: ' . json_encode($tokens->warnings) . ')');
+
+// S1b — CF7's legacy positional shortcode resolves through the declared
+// alternate post-meta identity, never through wp_posts.ID.  Capture emits a
+// canonical post token; apply restores the target form's own old unit id.
+$legacy = '[contact-form 77 "Legacy Form"]';
+$legacyCanonical = Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
+check($legacyCanonical === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
+    'S1b: positional alternate id is canonicalized to the form token (got: ' . $legacyCanonical . ')');
+check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $legacy,
+    'S1b: positional token round-trips through the target alternate id');
+check(!str_contains($legacyCanonical, '77'), 'S1b: canonical content has no raw _old_cf7_unit_id');
+$savedBacktrackLimit = ini_get('pcre.backtrack_limit');
+$captureRegexFailureRefused = false;
+$applyRegexFailureRefused = false;
+try {
+    ini_set('pcre.backtrack_limit', '1');
+    try {
+        Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
+    } catch (\Throwable $e) {
+        $captureRegexFailureRefused = str_contains($e->getMessage(), 'rewrite regex failed');
+    }
+    try {
+        Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+    } catch (\Throwable $e) {
+        $applyRegexFailureRefused = str_contains($e->getMessage(), 'rewrite regex failed');
+    }
+} finally {
+    ini_set('pcre.backtrack_limit', (string) $savedBacktrackLimit);
+}
+check($captureRegexFailureRefused, 'S1b: capture refuses a shortcode regex backtrack failure instead of preserving a raw positional id');
+check($applyRegexFailureRefused, 'S1b: Apply refuses a shortcode regex backtrack failure instead of preserving unproven canonical content');
+$structured = ['elements' => [['content' => $legacy]]];
+$structuredCanonical = $tokens->struct_capture($structured, [], null);
+check($structuredCanonical['elements'][0]['content'] === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
+    'S1c: positional shortcode rewrite also covers structured/Elementor string leaves');
+check($tokens->struct_apply($structuredCanonical, [], null)['elements'][0]['content'] === $legacy,
+    'S1c: structured positional shortcode token round-trips on apply');
+$tokens->forceUnresolvedRefs = true;
+$structuredForced = $tokens->struct_capture(['content' => '[gallery id="' . UNSCOPED_ID . '"]'], [], null);
+check($structuredForced['content'] === '[gallery]', 'S1c: force-unresolved-refs reaches named shortcode refs inside structured leaves');
+$tokens->forceUnresolvedRefs = false;
+$savedType = $wpdb->postsById[MAPPED_ID]['post_type'];
+$wpdb->postsById[MAPPED_ID]['post_type'] = 'page';
+$wrongTypeRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $wrongTypeRefused = str_contains($e->getMessage(), 'outside post_type');
+}
+$wpdb->postsById[MAPPED_ID]['post_type'] = $savedType;
+check($wrongTypeRefused, 'S1c: Apply rechecks target post_type before using a cached alternate witness');
+$sealedTokens = new Tokens();
+$sealedTokens->policy = $policy;
+$sealedTokens->seal_shortcode_alternates();
+$missingWitnessRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $sealedTokens);
+} catch (\Throwable $e) {
+    $missingWitnessRefused = str_contains($e->getMessage(), 'no canonical alternate witness');
+}
+check($missingWitnessRefused, 'S1c: sealed Apply refuses a positional token without a canonical alternate witness');
+$wpdb->postMetaById[MAPPED2_ID] = ['_old_cf7_unit_id' => ['77']];
+$tokens->register_shortcode_alternate('{{post:' . MAPPED_UUID . '}}', '_old_cf7_unit_id', 'wpcf7_contact_form', '77');
+$foreignDuplicateRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $foreignDuplicateRefused = str_contains($e->getMessage(), 'already owned by another');
+}
+unset($wpdb->postMetaById[MAPPED2_ID]);
+check($foreignDuplicateRefused, 'S1c: Apply refuses a target-side foreign duplicate alternate before body mutation');
+$wpdb->postMetaById[MAPPED2_ID] = ['_old_cf7_unit_id' => ['077']];
+$foreignNumericDuplicateRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $foreignNumericDuplicateRefused = str_contains($e->getMessage(), 'already owned by another');
+}
+unset($wpdb->postMetaById[MAPPED2_ID]);
+check($foreignNumericDuplicateRefused, 'S1c: Apply refuses a foreign lexical alternate that collides in CF7 numeric lookup');
+$wpdb->postsById[603] = ['post_type' => 'wpcf7_contact_form', 'post_title' => 'Trashed Form', 'post_status' => 'trash'];
+$wpdb->postMetaById[603] = ['_old_cf7_unit_id' => ['77']];
+$trashedIgnored = Shortcodes::capture_rewrite_text($legacy, $policy, $tokens) === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]';
+unset($wpdb->postsById[603], $wpdb->postMetaById[603]);
+check($trashedIgnored, 'S1c: CF7-ineligible trash rows do not collide with runtime alternate lookup');
+$wpdb->postMetaById[MAPPED_ID] = ['_old_cf7_unit_id' => ['77', '77']];
+$targetDuplicateRowsRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $targetDuplicateRowsRefused = str_contains($e->getMessage(), 'duplicate')
+        && str_contains($e->getMessage(), 'metadata rows');
+}
+$wpdb->postMetaById[MAPPED_ID] = ['_old_cf7_unit_id' => ['77']];
+check($targetDuplicateRowsRefused, 'S1c: Apply refuses duplicate alternate metadata rows on the selected target before body mutation');
+$wpdb->injectGetColError = true;
+$captureSqlFailureRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
+} catch (\Throwable $e) {
+    $captureSqlFailureRefused = str_contains($e->getMessage(), 'alternate lookup failed');
+}
+$applySqlFailureRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $applySqlFailureRefused = str_contains($e->getMessage(), 'collision check failed');
+}
+$wpdb->injectGetColError = false;
+check($captureSqlFailureRefused, 'S1c: capture refuses an alternate lookup SQL failure instead of treating it as no match');
+check($applySqlFailureRefused, 'S1c: Apply refuses a collision-check SQL failure before rewriting the body');
+$wpdb->last_error = 'stale prior query failure';
+check(Shortcodes::capture_rewrite_text($legacy, $policy, $tokens) === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
+    'S1c: a stale prior wpdb error is cleared before a fresh alternate lookup');
+$wpdb->last_error = 'stale prior query failure';
+check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $legacy,
+    'S1c: a stale prior wpdb error is cleared before a fresh collision check');
+
+// S1d — Apply registers the canonical alternate witnesses before any body
+// rewrite.  The reverse index must reject duplicate alternate values within
+// one declared lookup domain (and zero is never a valid legacy identifier).
+$applyForAlternates = (new \ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
+$applyPolicy = new \ReflectionProperty(\Duo\Apply::class, 'policy');
+$applyPolicy->setValue($applyForAlternates, $policy);
+$applyTokens = new \ReflectionProperty(\Duo\Apply::class, 'tokens');
+$applyTokens->setValue($applyForAlternates, new Tokens());
+$registerAlternates = new \ReflectionMethod(\Duo\Apply::class, 'register_shortcode_alternates');
+$duplicateAlternateTree = [
+    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
+    ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
+];
+$duplicateRefused = false;
+try {
+    $registerAlternates->invoke($applyForAlternates, $duplicateAlternateTree);
+} catch (\Throwable $e) {
+    $duplicateRefused = str_contains($e->getMessage(), 'ambiguous');
+}
+check($duplicateRefused, 'S1d: Apply refuses duplicate positional alternate values before body mutation');
+$zeroRefused = false;
+try {
+    $registerAlternates->invoke($applyForAlternates, [[
+        'type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '0']],
+    ]]);
+} catch (\Throwable $e) {
+    $zeroRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
+}
+check($zeroRefused, 'S1d: Apply refuses zero positional alternate values');
+$leadingZeroRefused = false;
+try {
+    Shortcodes::capture_rewrite_text('[contact-form 077 "Legacy Form"]', $policy, $tokens);
+} catch (\Throwable $e) {
+    $leadingZeroRefused = str_contains($e->getMessage(), 'positive decimal alternate id');
+}
+check($leadingZeroRefused, 'S1d: capture refuses non-canonical leading-zero alternate ids');
+$malformedSeparatorRefused = false;
+try {
+    Shortcodes::capture_rewrite_text('[contact-form foo="bar"77]', $policy, $tokens);
+} catch (\Throwable $e) {
+    $malformedSeparatorRefused = true;
+}
+check($malformedSeparatorRefused, 'S1d: malformed no-separator shortcode attrs do not get split into a positional id');
+$namedPositionalCases = [
+    '[contact-form id=77]',
+    '[contact-form x=77 88]',
+    '[contact-form 1=foo 77]',
+];
+foreach ($namedPositionalCases as $case) {
+    $refused = false;
+    try {
+        Shortcodes::capture_rewrite_text($case, $policy, $tokens);
+    } catch (\Throwable $e) {
+        $refused = str_contains($e->getMessage(), 'refuse named attributes');
+    }
+    check($refused, "S1d: positional '$case' refuses named/mixed attributes rather than selecting a different callback argument");
+}
+$hugeAlternateRefused = false;
+try {
+    $tokens->register_shortcode_alternate('{{post:' . MAPPED2_UUID . '}}', '_old_cf7_unit_id', 'wpcf7_contact_form', '9223372036854775808');
+} catch (\Throwable $e) {
+    $hugeAlternateRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
+}
+check($hugeAlternateRefused, 'S1d: positional alternates outside the executable PHP integer range refuse');
+$decimalOverflowRefused = false;
+try {
+    $tokens->register_shortcode_alternate('{{post:' . MAPPED2_UUID . '}}', '_old_cf7_unit_id', 'wpcf7_contact_form', '10000000000');
+} catch (\Throwable $e) {
+    $decimalOverflowRefused = str_contains($e->getMessage(), 'malformed positional shortcode alternate');
+}
+check($decimalOverflowRefused, 'S1d: positional alternates outside CF7 bare-DECIMAL range refuse');
 
 // S2 — unmapped scalar: DROP the attribute (+ its own leading whitespace)
 // entirely, never leave the raw env-local id, matching Blocks.php's own
@@ -416,10 +661,10 @@ echo "\n== Lint.php: shortcode findings ==\n";
 $stateDir = sys_get_temp_dir() . '/duo_regress_shortcode_refs_' . bin2hex(random_bytes(4));
 register_shutdown_function(fn() => rrmdir($stateDir));
 
-function write_fixture_post(string $stateDir, string $slug, string $uuid, string $body): string {
+function write_fixture_post(string $stateDir, string $slug, string $uuid, string $body, array $meta = []): string {
     $front = [
         'uuid' => $uuid, 'type' => 'post', 'slug' => $slug, 'title' => $slug,
-        'status' => 'publish', 'meta' => (object) [],
+        'status' => 'publish', 'meta' => $meta === [] ? (object) [] : $meta,
     ];
     $path = "$stateDir/posts/post/$uuid--$slug.md";
     Canon::write_file($path, Canon::post_file($front, $body));
@@ -463,6 +708,12 @@ $l4path = write_fixture_post($stateDir, 'l4-csv-raw', '01980000-0004-7000-8000-0
 $l5path = write_fixture_post($stateDir, 'l5-undeclared-tag', '01980000-0004-7000-8000-000000000005',
     '[caption id="attachment_' . UNMAPPED_ID . '"]A cat.[/caption]');
 
+// L6 — a structured/Elementor-style authored string leaf. The same
+// positional shortcode rule owns this nested string, so a raw alternate is
+// still a finding when it survives capture in post meta rather than body.
+$l6path = write_fixture_post($stateDir, 'l6-structured-raw', '01980000-0004-7000-8000-000000000006',
+    '', ['_elementor_data' => ['elements' => [['content' => '[contact-form 77 "Legacy Form"]']]]]);
+
 $findings = Lint::scan_tree($stateDir, $policy);
 $byPath = [];
 foreach ($findings as $f) {
@@ -501,7 +752,15 @@ if (count($l4) === 2) {
 
 check(count($byPath[$l5path] ?? []) === 0, 'L5: completely undeclared tag [caption] -> zero findings regardless of content (got: ' . json_encode($byPath[$l5path] ?? []) . ')');
 
-check(count($findings) === 4, 'sanity: exactly 4 findings total across all 5 fixtures (L2 + L3 + L4x2) -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
+$l6 = $byPath[$l6path] ?? [];
+check(count($l6) === 1, 'L6: structured positional shortcode survivor -> exactly one finding (got ' . count($l6) . ')');
+if (count($l6) === 1) {
+    check($l6[0]['class'] === 'unrewritten_registered_shortcode_ref', 'L6: structured finding is unrewritten_registered_shortcode_ref');
+    check($l6[0]['locator'] === 'meta._elementor_data.elements[0].content.shortcode.contact-form.positional[0]',
+        'L6: structured locator preserves the meta/string-leaf path (got: ' . $l6[0]['locator'] . ')');
+}
+
+check(count($findings) === 5, 'sanity: exactly 5 findings total across all 6 fixtures (L2 + L3 + L4x2 + L6) -- got ' . count($findings) . ': ' . json_encode(array_column($findings, 'class')));
 
 // ======================================================================
 echo "\n";

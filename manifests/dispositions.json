@@ -22,13 +22,13 @@
       "capabilities": {
         "deletion_semantics": {"supported": [], "unsupported": ["plugin-specific deletes"]},
         "entity_sections": [],
-        "field_sections": ["post_meta"],
+        "field_sections": ["post_meta", "shortcode_attrs"],
         "lifecycle_phases": ["retire", "activate", "verify"],
         "operations": ["capture", "compile", "plan", "deploy", "apply", "recapture", "render-api"]
       },
       "default_authored_keyspaces": [],
       "evidence": {"bundle_schema": "duo-certification-bundle/v1", "tests": ["conformance-contact-form-7", "exact-artifact-version-matrix"]},
-      "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries.",
+      "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries, including legacy positional shortcode alternate binding.",
       "status": "certified",
       "supported_versions": {"plugin": "contact-form-7/wp-contact-form-7.php", "range": {"max": "7.0.0", "min": "6.0.0"}},
       "unsupported": [
