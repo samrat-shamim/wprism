@@ -1,8 +1,8 @@
 {
     "evidence": {
-        "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+        "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
         "bundle_schema": "duo-certification-bundle/v1",
-        "created_at": "2026-08-11T15:15:18Z",
+        "created_at": "2026-08-12T09:34:43Z",
         "environment_summary": {
             "active_plugins": [],
             "artifact_cache": {
@@ -289,16 +289,16 @@
                 "stylesheet": "twentytwentyfive",
                 "template": "twentytwentyfive"
             },
-            "wordpress": "7.0.2"
+            "wordpress": "7.0.3"
         },
         "force_hatches": [],
         "format": "duo-capability-evidence/v1",
-        "git_revision": "502ba7445c9f8cea99484f4395874da75f094a3b",
+        "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
         "harness": {
             "name": "duo-reference-certification",
             "version": 4
         },
-        "status": "current",
+        "status": "candidate",
         "tests": [
             {
                 "id": "conformance-core",
@@ -361,8 +361,8 @@
     "format": "duo-capability-registry/v1",
     "generated_from": {
         "compatibility_sha256": "40050ad62cde35c9365d56525a6cf5c0a2a11382e3636971016895c8cba94d61",
-        "dispositions_sha256": "ebe89c8e7a8be66dfbcac54281770983c555d0a0c62234c5cf04bf808169824d",
-        "evidence_sha256": "8b14f2959ed87d2c6880e200295af41d9d6903e31a5bd082e865897e5e012262"
+        "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
+        "evidence_sha256": "2e2332ecff9ffebb3f2a628d455ef46a1f1274a89ce43ae96582656d6f8989bc"
     },
     "manifests": {
         "acf": {
@@ -396,10 +396,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-acf",
                     "exact-artifact-version-matrix"
@@ -453,7 +453,7 @@
             ]
         },
         "contact-form-7": {
-            "adapter_digest": "cdb688b9991c1b0cb23a0d2a5e40be6a88ff55ce11d7278407d71961e8d0607f",
+            "adapter_digest": "fe0d1cfa814cf32b53fc8d190861a647faf8c693a983440c00c2aed06ac7de72",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -483,10 +483,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-contact-form-7",
                     "exact-artifact-version-matrix"
@@ -512,7 +512,7 @@
                 "mode": "unmodified",
                 "status": "verified"
             },
-            "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries.",
+            "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries, including legacy positional shortcode alternate binding.",
             "status": "certified",
             "supported_versions": {
                 "plugin": "contact-form-7/wp-contact-form-7.php",
@@ -529,7 +529,12 @@
                 "post_meta._locale",
                 "post_meta._mail",
                 "post_meta._mail_2",
-                "post_meta._messages"
+                "post_meta._messages",
+                "post_meta._old_cf7_unit_id",
+                "post_types",
+                "post_types.wpcf7_contact_form",
+                "shortcode_attrs",
+                "shortcode_attrs.contact-form"
             ],
             "unsupported": [
                 {
@@ -577,10 +582,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -739,10 +744,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -808,10 +813,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -872,10 +877,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -946,10 +951,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1014,10 +1019,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1079,10 +1084,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
@@ -1175,10 +1180,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-ninja-forms",
                     "exact-artifact-version-matrix"
@@ -1284,10 +1289,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-paid-memberships-pro"
                 ]
@@ -1430,10 +1435,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1521,10 +1526,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1601,7 +1606,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "02ab1102f901be88f5d9f10021e2e2146755c9a62d8a3c0f8420d92e88f7c8b4",
+            "adapter_digest": "12fb092f964fa1010fe1c238cb9905f7c526500491317c89db1cedf6772cb355",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1638,10 +1643,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
@@ -1899,10 +1904,10 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -2009,10 +2014,10 @@
         "fse": {
             "adapter_digest": "2ce6183fdd3cdeb73ae70758787625ea6bbc54ae2fe64592724ed5cfd9278a23",
             "evidence": {
-                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
+                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "status": "current",
+                "status": "candidate",
                 "tests": [
                     "conformance-fse"
                 ]
