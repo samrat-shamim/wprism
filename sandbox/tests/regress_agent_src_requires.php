@@ -452,6 +452,7 @@ $knownGapsByFile = [
     'Publish' => ['PublicationJournal'],
     'ReferenceGraph' => ['Policy', 'SidebarState', 'Snapshot'],
     'RefreshExport' => ['Canon', 'Capture', 'Code', 'CompiledRepository', 'Deletion', 'Identity', 'Ledger', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay'],
+    'RelationshipMaterializer' => ['Db', 'Ledger'],
     'RepositoryAuthorization' => ['Canon', 'OptionState', 'PersonalData', 'Policy', 'ReferenceRules', 'RepositoryCompiler', 'Secrets', 'SidebarState', 'Snapshot'],
     'RepositoryCompiler' => ['AdapterSources', 'Canon', 'CapabilityRegistry', 'Code', 'CodeCompilationException', 'CodeStateContract', 'Deletion', 'JsonRefs', 'OptionState', 'Policy', 'ReferenceRules', 'RepositoryAuthorization', 'SidebarState', 'Snapshot', 'UserMetaState'],
     'ScopeClosure' => ['CompiledRepository', 'Policy', 'SidebarState', 'UserMetaState'],
