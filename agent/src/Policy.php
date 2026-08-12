@@ -34,6 +34,10 @@ require_once __DIR__ . '/SubKeyGrammar.php';
 // DUO-3348 slice 9: exact and pattern taxonomy object_keyspace declaration
 // grammar, required here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/TaxonomyGrammar.php';
+// DUO-3348 slice 11: option-name reference declaration grammar and its
+// cross-manifest identical-pattern guard, required here for the same
+// "loads alone" reason as its neighbors.
+require_once __DIR__ . '/OptionReferenceGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -258,7 +262,7 @@ self::validate_post_type_children($manifest);
             TaxonomyGrammar::validate_object_type_option_refs($manifest);
             TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
             SubKeyGrammar::validate_dynamic_options($manifest);
-            self::validate_option_name_refs($manifest);
+            OptionReferenceGrammar::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
@@ -270,7 +274,7 @@ self::validate_post_type_children($manifest);
             $p->manifests,
             $p->site['policy']['options'] ?? []
         );
-        self::validate_no_overlapping_option_name_refs($p->manifests);
+        OptionReferenceGrammar::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($p->manifests);
         CrossManifestGuards::validate_no_conflicting_post_type_contracts($p->manifests);
@@ -394,7 +398,7 @@ self::validate_post_type_children($manifest);
             // exists to rule out.
             SubKeyGrammar::validate_dynamic_options($manifest);
             TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
-            self::validate_option_name_refs($manifest);
+            OptionReferenceGrammar::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
@@ -432,7 +436,7 @@ self::validate_post_type_children($manifest);
             $p->manifests,
             $p->site['policy']['options'] ?? []
         );
-        self::validate_no_overlapping_option_name_refs($p->manifests);
+        OptionReferenceGrammar::validate_no_overlapping_option_name_refs($p->manifests);
         self::validate_no_conflicting_adapter_claims($p->manifests);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($p->manifests);
         CrossManifestGuards::validate_no_conflicting_post_type_contracts($p->manifests);
@@ -3252,70 +3256,6 @@ self::validate_post_type_children($manifest);
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);
-    }
-
-    /** Validate option-name reference patterns before capture/apply uses them. */
-    private static function validate_option_name_refs(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        $rules = $manifest['option_name_refs'] ?? [];
-        if (!is_array($rules) || !array_is_list($rules)) {
-            throw new \RuntimeException("duo: manifest '$name' option_name_refs must be a list");
-        }
-        foreach ($rules as $i => $rule) {
-            if (!is_array($rule)
-                || !in_array($rule['class'] ?? null, self::CLASSES, true)
-                || !is_string($rule['id_kind'] ?? null)
-                || !preg_match('/^[a-z][a-z0-9_]*$/', (string) $rule['id_kind'])
-                || !is_string($rule['match'] ?? null)
-                || (string) $rule['match'] === ''
-                || @preg_match('/' . $rule['match'] . '/', '') === false) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' option_name_refs[$i] must declare class, id_kind, and a valid match regex"
-                );
-            }
-            if (substr_count((string) $rule['match'], '(?<id>') !== 1) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' option_name_refs[$i].match must contain exactly one named (?<id>...) capture"
-                );
-            }
-            if (array_key_exists('malformed_match', $rule)
-                && (!is_string($rule['malformed_match'])
-                    || $rule['malformed_match'] === ''
-                    || @preg_match('/' . $rule['malformed_match'] . '/', '') === false)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' option_name_refs[$i].malformed_match must be a non-empty valid regex"
-                );
-            }
-        }
-    }
-
-    /**
-     * Identical option-name-ref regexes are unconditionally ambiguous.  The
-     * full regex-intersection problem is not decidable in this grammar, so
-     * runtime consumers also use option_name_ref_match_details() and reject
-     * every concrete live/canonical name matched by multiple declarations.
-     */
-    private static function validate_no_overlapping_option_name_refs(array $manifests): void {
-        $seen = [];
-        foreach ($manifests as $manifest) {
-            foreach ($manifest['option_name_refs'] ?? [] as $index => $rule) {
-                $pattern = (string) ($rule['match'] ?? '');
-                if ($pattern === '') {
-                    continue;
-                }
-                if (isset($seen[$pattern])) {
-                    $prior = $seen[$pattern];
-                    throw new \RuntimeException(
-                        "duo: option_name_refs rules '{$prior['manifest']}[{$prior['index']}]' and "
-                        . "'" . (string) ($manifest['name'] ?? '?') . "[$index]' have identical overlapping match regexes"
-                    );
-                }
-                $seen[$pattern] = [
-                    'manifest' => (string) ($manifest['name'] ?? '?'),
-                    'index' => (int) $index,
-                ];
-            }
-        }
     }
 
     /** Validate the journal-independent discovery vocabulary at load time. */
