@@ -420,7 +420,7 @@ $knownGapsByFile = [
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
     'CapabilityRegistry' => ['Canon', 'ManifestDispositions', 'Policy'],
-    'Capture' => ['Blocks', 'Canary', 'Code', 'CompiledRepository', 'Db', 'Deletion', 'Deploy', 'Identity', 'Ledger', 'Lint', 'OptionState', 'OrderPreserved', 'PersonalData', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'Secrets', 'SidebarState', 'Snapshot', 'Tokens', 'TransientDbException', 'UserMetaState', 'Uuid'],
+    'Capture' => ['Blocks', 'Code', 'CompiledRepository', 'Db', 'Deletion', 'Deploy', 'Identity', 'Ledger', 'Lint', 'OptionState', 'OrderPreserved', 'PersonalData', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'Secrets', 'SidebarState', 'Snapshot', 'Tokens', 'TransientDbException', 'UserMetaState', 'Uuid'],
     'Cli' => ['AdapterObservation', 'AdapterSources', 'Apply', 'Canon', 'CapabilityRegistry', 'Capture', 'Code', 'CodeCompilationException', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     'Code' => ['Canon', 'CodeCompatibility', 'CodeStateContract', 'CompiledRepository', 'Db', 'Ledger', 'PromotionLock'],
     'CodeStateContract' => ['CompiledRepository', 'OptionState'],
@@ -486,6 +486,7 @@ $mutated = $sources;
 foreach ([
     ['Apply', 'ConvergenceVerifier'],
     ['ConvergenceVerifier', 'Canon'],
+    ['Capture', 'Canary'],
 ] as [$file, $dependency]) {
     $pattern = "~^require_once __DIR__ \\. '/" . preg_quote($dependency, '~') . "\\.php';\\R~m";
     $changed = preg_replace($pattern, '', $mutated[$file], 1, $count);
@@ -494,10 +495,6 @@ foreach ([
     $mutatedGaps = find_gaps($mutated, $classFiles, $knownGaps);
     check(isset($mutatedGaps["$file::$dependency"]), "scanner missed mutated $file::$dependency gap");
 }
-$withoutCaptureAllow = $knownGaps;
-unset($withoutCaptureAllow['Capture::Canary']);
-$captureGaps = find_gaps($sources, $classFiles, $withoutCaptureAllow);
-check(isset($captureGaps['Capture::Canary']), 'scanner missed the known DUO-3442 Capture::Canary gap');
 fwrite(STDOUT, "ok: mutations for DUO-3440/3441/3442 are detected before the explicit baseline allowlist\n");
 
 if ($gaps !== []) {
