@@ -161,7 +161,10 @@ final class Apply {
         return $this->applyPlanner ??= new ApplyPlanner(
             $this->policy,
             $this->snapshotRowTables(),
-            static fn(string $uuid, string $kind): ?int => Ledger::id_for($uuid, $kind)
+            static fn(string $uuid, string $kind): ?int => Ledger::id_for(
+                $uuid,
+                $kind === 'tt' ? Ledger::KIND_TT : $kind
+            )
         );
     }
 

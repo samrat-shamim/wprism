@@ -55,7 +55,7 @@ final class ApplyPlanner {
             // collision concept. Mapped-identity tables return null here.
             // $tree and $cache remain explicit because a parent-scoped key
             // may name a parent row that is itself only adoptable.
-            $id = Snapshot::find_collision($this->policy, $e, $tree, $cache);
+            $id = Snapshot::find_collision($this->policy, $e, $tree, $cache, [], $this->ledgerIdFor);
             if ($uuid !== '') {
                 $cache[$uuid] = $id;
             }

@@ -1856,13 +1856,18 @@ final class Snapshot {
      * @param array<string,array> $tree
      * @param array<string,?int> $cache
      * @param array<string,bool> $seen
+     * @param \Closure(string,string):?int|null $ledgerIdFor optional resolver
+     *        used by planner-owned collision lookups; it receives the token's
+     *        manifest ref kind and owns any ledger-kind translation. The
+     *        legacy null path retains Snapshot's direct Ledger lookup.
      */
     public static function find_collision(
         Policy $policy,
         array $entity,
         array $tree = [],
         array &$cache = [],
-        array $seen = []
+        array $seen = [],
+        ?\Closure $ledgerIdFor = null
     ): ?int {
         global $wpdb;
         $decl = self::row_tables($policy)[$entity['type']] ?? null;
@@ -1900,7 +1905,8 @@ final class Snapshot {
                     $refKinds[$column],
                     $tree,
                     $cache,
-                    $seen + [(string) ($front['uuid'] ?? '') => true]
+                    $seen + [(string) ($front['uuid'] ?? '') => true],
+                    $ledgerIdFor
                 );
                 if ($parentId === null) {
                     return null;
@@ -1947,6 +1953,7 @@ final class Snapshot {
      * @param array<string,array> $tree
      * @param array<string,?int> $cache
      * @param array<string,bool> $seen recursion path — see find_collision()
+     * @param \Closure(string,string):?int|null $ledgerIdFor optional resolver
      */
     private static function collision_ref_id(
         Policy $policy,
@@ -1954,12 +1961,15 @@ final class Snapshot {
         string $kind,
         array $tree,
         array &$cache,
-        array $seen
+        array $seen,
+        ?\Closure $ledgerIdFor = null
     ): ?int {
         // Tokens' rename table, not the manifest's spelling: a `tt` ref is
         // stored in duo_map as `term_taxonomy`, and looking it up raw finds a
         // keyspace with no rows (DUO-3318 review, N2).
-        $mapped = Ledger::id_for($uuid, Tokens::ledger_kind($kind));
+        $mapped = $ledgerIdFor !== null
+            ? $ledgerIdFor($uuid, $kind)
+            : Ledger::id_for($uuid, Tokens::ledger_kind($kind));
         if ($mapped !== null) {
             return $mapped;
         }
@@ -1974,7 +1984,7 @@ final class Snapshot {
         if ($decl === null || (string) ($decl['id_kind'] ?? '') !== $kind) {
             return null;
         }
-        return $cache[$uuid] = self::find_collision($policy, $parent, $tree, $cache, $seen);
+        return $cache[$uuid] = self::find_collision($policy, $parent, $tree, $cache, $seen, $ledgerIdFor);
     }
 
     /** Claim an unmanaged env row by writing identity only — table rows have

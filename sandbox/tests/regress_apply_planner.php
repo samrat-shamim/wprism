@@ -135,6 +135,7 @@ $check(ApplyPlanner::nested_delete_candidate_counts(['sidebar-1' => []], $tree, 
 // ----------------------------------------------------------- collision planner
 
 final class ApplyPlannerCollisionWpdb {
+    public string $prefix = 'wp_';
     public string $posts = 'wp_posts';
     public string $terms = 'wp_terms';
     public string $term_taxonomy = 'wp_term_taxonomy';
@@ -148,6 +149,10 @@ final class ApplyPlannerCollisionWpdb {
     /** @return list<int|string> */
     public function get_col(string $query): array {
         return $this->collisionIds;
+    }
+
+    public function get_var(string $query): mixed {
+        return $this->collisionIds[0] ?? null;
     }
 }
 
@@ -227,6 +232,56 @@ $check(
 $check(
     $resolverCalls === [],
     'collision planner: an unparented term natural key does not consult the injected ledger resolver'
+);
+
+$tablePolicy = new Policy();
+$tablePolicy->manifests = [[
+    'name' => 'collision-fixture',
+    'tables' => [
+        'acme_rooms' => [
+            'class' => 'authored_snapshot',
+            'id_kind' => 'acme_room',
+            'pk' => 'id',
+            'columns' => ['code' => ['class' => 'authored']],
+            'identity' => ['mode' => 'natural_key', 'column' => 'code'],
+        ],
+        'acme_slots' => [
+            'class' => 'authored_snapshot',
+            'id_kind' => 'acme_slot',
+            'pk' => 'id',
+            'columns' => ['room_id' => ['class' => 'authored'], 'code' => ['class' => 'authored']],
+            'refs' => [['column' => 'room_id', 'kind' => 'acme_room']],
+            'identity' => ['mode' => 'natural_key', 'columns' => ['room_id', 'code']],
+        ],
+    ],
+]];
+$roomUuid = '00000000-0000-4000-8000-000000000101';
+$slotUuid = '00000000-0000-4000-8000-000000000102';
+$tableResolverCalls = [];
+$tablePlanner = new ApplyPlanner(
+    $tablePolicy,
+    $tablePolicy->declared_tables(),
+    static function (string $uuid, string $kind) use (&$tableResolverCalls, $roomUuid): ?int {
+        $tableResolverCalls[] = [$uuid, $kind];
+        return $uuid === $roomUuid && $kind === 'acme_room' ? 13 : null;
+    }
+);
+$wpdb->collisionIds = [91];
+$tableCache = [];
+$tableEntity = [
+    'type' => 'acme_slots',
+    'data' => [
+        'uuid' => $slotUuid,
+        'columns' => ['room_id' => "{{acme_room:$roomUuid}}", 'code' => 'morning'],
+    ],
+];
+$check(
+    $tablePlanner->find_collision($tableEntity, [], $tableCache) === 91,
+    'collision planner: a declared typed-table natural key resolves through the injected parent resolver'
+);
+$check(
+    $tableResolverCalls === [[$roomUuid, 'acme_room']],
+    'collision planner: typed-table refs use the declared token kind without loading Ledger directly'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
