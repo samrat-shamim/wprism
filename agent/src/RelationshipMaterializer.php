@@ -22,14 +22,16 @@ require_once __DIR__ . '/Policy.php';
  *
  * Extracted from Apply.php: reconcile_relationships() had exactly one
  * caller (finalize_post(), which stays on Apply for now); delete_post_
- * relationships()/delete_term_relationships() are each called once, from
+ * relationships()/delete_term_relationships() are called only from
  * delete_entity() (also staying on Apply -- part of the still-unextracted
- * DeleteGuardEvaluator/DeleteExecutor seam). All three were otherwise
- * fully self-contained: their only external collaborator is Policy
- * (taxonomy_object_keyspace()) plus the live WordPress taxonomy registry
- * and $wpdb -- no Tokens, no ApplyFieldMaterializer, narrower than the
- * (Policy, Tokens, ApplyFieldMaterializer) contract Menu/UserMeta/Term/
- * Options established.
+ * DeleteGuardEvaluator/DeleteExecutor seam) -- twice for the former (the
+ * deleted post itself, and once per deleted nav_menu_item child in a
+ * loop), once for the latter. All three were otherwise fully
+ * self-contained: their only *injected* collaborator is Policy
+ * (taxonomy_object_keyspace()), plus the static Db/Ledger facades, the
+ * live WordPress taxonomy registry, and $wpdb -- no Tokens, no
+ * ApplyFieldMaterializer, narrower than the (Policy, Tokens,
+ * ApplyFieldMaterializer) contract Menu/UserMeta/Term/Options established.
  *
  * Scope: the one dependency outside the narrow contract.
  * reconcile_relationships() needs the policy-scoped taxonomy roster for
@@ -49,7 +51,7 @@ require_once __DIR__ . '/Policy.php';
  *
  * assert_zero() is duplicated here as a private method rather than shared
  * with Apply's own copy: Apply's delete_entity() (unextracted this slice)
- * still calls its own copy at 8 other call sites, so removing it from
+ * still calls its own copy at 10 other call sites, so removing it from
  * Apply would require delete_entity() to route through this class for a
  * behavior-preserving extraction that isn't otherwise in scope. The
  * duplicated body is five lines, generic, and has no state of its own.
