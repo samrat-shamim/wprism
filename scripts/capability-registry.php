@@ -39,7 +39,7 @@ function is_multisite(): bool { return false; }
 require $repo . '/agent/src/Canon.php';
 require $repo . '/agent/src/ManifestDispositions.php';
 require $repo . '/agent/src/CapabilityRegistry.php';
-require $repo . '/agent/src/ScopedCertificationBundle.php';
+require_once $repo . '/agent/src/ScopedCertificationBundle.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;
@@ -52,6 +52,7 @@ const DOC_FILE = '/docs/capabilities.md';
 const README_FILE = '/README.md';
 const README_BEGIN = '<!-- BEGIN GENERATED CAPABILITY SUMMARY -->';
 const README_END = '<!-- END GENERATED CAPABILITY SUMMARY -->';
+const SCOPED_EVIDENCE_ROOT = '/manifests/capabilities/scoped';
 
 function cap_fail(string $message): never {
     fwrite(STDERR, "capability registry: $message\n");
@@ -228,33 +229,14 @@ function cap_adapter_artifacts(string $repo, array $manifest): array {
 
 /** @return list<array{path:string,sha256:string,size:int}> */
 function cap_scoped_current_inputs(string $repo, array $recorded): array {
-    $out = [];
-    foreach ($recorded as $input) {
-        $path = $input['path'] ?? null;
-        if (!is_string($path) || $path === '' || str_starts_with($path, '/') || str_contains($path, '\\')
-            || str_contains($path, "\0") || str_contains($path, '//') || str_ends_with($path, '/')
-            || in_array('.', explode('/', $path), true) || in_array('..', explode('/', $path), true)) {
-            throw new RuntimeException('scoped certification closure has a malformed path');
-        }
-        $absolute = $repo . '/' . $path;
-        if (!is_file($absolute) || is_link($absolute)) {
-            throw new RuntimeException("scoped certification bound input is absent or unsafe: $path");
-        }
-        $hash = hash_file('sha256', $absolute);
-        $size = filesize($absolute);
-        if ($hash === false || $size === false) {
-            throw new RuntimeException("could not read scoped certification bound input: $path");
-        }
-        $out[] = ['path' => $path, 'sha256' => $hash, 'size' => $size];
-    }
-    usort($out, static fn(array $a, array $b): int => strcmp($a['path'], $b['path']));
-    return $out;
+    return ScopedCertificationBundle::currentInputs($repo, $recorded);
 }
 
 /** @return array{record:array,current:bool} */
-function cap_scoped_record(string $repo, array $record, string $name, array $manifest, array $disposition): array {
+function cap_scoped_record(string $repo, array $record, string $bundleDir, string $name, array $manifest, array $disposition): array {
     ScopedCertificationBundle::validate($record, "scoped certification '$name'");
     try {
+        ScopedCertificationBundle::assertEvidenceAssets($record, $bundleDir);
         ScopedCertificationBundle::assertCurrent(
             $record,
             $name,
@@ -272,6 +254,101 @@ function cap_scoped_record(string $repo, array $record, string $name, array $man
         // adapter, so every consumer remains fail-closed until it is refreshed.
         return ['record' => $record, 'current' => false];
     }
+}
+
+/** @return array{bundle:array,path:string,dir:string} */
+function cap_scoped_entry(string $repo, string $name, mixed $entry): array {
+    if (!is_array($entry) || array_is_list($entry)) {
+        throw new RuntimeException("scoped evidence entry '$name' is malformed");
+    }
+    $keys = array_keys($entry);
+    sort($keys, SORT_STRING);
+    if ($keys !== ['bundle', 'path'] || !is_array($entry['bundle']) || array_is_list($entry['bundle'])
+        || !is_string($entry['path'])) {
+        throw new RuntimeException("scoped evidence entry '$name' must name its bundle and durable path");
+    }
+    $bundle = $entry['bundle'];
+    ScopedCertificationBundle::validate($bundle, "scoped certification '$name'");
+    $expected = 'scoped/' . $name . '/' . $bundle['bundle_digest'];
+    if (!hash_equals($expected, $entry['path'])) {
+        throw new RuntimeException("scoped evidence entry '$name' has a noncanonical durable path");
+    }
+    $dir = $repo . '/manifests/capabilities/' . $entry['path'];
+    $bundleFile = $dir . '/bundle.json';
+    if (!is_file($bundleFile) || is_link($bundleFile)) {
+        throw new RuntimeException("scoped evidence entry '$name' has no durable bundle manifest");
+    }
+    $raw = (string) file_get_contents($bundleFile);
+    if (!hash_equals(Canon::encode($bundle), $raw)) {
+        throw new RuntimeException("scoped evidence entry '$name' durable manifest disagrees with the attestation");
+    }
+    return ['bundle' => $bundle, 'path' => $entry['path'], 'dir' => $dir];
+}
+
+function cap_copy_scoped_asset(string $sourceDir, string $stage, string $relative): void {
+    $source = $sourceDir . '/' . $relative;
+    $target = $stage . '/' . $relative;
+    if (!is_file($source) || is_link($source)) {
+        throw new RuntimeException("scoped bundle asset is absent or unsafe: $relative");
+    }
+    if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0777, true) && !is_dir(dirname($target))) {
+        throw new RuntimeException("could not create durable scoped evidence directory for: $relative");
+    }
+    if (!copy($source, $target)) {
+        throw new RuntimeException("could not copy durable scoped evidence asset: $relative");
+    }
+}
+
+/** @return array{path:string,dir:string} */
+function cap_publish_scoped_bundle(string $repo, string $name, array $bundle, string $sourceDir): array {
+    $sourceDir = realpath($sourceDir);
+    if ($sourceDir === false || !is_dir($sourceDir) || basename($sourceDir) !== $bundle['bundle_digest']) {
+        throw new RuntimeException('scoped bundle directory does not match its content-addressed digest');
+    }
+    ScopedCertificationBundle::assertEvidenceAssets($bundle, $sourceDir);
+    $relative = 'scoped/' . $name . '/' . $bundle['bundle_digest'];
+    $target = $repo . '/manifests/capabilities/' . $relative;
+    if (file_exists($target) || is_link($target)) {
+        $existing = cap_read_json($target . '/bundle.json');
+        if (Canon::encode($existing) !== Canon::encode($bundle)) {
+            throw new RuntimeException("durable scoped evidence path already contains a different bundle for '$name'");
+        }
+        ScopedCertificationBundle::assertEvidenceAssets($bundle, $target);
+        return ['path' => $relative, 'dir' => $target];
+    }
+    $parent = dirname($target);
+    if (!is_dir($parent) && !mkdir($parent, 0777, true) && !is_dir($parent)) {
+        throw new RuntimeException('could not create scoped evidence parent directory');
+    }
+    $stage = $parent . '/.building-' . bin2hex(random_bytes(6));
+    if (!mkdir($stage, 0777, true)) {
+        throw new RuntimeException('could not create scoped evidence staging directory');
+    }
+    try {
+        cap_copy_scoped_asset($sourceDir, $stage, 'bundle.json');
+        foreach ($bundle['tests'] as $test) {
+            foreach (['result', 'diff', 'log'] as $kind) {
+                cap_copy_scoped_asset($sourceDir, $stage, $test[$kind]['path']);
+            }
+        }
+        $copied = cap_read_json($stage . '/bundle.json');
+        if (Canon::encode($copied) !== Canon::encode($bundle)) {
+            throw new RuntimeException('durable scoped bundle manifest changed while being published');
+        }
+        ScopedCertificationBundle::assertEvidenceAssets($bundle, $stage);
+        if (!rename($stage, $target)) {
+            throw new RuntimeException('could not atomically publish durable scoped evidence');
+        }
+    } catch (Throwable $e) {
+        if (is_dir($stage)) {
+            foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($stage, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST) as $item) {
+                $item->isDir() ? @rmdir($item->getPathname()) : @unlink($item->getPathname());
+            }
+            @rmdir($stage);
+        }
+        throw $e;
+    }
+    return ['path' => $relative, 'dir' => $target];
 }
 
 function cap_import_adapter_bundle(string $repo, string $input): void {
@@ -294,7 +371,8 @@ function cap_import_adapter_bundle(string $repo, string $input): void {
     if (!is_array($manifest) || !is_array($disposition)) {
         throw new RuntimeException("scoped bundle subject '$name' is not a shipped reviewed manifest");
     }
-    $resolved = cap_scoped_record($repo, $bundle, $name, $manifest, $disposition);
+    $sourceDir = dirname($file);
+    $resolved = cap_scoped_record($repo, $bundle, $sourceDir, $name, $manifest, $disposition);
     if (!$resolved['current']) {
         throw new RuntimeException("scoped bundle for '$name' is stale against the current adapter, closure, platform, artifacts, or citations");
     }
@@ -309,7 +387,8 @@ function cap_import_adapter_bundle(string $repo, string $input): void {
     if (!is_array($scoped) || (array_is_list($scoped) && $scoped !== [])) {
         throw new RuntimeException('capability evidence scoped records are malformed');
     }
-    $scoped[$name] = $bundle;
+    $published = cap_publish_scoped_bundle($repo, $name, $bundle, $sourceDir);
+    $scoped[$name] = ['bundle' => $bundle, 'path' => $published['path']];
     ksort($scoped, SORT_STRING);
     $evidence['scoped'] = $scoped;
     Canon::write_file($evidencePath, Canon::encode($evidence));
@@ -468,10 +547,8 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
         $requiredTests = $disposition['evidence']['tests'] ?? [];
         $claimEvidence = cap_global_claim_evidence($bundle, $status, $requiredTests);
         if (array_key_exists($name, $scopedRecords)) {
-            if (!is_array($scopedRecords[$name]) || array_is_list($scopedRecords[$name])) {
-                throw new RuntimeException("scoped evidence entry '$name' is malformed");
-            }
-            $scoped = cap_scoped_record($repo, $scopedRecords[$name], $name, $manifest, $disposition);
+            $entry = cap_scoped_entry($repo, $name, $scopedRecords[$name]);
+            $scoped = cap_scoped_record($repo, $entry['bundle'], $entry['dir'], $name, $manifest, $disposition);
             // A scoped entry is authoritative for its one subject even when it
             // is stale.  Falling back to global evidence here would let an old
             // adapter digest or an incomplete citation set look current.

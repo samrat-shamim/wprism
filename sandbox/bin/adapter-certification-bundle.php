@@ -24,7 +24,7 @@ function is_multisite(): bool { return false; }
 require $repo . '/agent/src/Canon.php';
 require $repo . '/agent/src/ManifestDispositions.php';
 require $repo . '/agent/src/CapabilityRegistry.php';
-require $repo . '/agent/src/ScopedCertificationBundle.php';
+require_once $repo . '/agent/src/ScopedCertificationBundle.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;
@@ -336,16 +336,7 @@ function adapter_bundle_verify(string $input, string $root): never {
         if (!hash_equals(basename($dir), (string) $bundle['bundle_digest'])) {
             throw new RuntimeException('bundle directory does not match the content-addressed digest');
         }
-        foreach ($bundle['tests'] as $test) {
-            foreach (['result', 'diff', 'log'] as $kind) {
-                $asset = $test[$kind];
-                $relative = adapter_bundle_safe_relative($asset['path'] ?? null, "test {$test['id']} $kind path");
-                $actual = adapter_bundle_asset("$dir/$relative", $relative);
-                if (Canon::encode($actual) !== Canon::encode($asset)) {
-                    throw new RuntimeException("bundle test asset is missing or corrupt: $relative");
-                }
-            }
-        }
+        ScopedCertificationBundle::assertEvidenceAssets($bundle, $dir);
         $name = (string) $bundle['subject']['manifest'];
         $subject = adapter_bundle_subject($root, $name);
         $actualDigest = CapabilityRegistry::adapter_digest($subject['manifest'], $subject['disposition'], $subject['dir']);

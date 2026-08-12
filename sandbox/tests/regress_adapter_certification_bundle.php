@@ -16,6 +16,17 @@ function remove_tree(string $path): void {
     foreach (new FilesystemIterator($path) as $item) remove_tree($item->getPathname());
     rmdir($path);
 }
+function copy_tree(string $source, string $target): void {
+    if (is_file($source)) {
+        if (!is_dir(dirname($target))) mkdir(dirname($target), 0777, true);
+        copy($source, $target);
+        return;
+    }
+    mkdir($target, 0777, true);
+    foreach (new FilesystemIterator($source) as $item) {
+        copy_tree($item->getPathname(), $target . '/' . $item->getFilename());
+    }
+}
 /** @return array{exit:int,out:string,err:string,json:?array} */
 function run(array $command): array {
     $pipes = [];
@@ -31,6 +42,30 @@ function run(array $command): array {
 }
 function write_json(string $path, array $value): void {
     file_put_contents($path, json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+}
+function load_registry(string $repo): array {
+    $code = <<<'PHP'
+declare(strict_types=1);
+$repo = $argv[1];
+define('DUO_AGENT_VERSION', '0.5.0');
+define('DUO_SPEC_VERSION', 2);
+function is_multisite(): bool { return false; }
+require $repo . '/agent/src/Canon.php';
+require $repo . '/agent/src/ManifestDispositions.php';
+require $repo . '/agent/src/CapabilityRegistry.php';
+$dir = $repo . '/manifests';
+$dispositions = Duo\ManifestDispositions::load($dir);
+$manifests = [];
+foreach (glob($dir . '/*.json') ?: [] as $file) {
+    if (basename($file) !== 'dispositions.json') {
+        $manifest = Duo\Canon::decode(Duo\Canon::read_file($file));
+        $manifests[] = $manifest;
+    }
+}
+$registry = Duo\CapabilityRegistry::load($dir, $dispositions, $manifests);
+echo json_encode($registry->claim('woocommerce')['evidence']);
+PHP;
+    return run([PHP_BINARY, '-r', $code, $repo]);
 }
 
 $source = realpath(__DIR__ . '/../..');
@@ -103,10 +138,31 @@ $out = "$root/bundles";
 $builder = $source . '/sandbox/bin/adapter-certification-bundle.php';
 $built = run([PHP_BINARY, $builder, 'build', $specPath, $out]);
 $bundle = $built['json']['bundle'] ?? null;
-check($built['exit'] === 0 && is_string($bundle) && is_file($bundle . '/bundle.json'), 'builder emits a content-addressed Woo bundle with both required citations');
+check(
+    $built['exit'] === 0 && is_string($bundle) && is_file($bundle . '/bundle.json'),
+    'builder emits a content-addressed Woo bundle with both required citations'
+        . ($built['exit'] === 0 ? '' : ': ' . trim($built['err']))
+);
 
 $verified = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1, 'json' => null, 'err' => 'missing bundle'];
 check($verified['exit'] === 0 && ($verified['json']['verdict'] ?? null) === 'valid', 'fresh scoped bundle immediately verifies against exact current inputs');
+
+// A descriptor without its immutable bytes is not evidence.  Import must
+// reject this before it can make a projected claim current.
+$tampered = "$root/tampered";
+if (is_string($bundle)) copy_tree($bundle, $tampered);
+file_put_contents($tampered . '/logs/conformance-woocommerce.txt', "forged evidence\n");
+$tamperedTarget = "$root/tampered-target";
+run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $tamperedTarget]);
+foreach ([
+    'agent/src/CapabilityRegistry.php', 'agent/src/ScopedCertificationBundle.php',
+    'scripts/capability-registry.php', 'sandbox/conformance/entries/woocommerce.json',
+] as $relative) {
+    if (!is_dir(dirname($tamperedTarget . '/' . $relative))) mkdir(dirname($tamperedTarget . '/' . $relative), 0777, true);
+    copy($source . '/' . $relative, $tamperedTarget . '/' . $relative);
+}
+$tamperedImport = run([PHP_BINARY, $tamperedTarget . '/scripts/capability-registry.php', 'import-adapter-bundle', $tampered]);
+check($tamperedImport['exit'] !== 0, 'import rejects a bundle whose referenced evidence log is corrupt');
 
 file_put_contents($repo . '/docs/unbound-adapter-note.md', "unbound documentation edit\n");
 $unbound = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1, 'json' => null];
@@ -145,6 +201,26 @@ check(
     && ($registry['manifests']['acf']['evidence']['status'] ?? null) === 'candidate',
     'scoped import changes only Woo evidence status while global/ACF remains candidate'
 );
+$durable = is_string($bundle) ? $clean . '/manifests/capabilities/scoped/woocommerce/' . basename($bundle) : '';
+check(
+    $durable !== '' && is_file($durable . '/bundle.json')
+    && is_file($durable . '/results/conformance-woocommerce.json')
+    && is_file($durable . '/diffs/exact-artifact-version-matrix.json')
+    && is_file($durable . '/logs/conformance-woocommerce.txt'),
+    'import publishes result, diff, and log bytes at a durable content-addressed path'
+);
+$loaded = load_registry($clean);
+check(
+    $loaded['exit'] === 0 && (($loaded['json']['status'] ?? null) === 'current'),
+    'runtime registry loader revalidates the durable current scoped evidence'
+);
+file_put_contents($durable . '/logs/conformance-woocommerce.txt', "tampered durable log\n");
+$tamperedLoad = load_registry($clean);
+check($tamperedLoad['exit'] !== 0, 'runtime registry loader fails closed when a durable scoped evidence asset changes');
+if (is_string($bundle)) copy($bundle . '/logs/conformance-woocommerce.txt', $durable . '/logs/conformance-woocommerce.txt');
+file_put_contents($clean . '/agent/duo.php', "\n", FILE_APPEND);
+$staleLoad = load_registry($clean);
+check($staleLoad['exit'] !== 0, 'runtime registry loader fails closed when a bound generic engine byte changes after generation');
 
 if ($failures !== 0) {
     fwrite(STDERR, "$failures adapter certification bundle assertion(s) failed\n");

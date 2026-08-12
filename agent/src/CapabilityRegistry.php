@@ -5,6 +5,7 @@ namespace Duo;
 // no provenance, and this file has offline entry points of its own — same
 // precedent as Policy.php requiring NativeActions.php.
 require_once __DIR__ . '/AdapterSources.php';
+require_once __DIR__ . '/ScopedCertificationBundle.php';
 
 /**
  * Generated, evidence-bound product capability claims.
@@ -661,6 +662,7 @@ final class CapabilityRegistry {
         $dispositionFile = rtrim($manifestDir, '/') . '/dispositions.json';
         $evidenceFile = rtrim($manifestDir, '/') . '/capabilities/evidence.json';
         $compatibilityFile = dirname(rtrim($manifestDir, '/')) . '/docs/compatibility-baseline.json';
+        $rawEvidence = null;
         if ($validateSourceFiles && is_file($dispositionFile)
             && !hash_equals(
                 (string) ($data['generated_from']['dispositions_sha256'] ?? ''),
@@ -674,6 +676,12 @@ final class CapabilityRegistry {
                 (string) hash_file('sha256', $evidenceFile)
             )) {
             throw new \RuntimeException("duo: $label is stale against its certification evidence attestation");
+        }
+        if ($validateSourceFiles && is_file($evidenceFile)) {
+            $rawEvidence = Canon::decode(Canon::read_file($evidenceFile));
+            if (!is_array($rawEvidence) || array_is_list($rawEvidence)) {
+                throw new \RuntimeException("duo: $label certification evidence attestation is malformed");
+            }
         }
         if ($validateSourceFiles && is_file($compatibilityFile)
             && !hash_equals(
@@ -744,6 +752,17 @@ final class CapabilityRegistry {
                     || ($claimEvidence['force_hatches'] ?? null) !== []) {
                     throw new \RuntimeException("duo: $label scoped evidence binding for '$name' is malformed");
                 }
+                if ($validateSourceFiles) {
+                    self::assertScopedEvidenceCurrent(
+                        $rawEvidence,
+                        $evidenceFile,
+                        $name,
+                        $manifest,
+                        $disposition,
+                        $claim,
+                        $data['platform']
+                    );
+                }
             } else {
                 throw new \RuntimeException("duo: $label evidence schema for '$name' is unsupported");
             }
@@ -807,5 +826,99 @@ final class CapabilityRegistry {
                 }
             }
         }
+    }
+
+    /**
+     * Generated claims intentionally retain only a compact projection.  At
+     * runtime a current scoped claim must still prove the full raw record,
+     * durable result/diff/log assets, and every bound byte; otherwise a stale
+     * generated JSON snapshot could silently outlive its certificate.
+     */
+    private static function assertScopedEvidenceCurrent(
+        ?array $evidence,
+        string $evidenceFile,
+        string $name,
+        array $manifest,
+        ?array $disposition,
+        array $claim,
+        array $platform
+    ): void {
+        $entry = is_array($evidence['scoped'][$name] ?? null) ? $evidence['scoped'][$name] : null;
+        if ($entry === null || array_is_list($entry)) {
+            throw new \RuntimeException("duo: scoped evidence for '$name' is absent from the attestation");
+        }
+        $keys = array_keys($entry);
+        sort($keys, SORT_STRING);
+        $record = $entry['bundle'] ?? null;
+        $path = $entry['path'] ?? null;
+        if ($keys !== ['bundle', 'path'] || !is_array($record) || array_is_list($record) || !is_string($path)) {
+            throw new \RuntimeException("duo: scoped evidence for '$name' is malformed");
+        }
+        ScopedCertificationBundle::validate($record, "scoped certification '$name'");
+        $expectedPath = 'scoped/' . $name . '/' . $record['bundle_digest'];
+        if (!hash_equals($expectedPath, $path)) {
+            throw new \RuntimeException("duo: scoped evidence for '$name' has a noncanonical durable path");
+        }
+        $bundleDir = dirname($evidenceFile) . '/' . $path;
+        $bundleFile = $bundleDir . '/bundle.json';
+        if (!is_file($bundleFile) || is_link($bundleFile) || !hash_equals(Canon::encode($record), (string) file_get_contents($bundleFile))) {
+            throw new \RuntimeException("duo: scoped evidence for '$name' durable manifest is absent or mismatched");
+        }
+        ScopedCertificationBundle::assertEvidenceAssets($record, $bundleDir);
+        $claimEvidence = $claim['evidence'] ?? [];
+        if (($claimEvidence['bundle_digest'] ?? null) !== $record['bundle_digest']
+            || ($claimEvidence['adapter_digest'] ?? null) !== $record['adapter_digest']
+            || ($claimEvidence['closure_digest'] ?? null) !== ($record['closure']['digest'] ?? null)
+            || ($claimEvidence['subject'] ?? null) !== $name
+            || ($claimEvidence['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
+            throw new \RuntimeException("duo: scoped evidence for '$name' disagrees with its generated claim");
+        }
+        // evidence.json lives at <repo>/manifests/capabilities/evidence.json.
+        $root = dirname(dirname(dirname($evidenceFile)));
+        ScopedCertificationBundle::assertCurrent(
+            $record,
+            $name,
+            self::adapter_digest($manifest, $disposition, $root . '/manifests'),
+            $platform,
+            ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']),
+            $disposition['evidence']['tests'] ?? [],
+            $disposition ?? [],
+            self::scopedArtifacts($root, $manifest)
+        );
+    }
+
+    /** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
+    private static function scopedArtifacts(string $root, array $manifest): array {
+        $plugin = $manifest['plugin'] ?? null;
+        if (!is_string($plugin) || !str_contains($plugin, '/')) {
+            throw new \RuntimeException('duo: scoped certification requires a plugin-backed manifest');
+        }
+        $slug = strstr($plugin, '/', true);
+        $lock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
+        $entries = is_array($lock) ? ($lock['plugins'][$slug] ?? null) : null;
+        if (!is_array($entries) || array_is_list($entries)) {
+            throw new \RuntimeException("duo: scoped certification has no typed artifact entries for '$slug'");
+        }
+        $out = [];
+        foreach ($entries as $version => $entry) {
+            if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
+                continue;
+            }
+            $out[] = [
+                'name' => $slug,
+                'role' => $entry['role'],
+                'sha256' => $entry['sha256'] ?? null,
+                'url' => $entry['url'] ?? null,
+                'version' => (string) $version,
+            ];
+        }
+        usort($out, static fn(array $a, array $b): int => strcmp(
+            $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
+            $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
+        ));
+        if ($out === []) {
+            throw new \RuntimeException("duo: scoped certification has no certified/refusal artifact boundary for '$slug'");
+        }
+        return $out;
     }
 }
