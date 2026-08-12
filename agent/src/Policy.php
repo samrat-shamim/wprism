@@ -3251,7 +3251,35 @@ self::validate_post_type_children($manifest);
                 if (!is_array($rules) || !array_is_list($rules) || $rules === []) {
                     throw new \RuntimeException("duo: $where must be a non-empty list of rules");
                 }
+                $hasPositionRule = false;
+                $hasPathRule = false;
+                foreach ($rules as $candidate) {
+                    if (!is_array($candidate)) {
+                        continue;
+                    }
+                    $hasPositionRule = $hasPositionRule || array_key_exists('position', $candidate);
+                    $hasPathRule = $hasPathRule || array_key_exists('path', $candidate);
+                }
+                if ($hasPositionRule && $hasPathRule) {
+                    throw new \RuntimeException(
+                        "duo: $where cannot mix positional and named path rules; positional callbacks consume "
+                        . 'the first parsed value and have no defined selector for named attributes'
+                    );
+                }
+                $seenPositions = [];
                 foreach ($rules as $i => $rule) {
+                    if (is_array($rule) && array_key_exists('position', $rule)) {
+                        $position = $rule['position'];
+                        if (is_int($position) && isset($seenPositions[$position])) {
+                            throw new \RuntimeException(
+                                "duo: $where[$i].position duplicates position $position already declared at index "
+                                . $seenPositions[$position]
+                            );
+                        }
+                        if (is_int($position)) {
+                            $seenPositions[$position] = $i;
+                        }
+                    }
                     self::validate_attr_rule($rule, $section, $where . "[$i]");
                 }
             }
@@ -3268,11 +3296,69 @@ self::validate_post_type_children($manifest);
         if (!is_array($rule) || (array_is_list($rule) && $rule !== [])) {
             throw new \RuntimeException("duo: $where must be an object");
         }
-        if (!is_string($rule['path'] ?? null) || $rule['path'] === '') {
+        $hasPathKey = array_key_exists('path', $rule);
+        $hasPath = is_string($rule['path'] ?? null) && $rule['path'] !== '';
+        $hasPosition = array_key_exists('position', $rule);
+        if ($hasPosition && $hasPathKey) {
+            throw new \RuntimeException(
+                "duo: $where must declare exactly one of path or position — the two locator forms cannot be combined"
+            );
+        }
+        if ($hasPathKey && !$hasPath && !$hasPosition) {
+            // Preserve the long-standing diagnostic for malformed path rules;
+            // callers and the manifest grammar regression depend on this
+            // precise refusal while positional rules use their own vocabulary.
             throw new \RuntimeException(
                 "duo: $where.path must be a non-empty attribute name — an unmatched path is silently skipped at "
                 . 'rewrite time, so a declared ref would never actually be tokenized'
             );
+        }
+        if (($hasPath ? 1 : 0) + ($hasPosition ? 1 : 0) !== 1) {
+            throw new \RuntimeException(
+                "duo: $where must declare exactly one non-empty path or positional index — an unmatched path is "
+                . 'silently skipped at rewrite time, so a declared ref would never actually be tokenized'
+            );
+        }
+        if ($hasPosition) {
+            if ($section !== 'shortcode_attrs' || !is_int($rule['position']) || $rule['position'] < 0) {
+                throw new \RuntimeException(
+                    "duo: $where.position must be a non-negative integer and is supported only for shortcode_attrs"
+                );
+            }
+            $ruleKeys = array_keys($rule);
+            $expectedRuleKeys = ['kind', 'position', 'lookup'];
+            sort($ruleKeys, SORT_STRING);
+            sort($expectedRuleKeys, SORT_STRING);
+            if ($ruleKeys !== $expectedRuleKeys) {
+                throw new \RuntimeException(
+                    "duo: $where positional refs have a closed vocabulary: exactly {kind,position,lookup}"
+                );
+            }
+            if (!is_array($rule['lookup'] ?? null)
+                || !is_string($rule['lookup']['post_meta'] ?? null)
+                || $rule['lookup']['post_meta'] === ''
+                || !is_string($rule['lookup']['post_type'] ?? null)
+                || $rule['lookup']['post_type'] === '') {
+                throw new \RuntimeException(
+                    "duo: $where.lookup must declare non-empty post_meta and post_type domains for a positional ref"
+                );
+            }
+            if (array_diff(array_keys($rule['lookup']), ['post_meta', 'post_type']) !== []
+                || count(array_unique(array_keys($rule['lookup']))) !== 2
+                || array_key_exists('cast', $rule)
+                || array_key_exists('type', $rule)
+                || array_key_exists('lint_ok', $rule)) {
+                throw new \RuntimeException("duo: $where positional refs have a closed vocabulary: lookup={post_meta,post_type}, kind=post, position only");
+            }
+            if (($rule['kind'] ?? null) !== 'post'
+                || array_key_exists('kind_from', $rule)
+                || array_key_exists('tokenize', $rule)) {
+                throw new \RuntimeException(
+                    "duo: $where positional refs require static kind=post and cannot use kind_from, tokenize, or lint_ok"
+                );
+            }
+        } elseif (array_key_exists('lookup', $rule)) {
+            throw new \RuntimeException("duo: $where.lookup is allowed only on positional shortcode refs");
         }
         if (array_key_exists('lint_ok', $rule) && !is_bool($rule['lint_ok'])) {
             throw new \RuntimeException("duo: $where.lint_ok must be a boolean");

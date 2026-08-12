@@ -161,17 +161,31 @@ $form_id = $form->save();
 if (!$form_id) { fwrite(STDERR, "CF7 save() failed\n"); exit(1); }
 $form = WPCF7_ContactForm::get_instance($form_id);
 $shortcode = $form->shortcode();
+$old_id = 3199001;
+if ((string) $old_id === (string) $form_id) { fwrite(STDERR, "legacy alternate equals source post id\n"); exit(1); }
+update_post_meta($form_id, '_old_cf7_unit_id', $old_id);
+$legacy_shortcode = '[contact-form ' . $old_id . ' "Version Matrix Contact Form"]';
 $page_id = wp_insert_post([
     'post_type' => 'page', 'post_status' => 'publish',
     'post_title' => 'Version Matrix Contact', 'post_name' => 'vmatrix-contact',
     'post_content' => "<!-- wp:paragraph -->\n<p>Contact Form 7 boundary fixture.</p>\n<!-- /wp:paragraph -->\n<!-- wp:shortcode -->\n{$shortcode}\n<!-- /wp:shortcode -->",
 ], true);
 if (is_wp_error($page_id)) { fwrite(STDERR, "page insert failed\n"); exit(1); }
-echo json_encode(['form' => $form_id, 'page' => $page_id, 'shortcode' => $shortcode]) . "\n";
+$legacy_page_id = wp_insert_post([
+    'post_type' => 'page', 'post_status' => 'publish',
+    'post_title' => 'Version Matrix Contact Legacy', 'post_name' => 'vmatrix-contact-legacy',
+    'post_content' => "<!-- wp:paragraph -->\n<p>Legacy Contact Form 7 boundary fixture.</p>\n<!-- /wp:paragraph -->\n<!-- wp:shortcode -->\n{$legacy_shortcode}\n<!-- /wp:shortcode -->",
+], true);
+if (is_wp_error($legacy_page_id)) { fwrite(STDERR, "legacy page insert failed\n"); exit(1); }
+echo json_encode([
+    'form' => $form_id, 'page' => $page_id, 'shortcode' => $shortcode,
+    'old_id' => $old_id, 'legacy_page' => $legacy_page_id, 'legacy_shortcode' => $legacy_shortcode,
+]) . "\n";
 PHPEOF
   local seed_out
   seed_out=$("$cli" eval-file /siterepo/.tmp-seed-cf7.php)
   rm -f "siterepo/${PAIR}1/.tmp-seed-cf7.php"
+  CF7_SEED_OUT="$seed_out"
   echo "cf7 seed: $seed_out"
 }
 
@@ -671,8 +685,21 @@ EOF
 
   seed_cf7_content wp1
 
+  CF7_OLD_ID=$(jq -r '.old_id' <<<"$CF7_SEED_OUT")
+  CF7_FORM_ID=$(jq -r '.form' <<<"$CF7_SEED_OUT")
+  CF7_LEGACY_PAGE_ID=$(jq -r '.legacy_page' <<<"$CF7_SEED_OUT")
+  [[ "$CF7_OLD_ID" =~ ^[1-9][0-9]+$ && "$CF7_FORM_ID" =~ ^[0-9]+$ && "$CF7_LEGACY_PAGE_ID" =~ ^[0-9]+$ ]] \
+    || fail "CF7 $CF7_VERSION seed did not return typed form/legacy ids"
+
   wp1 duo capture --repo=/siterepo
   pass "captured on side 1 (contact-form-7 $CF7_VERSION)"
+
+  if rg -n "\[contact-form[[:space:]]+$CF7_OLD_ID([[:space:]]|\])" "siterepo/${PAIR}1/state/posts" >/dev/null 2>&1; then
+    fail "CF7 $CF7_VERSION capture retained raw legacy alternate $CF7_OLD_ID"
+  fi
+  rg -n '\[contact-form[[:space:]]+\{\{post:[0-9a-f-]{36}\}\}' "siterepo/${PAIR}1/state/posts" >/dev/null 2>&1 \
+    || fail "CF7 $CF7_VERSION capture did not emit a canonical positional post token"
+  pass "capture: contact-form-7 $CF7_VERSION canonicalized legacy positional shortcode $CF7_OLD_ID"
 
   wp1 duo lint --repo=/siterepo
   pass "lint: 0 findings"
@@ -691,6 +718,18 @@ EOF
   wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
   grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
   pass "deploy + apply succeeded on side 2 (contact-form-7 $CF7_VERSION, canary clean)"
+
+  TARGET_FORM_ID=$(wp2 post list --post_type=wpcf7_contact_form --name=vmatrix-contact-form --format=ids)
+  TARGET_LEGACY_ID=$(wp2 post list --post_type=page --name=vmatrix-contact-legacy --format=ids)
+  [ "$TARGET_FORM_ID" != "$CF7_FORM_ID" ] || fail "CF7 $CF7_VERSION target reused the source form id"
+  [ "$TARGET_LEGACY_ID" != "" ] || fail "CF7 $CF7_VERSION target legacy page is missing"
+  TARGET_OLD_ID=$(wp2 post meta get "$TARGET_FORM_ID" _old_cf7_unit_id)
+  [ "$TARGET_OLD_ID" = "$CF7_OLD_ID" ] || fail "CF7 $CF7_VERSION target lost _old_cf7_unit_id ($TARGET_OLD_ID vs $CF7_OLD_ID)"
+  LEGACY_FRONT=$(curl -fs "http://localhost:${PORT2}/vmatrix-contact-legacy/") \
+    || fail "CF7 $CF7_VERSION target legacy page did not render"
+  grep -q "_wpcf7\" value=\"$TARGET_FORM_ID\"" <<<"$LEGACY_FRONT" \
+    || fail "CF7 $CF7_VERSION target legacy page did not resolve its own form id $TARGET_FORM_ID"
+  pass "target: contact-form-7 $CF7_VERSION legacy positional shortcode resolves to target form $TARGET_FORM_ID"
 
   wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)

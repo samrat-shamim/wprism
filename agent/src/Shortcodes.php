@@ -166,7 +166,28 @@ final class Shortcodes {
         string $postLabel,
         string $tag
     ): string {
+        $hasPositional = false;
         foreach ($attrRules as $rule) {
+            if (array_key_exists('position', $rule)) {
+                $hasPositional = true;
+                break;
+            }
+        }
+        if ($hasPositional) {
+            self::assert_positional_attribute_shape($rawAttrs, $tag);
+        }
+        foreach ($attrRules as $rule) {
+            if (array_key_exists('position', $rule)) {
+                $rawAttrs = self::rewrite_positional(
+                    $rawAttrs,
+                    $rule,
+                    $tokens,
+                    $capture,
+                    $postLabel,
+                    $tag
+                );
+                continue;
+            }
             $attrName = $rule['path'];
             $namePattern = '/(?<ws>\s*)(?<![\w-])(?<name>' . preg_quote($attrName, '/') . ')(?![\w-])\s*=\s*'
                 . '(?:"(?<dq>[^"]*)"|\'(?<sq>[^\']*)\'|(?<bare>[^\s\'"]+))/i';
@@ -178,6 +199,230 @@ final class Shortcodes {
             $rawAttrs = $rewritten ?? $rawAttrs;
         }
         return $rawAttrs;
+    }
+
+    /**
+     * A positional rule models a callback which consumes the first parsed
+     * attribute value (CF7's legacy callback uses array_shift($atts)).  A
+     * named attribute would therefore change which value the callback sees,
+     * even when a later bare span happens to be present.  Refuse the whole
+     * instance rather than silently rewriting a different argument.
+     */
+    private static function assert_positional_attribute_shape(string $rawAttrs, string $tag): void {
+        $pattern = get_shortcode_atts_regex();
+        if (!preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER)) {
+            return;
+        }
+        foreach ($matches as $match) {
+            foreach ([1, 3, 5] as $group) {
+                if (isset($match[$group]) && $match[$group] !== '') {
+                    throw new \RuntimeException(
+                        "duo: shortcode '$tag' positional refs refuse named attributes; the callback consumes "
+                        . 'the first parsed value and a named attribute would change its argument'
+                    );
+                }
+            }
+        }
+    }
+
+    /**
+     * Rewrite one declared positional token.  The locator deliberately
+     * resolves through an authored post-meta key rather than treating the
+     * positional integer as a post primary key: CF7's legacy shortcode uses
+     * `_old_cf7_unit_id`, which is stable content identity but not wp_posts.ID.
+     * The canonical representation is still the ordinary post UUID token;
+     * apply resolves that token back to the target form's alternate value.
+     */
+    private static function rewrite_positional(
+        string $rawAttrs,
+        array $rule,
+        Tokens $tokens,
+        bool $capture,
+        string $postLabel,
+        string $tag
+    ): string {
+        $position = (int) $rule['position'];
+        $parts = self::positional_spans($rawAttrs);
+        if (!isset($parts[$position])) {
+            return $rawAttrs;
+        }
+        [$wire, $offset] = $parts[$position];
+        $quote = '';
+        $value = $wire;
+        if (strlen($wire) >= 2 && (($wire[0] === '"' && $wire[strlen($wire) - 1] === '"')
+            || ($wire[0] === "'" && $wire[strlen($wire) - 1] === "'"))) {
+            $quote = $wire[0];
+            $value = substr($wire, 1, -1);
+        }
+        $lookup = (string) $rule['lookup']['post_meta'];
+        $postType = (string) $rule['lookup']['post_type'];
+        if ($capture) {
+            if (!self::is_positive_decimal_alternate($value)) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] must be a positive decimal alternate id"
+                );
+            }
+            $postId = self::alternate_post_id($lookup, $postType, $value, $tag, $position);
+            $token = $tokens->id_to_token($postId, (string) $rule['kind']);
+            if ($token === null) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] alternate id '$value' resolves to unmanaged post $postId"
+                );
+            }
+            $replacement = $quote . $token . $quote;
+        } else {
+            if (!str_starts_with($value, '{{')) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] retained raw alternate id '$value' at apply"
+                );
+            }
+            $postId = $tokens->token_to_id($value);
+            self::assert_post_type($postId, $postType, $tag, $position);
+            $alternate = $tokens->shortcode_alternate($value, $lookup, $postType);
+            if ($alternate === null && $tokens->shortcode_alternates_sealed()) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] token has no canonical alternate witness '$lookup' for post $postId"
+                );
+            }
+            $alternate ??= self::alternate_post_meta($postId, $lookup, $postType, $tag, $position);
+            self::assert_alternate_unique_on_target($postId, $lookup, $postType, $alternate, $tag, $position);
+            $replacement = $quote . $alternate . $quote;
+        }
+        return substr_replace($rawAttrs, $replacement, (int) $offset, strlen($wire));
+    }
+
+    /** @return list<array{0:string,1:int}> */
+    public static function positional_spans(string $rawAttrs): array {
+        $out = [];
+        $pattern = get_shortcode_atts_regex();
+        if (!preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+            return $out;
+        }
+        foreach ($matches as $m) {
+            // get_shortcode_atts_regex()'s groups 1/3/5 are named attrs;
+            // groups 7/8/9 are the three bare positional spellings. Its
+            // required whitespace/end delimiter is important: without it,
+            // malformed `foo="bar"77` would be split into a named attr plus
+            // a positional id and silently change CF7's own parse semantics.
+            foreach ([7, 8, 9] as $group) {
+                if (isset($m[$group]) && (int) $m[$group][1] >= 0 && $m[$group][0] !== '') {
+                    $out[] = [(string) $m[$group][0], (int) $m[$group][1]];
+                    break;
+                }
+            }
+        }
+        return $out;
+    }
+
+    private static function alternate_post_id(string $metaKey, string $postType, string $alternate, string $tag, int $position): int {
+        global $wpdb;
+        $status = self::runtime_status_filter('p');
+        $sql = "SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
+            . "WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s "
+            . "AND p.post_type = %s" . $status['sql'] . " ORDER BY pm.meta_id ASC";
+        $args = [$metaKey, $alternate, $postType, ...$status['args']];
+        $rows = $wpdb->get_col($wpdb->prepare($sql, $args)) ?: [];
+        $ids = array_values(array_unique(array_map('intval', $rows)));
+        if (count($rows) !== 1 || count($ids) !== 1) {
+            $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' positional[$position] alternate id '$alternate' has $why via post_meta '$metaKey'"
+            );
+        }
+        return $ids[0];
+    }
+
+    private static function alternate_post_meta(int $postId, string $metaKey, string $postType, string $tag, int $position): string {
+        global $wpdb;
+        self::assert_post_type($postId, $postType, $tag, $position);
+        $rows = $wpdb->get_col($wpdb->prepare(
+            "SELECT meta_value FROM {$wpdb->postmeta} WHERE post_id = %d AND meta_key = %s ORDER BY meta_id ASC",
+            $postId,
+            $metaKey
+        )) ?: [];
+        $values = array_values(array_unique(array_map('strval', $rows)));
+        if (count($values) !== 1 || !self::is_positive_decimal_alternate($values[0] ?? '')) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' positional[$position] target post $postId has no unique positive decimal post_meta '$metaKey'"
+            );
+        }
+        return $values[0];
+    }
+
+    private static function assert_alternate_unique_on_target(
+        int $postId,
+        string $metaKey,
+        string $postType,
+        string $alternate,
+        string $tag,
+        int $position
+    ): void {
+        global $wpdb;
+        $status = self::runtime_status_filter('p');
+        $sql = "SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
+            . "WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s "
+            . "AND p.post_type = %s" . $status['sql'] . " ORDER BY pm.meta_id ASC";
+        $args = [$metaKey, $alternate, $postType, ...$status['args']];
+        $rows = $wpdb->get_col($wpdb->prepare($sql, $args)) ?: [];
+        $rawIds = array_map('intval', $rows);
+        $ids = array_values(array_unique($rawIds));
+        $selectedCount = count(array_filter($rawIds, static fn(int $id): bool => $id === $postId));
+        if ($selectedCount > 1) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' positional[$position] target post $postId has duplicate '$metaKey' metadata rows"
+            );
+        }
+        foreach ($ids as $id) {
+            if ($id !== $postId) {
+                throw new \RuntimeException(
+                    "duo: shortcode '$tag' positional[$position] alternate '$alternate' is already owned by "
+                    . "another $postType row ($id) in post_meta '$metaKey'"
+                );
+            }
+        }
+    }
+
+    private static function assert_post_type(int $postId, string $postType, string $tag, int $position): void {
+        global $wpdb;
+        $actualType = $wpdb->get_var($wpdb->prepare(
+            "SELECT post_type FROM {$wpdb->posts} WHERE ID = %d",
+            $postId
+        ));
+        if ((string) $actualType !== $postType) {
+            throw new \RuntimeException(
+                "duo: shortcode '$tag' positional[$position] token resolves to post $postId outside post_type '$postType'"
+            );
+        }
+    }
+
+    private static function is_positive_decimal_alternate(string $value): bool {
+        if (!preg_match('/^[1-9][0-9]*$/D', $value)) {
+            return false;
+        }
+        // CF7's WP_Meta_Query emits CAST(meta_value AS DECIMAL), whose
+        // engine-defined bare DECIMAL domain is ten decimal digits.  The
+        // portable alternate must fit both that lookup and this PHP build.
+        $max = PHP_INT_SIZE >= 8 ? '9999999999' : (string) PHP_INT_MAX;
+        $length = strlen($value);
+        return $length < strlen($max) || ($length === strlen($max) && strcmp($value, $max) <= 0);
+    }
+
+    /** Match WP_Query's post_status=any expansion used by CF7::find(). */
+    private static function runtime_status_filter(string $alias): array {
+        if (!function_exists('get_post_stati')) {
+            return ['sql' => '', 'args' => []];
+        }
+        $excluded = array_values(array_filter(
+            get_post_stati(['exclude_from_search' => true]),
+            static fn($status): bool => is_string($status) && $status !== ''
+        ));
+        if ($excluded === []) {
+            return ['sql' => '', 'args' => []];
+        }
+        return [
+            'sql' => ' AND ' . $alias . '.post_status NOT IN (' . implode(',', array_fill(0, count($excluded), '%s')) . ')',
+            'args' => $excluded,
+        ];
     }
 
     /**

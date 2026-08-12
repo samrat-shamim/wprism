@@ -81,6 +81,7 @@ final class Apply {
         $this->policy = $policy;
         $this->compiled = $compiled;
         $this->tokens = new Tokens();
+        $this->tokens->policy = $policy;
         $this->fieldMaterializer = new ApplyFieldMaterializer($this->policy, $this->tokens);
     }
 
@@ -2616,6 +2617,7 @@ final class Apply {
     private function run(array $opts, CompiledRepository $compiled): array {
         global $wpdb;
         $tree = $compiled->tree();
+        $this->register_shortcode_alternates($tree);
         $scoped = $this->scopeContract !== null;
         $scopedPromotion = (string) ($opts['scoped_promotion_receipt'] ?? '') !== '';
         $recoveringScoped = $scoped && $this->scopedSession !== null;
@@ -4782,7 +4784,9 @@ final class Apply {
         }
         Db::update($wpdb->posts, $fields, ['ID' => $id], null, null, 'apply update post');
 
-        // authored meta reconciliation: we own exactly the authored-classified keys
+        // Authored post-meta is reconciled after the post row, as before. The
+        // positional shortcode codec uses the frozen canonical meta map, not a
+        // live read, so body rewriting remains independent of mutation order.
         $this->reconcile_authored_meta($id, (array) ($front['meta'] ?? []), 'post');
 
         // term relationships for owned taxonomies
@@ -4797,6 +4801,42 @@ final class Apply {
         if ($front['type'] === 'attachment') {
             $this->place_attachment($id, $front);
         }
+    }
+
+    private function register_shortcode_alternates(array $tree): void {
+        foreach ($this->policy->shortcode_attr_rules() as $rules) {
+            foreach ($rules as $rule) {
+                if (!array_key_exists('position', $rule)) {
+                    continue;
+                }
+                $metaKey = (string) $rule['lookup']['post_meta'];
+                $postType = (string) $rule['lookup']['post_type'];
+                foreach ($tree as $entity) {
+                    if (($entity['type'] ?? '') !== 'post'
+                        || (($entity['data']['type'] ?? '') !== $postType)) {
+                        continue;
+                    }
+                    $uuid = (string) ($entity['data']['uuid'] ?? '');
+                    $value = (array) ($entity['data']['meta'] ?? []);
+                    if (!array_key_exists($metaKey, $value)) {
+                        continue; // modern CF7 forms have no legacy alternate id
+                    }
+                    $value = $value[$metaKey];
+                    if (is_array($value) || !preg_match('/^[0-9]+$/D', (string) $value)) {
+                        throw new \RuntimeException(
+                            "duo: positional shortcode lookup '$metaKey' on $uuid is not a unique decimal authored value"
+                        );
+                    }
+                    $this->tokens->register_shortcode_alternate(
+                        '{{post:' . $uuid . '}}',
+                        $metaKey,
+                        $postType,
+                        (string) $value
+                    );
+                }
+            }
+        }
+        $this->tokens->seal_shortcode_alternates();
     }
 
     private function reconcile_relationships(

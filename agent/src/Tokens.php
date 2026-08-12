@@ -82,6 +82,13 @@ final class Tokens {
     private array $userLogins = [];
     /** @var array<string,int> login -> user id (apply direction) */
     private array $userIds = [];
+    /** Canonical alternate identifiers indexed by positional shortcode lookup. */
+    private array $shortcodeAlternates = [];
+    /** Reverse witness index: one alternate value may identify only one entity
+     * within a declared (post-meta, post-type) domain. */
+    private array $shortcodeAlternateValues = [];
+    /** Apply has finished registering the immutable canonical alternate map. */
+    private bool $shortcodeAlternatesSealed = false;
     /** Fallback for unresolvable user tokens on apply (set by Apply). */
     public ?int $defaultUserId = null;
     /**
@@ -447,6 +454,52 @@ final class Tokens {
         return $id;
     }
 
+    public function register_shortcode_alternate(string $token, string $metaKey, string $postType, string $value): void {
+        if (!preg_match('/^\{\{post:[0-9a-f-]{36}\}\}$/D', $token)
+            || $metaKey === '' || $postType === '' || !self::is_positive_decimal_alternate($value)) {
+            throw new \RuntimeException('duo: malformed positional shortcode alternate witness');
+        }
+        $domain = $metaKey . "\0" . $postType;
+        $tokenKey = $domain . "\0" . $token;
+        $valueKey = $domain . "\0" . $value;
+        $existingToken = $this->shortcodeAlternateValues[$valueKey] ?? null;
+        if ($existingToken !== null && $existingToken !== $token) {
+            throw new \RuntimeException(
+                "duo: positional shortcode alternate '$value' is ambiguous in $postType.$metaKey"
+            );
+        }
+        $existingValue = $this->shortcodeAlternates[$tokenKey] ?? null;
+        if ($existingValue !== null && $existingValue !== $value) {
+            throw new \RuntimeException(
+                "duo: positional shortcode token has conflicting $postType.$metaKey alternates"
+            );
+        }
+        $this->shortcodeAlternates[$tokenKey] = $value;
+        $this->shortcodeAlternateValues[$valueKey] = $token;
+    }
+
+    private static function is_positive_decimal_alternate(string $value): bool {
+        if (!preg_match('/^[1-9][0-9]*$/D', $value)) {
+            return false;
+        }
+        // Match CF7's bare DECIMAL meta-query domain as well as PHP's int.
+        $max = PHP_INT_SIZE >= 8 ? '9999999999' : (string) PHP_INT_MAX;
+        $length = strlen($value);
+        return $length < strlen($max) || ($length === strlen($max) && strcmp($value, $max) <= 0);
+    }
+
+    public function shortcode_alternate(string $token, string $metaKey, string $postType): ?string {
+        return $this->shortcodeAlternates[$metaKey . "\0" . $postType . "\0" . $token] ?? null;
+    }
+
+    public function seal_shortcode_alternates(): void {
+        $this->shortcodeAlternatesSealed = true;
+    }
+
+    public function shortcode_alternates_sealed(): bool {
+        return $this->shortcodeAlternatesSealed;
+    }
+
     // ---- user refs (users are env-local; tokens are logins, never ids) ----
 
     /** id -> "user:<login>" (capture). Unresolvable users stay numeric, warned. */
@@ -698,6 +751,19 @@ final class Tokens {
      *  struct_capture()'s docblock). Never touches array KEYS. */
     private function tokenize_leaves(&$value, bool $capture): void {
         if (is_string($value)) {
+            if ($this->policy !== null) {
+                // Capture/Apply entry points normally load Shortcodes with the
+                // rest of the agent, but several WordPress-free snapshot
+                // paths load Tokens directly. Resolve the optional codec at
+                // the first structured string leaf rather than making every
+                // standalone Tokens consumer know the bootstrap order.
+                if (!class_exists(Shortcodes::class, false)) {
+                    require_once __DIR__ . '/Shortcodes.php';
+                }
+                $value = $capture
+                    ? Shortcodes::capture_rewrite_text($value, $this->policy, $this, $this->forceUnresolvedRefs, '')
+                    : Shortcodes::apply_rewrite_text($value, $this->policy, $this);
+            }
             $value = $capture ? $this->tokenize_text($value) : $this->detokenize_text($value);
             return;
         }
@@ -708,6 +774,7 @@ final class Tokens {
             unset($v);
         }
     }
+
 
     /**
      * Capture direction for a ref-typed value per manifest rule
