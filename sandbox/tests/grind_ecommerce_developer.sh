@@ -3434,6 +3434,14 @@ if ! target_wp maintenance-mode activate >/dev/null; then
   fail 'could not establish target maintenance before v1 checkpoint recovery'
 fi
 ROLLBACK_MAINTENANCE_HELD=1
+# Maintenance mode is a request boundary, not a process fence: the target
+# web worker can still boot the currently staged v2 plugin while the database
+# is being restored.  Stop only this disposable target worker so its v2
+# migration cannot race the v1 import; the CLI control plane remains available
+# for the isolated import and the subsequent public v1 promotion.
+if ! "${PAIR_COMPOSE[@]}" stop wp2 >/dev/null; then
+  fail 'could not stop target web service before v1 checkpoint import'
+fi
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
 prepare_v1_checkpoint_target
 mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"
@@ -3462,6 +3470,9 @@ if ! RESTORE_OUT="$(promote 2>&1)"; then
   fail 'v1 rollback promotion failed'
 fi
 ROLLBACK_PROMOTION_SUCCEEDED=1
+if ! "${PAIR_COMPOSE[@]}" start wp2 >/dev/null; then
+  fail 'could not restart target web service after v1 checkpoint promotion'
+fi
 if ! target_wp maintenance-mode deactivate >/dev/null; then
   fail 'could not release target maintenance after successful v1 rollback promotion'
 fi

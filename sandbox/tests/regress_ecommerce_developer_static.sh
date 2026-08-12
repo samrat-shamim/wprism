@@ -1039,6 +1039,7 @@ block_absent exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_P
 
 ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'target_wp maintenance-mode activate' \
+  '"${PAIR_COMPOSE[@]}" stop wp2' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
   'prepare_v1_checkpoint_target' \
   'mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"' \
@@ -1052,6 +1053,7 @@ ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''duo_commerce_extension_settings'\'' LIMIT 1")"' \
   'if ! RESTORE_OUT="$(promote 2>&1)"; then' \
   'ROLLBACK_PROMOTION_SUCCEEDED=1' \
+  '"${PAIR_COMPOSE[@]}" start wp2' \
   'target_wp maintenance-mode deactivate' \
   'ROLLBACK_MAINTENANCE_HELD=0' \
   'assert_phase_order "$RESTORE_OUT"'
