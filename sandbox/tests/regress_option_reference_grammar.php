@@ -193,6 +193,14 @@ $assertThrows(
     'must contain exactly one named (?<id>...) capture',
     'Policy::from_snapshot() invokes the extracted option-name-ref grammar'
 );
+$assertThrows(
+    static fn() => Policy::from_snapshot($frozenSnapshot([
+        manifest_a(['option_name_refs' => [$rule(['id_kind' => 'acme_room'])]]),
+        manifest_b(['option_name_refs' => [$rule()]]),
+    ])),
+    "'a[0]' and 'b[0]' have identical overlapping match regexes",
+    'Policy::from_snapshot() invokes the extracted cross-manifest duplicate-pattern guard'
+);
 
 $loadRoot = sys_get_temp_dir() . '/duo_regress_option_reference_' . bin2hex(random_bytes(4));
 $loadManifests = $loadRoot . '/manifests';
@@ -218,6 +226,15 @@ $assertThrows(
     static fn() => Policy::load($loadRoot),
     'malformed_match must be a non-empty valid regex',
     'Policy::load() invokes the extracted option-name-ref grammar'
+);
+Canon::write_file($loadManifests . '/a.json', Canon::encode(
+    manifest_a(['option_name_refs' => [$rule(['id_kind' => 'acme_room'])]])
+));
+Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifests[1]));
+$assertThrows(
+    static fn() => Policy::load($loadRoot),
+    "'a[0]' and 'b[0]' have identical overlapping match regexes",
+    'Policy::load() invokes the extracted cross-manifest duplicate-pattern guard'
 );
 
 if ($previousManifestsDir === false) {
