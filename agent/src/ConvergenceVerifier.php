@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Canon.php';
+
 /**
  * Read-only post-apply convergence verification (DUO-3220): re-captures the
  * target through the same canonical reader used by plan/capture and proves
