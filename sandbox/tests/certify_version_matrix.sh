@@ -719,7 +719,10 @@ EOF
   grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
   pass "deploy + apply succeeded on side 2 (contact-form-7 $CF7_VERSION, canary clean)"
 
-  TARGET_FORM_ID=$(wp2 post list --post_type=wpcf7_contact_form --name=vmatrix-contact-form --format=ids)
+  # CF7 derives its post_name from the title/version-specific save path; use
+  # the deterministic authored title rather than assuming a slug that the
+  # plugin is free to normalize differently across its supported versions.
+  TARGET_FORM_ID=$(wp2 post list --post_type=wpcf7_contact_form --title='Version Matrix Contact Form' --format=ids)
   TARGET_LEGACY_ID=$(wp2 post list --post_type=page --name=vmatrix-contact-legacy --format=ids)
   [ "$TARGET_FORM_ID" != "$CF7_FORM_ID" ] || fail "CF7 $CF7_VERSION target reused the source form id"
   [ "$TARGET_LEGACY_ID" != "" ] || fail "CF7 $CF7_VERSION target legacy page is missing"

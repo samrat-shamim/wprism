@@ -252,6 +252,12 @@ check(
         && str_contains($cf7Seed, 'CF7_LEGACY_SHORTCODE" =~ ^\\[contact-form'),
     'CF7 seed asserts that the generated fixture is the legacy positional shortcode, not the modern hash form'
 );
+$versionMatrix = (string) file_get_contents(__DIR__ . '/certify_version_matrix.sh');
+check(
+    str_contains($versionMatrix, "--title='Version Matrix Contact Form' --format=ids")
+        && str_contains($versionMatrix, "target legacy page did not resolve its own form id"),
+    'CF7 version matrix resolves the target form by its deterministic title and verifies legacy runtime resolution'
+);
 check(
     !preg_match('/\\$COMPOSE[^\n]*\\|[[:space:]]*head(?:[[:space:]]|$)/', $cf7Checker),
     'CF7 checker never pipes Docker output into head under pipefail'
