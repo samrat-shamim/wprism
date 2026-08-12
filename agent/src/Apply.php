@@ -14,6 +14,7 @@ require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/OptionsMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/AttachmentMaterializer.php';
+require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -38,6 +39,7 @@ final class Apply {
     private ?OptionsMaterializer $optionsMaterializer = null;
     private ?RelationshipMaterializer $relationshipMaterializer = null;
     private ?AttachmentMaterializer $attachmentMaterializer = null;
+    private ?PostMaterializer $postMaterializer = null;
     private CompiledRepository $compiled;
     private string $repo;
     /** @var string[] */
@@ -134,6 +136,10 @@ final class Apply {
 
     private function attachment_materializer(): AttachmentMaterializer {
         return $this->attachmentMaterializer ??= new AttachmentMaterializer($this->field_materializer(), $this->compiled);
+    }
+
+    private function post_materializer(): PostMaterializer {
+        return $this->postMaterializer ??= new PostMaterializer($this->tokens);
     }
 
     // ------------------------------------------------------------------ plan
@@ -4589,45 +4595,14 @@ final class Apply {
     }
 
     /** @return bool true when a new row was inserted */
+    /**
+     * Thin compatibility facade over PostMaterializer::ensure_post_row()
+     * (DUO-3347 slice 10) — kept so this method's existing internal call
+     * site (run()'s phase-1 loop, unchanged) needs no edit while this
+     * decomposition proceeds.
+     */
     private function ensure_post_row(array $front): bool {
-        global $wpdb;
-        if (Ledger::id_for($front['uuid'], Ledger::KIND_POST) !== null) {
-            return false;
-        }
-        Db::insert($wpdb->posts, [
-            'post_author' => 0,
-            'post_date' => $front['date'],
-            'post_date_gmt' => $front['date_gmt'],
-            'post_content' => '',
-            // Post-field classification: written unconditionally even for a
-            // 'derived'-classified field (e.g. a Woo variation title or
-            // product timestamp) — a new
-            // row needs SOME starting value and there's no rebuild action to
-            // conjure one; finalize_post() below is where derived fields
-            // stop being overwritten, once the row actually exists.
-            'post_title' => $front['title'],
-            'post_excerpt' => '',
-            'post_status' => $front['status'],
-            'comment_status' => $front['comment_status'],
-            'ping_status' => $front['ping_status'],
-            'post_password' => '',
-            'post_name' => $front['slug'],
-            'to_ping' => '',
-            'pinged' => '',
-            'post_modified' => $front['modified'] ?? $front['modified_gmt'],
-            'post_modified_gmt' => $front['modified_gmt'],
-            'post_content_filtered' => '',
-            'post_parent' => 0,
-            'guid' => $this->tokens->home() . '/?duo=' . $front['uuid'],
-            'menu_order' => (int) ($front['menu_order'] ?? 0),
-            'post_type' => $front['type'],
-            'post_mime_type' => $front['mime'] ?? '',
-            'comment_count' => 0,
-        ], null, 'apply insert post');
-        $id = Db::insert_id('apply insert post');
-        Db::insert($wpdb->postmeta, ['post_id' => $id, 'meta_key' => '_duo_uuid', 'meta_value' => $front['uuid']], null, 'apply insert post identity');
-        Ledger::set($front['uuid'], 'post', Ledger::KIND_POST, $id);
-        return true;
+        return $this->post_materializer()->ensure_post_row($front);
     }
 
     /**

@@ -447,6 +447,7 @@ $knownGapsByFile = [
     'PinResolver' => ['Policy', 'RepositoryCompiler'],
     'PlanExplanation' => ['CommandRefusalException', 'CompiledRepository', 'Deletion', 'OptionState', 'Policy', 'ReferenceGraph', 'SidebarState'],
     'Policy' => ['Canon', 'CapabilityRegistry', 'Code', 'ManifestDispositions', 'OptionState'],
+    'PostMaterializer' => ['Db', 'Ledger'],
     'PromotionLease' => ['Db', 'Ledger'],
     'PromotionSessionJournal' => ['Ledger'],
     'Providers' => ['Deploy', 'Policy'],

@@ -727,7 +727,13 @@ check(
 $wpdb->map = [];
 $wpdb->inserts = [];
 $newProduct = post_front('product', '018f0000-0000-7000-8000-000000000005', '2026-08-08 00:00:04');
-check(invoke_private($apply, 'ensure_post_row', $newProduct) === true, 'new Woo product row is inserted');
+// DUO-3347 slice 10: ensure_post_row() moved from Apply onto
+// PostMaterializer (Apply keeps only the facade). Fetched via Apply's own
+// post_materializer() factory rather than hand-built, so this test's
+// PostMaterializer is wired with the exact same Tokens instance the real
+// facade would use.
+$postMaterializer = invoke_private($apply, 'post_materializer');
+check(invoke_private($postMaterializer, 'ensure_post_row', $newProduct) === true, 'new Woo product row is inserted');
 $insertedPost = $wpdb->inserts[0]['data'] ?? [];
 check(
     ($insertedPost['post_modified'] ?? null) === $newProduct['modified']
