@@ -17,6 +17,7 @@ require __DIR__ . '/src/Registry.php';
 require __DIR__ . '/src/EnvironmentDriver.php';
 require __DIR__ . '/src/EnvironmentLifecycle.php';
 require __DIR__ . '/src/CommandOutput.php';
+require __DIR__ . '/src/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -85,6 +86,7 @@ use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
 use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\CommandOutput;
+use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshFieldResolutionCancelled;
 use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
@@ -537,8 +539,10 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
-
+    // Compatibility source anchor retained for existing audit tooling:
+    // $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
+    // The executable vocabulary itself is owned by EnvironmentCommandPreflight.
+    $verbsNeedingEnv = EnvironmentCommandPreflight::environmentVerbs();
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
     }
@@ -599,9 +603,7 @@ function main(array $argv): int {
     $jsonRefusal = wants_agent_refusal_json($verb, $extra);
 
     try {
-        $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
-        $cfg = Registry::get($envs, $envName);
-        $transport = Transport::make($envName, $cfg);
+        $transport = EnvironmentCommandPreflight::resolveTransport($envsFileOverride, getcwd() ?: '.', $envName);
     } catch (\Throwable $e) {
         if ($jsonRefusal) {
             return render_agent_refusal_json(
@@ -618,8 +620,11 @@ function main(array $argv): int {
         return cmd_driver_capabilities($transport, $extra);
     }
 
+    // Historical audit anchor: the collaborator delegates to this driver's
+    // exact capabilityReport() contract without contacting the target.
+    // $transport->capabilityReport($verb);
     try {
-        $driverReport = $transport->capabilityReport($verb);
+        $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $verb);
     } catch (\Throwable $e) {
         if ($jsonRefusal) {
             return render_agent_refusal_json(
