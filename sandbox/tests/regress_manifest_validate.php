@@ -1677,6 +1677,22 @@ check(
     'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while Policy retains keyspace resolution'
 );
 
+// The post/menu field declaration grammar belongs to FieldGrammar. Policy
+// keeps the published/shared vocabularies because runtime consumers read the
+// post-field column map and the manifest report publishes all four sets.
+$fieldGrammar = new ReflectionClass('Duo\\FieldGrammar');
+check(
+    $fieldGrammar->hasMethod('validate_field_classes')
+        && $fieldGrammar->getMethod('validate_field_classes')->isPublic()
+        && $fieldGrammar->hasMethod('validate_menu_field_classes')
+        && $fieldGrammar->getMethod('validate_menu_field_classes')->isPublic()
+        && !$policyReflection->hasMethod('validate_field_classes')
+        && !$policyReflection->hasMethod('validate_menu_field_classes')
+        && substr_count($policySource, 'FieldGrammar::validate_field_classes($manifest, self::DERIVABLE_FIELD_COLUMNS, self::FIELD_CLASSES)') === 2
+        && substr_count($policySource, 'FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES)') === 2,
+    'post/menu field declaration grammar lives in FieldGrammar while Policy retains shared field vocabularies'
+);
+
 // ======================================================================
 echo "\n== exit codes and the command's own fail-closed paths ==\n";
 
