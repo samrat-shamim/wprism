@@ -223,7 +223,7 @@ final class Policy {
             OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
-            self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
+            ManifestGrammar::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
             SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
             ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
@@ -288,9 +288,9 @@ final class Policy {
             FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES);
             PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
-            self::validate_tables($manifest, "manifest '$name'");
+            ManifestGrammar::validate_tables($manifest, "manifest '$name'");
             AttributeGrammar::validate_attr_rules($manifest, self::CASTS);
-            self::validate_widgets($manifest);
+            ManifestGrammar::validate_widgets($manifest);
             PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
@@ -401,7 +401,7 @@ final class Policy {
         OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
         OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
-        self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
+        ManifestGrammar::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
         SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
         ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
 
@@ -421,9 +421,9 @@ final class Policy {
             FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES);
             PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
-            self::validate_tables($manifest, "frozen manifest '$name'");
+            ManifestGrammar::validate_tables($manifest, "frozen manifest '$name'");
             AttributeGrammar::validate_attr_rules($manifest, self::CASTS);
-            self::validate_widgets($manifest);
+            ManifestGrammar::validate_widgets($manifest);
             PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
@@ -1147,8 +1147,9 @@ final class Policy {
      * extraction slice — the pure table/widget declaration grammar). Kept so
      * existing external callers (Snapshot.php's live schema re-checks) need
      * no change while this decomposition proceeds; Policy's own internal
-     * callers below (validate_tables(), closed_vocabularies()) call
-     * ManifestGrammar directly rather than through these facades.
+     * callers below (closed_vocabularies()) call ManifestGrammar directly
+     * rather than through these facades; the load-time table/widget
+     * enumerators now live on ManifestGrammar as well.
      *
      * @return list<string>
      */
@@ -2696,69 +2697,20 @@ final class Policy {
     }
 
     /**
-     * Loud, load-time guard for every declared table (DUO-3318), for
-     * manifests AND for site.duo.json's own policy.tables overrides —
-     * declared_tables() merges the site's last, so a malformed override is
-     * exactly as fatal as a malformed manifest and deserves the same
-     * offline refusal.
-     *
-     * The grammar itself is assert_table_grammar()'s (see its docblock for
-     * why it lives beside declared_tables() rather than in Snapshot.php);
-     * this is only the enumeration that feeds it every declaration.
-     */
-    private static function validate_tables(array $source, string $label): void {
-        $tables = $source['tables'] ?? [];
-        if (!is_array($tables) || (array_is_list($tables) && $tables !== [])) {
-            throw new \RuntimeException("duo: $label tables must be an object keyed by unprefixed table name");
-        }
-        foreach ($tables as $table => $decl) {
-            ManifestGrammar::assert_table_grammar((string) $table, $decl, $label);
-        }
-    }
-
-    /**
-     * Loud, load-time guard for the widget registry (DUO-3318).
-     *
-     * SidebarState::assert_declared_types() has always checked this shape,
-     * but only once a sidebar is actually captured or applied, which needs a
-     * live WordPress. The grammar half is a pure function of the manifest, so
-     * it belongs at load time where every command pays for it and an offline
-     * validation can reach it — same split, and the same rationale, as the
-     * table grammar above. SidebarState keeps the one check that is genuinely
-     * its own (the id_kind column budget its derived kind name has to fit).
-     *
-     * `codec`/`ref` stay deliberately narrow: 'blocks' is the only settings
-     * codec the engine implements, and 'term' the only ref kind a core widget
-     * setting has ever carried. Both are engine-owned — a widget setting's
-     * value passes through engine codecs, not adapter code — so widening
-     * either is an engine change with a spec bump, not a manifest
-     * declaration.
-     */
-    private static function validate_widgets(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        $widgets = $manifest['widgets'] ?? [];
-        if (!is_array($widgets) || (array_is_list($widgets) && $widgets !== [])) {
-            throw new \RuntimeException("duo: manifest '$name' widgets must be an object keyed by widget type");
-        }
-        foreach ($widgets as $type => $decl) {
-            ManifestGrammar::assert_widget_grammar((string) $type, $decl, "manifest '$name'");
-        }
-    }
-
-    /**
      * The pure-grammar half of ONE `widgets.<type>` declaration — the exact
      * mirror of assert_table_grammar() above, and for the same reason
      * (DUO-3318 review, S4).
      *
-     * This is the only implementation of these rules: validate_widgets() runs
-     * it for every declared type at load, and SidebarState::assert_policy()
-     * runs it again immediately before its own genuinely-live work.
+     * This is the only implementation of these rules: ManifestGrammar's
+     * aggregate validator runs it for every declared type at load, and
+     * SidebarState::assert_policy() runs it again immediately before its own
+     * genuinely-live work.
      *
      * DUO-3348 first extraction slice: the implementation now lives in
      * ManifestGrammar::assert_widget_grammar(); this method is a thin
      * compatibility facade kept so SidebarState.php's capture-time re-check
-     * needs no change while this decomposition proceeds. validate_widgets()
-     * above calls ManifestGrammar directly rather than through this facade.
+     * needs no change while this decomposition proceeds. Policy's loader paths
+     * call ManifestGrammar directly rather than through this facade.
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);

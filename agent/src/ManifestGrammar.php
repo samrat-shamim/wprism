@@ -16,9 +16,11 @@ namespace Duo;
  * `Policy` keeps `assert_table_grammar()`, `natural_key_columns()`, and
  * `assert_widget_grammar()` as thin compatibility facades delegating here, so
  * existing external callers (Snapshot.php's live schema re-checks,
- * SidebarState.php's capture-time re-check) are unaffected by this move. Only
- * Policy's OWN internal call sites (validate_tables(), validate_widgets(),
- * closed_vocabularies()) were repointed directly at this class.
+ * SidebarState.php's capture-time re-check) are unaffected by this move. The
+ * load-time aggregate enumerators (`validate_tables()` and
+ * `validate_widgets()`) also live here now; Policy's loader paths call them
+ * directly, while its public per-declaration facades remain for callers that
+ * need the older API.
  *
  * Future slices of the same decomposition target may add the remaining
  * grammar-specific validators (option/post-type/action/provider/effect
@@ -88,6 +90,54 @@ final class ManifestGrammar {
     /** @return list<string> Policy::closed_vocabularies()'s read of WIDGET_SETTING_REFS. */
     public static function widgetSettingRefs(): array {
         return self::WIDGET_SETTING_REFS;
+    }
+
+    /**
+     * Loud, load-time guard for every declared table (DUO-3318), for
+     * manifests AND for site.duo.json's own policy.tables overrides. The
+     * caller supplies the label so the exact same pure enumeration can retain
+     * Policy's live/frozen diagnostic context.
+     *
+     * @param array<string,mixed> $source
+     */
+    public static function validate_tables(array $source, string $label): void {
+        $tables = $source['tables'] ?? [];
+        if (!is_array($tables) || (array_is_list($tables) && $tables !== [])) {
+            throw new \RuntimeException("duo: $label tables must be an object keyed by unprefixed table name");
+        }
+        foreach ($tables as $table => $decl) {
+            self::assert_table_grammar((string) $table, $decl, $label);
+        }
+    }
+
+    /**
+     * Loud, load-time guard for the widget registry (DUO-3318).
+     *
+     * SidebarState::assert_declared_types() has always checked this shape,
+     * but only once a sidebar is actually captured or applied, which needs a
+     * live WordPress. The grammar half is a pure function of the manifest, so
+     * it belongs at load time where every command pays for it and an offline
+     * validation can reach it — same split, and the same rationale, as the
+     * table grammar above. SidebarState keeps the one check that is genuinely
+     * its own (the id_kind column budget its derived kind name has to fit).
+     *
+     * `codec`/`ref` stay deliberately narrow: 'blocks' is the only settings
+     * codec the engine implements, and 'term' the only ref kind a core widget
+     * setting has ever carried. Both are engine-owned — a widget setting's
+     * value passes through engine codecs, not adapter code — so widening
+     * either is an engine change with a spec bump, not a manifest declaration.
+     *
+     * @param array<string,mixed> $manifest
+     */
+    public static function validate_widgets(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $widgets = $manifest['widgets'] ?? [];
+        if (!is_array($widgets) || (array_is_list($widgets) && $widgets !== [])) {
+            throw new \RuntimeException("duo: manifest '$name' widgets must be an object keyed by widget type");
+        }
+        foreach ($widgets as $type => $decl) {
+            self::assert_widget_grammar((string) $type, $decl, "manifest '$name'");
+        }
     }
 
     /**
