@@ -61,6 +61,24 @@ $check(
     'the retained diagnostic directory is explicitly mode 0700'
 );
 
+$hermeticAt = strpos($harness, '# The shipped capability attestation is intentionally candidate/expired');
+$hermeticArchive = 'tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities';
+$scopedSay = 'say "install the hermetic current-evidence capability projection for scoped promotion"';
+$hermeticInstall = 'tar -C /var/www/html/wp-content/mu-plugins/manifests -xf \'$REMOTE_CAPABILITIES_ARCHIVE\'';
+$scopedAt = strpos($harness, $scopedSay);
+$check(
+    is_int($hermeticAt) && is_int($scopedAt) && $hermeticAt < $scopedAt
+        && str_contains($harness, 'HERMETIC_ROOT="$TMP/hermetic-certification"')
+        && str_contains($harness, 'certification_fixture.php "$HERMETIC_ROOT"')
+        && str_contains($harness, $hermeticArchive)
+        && str_contains($harness, 'scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE"')
+        && str_contains($harness, $hermeticInstall)
+        && str_contains($harness, '"evidence"]["status"]??null)==="current"')
+        && !str_contains(substr($harness, $scopedAt), 'capability-registry.php import-bundle')
+        && !str_contains(substr($harness, $scopedAt), 'DUO_MANIFESTS_DIR=') ,
+    'scoped SSH promotion manufactures and installs only the hermetic current-evidence projection before promotion, without importing or bypassing the product gate'
+);
+
 $diagnosticAssignments = [
     'SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"',
     'SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"',
