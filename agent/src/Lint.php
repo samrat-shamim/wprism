@@ -689,7 +689,11 @@ final class Lint {
             return;
         }
         $pattern = '/' . get_shortcode_regex(array_keys($shortcodeRules)) . '/';
-        if (!preg_match_all($pattern, $body, $matches, PREG_SET_ORDER)) {
+        $matched = preg_match_all($pattern, $body, $matches, PREG_SET_ORDER);
+        if ($matched === false) {
+            throw new \RuntimeException('duo: shortcode lint regex failed; refusing unproven content');
+        }
+        if ($matched === 0) {
             return;
         }
         foreach ($matches as $m) {

@@ -88,7 +88,10 @@ final class Shortcodes {
         $out = preg_replace_callback($pattern, function (array $m) use ($rules, $tokens, $policy, $forceUnresolvedRefs, $postLabel) {
             return self::rewrite_instance($m, $rules, $tokens, true, $policy, $forceUnresolvedRefs, $postLabel);
         }, $content);
-        return $out ?? $content; // preg failure (e.g. backtrack limit): leave content untouched, never null it out
+        if ($out === null) {
+            throw new \RuntimeException('duo: shortcode rewrite regex failed; refusing unproven content');
+        }
+        return $out;
     }
 
     public static function apply_rewrite_text(string $content, Policy $policy, Tokens $tokens): string {
@@ -100,7 +103,10 @@ final class Shortcodes {
         $out = preg_replace_callback($pattern, function (array $m) use ($rules, $tokens, $policy) {
             return self::rewrite_instance($m, $rules, $tokens, false, $policy, false, '');
         }, $content);
-        return $out ?? $content;
+        if ($out === null) {
+            throw new \RuntimeException('duo: shortcode rewrite regex failed; refusing unproven content');
+        }
+        return $out;
     }
 
     /**
@@ -196,7 +202,10 @@ final class Shortcodes {
             ) {
                 return self::rewrite_one_attr($am, $rule, $tokens, $capture, $policy, $forceUnresolvedRefs, $postLabel, $tag);
             }, $rawAttrs, -1, $count, PREG_UNMATCHED_AS_NULL);
-            $rawAttrs = $rewritten ?? $rawAttrs;
+            if ($rewritten === null) {
+                throw new \RuntimeException("duo: shortcode '$tag' attribute rewrite regex failed; refusing unproven content");
+            }
+            $rawAttrs = $rewritten;
         }
         return $rawAttrs;
     }
@@ -210,7 +219,11 @@ final class Shortcodes {
      */
     private static function assert_positional_attribute_shape(string $rawAttrs, string $tag): void {
         $pattern = get_shortcode_atts_regex();
-        if (!preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER)) {
+        $matched = preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER);
+        if ($matched === false) {
+            throw new \RuntimeException("duo: shortcode '$tag' attribute regex failed; refusing unproven positional content");
+        }
+        if ($matched === 0) {
             return;
         }
         foreach ($matches as $match) {
@@ -295,7 +308,11 @@ final class Shortcodes {
     public static function positional_spans(string $rawAttrs): array {
         $out = [];
         $pattern = get_shortcode_atts_regex();
-        if (!preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE)) {
+        $matched = preg_match_all($pattern, $rawAttrs, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE);
+        if ($matched === false) {
+            throw new \RuntimeException('duo: shortcode positional regex failed; refusing unproven content');
+        }
+        if ($matched === 0) {
             return $out;
         }
         foreach ($matches as $m) {
@@ -316,12 +333,18 @@ final class Shortcodes {
 
     private static function alternate_post_id(string $metaKey, string $postType, string $alternate, string $tag, int $position): int {
         global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
         $status = self::runtime_status_filter('p');
         $sql = "SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
             . "WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s "
             . "AND p.post_type = %s" . $status['sql'] . " ORDER BY pm.meta_id ASC";
         $args = [$metaKey, $alternate, $postType, ...$status['args']];
-        $rows = $wpdb->get_col($wpdb->prepare($sql, $args)) ?: [];
+        $rows = $wpdb->get_col($wpdb->prepare($sql, $args));
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: shortcode '$tag' positional[$position] alternate lookup failed; refusing an unproven identity");
+        }
         $ids = array_values(array_unique(array_map('intval', $rows)));
         if (count($rows) !== 1 || count($ids) !== 1) {
             $why = $ids === [] ? 'no matching form' : 'multiple matching forms or duplicate alternate metadata';
@@ -358,12 +381,18 @@ final class Shortcodes {
         int $position
     ): void {
         global $wpdb;
+        if (property_exists($wpdb, 'last_error')) {
+            $wpdb->last_error = '';
+        }
         $status = self::runtime_status_filter('p');
         $sql = "SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
             . "WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s "
             . "AND p.post_type = %s" . $status['sql'] . " ORDER BY pm.meta_id ASC";
         $args = [$metaKey, $alternate, $postType, ...$status['args']];
-        $rows = $wpdb->get_col($wpdb->prepare($sql, $args)) ?: [];
+        $rows = $wpdb->get_col($wpdb->prepare($sql, $args));
+        if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
+            throw new \RuntimeException("duo: shortcode '$tag' positional[$position] target collision check failed; refusing an unproven identity");
+        }
         $rawIds = array_map('intval', $rows);
         $ids = array_values(array_unique($rawIds));
         $selectedCount = count(array_filter($rawIds, static fn(int $id): bool => $id === $postId));

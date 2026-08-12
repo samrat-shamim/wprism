@@ -79,6 +79,7 @@ final class FakeWpdb {
     public $prefix = 'wp_';
     public $posts = 'wp_posts';
     public $postmeta = 'wp_postmeta';
+    public $last_error = '';
     public $terms = 'wp_terms';
     public $term_taxonomy = 'wp_term_taxonomy';
 
@@ -88,6 +89,7 @@ final class FakeWpdb {
     public $postsById = [];
     /** @var array<int, array<string, list<string>>> */
     public $postMetaById = [];
+    public $injectGetColError = false;
     /** @var array<int, array{name:string, taxonomy:string}> */
     public $termsById = [];
 
@@ -133,6 +135,10 @@ final class FakeWpdb {
 
     public function get_col($prepared) {
         [$sql, $args] = $this->unwrap($prepared);
+        if ($this->injectGetColError) {
+            $this->last_error = 'injected SQL failure';
+            return [];
+        }
         if (str_contains($sql, 'SELECT pm.post_id FROM') && str_contains($sql, $this->postmeta)) {
             [$key, $value, $postType] = array_pad($args, 3, null);
             $numeric = str_contains($sql, 'CAST(pm.meta_value AS DECIMAL');
@@ -307,6 +313,26 @@ check($legacyCanonical === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy F
 check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $legacy,
     'S1b: positional token round-trips through the target alternate id');
 check(!str_contains($legacyCanonical, '77'), 'S1b: canonical content has no raw _old_cf7_unit_id');
+$savedBacktrackLimit = ini_get('pcre.backtrack_limit');
+$captureRegexFailureRefused = false;
+$applyRegexFailureRefused = false;
+try {
+    ini_set('pcre.backtrack_limit', '1');
+    try {
+        Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
+    } catch (\Throwable $e) {
+        $captureRegexFailureRefused = str_contains($e->getMessage(), 'rewrite regex failed');
+    }
+    try {
+        Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+    } catch (\Throwable $e) {
+        $applyRegexFailureRefused = str_contains($e->getMessage(), 'rewrite regex failed');
+    }
+} finally {
+    ini_set('pcre.backtrack_limit', (string) $savedBacktrackLimit);
+}
+check($captureRegexFailureRefused, 'S1b: capture refuses a shortcode regex backtrack failure instead of preserving a raw positional id');
+check($applyRegexFailureRefused, 'S1b: Apply refuses a shortcode regex backtrack failure instead of preserving unproven canonical content');
 $structured = ['elements' => [['content' => $legacy]]];
 $structuredCanonical = $tokens->struct_capture($structured, [], null);
 check($structuredCanonical['elements'][0]['content'] === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
@@ -371,6 +397,28 @@ try {
 }
 $wpdb->postMetaById[MAPPED_ID] = ['_old_cf7_unit_id' => ['77']];
 check($targetDuplicateRowsRefused, 'S1c: Apply refuses duplicate alternate metadata rows on the selected target before body mutation');
+$wpdb->injectGetColError = true;
+$captureSqlFailureRefused = false;
+try {
+    Shortcodes::capture_rewrite_text($legacy, $policy, $tokens);
+} catch (\Throwable $e) {
+    $captureSqlFailureRefused = str_contains($e->getMessage(), 'alternate lookup failed');
+}
+$applySqlFailureRefused = false;
+try {
+    Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens);
+} catch (\Throwable $e) {
+    $applySqlFailureRefused = str_contains($e->getMessage(), 'collision check failed');
+}
+$wpdb->injectGetColError = false;
+check($captureSqlFailureRefused, 'S1c: capture refuses an alternate lookup SQL failure instead of treating it as no match');
+check($applySqlFailureRefused, 'S1c: Apply refuses a collision-check SQL failure before rewriting the body');
+$wpdb->last_error = 'stale prior query failure';
+check(Shortcodes::capture_rewrite_text($legacy, $policy, $tokens) === '[contact-form {{post:' . MAPPED_UUID . '}} "Legacy Form"]',
+    'S1c: a stale prior wpdb error is cleared before a fresh alternate lookup');
+$wpdb->last_error = 'stale prior query failure';
+check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $legacy,
+    'S1c: a stale prior wpdb error is cleared before a fresh collision check');
 
 // S1d — Apply registers the canonical alternate witnesses before any body
 // rewrite.  The reverse index must reject duplicate alternate values within
@@ -381,7 +429,6 @@ $applyPolicy->setValue($applyForAlternates, $policy);
 $applyTokens = new \ReflectionProperty(\Duo\Apply::class, 'tokens');
 $applyTokens->setValue($applyForAlternates, new Tokens());
 $registerAlternates = new \ReflectionMethod(\Duo\Apply::class, 'register_shortcode_alternates');
-$registerAlternates->setAccessible(true);
 $duplicateAlternateTree = [
     ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
     ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
