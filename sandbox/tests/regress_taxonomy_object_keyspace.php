@@ -449,17 +449,23 @@ $validateSchema->invoke($termCompiler, 'term', 'terms/fixture.json', [
 tok_check(tok_has_code($diagnostics->getValue($termCompiler), 'taxonomy_object_keyspace_mismatch'), 'RepositoryCompiler blocks a post-keyspace taxonomy in a term file');
 
 echo "\n== Apply defends the same boundary before database access ==\n";
-$applyReflection = new ReflectionClass(Apply::class);
-$apply = $applyReflection->newInstanceWithoutConstructor();
-$applyPolicy = $applyReflection->getProperty('policy');
-$applyPolicy->setAccessible(true);
-$applyPolicy->setValue($apply, $policy);
-$postReconcile = $applyReflection->getMethod('reconcile_relationships');
+// DUO-3347 slice 8: reconcile_relationships() moved from Apply onto
+// RelationshipMaterializer (Apply keeps only the facade). This early
+// keyspace-mismatch throw fires from the method's first loop, before its
+// new $taxesForPostType parameter is ever read, so an empty array is a
+// safe, correct stand-in here -- same reasoning as the TermMaterializer
+// reconcile below, which this mirrors.
+$relationshipMaterializerReflection = new ReflectionClass(\Duo\RelationshipMaterializer::class);
+$relationshipMaterializer = $relationshipMaterializerReflection->newInstanceWithoutConstructor();
+$relationshipMaterializerPolicy = $relationshipMaterializerReflection->getProperty('policy');
+$relationshipMaterializerPolicy->setAccessible(true);
+$relationshipMaterializerPolicy->setValue($relationshipMaterializer, $policy);
+$postReconcile = $relationshipMaterializerReflection->getMethod('reconcile_relationships');
 $postReconcile->setAccessible(true);
 tok_expect_failure(
-    fn() => $postReconcile->invoke($apply, 17, 'duo_keyspace_post', ['duo_keyspace_term_links' => []], []),
+    fn() => $postReconcile->invoke($relationshipMaterializer, 17, 'duo_keyspace_post', ['duo_keyspace_term_links' => []], [], []),
     'object_keyspace',
-    'Apply post relationship reconcile with a term-keyspace taxonomy'
+    'RelationshipMaterializer post relationship reconcile with a term-keyspace taxonomy'
 );
 // DUO-3347 slice 6: reconcile_term_relationships() moved from Apply onto
 // TermMaterializer (Apply keeps only finalize_term() as a facade); this

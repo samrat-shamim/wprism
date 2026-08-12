@@ -12,6 +12,7 @@ require_once __DIR__ . '/MenuMaterializer.php';
 require_once __DIR__ . '/UserMetaMaterializer.php';
 require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/OptionsMaterializer.php';
+require_once __DIR__ . '/RelationshipMaterializer.php';
 require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -34,6 +35,7 @@ final class Apply {
     private ?UserMetaMaterializer $userMetaMaterializer = null;
     private ?TermMaterializer $termMaterializer = null;
     private ?OptionsMaterializer $optionsMaterializer = null;
+    private ?RelationshipMaterializer $relationshipMaterializer = null;
     private CompiledRepository $compiled;
     private string $repo;
     /** @var string[] */
@@ -122,6 +124,10 @@ final class Apply {
 
     private function options_materializer(): OptionsMaterializer {
         return $this->optionsMaterializer ??= new OptionsMaterializer($this->policy, $this->tokens, $this->field_materializer());
+    }
+
+    private function relationship_materializer(): RelationshipMaterializer {
+        return $this->relationshipMaterializer ??= new RelationshipMaterializer($this->policy);
     }
 
     // ------------------------------------------------------------------ plan
@@ -4763,72 +4769,28 @@ final class Apply {
         $this->tokens->seal_shortcode_alternates();
     }
 
+    /**
+     * Thin compatibility facade over RelationshipMaterializer::reconcile_relationships()
+     * (DUO-3347 slice 8) — kept so this method's existing internal call site
+     * (finalize_post(), unchanged) needs no edit while this decomposition
+     * proceeds. taxes_for_post_type() stays here (not on
+     * RelationshipMaterializer): it wraps Apply's own memoized,
+     * WordPress-registry-reading taxes_by_object_type(), shared with the
+     * still-Apply-resident term-relationship path (term_object_taxes()).
+     */
     private function reconcile_relationships(
         int $postId,
         string $postType,
         array $termsField,
         array $termOrders = []
     ): void {
-        global $wpdb;
-        foreach (array_keys($termsField) as $tax) {
-            $keyspace = $this->policy->taxonomy_object_keyspace((string) $tax);
-            if ($keyspace !== 'post') {
-                throw new \RuntimeException(
-                    "duo: post $postId declares terms.$tax, but manifest object_keyspace is '$keyspace' "
-                    . '— post terms require object_keyspace=post'
-                );
-            }
-        }
-        $taxes = $this->taxes_for_post_type($postType);
-        if (!$taxes) {
-            return;
-        }
-        $desiredTt = [];
-        foreach ($termsField as $tax => $uuids) {
-            if (!in_array($tax, $taxes, true)) {
-                // Not a taxonomy this post type actually owns (stale file from
-                // before the object-type filter existed, or a hand edit) —
-                // never let it reach the ledger lookup / INSERT below.
-                continue;
-            }
-            foreach ((array) $uuids as $u) {
-                $tt = Ledger::id_for($u, Ledger::KIND_TT)
-                    ?? throw new \RuntimeException("duo: post $postId references unresolvable term $u ($tax)");
-                $desiredTt[$tt] = (int) (($termOrders[$tax] ?? [])[$u] ?? 0);
-            }
-        }
-        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $currentRows = $wpdb->get_results($wpdb->prepare(
-            "SELECT tr.term_taxonomy_id, tr.term_order FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            $postId
-        ), ARRAY_A) ?: [];
-        $current = [];
-        foreach ($currentRows as $row) {
-            $current[(int) $row['term_taxonomy_id']] = (int) $row['term_order'];
-        }
-        foreach (array_keys($current) as $tt) {
-            if (!isset($desiredTt[(int) $tt])) {
-                Db::delete($wpdb->term_relationships, ['object_id' => $postId, 'term_taxonomy_id' => (int) $tt], null, 'apply delete post relationship');
-            }
-        }
-        foreach ($desiredTt as $tt => $order) {
-            if (!array_key_exists($tt, $current)) {
-                Db::insert($wpdb->term_relationships, [
-                    'object_id' => $postId, 'term_taxonomy_id' => $tt, 'term_order' => $order,
-                ], null, 'apply insert post relationship');
-            } elseif ($current[$tt] !== $order) {
-                Db::update(
-                    $wpdb->term_relationships,
-                    ['term_order' => $order],
-                    ['object_id' => $postId, 'term_taxonomy_id' => $tt],
-                    null,
-                    null,
-                    'apply update post relationship order'
-                );
-            }
-        }
+        $this->relationship_materializer()->reconcile_relationships(
+            $postId,
+            $postType,
+            $termsField,
+            $termOrders,
+            $this->taxes_for_post_type($postType)
+        );
     }
 
     /**
@@ -5253,85 +5215,17 @@ final class Apply {
     }
 
     /**
-     * Delete a post's own term_relationships rows only — scoped to every
-     * taxonomy REGISTERED on this runtime whose object_type includes this
-     * post's type and whose resolved object_keyspace is `post` (deliberately
-     * not policy-scoped: a full post delete must clean up every taxonomy
-     * that legitimately relates to it, same as wp_delete_post(), not just
-     * the ones Duo happens to manage).
-     *
-     * An unfiltered `DELETE ... WHERE object_id = $id` (the previous code)
-     * hits every term_relationships row with that raw id regardless of
-     * taxonomy — including a term-object taxonomy's rows for a completely
-     * different TERM that happens to have the same id, since posts and
-     * terms are minted from independent auto-increment counters sharing
-     * one numeric space. That would silently destroy the colliding term's
-     * genuine data as a side effect of deleting an unrelated post.
+     * Thin compatibility facades over RelationshipMaterializer::
+     * delete_post_relationships()/delete_term_relationships() (DUO-3347
+     * slice 8) — kept so delete_entity()'s existing internal call sites
+     * (unchanged) need no edit while this decomposition proceeds.
      */
     private function delete_post_relationships(int $id, string $postType): void {
-        global $wpdb;
-        $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) use ($postType) {
-            $taxObj = get_taxonomy($tax);
-            if ($taxObj === false || !in_array($postType, (array) $taxObj->object_type, true)) {
-                return false;
-            }
-            return $this->policy->taxonomy_object_keyspace($tax, (array) $taxObj->object_type) === 'post';
-        }));
-        if (!$taxes) {
-            return;
-        }
-        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        Db::query($wpdb->prepare(
-            "DELETE tr FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            $id
-        ), 'apply delete post relationships');
-        $this->assert_zero(
-            "SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            [$id],
-            "post $id term relationships"
-        );
+        $this->relationship_materializer()->delete_post_relationships($id, $postType);
     }
 
-    /**
-     * Term-object symmetry of delete_post_relationships() immediately
-     * above: a deleted term's OWN relationship rows as object_id (term-
-     * object taxonomies, e.g. Polylang's term_language/term_translations),
-     * scoped to every taxonomy REGISTERED on this runtime whose manifest-
-     * resolved object_keyspace is `term`. An undeclared runtime term/mixed
-     * taxonomy refuses before mutation instead of making literal `term` an
-     * engine-owned plugin sentinel. An unfiltered `DELETE ... WHERE object_id = $id`
-     * would hit every term_relationships row with that raw id regardless of
-     * taxonomy — including a POST-object taxonomy's row for a completely
-     * different POST that happens to share this term's id.
-     */
     private function delete_term_relationships(int $termId): void {
-        global $wpdb;
-        $taxes = array_values(array_filter(get_taxonomies(), function (string $tax) {
-            $taxObj = get_taxonomy($tax);
-            return $taxObj !== false
-                && $this->policy->taxonomy_object_keyspace($tax, (array) $taxObj->object_type) === 'term';
-        }));
-        if (!$taxes) {
-            return;
-        }
-        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        Db::query($wpdb->prepare(
-            "DELETE tr FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            $termId
-        ), 'apply delete term-object relationships');
-        $this->assert_zero(
-            "SELECT COUNT(*) FROM {$wpdb->term_relationships} tr
-             JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
-             WHERE tr.object_id = %d AND tt.taxonomy IN ($in)",
-            [$termId],
-            "term $termId outbound relationships"
-        );
+        $this->relationship_materializer()->delete_term_relationships($termId);
     }
 
     private function resolve_login(string $login): ?int {
