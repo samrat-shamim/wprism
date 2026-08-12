@@ -1335,9 +1335,13 @@ final class Apply {
      *
      * @return array<string,bool>
      */
-    private function guard_repair_uuids(array $plan): array {
+    private function guard_repair_uuids(array $plan, bool $includeDrift = false): array {
         $out = [];
-        foreach (['create', 'update', 'adopt'] as $bucket) {
+        $buckets = ['create', 'update', 'adopt'];
+        if ($includeDrift) {
+            $buckets[] = 'drift';
+        }
+        foreach ($buckets as $bucket) {
             foreach ((array) ($plan[$bucket] ?? []) as $row) {
                 $uuid = (string) ($row['uuid'] ?? '');
                 if ($uuid !== '') {
@@ -2690,7 +2694,19 @@ final class Apply {
 
         $pendingOptionDeletes = [];
         $pendingOptionConflictEvidence = [];
-        foreach ($recoveringScoped ? [] : array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
+        $pendingOptionWork = $recoveringScoped
+            ? []
+            : array_merge($plan['create'], $plan['update'], $plan['conflict']);
+        if ($scopedPromotion) {
+            // Ordinary apply deliberately leaves environment-only drift for
+            // capture/reconciliation. The externally checkpointed profile is
+            // different: its whole-target exclusion and encrypted before
+            // image authorize replacing the selected drift with the frozen
+            // repository state. Keep the deletion gate aligned with that
+            // same bounded authored work set.
+            $pendingOptionWork = array_merge($pendingOptionWork, (array) ($plan['drift'] ?? []));
+        }
+        foreach ($pendingOptionWork as $r) {
             foreach ($r['option_deletes'] ?? [] as $name) {
                 $pendingOptionDeletes[] = $name;
             }
@@ -2763,7 +2779,13 @@ final class Apply {
             $this->warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
         }
 
-        $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        $rebuildWork = $this->rebuild_work(
+            $plan,
+            $tree,
+            $opts,
+            $retryingIncompleteApply,
+            $scopedPromotion
+        );
         if ($recoveringScoped) {
             $rebuildWork = $this->scoped_recovery_work($plan, $compiled);
         }
@@ -2826,7 +2848,7 @@ final class Apply {
         $this->tokens->defaultUserId = $this->defaultAuthor;
 
         $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
-        $guardRepairUuids = $this->guard_repair_uuids($plan);
+        $guardRepairUuids = $this->guard_repair_uuids($plan, $scopedPromotion);
 
         // DUO-3338 provider negotiation, deliberately positioned here: the
         // rebuild pass at the far end of this method is what actually invokes
@@ -2950,7 +2972,8 @@ final class Apply {
                 $freshPlan,
                 $tree,
                 $opts,
-                $retryingIncompleteApply
+                $retryingIncompleteApply,
+                $scopedPromotion
             );
             $freshSelectedActions = $this->policy->actions_for($this->rebuild_surfaces(
                 $freshRebuildWork['work'],
@@ -7836,7 +7859,13 @@ final class Apply {
      * @param array<string,mixed> $opts
      * @return array{work:list<array<string,mixed>>,delete_work:list<array<string,mixed>>,rebuild_delete_work:list<array<string,mixed>>}
      */
-    private function rebuild_work(array $plan, array $tree, array $opts, bool $retryingIncompleteApply): array {
+    private function rebuild_work(
+        array $plan,
+        array $tree,
+        array $opts,
+        bool $retryingIncompleteApply,
+        bool $includeScopedPromotionDrift = false
+    ): array {
         $deleteWork = (array) ($plan['delete'] ?? []);
         if (!empty($opts['force_theirs'])) {
             $deleteWork = array_merge($deleteWork, (array) ($plan['delete_conflict'] ?? []));
@@ -7868,6 +7897,16 @@ final class Apply {
             (array) ($plan['update'] ?? []),
             array_map(fn(array $row): array => $row, (array) ($plan['conflict'] ?? []))
         );
+        if ($includeScopedPromotionDrift) {
+            // A normal apply leaves environment-only drift for capture. The
+            // externally checkpointed scoped-promotion profile is the one
+            // reviewed exception: its held all-writer exclusion and encrypted
+            // before-image authorize replacing selected drift with the frozen
+            // repository state. Keep this opt-in at the shared projection so
+            // plan diagnostics and ordinary/scoped apply cannot accidentally
+            // widen their mutation set.
+            $work = array_merge($work, (array) ($plan['drift'] ?? []));
+        }
         usort($work, fn(array $x, array $y): int =>
             $this->phase2_rank($tree[(string) $x['uuid']]) <=> $this->phase2_rank($tree[(string) $y['uuid']])
         );
