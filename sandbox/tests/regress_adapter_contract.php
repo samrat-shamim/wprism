@@ -4,8 +4,7 @@
  * DUO-3222/DUO-3243: the version-pinned adapter compatibility contract and
  * optional content-addressed site manifest pins.
  *
- * Policy::load()'s new validators (validate_adapter_contract(),
- * validate_no_conflicting_adapter_claims()) and RepositoryCompiler's new
+ * Policy::load()'s adapter contract validators and RepositoryCompiler's new
  * per-manifest digest/resolved_adapters() computation are pure — no $wpdb,
  * no WordPress function, by design (RepositoryCompiler's own class
  * docblock: repository + manifest inputs become a validated IR "before
@@ -171,8 +170,8 @@ echo "\n== spec_version: MANDATORY (DUO-3247) — absent hard-fails, present-and
 // DUO-3247: absence stopped being lenient the moment DUO_SPEC_VERSION got a
 // second historical value (DUO-3210's 0->1 bump) — this is the pre-committed
 // flip from DUO-3222's own design review, actioned here. Absent and
-// declared-and-wrong are now the SAME failure (see validate_adapter_contract()'s
-// docblock), so both assertions below check for the same 'spec_version'
+// declared-and-wrong are now the SAME failure (see AdapterContractGrammar's
+// contract), so both assertions below check for the same 'spec_version'
 // needle through the one throw site.
 fresh_manifests_dir(['no-spec' => ['name' => 'no-spec']]);
 expect_throw(
@@ -254,7 +253,7 @@ expect_throw(
 );
 
 // Identical ranges: redundant, not ambiguous — deliberately ALLOWED (see
-// validate_no_conflicting_adapter_claims()'s own docblock for why).
+// AdapterContractGrammar's contract for why).
 fresh_manifests_dir([
     'dup-a' => ['name' => 'dup-a', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
     'dup-b' => ['name' => 'dup-b', 'spec_version' => DUO_SPEC_VERSION, 'plugin' => 'acme/acme.php', 'version_range' => ['min' => '1.0.0', 'max' => '2.0.0']],
@@ -388,6 +387,21 @@ check($inRange->invoke(null, '2.0.0', '1.0.0', '2.0.0') === false, 'installed ==
 check($inRange->invoke(null, '1.9.9', '1.0.0', '2.0.0') === true, 'installed just below max is in range');
 check($inRange->invoke(null, '0.9.9', '1.0.0', '2.0.0') === false, 'installed just below min is outside range');
 check($inRange->invoke(null, '2.0.1', '1.0.0', '2.0.0') === false, 'installed above max is outside range (unsupported upgrade — the exact scenario a real plugin/theme update out of a pinned range produces)');
+
+$adapterContractGrammar = new \ReflectionClass('Duo\\AdapterContractGrammar');
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$policyReflection = new \ReflectionClass(Policy::class);
+check(
+    $adapterContractGrammar->hasMethod('validate_adapter_contract')
+        && $adapterContractGrammar->getMethod('validate_adapter_contract')->isPublic()
+        && $adapterContractGrammar->hasMethod('validate_no_conflicting_adapter_claims')
+        && $adapterContractGrammar->getMethod('validate_no_conflicting_adapter_claims')->isPublic()
+        && !$policyReflection->hasMethod('validate_adapter_contract')
+        && !$policyReflection->hasMethod('validate_no_conflicting_adapter_claims')
+        && substr_count($policySource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 2
+        && substr_count($policySource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests)') === 2,
+    'adapter compatibility contract grammar and its cross-manifest guard live in AdapterContractGrammar'
+);
 
 // ======================================================================
 echo "\n";

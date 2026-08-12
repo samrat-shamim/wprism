@@ -62,6 +62,9 @@ require_once __DIR__ . '/UserMetaGrammar.php';
 // DUO-3348 slice 21: whole-entity scope declaration grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ScopeGrammar.php';
+// DUO-3348 slice 22: adapter compatibility contract grammar, required here
+// for the same "loads alone" reason as its neighbors above.
+require_once __DIR__ . '/AdapterContractGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -288,7 +291,7 @@ final class Policy {
             SubKeyGrammar::validate_dynamic_options($manifest);
             OptionReferenceGrammar::validate_option_name_refs($manifest);
             OptionGrammar::validate_option_storage($manifest, "manifest '$name'");
-            self::validate_adapter_contract($manifest);
+            AdapterContractGrammar::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
             DiscoveryGrammar::validate_discovery_contract($manifest);
             ReferenceShapeGrammar::validate_reference_shapes($manifest, "manifest '$name'");
@@ -299,7 +302,7 @@ final class Policy {
             $p->site['policy']['options'] ?? []
         );
         OptionReferenceGrammar::validate_no_overlapping_option_name_refs($p->manifests);
-        self::validate_no_conflicting_adapter_claims($p->manifests);
+        AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($p->manifests);
         CrossManifestGuards::validate_no_conflicting_post_type_contracts($p->manifests);
         CrossManifestGuards::validate_one_owner_per_declared_name($p->manifests);
@@ -424,7 +427,7 @@ final class Policy {
             TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
             OptionReferenceGrammar::validate_option_name_refs($manifest);
             OptionGrammar::validate_option_storage($manifest, "frozen manifest '$name'");
-            self::validate_adapter_contract($manifest);
+            AdapterContractGrammar::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
             DiscoveryGrammar::validate_discovery_contract($manifest);
             ReferenceShapeGrammar::validate_reference_shapes($manifest, "frozen manifest '$name'");
@@ -461,7 +464,7 @@ final class Policy {
             $p->site['policy']['options'] ?? []
         );
         OptionReferenceGrammar::validate_no_overlapping_option_name_refs($p->manifests);
-        self::validate_no_conflicting_adapter_claims($p->manifests);
+        AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests);
         ActionProviderGrammar::validate_no_conflicting_provider_ids($p->manifests);
         CrossManifestGuards::validate_no_conflicting_post_type_contracts($p->manifests);
         CrossManifestGuards::validate_one_owner_per_declared_name($p->manifests);
@@ -3292,166 +3295,6 @@ final class Policy {
     }
 
     /**
-     * DUO-3222: loud, load-time guard for the adapter compatibility
-     * contract — same "throw immediately" posture as every validator
-     * above. A manifest that names a plugin/theme without an exact,
-     * well-formed version range is exactly the "unbounded support" this
-     * issue's own non-negotiable constraint forbids ("No latest, wildcard,
-     * or unbounded version support may be certified") —
-     * Policy::version_ranges()'s own pre-existing behavior of silently
-     * SKIPPING a plugin with no/malformed version_range (rather than
-     * rejecting) is the failure mode DUO-3222 was filed to close, so this
-     * validator now makes that combination a hard load-time error instead
-     * of a silent no-op that would otherwise surface (if at all) only much
-     * later, at deploy time.
-     *
-     * spec_version is MANDATORY (DUO-3247): every manifest must declare it,
-     * and it must equal DUO_SPEC_VERSION exactly — absent and
-     * declared-and-wrong are now the same failure. This was not always the
-     * rule: DUO-3222's original validator treated ABSENT as lenient, because
-     * no shipped manifest declared it yet and DUO_SPEC_VERSION had exactly
-     * one historical value (an absence can't be "wrong" when there is
-     * nothing else it could have meant). DUO-3222's own design review
-     * pre-committed, in writing, to flipping that leniency the moment
-     * DUO_SPEC_VERSION got a second historical value — "that bump's own
-     * checklist item, not a future debate." DUO-3210 performed that bump
-     * (0→1) while this validator's PR was still open, so the two landed on
-     * `main` separately; DUO-3247 is the follow-up that actions the
-     * pre-committed flip. A manifest making no checkable claim about spec
-     * compatibility is exactly the "unsupported behavior hidden behind a
-     * broad compatibility claim" DESIGN.md's vision invariant forbids, same
-     * as an active wrong claim — so both throw through the same site below.
-     */
-    private static function validate_adapter_contract(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        $spec = $manifest['spec_version'] ?? null;
-        $supported = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
-        if (!is_int($spec) || $spec !== $supported) {
-            $declared = $spec === null ? 'no spec_version' : ('spec_version ' . var_export($spec, true));
-            throw new \RuntimeException(
-                "duo: manifest '$name' declares $declared"
-                . " but this engine requires spec_version $supported — pin a compatible manifest or update it"
-            );
-        }
-        // The interpreter NAME is validated at load rather than only in
-        // interpreters(), which reaches it lazily and would hand a non-string
-        // straight to preg_match(). Type first, shape second — both here, so
-        // every manifest from every source is held to the same contract and a
-        // malformed declaration cannot survive as far as a use site.
-        if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
-            $interpreter = $manifest['interpreter'];
-            if (!is_string($interpreter) || preg_match('/^[a-z0-9_-]+$/D', $interpreter) !== 1) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares interpreter " . var_export($interpreter, true)
-                    . ' — an interpreter name must be a non-empty string matching ^[a-z0-9_-]+$, since it resolves '
-                    . 'to <manifests_dir>/interpreters/<name>.php'
-                );
-            }
-        }
-        foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
-            $id = $manifest[$idKey] ?? null;
-            if ($id === null) {
-                continue;
-            }
-            if (!is_string($id) || $id === '') {
-                throw new \RuntimeException("duo: manifest '$name' declares a non-string or empty '$idKey'");
-            }
-            if ($idKey === 'plugin') {
-                AdapterSources::assert_plugin_basename($id, "manifest '$name' declares 'plugin'");
-            }
-            // DUO-3314: this field became site-controlled the moment adapters
-            // could be installed out-of-tree, and three call sites concatenate
-            // it into a filesystem path (CapabilityRegistry::
-            // installed_plugin_version(), Deploy's code-half version reads,
-            // Providers' owning-plugin resolution). None is reachable with a
-            // traversing value today — they all miss and report "missing"
-            // — but "no reachable sink today" is not a property a manifest
-            // field should have to keep proving. A plugin id is
-            // `<dir>/<file>.php` or a bare `<file>.php`; a theme id is a bare
-            // directory slug. Anything with a `..` segment, an absolute root,
-            // or a backslash is refused at load, before any consumer.
-            $segments = explode('/', $id);
-            $depthOk = $idKey === 'plugin' ? count($segments) <= 2 : count($segments) === 1;
-            if ($idKey !== 'plugin' && (!$depthOk || $id[0] === '/' || str_contains($id, '\\')
-                || in_array('..', $segments, true) || in_array('.', $segments, true)
-                || in_array('', $segments, true))) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares '$idKey' " . var_export($id, true)
-                    . ' — a ' . $idKey . ' identifier is '
-                    . ($idKey === 'plugin' ? "'<directory>/<file>.php' or '<file>.php'" : 'a bare directory slug')
-                    . ', never an absolute path and never one containing a ".." segment; it is concatenated into '
-                    . 'filesystem paths by the code-half version checks'
-                );
-            }
-            $range = $manifest[$rangeKey] ?? null;
-            if (!is_array($range)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares '$idKey' ('$id') but no '$rangeKey' — an adapter naming a "
-                    . "$idKey with no exact version range is unbounded support, which this project's contract "
-                    . 'forbids (DUO-3222). Declare {"min":..,"max":..} or drop the ' . "$idKey claim."
-                );
-            }
-            self::assert_min_max_range($range, "manifest '$name' declares '$rangeKey'");
-        }
-    }
-
-    /**
-     * DUO-3222: cross-manifest guard, run once after every pinned manifest
-     * has loaded (not per-manifest, unlike every validator above — this is
-     * inherently a comparison BETWEEN manifests, so no single manifest's
-     * own validator could ever catch it). Two PINNED manifests naming the
-     * SAME plugin or theme with DIFFERENT version_range/theme_version_range
-     * is "conflicting ownership" / "overlapping rules without explicit
-     * composition" (DUO-3222's own acceptance criteria) — today's
-     * version_ranges()/theme_ranges() silently let the first-in-pin-order
-     * declaration win, which is exactly the load-order-dependent
-     * precedence this issue's own non-negotiable constraint forbids
-     * ("Manifest precedence cannot depend on load order").
-     *
-     * v2 has NO composition/override escape hatch (no "supersedes" field
-     * or similar): every manifest pinned by every real site in this
-     * project models a DISTINCT plugin or theme today, so there is no
-     * genuine case requiring two manifests to legitimately co-declare the
-     * same one — adding override grammar for a need nobody has yet is
-     * exactly the untested-guess discipline this project avoids elsewhere
-     * (manifests/yoast.json's own notes make the identical call
-     * repeatedly, e.g. declining to guess wpseo_rss's shape). A real case,
-     * if one ever appears, is a fast-follow with its own evidence, not a
-     * default baked in speculatively here.
-     *
-     * Two manifests declaring the IDENTICAL range for the same plugin/
-     * theme are deliberately allowed through (redundant, not ambiguous —
-     * they produce the same answer regardless of load order, which is the
-     * only thing this guard actually protects against).
-     */
-    private static function validate_no_conflicting_adapter_claims(array $manifests): void {
-        foreach ([['plugin', 'version_range'], ['theme', 'theme_version_range']] as [$idKey, $rangeKey]) {
-            $seen = [];
-            foreach ($manifests as $m) {
-                $id = $m[$idKey] ?? null;
-                if (!is_string($id) || $id === '') {
-                    continue;
-                }
-                $range = $m[$rangeKey] ?? [];
-                $name = (string) ($m['name'] ?? '?');
-                if (isset($seen[$id])) {
-                    $prev = $seen[$id];
-                    if ($prev['range'] != $range) {
-                        throw new \RuntimeException(
-                            "duo: manifests '{$prev['name']}' and '$name' both declare $idKey '$id' with "
-                            . "different $rangeKey values (" . json_encode($prev['range']) . ' vs '
-                            . json_encode($range) . ') — conflicting ownership with no v2 composition rule; '
-                            . 'pin only one, or narrow one range to a disjoint window'
-                        );
-                    }
-                    continue; // identical range declared twice — redundant, not conflicting; allow
-                }
-                $seen[$id] = ['name' => $name, 'range' => $range];
-            }
-        }
-    }
-
-    /**
      * Manifest-declared rebuild actions, flattened in pin order.
      *
      * Every row is annotated with `manifest` (the declaring manifest's name)
@@ -3521,8 +3364,8 @@ final class Policy {
      *
      * The key is global because validate_no_conflicting_provider_ids() has
      * already refused two pinned manifests declaring the same id — the same
-     * posture validate_no_conflicting_adapter_claims() takes for a plugin or
-     * theme claim, and for the same reason: a provider id is an identity
+     * posture AdapterContractGrammar::validate_no_conflicting_adapter_claims()
+     * takes for a plugin or theme claim, and for the same reason: a provider id is an identity
      * assertion about installed executable code, so letting pin order pick a
      * winner would make which code runs depend on load order.
      *
@@ -3726,7 +3569,7 @@ final class Policy {
      * vendor libraries"), and a real semver-range parser is exactly the
      * dependency that rules out. First declaration in pin order wins per
      * plugin — same precedence as block_attr_rules(); in practice
-     * validate_no_conflicting_adapter_claims() has already refused two
+     * AdapterContractGrammar::validate_no_conflicting_adapter_claims() has already refused two
      * pinned manifests naming one plugin with different ranges, so this
      * accessor never actually arbitrates.
      *

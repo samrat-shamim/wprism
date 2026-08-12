@@ -2750,7 +2750,7 @@ final class Cli {
                 'surface' => 'the pinned SET (cross-manifest guards)',
                 'check' => 'CrossManifestGuards::validate_one_owner_per_declared_name() / '
                     . 'ActionProviderGrammar::validate_no_conflicting_provider_ids() / '
-                    . 'Policy::validate_no_conflicting_adapter_claims()',
+                    . 'AdapterContractGrammar::validate_no_conflicting_adapter_claims()',
                 'why' => "each adapter's grammar verdict here is an ISOLATED load, so a manifest can read `ok` "
                     . 'and still be illegal in company — one owner per declared name, globally unique provider '
                     . 'ids, and one plugin/theme range per claim are properties of a SET, which `duo plan` and '

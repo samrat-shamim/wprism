@@ -296,7 +296,7 @@ final class CrossManifestGuards {
      * another) as long as they do not contradict each other about the same
      * one. Identical declarations of the same key are redundant, not
      * ambiguous, and pass — the same allowance
-     * validate_no_conflicting_adapter_claims() makes for a repeated range.
+     * AdapterContractGrammar::validate_no_conflicting_adapter_claims() makes for a repeated range.
      *
      * DUO-3255 remains the open umbrella for the general "two non-core
      * manifests, one name" question; this instantiates its answer for one
@@ -351,7 +351,7 @@ final class CrossManifestGuards {
      * site.duo.json's list, on a surface where the loser's declaration
      * disappears silently and completely. That is the same class of hazard
      * validate_no_conflicting_option_rules() and
-     * validate_no_conflicting_adapter_claims() already refuse, and it is
+     * AdapterContractGrammar::validate_no_conflicting_adapter_claims() already refuse, and it is
      * acceptance-4 of this issue: extension must never grant one adapter
      * authority over another adapter's state.
      *
