@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Live product-path regression for DUO-3316. Two neutral fixture plugins
-# prove taxonomy object keyspaces and structured EAV sidecars independently
-# of every shipped adapter. Uses one disposable pair and destroys it on exit.
+# Live product-path regression for DUO-3316/DUO-3364. Two neutral fixture
+# plugins prove taxonomy object keyspaces and structured EAV sidecars
+# independently of every shipped adapter. The attached sidecar combines
+# json_refs, key_refs, and order_preserving in one nested value, then proves
+# capture, lint, apply, recapture, and no-op convergence. Uses one disposable
+# pair and destroys it on exit.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -168,9 +171,25 @@ $sidecar = [
     'nested' => [['term_id' => (int) $b->term_id]],
     'by_term' => [(int) $b->term_id => ['label' => 'sidecar-target']],
 ];
+$ordered = [
+    // The insertion order is semantic fixture data, not alphabetical order.
+    // zulu precedes alpha, and the term-keyed map deliberately places B
+    // before A. Canon must retain both orders while rewriting the IDs.
+    'zulu' => [
+        'post_id' => (int) $post->ID,
+        'term_id' => (int) $b->term_id,
+    ],
+    'alpha' => [
+        'by_term' => [
+            (int) $b->term_id => ['label' => 'ordered-b'],
+            (int) $a->term_id => ['label' => 'ordered-a'],
+        ],
+    ],
+];
 $rows = [
     'opaque' => serialize(['z' => 'keep', 'a' => 'same']),
     'payload' => serialize($sidecar),
+    'ordered_payload' => serialize($ordered),
     'payload_json' => json_encode(['deep' => ['post_id' => (int) $post->ID]]),
     'scalar_post' => (string) $post->ID,
 ];
@@ -188,8 +207,13 @@ say "capture and prove every declared path is portable"
 wp1 duo capture --repo=/siterepo >/dev/null
 wp1 duo lint --repo=/siterepo >/dev/null
 TERM_FILE=$(find "$SITE1/state/terms/dks_term_rel" -name '*--owner-a.json' -print -quit)
+TERM_B_FILE=$(find "$SITE1/state/terms/dks_term_rel" -name '*--owner-b.json' -print -quit)
 TABLE_FILE=$(find "$SITE1/state/tables/dks_entries" -name '*.json' -print -quit)
-[ -n "$TERM_FILE" ] && [ -n "$TABLE_FILE" ] || fail "fixture canonical files missing"
+[ -n "$TERM_FILE" ] && [ -n "$TERM_B_FILE" ] && [ -n "$TABLE_FILE" ] || fail "fixture canonical files missing"
+TERM_A_UUID=$(jq -r '.uuid' "$TERM_FILE")
+TERM_B_UUID=$(jq -r '.uuid' "$TERM_B_FILE")
+[ "$TERM_A_UUID" != "null" ] && [ "$TERM_B_UUID" != "null" ] \
+  || fail "captured term UUIDs are missing"
 jq -e '.description.links.primary.post_id | startswith("{{post:")' "$TERM_FILE" >/dev/null \
   || fail "nested description post ref was not tokenized"
 jq -e '.description.links.primary.term_id | startswith("{{term:")' "$TERM_FILE" >/dev/null \
@@ -202,6 +226,15 @@ jq -e '.meta.payload.nested[0].term_id | startswith("{{term:")' "$TABLE_FILE" >/
   || fail "PHP sidecar term ref was not tokenized"
 jq -e '.meta.payload.by_term | keys[0] | startswith("{{term:")' "$TABLE_FILE" >/dev/null \
   || fail "PHP sidecar key ref was not tokenized"
+jq -e '.meta.ordered_payload | keys_unsorted == ["zulu", "alpha"]' "$TABLE_FILE" >/dev/null \
+  || fail "order-preserving sidecar root map was alphabetically reordered"
+jq -e '.meta.ordered_payload.zulu.post_id | startswith("{{post:")' "$TABLE_FILE" >/dev/null \
+  || fail "order-preserving sidecar post value ref was not tokenized"
+jq -e '.meta.ordered_payload.zulu.term_id | startswith("{{term:")' "$TABLE_FILE" >/dev/null \
+  || fail "order-preserving sidecar term value ref was not tokenized"
+jq -e --arg b "{{term:$TERM_B_UUID}}" --arg a "{{term:$TERM_A_UUID}}" \
+  '.meta.ordered_payload.alpha.by_term | keys_unsorted == [$b, $a]' "$TABLE_FILE" >/dev/null \
+  || fail "order-preserving sidecar term key refs lost the declared B-to-A insertion order"
 jq -e '.meta.payload_json.deep.post_id | startswith("{{post:")' "$TABLE_FILE" >/dev/null \
   || fail "JSON sidecar ref was not tokenized"
 jq -e '.meta.opaque == "a:2:{s:1:\"z\";s:4:\"keep\";s:1:\"a\";s:4:\"same\";}"' "$TABLE_FILE" >/dev/null \
@@ -241,6 +274,7 @@ TARGET_POST_ID=$(wp2 eval '$post = get_page_by_title("DUO 3316 Article", OBJECT,
 TARGET_TERM_A_ID=$(wp2 term get dks_term_rel owner-a --by=slug --field=term_id | tr -d '\r')
 TARGET_TERM_B_ID=$(wp2 term get dks_term_rel owner-b --by=slug --field=term_id | tr -d '\r')
 [ "$TARGET_POST_ID" != "$POST_ID" ] || fail "post IDs did not diverge"
+[ "$TARGET_TERM_A_ID" != "$TERM_A_ID" ] || fail "term A IDs did not diverge"
 [ "$TARGET_TERM_B_ID" != "$TERM_B_ID" ] || fail "term IDs did not diverge"
 
 cat > "$SITE2/.tmp-duo3316-check.php" <<'PHP'
@@ -267,6 +301,7 @@ $raw = $wpdb->get_results($wpdb->prepare(
     $entry
 ), OBJECT_K);
 $payload = unserialize($raw['payload']->meta_value, ['allowed_classes' => false]);
+$ordered = unserialize($raw['ordered_payload']->meta_value, ['allowed_classes' => false]);
 $json = json_decode($raw['payload_json']->meta_value, true);
 $opaque = 'a:2:{s:1:"z";s:4:"keep";s:1:"a";s:4:"same";}';
 $ok = (int) $description['links']['primary']['post_id'] === (int) $post->ID
@@ -276,6 +311,12 @@ $ok = (int) $description['links']['primary']['post_id'] === (int) $post->ID
     && (int) $payload['post_id'] === (int) $post->ID
     && (int) $payload['nested'][0]['term_id'] === (int) $b->term_id
     && array_key_exists((int) $b->term_id, $payload['by_term'])
+    && array_keys($ordered) === ['zulu', 'alpha']
+    && (int) $ordered['zulu']['post_id'] === (int) $post->ID
+    && (int) $ordered['zulu']['term_id'] === (int) $b->term_id
+    && array_keys($ordered['alpha']['by_term']) === [(int) $b->term_id, (int) $a->term_id]
+    && $ordered['alpha']['by_term'][(int) $b->term_id]['label'] === 'ordered-b'
+    && $ordered['alpha']['by_term'][(int) $a->term_id]['label'] === 'ordered-a'
     && (int) $json['deep']['post_id'] === (int) $post->ID
     && $raw['opaque']->meta_value === $opaque
     && (int) $raw['scalar_post']->meta_value === (int) $post->ID;

@@ -28,6 +28,15 @@
           ],
           "key_refs": {"kind": "term", "path": "$.by_term"}
         },
+        "ordered_payload": {
+          "class": "authored",
+          "order_preserving": true,
+          "json_refs": [
+            {"kind": "post", "path": "$.zulu.post_id"},
+            {"kind": "term", "path": "$.zulu.term_id"}
+          ],
+          "key_refs": {"kind": "term", "path": "$.alpha.by_term"}
+        },
         "payload_json": {
           "class": "authored",
           "json_encoded": true,
@@ -38,7 +47,7 @@
         "scalar_post": {"class": "authored", "ref": "post"}
       },
       "keyspace": {
-        "keys": ["opaque", "payload", "payload_json", "scalar_post"],
+        "keys": ["opaque", "payload", "ordered_payload", "payload_json", "scalar_post"],
         "patterns": [],
         "version_range": {"max": "2.0.0", "min": "1.0.0"}
       },
