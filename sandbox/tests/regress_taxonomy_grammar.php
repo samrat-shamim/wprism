@@ -11,6 +11,10 @@
  */
 declare(strict_types=1);
 
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 2);
+}
+
 require_once __DIR__ . '/../../agent/src/TaxonomyGrammar.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
 
@@ -44,6 +48,22 @@ $assertAccepted = static function (callable $fn, string $label) use ($check): vo
     } catch (\Throwable $e) {
         $check(false, "$label: unexpectedly refused ({$e->getMessage()})");
     }
+};
+
+/** Build the smallest legacy frozen-policy envelope the real validator accepts. */
+$frozenSnapshot = static function (array $manifest): array {
+    return [
+        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+        'capabilities' => null,
+        'dispositions' => null,
+        'format' => 'duo-policy-snapshot/v4',
+        'manifests' => [$manifest],
+        'site' => [
+            'manifests' => [(string) $manifest['name']],
+            'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+            'spec_version' => 2,
+        ],
+    ];
 };
 
 $assertAccepted(
@@ -111,6 +131,35 @@ $assertThrows(
     ]),
     'taxonomy_patterns[0].object_keyspace must be one of post|term',
     'taxonomy_patterns reports the indexed declaration path'
+);
+
+// ------------------------------------------------------ frozen Policy entry point
+
+$assertAccepted(
+    static fn() => Policy::from_snapshot($frozenSnapshot([
+        'name' => 'acme',
+        'spec_version' => 2,
+        'taxonomies' => ['acme_posts' => ['object_keyspace' => 'post']],
+    ])),
+    'a valid exact object_keyspace declaration loads through Policy::from_snapshot()'
+);
+$assertThrows(
+    static fn() => Policy::from_snapshot($frozenSnapshot([
+        'name' => 'acme',
+        'spec_version' => 2,
+        'taxonomies' => ['acme_posts' => ['object_keyspace' => 'user']],
+    ])),
+    'manifest \'acme\' taxonomies.acme_posts.object_keyspace must be one of post|term',
+    'Policy::from_snapshot() refuses an invalid exact object_keyspace declaration'
+);
+$assertThrows(
+    static fn() => Policy::from_snapshot($frozenSnapshot([
+        'name' => 'acme',
+        'spec_version' => 2,
+        'taxonomy_patterns' => [['match' => '^acme_', 'object_keyspace' => 'user']],
+    ])),
+    'manifest \'acme\' taxonomy_patterns[0].object_keyspace must be one of post|term',
+    'Policy::from_snapshot() refuses an invalid pattern object_keyspace declaration'
 );
 
 $policy = new ReflectionClass(Policy::class);
