@@ -197,14 +197,15 @@ echo $rm->invoke($apply, ['type' => 'post', 'hash' => 'duo-3440-isolation-probe'
 PHP);
 $isolatedOutput = [];
 $isolatedExit = null;
-exec('php ' . escapeshellarg($isolatedProbe) . ' 2>&1', $isolatedOutput, $isolatedExit);
+exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($isolatedProbe) . ' 2>&1', $isolatedOutput, $isolatedExit);
 unlink($isolatedProbe);
 $isolatedOutput = implode("\n", $isolatedOutput);
 $check(
     $isolatedExit === 0 && str_contains($isolatedOutput, 'duo-3440-isolation-probe'),
-    'Apply.php must be self-sufficient when required standalone: a fresh process requiring only '
-        . 'agent/src/Apply.php must reach a ConvergenceVerifier-touching method without a '
-        . '"Class ...ConvergenceVerifier not found" fatal (exit=' . var_export($isolatedExit, true)
+    'Apply.php must carry its OWN collaborator requires when required standalone: a fresh process '
+        . 'requiring only agent/src/Apply.php (not the full agent/duo.php bootstrap) must reach a '
+        . 'ConvergenceVerifier-touching method without a "Class ...ConvergenceVerifier not found" '
+        . 'fatal (exit=' . var_export($isolatedExit, true)
         . ($isolatedExit === 0 ? '' : "; output: $isolatedOutput") . ')'
 );
 
