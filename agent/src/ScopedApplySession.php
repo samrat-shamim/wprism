@@ -30,8 +30,11 @@ interface ScopedApplySessionStorage {
  */
 final class ScopedApplySession {
     public const AUTHORITY_FORMAT = 'duo-scoped-mutation-authority/v1';
+    public const EXTERNAL_AUTHORITY_FORMAT = 'duo-scoped-mutation-authority/v2';
+    public const PROMOTION_BINDING_FORMAT = 'duo-scoped-promotion-binding/v1';
     public const SESSION_FORMAT = 'duo-scoped-apply-session/v1';
     public const TERMINAL_REQUEST_FORMAT = 'duo-scoped-terminal-request/v1';
+    public const EXTERNAL_TERMINAL_REQUEST_FORMAT = 'duo-scoped-terminal-request/v2';
     public const STORAGE_KEY = 'scoped_apply_session';
     public const TERMINAL_KEY_PREFIX = 'scoped_apply_terminal:';
     public const TERMINAL_REQUEST_KEY_PREFIX = 'scoped_apply_terminal_request:';
@@ -96,10 +99,11 @@ final class ScopedApplySession {
         array $target,
         array $plan,
         array $selection,
-        string $codeWitnessHash
+        string $codeWitnessHash,
+        ?array $promotion = null
     ): array {
-        return self::seal_authority([
-            'format' => self::AUTHORITY_FORMAT,
+        $authority = [
+            'format' => $promotion === null ? self::AUTHORITY_FORMAT : self::EXTERNAL_AUTHORITY_FORMAT,
             'scope_hash' => $scopeHash,
             'source' => $source,
             'lease' => $lease,
@@ -107,7 +111,11 @@ final class ScopedApplySession {
             'plan' => $plan,
             'selection' => $selection,
             'code_witness_hash' => $codeWitnessHash,
-        ]);
+        ];
+        if ($promotion !== null) {
+            $authority['promotion'] = $promotion;
+        }
+        return self::seal_authority($authority);
     }
 
     /** Alias for callers that prefer a builder name. */
@@ -118,7 +126,8 @@ final class ScopedApplySession {
         array $target,
         array $plan,
         array $selection,
-        string $codeWitnessHash
+        string $codeWitnessHash,
+        ?array $promotion = null
     ): array {
         return self::make_authority(
             $scopeHash,
@@ -127,8 +136,69 @@ final class ScopedApplySession {
             $target,
             $plan,
             $selection,
-            $codeWitnessHash
+            $codeWitnessHash,
+            $promotion
         );
+    }
+
+    /**
+     * Build the hash-only external generation binding retained by scoped
+     * authority. Raw receipt/target/key identifiers never enter Duo's ledger.
+     *
+     * @param array<string,mixed> $witness
+     * @return array<string,mixed>
+     */
+    public static function external_promotion_binding(array $witness, bool $allowDeletes): array {
+        foreach (['receipt_payload_sha256'] as $key) {
+            self::assert_hash($witness[$key] ?? null, "external promotion $key");
+        }
+        foreach (['receipt_id', 'target_id', 'signing_key_id'] as $key) {
+            $value = $witness[$key] ?? null;
+            if (!is_string($value) || $value === '') {
+                throw new \RuntimeException("duo: external promotion $key is malformed");
+            }
+        }
+        if (!is_int($witness['generation'] ?? null) || (int) $witness['generation'] < 1) {
+            throw new \RuntimeException('duo: external promotion generation is malformed');
+        }
+        if (($witness['allow_deletes'] ?? null) !== $allowDeletes) {
+            throw new \RuntimeException('duo: external promotion deletion authority does not match this apply');
+        }
+        $binding = [
+            'allow_deletes' => $allowDeletes,
+            'format' => self::PROMOTION_BINDING_FORMAT,
+            'generation' => (int) $witness['generation'],
+            'receipt_id_hash' => self::digest(['receipt_id' => (string) $witness['receipt_id']]),
+            'receipt_payload_sha256' => (string) $witness['receipt_payload_sha256'],
+            'signing_key_id_hash' => self::digest(['signing_key_id' => (string) $witness['signing_key_id']]),
+            'target_id_hash' => self::digest(['target_id' => (string) $witness['target_id']]),
+        ];
+        $binding['binding_hash'] = self::digest($binding);
+        self::assert_promotion_binding($binding);
+        return self::canonical_copy($binding);
+    }
+
+    /** @param array<string,mixed> $authority @param array<string,mixed> $witness */
+    public static function assert_external_promotion(
+        array $authority,
+        array $witness,
+        bool $allowDeletes
+    ): void {
+        $validated = self::validate_authority($authority);
+        if (($validated['format'] ?? null) !== self::EXTERNAL_AUTHORITY_FORMAT
+            || !is_array($validated['promotion'] ?? null)
+            || self::canonical_encode($validated['promotion']) !== self::canonical_encode(
+                self::external_promotion_binding($witness, $allowDeletes)
+            )) {
+            throw new \RuntimeException(
+                'duo: scoped terminal authority does not match the current external checkpoint generation'
+            );
+        }
+    }
+
+    /** @param array<string,mixed> $witness */
+    public static function external_promotion_binding_hash(array $witness, bool $allowDeletes): string {
+        return (string) self::external_promotion_binding($witness, $allowDeletes)['binding_hash'];
     }
 
     /**
@@ -162,7 +232,7 @@ final class ScopedApplySession {
      * @return array<string,mixed>
      */
     public static function validate_authority(array $authority): array {
-        self::assert_keys($authority, [
+        $expected = [
             'authority_hash',
             'code_witness_hash',
             'format',
@@ -172,8 +242,15 @@ final class ScopedApplySession {
             'selection',
             'source',
             'target',
-        ], 'scoped mutation authority');
-        if (($authority['format'] ?? null) !== self::AUTHORITY_FORMAT) {
+        ];
+        if (($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
+            $expected[] = 'promotion';
+        }
+        self::assert_keys($authority, $expected, 'scoped mutation authority');
+        if (!in_array(($authority['format'] ?? null), [
+            self::AUTHORITY_FORMAT,
+            self::EXTERNAL_AUTHORITY_FORMAT,
+        ], true)) {
             throw new \RuntimeException('duo: scoped mutation authority has an unsupported format');
         }
         self::assert_hash($authority['scope_hash'] ?? null, 'scope_hash');
@@ -183,6 +260,9 @@ final class ScopedApplySession {
         self::assert_target($authority['target'] ?? null);
         self::assert_plan($authority['plan'] ?? null);
         self::assert_selection($authority['selection'] ?? null);
+        if (($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
+            self::assert_promotion_binding($authority['promotion'] ?? null);
+        }
         self::assert_hash($authority['authority_hash'] ?? null, 'authority_hash');
         $withoutHash = $authority;
         unset($withoutHash['authority_hash']);
@@ -286,14 +366,25 @@ final class ScopedApplySession {
      * Return the deterministic value-free index key a public retry can
      * reconstruct without the old random lease/session identity.
      */
-    public static function terminal_request_storage_key(string $scopeHash, string $artifactHash): string {
+    public static function terminal_request_storage_key(
+        string $scopeHash,
+        string $artifactHash,
+        ?string $promotionBindingHash = null
+    ): string {
         self::assert_hash($scopeHash, 'terminal request scope_hash');
         self::assert_hash($artifactHash, 'terminal request artifact_hash');
-        return self::TERMINAL_REQUEST_KEY_PREFIX . self::digest([
+        $identity = [
             'artifact_hash' => $artifactHash,
-            'format' => self::TERMINAL_REQUEST_FORMAT,
+            'format' => $promotionBindingHash === null
+                ? self::TERMINAL_REQUEST_FORMAT
+                : self::EXTERNAL_TERMINAL_REQUEST_FORMAT,
             'scope_hash' => $scopeHash,
-        ]);
+        ];
+        if ($promotionBindingHash !== null) {
+            self::assert_hash($promotionBindingHash, 'terminal request promotion_binding_hash');
+            $identity['promotion_binding_hash'] = $promotionBindingHash;
+        }
+        return self::TERMINAL_REQUEST_KEY_PREFIX . self::digest($identity);
     }
 
     /**
@@ -304,9 +395,10 @@ final class ScopedApplySession {
     public static function open_terminal_for_request(
         ScopedApplySessionStorage $storage,
         string $scopeHash,
-        string $artifactHash
+        string $artifactHash,
+        ?string $promotionBindingHash = null
     ): ?self {
-        $key = self::terminal_request_storage_key($scopeHash, $artifactHash);
+        $key = self::terminal_request_storage_key($scopeHash, $artifactHash, $promotionBindingHash);
         $rawIndex = $storage->read($key);
         if ($rawIndex === null) {
             return null;
@@ -316,7 +408,7 @@ final class ScopedApplySession {
         } catch (\Throwable $_failure) {
             throw new \RuntimeException('duo: scoped apply terminal request index is not valid canonical JSON');
         }
-        self::assert_terminal_request_index($index, $scopeHash, $artifactHash);
+        self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash);
         if (Canon::encode($index) !== $rawIndex) {
             throw new \RuntimeException('duo: scoped apply terminal request index is not canonical');
         }
@@ -331,6 +423,11 @@ final class ScopedApplySession {
             || !hash_equals($authorityHash, (string) $record['authority_hash'])
             || !hash_equals($scopeHash, (string) $record['authority']['scope_hash'])
             || !hash_equals($artifactHash, (string) $record['authority']['source']['artifact_hash'])
+            || ($promotionBindingHash !== null
+                && !hash_equals(
+                    $promotionBindingHash,
+                    (string) ($record['authority']['promotion']['binding_hash'] ?? '')
+                ))
             || !hash_equals((string) $index['terminal_hash'], (string) $record['terminal_receipt']['terminal_hash'])) {
             throw new \RuntimeException('duo: scoped apply terminal request index does not bind its immutable archive');
         }
@@ -914,16 +1011,24 @@ final class ScopedApplySession {
         $authority = (array) $record['authority'];
         $scopeHash = (string) $authority['scope_hash'];
         $artifactHash = (string) $authority['source']['artifact_hash'];
+        $promotionBindingHash = ($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT
+            ? (string) ($authority['promotion']['binding_hash'] ?? '')
+            : null;
         $index = [
             'artifact_hash' => $artifactHash,
             'authority_hash' => (string) $record['authority_hash'],
-            'format' => self::TERMINAL_REQUEST_FORMAT,
+            'format' => $promotionBindingHash === null
+                ? self::TERMINAL_REQUEST_FORMAT
+                : self::EXTERNAL_TERMINAL_REQUEST_FORMAT,
             'scope_hash' => $scopeHash,
             'terminal_hash' => (string) $record['terminal_receipt']['terminal_hash'],
         ];
-        self::assert_terminal_request_index($index, $scopeHash, $artifactHash);
+        if ($promotionBindingHash !== null) {
+            $index['promotion_binding_hash'] = $promotionBindingHash;
+        }
+        self::assert_terminal_request_index($index, $scopeHash, $artifactHash, $promotionBindingHash);
         $encoded = Canon::encode($index);
-        $key = self::terminal_request_storage_key($scopeHash, $artifactHash);
+        $key = self::terminal_request_storage_key($scopeHash, $artifactHash, $promotionBindingHash);
         $stored = $this->storage->read($key);
         if ($stored === null) {
             if (!$this->storage->compare_and_swap($key, null, $encoded)) {
@@ -940,19 +1045,32 @@ final class ScopedApplySession {
     private static function assert_terminal_request_index(
         mixed $index,
         string $scopeHash,
-        string $artifactHash
+        string $artifactHash,
+        ?string $promotionBindingHash = null
     ): void {
-        self::assert_keys($index, [
+        $expected = [
             'artifact_hash', 'authority_hash', 'format', 'scope_hash', 'terminal_hash',
-        ], 'scoped apply terminal request index');
-        if (($index['format'] ?? null) !== self::TERMINAL_REQUEST_FORMAT) {
+        ];
+        if ($promotionBindingHash !== null) {
+            $expected[] = 'promotion_binding_hash';
+        }
+        self::assert_keys($index, $expected, 'scoped apply terminal request index');
+        $expectedFormat = $promotionBindingHash === null
+            ? self::TERMINAL_REQUEST_FORMAT
+            : self::EXTERNAL_TERMINAL_REQUEST_FORMAT;
+        if (($index['format'] ?? null) !== $expectedFormat) {
             throw new \RuntimeException('duo: scoped apply terminal request index has an unsupported format');
         }
         foreach (['artifact_hash', 'authority_hash', 'scope_hash', 'terminal_hash'] as $field) {
             self::assert_hash($index[$field] ?? null, "terminal request index $field");
         }
+        if ($promotionBindingHash !== null) {
+            self::assert_hash($index['promotion_binding_hash'] ?? null, 'terminal request index promotion_binding_hash');
+        }
         if (!hash_equals($scopeHash, (string) $index['scope_hash'])
-            || !hash_equals($artifactHash, (string) $index['artifact_hash'])) {
+            || !hash_equals($artifactHash, (string) $index['artifact_hash'])
+            || ($promotionBindingHash !== null
+                && !hash_equals($promotionBindingHash, (string) $index['promotion_binding_hash']))) {
             throw new \RuntimeException('duo: scoped apply terminal request index identity mismatch');
         }
     }
@@ -1469,10 +1587,17 @@ final class ScopedApplySession {
 
     /** @param mixed $authority */
     private static function assert_authority_base(mixed $authority): void {
-        self::assert_keys($authority, [
+        $expected = [
             'code_witness_hash', 'format', 'lease', 'plan', 'scope_hash', 'selection', 'source', 'target',
-        ], 'scoped mutation authority');
-        if (($authority['format'] ?? null) !== self::AUTHORITY_FORMAT) {
+        ];
+        if (is_array($authority) && ($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
+            $expected[] = 'promotion';
+        }
+        self::assert_keys($authority, $expected, 'scoped mutation authority');
+        if (!in_array(($authority['format'] ?? null), [
+            self::AUTHORITY_FORMAT,
+            self::EXTERNAL_AUTHORITY_FORMAT,
+        ], true)) {
             throw new \RuntimeException('duo: scoped mutation authority has an unsupported format');
         }
         self::assert_hash($authority['scope_hash'], 'scope_hash');
@@ -1482,8 +1607,35 @@ final class ScopedApplySession {
         self::assert_target($authority['target']);
         self::assert_plan($authority['plan']);
         self::assert_selection($authority['selection']);
+        if (($authority['format'] ?? null) === self::EXTERNAL_AUTHORITY_FORMAT) {
+            self::assert_promotion_binding($authority['promotion'] ?? null);
+        }
         if (!hash_equals((string) $authority['source']['artifact_hash'], (string) $authority['lease']['artifact_hash'])) {
             throw new \RuntimeException('duo: scoped mutation authority lease artifact does not match source artifact');
+        }
+    }
+
+    /** @param mixed $promotion */
+    private static function assert_promotion_binding(mixed $promotion): void {
+        self::assert_keys($promotion, [
+            'allow_deletes', 'binding_hash', 'format', 'generation', 'receipt_id_hash',
+            'receipt_payload_sha256', 'signing_key_id_hash', 'target_id_hash',
+        ], 'scoped external promotion binding');
+        if (($promotion['format'] ?? null) !== self::PROMOTION_BINDING_FORMAT
+            || !is_bool($promotion['allow_deletes'] ?? null)
+            || !is_int($promotion['generation'] ?? null) || (int) $promotion['generation'] < 1) {
+            throw new \RuntimeException('duo: scoped external promotion binding is malformed');
+        }
+        foreach ([
+            'binding_hash', 'receipt_id_hash', 'receipt_payload_sha256',
+            'signing_key_id_hash', 'target_id_hash',
+        ] as $key) {
+            self::assert_hash($promotion[$key] ?? null, "external promotion $key");
+        }
+        $withoutHash = $promotion;
+        unset($withoutHash['binding_hash']);
+        if (!hash_equals(self::digest($withoutHash), (string) $promotion['binding_hash'])) {
+            throw new \RuntimeException('duo: scoped external promotion binding hash does not verify');
         }
     }
 

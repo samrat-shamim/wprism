@@ -298,6 +298,8 @@ namespace {
         // backend refusal is exercised on its own below.
         'promotion_begin' => 'promotion-begin',
         'promotion_abort' => 'promotion-abort',
+        'promotion_begin_scoped' => 'promotion-begin-scoped',
+        'promotion_complete_scoped' => 'promotion-complete-scoped',
         'env_set' => 'env-set',
         'orphans' => 'orphans',
         'verify_canonical' => 'verify-canonical',
@@ -319,7 +321,8 @@ namespace {
         $missing = match ($command) {
             'explain' => '<bucket>:<entity-key>',
             'orphans' => '<table>',
-            'promotion-begin', 'promotion-abort' => '--promotion-owner',
+            'promotion-begin', 'promotion-abort',
+            'promotion-begin-scoped', 'promotion-complete-scoped' => '--promotion-owner',
             default => '--repo',
         };
         check(($payload['message'] ?? null) === "$missing is required for $command", "$command refusal identifies the missing argument");
@@ -857,11 +860,11 @@ namespace {
     // envelope fails the per-command check above, and DROPPING an
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
-    // 25 with `adapter-observe`, `adapter-survey`, `init`, and DUO-3326's
-    // `code-preflight` on the current CLI surface. Every advertised handler is
-    // covered by the common envelope contract, so this count moves with the set
-    // rather than around it.
-    check(count($advertised) === 25, 'every one of the 25 --format=json commands was scanned (' . count($advertised) . ')');
+    // 27 with DUO-3326's `code-preflight` plus scoped promotion's two
+    // orchestrator-only handoff commands. Every advertised handler is covered
+    // by the common envelope contract, so this count moves with the set rather
+    // than around it.
+    check(count($advertised) === 27, 'every one of the 27 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path
@@ -869,8 +872,8 @@ namespace {
     // regression this closes.
     $armed = new ReflectionMethod(\Duo\Cli::class, 'refusal_remediation');
     foreach ([
-        'code-preflight',
-        'promotion-begin', 'promotion-abort', 'env-set', 'orphans', 'verify-canonical',
+        'code-preflight', 'promotion-begin', 'promotion-abort', 'promotion-begin-scoped',
+        'promotion-complete-scoped', 'env-set', 'orphans', 'verify-canonical',
         'journal-report', 'pending', 'coverage', 'classify', 'lint', 'capabilities',
     ] as $command) {
         $arm = (string) $armed->invoke(null, $command);
@@ -1023,6 +1026,54 @@ namespace {
         'promotion-abort missing --artifact-hash' => [
             static fn() => $cli->promotion_abort([], ['promotion-owner' => 'owner-fixture', 'format' => 'json']),
             '--artifact-hash is required for promotion-abort',
+            null,
+        ],
+        'promotion-begin-scoped missing --artifact-hash' => [
+            static fn() => $cli->promotion_begin_scoped([], ['promotion-owner' => 'owner-fixture', 'format' => 'json']),
+            '--artifact-hash is required for promotion-begin-scoped',
+            null,
+        ],
+        'promotion-begin-scoped missing --scoped-promotion-receipt' => [
+            static fn() => $cli->promotion_begin_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+                'format' => 'json',
+            ]),
+            '--scoped-promotion-receipt is required for promotion-begin-scoped',
+            null,
+        ],
+        'promotion-begin-scoped missing --scope-hash' => [
+            static fn() => $cli->promotion_begin_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+                'scoped-promotion-receipt' => str_repeat('b', 64),
+                'format' => 'json',
+            ]),
+            '--scope-hash is required for promotion-begin-scoped',
+            null,
+        ],
+        'promotion-complete-scoped missing --artifact-hash' => [
+            static fn() => $cli->promotion_complete_scoped([], ['promotion-owner' => 'owner-fixture', 'format' => 'json']),
+            '--artifact-hash is required for promotion-complete-scoped',
+            null,
+        ],
+        'promotion-complete-scoped missing --scoped-promotion-receipt' => [
+            static fn() => $cli->promotion_complete_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+                'format' => 'json',
+            ]),
+            '--scoped-promotion-receipt is required for promotion-complete-scoped',
+            null,
+        ],
+        'promotion-complete-scoped missing --scope-hash' => [
+            static fn() => $cli->promotion_complete_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+                'scoped-promotion-receipt' => str_repeat('b', 64),
+                'format' => 'json',
+            ]),
+            '--scope-hash is required for promotion-complete-scoped',
             null,
         ],
         'verify-canonical missing --expected-artifact' => [
@@ -1348,6 +1399,52 @@ namespace {
         'promotion-abort missing --artifact-hash' => [
             static fn() => $cli->promotion_abort([], ['promotion-owner' => 'owner-fixture']),
             '--artifact-hash required',
+        ],
+        'promotion-begin-scoped missing --promotion-owner' => [
+            static fn() => $cli->promotion_begin_scoped([], []),
+            '--promotion-owner required',
+        ],
+        'promotion-begin-scoped missing --artifact-hash' => [
+            static fn() => $cli->promotion_begin_scoped([], ['promotion-owner' => 'owner-fixture']),
+            '--artifact-hash required',
+        ],
+        'promotion-begin-scoped missing --scoped-promotion-receipt' => [
+            static fn() => $cli->promotion_begin_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+            ]),
+            '--scoped-promotion-receipt required',
+        ],
+        'promotion-begin-scoped missing --scope-hash' => [
+            static fn() => $cli->promotion_begin_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+                'scoped-promotion-receipt' => str_repeat('b', 64),
+            ]),
+            '--scope-hash required',
+        ],
+        'promotion-complete-scoped missing --promotion-owner' => [
+            static fn() => $cli->promotion_complete_scoped([], []),
+            '--promotion-owner required',
+        ],
+        'promotion-complete-scoped missing --artifact-hash' => [
+            static fn() => $cli->promotion_complete_scoped([], ['promotion-owner' => 'owner-fixture']),
+            '--artifact-hash required',
+        ],
+        'promotion-complete-scoped missing --scoped-promotion-receipt' => [
+            static fn() => $cli->promotion_complete_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+            ]),
+            '--scoped-promotion-receipt required',
+        ],
+        'promotion-complete-scoped missing --scope-hash' => [
+            static fn() => $cli->promotion_complete_scoped([], [
+                'promotion-owner' => 'owner-fixture',
+                'artifact-hash' => str_repeat('a', 64),
+                'scoped-promotion-receipt' => str_repeat('b', 64),
+            ]),
+            '--scope-hash required',
         ],
         'env-set missing --repo' => [
             static fn() => $cli->env_set([], []),

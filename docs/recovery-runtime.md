@@ -16,6 +16,16 @@ The code provider must additionally attest plan-bound compiled-code inventory;
 automatic preparation sends that inventory through the signed v2 request and
 refuses a generation-specific descriptor whose roots or file hashes diverge.
 
+A separate SSH-only checkpoint profile serves
+`duo promote <env> --scope-contract=<path>`. It accepts only the bounded
+DB-contained scoped-plan surfaces documented in `spec/repo-format.md`, invokes
+no ordinary code/upload/lifecycle/effect recovery provider, and uses only the
+encrypted database checkpoint plus prior verifier before its durable
+`scoped_fresh_verification` seal. A failure before that seal restores and
+verifies the checkpoint. The seal is forward-only: an exact retry first
+finishes signed commit, then target-session cleanup and exclusion release, and
+no later public scoped rollback exists.
+
 The authority's deterministic crash hooks are inert on adopted production
 roots even if `DUO_ROLLBACK_CRASH_AT` reaches the non-interactive SSH
 environment. A hook is enabled only for a disposable test root containing the
@@ -73,13 +83,14 @@ The provider reads one canonical JSON object plus a newline from stdin and
 writes one canonical JSON object plus a newline to stdout. It implements
 `probe`, `acquire`, `verify`, `keepalive`, `adopt`, and `release`.
 
-Requests use `format: duo-exclusion-provider-request/v1`, carry the exact
+Requests use `format: duo-exclusion-provider-request/v2`, carry the exact
 target/receipt/generation/owner/artifact/claimant identity (nullable only for
 `probe`), and require all scopes:
 
 ```json
 {
   "background_jobs": true,
+  "database_writers": true,
   "filesystem_writers": true,
   "package_updates": true,
   "public_traffic": true
@@ -88,10 +99,46 @@ target/receipt/generation/owner/artifact/claimant identity (nullable only for
 
 Responses contain exactly `available`, `disconnect_behavior`, `format`,
 `provider_id`, `provider_version`, `scopes`, `state`, `target_id`, and `token`.
-They use `format: duo-exclusion-provider-response/v1`, attest
-`disconnect_behavior: remain_excluded`, and repeat all four true scopes.
+They use `format: duo-exclusion-provider-response/v2`, attest
+`disconnect_behavior: remain_excluded`, and repeat all five true scopes.
 `probe` returns `state: ready` and a null token; acquire/verify/keepalive/adopt
 return `held`; release returns `released`.
+
+`database_writers` is a separate, whole-target attestation: it means the
+provider has excluded every non-Duo path that can write the target database,
+including direct database clients, application and integration writers,
+cron/queue and CLI workers, and deployment or migration tooling. It is not
+satisfied merely by stopping public HTTP traffic or the WordPress scheduler.
+The v2 provider protocol deliberately replaces v1: a v1 request or response
+is non-green, so operators must upgrade the provider before a new recovery
+generation can be probed or claimed.
+
+The scoped-promotion target gate does not trust the compact scope request or a
+host-supplied receipt hash. Adoption writes a mode-`0600`
+`<mu-plugin-dir>/duo/scoped-promotion-control.json` containing only the fixed
+absolute control root and format. Before target begin, immediately before
+authored apply, and before target completion, the installed agent invokes the
+fixed raw runtime's internal `scoped-promotion-witness` action. That action
+verifies the complete signed active chain, reads the exact exclusion record,
+and invokes only the configured exclusion provider's `verify` operation. Its
+closed output binds receipt format/payload hash, owner, artifact, scope,
+generation, target, signing key, signed delete capability, authority state,
+and held exclusion without
+publishing the opaque token, filesystem paths, provider output, or target
+values. `promoting` authorizes mutation; `committed` authorizes only exact
+terminal replay/completion while exclusion is still held.
+
+The target random `ps-*` session persists the same closed profile/generation/
+receipt/scope/target/key/delete-capability tuple in its first durable write.
+The scoped mutation authority/archive separately seals a hash-only copy of
+that external generation. An old terminal for the same scope/artifact cannot
+be replayed by a fresh receipt, and a no-delete receipt cannot be widened by a
+target-local `--with-deletes`. An ordinary
+promotion session cannot be reinterpreted as scoped, omitting the receipt
+cannot fall through to generic continuation, and completion cannot retire the
+handoff before the signed authority is committed. A lost completion response
+remains retryable after the controller claim TTL because terminal signed state
+and the held fail-closed exclusion—not wall-clock freshness—authorize cleanup.
 
 A disconnect or failed keepalive must leave all scopes excluded indefinitely.
 The provider must never use lease expiry to reopen the site. `adopt` transfers

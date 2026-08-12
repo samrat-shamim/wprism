@@ -333,6 +333,33 @@ $check(
     'shared rebuild_work projection selects changed post, unrelated option, and planned term-delete actions exactly'
 );
 
+$driftOnlyPlan = [
+    'create' => [],
+    'adopt' => [],
+    'update' => [],
+    'drift' => [['uuid' => 'options/core', 'rebuild_option_names' => ['woocommerce_currency']]],
+    'conflict' => [],
+    'delete' => [],
+    'delete_conflict' => [],
+    'deleted' => [],
+];
+$ordinaryDriftProjection = $rebuildWorkMethod->invoke($apply, $driftOnlyPlan, $tree, [], false);
+$scopedPromotionDriftProjection = $rebuildWorkMethod->invoke($apply, $driftOnlyPlan, $tree, [], false, true);
+$check(
+    $ordinaryDriftProjection['work'] === [],
+    'ordinary and local scoped apply leave environment-only drift outside authored rebuild work'
+);
+$check(
+    count($scopedPromotionDriftProjection['work']) === 1
+        && ($scopedPromotionDriftProjection['work'][0]['uuid'] ?? null) === 'options/core',
+    'receipt-bearing scoped promotion explicitly promotes selected drift into its bounded authored work set'
+);
+$check(
+    $selected($policy->actions_for($projectionSurfaces($scopedPromotionDriftProjection)))
+        === ['probe_legacy'],
+    'scoped promotion preflight and receipt-bearing apply diagnose the same action from selected drift'
+);
+
 $forcedProjection = $rebuildWorkMethod->invoke($apply, $projectionPlan, $tree, ['force_theirs' => true], false);
 $check(
     $selected($policy->actions_for($projectionSurfaces($forcedProjection)))

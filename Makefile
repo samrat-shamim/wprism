@@ -4,7 +4,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
-.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live
+.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler
@@ -37,7 +37,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-capability-registry-import regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-conformance-asserts \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -1038,6 +1038,12 @@ regress-scope-contract:
 regress-scoped-apply-session:
 	php sandbox/tests/regress_scoped_apply_session.php
 
+# DUO-3344: offline source contract for the scoped live harness itself. It
+# proves a failed pair teardown retains its exact evidence rather than
+# deleting roots and printing a pre-cleanup green verdict.
+regress-scoped-apply-live-cleanup:
+	php sandbox/tests/regress_scoped_apply_live_cleanup.php
+
 # DUO-3344: offline scoped authored-boundary and response-loss recovery matrix.
 # The harness drives the public scoped session/observation/effect seams with
 # injected CAS and target stubs; no Docker or WordPress target is required.
@@ -1047,6 +1053,22 @@ regress-scoped-apply-recovery:
 # DUO-3344/DUO-3338: offline operation-bound provider/native effect recovery.
 regress-scoped-effect-reconciliation:
 	php sandbox/tests/regress_scoped_effect_reconciliation.php
+
+# DUO-3344 slice 5: target session/profile/receipt binding and the bounded
+# checkpoint-only selection gate. Pure fake-ledger/DB PHP; no target contact.
+regress-scoped-promotion-target:
+	php sandbox/tests/regress_scoped_promotion_target.php
+
+# DUO-3344 slice 5: public SSH host sequencing against fake SSH/SCP/WP plus a
+# real isolated rollback-control root. No Docker, pair, or live target.
+regress-scoped-promote-unit:
+	bash sandbox/tests/regress_scoped_promote_unit.sh
+
+# DUO-3344: the SSH live harness keeps its exact controlled-promotion failure
+# evidence in a private non-secret directory, while unconditionally erasing
+# the SSH/config/credential scratch tree. Source-only: no Docker or SSH host.
+regress-ssh-adopt-evidence-retention:
+	php sandbox/tests/regress_ssh_adopt_evidence_retention.php
 
 # DUO-3344: host/agent scope transport boundary — canonical compact request
 # forwarding, refusal before target contact, and ordinary unscoped passthrough.
@@ -1075,8 +1097,15 @@ regress-snapshot-meta:
 regress-generic-reference-shapes:
 	bash sandbox/tests/regress_generic_reference_shapes.sh
 
+# DUO-3344 live SSH adoption/scoped-promotion evidence must be allocated by
+# its operator and bind a clean standalone clone's exact candidate commit:
+#   make regress-ssh-adopt ADOPT_FIXTURE=<unique-name> ADOPT_SSH_PORT=<free-port> \
+#     DUO_EXPECTED_SOURCE_SHA=$$(git rev-parse HEAD)
 regress-ssh-adopt:
-	bash sandbox/tests/regress_ssh_adopt.sh
+	@test -n "$(ADOPT_FIXTURE)" || { echo 'ADOPT_FIXTURE is required; choose an unused lowercase fixture name' >&2; exit 2; }
+	@test -n "$(ADOPT_SSH_PORT)" || { echo 'ADOPT_SSH_PORT is required; choose an unused port in 8900..65535' >&2; exit 2; }
+	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind the run to git rev-parse HEAD' >&2; exit 2; }
+	ADOPT_FIXTURE="$(ADOPT_FIXTURE)" ADOPT_SSH_PORT="$(ADOPT_SSH_PORT)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_ssh_adopt.sh
 
 certify-ssh-adoption-roundtrip:
 	bash sandbox/tests/certify_ssh_adoption_roundtrip.sh
@@ -1141,8 +1170,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer
-	@echo "regress-offline-all: 128 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer
+	@echo "regress-offline-all: 132 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
@@ -1189,7 +1218,7 @@ regress-live-list:
 	@echo "  regress-scope-gate                        pair codexmac3229 8900/8901"
 	@echo "  regress-snapshot-meta                     pair w1a"
 	@echo "  regress-generic-reference-shapes         neutral taxonomy/sidecar fixture pair"
-	@echo "  regress-ssh-adopt                         standalone SSH host, own docker image (NOT pair.sh) -- DUO-3257/DUO-3281"
+	@echo "  regress-ssh-adopt                         explicit ADOPT_FIXTURE/ADOPT_SSH_PORT/DUO_EXPECTED_SOURCE_SHA standalone SSH scoped-promotion path"
 	@echo "  certify-ssh-rollback                     four disposable containers: two SSH hosts + two MariaDB servers"
 	@echo "  regress-tec-regen                         pair asnaptec"
 	@echo "  regress-user-meta                         pair umeta3268 9301/9302"

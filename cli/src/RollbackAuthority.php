@@ -61,6 +61,48 @@ final class RollbackAuthority {
         return self::readStatus($transport, 'authority-status');
     }
 
+    /**
+     * Read the un-decorated checkpoint-only authority state.  Scoped
+     * promotion must not run the ordinary status preflight: that preflight
+     * intentionally probes optional code/upload/effect providers which this
+     * receipt format never authorizes or requires.
+     *
+     * @return array<string,mixed>
+     */
+    public static function scopedStatus(SshTransport $transport): array {
+        $status = self::authorityStatus($transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
+            return $status;
+        }
+        if (($status['active'] ?? false) === true && empty($status['terminal'])
+            && ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            throw new \RuntimeException('duo rollback: active authority is not a scoped promotion receipt');
+        }
+        return $status;
+    }
+
+    /**
+     * Return the target-verified hash-only operation maps used to make a
+     * controller restart resume, rather than re-authorize, an exact
+     * checkpoint/terminal operation.
+     *
+     * @return array<string,mixed>
+     */
+    public static function scopedEvidence(SshTransport $transport): array {
+        $evidence = self::readControlAction($transport, 'active-evidence');
+        $receipt = $evidence['receipt'] ?? null;
+        $status = $evidence['status'] ?? null;
+        if (!is_array($receipt) || !is_array($status)
+            || ($receipt['format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+            || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+            || !is_array($evidence['open_operations'] ?? null)
+            || !is_array($evidence['completed_operations'] ?? null)
+            || !is_array($evidence['completed_operation_history'] ?? null)) {
+            throw new \RuntimeException('duo rollback: scoped authority evidence is malformed');
+        }
+        return $evidence;
+    }
+
     /** Read canonical hash-only evidence for the complete signed chain. */
     public static function audit(SshTransport $transport): array {
         return self::readStatus($transport, 'audit');
@@ -104,6 +146,34 @@ final class RollbackAuthority {
             return ['active' => null, 'available' => true, 'error' => 'invalid authority status evidence', 'ok' => false];
         }
         return ['available' => true] + $decoded;
+    }
+
+    /** @return array<string,mixed> */
+    private static function readControlAction(SshTransport $transport, string $action): array {
+        $runtime = self::runtimePath($transport);
+        $root = self::controlRoot($transport);
+        $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
+            . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
+            . ' --root=' . escapeshellarg($root);
+        $result = $transport->captureRaw($script);
+        if ($result['exit'] === 44) {
+            throw new \RuntimeException('duo rollback: target authority runtime is unavailable');
+        }
+        if ($result['exit'] !== 0) {
+            $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+            throw new \RuntimeException(
+                'duo rollback: target authority evidence is unavailable' . ($detail !== '' ? ': ' . $detail : '')
+            );
+        }
+        try {
+            $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable $e) {
+            throw new \RuntimeException('duo rollback: malformed authority evidence JSON', 0, $e);
+        }
+        if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']) {
+            throw new \RuntimeException('duo rollback: invalid authority evidence');
+        }
+        return $decoded;
     }
 
     /**
@@ -380,6 +450,214 @@ final class RollbackAuthority {
     }
 
     /**
+     * Claim a checkpoint-only scoped-promotion generation.
+     *
+     * This is deliberately not a flag on claim(): optional full-release
+     * providers are configured at the target level, and a scoped state window
+     * must never accidentally prepare their code/upload/effect evidence.  The
+     * receipt id is deterministic from the immutable intent, while its
+     * timestamp/retention are derived from the durable exclusion reservation.
+     * A process that loses any response before claim publication can therefore
+     * replay the same provider inputs and signed authority boundary.
+     *
+     * `$fields` is either the complete fresh-claim field set, or the three
+     * immutable resume identifiers (allow_deletes, artifact_hash, owner,
+     * scope_hash).  The
+     * latter is intentional: after target Apply changes selected roots, a
+     * restart must recover the already-signed generation rather than compare
+     * its original witness inventory to a new live plan.
+     *
+     * @param array<string,mixed> $fields
+     * @return array{receipt:array<string,mixed>,status:array<string,mixed>}
+     */
+    public function claimScoped(array $fields, string $claimant, ?string $timestamp = null): array {
+        self::validateScopedClaimIntent($fields, $claimant);
+        if (!$this->transport->recoveryConfigured() || !$this->transport->checkpointConfigured()) {
+            throw new \RuntimeException(
+                'duo rollback: scoped promotion requires configured exclusion and checkpoint recovery'
+            );
+        }
+
+        $status = self::authorityStatus($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
+            throw new \RuntimeException('duo rollback: target authority runtime is unavailable or invalid');
+        }
+        $fullClaim = self::isFullScopedClaimFields($fields);
+        if (($status['active'] ?? false) === true) {
+            if (($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+                if (!empty($status['terminal'])) {
+                    if (!$fullClaim) {
+                        throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
+                    }
+                } else {
+                    throw new \RuntimeException(
+                        "duo rollback: target generation {$status['generation']} is still {$status['state']}"
+                    );
+                }
+            } else {
+                $receipt = self::scopedReceiptFromStatus($status);
+                if (empty($status['terminal'])) {
+                    self::assertScopedClaimMatchesActive($receipt, $status, $fields, $claimant);
+                    return ['receipt' => $receipt, 'status' => $status];
+                }
+
+                // A terminal receipt is resumable only while its independent
+                // exclusion is still held.  A lost release response must not
+                // manufacture a new generation, while a verified released
+                // terminal receipt is safe to advance past.
+                $terminal = self::status($this->transport);
+                if (($terminal['available'] ?? false) !== true || ($terminal['ok'] ?? false) !== true
+                    || ($terminal['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+                    || ($terminal['receipt_id'] ?? null) !== ($status['receipt_id'] ?? null)
+                    || ($terminal['generation'] ?? null) !== ($status['generation'] ?? null)) {
+                    throw new \RuntimeException('duo rollback: scoped terminal exclusion status is unavailable or inconsistent');
+                }
+                if (($terminal['exclusion_state'] ?? null) === 'held') {
+                    self::assertScopedClaimMatchesActive($receipt, $terminal, $fields, $claimant);
+                    return ['receipt' => $receipt, 'status' => $terminal];
+                }
+                if (($terminal['exclusion_state'] ?? null) !== 'released') {
+                    throw new \RuntimeException('duo rollback: scoped terminal exclusion has an unknown state');
+                }
+                if (!$fullClaim) {
+                    throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
+                }
+            }
+        }
+        if (!$fullClaim) {
+            throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
+        }
+        self::validateScopedClaimFields($fields, $claimant);
+
+        $generation = (int) ($status['generation'] ?? 0) + 1;
+        $receiptId = self::scopedReceiptId(
+            $fields,
+            $claimant,
+            (string) ($status['target_id'] ?? ''),
+            $generation
+        );
+        $now = $timestamp ?? self::timestamp();
+        self::assertCanonicalTimestamp($now, 'scoped claim timestamp');
+
+        // Acquire first: the reservation timestamp is the durable origin for
+        // retention and the first signed event.  Retrying after a lost acquire
+        // response uses the same deterministic receipt id and gets that exact
+        // original reservation back.
+        $exclusion = $this->sendExclusion([
+            'action' => 'acquire',
+            'artifact_hash' => (string) $fields['artifact_hash'],
+            'claim_epoch' => 1,
+            'claimant' => $claimant,
+            'format' => 'duo-exclusion-request/v1',
+            'generation' => $generation,
+            'owner' => (string) $fields['owner'],
+            'receipt_id' => $receiptId,
+            'target_id' => (string) ($status['target_id'] ?? ''),
+            'timestamp' => $now,
+        ]);
+
+        // This decorated read is deliberately after acquire.  With a held
+        // reservation it verifies only the exclusion provider; absent scoped
+        // receipt fields make optional full-release providers manual rather
+        // than requiring their status evidence.
+        $reserved = self::status($this->transport);
+        $reservation = $reserved['exclusion_reservation'] ?? null;
+        if (($reserved['available'] ?? false) !== true || ($reserved['ok'] ?? false) !== true
+            || ($reserved['exclusion_state'] ?? null) !== 'held' || !is_array($reservation)
+            || ($reserved['recovery_ready'] ?? false) !== true) {
+            throw new \RuntimeException('duo rollback: scoped promotion exclusion reservation is unavailable');
+        }
+        foreach ([
+            'artifact_hash' => (string) $fields['artifact_hash'],
+            'claimant' => $claimant,
+            'generation' => $generation,
+            'owner' => (string) $fields['owner'],
+            'receipt_id' => $receiptId,
+        ] as $key => $expected) {
+            if ((string) ($reservation[$key] ?? '') !== (string) $expected) {
+                throw new \RuntimeException("duo rollback: scoped exclusion reservation $key does not match this claim");
+            }
+        }
+        $createdAt = (string) ($reservation['reserved_at'] ?? '');
+        self::assertCanonicalTimestamp($createdAt, 'scoped exclusion reservation timestamp');
+        $retentionUntil = self::formatTimestamp(
+            self::timestampValue($createdAt) + (int) $fields['retention_seconds']
+        );
+
+        $checkpoint = $this->sendCheckpoint([
+            'action' => 'prepare',
+            'artifact_hash' => (string) $fields['artifact_hash'],
+            'claim_epoch' => 1,
+            'claimant' => $claimant,
+            'encryption_key_id' => (string) $fields['encryption_key_id'],
+            'format' => 'duo-checkpoint-request/v1',
+            'generation' => $generation,
+            'owner' => (string) $fields['owner'],
+            'receipt_id' => $receiptId,
+            'retention_until' => $retentionUntil,
+            'target_id' => (string) ($status['target_id'] ?? ''),
+            'timestamp' => $createdAt,
+        ]);
+        foreach ([
+            'checkpoint_sha256', 'created_at', 'ledger_session_sha256',
+            'prior_verifier_inputs_sha256', 'runtime_fingerprints_sha256',
+        ] as $key) {
+            if (!is_string($checkpoint[$key] ?? null) || $checkpoint[$key] === '') {
+                throw new \RuntimeException("duo rollback: checkpoint provider omitted scoped $key");
+            }
+        }
+        $checkpointCreated = (string) $checkpoint['created_at'];
+        self::assertCanonicalTimestamp($checkpointCreated, 'scoped checkpoint creation timestamp');
+        if (!hash_equals($createdAt, $checkpointCreated)) {
+            throw new \RuntimeException('duo rollback: scoped checkpoint creation time diverged from exclusion reservation');
+        }
+
+        $receipt = [
+            'adapter_versions_sha256' => (string) $fields['adapter_versions_sha256'],
+            'allow_deletes' => (bool) $fields['allow_deletes'],
+            'artifact_hash' => (string) $fields['artifact_hash'],
+            'checkpoint_sha256' => (string) $checkpoint['checkpoint_sha256'],
+            'claim_ttl_seconds' => (int) $fields['claim_ttl_seconds'],
+            'created_at' => $checkpointCreated,
+            'encryption_key_id' => (string) $fields['encryption_key_id'],
+            'exclusion_token_sha256' => (string) $exclusion['token_sha256'],
+            'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'generation' => $generation,
+            'ledger_session_sha256' => (string) $checkpoint['ledger_session_sha256'],
+            'owner' => (string) $fields['owner'],
+            'prior_verifier_inputs_sha256' => (string) $checkpoint['prior_verifier_inputs_sha256'],
+            'receipt_id' => $receiptId,
+            'resources_inventory_sha256' => (string) $fields['resources_inventory_sha256'],
+            'retention_until' => $retentionUntil,
+            'runtime_fingerprints_sha256' => (string) $checkpoint['runtime_fingerprints_sha256'],
+            'scope_hash' => (string) $fields['scope_hash'],
+            'signing_key_id' => $this->keyId,
+            'target_id' => (string) ($status['target_id'] ?? ''),
+        ];
+        $event = $this->eventPayload(
+            $receipt,
+            1,
+            str_repeat('0', 64),
+            'prepared',
+            'state_transition',
+            'promotion-claim',
+            1,
+            $claimant,
+            1,
+            hash('sha256', RollbackControl::canonical($receipt)),
+            str_repeat('0', 64),
+            $checkpointCreated,
+            (int) $fields['claim_ttl_seconds']
+        );
+        $next = $this->send([
+            'action' => 'claim',
+            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
+            'receipt' => RollbackControl::sign($receipt, $this->keyId, $this->secretKey),
+        ]);
+        return ['receipt' => $receipt, 'status' => $next];
+    }
+
+    /**
      * Append a state transition or a prepared/completed resource operation.
      * The active target read supplies every immutable/session field; a stale
      * concurrent writer loses the target-side sequence/head compare-and-swap.
@@ -398,6 +676,51 @@ final class RollbackAuthority {
     ): array {
         $status = $this->requiredActiveStatus();
         $now = $timestamp ?? self::timestamp();
+        $receipt = self::receiptView($status);
+        $event = $this->eventPayload(
+            $receipt,
+            (int) $status['sequence'] + 1,
+            (string) $status['head_event_sha256'],
+            $state,
+            $operationStatus,
+            $operationId,
+            $attempt,
+            $claimant,
+            (int) $status['claim_epoch'],
+            $inputHash,
+            $resultHash,
+            $now,
+            (int) $status['claim_ttl_seconds']
+        );
+        return $this->send([
+            'action' => 'append',
+            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
+            'receipt' => null,
+        ]);
+    }
+
+    /**
+     * Append to the checkpoint-only generation without asking the ordinary
+     * full-release status decorator to probe unrelated providers.
+     *
+     * @return array<string,mixed>
+     */
+    public function appendScoped(
+        string $state,
+        string $operationStatus,
+        string $operationId,
+        int $attempt,
+        string $claimant,
+        string $inputHash,
+        string $resultHash,
+        ?string $timestamp = null
+    ): array {
+        $status = $this->requiredScopedActiveStatus();
+        // A target crash after publishing the event but before target.json
+        // advances leaves one verified orphan next event.  Reconstruct its
+        // timestamp from the committed head so a retry signs byte-identical
+        // payload rather than producing a competing sequence file.
+        $now = $timestamp ?? self::nextScopedEventTimestamp($status);
         $receipt = self::receiptView($status);
         $event = $this->eventPayload(
             $receipt,
@@ -461,6 +784,15 @@ final class RollbackAuthority {
         return $this->sendExclusion($this->exclusionPayload('keepalive', $status, $timestamp ?? self::timestamp()));
     }
 
+    /** @return array<string,mixed> */
+    public function keepaliveScoped(?string $timestamp = null): array {
+        $status = $this->requiredScopedActiveStatus();
+        if (!$this->transport->recoveryConfigured()) {
+            throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+        }
+        return $this->sendExclusion($this->exclusionPayload('keepalive', $status, $timestamp ?? self::timestamp()));
+    }
+
     /**
      * Authorize one exact target recovery operation. Keeping authorization,
      * execution, and completion as separate public steps is intentional: a
@@ -486,6 +818,42 @@ final class RollbackAuthority {
         }
         $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
         $next = $this->append(
+            $state,
+            'prepared',
+            $adapter,
+            $attempt,
+            (string) $status['claimant'],
+            $inputHash,
+            str_repeat('0', 64),
+            $timestamp
+        );
+        return ['input_sha256' => $inputHash, 'status' => $next];
+    }
+
+    /**
+     * Prepare one checkpoint-only operation.  A caller must inspect
+     * scopedEvidence() first when resuming: this method deliberately refuses
+     * to turn an existing prepared operation into a new authority boundary.
+     *
+     * @param array<string,mixed> $input
+     * @return array{input_sha256:string,status:array<string,mixed>}
+     */
+    public function prepareScopedOperation(
+        string $state,
+        string $adapter,
+        int $attempt,
+        array $input,
+        ?string $timestamp = null
+    ): array {
+        $status = $this->requiredScopedActiveStatus();
+        self::assertOperationIdentity($adapter, $attempt);
+        if ((string) $status['state'] !== $state) {
+            throw new \RuntimeException(
+                "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
+            );
+        }
+        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $next = $this->appendScoped(
             $state,
             'prepared',
             $adapter,
@@ -561,6 +929,69 @@ final class RollbackAuthority {
         }
     }
 
+    /**
+     * Execute an exact prepared checkpoint operation under scoped authority.
+     * This mirrors executeOperation() but sources only the raw signed control
+     * status, so an optional full-release provider can never block a scoped
+     * database restore/prior verifier.
+     *
+     * @param array<string,mixed> $input
+     * @return array<string,mixed>
+     */
+    public function executeScopedOperation(string $adapter, int $attempt, array $input): array {
+        $status = $this->requiredScopedActiveStatus();
+        self::assertOperationIdentity($adapter, $attempt);
+        $local = tempnam(sys_get_temp_dir(), 'duo-rollback-input-');
+        if ($local === false) {
+            throw new \RuntimeException('duo rollback: could not allocate operation handoff');
+        }
+        $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
+        try {
+            @chmod($local, 0600);
+            $bytes = RollbackControl::canonical($input) . "\n";
+            if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
+                throw new \RuntimeException('duo rollback: could not write operation handoff');
+            }
+            $upload = $this->transport->uploadFile($local, $remote);
+            if ($upload['exit'] !== 0) {
+                throw new \RuntimeException('duo rollback: operation upload failed: ' . trim($upload['stderr']));
+            }
+            $runtime = self::runtimePath($this->transport);
+            $root = self::controlRoot($this->transport);
+            $script = 'set -eu; input=' . escapeshellarg($remote)
+                . '; finish() { status=$?; rm -f "$input"; exit "$status"; }; trap finish EXIT; '
+                . 'chmod 600 "$input"; php ' . escapeshellarg($runtime) . ' execute'
+                . ' --root=' . escapeshellarg($root)
+                . ' --adapter=' . escapeshellarg($adapter)
+                . ' --operation-id=' . escapeshellarg($adapter)
+                . ' --attempt=' . escapeshellarg((string) $attempt)
+                . ' --claimant=' . escapeshellarg((string) $status['claimant'])
+                . ' --claim-epoch=' . escapeshellarg((string) $status['claim_epoch'])
+                . ' --input="$input"';
+            $result = $this->transport->captureRaw($script);
+            if ($result['exit'] !== 0) {
+                $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+                throw new \RuntimeException(
+                    'duo rollback: target operation refused' . ($detail !== '' ? ': ' . $detail : '')
+                );
+            }
+            $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
+            $inputHash = hash('sha256', $bytes);
+            if (!is_array($decoded)
+                || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']
+                || ($decoded['ok'] ?? null) !== true
+                || ($decoded['adapter'] ?? null) !== $adapter
+                || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
+                || preg_match('/^[a-f0-9]{64}$/', (string) ($decoded['result_sha256'] ?? '')) !== 1) {
+                throw new \RuntimeException('duo rollback: target returned invalid operation evidence');
+            }
+            return $decoded;
+        } finally {
+            @unlink($local);
+            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+        }
+    }
+
     /** @param array<string,mixed> $execution @return array<string,mixed> */
     public function completeOperation(
         string $state,
@@ -579,6 +1010,35 @@ final class RollbackAuthority {
             throw new \RuntimeException('duo rollback: operation completion evidence does not match its input');
         }
         return $this->append(
+            $state,
+            'completed',
+            $adapter,
+            $attempt,
+            (string) $status['claimant'],
+            $inputHash,
+            (string) $execution['result_sha256'],
+            $timestamp
+        );
+    }
+
+    /** @param array<string,mixed> $execution @return array<string,mixed> */
+    public function completeScopedOperation(
+        string $state,
+        string $adapter,
+        int $attempt,
+        array $input,
+        array $execution,
+        ?string $timestamp = null
+    ): array {
+        $status = $this->requiredScopedActiveStatus();
+        self::assertOperationIdentity($adapter, $attempt);
+        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        if (($execution['adapter'] ?? null) !== $adapter
+            || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
+            || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
+            throw new \RuntimeException('duo rollback: operation completion evidence does not match its input');
+        }
+        return $this->appendScoped(
             $state,
             'completed',
             $adapter,
@@ -630,6 +1090,34 @@ final class RollbackAuthority {
         }
         if (!$this->transport->recoveryConfigured()) {
             throw new \RuntimeException('duo rollback: no recovery exclusion provider is configured');
+        }
+        return $this->sendExclusion($this->exclusionPayload('release', $status, $timestamp ?? self::timestamp()));
+    }
+
+    /**
+     * Release a terminal scoped authority exactly once.  The decorated status
+     * is safe after a scoped terminal receipt: it sees omitted full-release
+     * hashes as manual and verifies only the durable exclusion record.
+     *
+     * @return array<string,mixed>
+     */
+    public function releaseScopedExclusion(?string $timestamp = null): array {
+        $status = self::status($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true || empty($status['terminal'])
+            || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            throw new \RuntimeException('duo rollback: scoped exclusion release requires valid terminal scoped authority');
+        }
+        if (($status['exclusion_state'] ?? null) === 'released') {
+            return [
+                'already_released' => true,
+                'generation' => (int) $status['generation'],
+                'ok' => true,
+                'receipt_id' => (string) $status['receipt_id'],
+            ];
+        }
+        if (($status['exclusion_state'] ?? null) !== 'held') {
+            throw new \RuntimeException('duo rollback: scoped terminal authority has no held exclusion to release');
         }
         return $this->sendExclusion($this->exclusionPayload('release', $status, $timestamp ?? self::timestamp()));
     }
@@ -720,6 +1208,19 @@ final class RollbackAuthority {
         }
         if (!empty($status['terminal'])) {
             throw new \RuntimeException('duo rollback: terminal receipt cannot accept another event');
+        }
+        return $status;
+    }
+
+    /** @return array<string,mixed> */
+    private function requiredScopedActiveStatus(): array {
+        $status = self::scopedStatus($this->transport);
+        if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
+            || ($status['active'] ?? false) !== true) {
+            throw new \RuntimeException('duo rollback: no valid active scoped target receipt exists');
+        }
+        if (!empty($status['terminal'])) {
+            throw new \RuntimeException('duo rollback: terminal scoped receipt cannot accept another event');
         }
         return $status;
     }
@@ -880,6 +1381,210 @@ final class RollbackAuthority {
             @unlink($local);
             $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
         }
+    }
+
+    /** @param array<string,mixed> $fields */
+    private static function validateScopedClaimIntent(array $fields, string $claimant): void {
+        $keys = array_keys($fields);
+        sort($keys, SORT_STRING);
+        $resume = ['allow_deletes', 'artifact_hash', 'owner', 'scope_hash'];
+        $full = [
+            'adapter_versions_sha256',
+            'allow_deletes',
+            'artifact_hash',
+            'claim_ttl_seconds',
+            'encryption_key_id',
+            'owner',
+            'resources_inventory_sha256',
+            'retention_seconds',
+            'scope_hash',
+        ];
+        sort($resume, SORT_STRING);
+        sort($full, SORT_STRING);
+        if ($keys !== $resume && $keys !== $full) {
+            throw new \RuntimeException('duo rollback: scoped claim has missing or unknown fields');
+        }
+        foreach (['artifact_hash', 'scope_hash'] as $key) {
+            self::assertSha256((string) $fields[$key], "scoped claim $key");
+        }
+        if (!is_bool($fields['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo rollback: scoped claim allow_deletes must be boolean');
+        }
+        self::assertActor((string) $fields['owner'], 'scoped promotion owner');
+        self::assertActor($claimant, 'scoped claimant');
+    }
+
+    /** @param array<string,mixed> $fields */
+    private static function isFullScopedClaimFields(array $fields): bool {
+        $actual = array_keys($fields);
+        $expected = [
+            'adapter_versions_sha256',
+            'allow_deletes',
+            'artifact_hash',
+            'claim_ttl_seconds',
+            'encryption_key_id',
+            'owner',
+            'resources_inventory_sha256',
+            'retention_seconds',
+            'scope_hash',
+        ];
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
+        return $actual === $expected;
+    }
+
+    /** @param array<string,mixed> $fields */
+    private static function validateScopedClaimFields(array $fields, string $claimant): void {
+        if (!self::isFullScopedClaimFields($fields)) {
+            throw new \RuntimeException('duo rollback: scoped claim has missing or unknown fields');
+        }
+        foreach ([
+            'adapter_versions_sha256', 'artifact_hash', 'resources_inventory_sha256', 'scope_hash',
+        ] as $key) {
+            self::assertSha256((string) $fields[$key], "scoped claim $key");
+        }
+        if (!is_bool($fields['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo rollback: scoped claim allow_deletes must be boolean');
+        }
+        if (!is_int($fields['claim_ttl_seconds'])
+            || $fields['claim_ttl_seconds'] < 30 || $fields['claim_ttl_seconds'] > 3600) {
+            throw new \RuntimeException('duo rollback: scoped claim TTL must be 30..3600 seconds');
+        }
+        if (!is_int($fields['retention_seconds'])
+            || $fields['retention_seconds'] < 60 || $fields['retention_seconds'] > 31536000) {
+            throw new \RuntimeException('duo rollback: scoped claim retention must be 60..31536000 seconds');
+        }
+        self::assertActor((string) $fields['encryption_key_id'], 'scoped encryption key id');
+        self::assertActor((string) $fields['owner'], 'scoped promotion owner');
+        self::assertActor($claimant, 'scoped claimant');
+    }
+
+    /** @param array<string,mixed> $fields */
+    private static function scopedReceiptId(array $fields, string $claimant, string $targetId, int $generation): string {
+        if (preg_match('/^[a-f0-9]{32}$/', $targetId) !== 1 || $generation < 1) {
+            throw new \RuntimeException('duo rollback: scoped claim target generation is malformed');
+        }
+        return hash('sha256', RollbackControl::canonical([
+            'allow_deletes' => (bool) $fields['allow_deletes'],
+            'artifact_hash' => (string) $fields['artifact_hash'],
+            'claimant' => $claimant,
+            'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'generation' => $generation,
+            'owner' => (string) $fields['owner'],
+            'scope_hash' => (string) $fields['scope_hash'],
+            'target_id' => $targetId,
+        ]));
+    }
+
+    /** @param array<string,mixed> $status @return array<string,mixed> */
+    private static function scopedReceiptFromStatus(array $status): array {
+        $required = [
+            'adapter_versions_sha256', 'allow_deletes', 'artifact_hash', 'checkpoint_sha256', 'claim_ttl_seconds',
+            'created_at', 'encryption_key_id', 'exclusion_token_sha256', 'generation',
+            'ledger_session_sha256', 'owner', 'prior_verifier_inputs_sha256', 'receipt_id',
+            'resources_inventory_sha256', 'retention_until', 'runtime_fingerprints_sha256',
+            'scope_hash', 'signing_key_id', 'target_id',
+        ];
+        foreach ($required as $key) {
+            if (!array_key_exists($key, $status)) {
+                throw new \RuntimeException("duo rollback: scoped authority status omitted $key");
+            }
+        }
+        if (!is_bool($status['allow_deletes'])) {
+            throw new \RuntimeException('duo rollback: scoped authority status allow_deletes is malformed');
+        }
+        $receipt = [
+            'adapter_versions_sha256' => (string) $status['adapter_versions_sha256'],
+            'allow_deletes' => (bool) $status['allow_deletes'],
+            'artifact_hash' => (string) $status['artifact_hash'],
+            'checkpoint_sha256' => (string) $status['checkpoint_sha256'],
+            'claim_ttl_seconds' => (int) $status['claim_ttl_seconds'],
+            'created_at' => (string) $status['created_at'],
+            'encryption_key_id' => (string) $status['encryption_key_id'],
+            'exclusion_token_sha256' => (string) $status['exclusion_token_sha256'],
+            'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'generation' => (int) $status['generation'],
+            'ledger_session_sha256' => (string) $status['ledger_session_sha256'],
+            'owner' => (string) $status['owner'],
+            'prior_verifier_inputs_sha256' => (string) $status['prior_verifier_inputs_sha256'],
+            'receipt_id' => (string) $status['receipt_id'],
+            'resources_inventory_sha256' => (string) $status['resources_inventory_sha256'],
+            'retention_until' => (string) $status['retention_until'],
+            'runtime_fingerprints_sha256' => (string) $status['runtime_fingerprints_sha256'],
+            'scope_hash' => (string) $status['scope_hash'],
+            'signing_key_id' => (string) $status['signing_key_id'],
+            'target_id' => (string) $status['target_id'],
+        ];
+        $reported = $status['receipt_payload_sha256'] ?? null;
+        $actual = hash('sha256', RollbackControl::canonical($receipt));
+        if (!is_string($reported) || !hash_equals($actual, $reported)) {
+            throw new \RuntimeException('duo rollback: scoped authority status receipt hash does not verify');
+        }
+        return $receipt;
+    }
+
+    /** @param array<string,mixed> $receipt @param array<string,mixed> $status @param array<string,mixed> $fields */
+    private static function assertScopedClaimMatchesActive(
+        array $receipt,
+        array $status,
+        array $fields,
+        string $claimant
+    ): void {
+        foreach (['artifact_hash', 'owner', 'scope_hash'] as $key) {
+            if ((string) $receipt[$key] !== (string) $fields[$key]) {
+                throw new \RuntimeException("duo rollback: active scoped receipt $key does not match this claim");
+            }
+        }
+        if (($receipt['allow_deletes'] ?? null) !== ($fields['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo rollback: active scoped receipt allow_deletes does not match this claim');
+        }
+        if (!hash_equals($claimant, (string) ($status['claimant'] ?? ''))) {
+            throw new \RuntimeException('duo rollback: active scoped authority claimant does not match this claim');
+        }
+        // The receipt was already signed and hash-verified by target status.
+        // Do not recompute its id/retention from a current plan/policy: those
+        // witnesses legitimately change after target Apply and are relevant
+        // only when minting a fresh generation.
+    }
+
+    private static function assertSha256(string $value, string $label): void {
+        if (preg_match('/^[a-f0-9]{64}$/', $value) !== 1) {
+            throw new \RuntimeException("duo rollback: $label must be a sha256 digest");
+        }
+    }
+
+    private static function assertActor(string $value, string $label): void {
+        if (strlen($value) < 1 || strlen($value) > 200
+            || preg_match('/^[A-Za-z0-9._:@+\\/-]+$/', $value) !== 1) {
+            throw new \RuntimeException("duo rollback: $label is malformed");
+        }
+    }
+
+    private static function assertCanonicalTimestamp(string $value, string $label): void {
+        self::timestampValue($value, $label);
+    }
+
+    private static function timestampValue(string $value, string $label = 'timestamp'): int {
+        $time = \DateTimeImmutable::createFromFormat(
+            '!Y-m-d\\TH:i:s\\Z',
+            $value,
+            new \DateTimeZone('UTC')
+        );
+        if (!$time || $time->format('Y-m-d\\TH:i:s\\Z') !== $value) {
+            throw new \RuntimeException("duo rollback: $label must be canonical UTC seconds");
+        }
+        return $time->getTimestamp();
+    }
+
+    private static function formatTimestamp(int $timestamp): string {
+        return gmdate('Y-m-d\\TH:i:s\\Z', $timestamp);
+    }
+
+    /** @param array<string,mixed> $status */
+    private static function nextScopedEventTimestamp(array $status): string {
+        return self::formatTimestamp(
+            self::timestampValue((string) ($status['last_event_at'] ?? ''), 'scoped authority last event') + 1
+        );
     }
 
     private static function readSecretKey(string $path): string {

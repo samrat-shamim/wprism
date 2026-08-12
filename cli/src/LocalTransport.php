@@ -87,14 +87,16 @@ final class LocalTransport extends Transport implements AdoptionTransport {
         $exit = 0;
         $error = '';
         $sourceStat = fstat($source);
-        $destinationStat = fstat($destination);
+        $openedDestinationStat = fstat($destination);
+        $postWriteDestinationStat = null;
+        $sourceDigest = null;
         if (!is_array($sourceStat)
             || (int) $sourceStat['dev'] !== (int) $sourceLstat['dev']
             || (int) $sourceStat['ino'] !== (int) $sourceLstat['ino']
             || ($sourceStat['mode'] & 0170000) !== 0100000) {
             $exit = 68;
             $error = 'local adoption source changed while opening';
-        } elseif (!is_array($destinationStat) || ($destinationStat['mode'] & 0170000) !== 0100000) {
+        } elseif (!is_array($openedDestinationStat) || ($openedDestinationStat['mode'] & 0170000) !== 0100000) {
             $exit = 68;
             $error = 'local adoption destination is not the exclusively created regular file';
         } else {
@@ -127,31 +129,63 @@ final class LocalTransport extends Transport implements AdoptionTransport {
                     $written += $count;
                 }
             }
-            if ($exit === 0 && (!fflush($destination)
-                || $written !== (int) $sourceStat['size']
-                || hash_final($sourceHash) !== hash_final($destinationHash))) {
-                $exit = 71;
-                $error = 'local adoption transfer verification failed';
+            if ($exit === 0) {
+                $sourceDigest = hash_final($sourceHash);
+                $destinationDigest = hash_final($destinationHash);
+                if (!fflush($destination)) {
+                    $exit = 71;
+                    $error = 'local adoption transfer verification failed';
+                } else {
+                    $postWriteDestinationStat = fstat($destination);
+                    if (!is_array($postWriteDestinationStat)
+                        || ($postWriteDestinationStat['mode'] & 0170000) !== 0100000
+                        || (int) $postWriteDestinationStat['size'] !== $written
+                        || $written !== (int) $sourceStat['size']
+                        || !hash_equals($sourceDigest, $destinationDigest)) {
+                        $exit = 71;
+                        $error = 'local adoption transfer verification failed';
+                    }
+                }
             }
         }
         fclose($source);
-        fclose($destination);
+        $destinationClosed = fclose($destination);
+        if ($exit === 0 && !$destinationClosed) {
+            $exit = 71;
+            $error = 'local adoption transfer verification failed';
+        }
         if ($exit !== 0) {
-            if (is_array($destinationStat) && self::pathMatchesIdentity($remotePath, $destinationStat)) {
+            if (is_array($openedDestinationStat) && self::pathMatchesIdentity($remotePath, $openedDestinationStat)) {
                 @unlink($remotePath);
             } else {
                 $error .= '; destination identity changed and was retained for operator review';
             }
             return ['exit' => $exit, 'stdout' => '', 'stderr' => $error];
         }
-        if (!is_array($destinationStat) || !self::pathMatchesIdentity($remotePath, $destinationStat)) {
+        // COW filesystems may replace the path inode while the exclusively
+        // opened descriptor is populated.  Keep the descriptor's post-write
+        // byte/size proof above, then bind the token to the completed path
+        // only after its own bytes and identity remain stable through a final
+        // readback.  A foreign replacement is retained rather than deleted.
+        $finalDestinationStat = @lstat($remotePath);
+        $finalDigest = is_array($finalDestinationStat)
+            && ($finalDestinationStat['mode'] & 0170000) === 0100000
+            && (int) $finalDestinationStat['size'] === $written
+            ? @hash_file('sha256', $remotePath)
+            : false;
+        $finalPathStable = is_array($finalDestinationStat)
+            && is_string($sourceDigest)
+            && is_string($finalDigest)
+            && hash_equals($sourceDigest, $finalDigest)
+            && self::pathMatchesIdentity($remotePath, $finalDestinationStat);
+        if (!$finalPathStable) {
             return [
                 'exit' => 72,
                 'stdout' => '',
-                'stderr' => 'local adoption destination identity changed after transfer and was retained for operator review',
+                'stderr' => 'local adoption destination final path could not be verified after transfer and was retained for operator review',
             ];
         }
-        return ['exit' => 0, 'stdout' => self::identity($destinationStat), 'stderr' => ''];
+        return ['exit' => 0, 'stdout' => self::identity($finalDestinationStat), 'stderr' => ''];
     }
 
     /**

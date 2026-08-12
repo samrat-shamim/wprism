@@ -508,8 +508,43 @@ prepare_siterepo_roots() { # prepare_siterepo_roots <name>
 # non-directory refuses instead of following/replacing it. chown/chmod and the
 # host-side ownership readback are all checked so reset/destroy fail before
 # database/container mutation when the handback cannot be proved.
+repo_host_stat_owner() { # repo_host_stat_owner <ordinary path>
+  local path="$1" owner
+  if owner="$(stat -c '%u:%g' "$path" 2>/dev/null)"; then
+    : # GNU stat.
+  elif owner="$(stat -f '%u:%g' "$path" 2>/dev/null)"; then
+    : # BSD stat.
+  else
+    return 1
+  fi
+  printf '%s\n' "$owner"
+}
+
+repo_host_stat_inode() { # repo_host_stat_inode <ordinary path>
+  local path="$1" inode
+  if inode="$(stat -c '%i' "$path" 2>/dev/null)"; then
+    : # GNU stat.
+  elif inode="$(stat -f '%i' "$path" 2>/dev/null)"; then
+    : # BSD stat.
+  else
+    return 1
+  fi
+  printf '%s\n' "$inode"
+}
+
+repo_host_revalidate_root() { # repo_host_revalidate_root <root> <expected-inode>
+  local root="$1" expected_inode="$2" actual_inode
+  if [ -L "$root" ] || [ ! -d "$root" ]; then
+    fail "exact pair repository root changed from an ordinary directory during ownership handback: $root"
+  fi
+  actual_inode="$(repo_host_stat_inode "$root")" \
+    || fail "could not read exact pair repository inode after ownership handback: $root"
+  [ "$actual_inode" = "$expected_inode" ] \
+    || fail "exact pair repository inode changed during ownership handback: $root"
+}
+
 repo_host_one() { # repo_host_one <name> <side (1|2)>
-  local name="$1" side="$2" root root_abs host_uid host_gid owner cli_image
+  local name="$1" side="$2" root root_abs host_uid host_gid owner owner_uid root_inode_before cli_image
   root="siterepo/${name}${side}"
   case "$side" in
     1|2) ;;
@@ -527,23 +562,53 @@ repo_host_one() { # repo_host_one <name> <side (1|2)>
 
   root_abs="$(cd "$(dirname "$root")" && pwd -P)/$(basename "$root")" \
     || fail "could not resolve exact pair repository path for ownership handback: $root"
+  if [ -L "$root_abs" ] || [ ! -d "$root_abs" ]; then
+    fail "pair '$name' repository root is not an ordinary physical directory: $root_abs — refusing ownership handback"
+  fi
+  root_inode_before="$(repo_host_stat_inode "$root_abs")" \
+    || fail "could not read exact pair repository inode before ownership handback: $root"
+  [[ "$root_inode_before" =~ ^[0-9]+$ ]] \
+    || fail "exact pair repository inode is malformed before ownership handback: $root"
+
   cli_image="${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
-  docker run --rm -u root \
+  if ! docker run --rm -u root \
     --mount "type=bind,src=${root_abs},dst=/siterepo" \
     --entrypoint sh "$cli_image" -ceu '
 uid="$1"; gid="$2"
 chown -R "$uid:$gid" /siterepo
 chmod -R ugo+rwX /siterepo
 chmod 0777 /siterepo
-' sh "$host_uid" "$host_gid" \
-    || fail "could not return exact pair repository $root from container uid 33 to host ${host_uid}:${host_gid}"
+' sh "$host_uid" "$host_gid"; then
+    fail "could not return exact pair repository $root from container uid 33 to host ${host_uid}:${host_gid}"
+  fi
 
-  if owner="$(stat -c '%u:%g' "$root" 2>/dev/null)"; then
-    : # GNU stat (the native-Linux evidence host).
-  elif owner="$(stat -f '%u:%g' "$root" 2>/dev/null)"; then
-    : # BSD stat (Docker Desktop hosts).
-  else
+  # Docker Desktop may return an exact host UID but a translated GID for this
+  # bind root. Revalidate its closed path/inode before every host mutation;
+  # a foreign UID is never normalized, and a final literal uid:gid readback is
+  # still mandatory after the narrowly scoped host-side repair.
+  repo_host_revalidate_root "$root_abs" "$root_inode_before"
+  owner="$(repo_host_stat_owner "$root_abs")" || {
     fail "could not verify host ownership of exact pair repository $root after handback"
+  }
+  if ! [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]]; then
+    fail "exact pair repository ownership readback is malformed after handback: $owner"
+  fi
+  owner_uid="${owner%%:*}"
+  if [ "$owner_uid" != "$host_uid" ]; then
+    fail "exact pair repository $root has foreign uid after handback (got ${owner}; expected uid ${host_uid})"
+  fi
+  if [ "$owner" != "${host_uid}:${host_gid}" ]; then
+    # -h prevents a root-path symlink race from following a target; no -R is
+    # intentional. Docker already chowns the tree recursively, while this
+    # host repair changes only the prevalidated exact bind-root directory.
+    if ! chgrp -h "$host_gid" "$root_abs"; then
+      repo_host_revalidate_root "$root_abs" "$root_inode_before"
+      fail "could not normalize exact pair repository $root to host group ${host_gid} after handback"
+    fi
+    repo_host_revalidate_root "$root_abs" "$root_inode_before"
+    owner="$(repo_host_stat_owner "$root_abs")" || {
+      fail "could not verify host ownership of exact pair repository $root after host-side normalization"
+    }
   fi
   [ "$owner" = "${host_uid}:${host_gid}" ] \
     || fail "exact pair repository $root still has owner $owner after handback (expected ${host_uid}:${host_gid})"

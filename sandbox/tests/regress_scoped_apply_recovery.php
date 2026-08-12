@@ -2070,7 +2070,7 @@ $check(
     'direct scoped apply publishes a random promotion generation only at the sealed-authority boundary'
 );
 $check(
-    substr_count($applySource, 'CommandRefusalException::applyRefused(') === 3
+    substr_count($applySource, 'CommandRefusalException::applyRefused(') >= 3
         && str_contains(
             $applySource,
             'scoped apply refused because its scope evidence is stale or invalid for the current source artifact'

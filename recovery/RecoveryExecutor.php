@@ -15,12 +15,18 @@ final class RecoveryExecutor {
     private const CONFIG_FORMAT = 'duo-recovery-config/v1';
     private const EXCLUSION_FORMAT = 'duo-exclusion-record/v1';
     private const REQUEST_FORMAT = 'duo-exclusion-request/v1';
-    private const PROVIDER_REQUEST_FORMAT = 'duo-exclusion-provider-request/v1';
-    private const PROVIDER_RESPONSE_FORMAT = 'duo-exclusion-provider-response/v1';
+    private const PROVIDER_REQUEST_FORMAT = 'duo-exclusion-provider-request/v2';
+    private const PROVIDER_RESPONSE_FORMAT = 'duo-exclusion-provider-response/v2';
     private const ADAPTER_REQUEST_FORMAT = 'duo-recovery-adapter-request/v1';
     private const ADAPTER_RESPONSE_FORMAT = 'duo-recovery-adapter-response/v1';
     /** @var list<string> */
-    private const SCOPES = ['background_jobs', 'filesystem_writers', 'package_updates', 'public_traffic'];
+    private const SCOPES = [
+        'background_jobs',
+        'database_writers',
+        'filesystem_writers',
+        'package_updates',
+        'public_traffic',
+    ];
     /** @var list<string> */
     private const ADAPTERS = ['code_restore', 'database_restore', 'prior_verify', 'storage_restore'];
 
@@ -227,6 +233,50 @@ final class RecoveryExecutor {
         return $decorated;
     }
 
+    /**
+     * Minimal target-agent proof for the checkpoint-only scoped promotion.
+     * It verifies the signed active chain and only the independent exclusion
+     * provider; code/upload/effect providers are intentionally not consulted.
+     * No token, path, provider stderr, or target value is published.
+     *
+     * @return array<string,mixed>
+     */
+    public static function scopedPromotionWitness(string $root): array {
+        $status = RollbackControl::status($root);
+        if (($status['active'] ?? false) !== true
+            || ($status['ok'] ?? false) !== true
+            || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            throw new \RuntimeException('duo recovery: no active scoped promotion authority is available');
+        }
+        $record = self::readExclusion($root, true);
+        self::validateRecord($record);
+        self::assertRecordIdentity($record, $status, true);
+        if (($record['state'] ?? null) !== 'held'
+            || !hash_equals((string) $status['exclusion_token_sha256'], (string) $record['token_sha256'])) {
+            throw new \RuntimeException('duo recovery: scoped promotion exclusion is not held by the active receipt');
+        }
+        self::verifyHeld($root, $record, 'verify');
+        return [
+            'active' => true,
+            'allow_deletes' => (bool) $status['allow_deletes'],
+            'artifact_hash' => (string) $status['artifact_hash'],
+            'exclusion_state' => 'held',
+            'format' => 'duo-scoped-promotion-witness/v1',
+            'generation' => (int) $status['generation'],
+            'ok' => true,
+            'owner' => (string) $status['owner'],
+            'receipt_format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'receipt_id' => (string) $status['receipt_id'],
+            'receipt_payload_sha256' => (string) $status['receipt_payload_sha256'],
+            'recovery_ready' => true,
+            'scope_hash' => (string) $status['scope_hash'],
+            'signing_key_id' => (string) $status['signing_key_id'],
+            'state' => (string) $status['state'],
+            'target_id' => (string) $status['target_id'],
+            'terminal' => (bool) $status['terminal'],
+        ];
+    }
+
     /** @return array<string,mixed> */
     public static function handleExclusionRequest(string $root, string $requestPath): array {
         self::assertAbsoluteRegularFile($requestPath, 'signed exclusion request');
@@ -339,6 +389,12 @@ final class RecoveryExecutor {
             || (string) $status['claimant'] !== $claimant
             || (int) $status['claim_epoch'] !== $claimEpoch) {
             throw new \RuntimeException('duo recovery: executor claimant is stale, foreign, or terminal');
+        }
+        if (($status['receipt_format'] ?? null) === RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+            && !in_array($adapter, ['database_restore', 'prior_verify'], true)) {
+            throw new \RuntimeException(
+                'duo recovery: scoped promotion authority permits only database restore and prior verification'
+            );
         }
         $requiredState = $adapter === 'prior_verify'
             ? 'verifying_prior'
@@ -668,12 +724,7 @@ final class RecoveryExecutor {
 
     /** @return array<string,bool> */
     private static function scopeMap(): array {
-        return [
-            'background_jobs' => true,
-            'filesystem_writers' => true,
-            'package_updates' => true,
-            'public_traffic' => true,
-        ];
+        return array_fill_keys(self::SCOPES, true);
     }
 
     private static function assertRequestIdentity(array $payload, array $status): void {

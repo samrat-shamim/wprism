@@ -1252,6 +1252,12 @@ $buildPlanAt = strpos($applySource, 'private function build_plan(');
 $check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
     'Apply::plan() and Apply::build_plan() are both present, in that order (the slice below depends on it)');
 $planSource = substr($applySource, (int) $planAt, (int) $buildPlanAt - (int) $planAt);
+$formatAt = strpos($planSource, "$" . "plan['format'] = ScopedApply::PLAN_FORMAT;");
+$artifactAt = strpos($planSource, "$" . "plan['artifact_hash'] = $" . "compiled->artifact_hash();");
+$adaptersAt = strpos($planSource, "$" . "plan['resolved_adapters'] = $" . "compiled->resolved_adapters();");
+$check($formatAt !== false && $artifactAt !== false && $adaptersAt !== false
+    && $formatAt < $artifactAt && $artifactAt < $adaptersAt,
+    'scoped Apply::plan() publishes the exact compiled artifact hash and resolved adapter witnesses required by scoped rollback authority');
 $check((bool) preg_match(
     "/\\\$plan\\['provider_problems'\\]\s*=\s*Providers::problems\(\s*\\\$policy,"
     . "\s*\\\$plan\\['adapter_dispositions'\\] \?\? \[\]\s*\);/",
@@ -2592,10 +2598,11 @@ $runSource = implode("\n", array_slice(
 $check((bool) preg_match(
     '/\$this->rebuild\(\s*\$attachmentIds,\s*\$work,\s*\$tree,\s*\$regenContext,\s*\$deleteWork,'
     . '\s*\$executeDeletes,\s*\$plan\[\'deleted\'\],\s*\$scoped,\s*\$skipScopedCore,'
-    . '\s*\$scopedCoreComplete\s*\);/',
+    . '\s*\$scopedCoreComplete,\s*\$scopedPromotion\s*\);/',
     $runSource
 ), "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
-    . 'the wider set the pre-mutation selection projected surfaces from');
+    . 'the wider set the pre-mutation selection projected surfaces from; scoped promotion also retains its '
+    . 'checkpoint-only external-effects profile');
 $check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runSource),
     'run() records its apply_in_progress read on the instance, which is the only path by which the retry channel '
     . 'can ever be true');

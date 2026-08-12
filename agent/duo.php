@@ -32,6 +32,7 @@ require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Providers.php';
 require_once __DIR__ . '/src/Ledger.php';
 require_once __DIR__ . '/src/PromotionLease.php';
+require_once __DIR__ . '/src/ScopedPromotionAuthority.php';
 require_once __DIR__ . '/src/PromotionLock.php';
 require_once __DIR__ . '/src/PromotionSessionJournal.php';
 require_once __DIR__ . '/src/LifecycleJournal.php';

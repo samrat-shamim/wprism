@@ -98,6 +98,82 @@ class PromotionLease {
         return self::acquire($owner, $artifactHash, 'checkpoint', $ttl, false);
     }
 
+    /** Begin or resume one receipt-bound, externally checkpointed promotion. */
+    public static function begin_scoped(
+        string $owner,
+        string $artifactHash,
+        string $receiptHash,
+        string $scopeHash,
+        array $authorityWitness,
+        ?int $ttl = null
+    ): array {
+        self::assert_identity($owner, $artifactHash);
+        if (preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1) {
+            throw new \RuntimeException('duo: scoped promotion requires the signed receipt payload hash');
+        }
+        self::assert_scoped_authority_witness($authorityWitness, $owner, $artifactHash, $receiptHash, $scopeHash);
+        $metadata = self::scoped_session_metadata($authorityWitness, $receiptHash, $scopeHash);
+        $session = self::current_session(true);
+        if ($session === null) {
+            $begun = self::acquire_internal(
+                $owner, $artifactHash, 'checkpoint', $ttl, false, true, $metadata, false, true
+            );
+            $begun['scoped_receipt_sha256'] = $receiptHash;
+            $begun['scope_hash'] = $scopeHash;
+            return $begun;
+        }
+        if (($session['profile'] ?? null) !== 'scoped-checkpoint-v1') {
+            self::assert_reclaimable_ordinary_session($session);
+            if (self::current() !== null) {
+                throw new \RuntimeException('duo: scoped promotion begin found a live ordinary target promotion lock');
+            }
+            $begun = self::acquire_internal(
+                $owner, $artifactHash, 'checkpoint', $ttl, false, true, $metadata, true, false
+            );
+            $begun['scoped_receipt_sha256'] = $receiptHash;
+            $begun['scope_hash'] = $scopeHash;
+            return $begun;
+        }
+        if (!hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: scoped promotion begin found a different target promotion session');
+        }
+        $sessionId = self::normalized_session_id($session);
+        self::assert_scoped_session_id($sessionId);
+        self::assert_scoped_profile_session($session, $receiptHash, $scopeHash, $authorityWitness);
+        $recovered = self::recover_session($owner, $artifactHash, $sessionId, $ttl);
+        $recovered['scoped_receipt_sha256'] = $receiptHash;
+        $recovered['scope_hash'] = $scopeHash;
+        return $recovered;
+    }
+
+    /** Prove that the durable target session matches the exact external witness. */
+    public static function assert_scoped_promotion_session(
+        string $owner,
+        string $artifactHash,
+        string $receiptHash,
+        string $scopeHash,
+        array $authorityWitness
+    ): void {
+        self::assert_identity($owner, $artifactHash);
+        $session = self::current_session();
+        if ($session === null
+            || !hash_equals($owner, (string) ($session['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: scoped promotion target session is absent or superseded');
+        }
+        self::assert_scoped_session_id(self::normalized_session_id($session));
+        self::assert_scoped_profile_session($session, $receiptHash, $scopeHash, $authorityWitness);
+    }
+
+    /** Refuse unbound ordinary continuation through an external scoped session. */
+    public static function assert_no_unbound_scoped_continuation(): void {
+        $session = self::current_session();
+        if (($session['profile'] ?? null) === 'scoped-checkpoint-v1') {
+            throw new \RuntimeException('duo: externally checkpointed scoped promotion requires its exact signed continuation');
+        }
+    }
+
     /** @return array{owner:string,artifact_hash:string,phase:string,acquired_at:int,expires_at:int,recovered:bool,session_id:string} */
     public static function acquire(
         string $owner,
@@ -206,23 +282,52 @@ class PromotionLease {
         string $phase,
         ?int $ttl,
         bool $requireExisting,
-        bool $publishSession
+        bool $publishSession,
+        ?array $sessionMetadata = null,
+        bool $replaceProfilelessOrdinarySession = false,
+        bool $requireSessionAbsentAfterFence = false
     ): array {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
         self::claim_process_fence();
+        $replacementTransactionOpen = false;
         try {
+            if ($replaceProfilelessOrdinarySession) {
+                Db::start('scoped ordinary session replacement transaction start');
+                $replacementTransactionOpen = true;
+            }
             $ttl = self::ttl($ttl);
             $now = time();
             $before = self::current();
             $preserveRecoverySession = false;
+            $existingSession = self::current_session($replaceProfilelessOrdinarySession || $requireSessionAbsentAfterFence);
+            if ($requireSessionAbsentAfterFence && $existingSession !== null) {
+                throw new \RuntimeException(
+                    'duo: scoped promotion initial begin found a target promotion session after fencing; retry so its recovery contract can be classified'
+                );
+            }
+            if ($replaceProfilelessOrdinarySession) {
+                self::assert_transactional_replacement_storage();
+                if ($before !== null) {
+                    throw new \RuntimeException('duo: scoped promotion begin found a live ordinary target promotion lock');
+                }
+                if ($existingSession === null) {
+                    throw new \RuntimeException('duo: scoped promotion ordinary session changed before fenced replacement');
+                }
+                self::assert_reclaimable_ordinary_session($existingSession);
+            }
             if (!$requireExisting) {
-                $existingSession = PromotionSessionJournal::readAny();
-                $attempt = LifecycleJournal::incompleteAny();
+                if (($existingSession['profile'] ?? null) === 'scoped-checkpoint-v1') {
+                    throw new \RuntimeException(
+                        'duo: an externally checkpointed scoped promotion session must reach exact completion or rollback before a new ordinary promotion begins'
+                    );
+                }
+                $attempt = self::session_lifecycle_attempt($existingSession);
                 if ($attempt !== null) {
                     if (!is_array($attempt)
-                        || !hash_equals($owner, (string) ($attempt['owner'] ?? ''))
-                        || !hash_equals($artifactHash, (string) ($attempt['artifact_hash'] ?? ''))) {
+                        || !is_array($existingSession)
+                        || !hash_equals($owner, (string) ($existingSession['owner'] ?? ''))
+                        || !hash_equals($artifactHash, (string) ($existingSession['artifact_hash'] ?? ''))) {
                         throw new \RuntimeException(
                             'duo: unresolved lifecycle attempt blocks a new promotion session; restore the exact pre-lifecycle database checkpoint using its original owner/artifact recovery commands'
                         );
@@ -321,15 +426,33 @@ class PromotionLease {
                         $owner,
                         $artifactHash,
                         $now,
-                        'ps-' . bin2hex(random_bytes(16))
+                        'ps-' . bin2hex(random_bytes(16)),
+                        $sessionMetadata
                     )->toArray();
                 } elseif ($session === null) {
                     $session = self::current_session();
                 }
                 $current['session_id'] = self::normalized_session_id($session);
             }
+            if ($replacementTransactionOpen) {
+                Db::commit('scoped ordinary session replacement transaction commit');
+                $replacementTransactionOpen = false;
+            }
             return $current;
         } catch (\Throwable $t) {
+            if ($replacementTransactionOpen) {
+                try {
+                    Db::rollback('scoped ordinary session replacement transaction rollback');
+                } catch (\Throwable $rollback) {
+                    self::release_process_fence();
+                    throw new \RuntimeException(
+                        'duo: scoped ordinary session replacement failed and rollback could not be confirmed: '
+                        . $rollback->getMessage(),
+                        0,
+                        $t
+                    );
+                }
+            }
             self::release_process_fence();
             throw $t;
         }
@@ -661,6 +784,58 @@ class PromotionLease {
         return $record?->toArray();
     }
 
+    /** Retire the exact scoped target handoff after external terminal commit. */
+    public static function complete_scoped(
+        string $owner,
+        string $artifactHash,
+        string $receiptHash,
+        string $scopeHash,
+        array $authorityWitness
+    ): array {
+        global $wpdb;
+        self::assert_identity($owner, $artifactHash);
+        if (preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1) {
+            throw new \RuntimeException('duo: scoped promotion requires the signed receipt payload hash');
+        }
+        self::assert_scoped_authority_witness($authorityWitness, $owner, $artifactHash, $receiptHash, $scopeHash);
+        self::claim_process_fence();
+        try {
+            if (self::current() !== null) {
+                throw new \RuntimeException('duo: scoped promotion session completion requires its target lease to be absent');
+            }
+            $session = self::current_session();
+            if ($session === null) {
+                return ['owner' => $owner, 'artifact_hash' => $artifactHash, 'released' => false, 'already_absent' => true];
+            }
+            if (!hash_equals($owner, (string) ($session['owner'] ?? ''))
+                || !hash_equals($artifactHash, (string) ($session['artifact_hash'] ?? ''))) {
+                throw new \RuntimeException('duo: scoped promotion session completion found a different owner/artifact');
+            }
+            self::assert_scoped_profile_session($session, $receiptHash, $scopeHash, $authorityWitness);
+            $table = $wpdb->prefix . 'duo_kv';
+            $deleted = Db::query($wpdb->prepare(
+                "DELETE FROM `$table` WHERE k = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.owner')) = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.artifact_hash')) = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.profile')) = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_receipt_sha256')) = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_scope_hash')) = %s
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_receipt_id')) = %s
+                 AND CAST(JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_generation')) AS UNSIGNED) = %d
+                 AND JSON_UNQUOTE(JSON_EXTRACT(v, '$.scoped_target_id')) = %s",
+                'promotion_session', $owner, $artifactHash, 'scoped-checkpoint-v1', $receiptHash,
+                $scopeHash, (string) $authorityWitness['receipt_id'], (int) $authorityWitness['generation'],
+                (string) $authorityWitness['target_id']
+            ), 'scoped promotion session complete');
+            if ((int) $deleted !== 1) {
+                throw new \RuntimeException('duo: scoped promotion session completion lost its exact target row');
+            }
+            return ['owner' => $owner, 'artifact_hash' => $artifactHash, 'released' => true, 'already_absent' => false];
+        } finally {
+            self::release_process_fence();
+        }
+    }
+
     public static function release(string $owner, string $artifactHash): void {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
@@ -809,9 +984,45 @@ class PromotionLease {
     }
 
     /** @return array<string,mixed>|null */
-    private static function current_session(): ?array {
-        $record = PromotionSessionJournal::readAny();
-        return $record === null ? null : $record->toArray();
+    private static function current_session(bool $allowMalformedOrdinaryFallback = false): ?array {
+        $typedFailure = null;
+        try {
+            $record = PromotionSessionJournal::readAny();
+            if ($record !== null) {
+                return $record->toArray();
+            }
+            return null;
+        } catch (\InvalidArgumentException $failure) {
+            if (!$allowMalformedOrdinaryFallback) {
+                throw $failure;
+            }
+            // Scoped replacement must classify malformed ordinary recovery
+            // receipts itself so it can refuse without erasing their bytes.
+            // Preserve the journal as the normal reader; this narrow fallback
+            // only decodes the identity envelope for the fail-closed refusal.
+            $typedFailure = $failure;
+        }
+        $raw = Ledger::kv_get('promotion_session');
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        $decoded = json_decode($raw, true);
+        if (!is_array($decoded)
+            || !is_string($decoded['owner'] ?? null)
+            || $decoded['owner'] === ''
+            || !is_string($decoded['artifact_hash'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $decoded['artifact_hash']) !== 1
+            || !is_int($decoded['begun_at'] ?? null)) {
+            throw new \RuntimeException('duo: malformed promotion session record; refusing to guess checkpoint ownership');
+        }
+        $scopedMarkers = [
+            'profile', 'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
+            'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id',
+        ];
+        if (array_intersect($scopedMarkers, array_keys($decoded)) !== []) {
+            throw $typedFailure ?? new \RuntimeException('duo: malformed scoped promotion session record');
+        }
+        return $decoded;
     }
 
     private static function session_matches_identity(string $owner, string $artifactHash): bool {
@@ -871,14 +1082,69 @@ class PromotionLease {
         }
     }
 
+    /** @param array<string,mixed> $session @param array<string,mixed> $authorityWitness */
+    private static function assert_scoped_profile_session(
+        array $session,
+        string $receiptHash,
+        string $scopeHash,
+        array $authorityWitness
+    ): void {
+        if (($session['profile'] ?? null) !== 'scoped-checkpoint-v1'
+            || !is_string($session['scoped_receipt_sha256'] ?? null)
+            || !hash_equals((string) $session['scoped_receipt_sha256'], $receiptHash)
+            || !hash_equals((string) ($session['scoped_scope_hash'] ?? ''), $scopeHash)
+            || !hash_equals((string) ($session['scoped_receipt_id'] ?? ''), (string) ($authorityWitness['receipt_id'] ?? ''))
+            || (int) ($session['scoped_generation'] ?? 0) !== (int) ($authorityWitness['generation'] ?? 0)
+            || !hash_equals((string) ($session['scoped_target_id'] ?? ''), (string) ($authorityWitness['target_id'] ?? ''))
+            || !hash_equals((string) ($session['scoped_signing_key_id'] ?? ''), (string) ($authorityWitness['signing_key_id'] ?? ''))
+            || !is_bool($session['scoped_allow_deletes'] ?? null)
+            || $session['scoped_allow_deletes'] !== ($authorityWitness['allow_deletes'] ?? null)) {
+            throw new \RuntimeException('duo: scoped promotion target session does not match its external signed receipt');
+        }
+    }
+
+    /** @param array<string,mixed> $authorityWitness */
+    private static function assert_scoped_authority_witness(
+        array $authorityWitness,
+        string $owner,
+        string $artifactHash,
+        string $receiptHash,
+        string $scopeHash
+    ): void {
+        if (($authorityWitness['format'] ?? null) !== 'duo-scoped-promotion-witness/v1'
+            || ($authorityWitness['exclusion_state'] ?? null) !== 'held'
+            || ($authorityWitness['recovery_ready'] ?? null) !== true
+            || !is_bool($authorityWitness['allow_deletes'] ?? null)
+            || !hash_equals($owner, (string) ($authorityWitness['owner'] ?? ''))
+            || !hash_equals($artifactHash, (string) ($authorityWitness['artifact_hash'] ?? ''))
+            || !hash_equals($receiptHash, (string) ($authorityWitness['receipt_payload_sha256'] ?? ''))
+            || !hash_equals($scopeHash, (string) ($authorityWitness['scope_hash'] ?? ''))) {
+            throw new \RuntimeException('duo: scoped promotion target received no exact external authority witness');
+        }
+    }
+
+    /** @param array<string,mixed> $authorityWitness @return array<string,mixed> */
+    private static function scoped_session_metadata(array $authorityWitness, string $receiptHash, string $scopeHash): array {
+        return [
+            'profile' => 'scoped-checkpoint-v1',
+            'scoped_allow_deletes' => (bool) $authorityWitness['allow_deletes'],
+            'scoped_generation' => (int) $authorityWitness['generation'],
+            'scoped_receipt_id' => (string) $authorityWitness['receipt_id'],
+            'scoped_receipt_sha256' => $receiptHash,
+            'scoped_scope_hash' => $scopeHash,
+            'scoped_signing_key_id' => (string) $authorityWitness['signing_key_id'],
+            'scoped_target_id' => (string) $authorityWitness['target_id'],
+        ];
+    }
+
     /** @param array<string,mixed>|null $session */
     private static function normalized_session_id(?array $session): string {
         if ($session === null) {
             throw new \RuntimeException('duo: promotion session identity is missing');
         }
-        $explicit = (string) ($session['session_id'] ?? '');
-        if ($explicit !== '') {
-            if (preg_match('/^ps-[a-f0-9]{32}$/D', $explicit) !== 1) {
+        if (array_key_exists('session_id', $session)) {
+            $explicit = $session['session_id'];
+            if (!is_string($explicit) || preg_match('/^ps-[a-f0-9]{32}$/D', $explicit) !== 1) {
                 throw new \RuntimeException('duo: malformed promotion session generation');
             }
             return $explicit;
@@ -889,6 +1155,99 @@ class PromotionLease {
                 . (string) ($session['artifact_hash'] ?? '') . "\0"
                 . (string) ($session['begun_at'] ?? '')
         ), 0, 32);
+    }
+
+    /** @param array<string,mixed> $session */
+    private static function assert_reclaimable_ordinary_session(array $session): void {
+        $allowed = [
+            'owner', 'artifact_hash', 'begun_at', 'session_id', 'lifecycle_attempt',
+            'pending_state_transition', 'state_transition', 'lifecycle_phases',
+        ];
+        foreach (array_keys($session) as $key) {
+            if (!is_string($key) || !in_array($key, $allowed, true)) {
+                throw new \RuntimeException('duo: unknown ordinary promotion session recovery field blocks scoped promotion session replacement');
+            }
+        }
+        if (array_key_exists('profile', $session)) {
+            throw new \RuntimeException('duo: scoped promotion begin found a profiled non-scoped target promotion session');
+        }
+        if (self::session_lifecycle_attempt($session) !== null) {
+            throw new \RuntimeException('duo: unresolved lifecycle attempt blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
+        }
+        if (array_key_exists('pending_state_transition', $session)) {
+            throw new \RuntimeException('duo: pending lifecycle state transition blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
+        }
+        self::normalized_session_id($session);
+        $phases = self::session_lifecycle_phases($session);
+        if ($phases === ['retire']) {
+            throw new \RuntimeException('duo: incomplete lifecycle phase receipt blocks scoped promotion session replacement; restore the exact pre-lifecycle database checkpoint before retrying');
+        }
+        if (!array_key_exists('state_transition', $session)) {
+            return;
+        }
+        if ($phases !== ['retire', 'activate']) {
+            throw new \RuntimeException('duo: lifecycle state transition without complete lifecycle phases blocks scoped promotion session replacement');
+        }
+        $transition = $session['state_transition'];
+        if (!is_array($transition)) {
+            throw new \RuntimeException('duo: malformed completed lifecycle state transition blocks scoped promotion session replacement');
+        }
+        $keys = array_keys($transition);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['after_hash', 'before_hash', 'entity']
+            || !is_string($transition['entity'] ?? null)
+            || !is_string($transition['before_hash'] ?? null)
+            || !is_string($transition['after_hash'] ?? null)) {
+            throw new \RuntimeException('duo: malformed completed lifecycle state transition blocks scoped promotion session replacement');
+        }
+        self::assert_state_transition($transition['entity'], $transition['before_hash'], $transition['after_hash']);
+    }
+
+    private static function assert_transactional_replacement_storage(): void {
+        global $wpdb;
+        $table = $wpdb->prefix . 'duo_kv';
+        $engine = $wpdb->get_var($wpdb->prepare(
+            'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = %s',
+            $table
+        ));
+        if (!is_string($engine) || strcasecmp($engine, 'InnoDB') !== 0) {
+            throw new \RuntimeException('duo: scoped ordinary session replacement requires an InnoDB duo_kv table; refusing a nontransactional promotion handoff');
+        }
+    }
+
+    /** @param array<string,mixed>|null $session @return array<string,mixed>|null */
+    private static function session_lifecycle_attempt(?array $session): ?array {
+        if ($session === null || !array_key_exists('lifecycle_attempt', $session)) {
+            return null;
+        }
+        $attempt = $session['lifecycle_attempt'];
+        if (!is_array($attempt)) {
+            throw new \RuntimeException('duo: malformed unresolved lifecycle attempt');
+        }
+        $keys = array_keys($attempt);
+        sort($keys, SORT_STRING);
+        if ($keys !== ['before_hash', 'entity', 'phase']
+            || ($attempt['entity'] ?? null) !== 'options/core'
+            || !is_string($attempt['phase'] ?? null)
+            || !in_array($attempt['phase'], ['all', 'retire', 'activate'], true)
+            || !is_string($attempt['before_hash'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', $attempt['before_hash']) !== 1) {
+            throw new \RuntimeException('duo: malformed unresolved lifecycle attempt');
+        }
+        return $attempt;
+    }
+
+    /** @param array<string,mixed>|null $session @return list<string> */
+    private static function session_lifecycle_phases(?array $session): array {
+        if ($session === null || !array_key_exists('lifecycle_phases', $session)) {
+            return [];
+        }
+        $phases = $session['lifecycle_phases'];
+        if (!is_array($phases) || !array_is_list($phases)
+            || ($phases !== ['retire'] && $phases !== ['retire', 'activate'])) {
+            throw new \RuntimeException('duo: malformed completed lifecycle phase receipt');
+        }
+        return $phases;
     }
 
     private static function ttl(?int $ttl): int {

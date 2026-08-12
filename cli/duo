@@ -23,6 +23,7 @@ require __DIR__ . '/src/SshTransport.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/RollbackAuthority.php';
 require __DIR__ . '/src/VerifiedRollbackProfile.php';
+require __DIR__ . '/src/ScopedRollbackProfile.php';
 require __DIR__ . '/src/BootstrapEligibility.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Init.php';
@@ -73,6 +74,7 @@ use Duo\Orchestrator\PlanView;
 use Duo\Orchestrator\PlanViewException;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
+use Duo\Orchestrator\ScopedRollbackProfile;
 use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
@@ -118,7 +120,7 @@ Usage:
   duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
   duo env-set <env> --name=<name> (--value=<value> | --stdin)
-  duo promote <env> [extra apply flags...]
+  duo promote <env> [--scope-contract=<local-path>] [--with-deletes] [--format=json]
   duo pending <env>
   duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
   duo coverage <env> [--format=json]
@@ -1773,7 +1775,7 @@ function reject_scope_wire_flag(string $verb, array $extra): ?int {
 
 /** Refuse a local scope path anywhere the host does not own scope semantics. */
 function reject_unsupported_scope_contract(string $verb, array $extra): ?int {
-    if (in_array($verb, ['capture', 'plan', 'apply', 'refresh', 'rebase'], true)) {
+    if (in_array($verb, ['capture', 'plan', 'apply', 'promote', 'refresh', 'rebase'], true)) {
         return null;
     }
     foreach ($extra as $arg) {
@@ -1785,7 +1787,7 @@ function reject_unsupported_scope_contract(string $verb, array $extra): ?int {
             $extra,
             'invalid_arguments',
             "$verb does not support scoped contracts",
-            'use --scope-contract only with capture, plan, apply, refresh, or rebase'
+            'use --scope-contract only with capture, plan, apply, promote, refresh, or rebase'
         );
     }
     return null;
@@ -2237,8 +2239,442 @@ function cmd_deploy(EnvironmentDriver $t, array $extra): int {
  * operation to the artifact it already compiled.
  */
 function cmd_promote(EnvironmentDriver $t, array $extra): int {
+    foreach ($extra as $arg) {
+        if (is_string($arg) && is_scope_contract_flag($arg)) {
+            return cmd_promote_scoped($t, $extra);
+        }
+    }
     $result = cmd_promote_internal($t, $extra, null);
     return is_int($result) ? $result : 1;
+}
+
+/**
+ * Public scoped promotion is a separate SSH-only protocol. It never enters
+ * ordinary promotion's code/lifecycle/upload path. The signed controller
+ * generation holds a v2 all-database-writer exclusion and encrypted full-DB
+ * checkpoint only for this promotion window; failure restores and verifies
+ * that prior DB before reopening traffic. Once committed, no later rollback
+ * is exposed because unrelated writes may resume.
+ */
+function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
+    $contractPath = null;
+    $withDeletes = false;
+    $json = false;
+    foreach ($extra as $arg) {
+        if (!is_string($arg) || is_scope_request_wire_flag((string) $arg)) {
+            return scope_wire_refusal(
+                'promote', $extra, 'invalid_arguments',
+                'promote received a malformed or orchestrator-reserved scoped argument',
+                'supply exactly one --scope-contract=<local-path> with optional --with-deletes and --format=json'
+            );
+        }
+        if ($arg === '--with-deletes') {
+            if ($withDeletes) {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received duplicate --with-deletes',
+                    'supply --with-deletes at most once'
+                );
+            }
+            $withDeletes = true;
+            continue;
+        }
+        if ($arg === '--format=json' || $arg === '--json') {
+            if ($json) {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received duplicate JSON output flags',
+                    'supply exactly one --format=json'
+                );
+            }
+            $json = true;
+            continue;
+        }
+        if ($arg === '--scope-contract' || (str_starts_with($arg, '--scope-contract')
+            && !str_starts_with($arg, '--scope-contract='))) {
+            return scope_wire_refusal(
+                'promote', $extra, 'invalid_arguments', 'promote received a malformed scope contract flag',
+                'supply exactly one --scope-contract=<local-path>'
+            );
+        }
+        if (str_starts_with($arg, '--scope-contract=')) {
+            if ($contractPath !== null) {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received more than one scope contract',
+                    'supply exactly one --scope-contract=<local-path>'
+                );
+            }
+            $contractPath = substr($arg, strlen('--scope-contract='));
+            if ($contractPath === '') {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received an empty scope contract path',
+                    'supply one readable canonical contract with --scope-contract=<local-path>'
+                );
+            }
+            continue;
+        }
+        return scope_wire_refusal(
+            'promote', $extra, 'invalid_arguments', 'scoped promote received an unsupported argument',
+            'remove force/apply flags; the scoped promotion profile accepts only --with-deletes and --format=json'
+        );
+    }
+    if ($contractPath === null) {
+        return scope_wire_refusal(
+            'promote', $extra, 'invalid_arguments', 'scoped promote has no scope contract',
+            'supply exactly one --scope-contract=<local-path>'
+        );
+    }
+    try {
+        $scopeInput = read_scope_contract_input($contractPath);
+    } catch (\Throwable $_failure) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scope_contract_invalid',
+            'the local scope contract is malformed, tampered, or unsupported',
+            'generate a fresh contract with duo scope --contract and retry promote'
+        );
+    }
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scoped_promotion_unavailable',
+            'scoped promotion requires the SSH verified recovery profile',
+            'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
+        );
+    }
+
+    $contract = $scopeInput['contract'];
+    $scopeHash = (string) $contract['scope_hash'];
+    $sourceArtifact = (string) $contract['source']['artifact_hash'];
+    $repo = rtrim($t->repoPath(), '/');
+    $artifact = $repo . '/.duo/artifacts/scoped-promote-' . $sourceArtifact . '.json';
+    $mkdir = $t->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)));
+    if (($mkdir['exit'] ?? 1) !== 0) {
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, 'scoped_promotion_artifact_unavailable',
+                'the target scoped artifact staging boundary is unavailable',
+                'inspect private operator logs, repair target artifact storage, and retry'
+            );
+        }
+        fwrite(STDERR, "duo: scoped promote: could not create the target artifact directory\n");
+        print_transport_detail($mkdir);
+        return (int) (($mkdir['exit'] ?? 1) ?: 1);
+    }
+
+    echo $json ? '' : "scoped promote phase: compile\n";
+    $compile = CodeDeploy::compile($t, $repo, $artifact);
+    if (($compile['exit'] ?? 1) !== 0 || !is_array($compile['summary'] ?? null)) {
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, 'scoped_promotion_compile_failed',
+                'the target could not compile the scoped source artifact',
+                'inspect private operator logs, repair source/policy compilation, and retry'
+            );
+        }
+        fwrite(STDERR, "duo: scoped promote: compile failed before exclusion/checkpoint\n");
+        print_transport_detail($compile);
+        return (int) (($compile['exit'] ?? 1) ?: 1);
+    }
+    $artifactHash = (string) ($compile['summary']['artifact_hash'] ?? '');
+    if (!hash_equals($sourceArtifact, $artifactHash)) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scope_contract_stale',
+            'the scope contract is not bound to the current compiled source artifact',
+            'generate a fresh scope contract from the current source revision and retry promote'
+        );
+    }
+    if (CodeDeploy::dispositionBlockers($compile['summary']) !== []) {
+        return scope_wire_refusal(
+            'promote', $extra, 'adapter_not_certified',
+            'the scoped artifact selects an adapter without current certified disposition',
+            'repair adapter certification and regenerate the scope contract before retrying'
+        );
+    }
+
+    $planArgs = [
+        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $artifact,
+        '--scope-request-b64=' . $scopeInput['request_b64'], '--scoped-promotion', '--format=json',
+    ];
+    $planResult = $t->captureWp($planArgs);
+    if (($planResult['exit'] ?? 1) !== 0) {
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, 'scoped_promotion_plan_refused',
+                'the target refused the strict scoped plan before checkpoint claim',
+                'inspect private operator logs, reconcile the scoped target preconditions, and retry'
+            );
+        }
+        fwrite(STDERR, "duo: scoped promote: target plan refused before exclusion/checkpoint\n");
+        print_transport_detail($planResult);
+        return (int) (($planResult['exit'] ?? 1) ?: 1);
+    }
+    try {
+        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+        scoped_promotion_assert_plan($plan, $scopeHash, $artifactHash);
+        $selection = ScopedRollbackProfile::select($t, $plan, $scopeHash, $withDeletes);
+        if (($selection['automatic'] ?? false) !== true) {
+            throw new \RuntimeException((string) ($selection['reason'] ?? 'checkpoint-only recovery unavailable'));
+        }
+    } catch (\Throwable $failure) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scoped_promotion_preflight_failed',
+            'the scoped target plan is not eligible for exclusive-window checkpoint recovery',
+            'inspect private operator logs, repair the recovery/profile precondition or narrow the scope, then retry'
+        );
+    }
+
+    $owner = 'scoped-' . hash('sha256', $scopeHash . "\0" . $artifactHash);
+    $profile = new ScopedRollbackProfile($t);
+    $claimed = false;
+    $sealAttempted = false;
+    try {
+        echo $json ? '' : "scoped promote phase: rollback-claim\n";
+        $claim = $profile->claim($plan, $scopeHash, $owner, $owner, null, $withDeletes);
+        $claimed = true;
+        $status = (array) ($claim['status'] ?? []);
+        $receiptHash = (string) ($claim['receipt_payload_sha256'] ?? '');
+        if (preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1) {
+            throw new \RuntimeException('scoped rollback claim returned no immutable receipt payload hash');
+        }
+
+        if (in_array((string) ($status['state'] ?? ''), [
+            'rollback_pending', 'rolling_back', 'verifying_prior', 'rolled_back',
+        ], true)) {
+            $profile->rollback();
+            throw new \RuntimeException('the prior scoped promotion was rolled back; retry to start a new generation');
+        }
+        // `verifying_new` is the durable forward-only boundary: the target
+        // accepted the exact scoped Apply terminal receipt before the
+        // controller published it, and the first seal event can survive a
+        // response/process loss on its own.  Target begin deliberately does
+        // not trust that nonterminal state, so finish the second signed seal
+        // transition before asking it to recreate the receipt-bound handoff.
+        // In particular, never route this state through the ordinary
+        // pre-fresh-verification rollback catch below: that would restore an
+        // already fresh-verified Apply solely because the first response was lost.
+        if ((string) ($status['state'] ?? '') === 'verifying_new') {
+            $sealAttempted = true;
+            $status = $profile->sealCommit();
+        } else {
+            $status = $profile->startPromotion();
+        }
+
+        echo $json ? '' : "scoped promote phase: promotion-begin-scoped\n";
+        $begin = $t->captureWp(CodeDeploy::beginScopedArgs(
+            $owner,
+            $artifactHash,
+            $receiptHash,
+            $scopeHash
+        ));
+        if (($begin['exit'] ?? 1) !== 0) {
+            if (!$json) {
+                print_transport_detail($begin);
+            }
+            throw new \RuntimeException('target scoped promotion session could not begin or resume');
+        }
+
+        // Refresh the provider reservation immediately before a nonterminal
+        // blocking target apply. A committed-but-held generation is an exact
+        // terminal replay used only to retire the target handoff and release
+        // the exclusion; terminal chains cannot accept a keepalive event.
+        if ((string) ($status['state'] ?? '') !== 'committed') {
+            $profile->keepalive();
+        }
+
+        echo $json ? '' : "scoped promote phase: apply\n";
+        $applyArgs = [
+            'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+            '--scope-request-b64=' . $scopeInput['request_b64'],
+            '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
+            '--scoped-promotion-receipt=' . $receiptHash, '--format=json',
+        ];
+        if ($withDeletes) {
+            $applyArgs[] = '--with-deletes';
+        }
+        $applyResult = $t->captureWp($applyArgs);
+        if (($applyResult['exit'] ?? 1) !== 0) {
+            if (!$json) {
+                print_transport_detail($applyResult);
+            }
+            throw new \RuntimeException('target scoped apply failed under the signed rollback generation');
+        }
+        $summary = json_decode(trim((string) ($applyResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+        $terminal = scoped_promotion_terminal_receipt($summary);
+
+        // Normal Apply releases this already; terminal lost-response replay
+        // returns before acquiring it. Exact abort makes both paths converge
+        // before the external generation can publish committed/reopen traffic.
+        if (!promotion_abort($t, $owner, $artifactHash, !$json)) {
+            throw new \RuntimeException('target promotion lease release could not be verified');
+        }
+        $profile->recordScopedApply($terminal);
+
+        // Seal the successful signed generation while the independent
+        // all-database-writer exclusion remains held.  A controller restart
+        // can now re-create/recover the receipt-bound target handoff and replay
+        // the archived terminal Apply result without authoring a second time.
+        $sealAttempted = true;
+        $committed = $profile->sealCommit();
+        $completeTarget = $t->captureWp(
+            CodeDeploy::completeScopedArgs($owner, $artifactHash, $receiptHash, $scopeHash)
+        );
+        if (($completeTarget['exit'] ?? 1) !== 0) {
+            if (!$json) {
+                print_transport_detail($completeTarget);
+            }
+            throw new \RuntimeException('target scoped promotion session completion could not be verified');
+        }
+        $committed = $profile->release();
+        $result = [
+            'format' => 'duo-scoped-promotion-result/v1',
+            'artifact_hash' => $artifactHash,
+            'scope_hash' => $scopeHash,
+            'generation' => (int) ($committed['generation'] ?? 0),
+            'receipt_id' => (string) ($committed['receipt_id'] ?? ''),
+            'state' => (string) ($committed['state'] ?? ''),
+            'scoped_apply' => $summary,
+            'rollback' => [
+                'format' => (string) ($committed['receipt_format'] ?? ''),
+                'automatic_window_closed' => true,
+                'later_rollback_supported' => false,
+            ],
+        ];
+        if ($json) {
+            echo json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        } else {
+            echo "scoped promote complete: generation {$result['generation']} committed; "
+                . "traffic exclusion released (automatic rollback was closed by fresh verification)\n";
+        }
+        return 0;
+    } catch (\Throwable $failure) {
+        if (!$json) {
+            fwrite(STDERR, "duo: scoped promote: {$failure->getMessage()}\n");
+        }
+        promotion_abort($t, $owner, $artifactHash, !$json);
+        $publicReason = 'scoped_promotion_recovery_required';
+        $publicMessage = 'the scoped promotion did not complete its signed checkpoint protocol';
+        $publicRemediation = 'inspect private operator logs and resume the exact signed generation before another promotion';
+        if ($claimed) {
+            try {
+                $recoveryStatus = $profile->status();
+                // The first successful seal transition is not terminal, but
+                // it is already a proven fresh-world boundary: it follows
+                // exact completed scoped_apply evidence and can proceed only
+                // to committed.  Do not restore that world merely because a
+                // controller lost the transition response or a later target
+                // completion response.  Both states resume through the
+                // committed target replay/complete/release path.
+                if (in_array((string) ($recoveryStatus['state'] ?? ''), [
+                    'verifying_new', 'committed',
+                ], true)) {
+                    if (!$json) {
+                        fwrite(
+                            STDERR,
+                            'duo: scoped promote: the signed generation has accepted fresh-world evidence but target cleanup/exclusion release is incomplete or uncertain; retry this exact scoped promote to finish without reauthoring state' . "\n"
+                        );
+                    }
+                    $publicReason = 'scoped_promotion_completion_pending';
+                    $publicMessage = 'the signed scoped generation has accepted fresh-world evidence but target cleanup or exclusion release is incomplete';
+                    $publicRemediation = 'retry this exact scoped promote to finish without reauthoring target state';
+                    if ($json) {
+                        return scope_wire_refusal(
+                            'promote', $extra, $publicReason, $publicMessage, $publicRemediation
+                        );
+                    }
+                    return 1;
+                }
+                $rolledBack = $profile->rollback();
+                if (!$json) {
+                    fwrite(
+                        STDERR,
+                        'duo: scoped promote: prior database verified; generation '
+                        . (int) ($rolledBack['generation'] ?? 0) . " rolled_back and exclusion released\n"
+                    );
+                }
+                $publicReason = 'scoped_promotion_rolled_back';
+                $publicMessage = 'the scoped promotion failed before durable fresh-world verification '
+                    . 'and the prior database was restored and verified';
+                $publicRemediation = 'inspect private operator logs, repair the failed target boundary, and retry as a new generation';
+            } catch (\Throwable $rollbackFailure) {
+                $boundary = $sealAttempted
+                    ? 'fresh-verification/commit status is uncertain; automatic rollback was not guessed'
+                    : 'signed recovery remains nonterminal with exclusion held';
+                if (!$json) {
+                    fwrite(
+                        STDERR,
+                        'duo: scoped promote: ' . $boundary . ': '
+                        . $rollbackFailure->getMessage() . "\n"
+                    );
+                }
+            }
+        }
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, $publicReason, $publicMessage, $publicRemediation
+            );
+        }
+        return 1;
+    }
+}
+
+/** @param mixed $plan */
+function scoped_promotion_assert_plan(mixed $plan, string $scopeHash, string $artifactHash): void {
+    if (!is_array($plan)
+        || ($plan['format'] ?? null) !== 'duo-scoped-plan/v1'
+        || !hash_equals($scopeHash, (string) ($plan['scope']['scope_hash'] ?? ''))
+        || !hash_equals($artifactHash, (string) ($plan['scope']['source_artifact_hash'] ?? ''))) {
+        throw new \RuntimeException('target returned a malformed or differently-bound scoped plan');
+    }
+    foreach (['code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'regen_pending', 'regen_context'] as $key) {
+        if ((array) ($plan[$key] ?? []) !== []) {
+            throw new \RuntimeException("target scoped plan retains blocking $key evidence");
+        }
+    }
+    if ((array) ($plan['selected_actions'] ?? []) !== []
+        || (array) ($plan['provider_problems'] ?? []) !== []) {
+        throw new \RuntimeException('target scoped plan selects provider/native actions or unresolved providers');
+    }
+    foreach ((array) ($plan['selected_surfaces'] ?? []) as $surface) {
+        $surface = (string) $surface;
+        if (!str_starts_with($surface, 'option:')
+            && !str_starts_with($surface, 'table:')
+            && !in_array($surface, ['entity:sidebar', 'entity:user-meta'], true)) {
+            throw new \RuntimeException("target scoped plan selects unsupported derived surface '$surface'");
+        }
+    }
+}
+
+/** @param mixed $summary @return array<string,mixed> */
+function scoped_promotion_terminal_receipt(mixed $summary): array {
+    if (!is_array($summary)
+        || ($summary['format'] ?? null) !== 'duo-scoped-apply-result/v1'
+        || !is_array($summary['scoped_receipt'] ?? null)) {
+        throw new \RuntimeException('target returned no canonical scoped terminal receipt');
+    }
+    $receipt = $summary['scoped_receipt'];
+    $keys = array_keys($receipt);
+    sort($keys, SORT_STRING);
+    if ($keys !== [
+        'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash', 'phase',
+        'protected_ledger_map_hash', 'receipts_hash', 'selected_ledger_map_hash',
+        'session_id', 'terminal_hash',
+    ] || ($receipt['phase'] ?? null) !== 'complete') {
+        throw new \RuntimeException('target returned a malformed scoped terminal receipt schema');
+    }
+    foreach ([
+        'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash',
+        'protected_ledger_map_hash', 'receipts_hash', 'selected_ledger_map_hash', 'terminal_hash',
+    ] as $key) {
+        if (preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt[$key] ?? '')) !== 1) {
+            throw new \RuntimeException("target scoped terminal receipt has invalid $key");
+        }
+    }
+    $withoutHash = $receipt;
+    unset($withoutHash['terminal_hash']);
+    if (!hash_equals(
+        (string) $receipt['terminal_hash'],
+        hash('sha256', \Duo\Canon::encode($withoutHash))
+    )) {
+        throw new \RuntimeException('target scoped terminal receipt hash does not verify');
+    }
+    return $receipt;
 }
 
 /**
@@ -2284,6 +2720,15 @@ function cmd_promote_frozen(EnvironmentDriver $t, array $context, array $extra =
  * @return array<string,mixed>|int
  */
 function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozenContext): array|int {
+    foreach ($extra as $arg) {
+        if (is_string($arg) && is_scope_contract_flag($arg)) {
+            return scope_wire_refusal(
+                'promote', $extra, 'invalid_arguments',
+                'the ordinary/frozen promotion path cannot consume a scope contract',
+                'invoke public `duo promote <env> --scope-contract=<local-path>` so the separate signed scoped profile is selected'
+            );
+        }
+    }
     $scopeRefusal = reject_unsupported_scope_contract('promote', $extra);
     if ($scopeRefusal !== null) {
         return $scopeRefusal;
@@ -3298,14 +3743,21 @@ function promote_verified_failed(
  * hard warning: never erase another promotion's lock to make this run look
  * clean.
  */
-function promotion_abort(EnvironmentDriver $t, string $owner, string $artifactHash): bool {
+function promotion_abort(
+    EnvironmentDriver $t,
+    string $owner,
+    string $artifactHash,
+    bool $emitDetails = true
+): bool {
     $abort = $t->captureWp(CodeDeploy::abortArgs($owner, $artifactHash));
     if ($abort['exit'] === 0) {
         return true;
     }
-    fwrite(STDERR, "duo: promote: promotion lease cleanup could not be confirmed\n");
-    print_transport_detail($abort);
-    fwrite(STDERR, "retry lease cleanup with: " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    if ($emitDetails) {
+        fwrite(STDERR, "duo: promote: promotion lease cleanup could not be confirmed\n");
+        print_transport_detail($abort);
+        fwrite(STDERR, "retry lease cleanup with: " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    }
     return false;
 }
 

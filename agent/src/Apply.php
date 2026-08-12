@@ -71,6 +71,8 @@ final class Apply {
     /** Hash-only target witnesses captured under the active promotion lease. */
     private ?array $scopedObservation = null;
     private ?ScopedApplySession $scopedSession = null;
+    /** Exact signed external checkpoint generation, when this is scoped promote. */
+    private ?array $scopedPromotionWitness = null;
     /** Prior terminal slot awaiting a fully preflighted different scoped authority. */
     private ?ScopedApplySession $terminalScopedSessionToArchive = null;
 
@@ -117,6 +119,11 @@ final class Apply {
         $a = new self($repo, $policy, $compiled);
         $scopeRequest = $opts['scope_request'] ?? null;
         $scoped = is_array($scopeRequest);
+        // The SSH checkpoint profile has a read-only pre-claim projection
+        // whose action diagnosis must match the receipt-bearing Apply path.
+        // Ordinary and local scoped plans deliberately retain their historical
+        // drift projection; only the explicit host profile opts in here.
+        $scopedPromotion = $scoped && !empty($opts['scoped_promotion']);
         if ($scoped) {
             // A scoped plan is strict observation. It may not provision or
             // repair ledger identity as a side effect of asking what a future
@@ -153,7 +160,7 @@ final class Apply {
                 $a->scoped_ledger_map_identity_hashes(),
                 $a->scoped_allows_target_old_menu_items($actual)
             );
-            $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false);
+            $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false, $scopedPromotion);
             $surfaces = $a->rebuild_surfaces(
                 $work['work'],
                 $compiled->tree(),
@@ -173,6 +180,12 @@ final class Apply {
             // is called from plan.
             $diagnosis = Providers::negotiate_scoped($policy, $selectedActions);
             $plan['format'] = ScopedApply::PLAN_FORMAT;
+            // ScopedRollbackProfile binds its checkpoint/recovery authority to
+            // the exact compiled artifact and adapter-resolution set. Keep
+            // both immutable witnesses in the public plan before the target
+            // can negotiate or claim the scoped handoff.
+            $plan['artifact_hash'] = $compiled->artifact_hash();
+            $plan['resolved_adapters'] = $compiled->resolved_adapters();
             $plan['scope'] = [
                 'format' => ScopeContract::FORMAT,
                 'scope_hash' => (string) $a->scopeContract['scope_hash'],
@@ -1327,9 +1340,13 @@ final class Apply {
      *
      * @return array<string,bool>
      */
-    private function guard_repair_uuids(array $plan): array {
+    private function guard_repair_uuids(array $plan, bool $includeDrift = false): array {
         $out = [];
-        foreach (['create', 'update', 'adopt'] as $bucket) {
+        $buckets = ['create', 'update', 'adopt'];
+        if ($includeDrift) {
+            $buckets[] = 'drift';
+        }
+        foreach ($buckets as $bucket) {
             foreach ((array) ($plan[$bucket] ?? []) as $row) {
                 $uuid = (string) ($row['uuid'] ?? '');
                 if ($uuid !== '') {
@@ -2168,6 +2185,8 @@ final class Apply {
         Canary::suppress_cron_spawn();
         $scopeRequest = $opts['scope_request'] ?? null;
         $scoped = is_array($scopeRequest);
+        $scopedPromotionWitness = self::assert_scoped_promotion_request($opts, $scoped);
+        $allowDeletes = !empty($opts['with_deletes']);
         if ($scoped) {
             Ledger::assert_read_only_schema();
             // Recompute before target mutation so malformed/stale evidence
@@ -2200,18 +2219,92 @@ final class Apply {
                 $authority = $existingScopedSession->authority();
                 if (hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $preflightContract['scope_hash'])
                     && hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())) {
-                    $terminalReplaySession = $existingScopedSession;
+                    if ($scopedPromotionWitness === null) {
+                        $terminalReplaySession = $existingScopedSession;
+                    } else {
+                        try {
+                            ScopedApplySession::assert_external_promotion(
+                                $authority,
+                                $scopedPromotionWitness,
+                                $allowDeletes
+                            );
+                            if (($scopedPromotionWitness['state'] ?? null) === 'promoting'
+                                && !hash_equals(
+                                    (string) ($authority['lease']['session_id'] ?? ''),
+                                    PromotionLock::session_id(
+                                        (string) $opts['promotion_owner'],
+                                        $compiled->artifact_hash()
+                                    )
+                                )) {
+                                throw CommandRefusalException::applyRefused(
+                                    'the promoting scoped terminal belongs to a different target handoff generation',
+                                    'retain the exclusion and recover the exact original ps-* target handoff before retrying',
+                                    'duo: external scoped terminal lease generation changed'
+                                );
+                            }
+                            $terminalReplaySession = $existingScopedSession;
+                        } catch (CommandRefusalException $refusal) {
+                            throw $refusal;
+                        } catch (\Throwable $_differentExternalGeneration) {
+                            $archivedReceipt = (string) ($authority['promotion']['receipt_payload_sha256'] ?? '');
+                            $currentReceipt = (string) ($scopedPromotionWitness['receipt_payload_sha256'] ?? '');
+                            $archivedGeneration = (int) ($authority['promotion']['generation'] ?? 0);
+                            $currentGeneration = (int) ($scopedPromotionWitness['generation'] ?? 0);
+                            if (($authority['format'] ?? null) !== ScopedApplySession::EXTERNAL_AUTHORITY_FORMAT
+                                || ($archivedReceipt !== '' && hash_equals($archivedReceipt, $currentReceipt))
+                                || $archivedGeneration < 1
+                                || $currentGeneration < 1
+                                || $currentGeneration <= $archivedGeneration) {
+                                throw CommandRefusalException::applyRefused(
+                                    'the prior scoped terminal lacks the exact current external generation binding',
+                                    'retain the exclusion and reconcile the legacy or corrupted terminal authority before retrying',
+                                    'duo: external scoped terminal generation binding mismatch'
+                                );
+                            }
+                            // A prior terminal for this scope/artifact is not
+                            // replay authority for a newer signed generation.
+                            // The promoting path archives it only after all
+                            // current preflight gates pass; committed remains
+                            // fail-closed below when no exact archive exists.
+                        }
+                    }
                 }
             }
             if ($terminalReplaySession === null) {
+                $promotionBindingHash = $scopedPromotionWitness === null
+                    ? null
+                    : ScopedApplySession::external_promotion_binding_hash(
+                        $scopedPromotionWitness,
+                        $allowDeletes
+                    );
                 $terminalReplaySession = ScopedApplySession::open_terminal_for_request(
                     $sessionStorage,
                     (string) $preflightContract['scope_hash'],
-                    $compiled->artifact_hash()
+                    $compiled->artifact_hash(),
+                    $promotionBindingHash
                 );
             }
             if ($terminalReplaySession !== null) {
                 $authority = $terminalReplaySession->authority();
+                if ($scopedPromotionWitness !== null) {
+                    ScopedApplySession::assert_external_promotion(
+                        $authority,
+                        $scopedPromotionWitness,
+                        $allowDeletes
+                    );
+                    if (($scopedPromotionWitness['state'] ?? null) === 'promoting'
+                        && !hash_equals(
+                        (string) ($authority['lease']['session_id'] ?? ''),
+                        PromotionLock::session_id(
+                            (string) $opts['promotion_owner'],
+                            $compiled->artifact_hash()
+                        )
+                    )) {
+                        throw new \RuntimeException(
+                            'duo: scoped terminal authority does not match the current target handoff generation'
+                        );
+                    }
+                }
                 // A terminal receipt is an idempotent lost-response result,
                 // not a timeless claim about a target that may since have
                 // drifted. Re-prove the bounded authored/map witnesses before
@@ -2251,6 +2344,13 @@ final class Apply {
                 return self::scoped_terminal_summary($terminalReplaySession);
             }
         }
+        if (($scopedPromotionWitness['state'] ?? null) === 'committed') {
+            throw CommandRefusalException::applyRefused(
+                'the external scoped promotion is already committed but no exact target terminal receipt can be replayed',
+                'retain the exclusion and reconcile the missing target terminal archive before retrying completion',
+                'duo: committed scoped promotion has no replayable target terminal receipt'
+            );
+        }
         if ($scoped && $existingScopedSession !== null && $existingScopedSession->is_terminal()) {
             // A completed session may be rotated only by the protocol's exact
             // terminal-archive operation. Never overwrite it as though it were
@@ -2266,6 +2366,13 @@ final class Apply {
         $recoveringScopedSession = $scoped
             && $existingScopedSession !== null
             && !$existingScopedSession->is_terminal();
+        if ($recoveringScopedSession && $scopedPromotionWitness === null) {
+            // A crash-recovery call may omit promotion_owner because the
+            // scoped apply session seals its lease identity. That must not let
+            // an externally checkpointed profile shed its receipt/witness and
+            // enter the generic ScopedApplySession recovery path.
+            PromotionLock::assert_no_unbound_scoped_continuation();
+        }
         $promotionOwner = $recoveringScopedSession
             ? (string) $existingScopedSession->lease()['owner']
             : PromotionLock::owner($opts);
@@ -2322,6 +2429,7 @@ final class Apply {
             $a->promotionOwner = $promotionOwner;
             $a->promotionArtifact = $promotionArtifact;
             $a->scopedSession = $recoveringScopedSession ? $existingScopedSession : null;
+            $a->scopedPromotionWitness = $scopedPromotionWitness;
             $a->terminalScopedSessionToArchive = $terminalScopedSessionToArchive;
             if ($scoped) {
                 $a->scopeContract = ScopedApply::resolve_contract(
@@ -2338,6 +2446,24 @@ final class Apply {
                 if ($pauseMs > 0 && $pauseMs <= 10000) {
                     usleep($pauseMs * 1000);
                 }
+            }
+            if ($scopedPromotionWitness !== null) {
+                $scopeHash = (string) ($scopeRequest['scope_hash'] ?? '');
+                $scopedPromotionWitness = ScopedPromotionAuthority::require_installed(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    (string) $opts['scoped_promotion_receipt'],
+                    $scopeHash,
+                    ['promoting'],
+                    $allowDeletes
+                );
+                PromotionLock::assert_scoped_promotion_session(
+                    $promotionOwner,
+                    $promotionArtifact,
+                    (string) $opts['scoped_promotion_receipt'],
+                    $scopeHash,
+                    $scopedPromotionWitness
+                );
             }
             $summary = $a->run($opts, $lockedCompiled);
             PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'complete');
@@ -2491,6 +2617,7 @@ final class Apply {
         global $wpdb;
         $tree = $compiled->tree();
         $scoped = $this->scopeContract !== null;
+        $scopedPromotion = (string) ($opts['scoped_promotion_receipt'] ?? '') !== '';
         $recoveringScoped = $scoped && $this->scopedSession !== null;
         $retryingIncompleteApply = Ledger::kv_get('apply_in_progress') !== null;
         if ($scoped && $retryingIncompleteApply) {
@@ -2572,7 +2699,19 @@ final class Apply {
 
         $pendingOptionDeletes = [];
         $pendingOptionConflictEvidence = [];
-        foreach ($recoveringScoped ? [] : array_merge($plan['create'], $plan['update'], $plan['conflict']) as $r) {
+        $pendingOptionWork = $recoveringScoped
+            ? []
+            : array_merge($plan['create'], $plan['update'], $plan['conflict']);
+        if ($scopedPromotion) {
+            // Ordinary apply deliberately leaves environment-only drift for
+            // capture/reconciliation. The externally checkpointed profile is
+            // different: its whole-target exclusion and encrypted before
+            // image authorize replacing the selected drift with the frozen
+            // repository state. Keep the deletion gate aligned with that
+            // same bounded authored work set.
+            $pendingOptionWork = array_merge($pendingOptionWork, (array) ($plan['drift'] ?? []));
+        }
+        foreach ($pendingOptionWork as $r) {
             foreach ($r['option_deletes'] ?? [] as $name) {
                 $pendingOptionDeletes[] = $name;
             }
@@ -2645,7 +2784,13 @@ final class Apply {
             $this->warnings[] = 'FORCED past code_mismatch: ' . $r['message'];
         }
 
-        $rebuildWork = $this->rebuild_work($plan, $tree, $opts, $retryingIncompleteApply);
+        $rebuildWork = $this->rebuild_work(
+            $plan,
+            $tree,
+            $opts,
+            $retryingIncompleteApply,
+            $scopedPromotion
+        );
         if ($recoveringScoped) {
             $rebuildWork = $this->scoped_recovery_work($plan, $compiled);
         }
@@ -2708,7 +2853,7 @@ final class Apply {
         $this->tokens->defaultUserId = $this->defaultAuthor;
 
         $deleteUuids = array_fill_keys(array_column($deleteWork, 'uuid'), true);
-        $guardRepairUuids = $this->guard_repair_uuids($plan);
+        $guardRepairUuids = $this->guard_repair_uuids($plan, $scopedPromotion);
 
         // DUO-3338 provider negotiation, deliberately positioned here: the
         // rebuild pass at the far end of this method is what actually invokes
@@ -2724,6 +2869,9 @@ final class Apply {
         $this->selectedActions = $this->policy->actions_for(
             $this->rebuild_surfaces($work, $tree, $rebuildDeleteWork)
         );
+        if ($scopedPromotion) {
+            $this->assert_scoped_promotion_selection($work, $deleteWork, $tree);
+        }
         if ($scoped) {
             foreach ($this->selectedActions as $action) {
                 if (!array_key_exists('triggers', $action)) {
@@ -2829,7 +2977,8 @@ final class Apply {
                 $freshPlan,
                 $tree,
                 $opts,
-                $retryingIncompleteApply
+                $retryingIncompleteApply,
+                $scopedPromotion
             );
             $freshSelectedActions = $this->policy->actions_for($this->rebuild_surfaces(
                 $freshRebuildWork['work'],
@@ -2889,6 +3038,26 @@ final class Apply {
             $this->scopedObservation = $freshObservation;
         }
 
+        if ($scopedPromotion) {
+            $scopeHash = (string) ($this->scopeContract['scope_hash'] ?? '');
+            $authorityWitness = ScopedPromotionAuthority::require_installed(
+                $this->promotionOwner,
+                $this->promotionArtifact,
+                (string) $opts['scoped_promotion_receipt'],
+                $scopeHash,
+                ['promoting'],
+                !empty($opts['with_deletes'])
+            );
+            $this->scopedPromotionWitness = $authorityWitness;
+            PromotionLock::assert_scoped_promotion_session(
+                $this->promotionOwner,
+                $this->promotionArtifact,
+                (string) $opts['scoped_promotion_receipt'],
+                $scopeHash,
+                $authorityWitness
+            );
+        }
+
         $performAuthoredTransaction = true;
         $authorIntent = null;
         if ($scoped) {
@@ -2910,7 +3079,8 @@ final class Apply {
                     $work,
                     $executeDeletes ? $deleteWork : [],
                     $negotiation,
-                    $compiled
+                    $compiled,
+                    !empty($opts['with_deletes'])
                 );
             if (!hash_equals((string) ($authority['scope_hash'] ?? ''), (string) $this->scopeContract['scope_hash'])
                 || !hash_equals((string) ($authority['source']['artifact_hash'] ?? ''), $compiled->artifact_hash())
@@ -2921,6 +3091,13 @@ final class Apply {
                     PromotionLock::session_id($this->promotionOwner, $this->promotionArtifact)
                 )) {
                 throw new \RuntimeException('duo: scoped apply recovery authority no longer matches the frozen source and live lease');
+            }
+            if ($this->scopedPromotionWitness !== null) {
+                ScopedApplySession::assert_external_promotion(
+                    $authority,
+                    $this->scopedPromotionWitness,
+                    !empty($opts['with_deletes'])
+                );
             }
             if (!hash_equals(
                 (string) ($authority['code_witness_hash'] ?? ''),
@@ -3373,7 +3550,8 @@ final class Apply {
             $plan['deleted'],
             $scoped,
             $skipScopedCore,
-            $scopedCoreComplete
+            $scopedCoreComplete,
+            $scopedPromotion
         );
 
         if ($scoped && $this->scopedSession !== null) {
@@ -3588,7 +3766,8 @@ final class Apply {
         array $work,
         array $deleteWork,
         array $negotiation,
-        CompiledRepository $compiled
+        CompiledRepository $compiled,
+        bool $allowDeletes
     ): array {
         if ($this->scopeContract === null || $this->scopedObservation === null) {
             throw new \RuntimeException('duo: scoped mutation authority has no complete source/target evidence');
@@ -3692,7 +3871,13 @@ final class Apply {
                 'ledger_map_identity_hashes' => $ledgerMapIdentityHashes,
                 'ledger_map_identity_set_hash' => ScopedApplySession::hash_value($ledgerMapIdentityHashes),
             ],
-            ScopedApply::code_witness_hash($plan, $compiled)
+            ScopedApply::code_witness_hash($plan, $compiled),
+            $this->scopedPromotionWitness === null
+                ? null
+                : ScopedApplySession::external_promotion_binding(
+                    $this->scopedPromotionWitness,
+                    $allowDeletes
+                )
         );
     }
 
@@ -6324,7 +6509,8 @@ final class Apply {
         array $absentTombstones = [],
         bool $scoped = false,
         bool $skipScopedCore = false,
-        ?callable $scopedCoreComplete = null
+        ?callable $scopedCoreComplete = null,
+        bool $suppressScopedExternalEffects = false
     ): void {
         global $wpdb;
 
@@ -6403,8 +6589,14 @@ final class Apply {
         // a post-only COUNT query. Hierarchical taxonomies, attachment
         // taxonomies, and custom update_count_callback implementations may
         // define different published/attached semantics.
-        $taxes = array_merge($this->policy->taxonomies(), ['nav_menu']);
-        Db::checkpoint('rebuild term counts');
+        $needsTaxonomyRecount = !$suppressScopedExternalEffects
+            || $this->scoped_work_needs_taxonomy_recount($work, $tree, $appliedDeletions);
+        $taxes = $needsTaxonomyRecount
+            ? array_merge($this->policy->taxonomies(), ['nav_menu'])
+            : [];
+        if ($taxes !== []) {
+            Db::checkpoint('rebuild term counts');
+        }
         foreach (array_unique($taxes) as $taxonomy) {
             $termTaxonomyIds = $wpdb->get_col($wpdb->prepare(
                 "SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy} WHERE taxonomy = %s",
@@ -6900,6 +7092,137 @@ final class Apply {
         if (wp_cache_flush() === false) {
             throw new \RuntimeException('duo: required object-cache flush failed');
         }
+    }
+
+    /**
+     * The host's scoped-promotion flag is a tightening capability, never an
+     * alternate mutation authority. It is valid only beside the compact scope
+     * request and an already-begun target continuation, and force flags cannot
+     * widen the externally checkpointed profile.
+     */
+    private static function assert_scoped_promotion_request(
+        array $opts,
+        bool $scoped,
+        ?array $authorityWitness = null
+    ): ?array {
+        $receipt = (string) ($opts['scoped_promotion_receipt'] ?? '');
+        if ($receipt === '') {
+            if ((string) ($opts['promotion_owner'] ?? '') !== '') {
+                PromotionLock::assert_no_unbound_scoped_continuation();
+            }
+            return null;
+        }
+        if (!$scoped
+            || (string) ($opts['promotion_owner'] ?? '') === ''
+            || preg_match('/^[a-f0-9]{64}$/D', $receipt) !== 1) {
+            throw CommandRefusalException::applyRefused(
+                'scoped promotion requires one compact scope request, exact host continuation, and signed receipt hash',
+                'retry through SSH host `duo promote --scope-contract=<local-path>`',
+                'duo: invalid scoped promotion continuation'
+            );
+        }
+        foreach ([
+            'force_delete_referenced', 'force_theirs', 'force_code_mismatch',
+            'force_code_drift', 'force_unresolved_refs',
+        ] as $force) {
+            if (!empty($opts[$force])) {
+                throw CommandRefusalException::applyRefused(
+                    'scoped promotion does not permit force flags',
+                    'remove force flags and reconcile the exact scoped preconditions before retrying',
+                    'duo: scoped promotion force override refused'
+                );
+            }
+        }
+        $scopeHash = (string) (($opts['scope_request']['scope_hash'] ?? ''));
+        $authorityWitness ??= ScopedPromotionAuthority::require_installed(
+                (string) $opts['promotion_owner'],
+                (string) ($opts['artifact_hash'] ?? ''),
+                $receipt,
+                $scopeHash,
+                ['promoting', 'committed'],
+                !empty($opts['with_deletes'])
+            );
+        if (($authorityWitness['allow_deletes'] ?? null) !== !empty($opts['with_deletes'])) {
+            throw CommandRefusalException::applyRefused(
+                'scoped promotion deletion authority does not match the signed checkpoint generation',
+                'retry with the same --with-deletes intent used when the scoped checkpoint was claimed',
+                'duo: scoped promotion deletion authority mismatch'
+            );
+        }
+        PromotionLock::assert_scoped_promotion_session(
+            (string) $opts['promotion_owner'],
+            (string) ($opts['artifact_hash'] ?? ''),
+            $receipt,
+            $scopeHash,
+            $authorityWitness
+        );
+        return $authorityWitness;
+    }
+
+    /**
+     * First protocol version: only state whose runtime writes are DB-contained
+     * plus derived cache eviction. Posts/terms/menus can schedule work or call
+     * arbitrary taxonomy callbacks; attachments and declared actions can touch
+     * files/external systems. Those need a future scoped inverse contract.
+     *
+     * @param list<array<string,mixed>> $work
+     * @param list<array<string,mixed>> $deleteWork
+     * @param array<string,array<string,mixed>> $tree
+     */
+    private function assert_scoped_promotion_selection(array $work, array $deleteWork, array $tree): void {
+        if ($this->selectedActions !== []) {
+            throw CommandRefusalException::applyRefused(
+                'scoped promotion selected a manifest/provider/native effect without a scoped inverse contract',
+                'use ordinary scoped apply or narrow the contract to DB-contained state without declared actions',
+                'duo: scoped promotion external effect refused'
+            );
+        }
+        foreach ($work as $entry) {
+            $uuid = (string) ($entry['uuid'] ?? '');
+            $type = (string) ($tree[$uuid]['type'] ?? '');
+            if ($type === 'post' || $type === 'term' || $type === 'menu' || $type === '') {
+                throw CommandRefusalException::applyRefused(
+                    'scoped promotion selected a post/term/menu surface whose derived effects are not checkpoint-only',
+                    'narrow the contract to options, sidebars, user meta, or declared authored snapshot tables',
+                    'duo: scoped promotion selected unsupported derived effects'
+                );
+            }
+        }
+        foreach ($deleteWork as $entry) {
+            $kind = (string) ($entry['deletion_kind'] ?? $entry['kind'] ?? $entry['type'] ?? '');
+            if (!in_array($kind, ['option', 'options', 'table'], true)) {
+                throw CommandRefusalException::applyRefused(
+                    'scoped promotion selected a deletion outside its checkpoint-only state profile',
+                    'narrow the contract to option or declared authored snapshot-table tombstones',
+                    'duo: scoped promotion selected unsupported deletion effects'
+                );
+            }
+        }
+    }
+
+    /**
+     * Recount only when this bounded transaction can have changed taxonomy
+     * membership/count inputs. This also avoids invoking arbitrary registered
+     * callbacks for option/table/sidebar/user-meta-only scoped work.
+     *
+     * @param list<array<string,mixed>> $work
+     * @param array<string,array<string,mixed>> $tree
+     * @param list<array<string,mixed>> $deletions
+     */
+    private function scoped_work_needs_taxonomy_recount(array $work, array $tree, array $deletions): bool {
+        foreach ($work as $entry) {
+            $type = (string) ($tree[(string) ($entry['uuid'] ?? '')]['type'] ?? '');
+            if (in_array($type, ['post', 'term', 'menu'], true)) {
+                return true;
+            }
+        }
+        foreach ($deletions as $entry) {
+            $kind = (string) ($entry['deletion_kind'] ?? $entry['kind'] ?? $entry['type'] ?? '');
+            if (in_array($kind, ['post', 'term', 'menu'], true)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -7541,7 +7864,13 @@ final class Apply {
      * @param array<string,mixed> $opts
      * @return array{work:list<array<string,mixed>>,delete_work:list<array<string,mixed>>,rebuild_delete_work:list<array<string,mixed>>}
      */
-    private function rebuild_work(array $plan, array $tree, array $opts, bool $retryingIncompleteApply): array {
+    private function rebuild_work(
+        array $plan,
+        array $tree,
+        array $opts,
+        bool $retryingIncompleteApply,
+        bool $includeScopedPromotionDrift = false
+    ): array {
         $deleteWork = (array) ($plan['delete'] ?? []);
         if (!empty($opts['force_theirs'])) {
             $deleteWork = array_merge($deleteWork, (array) ($plan['delete_conflict'] ?? []));
@@ -7573,6 +7902,16 @@ final class Apply {
             (array) ($plan['update'] ?? []),
             array_map(fn(array $row): array => $row, (array) ($plan['conflict'] ?? []))
         );
+        if ($includeScopedPromotionDrift) {
+            // A normal apply leaves environment-only drift for capture. The
+            // externally checkpointed scoped-promotion profile is the one
+            // reviewed exception: its held all-writer exclusion and encrypted
+            // before-image authorize replacing selected drift with the frozen
+            // repository state. Keep this opt-in at the shared projection so
+            // plan diagnostics and ordinary/scoped apply cannot accidentally
+            // widen their mutation set.
+            $work = array_merge($work, (array) ($plan['drift'] ?? []));
+        }
         usort($work, fn(array $x, array $y): int =>
             $this->phase2_rank($tree[(string) $x['uuid']]) <=> $this->phase2_rank($tree[(string) $y['uuid']])
         );

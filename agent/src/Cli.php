@@ -229,6 +229,8 @@ final class Cli {
             // when its failures genuinely have no reviewable shape.
             'promotion-begin' => 'inspect the recorded promotion lease holder, phase, and expiry plus any unresolved lifecycle attempt, then release that lease or restore its database checkpoint before acquiring again',
             'promotion-abort' => 'inspect the recorded promotion lease owner and artifact hash, then release the exact recorded lease or restore its database checkpoint before aborting again',
+            'promotion-begin-scoped' => 'inspect the exact external checkpoint receipt, scoped target profile, promotion lease, and random session generation, then retry through the SSH host scoped promote command',
+            'promotion-complete-scoped' => 'inspect the exact external checkpoint receipt and retained scoped target handoff, release its matching lease if still present, then retry the same SSH host scoped promote command',
             'env-set' => 'inspect the loaded policy env declarations, then declare the option class "env" without sub_keys, supply a non-empty value, and set it again',
             'orphans' => 'inspect the declared authored_snapshot table and its structural ref columns, then name one listed orphan row and exactly one of --delete or --reparent before retrying',
             'verify-canonical' => 'inspect the parent apply frozen policy snapshot, compiled artifact, and expected artifact hash, then rerun verification from that exact apply',
@@ -428,6 +430,119 @@ final class Cli {
             $summary['artifact_hash'],
             $summary['expires_at']
         ));
+    }
+
+    /**
+     * Begin or resume the exact random target session used by an externally
+     * checkpointed scoped promotion. This is an orchestrator-only control
+     * boundary; it does not consume a scope contract or mutate authored data.
+     *
+     * ## OPTIONS
+     * --promotion-owner=<token> : Required immutable external generation owner.
+     * --artifact-hash=<sha256> : Required immutable compiled artifact hash.
+     * --scoped-promotion-receipt=<sha256> : Exact signed receipt payload hash.
+     * --scope-hash=<sha256> : Exact immutable scope identity in that receipt.
+     * [--json] : JSON summary.
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand promotion-begin-scoped
+     */
+    public function promotion_begin_scoped($args, $assoc) {
+        try {
+            $owner = $assoc['promotion-owner']
+                ?? throw CommandRefusalException::invalidArgument('promotion-begin-scoped', '--promotion-owner');
+            $artifactHash = $assoc['artifact-hash']
+                ?? throw CommandRefusalException::invalidArgument('promotion-begin-scoped', '--artifact-hash');
+            $receiptHash = $assoc['scoped-promotion-receipt']
+                ?? throw CommandRefusalException::invalidArgument(
+                    'promotion-begin-scoped',
+                    '--scoped-promotion-receipt'
+                );
+            $scopeHash = $assoc['scope-hash']
+                ?? throw CommandRefusalException::invalidArgument('promotion-begin-scoped', '--scope-hash');
+            $authorityWitness = ScopedPromotionAuthority::require_installed(
+                (string) $owner,
+                (string) $artifactHash,
+                (string) $receiptHash,
+                (string) $scopeHash,
+                ['promoting', 'committed']
+            );
+            Ledger::ensure();
+            $summary = PromotionLock::begin_scoped(
+                (string) $owner,
+                (string) $artifactHash,
+                (string) $receiptHash,
+                (string) $scopeHash,
+                $authorityWitness
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'promotion-begin-scoped');
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success(sprintf(
+            'scoped promotion lease ready for artifact %s generation %s until epoch %d',
+            $summary['artifact_hash'],
+            $summary['session_id'],
+            $summary['expires_at']
+        ));
+    }
+
+    /**
+     * Retire the exact scoped-profile target handoff after its external event
+     * chain has accepted the terminal scoped apply receipt.
+     *
+     * ## OPTIONS
+     * --promotion-owner=<token>
+     * --artifact-hash=<sha256>
+     * --scoped-promotion-receipt=<sha256>
+     * --scope-hash=<sha256>
+     * [--format=<format>] : Output format. Accepts json.
+     *
+     * @subcommand promotion-complete-scoped
+     */
+    public function promotion_complete_scoped($args, $assoc) {
+        try {
+            $owner = $assoc['promotion-owner']
+                ?? throw CommandRefusalException::invalidArgument('promotion-complete-scoped', '--promotion-owner');
+            $artifactHash = $assoc['artifact-hash']
+                ?? throw CommandRefusalException::invalidArgument('promotion-complete-scoped', '--artifact-hash');
+            $receiptHash = $assoc['scoped-promotion-receipt']
+                ?? throw CommandRefusalException::invalidArgument(
+                    'promotion-complete-scoped',
+                    '--scoped-promotion-receipt'
+                );
+            $scopeHash = $assoc['scope-hash']
+                ?? throw CommandRefusalException::invalidArgument('promotion-complete-scoped', '--scope-hash');
+            $authorityWitness = ScopedPromotionAuthority::require_installed(
+                (string) $owner,
+                (string) $artifactHash,
+                (string) $receiptHash,
+                (string) $scopeHash,
+                ['committed']
+            );
+            Ledger::ensure();
+            $summary = PromotionLock::complete_scoped(
+                (string) $owner,
+                (string) $artifactHash,
+                (string) $receiptHash,
+                (string) $scopeHash,
+                $authorityWitness
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'promotion-complete-scoped');
+            WP_CLI::error($t->getMessage());
+        }
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(json_encode($summary, JSON_UNESCAPED_SLASHES));
+            return;
+        }
+        WP_CLI::success($summary['released']
+            ? 'scoped promotion target session completed'
+            : 'scoped promotion target session already absent');
     }
 
     /**
@@ -792,6 +907,8 @@ final class Cli {
      *   detection captures the live environment too, so it hits the identical gate.
      * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The direct
      *   agent accepts the local evidence; host transports replace it with a compact request.
+     * [--scoped-promotion] : Internal SSH orchestrator preflight; includes selected drift in the
+     *   read-only action projection so it exactly matches receipt-bearing scoped Apply.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
@@ -810,6 +927,7 @@ final class Cli {
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
+                'scoped_promotion' => isset($assoc['scoped-promotion']),
             ];
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
@@ -828,6 +946,16 @@ final class Cli {
             $scopeRequest = self::scope_request($assoc, 'plan');
             if ($scopeRequest !== null) {
                 $options['scope_request'] = $scopeRequest;
+            }
+            if (!empty($options['scoped_promotion'])
+                && !array_key_exists('scope-request-b64', $assoc)) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'scoped promotion preflight requires a compact scope request',
+                    'supply --scope-request-b64 through the SSH orchestrator',
+                    [],
+                    'duo: --scoped-promotion is valid only with the compact scoped plan wire'
+                );
             }
             $plan = Apply::plan(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('plan', '--repo'),
@@ -1366,6 +1494,7 @@ final class Cli {
      * [--revision=<rev>]
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
+     * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -1384,7 +1513,16 @@ final class Cli {
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
+                'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
             ];
+            if ((string) ($assoc['scoped-promotion-receipt'] ?? '') !== ''
+                && !array_key_exists('scope-request-b64', $assoc)) {
+                throw CommandRefusalException::applyRefused(
+                    'scoped promotion accepts only the orchestrator-minted compact scope request',
+                    'invoke SSH host `duo promote --scope-contract=<local-path>` instead of the direct agent',
+                    'duo: direct scope contract cannot enter scoped promotion'
+                );
+            }
             $scopeRequest = self::scope_request($assoc, 'apply');
             if ($scopeRequest !== null) {
                 $opts['scope_request'] = $scopeRequest;

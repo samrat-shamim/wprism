@@ -265,13 +265,13 @@ $promoteEnvelope = json_decode(trim($promote['stdout']), true);
 check_wire(
     $promote['exit'] !== 0
         && is_array($promoteEnvelope)
-        && ($promoteEnvelope['reason_code'] ?? null) === 'invalid_arguments'
+        && ($promoteEnvelope['reason_code'] ?? null) === 'scoped_promotion_unavailable'
         && ($promoteEnvelope['remediation'] ?? null)
-            === 'use --scope-contract only with capture, plan, apply, refresh, or rebase'
+            === 'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
         && !is_file($argsPath)
         && !str_contains($promote['stdout'], $contractPath)
         && !str_contains($promote['stderr'], $contractPath),
-    'promote refuses before target contact and names every supported scoped workflow'
+    'scoped promote refuses non-SSH targets before contact without leaking its local contract path'
 );
 
 $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");
@@ -279,6 +279,16 @@ check_wire(
     substr_count($cliSource, "\$opts['scope_request'] = \$scopeRequest;") >= 2
         && str_contains($cliSource, "self::scope_request(\$assoc, 'verify-canonical', false)"),
     'agent plan/apply and internal verifier carry scope_request only when present'
+);
+
+$hostSource = (string) file_get_contents("$root/cli/duo");
+$applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+check_wire(
+    str_contains($hostSource, "'--scope-request-b64=' . \$scopeInput['request_b64'], '--scoped-promotion', '--format=json'")
+        && str_contains($cliSource, "'scoped_promotion' => isset(\$assoc['scoped-promotion'])")
+        && str_contains($cliSource, "\$options['scoped_promotion']")
+        && str_contains($applySource, "\$work = \$a->rebuild_work(\$plan, \$compiled->tree(), \$opts, false, \$scopedPromotion)"),
+    'SSH scoped-promotion plan carries an explicit drift-inclusive action projection before claim'
 );
 
 if ($failures !== 0) {

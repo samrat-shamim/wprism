@@ -213,6 +213,39 @@ SH;
         '_machine_local' => true,
     ]);
     local_bootstrap_ok($transport->capabilityReport('adopt')->ready(), 'the exact machine-local opt-in advertises the bootstrap mechanism');
+    $uploaderSource = file_get_contents($source . '/cli/src/LocalTransport.php');
+    $openedDestinationIdentity = is_string($uploaderSource)
+        ? strpos($uploaderSource, '$openedDestinationStat = fstat($destination);')
+        : false;
+    $flushBeforePostWrite = is_string($uploaderSource)
+        ? strpos($uploaderSource, 'if (!fflush($destination))')
+        : false;
+    $postWriteIdentity = is_string($uploaderSource)
+        ? strpos($uploaderSource, '$postWriteDestinationStat = fstat($destination);')
+        : false;
+    $closedBeforeFinalPath = is_string($uploaderSource)
+        ? strpos($uploaderSource, '$destinationClosed = fclose($destination);')
+        : false;
+    $finalPathIdentity = is_string($uploaderSource)
+        ? strpos($uploaderSource, '$finalDestinationStat = @lstat($remotePath);')
+        : false;
+    $finalPathReadback = is_string($uploaderSource)
+        ? strpos($uploaderSource, '@hash_file(\'sha256\', $remotePath)')
+        : false;
+    local_bootstrap_ok(
+        is_int($openedDestinationIdentity)
+            && is_int($flushBeforePostWrite)
+            && is_int($postWriteIdentity)
+            && is_int($closedBeforeFinalPath)
+            && is_int($finalPathIdentity)
+            && is_int($finalPathReadback)
+            && $openedDestinationIdentity < $flushBeforePostWrite
+            && $flushBeforePostWrite < $postWriteIdentity
+            && $postWriteIdentity < $closedBeforeFinalPath
+            && $closedBeforeFinalPath < $finalPathIdentity
+            && $finalPathIdentity < $finalPathReadback,
+        'the local uploader keeps opened-handle proof, then binds its token only to a post-close final path readback'
+    );
 
     $temporaryTarget = $root . '/temporary-target';
     $temporaryLink = $root . '/temporary-link';
@@ -360,6 +393,15 @@ SH;
     $ownedUpload = $transport->uploadFile($uploadSource, $ownedDestination);
     local_bootstrap_ok($ownedUpload['exit'] === 0, 'a fresh local archive is created exclusively');
     $ownedIdentity = $transport->uploadedFileIdentity($ownedUpload);
+    $ownedFinalStat = lstat($ownedDestination);
+    $ownedFinalIdentity = is_array($ownedFinalStat)
+        ? (string) ((int) $ownedFinalStat['dev']) . ':' . (string) ((int) $ownedFinalStat['ino'])
+            . ':' . (string) (((int) $ownedFinalStat['mode']) & 0170000)
+        : '';
+    local_bootstrap_ok(
+        $ownedIdentity === $ownedFinalIdentity,
+        'the local uploader returns the completed path identity used by later archive cleanup'
+    );
     $foreignReplacement = $root . '/foreign-archive-replacement';
     file_put_contents($foreignReplacement, "foreign-replacement\n", LOCK_EX);
     rename($foreignReplacement, $ownedDestination);
