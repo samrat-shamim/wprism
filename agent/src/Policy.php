@@ -31,6 +31,9 @@ require_once __DIR__ . '/CrossManifestGuards.php';
 // declaration grammar, required here for the same "loads alone" reason as
 // its neighbors above.
 require_once __DIR__ . '/SubKeyGrammar.php';
+// DUO-3348 slice 9: exact and pattern taxonomy object_keyspace declaration
+// grammar, required here for the same "loads alone" reason as its neighbors.
+require_once __DIR__ . '/TaxonomyGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -75,9 +78,6 @@ final class Policy {
     // retains v4 reads only for the prior uncertified adapter-sources/v1 form.
     private const SNAPSHOT_FORMAT = 'duo-policy-snapshot/v5';
     private const LEGACY_SNAPSHOT_FORMAT = 'duo-policy-snapshot/v4';
-    /** Object keyspaces supported by the canonical taxonomy relationship contract. */
-    private const TAXONOMY_RELATIONSHIP_OBJECTS = ['post', 'term'];
-
     /**
      * The exact canonical-surface literal grammar. Apply derives these keys
      * from authored work as a pure projection (Apply::rebuild_surfaces()) and
@@ -256,7 +256,7 @@ self::validate_post_type_children($manifest);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "manifest '$name'");
             self::validate_object_type_option_refs($manifest);
-            self::validate_taxonomy_object_keyspace_declarations($manifest);
+            TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
             SubKeyGrammar::validate_dynamic_options($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
@@ -393,7 +393,7 @@ self::validate_post_type_children($manifest);
             // ran, which is exactly the class of divergence this method
             // exists to rule out.
             SubKeyGrammar::validate_dynamic_options($manifest);
-            self::validate_taxonomy_object_keyspace_declarations($manifest);
+            TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
@@ -3849,61 +3849,6 @@ self::validate_post_type_children($manifest);
                     );
                 }
             }
-        }
-    }
-
-    /**
-     * `object_keyspace` is a structural taxonomy claim, not a convenient
-     * runtime hint. Reject a malformed value while loading its manifest so
-     * no capture/lint/apply path can silently reinterpret a relationship
-     * row's shared numeric object_id later. Dynamic taxonomy patterns use
-     * the same declaration, and their regex must be usable before a future
-     * concrete taxonomy name reaches the resolver.
-     */
-    private static function validate_taxonomy_object_keyspace_declarations(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ((array) ($manifest['taxonomies'] ?? []) as $tax => $rule) {
-            if (!is_array($rule) || !array_key_exists('object_keyspace', $rule)) {
-                continue;
-            }
-            self::validate_taxonomy_object_keyspace_value(
-                $rule['object_keyspace'],
-                "manifest '$name' taxonomies.$tax.object_keyspace"
-            );
-        }
-
-        if (!array_key_exists('taxonomy_patterns', $manifest)) {
-            return;
-        }
-        $patterns = $manifest['taxonomy_patterns'];
-        if (!is_array($patterns) || !array_is_list($patterns)) {
-            throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns that is not a list");
-        }
-        foreach ($patterns as $i => $pattern) {
-            if (!is_array($pattern) || array_is_list($pattern)) {
-                throw new \RuntimeException("duo: manifest '$name' declares taxonomy_patterns[$i] that is not an object");
-            }
-            $match = $pattern['match'] ?? null;
-            if (!is_string($match) || $match === '' || @preg_match('/' . $match . '/', '') === false) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares taxonomy_patterns[$i].match with an invalid or empty regex"
-                );
-            }
-            if (array_key_exists('object_keyspace', $pattern)) {
-                self::validate_taxonomy_object_keyspace_value(
-                    $pattern['object_keyspace'],
-                    "manifest '$name' taxonomy_patterns[$i].object_keyspace"
-                );
-            }
-        }
-    }
-
-    private static function validate_taxonomy_object_keyspace_value(mixed $value, string $where): void {
-        if (!is_string($value) || !in_array($value, self::TAXONOMY_RELATIONSHIP_OBJECTS, true)) {
-            throw new \RuntimeException(
-                "duo: $where must be one of " . implode('|', self::TAXONOMY_RELATIONSHIP_OBJECTS)
-                . '; no other relationship object keyspace is supported'
-            );
         }
     }
 
