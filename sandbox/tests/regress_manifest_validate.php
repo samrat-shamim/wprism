@@ -1643,6 +1643,27 @@ check(
     'and nothing is claimed as covered that the document does not publish'
 );
 
+// The pure block/shortcode declaration grammar belongs to AttributeGrammar;
+// Policy retains the shared cast vocabulary because classification and
+// deletion guards also consume it. Keep both loader paths and both published
+// attribute vocabularies wired directly to the extracted collaborator.
+$policySource = file_get_contents($repo . '/agent/src/Policy.php');
+$attributeGrammar = new \ReflectionClass('Duo\\AttributeGrammar');
+$policyReflection = new \ReflectionClass(Policy::class);
+check(
+    $attributeGrammar->hasMethod('validate_attr_rules')
+        && $attributeGrammar->getMethod('validate_attr_rules')->isPublic()
+        && $attributeGrammar->hasMethod('attributeValueTypes')
+        && $attributeGrammar->hasMethod('attributeTokenizeCodecs')
+        && !$policyReflection->hasMethod('validate_attr_rules')
+        && substr_count($policySource, 'AttributeGrammar::validate_attr_rules($manifest, self::CASTS)') === 2
+        && substr_count($policySource, 'AttributeGrammar::attributeValueTypes()') === 1
+        && substr_count($policySource, 'AttributeGrammar::attributeTokenizeCodecs()') === 1
+        && !str_contains($policySource, 'ATTR_VALUE_TYPES')
+        && !str_contains($policySource, 'ATTR_TOKENIZE_CODECS'),
+    'attribute declaration grammar and its vocabularies live in AttributeGrammar while Policy retains only shared casts'
+);
+
 // ======================================================================
 echo "\n== exit codes and the command's own fail-closed paths ==\n";
 
