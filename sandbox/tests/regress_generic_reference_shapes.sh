@@ -207,8 +207,13 @@ say "capture and prove every declared path is portable"
 wp1 duo capture --repo=/siterepo >/dev/null
 wp1 duo lint --repo=/siterepo >/dev/null
 TERM_FILE=$(find "$SITE1/state/terms/dks_term_rel" -name '*--owner-a.json' -print -quit)
+TERM_B_FILE=$(find "$SITE1/state/terms/dks_term_rel" -name '*--owner-b.json' -print -quit)
 TABLE_FILE=$(find "$SITE1/state/tables/dks_entries" -name '*.json' -print -quit)
-[ -n "$TERM_FILE" ] && [ -n "$TABLE_FILE" ] || fail "fixture canonical files missing"
+[ -n "$TERM_FILE" ] && [ -n "$TERM_B_FILE" ] && [ -n "$TABLE_FILE" ] || fail "fixture canonical files missing"
+TERM_A_UUID=$(jq -r '.uuid' "$TERM_FILE")
+TERM_B_UUID=$(jq -r '.uuid' "$TERM_B_FILE")
+[ "$TERM_A_UUID" != "null" ] && [ "$TERM_B_UUID" != "null" ] \
+  || fail "captured term UUIDs are missing"
 jq -e '.description.links.primary.post_id | startswith("{{post:")' "$TERM_FILE" >/dev/null \
   || fail "nested description post ref was not tokenized"
 jq -e '.description.links.primary.term_id | startswith("{{term:")' "$TERM_FILE" >/dev/null \
@@ -227,10 +232,9 @@ jq -e '.meta.ordered_payload.zulu.post_id | startswith("{{post:")' "$TABLE_FILE"
   || fail "order-preserving sidecar post value ref was not tokenized"
 jq -e '.meta.ordered_payload.zulu.term_id | startswith("{{term:")' "$TABLE_FILE" >/dev/null \
   || fail "order-preserving sidecar term value ref was not tokenized"
-jq -e '.meta.ordered_payload.alpha.by_term | keys_unsorted | map(startswith("{{term:")) | all' "$TABLE_FILE" >/dev/null \
-  || fail "order-preserving sidecar term key refs were not tokenized"
-jq -e '.meta.ordered_payload.alpha.by_term | keys_unsorted[0] != keys_unsorted[1]' "$TABLE_FILE" >/dev/null \
-  || fail "order-preserving sidecar key map lost its two distinct term references"
+jq -e --arg b "{{term:$TERM_B_UUID}}" --arg a "{{term:$TERM_A_UUID}}" \
+  '.meta.ordered_payload.alpha.by_term | keys_unsorted == [$b, $a]' "$TABLE_FILE" >/dev/null \
+  || fail "order-preserving sidecar term key refs lost the declared B-to-A insertion order"
 jq -e '.meta.payload_json.deep.post_id | startswith("{{post:")' "$TABLE_FILE" >/dev/null \
   || fail "JSON sidecar ref was not tokenized"
 jq -e '.meta.opaque == "a:2:{s:1:\"z\";s:4:\"keep\";s:1:\"a\";s:4:\"same\";}"' "$TABLE_FILE" >/dev/null \
@@ -270,6 +274,7 @@ TARGET_POST_ID=$(wp2 eval '$post = get_page_by_title("DUO 3316 Article", OBJECT,
 TARGET_TERM_A_ID=$(wp2 term get dks_term_rel owner-a --by=slug --field=term_id | tr -d '\r')
 TARGET_TERM_B_ID=$(wp2 term get dks_term_rel owner-b --by=slug --field=term_id | tr -d '\r')
 [ "$TARGET_POST_ID" != "$POST_ID" ] || fail "post IDs did not diverge"
+[ "$TARGET_TERM_A_ID" != "$TERM_A_ID" ] || fail "term A IDs did not diverge"
 [ "$TARGET_TERM_B_ID" != "$TERM_B_ID" ] || fail "term IDs did not diverge"
 
 cat > "$SITE2/.tmp-duo3316-check.php" <<'PHP'
