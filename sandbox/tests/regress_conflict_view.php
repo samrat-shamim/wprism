@@ -7,6 +7,7 @@ require_once is_string($planSummaryPath) && $planSummaryPath !== ''
     : __DIR__ . '/../../cli/src/PlanSummary.php';
 require_once __DIR__ . '/../../agent/src/Apply.php';
 
+use Duo\ApplyPlanner;
 use Duo\Orchestrator\PlanSummary;
 
 function fail_conflict_view(string $message): never {
@@ -31,6 +32,14 @@ function empty_plan(): array {
     return $plan;
 }
 
+/**
+ * Builds fixtures through the real ApplyPlanner::conflict_view() (DUO-3347
+ * slice 2 made it public, extracted out of Apply) rather than a hand-copied
+ * twin — the destructive `effect` the wire carries is entirely derived from
+ * $repositoryIntent by that function, never an independent input, so this
+ * thin wrapper only forwards fixture parameters, it does not choose the
+ * effect itself.
+ */
 function conflict_view(
     string $reason,
     string $repositoryIntent,
@@ -40,50 +49,19 @@ function conflict_view(
     ?string $expectedBaseHash,
     ?string $receiptHash,
     string $targetHash,
-    array $requires,
-    string $effect
+    array $requires
 ): array {
-    return [
-        'format' => 'duo-plan-conflict/v1',
-        'kind' => $repositoryIntent === 'delete' ? 'tombstone_conflict' : 'concurrent_change',
-        'reason_code' => $reason,
-        'base' => [
-            'role' => 'last_synced',
-            'source' => 'duo_state',
-            'state' => $baseState,
-            'content_hash' => $baseHash,
-        ],
-        'repository' => [
-            'role' => 'repository_intent',
-            'source' => 'compiled_repository',
-            'intent' => $repositoryIntent,
-            'content_hash' => $repositoryHash,
-            'expected_base_hash' => $expectedBaseHash,
-            'intent_receipt_hash' => $receiptHash,
-        ],
-        'target' => [
-            'role' => 'target_observation',
-            'source' => 'live_target_snapshot',
-            'intent' => 'preserve_target_change',
-            'state' => 'present',
-            'content_hash' => $targetHash,
-        ],
-        'recommended_choice' => 'reconcile_in_repository',
-        'choices' => [
-            [
-                'id' => 'reconcile_in_repository',
-                'effect' => 'preserve_and_reconcile_both_intents',
-                'requires' => [],
-                'destructive' => false,
-            ],
-            [
-                'id' => 'apply_repository',
-                'effect' => $effect,
-                'requires' => $requires,
-                'destructive' => true,
-            ],
-        ],
-    ];
+    return ApplyPlanner::conflict_view(
+        $reason,
+        $repositoryIntent,
+        $baseState,
+        $baseHash,
+        $repositoryHash,
+        $expectedBaseHash,
+        $receiptHash,
+        $targetHash,
+        $requires
+    );
 }
 
 $base = str_repeat('a', 64);
@@ -105,8 +83,7 @@ $plan['conflict'][] = [
         $base,
         null,
         $target,
-        ['--force-theirs'],
-        'replace_target_authored_state'
+        ['--force-theirs']
     ),
 ];
 $plan['delete_conflict'][] = [
@@ -123,8 +100,7 @@ $plan['delete_conflict'][] = [
         $base,
         $receipt,
         $target,
-        ['--with-deletes', '--force-theirs'],
-        'delete_target_authored_state'
+        ['--with-deletes', '--force-theirs']
     ),
 ];
 
@@ -171,8 +147,7 @@ $blockedView = conflict_view(
     $base,
     $receipt,
     $target,
-    ['--with-deletes', '--force-theirs'],
-    'delete_target_authored_state'
+    ['--with-deletes', '--force-theirs']
 );
 $blockedView['choices'] = array_values(array_filter(
     $blockedView['choices'],
