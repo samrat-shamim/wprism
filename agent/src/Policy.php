@@ -253,7 +253,7 @@ final class Policy {
             }
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
-self::validate_post_type_children($manifest);
+            PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "manifest '$name'");
             self::validate_attr_rules($manifest);
@@ -382,7 +382,7 @@ self::validate_post_type_children($manifest);
             }
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
-self::validate_post_type_children($manifest);
+            PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "frozen manifest '$name'");
             self::validate_attr_rules($manifest);
@@ -3204,68 +3204,6 @@ self::validate_post_type_children($manifest);
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);
-    }
-
-    /**
-     * Validate a CPT parent/child declaration before any query can use it.
-     *
-     * `post_types.<parent>.children` is deliberately a very small grammar:
-     * a non-empty list of distinct CPT names.  It describes only direct
-     * wp_posts.post_parent edges; it is not a cascade grammar, SQL surface,
-     * or a generic hierarchy-discovery escape hatch. Every child endpoint
-     * must be another post_types key in this same manifest, so a typo cannot
-     * reach a target query; runtime checks still prove the local rows.
-     */
-    private static function validate_post_type_children(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        $postTypes = (array) ($manifest['post_types'] ?? []);
-        foreach ($postTypes as $parentPostType => $decl) {
-            if (!is_array($decl) || !array_key_exists('children', $decl)) {
-                continue;
-            }
-            if (!is_string($parentPostType)
-                || !preg_match('/^[a-z0-9_-]{1,20}$/', $parentPostType)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types key " . var_export($parentPostType, true)
-                    . ' cannot declare children: expected a WordPress post-type name'
-                );
-            }
-            $children = $decl['children'];
-            if (!is_array($children) || !array_is_list($children) || !$children) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$parentPostType.children must be a non-empty list"
-                );
-            }
-            $seen = [];
-            foreach ($children as $index => $childPostType) {
-                if (!is_string($childPostType)
-                    || !preg_match('/^[a-z0-9_-]{1,20}$/', $childPostType)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
-                        . 'must be a WordPress post-type name'
-                    );
-                }
-                if ($childPostType === $parentPostType) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children "
-                        . 'cannot declare a CPT as its own child'
-                    );
-                }
-                if (!array_key_exists($childPostType, $postTypes)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
-                        . "names undeclared child CPT '$childPostType'"
-                    );
-                }
-                if (isset($seen[$childPostType])) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$parentPostType.children "
-                        . "contains duplicate child CPT '$childPostType'"
-                    );
-                }
-                $seen[$childPostType] = true;
-            }
-        }
     }
 
     /**
