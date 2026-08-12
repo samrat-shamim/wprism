@@ -713,6 +713,20 @@ regress-user-meta-materializer:
 regress-term-materializer:
 	php sandbox/tests/regress_term_materializer.php
 
+# DUO-3347 slice 7: apply_options()/option_apply_target()/
+# dynamic_option_rule_for_name()/dynamic_option_resolver_values()/
+# apply_value()/apply_option_sub_keys() moved from Apply.php into a new
+# OptionsMaterializer.php (the "options/meta" entity materializer target
+# seam). apply_options() stays a thin Apply facade; the other five had no
+# caller outside the cluster and moved with no facade needed. The one
+# non-narrow dependency (Apply's own $warnings collection) travels as an
+# explicit by-reference parameter instead of a hidden Apply back-reference.
+# Deliberately a wiring/shape proof only -- full behavioral coverage already
+# exists in regress_lifecycle_options_snapshot.php and every live
+# conformance manifest sweep, unchanged by this extraction.
+regress-options-materializer:
+	php sandbox/tests/regress_options_materializer.php
+
 # DUO-3348 slice 2: CompiledRepository/RepositoryCompilationException moved
 # out of RepositoryCompiler.php into their own CompiledArtifact.php (the
 # "CompiledArtifact value object" target seam); proves the file loads and
@@ -1266,8 +1280,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar
-	@echo "regress-offline-all: 139 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer
+	@echo "regress-offline-all: 140 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

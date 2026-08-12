@@ -802,16 +802,28 @@ $optionMalformedGuard = $countGuard->invoke(
 check($optionMalformedGuard['count'] === 0
     && str_contains((string) $optionMalformedGuard['error'], 'malformed option_name_refs namespace'),
     'Apply option-name guard refuses a leading-zero live option instead of hiding a stale row');
-$optionTarget = new ReflectionMethod(\Duo\Apply::class, 'option_apply_target');
+// DUO-3347 slice 7: option_apply_target() moved from Apply onto
+// OptionsMaterializer (Apply keeps only apply_options() as a facade). This
+// guard fires from Policy::option_name_ref_match_details() -- the method's
+// very first call, before Tokens/ApplyFieldMaterializer are ever touched --
+// so an OptionsMaterializer built with only $policy set (mirroring $apply's
+// own construction above: newInstanceWithoutConstructor() + policy alone)
+// exercises the identical path.
+$optionsMaterializerReflection = new ReflectionClass(\Duo\OptionsMaterializer::class);
+$optionsMaterializer = $optionsMaterializerReflection->newInstanceWithoutConstructor();
+$optionsMaterializerPolicy = $optionsMaterializerReflection->getProperty('policy');
+$optionsMaterializerPolicy->setAccessible(true);
+$optionsMaterializerPolicy->setValue($optionsMaterializer, $policy);
+$optionTarget = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'option_apply_target');
 $optionTarget->setAccessible(true);
 $optionTargetRejected = false;
 try {
-    $optionTarget->invoke($apply, 'woocommerce_flat_rate_0003_settings', []);
+    $optionTarget->invoke($optionsMaterializer, 'woocommerce_flat_rate_0003_settings', []);
 } catch (Throwable $e) {
     $optionTargetRejected = str_contains($e->getMessage(), 'malformed option_name_refs namespace');
 }
 check($optionTargetRejected,
-    'Apply option target resolution refuses a leading-zero raw key before generic option dispatch');
+    'OptionsMaterializer option target resolution refuses a leading-zero raw key before generic option dispatch');
 $snapshotMalformedRejected = false;
 try {
     Snapshot::option_name_ref_preserved_ids($policy, null);
