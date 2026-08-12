@@ -513,6 +513,26 @@ final class WoocommerceProductLookups {
                 if ($parent && $this->is_variable($parent)) {
                     $variableRoots[$parentId] = $parent;
                     $attributeRoots[$parentId] = $parent;
+                    // A variation-path write still requires the complete
+                    // finite child set: verification checks every child and
+                    // the variable store derives the root from every visible
+                    // child. Refresh each sibling here as well so a stale
+                    // sibling lookup (or _price input) converges in one pass,
+                    // without widening into a catalog-wide scan.
+                    foreach ((array) $parent->get_children() as $childId) {
+                        $childId = (int) $childId;
+                        if ($childId <= 0 || isset($deletionIds[$childId])) {
+                            continue;
+                        }
+                        $this->heartbeat($heartbeat);
+                        $this->invalidate_product_caches($childId);
+                        $child = $this->load_product($childId);
+                        if ($child) {
+                            $products[$childId] = $child;
+                            $priceIds[$childId] = true;
+                        }
+                        $this->heartbeat($heartbeat);
+                    }
                 } else {
                     $attributeRoots[$id] = $product;
                 }
@@ -1441,10 +1461,10 @@ final class WoocommerceProductLookups {
      *      runs with a cleared cache, so WC_Data_Store_WP::update_lookup_table()
      *      always REPLACEs, and a readback taken only afterwards would be
      *      reading a row this verification had itself just written — passing
-     *      for a row the apply left divergent. That is reachable rather than
-     *      theoretical: sibling variations of a variable root reached through
-     *      the variation path are verified here but are not in the batch's own
-     *      refresh set above.
+     *      for a row the apply left divergent. The variation path now expands
+     *      the loaded variable root's finite child set before this verifier,
+     *      so sibling rows converge in the same pass; the before-read remains
+     *      required for every row already selected by the batch itself.
      *
      *   2. The derivation WooCommerce published is compared against what is
      *      actually stored after the refresh. update_lookup_table() does not

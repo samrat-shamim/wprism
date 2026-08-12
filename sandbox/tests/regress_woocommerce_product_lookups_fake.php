@@ -6,7 +6,8 @@
  * allowed to call.  It proves stale _price repair, variable-root dedupe,
  * deletion context (including the parent id), runtime stock preservation, and
  * exact product-meta lookup verification without Docker. Attribute lookup is
- * a deliberate unsupported boundary and is characterized as untouched.
+ * a deliberate unsupported boundary and is characterized as outside provider
+ * authority.
  */
 
 namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
@@ -1812,12 +1813,11 @@ namespace {
         && !method_exists($adapter, 'stock_quantity_from_meta'),
         'no Duo-authored copy of WooCommerce lookup column rules remains in the adapter');
 
-    // THE RESTORED TOOTH. Reaching a variable root through one of its
-    // variations puts the root in $variableRoots and only that variation in
-    // $priceIds, so a SIBLING variation is verified but is never in the
-    // batch's own refresh set. Its stale row must be refused. A verification
-    // that read the row only after its own refresh would silently rewrite this
-    // and pass.
+    // DUO-3373 decision: a variation-path write expands only the finite child
+    // list of its loaded variable root. That is bounded by the same public
+    // child set the root sync and verification already consume, and avoids a
+    // deterministic refuse-then-retry when a sibling's derived inputs or
+    // lookup row is stale. It is not a catalog-wide scan.
     $fakeProducts[91] = new FakeProduct(91, 'variation', 90, [], ['pa_color' => 'red'], true);
     $fakeProducts[92] = new FakeProduct(92, 'variation', 90, [], ['pa_color' => 'blue'], true);
     $fakeProducts[90] = new FakeProduct(
@@ -1834,27 +1834,22 @@ namespace {
         $fakeMetaLookup[$id]['product_id'] = $id;
     }
     $adapter->regenerate_batch([90], []);              // converge the whole family
-    $fakeMetaLookup[92]['min_price'] = 'left-behind';  // sibling row goes stale
-    $staleSiblingMessage = '';
-    try {
-        $adapter->regenerate_batch([91], []);          // reached via the variation path
-    } catch (\Throwable $failure) {
-        $staleSiblingMessage = $failure->getMessage();
-    }
-    $check(str_contains($staleSiblingMessage, 'product lookup verification mismatch for product 92')
-        && str_contains($staleSiblingMessage, 'the apply left this WooCommerce product lookup row divergent'),
-        'a sibling variation row the apply never refreshed is refused, not silently rewritten');
-    $adapter->regenerate_batch([90], []);
+    $fakeMeta[92]['_price'] = ['999'];
+    $fakeMetaLookup[92]['min_price'] = 'left-behind';  // sibling row and input go stale
+    $adapter->regenerate_batch([91], []);              // reached via the variation path
+    $check($fakeMeta[92]['_price'] === ['21'],
+        'variation-path refresh repairs the stale sibling effective price in one pass');
     $check(($fakeMetaLookup[92]['min_price'] ?? null) === '21',
-        'the refused sibling row is repaired by the refresh, so the retry converges');
+        'variation-path refresh repairs the stale sibling lookup row in one pass');
+    $check($fakeMeta[90]['_price'] === ['21'],
+        'the variable root is synthesized from the refreshed sibling set in the same pass');
 
     // A column OUTSIDE Woo's derived set that still holds data — cogs_total_
     // value with the COGS feature off, or anything a third party maintains —
-    // is reset by Woo's own DELETE+INSERT whatever the apply did, so blaming
-    // the apply for it would be a false attribution. Only reachable on a row
-    // the batch's own refresh pass never touches, because that pass would
-    // otherwise have reset the column before verification snapshots it — so
-    // the sibling path is the case, again.
+    // is reset by Woo's own DELETE+INSERT whenever this bounded refresh pass
+    // touches the row. Blaming the apply for that reset would be a false
+    // attribution; this assertion keeps that non-derived column outside the
+    // provider's verification authority.
     $fakeMetaLookup[92]['cogs_total_value'] = '42.0000';
     $residualColumnMessage = '';
     try {
