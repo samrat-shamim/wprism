@@ -22,7 +22,7 @@ foreach ([
     'NativeActions', 'ReferenceRules', 'Policy', 'Providers', 'Ledger', 'Deletion',
     'JsonRefs', 'PlainData', 'StructuredValue', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'CodeCompatibility', 'Code', 'CodeStateContract',
-    'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure',
+    'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract',
 ] as $file) {
     require_once "$root/agent/src/$file.php";
 }
@@ -37,6 +37,7 @@ use Duo\ReferenceGraph;
 use Duo\RepositoryCompilationException;
 use Duo\RepositoryCompiler;
 use Duo\ScopeClosure;
+use Duo\ScopeContract;
 
 $failures = [];
 function check(bool $ok, string $message): void {
@@ -374,6 +375,159 @@ check(
     'full-site operation is the same model with an all-roots scope, not a second code path'
 );
 check($all['inbound'] === [], 'nothing is inbound to a scope that contains everything');
+
+// ------------------------------------------------- DUO-3344: option:<name> roots
+
+// default_category references the news term; page_on_front references the
+// about page. Selecting one by name must close over exactly its OWN
+// reference and nobody else's -- proving real per-option attribution, not
+// "selecting any option conservatively includes the whole options surface".
+$byDefaultCategory = ScopeClosure::resolve($compiled, $policy, ['option:default_category']);
+$dcPaths = array_column($byDefaultCategory['included'], 'path');
+$dcRowsByEntity = array_column($byDefaultCategory['included'], null, 'entity');
+$dcRoot = $dcRowsByEntity['options/core#default_category'] ?? null;
+check(
+    $dcRoot !== null && $dcRoot['type'] === 'option' && $dcRoot['option'] === 'default_category'
+    && $dcRoot['path'] === 'options/core.json' && $dcRoot['reason'] === 'root'
+    && $dcRoot['selector'] === 'option:default_category',
+    'an option root carries its own name, type, and file path in its included row'
+);
+check(
+    in_array("terms/category/{$ids['news']}--news.json", $dcPaths, true)
+    && in_array("terms/category/{$ids['topics']}--topics.json", $dcPaths, true),
+    'option:default_category closes over the news term it references, transitively through its parent'
+);
+check(
+    !in_array("posts/page/{$ids['about']}--about.md", $dcPaths, true)
+    && !in_array("posts/attachment/{$ids['photo']}--photo.md", $dcPaths, true),
+    'option:default_category does NOT pull in page_on_front\'s own target -- attribution is per-option, not per-surface'
+);
+check(
+    $byDefaultCategory['roots'][0]['type'] === 'option' && $byDefaultCategory['roots'][0]['option'] === 'default_category',
+    'the roots summary also carries the option name and type, not just the entity key'
+);
+
+$byPageOnFront = ScopeClosure::resolve($compiled, $policy, ['option:page_on_front']);
+$pofPaths = array_column($byPageOnFront['included'], 'path');
+check(
+    in_array("posts/page/{$ids['about']}--about.md", $pofPaths, true)
+    && in_array("posts/attachment/{$ids['photo']}--photo.md", $pofPaths, true),
+    'option:page_on_front closes over the about page it references, transitively through its own attachment'
+);
+// NOT a disjointness check against default_category: about's OWN terms
+// assignment (line ~173 above) legitimately pulls news/topics/linked in
+// too, transitively, exactly as post:about's own closure already proves
+// above -- that overlap is correct closure, not a leak from the option
+// surface. The asymmetric direction (default_category does NOT pull in
+// page_on_front's target, checked above) is the real precision proof: if
+// attribution were merely "any selected option conservatively includes the
+// whole options surface", that check would fail too.
+
+$byBlogname = ScopeClosure::resolve($compiled, $policy, ['option:blogname']);
+check(
+    count($byBlogname['included']) === 1 && $byBlogname['totals']['closure'] === 0,
+    'an option whose value holds no reference closes over nothing but itself'
+);
+
+// options/core must never be counted as wholly excluded while one of its
+// own options is included -- that would report the same file as both
+// included and excluded at once.
+check(
+    ($byDefaultCategory['excluded']['by_type']['options'] ?? 0) === 0,
+    'options/core is never double-counted as excluded while an option root of its own is included'
+);
+
+try {
+    ScopeClosure::resolve($compiled, $policy, ['option:not_a_real_option']);
+    check(false, 'a root selector naming an unauthored option is refused');
+} catch (RuntimeException $e) {
+    check(true, 'a root selector naming an unauthored option is refused (' . $e->getMessage() . ')');
+}
+
+// A genuinely ambiguous locator: two authored options, "n" and "n.value",
+// constructed so a token nested inside "n"'s OWN value and a token directly
+// in "n.value"'s OWN value produce the byte-identical locator string
+// "$.records.n.value.value" -- proving the attribution algorithm refuses
+// rather than silently guessing via e.g. longest-prefix-wins, which is not
+// always correct once a value can be arbitrarily nested (see
+// ScopeClosure::attribute_option_edges()'s own docblock).
+$ambiguousRepo = "$tmp/ambiguous-option-names";
+$ambiguousManifestDir = "$ambiguousRepo/manifests";
+mkdir($ambiguousManifestDir, 0777, true);
+copy("$root/manifests/core.json", "$ambiguousManifestDir/core.json");
+put("$ambiguousManifestDir/duo-ambiguous-fixture.json", Canon::encode([
+    'name' => 'duo-ambiguous-fixture',
+    'options' => [
+        'n' => ['class' => 'authored', 'autoload' => 'yes'],
+        'n.value' => ['class' => 'authored', 'autoload' => 'yes'],
+        'unrelated_option' => ['class' => 'authored', 'autoload' => 'yes'],
+    ],
+    'spec_version' => 2,
+]));
+putenv("DUO_MANIFESTS_DIR=$ambiguousManifestDir");
+put("$ambiguousRepo/site.duo.json", Canon::encode([
+    'manifests' => ['core', 'duo-ambiguous-fixture'],
+    'policy' => [
+        'options' => (object) [], 'post_meta' => (object) [], 'term_meta' => (object) [],
+        'post_types' => ['post', 'page', 'attachment'], 'taxonomies' => ['category', 'post_tag'],
+    ],
+    'spec_version' => 2,
+]));
+$decoy = uuid(101);
+put("$ambiguousRepo/state/terms/category/$decoy--decoy.json", Canon::encode([
+    'description' => '', 'meta' => (object) [], 'name' => 'Decoy', 'parent' => null,
+    'relationships' => (object) [], 'slug' => 'decoy', 'taxonomy' => 'category', 'uuid' => $decoy,
+]));
+put("$ambiguousRepo/state/options/core.json", option_records([
+    'n' => OptionState::present(['value' => '{{term:' . $decoy . '}}'], 'yes'),
+    'n.value' => OptionState::present('{{term:' . $decoy . '}}', 'yes'),
+    'unrelated_option' => OptionState::present('plain string, no reference', 'yes'),
+]));
+$ambiguousPolicy = Policy::load($ambiguousRepo);
+$ambiguousCompiled = RepositoryCompiler::compile($ambiguousRepo, $ambiguousPolicy);
+putenv("DUO_MANIFESTS_DIR=$manifestDir");
+try {
+    ScopeClosure::resolve($ambiguousCompiled, $ambiguousPolicy, ['option:n']);
+    check(false, 'a locator matching two authored option names at once is refused rather than guessed');
+} catch (RuntimeException $e) {
+    check(
+        str_contains($e->getMessage(), "'n'") && str_contains($e->getMessage(), "'n.value'"),
+        'a locator matching two authored option names at once is refused, naming both candidates ('
+            . $e->getMessage() . ')'
+    );
+}
+// The 'n'/'n.value' collision above must not leak into an UNRELATED
+// option's own resolution -- attribution ambiguity is scoped to what was
+// actually requested, not the whole document (see
+// ScopeClosure::attribute_option_edges()'s own docblock on this exact
+// point).
+try {
+    $unrelated = ScopeClosure::resolve($ambiguousCompiled, $ambiguousPolicy, ['option:unrelated_option']);
+    check(
+        count($unrelated['included']) === 1 && $unrelated['totals']['closure'] === 0,
+        'a colliding pair of option names elsewhere in the SAME document does not block an unrelated option\'s own resolution'
+    );
+} catch (RuntimeException $e) {
+    check(false, 'a colliding pair of option names elsewhere in the SAME document does not block an unrelated option\'s own resolution (' . $e->getMessage() . ')');
+}
+
+// ScopeContract binds mutation-authorizing evidence and must never carry an
+// option root: no scoped capture/refresh/apply/promote consumer has an
+// option-granular overlay yet (ScopeContract::resolve()'s own guard).
+try {
+    ScopeContract::resolve($compiled, $policy, ['option:default_category']);
+    check(false, 'a scope CONTRACT refuses a per-option root rather than silently minting mutation evidence for it');
+} catch (RuntimeException $e) {
+    check(
+        str_contains($e->getMessage(), 'per-option') && !str_contains($e->getMessage(), 'disappeared'),
+        'the contract refusal names the real reason (not yet supported), not the generic "disappeared from tree" guard ('
+            . $e->getMessage() . ')'
+    );
+}
+check(
+    ScopeContract::resolve($compiled, $policy, ['options'])['format'] === ScopeContract::FORMAT,
+    'the whole-surface "options" selector is unaffected and still mints a contract normally'
+);
 
 // ------------------------------------------------- determinism and offline-ness
 
