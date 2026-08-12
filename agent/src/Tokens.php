@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/IdentityTokenCodec.php';
+
 /**
  * Environment-bound values are tokenized at capture and re-bound at apply:
  *   {{home}}, {{uploads}}, {{post:<uuid>}}, {{term:<uuid>}}, {{tt:<uuid>}}
@@ -378,19 +380,6 @@ final class Tokens {
      * being the prior high-water mark) need no engine-side registration
      * beyond what's already declared in their own manifest.
      */
-    private const KIND_MAP = [
-        'post' => Ledger::KIND_POST,
-        'term' => Ledger::KIND_TERM,
-        'tt'   => Ledger::KIND_TT,
-    ];
-
-    /** A ref/token kind name is a bare lowercase-ish identifier, matching
-     *  every id_kind this engine has ever declared (post/term/tt, and every
-     *  Snapshot.php table id_kind) — deliberately excludes anything that
-     *  could collide with the OTHER token forms this class recognizes by
-     *  their own fixed spelling ({{home}}, {{uploads}}, user:<login>). */
-    private const KIND_NAME_RE = '[a-z][a-z0-9_]*';
-
     /**
      * A manifest-written ref KIND translated to the duo_map `id_kind` it is
      * stored under (DUO-3318).
@@ -402,11 +391,11 @@ final class Tokens {
      * id_to_token()/token_to_id() above, which already apply the map — must
      * go through this, or a `tt` ref silently looks up a keyspace that has no
      * rows and answers "not here" for every entity in it. Exposed as the one
-     * public spelling of KIND_MAP so a second call site cannot grow a second,
-     * quietly divergent copy of the same three-entry table.
+     * public spelling of the codec's kind map so a second call site cannot
+     * grow a second, quietly divergent copy of the same three-entry table.
      */
     public static function ledger_kind(string $refKind): string {
-        return self::KIND_MAP[$refKind] ?? $refKind;
+        return IdentityTokenCodec::ledger_kind($refKind);
     }
 
     /**
@@ -438,16 +427,14 @@ final class Tokens {
             return null;
         }
         $uuid = Ledger::uuid_for($id, $kind);
-        return $uuid === null ? null : '{{' . $refKind . ':' . $uuid . '}}';
+        return IdentityTokenCodec::encode($refKind, $uuid);
     }
 
     /** "{{<kind>:uuid}}" -> id (apply direction). Throws when unresolvable. */
     public function token_to_id(string $token): int {
-        if (!preg_match('/^\{\{(' . self::KIND_NAME_RE . '):([0-9a-f-]{36})\}\}$/', $token, $m)) {
-            throw new \RuntimeException("duo: malformed ref token '$token'");
-        }
-        $kind = self::ledger_kind($m[1]);
-        $id = Ledger::id_for($m[2], $kind);
+        $decoded = IdentityTokenCodec::decode($token);
+        $kind = self::ledger_kind($decoded['kind']);
+        $id = Ledger::id_for($decoded['uuid'], $kind);
         if ($id === null) {
             throw new \RuntimeException("duo: unresolvable ref $token (entity not in this environment)");
         }

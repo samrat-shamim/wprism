@@ -7,6 +7,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
+.PHONY: regress-identity-token-codec
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires regress-target-observation-premises regress-live-exit-code-contract
 .PHONY: regress-linear-loop-freeze
 .PHONY: regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar
@@ -1153,6 +1154,9 @@ regress-local-bootstrap-live:
 regress-block-refs:
 	bash sandbox/tests/regress_block_refs.sh
 
+regress-identity-token-codec:
+	php sandbox/tests/regress_identity_token_codec.php
+
 regress-composite-ref:
 	bash sandbox/tests/regress_composite_ref.sh
 
@@ -1488,7 +1492,7 @@ regress-offline-all: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-capability-registry-import regress-certification-bundle regress-scoped-certification-bundle regress-interpreter-policy \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan \
 	regress-order-preserving \
-	regress-block-refs regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
+	regress-block-refs regress-identity-token-codec regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
 	regress-dynamic-options-policy regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
 	regress-regen-dependency-policy regress-shortcode-refs regress-term-meta regress-url-query-refs \
@@ -1502,7 +1506,7 @@ regress-offline-all: code-half-unit \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar
-	@echo "regress-offline-all: 167 offline suites green"
+	@echo "regress-offline-all: 168 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
