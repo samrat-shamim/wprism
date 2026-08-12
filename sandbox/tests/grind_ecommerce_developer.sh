@@ -363,7 +363,15 @@ target_directory() { target_php "echo is_dir('$1') ? 'present' : 'absent';"; }
 target_path() {
   target_php "echo (file_exists('$1') || is_link('$1')) ? 'present' : 'absent';"
 }
-target_hash() { target_php "echo hash_file('sha256', '$1');"; }
+# WP-CLI's `php` subcommand still boots WordPress, so using target_php for a
+# byte probe can execute the currently installed plugin. Recovery assertions
+# run between database import and v1 code promotion; that process boundary must
+# inspect bytes without giving the still-staged v2 plugin a chance to migrate
+# the freshly restored v1 scalar. Invoke the container PHP binary directly.
+target_raw_php() {
+  "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec php "$@"' _ -r "$1"
+}
+target_hash() { target_raw_php "echo hash_file('sha256', '$1');"; }
 source_hash() { sha256sum "$1" | awk '{print $1}'; }
 state_tree_hash() {
   local root="$1"

@@ -1067,6 +1067,8 @@ block_absent exact-v1-pre-stage "$ROLLBACK_PRE_STAGE_BLOCK" 'target_wp ' \
   'exact v1 rollback bootstraps the still-v2 target plugin after database import and before v1 code staging'
 block_absent exact-v1-pre-stage "$ROLLBACK_PRE_STAGE_BLOCK" 'active_plugins_json' \
   'exact v1 rollback reads active_plugins through ordinary WordPress before v1 code staging'
+grep -Fq "target_hash() { target_raw_php" "$SCRIPT" \
+  || fail 'exact v1 rollback byte verification can bootstrap WordPress through target_hash'
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'promote phase: code-stage' \
   'exact v1 rollback does not require code staging before lifecycle activation'
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
