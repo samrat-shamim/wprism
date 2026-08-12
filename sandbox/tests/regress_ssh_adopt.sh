@@ -39,6 +39,9 @@ TARGET_OWNED=0
 SCOPED_PLAN_STDOUT=""
 SCOPED_PLAN_STDERR=""
 SCOPED_PLAN_EXIT=""
+SCOPED_REFRESH_STDOUT=""
+SCOPED_REFRESH_STDERR=""
+SCOPED_REFRESH_EXIT=""
 SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
@@ -200,6 +203,9 @@ chmod 0700 "$DIAG_DIR"
 SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"
 SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"
 SCOPED_PLAN_EXIT="$DIAG_DIR/scoped-plan.exit"
+SCOPED_REFRESH_STDOUT="$DIAG_DIR/scoped-refresh.stdout"
+SCOPED_REFRESH_STDERR="$DIAG_DIR/scoped-refresh.stderr"
+SCOPED_REFRESH_EXIT="$DIAG_DIR/scoped-refresh.exit"
 SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
@@ -209,7 +215,7 @@ SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
 AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -503,6 +509,32 @@ ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-
   || fail "could not capture the desired scoped-promotion source state"
 "$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-failure-scope.json" \
   || fail "could not mint the desired scoped-promotion contract"
+
+# Cross-command identity fence: refresh-export must associate the same
+# immutable contract before the target is deliberately moved to its prior
+# value. Keep the contract on the target only for this read-only command and
+# retain its bounded result privately if the command or later promotion fails.
+FAILURE_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-failure-scope.json")"
+jq -r '[(.live.roots // [])[], (.live.closure // [])[] | .entity] + [(.tombstones // [])[] | .uuid] | sort[]' \
+  "$TMP/duo3344-failure-scope.json" >"$TMP/duo3344-failure-scope-identities"
+scp -F "$TMP/ssh_config" "$TMP/duo3344-failure-scope.json" \
+  duo-adopt-fixture:/home/duo/site/.duo3344-scope-chain.json >/dev/null
+if ssh_fixture 'cd /var/www/html && wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json' >"$SCOPED_REFRESH_STDOUT" 2>"$SCOPED_REFRESH_STDERR"; then
+  SCOPED_REFRESH_CODE=0
+else
+  SCOPED_REFRESH_CODE=$?
+fi
+printf '%s\n' "$SCOPED_REFRESH_CODE" >"$SCOPED_REFRESH_EXIT"
+ssh_fixture 'rm -f /home/duo/site/.duo3344-scope-chain.json'
+[ "$SCOPED_REFRESH_CODE" -eq 0 ] \
+  || fail "target scoped refresh-export did not complete before promotion"
+jq -e --arg h "$FAILURE_SCOPE_HASH" \
+  '.format == "duo-refresh-production/v1" and .scope.format == "duo-refresh-scope/v1" and .scope.scope_hash == $h' \
+  "$SCOPED_REFRESH_STDOUT" >/dev/null \
+  || fail "target scoped refresh-export did not echo the exact scope hash"
+jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/duo3344-refresh-identities"
+diff -u "$TMP/duo3344-failure-scope-identities" "$TMP/duo3344-refresh-identities" >/dev/null \
+  || fail "target scoped refresh-export changed the selected identity set"
 ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-failure --autoload=no >/dev/null'
 
 # Begin and abort an ordinary promotion first. The target deliberately retains
@@ -595,6 +627,11 @@ jq -e '
   and .state == "rolled_back" and .terminal == true
 ' "$AUTHORITY_STATUS_STDOUT" >/dev/null \
   || fail "scoped failure did not leave a signed rolled_back terminal receipt"
+jq -e --arg h "$FAILURE_SCOPE_HASH" '
+  .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
+  and .scope_hash == $h and .state == "rolled_back" and .terminal == true
+' "$AUTHORITY_STATUS_STDOUT" >/dev/null \
+  || fail "scoped failure changed the immutable scope hash"
 FAIL_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
 jq -e '
   .status.state == "rolled_back"
@@ -628,6 +665,7 @@ ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-
   || fail "could not capture the successful scoped-promotion source state"
 "$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-success-scope.json" \
   || fail "could not mint the successful scoped-promotion contract"
+SUCCESS_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-success-scope.json")"
 ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-success --autoload=no >/dev/null'
 
 # Keep the committed retry's bounded public result private when it fails or
@@ -651,10 +689,12 @@ jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDO
   and .scoped_apply.scoped_receipt.phase == "complete"
 ' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null \
   || fail "successful scoped promotion did not return its receipt-bound terminal result"
+jq -e --arg h "$SUCCESS_SCOPE_HASH" '.scope_hash == $h' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null \
+  || fail "successful scoped promotion changed the immutable scope hash"
 SUCCESS_STATUS="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
-jq -e '
+jq -e --arg h "$SUCCESS_SCOPE_HASH" '
   .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
-  and .state == "committed" and .terminal == true and .exclusion_state == "released"
+  and .scope_hash == $h and .state == "committed" and .terminal == true and .exclusion_state == "released"
 ' <<<"$SUCCESS_STATUS" >/dev/null \
   || fail "successful scoped promotion did not leave a signed committed terminal receipt with v2 exclusion released"
 SUCCESS_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
