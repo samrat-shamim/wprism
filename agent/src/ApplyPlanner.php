@@ -16,10 +16,12 @@ require_once __DIR__ . '/Snapshot.php';
  * injected Policy — no `$wpdb`, no target reads, and no Apply state. The
  * live-DB-backed collision/adoption lookup in
  * `find_collision()`/`collision_parent_id()`/`one_collision()` is now the
- * first stateful planner responsibility here as well. Everything else
- * `build_plan()` does (the 600+ line comparison/guard-ref orchestration)
- * stays in `Apply` for a later slice, per the issue's "extract one
- * collaborator at a time" guardrail.
+ * first stateful planner responsibility here as well. The work/deletion
+ * ordering projection used by plan, apply, and scoped recovery also lives
+ * here because it reads only the immutable plan/tree and injected policy.
+ * The remaining `build_plan()` comparison/guard-ref orchestration stays in
+ * `Apply` for a later slice, per the issue's "extract one collaborator at a
+ * time" guardrail.
  *
  * `Apply` keeps `conflict_view()`, `forced_override_evidence()`,
  * `incomplete_override_refusal()`, `entity_display_title()`,
@@ -191,6 +193,104 @@ final class ApplyPlanner {
         }
         sort($names, SORT_STRING);
         return $names;
+    }
+
+    /**
+     * Phase-2 finalize order: early post types first, then ordinary
+     * posts/terms/menus/options, then declared table rows in their own
+     * topological order. This is a plan projection: no target or ledger read
+     * may influence the order after the plan has been built.
+     */
+    public function phase2_rank(array $entity): int {
+        if (isset($this->snapshotRowTables[$entity['type']])) {
+            return 2 + Snapshot::phase2_rank($this->policy, (string) $entity['type']);
+        }
+        if (($entity['type'] ?? '') === 'post'
+            && $this->policy->post_type_phase($entity['post_type'] ?? '') === 'early') {
+            return 0;
+        }
+        return 1;
+    }
+
+    /** Delete custom-table children before their declared parents. */
+    public function deletion_rank(array $row): int {
+        if (($row['deletion_kind'] ?? '') === 'table') {
+            return 100 + Snapshot::phase2_rank($this->policy, (string) $row['deletion_type']);
+        }
+        return match ($row['deletion_kind'] ?? '') {
+            'post' => 30,
+            'menu' => 20,
+            'term' => 10,
+            default => 0,
+        };
+    }
+
+    /**
+     * Project the exact authored work and deletion ordering shared by plan,
+     * apply, and scoped recovery. Retry tombstones widen only the rebuild
+     * selection; they never become authored delete authority a second time.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<string,array<string,mixed>> $tree
+     * @param array<string,mixed> $opts
+     * @return array{work:list<array<string,mixed>>,delete_work:list<array<string,mixed>>,rebuild_delete_work:list<array<string,mixed>>}
+     */
+    public function rebuild_work(
+        array $plan,
+        array $tree,
+        array $opts,
+        bool $retryingIncompleteApply,
+        bool $includeScopedPromotionDrift = false
+    ): array {
+        $deleteWork = (array) ($plan['delete'] ?? []);
+        if (!empty($opts['force_theirs'])) {
+            $deleteWork = array_merge($deleteWork, (array) ($plan['delete_conflict'] ?? []));
+        }
+        usort($deleteWork, fn(array $a, array $b): int =>
+            $this->deletion_rank($b) <=> $this->deletion_rank($a)
+            ?: ($a['uuid'] <=> $b['uuid'])
+        );
+
+        // A previous apply can have committed authored rows and failed after
+        // a tombstone target was already absent. Include those immutable
+        // tombstones in the retry surface set so bounded derived-state
+        // actions still clear/verify their rows on the next attempt.
+        $rebuildDeleteWork = $deleteWork;
+        if ($retryingIncompleteApply) {
+            $rebuildDeleteWork = array_merge($rebuildDeleteWork, (array) ($plan['deleted'] ?? []));
+            usort($rebuildDeleteWork, fn(array $a, array $b): int =>
+                $this->deletion_rank($b)
+                <=> $this->deletion_rank($a)
+                ?: ((string) ($a['uuid'] ?? '') <=> (string) ($b['uuid'] ?? ''))
+            );
+        }
+
+        // Deterministic, declared ordering for BOTH phases: 'early' post
+        // types lead. This is also the exact authored work set whose
+        // canonical surfaces may select a provider action.
+        $work = array_merge(
+            (array) ($plan['create'] ?? []),
+            (array) ($plan['adopt'] ?? []),
+            (array) ($plan['update'] ?? []),
+            array_map(fn(array $row): array => $row, (array) ($plan['conflict'] ?? []))
+        );
+        if ($includeScopedPromotionDrift) {
+            // A normal apply leaves environment-only drift for capture. The
+            // externally checkpointed scoped-promotion profile is the one
+            // reviewed exception whose authority permits replacing selected
+            // drift with frozen repository state.
+            $work = array_merge($work, (array) ($plan['drift'] ?? []));
+        }
+        usort($work, fn(array $x, array $y): int =>
+            $this->phase2_rank($tree[(string) $x['uuid']])
+            <=> $this->phase2_rank($tree[(string) $y['uuid']])
+        );
+
+        return [
+            'work' => $work,
+            'delete_work' => $deleteWork,
+            'rebuild_delete_work' => $rebuildDeleteWork,
+        ];
     }
 
     /**
