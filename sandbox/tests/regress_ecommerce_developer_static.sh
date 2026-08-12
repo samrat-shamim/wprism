@@ -431,7 +431,7 @@ helper_noop_rejected visibility-helper "$VISIBILITY_STATE_ASSERT"
 helper_noop_rejected eq-helper "$EQ_PREDICATE"
 helper_noop_rejected receipt-helper "$RECEIPT_JQ_CALL"
 helper_noop_rejected theme-helper "$THEME_RUNTIME_ASSERT"
-CLEANUP_HELPER_GOLDEN_HASH=c66ba5d1dde0bd04352f59a624a988c7b16f478b666589cda9b8789f33969cb5
+CLEANUP_HELPER_GOLDEN_HASH=6abba119a6008574c1d576d52472712f119252d182d95407918a67898a05c7a7
 ORDER_HELPER_GOLDEN_HASH=a5e218adaba2ef1c2f7dcee7078886c36fd4e743f8108aa883d1b5de3c3f0f64
 ORDER_SNAPSHOT_DATA_HELPER_GOLDEN_HASH=95777d9b3c8dd94e1a9c27febc42b3bff1ccbc7d47e5ce87aee5517637fcd35c
 VISIBILITY_HELPER_GOLDEN_HASH=7cc6d2e93dc5c78c222f033c0ed941e7e41afcf421ecefbf8d6a04fd89e46357
@@ -1039,7 +1039,7 @@ block_absent exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_P
   'superseded replacement checkpoint is imported after the reverse promotion'
 
 ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
-  'target_wp maintenance-mode activate' \
+  'control_wp_command maintenance-mode activate' \
   '"${PAIR_COMPOSE[@]}" stop wp2' \
   '"${PAIR_COMPOSE[@]}" kill -s SIGKILL wp2' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
@@ -1048,15 +1048,18 @@ ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET"' \
   'control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql"' \
+  'ROLLBACK_SETTING_AFTER_IMPORT=' \
+  'printf '\''exact v1 raw setting immediately after checkpoint import:' \
   'ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''active_plugins'\'' LIMIT 1")"' \
   'if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r' \
   'assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON"' \
   'assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")"' \
-  'assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''duo_commerce_extension_settings'\'' LIMIT 1")"' \
+  'assert_eq retail "$ROLLBACK_SETTING_AFTER_IMPORT"' \
+  'assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '\''wp_duo_commerce_extension_events'\'' AND COLUMN_NAME = '\''context'\''")" '\''exact v1 runtime table shape'\''' \
   'if ! RESTORE_OUT="$(promote 2>&1)"; then' \
   'ROLLBACK_PROMOTION_SUCCEEDED=1' \
   '"${PAIR_COMPOSE[@]}" start wp2' \
-  'target_wp maintenance-mode deactivate' \
+  'control_wp_command maintenance-mode deactivate' \
   'ROLLBACK_MAINTENANCE_HELD=0' \
   'assert_phase_order "$RESTORE_OUT"'
 if grep -Fq 'target_wp db import' "$SCRIPT"; then
@@ -1076,8 +1079,14 @@ block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'promote phase: code-st
 block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'assert_eq absent "$(target_path "$CONTENT/plugins/$REPLACEMENT_SLUG")"' \
   'exact v1 rollback does not require the replacement root to remain absent'
-block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'target_wp maintenance-mode deactivate' \
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp_command maintenance-mode deactivate' \
   'exact v1 rollback does not release target maintenance after promotion'
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp_command maintenance-mode activate' \
+  'exact v1 rollback does not establish maintenance through the ordinary WordPress runtime'
+grep -Fq 'control_wp_command() {' "$SCRIPT" \
+  || fail 'exact v1 rollback has no isolated control-plane maintenance helper'
+grep -Fq 'CodeDeploy::controlArgs(array_slice($argv, 1))' "$SCRIPT" \
+  || fail 'control-plane maintenance helper does not use the isolated Duo control bootstrap'
 grep -Fq 'ROLLBACK_MAINTENANCE_HELD=0' "$SCRIPT" || fail 'rollback maintenance held flag is not initialized/released'
 grep -Fq 'ROLLBACK_PROMOTION_SUCCEEDED=0' "$SCRIPT" || fail 'rollback promotion success guard is not initialized'
 grep -Fq '[ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" != 1 ]' "$SCRIPT" \

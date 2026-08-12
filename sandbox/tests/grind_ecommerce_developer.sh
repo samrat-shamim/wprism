@@ -143,7 +143,7 @@ cleanup() {
   # target, and an uncertain teardown keeps the pair paths diagnosable with
   # maintenance still held.
   if [ "$ROLLBACK_MAINTENANCE_HELD" = 1 ] && [ "$ROLLBACK_PROMOTION_SUCCEEDED" = 1 ] && [ "$PAIR_UP" = 1 ]; then
-    if ! target_wp maintenance-mode deactivate >/dev/null 2>&1; then
+    if ! control_wp_command maintenance-mode deactivate >/dev/null 2>&1; then
       printf 'FAIL: ecommerce rollback maintenance release failed for %s\n' "$PAIR" >&2
       status=1
       teardown_verified=0
@@ -354,6 +354,21 @@ $method = $argv[1];
 $args = Duo\Orchestrator\CodeDeploy::$method(...array_slice($argv, 2));
 echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
 ' "$method" "$@")"
+  local -a args
+  mapfile -t args < <(jq -r '.[]' <<<"$encoded")
+  target_wp "${args[@]}"
+}
+# Maintenance is part of the exact recovery boundary, not a regular runtime
+# operation. Route it through the same isolated control bootstrap as database
+# import so a staged plugin cannot migrate the database while recovery holds
+# the target worker stopped.
+control_wp_command() {
+  local encoded
+  encoded="$(DUO_CODE_DEPLOY="$CODE_DEPLOY" php -r '
+require getenv("DUO_CODE_DEPLOY");
+$args = Duo\Orchestrator\CodeDeploy::controlArgs(array_slice($argv, 1));
+echo json_encode($args, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+' "$@")"
   local -a args
   mapfile -t args < <(jq -r '.[]' <<<"$encoded")
   target_wp "${args[@]}"
@@ -3438,7 +3453,7 @@ git -C "$SITE" push -qu origin main
 git -C "$OTHER_SITE" pull -q --ff-only
 ROLLBACK_MAINTENANCE_HELD=0
 ROLLBACK_PROMOTION_SUCCEEDED=0
-if ! target_wp maintenance-mode activate >/dev/null; then
+if ! control_wp_command maintenance-mode activate >/dev/null; then
   fail 'could not establish target maintenance before v1 checkpoint recovery'
 fi
 ROLLBACK_MAINTENANCE_HELD=1
@@ -3490,7 +3505,7 @@ ROLLBACK_PROMOTION_SUCCEEDED=1
 if ! "${PAIR_COMPOSE[@]}" start wp2 >/dev/null; then
   fail 'could not restart target web service after v1 checkpoint promotion'
 fi
-if ! target_wp maintenance-mode deactivate >/dev/null; then
+if ! control_wp_command maintenance-mode deactivate >/dev/null; then
   fail 'could not release target maintenance after successful v1 rollback promotion'
 fi
 ROLLBACK_MAINTENANCE_HELD=0
