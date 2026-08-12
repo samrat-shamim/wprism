@@ -44,6 +44,9 @@ require_once __DIR__ . '/PostTypeGrammar.php';
 // DUO-3348 slice 13: the pure option-namespace/authored-meta discovery
 // grammar, required here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/DiscoveryGrammar.php';
+// DUO-3348 slice 16: option declaration/storage grammar, required here for
+// the same "loads alone" reason as its neighbors.
+require_once __DIR__ . '/OptionGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -187,8 +190,8 @@ final class Policy {
             $p->site = Canon::decode(Canon::read_file($siteFile));
             self::validate_code_config($p->site, 'site.duo.json');
             self::validate_scope_classes($p->site, 'site.duo.json', true);
-            self::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
-            self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
+            OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
+            OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
             SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
@@ -261,7 +264,7 @@ final class Policy {
             PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
-            self::validate_env_options($manifest, "manifest '$name'");
+            OptionGrammar::validate_env_options($manifest, "manifest '$name'");
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "manifest '$name'");
@@ -269,7 +272,7 @@ final class Policy {
             TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
             SubKeyGrammar::validate_dynamic_options($manifest);
             OptionReferenceGrammar::validate_option_name_refs($manifest);
-            self::validate_option_storage($manifest, "manifest '$name'");
+            OptionGrammar::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
             DiscoveryGrammar::validate_discovery_contract($manifest);
@@ -361,8 +364,8 @@ final class Policy {
         $p->site = $snapshot['site'];
         self::validate_code_config($p->site, 'frozen site.duo.json');
         self::validate_scope_classes($p->site, 'frozen site.duo.json', true);
-        self::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
-        self::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
+        OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
+        OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
         SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
@@ -390,7 +393,7 @@ final class Policy {
             PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
-            self::validate_env_options($manifest, "frozen manifest '$name'");
+            OptionGrammar::validate_env_options($manifest, "frozen manifest '$name'");
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "frozen manifest '$name'");
@@ -405,7 +408,7 @@ final class Policy {
             SubKeyGrammar::validate_dynamic_options($manifest);
             TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
             OptionReferenceGrammar::validate_option_name_refs($manifest);
-            self::validate_option_storage($manifest, "frozen manifest '$name'");
+            OptionGrammar::validate_option_storage($manifest, "frozen manifest '$name'");
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
             DiscoveryGrammar::validate_discovery_contract($manifest);
@@ -3206,42 +3209,6 @@ final class Policy {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);
     }
 
-    /**
-     * Validate every top-level `options.<name>` rule classified `env` at
-     * load time (DUO-3232): `required` (bool) is MANDATORY, no silent
-     * default either way — same posture DUO-3229 already established for
-     * post_type/taxonomy scope ("every entity gets an audited decision,
-     * neither noisy-by-default nor silent-by-default"), applied here to
-     * env rules. A manifest declaring `class: "env"` with no `required`
-     * key refuses to load, naming the exact manifest and key, so every
-     * env-classified option is a deliberate author decision (worth
-     * checklisting via env_options()/env_missing, or plugin-internal
-     * bookkeeping that self-populates and isn't) rather than an implicit
-     * one a future maintainer has to reverse-engineer from silence.
-     *
-     * Deliberately narrow, matching env_options()'s own scope: only
-     * top-level `options.<name>.class === "env"` rules. A `sub_keys`
-     * entry's OWN class (DUO-3233's per-sub-key carve-out) is out of
-     * v2 scope for the identical reason post_meta/term_meta env values
-     * are (see env_options()'s docblock) — no shipped manifest declares
-     * one today (confirmed empirically, not assumed), so this is a named
-     * scope cut, not an oversight.
-     */
-    private static function validate_env_options(array $source, string $label): void {
-        foreach ((array) ($source['options'] ?? []) as $name => $rule) {
-            if (!is_array($rule) || ($rule['class'] ?? '') !== 'env') {
-                continue;
-            }
-            if (!array_key_exists('required', $rule) || !is_bool($rule['required'])) {
-                throw new \RuntimeException(
-                    "duo: $label options.$name.class=\"env\" needs an explicit boolean 'required' "
-                    . '(true: an operator must provision this value on a fresh environment — a genuine '
-                    . 'secret or site-identity value; false: plugin-internal bookkeeping that '
-                    . 'self-populates and is not worth checklisting) — no silent default either way'
-                );
-            }
-        }
-    }
     /** Validate the user-meta-only safety vocabulary at policy load time. */
     private static function validate_user_meta_rules(array $source, string $label): void {
         foreach ((array) ($source['user_meta'] ?? []) as $key => $rule) {
@@ -3450,69 +3417,6 @@ final class Policy {
                         . ' (expected ' . implode('|', self::SCOPE_CLASSES) . ')'
                     );
                 }
-            }
-        }
-    }
-
-    /**
-     * A portable authored option must say how its wp_options row is stored.
-     * `preserve` authorizes capture of the source row's exact autoload flag;
-     * a concrete value is a stronger adapter contract and capture refuses a
-     * source row that disagrees. Omitting this declaration is never allowed:
-     * insertion would otherwise fall back to WordPress/version-local policy.
-     */
-    /**
-     * The one non-value autoload declaration: `preserve` authorizes replaying
-     * the source row's own flag instead of naming a literal one. Closed and
-     * engine-owned — every other spelling has to be a real storage value,
-     * because insertion may never guess.
-     */
-    private const OPTION_AUTOLOAD_SENTINELS = ['preserve'];
-
-    private static function validate_option_storage(array $source, string $label): void {
-        $default = $source['option_autoload'] ?? null;
-        $check = static function (array $rule, string $where) use ($label, $default): void {
-            $hasAuthoredSubKey = false;
-            foreach ((array) ($rule['sub_keys'] ?? []) as $subRule) {
-                if (($subRule['class'] ?? null) === 'authored') {
-                    $hasAuthoredSubKey = true;
-                    break;
-                }
-            }
-            if (!in_array($rule['class'] ?? null, ['authored', 'managed'], true) && !$hasAuthoredSubKey) {
-                return;
-            }
-            $autoload = $rule['autoload'] ?? $default;
-            if (!in_array($autoload, self::OPTION_AUTOLOAD_SENTINELS, true)
-                && !in_array($autoload, OptionState::AUTOLOAD_VALUES, true)) {
-                throw new \RuntimeException(
-                    "duo: $label $where needs autoload=preserve or an explicit supported autoload value "
-                    . '(' . implode('|', OptionState::AUTOLOAD_VALUES) . '); insertion may never guess'
-                );
-            }
-        };
-        foreach ((array) ($source['options'] ?? []) as $name => $rule) {
-            if (is_array($rule)) {
-                $check($rule, "options.$name");
-            }
-        }
-        foreach ((array) ($source['option_patterns'] ?? []) as $i => $rule) {
-            if (is_array($rule)) {
-                $check($rule, "option_patterns[$i]");
-            }
-        }
-        foreach ((array) ($source['option_name_refs'] ?? []) as $i => $rule) {
-            if (is_array($rule)) {
-                $check($rule, "option_name_refs[$i]");
-            }
-        }
-        // DUO-3264: dynamic_options entries are sub_keys-shaped (no bare
-        // top-level class of their own) — $check()'s existing
-        // $hasAuthoredSubKey detection already handles that correctly,
-        // reused as-is rather than duplicated.
-        foreach ((array) ($source['dynamic_options'] ?? []) as $key => $rule) {
-            if (is_array($rule)) {
-                $check($rule, "dynamic_options.$key");
             }
         }
     }
@@ -4613,7 +4517,7 @@ final class Policy {
             'value_casts' => self::CASTS,
             'pattern_keys' => self::PATTERN_KEYS,
             'option_autoload_values' => OptionState::AUTOLOAD_VALUES,
-            'option_autoload_sentinels' => self::OPTION_AUTOLOAD_SENTINELS,
+            'option_autoload_sentinels' => OptionGrammar::optionAutoloadSentinels(),
             'dynamic_option_resolvers' => SubKeyGrammar::dynamic_option_resolvers(),
             'user_meta_missing_user_modes' => self::MISSING_USER_MODES,
             'post_derivable_fields' => self::DERIVABLE_FIELD_COLUMNS,
