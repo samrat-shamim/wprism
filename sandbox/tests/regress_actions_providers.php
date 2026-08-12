@@ -65,7 +65,9 @@ require $root . '/agent/src/SidebarState.php';
 require $root . '/agent/src/RepositoryAuthorization.php';
 require $root . '/agent/src/Deploy.php';
 require $root . '/agent/src/ManifestDispositions.php';
-require $root . '/agent/src/CapabilityRegistry.php';
+// DUO-3348 slice 4: Policy.php now require_once's AdapterRegistry.php, which
+// itself require_once's CapabilityRegistry.php — the same already-covered
+// shape as the NativeActions.php note above, one hop further down the chain.
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;

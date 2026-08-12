@@ -28,6 +28,7 @@ require_once __DIR__ . '/src/CapabilityRegistry.php';
 require_once __DIR__ . '/src/NativeActions.php';
 require_once __DIR__ . '/src/ReferenceRules.php';
 require_once __DIR__ . '/src/ManifestGrammar.php';
+require_once __DIR__ . '/src/AdapterRegistry.php';
 require_once __DIR__ . '/src/Policy.php';
 require_once __DIR__ . '/src/Providers.php';
 require_once __DIR__ . '/src/Ledger.php';

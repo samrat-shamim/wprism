@@ -1059,18 +1059,22 @@ rename($providerFile . '.hidden', $providerFile);
 // this harness's synthetic manifests dir deliberately has neither of (it exists
 // to exercise the negotiation contract, not certification). So the row it would
 // promote is BUILT here from the same problem row it starts from, and the field
-// mapping is pinned against Policy's own source rather than assumed.
+// mapping is pinned against the real source rather than assumed.
 $reset();
 $GLOBALS['duo_test_active'] = [];
 $policy = $policyFor($manifest);
 $wide = \Duo\Providers::problems($policy);
 $check(array_column($wide, 'code') === ['inactive_plugin'],
     'the wide plan view reports the inactive plugin when nothing has gated on it yet');
-$policySource = (string) file_get_contents($root . '/agent/src/Policy.php');
-$check(str_contains($policySource, "'name' => \$manifest,")
-    && str_contains($policySource, "'provider' => (string) (\$problem['provider'] ?? '?'),")
-    && str_contains($policySource, "'manifest' => \$manifest,")
-    && str_contains($policySource, "'code' => (string) (\$problem['code'] ?? 'provider_negotiation_failed'),"),
+// DUO-3348 slice 4: provider_readiness_blockers()'s row-building body moved
+// from Policy.php into AdapterRegistry.php; Policy::provider_readiness_
+// blockers() is still the public entry point this comment block describes,
+// but the bytes pinned below now live in the file that actually builds them.
+$adapterRegistrySource = (string) file_get_contents($root . '/agent/src/AdapterRegistry.php');
+$check(str_contains($adapterRegistrySource, "'name' => \$manifest,")
+    && str_contains($adapterRegistrySource, "'provider' => (string) (\$problem['provider'] ?? '?'),")
+    && str_contains($adapterRegistrySource, "'manifest' => \$manifest,")
+    && str_contains($adapterRegistrySource, "'code' => (string) (\$problem['code'] ?? 'provider_negotiation_failed'),"),
     'and the gating row Policy promotes carries the same provider, manifest, and code the problem row does — the '
     . 'three fields the dedupe below keys on');
 $promoted = [[
