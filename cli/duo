@@ -16,6 +16,7 @@ declare(strict_types=1);
 require __DIR__ . '/src/Registry.php';
 require __DIR__ . '/src/EnvironmentDriver.php';
 require __DIR__ . '/src/EnvironmentLifecycle.php';
+require __DIR__ . '/src/CommandOutput.php';
 require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
@@ -83,6 +84,7 @@ use Duo\Orchestrator\Registry;
 use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
 use Duo\Orchestrator\ClassificationBatch;
+use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshFieldResolutionCancelled;
 use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
@@ -490,22 +492,12 @@ TXT;
 
 /** @return never */
 function duo_fail(string $message, int $code = 1) {
-    fwrite(STDERR, "duo: $message\n");
-    exit($code);
+    CommandOutput::fail($message, $code);
 }
 
 /** The host owns JSON refusals for commands it preflights locally. */
 function wants_agent_refusal_json(string $verb, array $extra): bool {
-    if (!in_array($verb, ['adapter-observe', 'capture', 'plan', 'explain', 'apply', 'refresh'], true)) {
-        return false;
-    }
-    foreach ($extra as $index => $arg) {
-        if ($arg === '--json' || $arg === '--format=json'
-            || ($arg === '--format' && ($extra[$index + 1] ?? null) === 'json')) {
-            return true;
-        }
-    }
-    return false;
+    return CommandOutput::wantsAgentRefusalJson($verb, $extra);
 }
 
 /** Emit the same stable envelope as the target agent without exposing host exception text. */
@@ -516,30 +508,7 @@ function render_agent_refusal_json(
     string $remediation,
     array $diagnostics = []
 ): int {
-    $payload = [
-        'format' => 'duo-command-refusal/v1',
-        'ok' => false,
-        'command' => $command,
-        'error' => $reasonCode,
-        'reason_code' => $reasonCode,
-        'message' => $message,
-        'remediation' => $remediation,
-    ];
-    if ($diagnostics !== []) {
-        $payload['diagnostics'] = $diagnostics;
-    }
-    $encoded = json_encode(
-        $payload,
-        JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE
-    );
-    if ($encoded === false) {
-        $encoded = '{"format":"duo-command-refusal/v1","ok":false,"command":"host",'
-            . '"error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
-            . '"message":"structured refusal serialization failed",'
-            . '"remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
-    }
-    echo $encoded . "\n";
-    return 1;
+    return CommandOutput::renderRefusalJson($command, $reasonCode, $message, $remediation, $diagnostics);
 }
 
 function main(array $argv): int {
