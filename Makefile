@@ -864,6 +864,24 @@ regress-action-provider-grammar:
 regress-cross-manifest-guards:
 	php sandbox/tests/regress_cross_manifest_guards.php
 
+# DUO-3348 slice 8: the "named sub-key of an otherwise-atomic manifest
+# value" declaration grammar (validate_sub_keys() for options.*.sub_keys,
+# validate_dynamic_options() for the top-level dynamic_options key, plus
+# their shared private assert_sub_key_parent_has_no_value_fields() helper
+# and each method's own constant) moved out of Policy.php into
+# SubKeyGrammar.php. The two methods share one inner shape and the same
+# private helper -- the real coupling that justifies moving both together,
+# not an assumption. Policy::CLASSES stayed on Policy (11 call sites across
+# the file, not exclusive to this cluster), visibility widened private ->
+# public. regress_dynamic_options_policy.php and regress_duo3316_contract.php
+# already cover most of this cluster's real refusal behavior through
+# Policy::load()/from_snapshot(), unchanged by the move; this suite is
+# validate_sub_keys()'s own first direct behavioral proof (no dedicated test
+# matched its exact refusal text anywhere in the repo before this file) plus
+# structural/no-facade confirmation.
+regress-sub-key-grammar:
+	php sandbox/tests/regress_sub_key_grammar.php
+
 # DUO-3350 slice 2: the lifecycle dependency graph planner is independent of
 # WordPress side effects; Deploy retains compatibility facades for its reads
 # and execution path.
@@ -1372,8 +1390,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer
-	@echo "regress-offline-all: 150 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar
+	@echo "regress-offline-all: 151 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's

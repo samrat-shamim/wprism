@@ -27,6 +27,10 @@ require_once __DIR__ . '/ActionProviderGrammar.php';
 // DUO-3348 slice 7: cross-manifest "one owner, no contradiction" guards,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/CrossManifestGuards.php';
+// DUO-3348 slice 8: the "named sub-key of an otherwise-atomic value"
+// declaration grammar, required here for the same "loads alone" reason as
+// its neighbors above.
+require_once __DIR__ . '/SubKeyGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -177,7 +181,7 @@ final class Policy {
             self::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
-            self::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
+            SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
@@ -250,10 +254,10 @@ self::validate_post_type_children($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
             self::validate_user_meta_rules($manifest, "manifest '$name'");
             self::validate_scope_classes($manifest, "manifest '$name'", false);
-            self::validate_sub_keys($manifest, "manifest '$name'");
+            SubKeyGrammar::validate_sub_keys($manifest, "manifest '$name'");
             self::validate_object_type_option_refs($manifest);
             self::validate_taxonomy_object_keyspace_declarations($manifest);
-            self::validate_dynamic_options($manifest);
+            SubKeyGrammar::validate_dynamic_options($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "manifest '$name'");
             self::validate_adapter_contract($manifest);
@@ -351,7 +355,7 @@ self::validate_post_type_children($manifest);
         self::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
-        self::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
+        SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
 
         $pins = PinResolver::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
@@ -379,7 +383,7 @@ self::validate_post_type_children($manifest);
             self::validate_env_options($manifest, "frozen manifest '$name'");
             self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
-            self::validate_sub_keys($manifest, "frozen manifest '$name'");
+            SubKeyGrammar::validate_sub_keys($manifest, "frozen manifest '$name'");
             self::validate_object_type_option_refs($manifest);
             // DUO-3318: validate_dynamic_options() was missing here while
             // load() had called it since DUO-3264. A frozen snapshot is
@@ -388,7 +392,7 @@ self::validate_post_type_children($manifest);
             // validator makes that promise conditional on which entry point
             // ran, which is exactly the class of divergence this method
             // exists to rule out.
-            self::validate_dynamic_options($manifest);
+            SubKeyGrammar::validate_dynamic_options($manifest);
             self::validate_taxonomy_object_keyspace_declarations($manifest);
             self::validate_option_name_refs($manifest);
             self::validate_option_storage($manifest, "frozen manifest '$name'");
@@ -1029,8 +1033,8 @@ self::validate_post_type_children($manifest);
                 // assembled by the caller from the resolver names this policy
                 // itself declares (Apply::dynamic_option_resolver_values()),
                 // so a missing entry can only mean the caller's own resolver
-                // map fell behind DYNAMIC_OPTION_RESOLVERS — never a data
-                // state a target can be in. Continuing produced a null return
+                // map fell behind SubKeyGrammar::DYNAMIC_OPTION_RESOLVERS —
+                // never a data state a target can be in. Continuing produced a null return
                 // indistinguishable from "no declaration matches", which
                 // capture/apply then reports as an unclassified row: a
                 // confusing symptom arbitrarily far from the missing map
@@ -3785,86 +3789,6 @@ self::validate_post_type_children($manifest);
     }
 
     /**
-     * Loud, load-time guard for sub_keyed_options()'s manifest input (same
-     * "throw immediately, never degrade silently" posture as
-     * validate_field_classes() above — a bad sub_keys declaration must fail
-     * every command that loads this manifest, not surface as a confusing
-     * runtime shape error deep inside Capture/Apply). Two invariants:
-     *   - sub_keys, when present, is a non-empty object of NAME => rule,
-     *     and every named rule declares a recognized class;
-     *   - class=authored and sub_keys are mutually exclusive on the SAME
-     *     option rule: class=authored already captures the WHOLE value
-     *     (authored_options()), so a manifest declaring both is stating two
-     *     contradictory capture strategies for the same option name;
-     *   - whole-value codec/safety fields are likewise mutually exclusive
-     *     with sub_keys. Every capture/apply/lint/compiler consumer delegates
-     *     value semantics to the named sub-key rules once sub_keys exists, so
-     *     accepting one of those fields on the parent would silently ignore a
-     *     declaration rather than establish a second ownership layer.
-     *
-     * These are the kind of ambiguous manifest states this project's posture
-     * (DESIGN.md 3.1.5, "loud-and-blocking default") requires rejecting
-     * outright rather than silently picking one.
-     */
-    private static function validate_sub_keys(array $source, string $label): void {
-        foreach ($source['options'] ?? [] as $optName => $rule) {
-            $subKeys = $rule['sub_keys'] ?? null;
-            if ($subKeys === null) {
-                continue;
-            }
-            if (!is_array($subKeys) || !$subKeys) {
-                throw new \RuntimeException(
-                    "duo: $label declares options.$optName.sub_keys but it is not a non-empty object"
-                );
-            }
-            if (($rule['class'] ?? '') === 'authored') {
-                throw new \RuntimeException(
-                    "duo: $label declares options.$optName with BOTH class=authored and sub_keys — "
-                    . 'these are mutually exclusive (class=authored already captures the WHOLE value; sub_keys '
-                    . 'narrows independent capture to named keys of an otherwise-excluded blob). Pick one.'
-                );
-            }
-            self::assert_sub_key_parent_has_no_value_fields(
-                $rule,
-                "$label options.$optName"
-            );
-            foreach ($subKeys as $subKey => $subRule) {
-                if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
-                    throw new \RuntimeException(
-                        "duo: $label declares options.$optName.sub_keys.$subKey with an invalid or "
-                        . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
-                    );
-                }
-            }
-        }
-    }
-
-    private const SUB_KEY_PARENT_VALUE_FIELDS = [
-        'ref',
-        'json_refs',
-        'key_refs',
-        'json_encoded',
-        'cast',
-        'order_preserving',
-        'allow_secret',
-        'lint_ok',
-    ];
-
-    private static function assert_sub_key_parent_has_no_value_fields(array $rule, string $where): void {
-        $ambiguous = array_values(array_filter(
-            self::SUB_KEY_PARENT_VALUE_FIELDS,
-            static fn(string $field): bool => array_key_exists($field, $rule)
-        ));
-        if ($ambiguous) {
-            throw new \RuntimeException(
-                "duo: $where declares sub_keys together with whole-value field(s) "
-                . implode(', ', $ambiguous) . '; put value/reference/secret/lint behavior on each named '
-                . 'sub-key rule instead'
-            );
-        }
-    }
-
-    /**
      * Loud, load-time guard for object_type_option_ref()'s manifest input
      * (DUO-3280) — same posture as validate_sub_keys() immediately above: a
      * malformed declaration must fail every command that loads this
@@ -3980,84 +3904,6 @@ self::validate_post_type_children($manifest);
                 "duo: $where must be one of " . implode('|', self::TAXONOMY_RELATIONSHIP_OBJECTS)
                 . '; no other relationship object keyspace is supported'
             );
-        }
-    }
-
-    /**
-     * v1-supported dynamic_options resolvers (DUO-3264, fork A) — a
-     * manifest's `resolver` value must appear here, mirroring
-     * MENU_DERIVABLE_FIELDS/DERIVABLE_FIELD_COLUMNS' own "start v1 scope tight"
-     * posture elsewhere in this file. Deliberately just 'active_stylesheet':
-     * the one proven case (theme_mods_<stylesheet>). A future resolver is
-     * anticipated by the ruling's own wording but not invented ahead of a
-     * second real, grounded need.
-     */
-    private const DYNAMIC_OPTION_RESOLVERS = ['active_stylesheet'];
-
-    /**
-     * Loud, load-time guard for dynamic_options' manifest input — DUO-3264's
-     * own version of validate_sub_keys() immediately above, kept as its own
-     * function rather than merged into it for the same "mirrored for its
-     * own key shape rather than extended" reason validate_menu_field_classes()
-     * documents for itself: dynamic_options is a flat, top-level manifest
-     * key with a DIFFERENT declaration shape (prefix + resolver, no bare
-     * class of its own), not a per-option-name sub_keys nesting. Reuses
-     * sub_keys' own per-sub-key class validation rule (same self::CLASSES
-     * set) since that inner shape genuinely is identical once you are past
-     * the top-level prefix/resolver fields.
-     *
-     * DUO-3375: a top-level `class` on a dynamic_options declaration is a
-     * DEAD field — resolve_dynamic_option()/dynamic_option_rule_for_name()
-     * hardwire the resolved row's class to 'env' regardless of what the
-     * manifest wrote, so an operator's ownership claim (e.g. class:authored)
-     * used to LOAD and then be silently discarded with no signal. Refuse it
-     * here at load (and, via the identical from_snapshot() call site, when a
-     * frozen snapshot is re-validated) rather than accept-then-override: name
-     * the field, say it is not consumed, and name what the engine forces.
-     * This does NOT widen the schema — a declaration with no top-level class
-     * (the only shape any manifest ships) is untouched and loads unchanged.
-     */
-    private static function validate_dynamic_options(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['dynamic_options'] ?? [] as $key => $decl) {
-            if (!is_array($decl)) {
-                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key that is not an object");
-            }
-            if (array_key_exists('class', $decl)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares dynamic_options.$key.class="
-                    . var_export($decl['class'], true) . ' but a dynamic_options declaration carries no top-level '
-                    . "class; the resolver owns the resolved row's class, which the engine forces to 'env' (only the "
-                    . 'named sub_keys are authored). It is never consumed and would be silently discarded; remove it'
-                );
-            }
-            $prefix = $decl['prefix'] ?? null;
-            if (!is_string($prefix) || $prefix === '') {
-                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key with a missing or empty 'prefix'");
-            }
-            $resolver = $decl['resolver'] ?? null;
-            if (!in_array($resolver, self::DYNAMIC_OPTION_RESOLVERS, true)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares dynamic_options.$key.resolver=" . var_export($resolver, true)
-                    . ' but only ' . implode('|', self::DYNAMIC_OPTION_RESOLVERS) . ' is supported in v1'
-                );
-            }
-            $subKeys = $decl['sub_keys'] ?? null;
-            if (!is_array($subKeys) || !$subKeys) {
-                throw new \RuntimeException("duo: manifest '$name' declares dynamic_options.$key.sub_keys that is missing, empty, or not an object");
-            }
-            self::assert_sub_key_parent_has_no_value_fields(
-                $decl,
-                "manifest '$name' dynamic_options.$key"
-            );
-            foreach ($subKeys as $subKey => $subRule) {
-                if (!is_array($subRule) || !in_array($subRule['class'] ?? null, self::CLASSES, true)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' declares dynamic_options.$key.sub_keys.$subKey with an invalid or "
-                        . 'missing class (expected one of ' . implode('|', self::CLASSES) . ')'
-                    );
-                }
-            }
         }
     }
 
@@ -5050,7 +4896,7 @@ self::validate_post_type_children($manifest);
     }
 
     private const SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
-    private const CLASSES = ['authored', 'runtime', 'derived', 'env', 'managed'];
+    public const CLASSES = ['authored', 'runtime', 'derived', 'env', 'managed'];
     private const SCOPE_CLASSES = ['authored', 'runtime', 'derived', 'env'];
     private const CASTS = ['string', 'csv'];
 
@@ -5221,7 +5067,7 @@ self::validate_post_type_children($manifest);
             'pattern_keys' => self::PATTERN_KEYS,
             'option_autoload_values' => OptionState::AUTOLOAD_VALUES,
             'option_autoload_sentinels' => self::OPTION_AUTOLOAD_SENTINELS,
-            'dynamic_option_resolvers' => self::DYNAMIC_OPTION_RESOLVERS,
+            'dynamic_option_resolvers' => SubKeyGrammar::dynamic_option_resolvers(),
             'user_meta_missing_user_modes' => self::MISSING_USER_MODES,
             'post_derivable_fields' => self::DERIVABLE_FIELD_COLUMNS,
             'post_field_classes' => self::FIELD_CLASSES,
