@@ -2983,7 +2983,7 @@ final class AdapterSources {
         // out-of-tree manifest that declares this key at all is asking for a
         // privilege it cannot have, and the refusal must not depend on the
         // declaration being well-formed enough to recognize. (Type/shape is
-        // Policy::validate_adapter_contract()'s job, for every source.)
+        // AdapterContractGrammar::validate_adapter_contract()'s job, for every source.)
         if (array_key_exists('interpreter', $manifest) && $manifest['interpreter'] !== null) {
             throw new \RuntimeException(
                 "duo: $label $shown declares interpreter "

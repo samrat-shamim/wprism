@@ -491,7 +491,7 @@ final class ActionProviderGrammar {
 
     /**
      * Cross-manifest guard, run once after every pinned manifest has loaded —
-     * the provider twin of validate_no_conflicting_adapter_claims() above,
+     * the provider twin of AdapterContractGrammar::validate_no_conflicting_adapter_claims() above,
      * with the same rationale: a provider id resolves to concrete executable
      * code (a manifests/providers/<id>.php file, or a `duo_providers`
      * registration), so two pinned manifests claiming one id makes which code

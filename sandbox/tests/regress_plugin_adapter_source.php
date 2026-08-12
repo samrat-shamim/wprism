@@ -131,7 +131,7 @@ function adapter(string $name, array $extra = []): array {
  * — and therefore its version range.
  *
  * That second half is not a fixture convenience: DUO-3339's anchor rule makes
- * `plugin` mandatory for this source, and Policy::validate_adapter_contract()
+ * `plugin` mandatory for this source, and AdapterContractGrammar::validate_adapter_contract()
  * (DUO-3222, Policy.php:5428-5434) has always refused a manifest that names a
  * plugin without an exact `version_range` — "no latest, wildcard, or unbounded
  * version support may be certified". So a bundled adapter is transitively
