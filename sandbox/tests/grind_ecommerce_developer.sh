@@ -3466,6 +3466,8 @@ assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET" | awk '{prin
 grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_CHECKPOINT_TARGET" \
   || fail 'immutable v1 database checkpoint lost the raw scalar option value before rollback import'
 control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql" >/dev/null
+ROLLBACK_SETTING_AFTER_IMPORT="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")"
+printf 'exact v1 raw setting immediately after checkpoint import: %s\n' "$ROLLBACK_SETTING_AFTER_IMPORT" >&2
 ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1")"
 if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r '
 $value = unserialize((string) ($argv[1] ?? ""), ["allowed_classes" => false]);
@@ -3477,7 +3479,7 @@ fi
 assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON" 'v1 checkpoint active plugin order before code staging'
 assert_eq "$REPLACEMENT_OLD_FILE_HASH_BEFORE" "$(target_hash "$EXT_TARGET")" 'exact v2 extension bytes before v1 control-plane staging'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'exact v1 code revision after checkpoint import'
-assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'exact v1 setting after checkpoint import'
+assert_eq retail "$ROLLBACK_SETTING_AFTER_IMPORT" 'exact v1 setting after checkpoint import'
 assert_eq 0 "$(target_db_scalar "SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'wp_duo_commerce_extension_events' AND COLUMN_NAME = 'context'")" 'exact v1 runtime table shape'
 assert_extension_runtime_event 0 "" 'exact v1 runtime row after rollback'
 if ! RESTORE_OUT="$(promote 2>&1)"; then
