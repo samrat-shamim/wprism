@@ -2532,27 +2532,50 @@ final class Init {
             throw new \RuntimeException('duo: init .gitignore boundary changed after proposal review');
         }
         $required = [
-            '.tmp*', '.duo-init-code-*', '.*.duo-init-*', self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
+            '/.tmp*', '/.duo/', '/.duo-envs.json', '/.duo-init-code-*', '/.*.duo-init-*',
+            '/' . self::ATTEMPT_FILE, '/' . self::ATTEMPT_NEXT_FILE,
+            '/state.capture.lock', '/state.capture-staging/', '/state.capture-backup/',
+            '/state.capture-intent', '/state.capture-receipt', '/state.capture-intent.tmp.*',
+            '/state.capture-receipt.tmp.*', '/state.capture-intent.previous',
+            '/state.capture-intent.next', '/state.capture-receipt.previous',
+            '/state.capture-receipt.next', '/.duo-env-values.json',
+        ];
+        // Older Duo releases generated these root-owned protocol basenames
+        // without root anchors. Migrate those exact Duo rules so they cannot
+        // hide legitimate same-named files inside vendored plugin code.
+        $next = $previous ?? '';
+        $legacyRules = [
+            '.tmp*', '.duo/', '.duo-envs.json', '.duo-init-code-*', '.*.duo-init-*',
+            self::ATTEMPT_FILE, self::ATTEMPT_NEXT_FILE,
             'state.capture.lock', 'state.capture-staging/', 'state.capture-backup/',
             'state.capture-intent', 'state.capture-receipt', 'state.capture-intent.tmp.*',
             'state.capture-receipt.tmp.*', 'state.capture-intent.previous',
             'state.capture-intent.next', 'state.capture-receipt.previous',
             'state.capture-receipt.next', '.duo-env-values.json',
         ];
-        $lines = $previous === null ? [] : preg_split('/\r?\n/', $previous);
+        foreach ($legacyRules as $legacyRule) {
+            $next = (string) preg_replace(
+                '/^' . preg_quote($legacyRule, '/') . '(?=\r?$)/m',
+                '/' . $legacyRule,
+                $next
+            );
+        }
+        $migrated = $previous !== null && $next !== $previous;
+        $lines = $next === '' ? [] : preg_split('/\r?\n/', $next);
         $known = array_fill_keys(is_array($lines) ? $lines : [], true);
         $missing = array_values(array_filter($required, static fn(string $line): bool => !isset($known[$line])));
-        if ($missing === []) {
+        if ($missing === [] && !$migrated) {
             return null;
         }
-        $next = $previous ?? '';
-        if ($next !== '' && !str_ends_with($next, "\n")) {
-            $next .= "\n";
+        if ($missing !== []) {
+            if ($next !== '' && !str_ends_with($next, "\n")) {
+                $next .= "\n";
+            }
+            if ($next !== '') {
+                $next .= "\n";
+            }
+            $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
         }
-        if ($next !== '') {
-            $next .= "\n";
-        }
-        $next .= "# Duo local publication and environment artifacts\n" . implode("\n", $missing) . "\n";
         return self::publish_owned_file($path, $next, $identity, '.gitignore');
     }
 

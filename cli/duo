@@ -491,7 +491,7 @@ Verbs:
 Global flags:
   --envs-file=<path>      Explicitly trust and load the machine-local overlay
                           registry at <path> instead of auto-discovering an
-                          untracked .duo-envs.json upward from the cwd.
+                          untracked .duo-envs.json at the site/Git root.
   -h, --help              Show this help.
 
 Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):
@@ -504,10 +504,11 @@ Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):
               "repo_path": "/home/me/site"}
   }}
 
-Both registry files are found by walking upward from the current directory,
-git-style. The overlay (.duo-envs.json) replaces same-named entries from
-site.duo.json entirely — no per-key merge. See cli/README.md for the full
-contract, transport requirements, and the overlay convention.
+site.duo.json is found at the current Git worktree root (search starts at the
+current directory); its auto-discovered .duo-envs.json must sit beside it. A
+nested registry/overlay is refused. The overlay replaces same-named entries
+entirely — no per-key merge. See cli/README.md for the full contract, transport
+requirements, and the explicit --envs-file trust override.
 TXT;
 }
 

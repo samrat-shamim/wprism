@@ -6,22 +6,24 @@
 # missing state.capture.lock here hits a real, structural failure the
 # moment a test captures on both sides of a pair before a git pull on the
 # second side -- see DUO-3244 for the concrete repro.
-.tmp*
-.duo-init-code-*
-.duo-init-attempt
-.duo-init-attempt.next
-.*.duo-init-*
-state.capture.lock
-state.capture-staging/
-state.capture-backup/
-state.capture-intent
-state.capture-receipt
-state.capture-intent.tmp.*
-state.capture-receipt.tmp.*
-state.capture-intent.previous
-state.capture-intent.next
-state.capture-receipt.previous
-state.capture-receipt.next
+/.tmp*
+/.duo/
+/.duo-envs.json
+/.duo-init-code-*
+/.duo-init-attempt
+/.duo-init-attempt.next
+/.*.duo-init-*
+/state.capture.lock
+/state.capture-staging/
+/state.capture-backup/
+/state.capture-intent
+/state.capture-receipt
+/state.capture-intent.tmp.*
+/state.capture-receipt.tmp.*
+/state.capture-intent.previous
+/state.capture-intent.next
+/state.capture-receipt.previous
+/state.capture-receipt.next
 
 # DUO-3232: env-bound value provisioning. `wp duo env-set` writes directly
 # to wp_options and is never captured, so this file has nothing to do with
@@ -29,4 +31,4 @@ state.capture-receipt.next
 # per-environment operator scratch file (name -> value) sitting next to
 # site.duo.json on ONE environment's own checkout, never shared via git.
 # See cli/README.md and cli/src/Doctor.php's own git-tracked hygiene check.
-.duo-env-values.json
+/.duo-env-values.json
