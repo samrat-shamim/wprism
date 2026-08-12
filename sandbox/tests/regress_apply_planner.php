@@ -253,6 +253,69 @@ $check(
     'work projection: declared table deletion order is child-before-parent from the manifest graph'
 );
 
+// --------------------------------------------- mutation-authority projections
+
+$repairPlan = [
+    'create' => [['uuid' => 'created']],
+    'update' => [['uuid' => 'updated']],
+    'adopt' => [['uuid' => 'adopted']],
+    'drift' => [['uuid' => 'drifted']],
+    'conflict' => [['uuid' => 'conflicted']],
+    'delete' => [['uuid' => 'deleted']],
+];
+$check(
+    ApplyPlanner::guard_repair_uuids($repairPlan) === [
+        'created' => true,
+        'updated' => true,
+        'adopted' => true,
+    ],
+    'guard repair projection: ordinary plans include only authored create/update/adopt UUIDs'
+);
+$check(
+    ApplyPlanner::guard_repair_uuids($repairPlan, true) === [
+        'created' => true,
+        'updated' => true,
+        'adopted' => true,
+        'drifted' => true,
+    ],
+    'guard repair projection: scoped promotion explicitly widens the witness with drift'
+);
+$check(
+    ApplyPlanner::guard_repair_uuids([
+        'update' => [['uuid' => '']],
+        'adopt' => [['type' => 'post']],
+        'delete' => [['uuid' => 'tombstone']],
+    ]) === [],
+    'guard repair projection: malformed or non-authored rows cannot become repair authority'
+);
+
+$authorityPlan = [
+    'delete' => [['uuid' => 'delete-1', 'guard_witnesses' => ['0' => str_repeat('a', 64)]]],
+    'regen_context' => [['uuid' => 'post-1', 'receipt_hash' => str_repeat('b', 64)]],
+    'uploads_inventory' => ['uploads' => ['one.jpg']],
+    'effects_inventory' => ['effects' => ['one']],
+    'warnings' => ['display-only'],
+];
+$authorityHash = ApplyPlanner::plan_precondition_hash($authorityPlan);
+$warningOnlyPlan = $authorityPlan;
+$warningOnlyPlan['warnings'] = ['a different display warning'];
+$check(
+    $authorityHash === ApplyPlanner::plan_precondition_hash($warningOnlyPlan),
+    'precondition hash: report-only buckets do not change mutation authority'
+);
+$changedWitnessPlan = $authorityPlan;
+$changedWitnessPlan['delete'][0]['guard_witnesses']['0'] = str_repeat('c', 64);
+$check(
+    $authorityHash !== ApplyPlanner::plan_precondition_hash($changedWitnessPlan),
+    'precondition hash: exact deletion guard witnesses invalidate stale authority'
+);
+$changedReceiptPlan = $authorityPlan;
+$changedReceiptPlan['regen_context'][0]['receipt_hash'] = str_repeat('d', 64);
+$check(
+    $authorityHash !== ApplyPlanner::plan_precondition_hash($changedReceiptPlan),
+    'precondition hash: durable regeneration receipts invalidate stale authority'
+);
+
 // ------------------------------------------------------- nested_delete_candidate_counts
 
 $check(ApplyPlanner::nested_delete_candidate_counts([], [], [], null) === null,
@@ -463,6 +526,13 @@ $check(
         && preg_match('/private function phase2_rank\([^}]*?return \$this->apply_planner\(\)->phase2_rank\(/s', $applySource) === 1
         && preg_match('/private function deletion_rank\([^}]*?return \$this->apply_planner\(\)->deletion_rank\(/s', $applySource) === 1,
     'work projection: Apply keeps only compatibility facades while planner owns work and ordering projections'
+);
+$check(
+    preg_match('/public static function guard_repair_uuids\(/', $plannerSource) === 1
+        && preg_match('/private function guard_repair_uuids\([^}]*?return ApplyPlanner::guard_repair_uuids\(/s', $applySource) === 1
+        && preg_match('/public static function plan_precondition_hash\(/', $plannerSource) === 1
+        && preg_match('/private function plan_precondition_hash\([^}]*?return ApplyPlanner::plan_precondition_hash\(/s', $applySource) === 1,
+    'mutation authority: Apply keeps thin facades while planner owns repair UUID and precondition projections'
 );
 
 if ($failures) {

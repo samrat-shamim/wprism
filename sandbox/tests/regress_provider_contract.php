@@ -3190,11 +3190,12 @@ $cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
 $check(str_contains($cliSource, "REGEN_CONTEXT ")
     && str_contains($cliSource, "count(\$plan['regen_context'] ?? []) . ' regen_context'"),
     'the agent-side plan renderer carries the same bucket, count line included');
+$plannerHashMethod = (new ReflectionClass(\Duo\ApplyPlanner::class))->getMethod('plan_precondition_hash');
 $hashSource = implode("\n", array_slice(
-    (array) file((string) $applyClass->getMethod('plan_precondition_hash')->getFileName(), FILE_IGNORE_NEW_LINES),
-    $applyClass->getMethod('plan_precondition_hash')->getStartLine() - 1,
-    $applyClass->getMethod('plan_precondition_hash')->getEndLine()
-        - $applyClass->getMethod('plan_precondition_hash')->getStartLine() + 1
+    (array) file((string) $plannerHashMethod->getFileName(), FILE_IGNORE_NEW_LINES),
+    $plannerHashMethod->getStartLine() - 1,
+    $plannerHashMethod->getEndLine()
+        - $plannerHashMethod->getStartLine() + 1
 ));
 $check(str_contains($hashSource, "'regen_context'"),
     'and the bucket authorizes mutation, so a receipt that appeared during the planning window refuses the '

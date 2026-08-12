@@ -1328,29 +1328,9 @@ final class Apply {
         return $this->apply_planner()->deletion_rank($row);
     }
 
-    /**
-     * UUIDs whose authored state is actually scheduled to be written in this
-     * revision. Deletion guards use this narrow witness to distinguish a
-     * parent update which removes a ref from a child-only delete (or a
-     * conflicted parent which cannot be trusted to repair anything).
-     *
-     * @return array<string,bool>
-     */
+    /** Thin compatibility facade over ApplyPlanner::guard_repair_uuids(). */
     private function guard_repair_uuids(array $plan, bool $includeDrift = false): array {
-        $out = [];
-        $buckets = ['create', 'update', 'adopt'];
-        if ($includeDrift) {
-            $buckets[] = 'drift';
-        }
-        foreach ($buckets as $bucket) {
-            foreach ((array) ($plan[$bucket] ?? []) as $row) {
-                $uuid = (string) ($row['uuid'] ?? '');
-                if ($uuid !== '') {
-                    $out[$uuid] = true;
-                }
-            }
-        }
-        return $out;
+        return ApplyPlanner::guard_repair_uuids($plan, $includeDrift);
     }
 
     /** @return array{count:int,error:?string,rows:string[],witness?:string} */
@@ -3647,19 +3627,9 @@ final class Apply {
         return $forceable;
     }
 
-    /** Hash only facts which authorize target mutation; output/report buckets are excluded. */
+    /** Thin compatibility facade over ApplyPlanner::plan_precondition_hash(). */
     private function plan_precondition_hash(array $plan): string {
-        $keys = [
-            'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
-            'collision', 'delete', 'delete_conflict', 'deleted',
-            'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending', 'regen_context',
-            'missing_user', 'skipped_user_meta', 'uploads_inventory', 'effects_inventory',
-        ];
-        $basis = [];
-        foreach ($keys as $key) {
-            $basis[$key] = $plan[$key] ?? [];
-        }
-        return hash('sha256', Canon::encode($basis));
+        return ApplyPlanner::plan_precondition_hash($plan);
     }
 
     /** Mint the immutable execution authority only after the locked recheck. */

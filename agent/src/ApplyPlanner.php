@@ -294,6 +294,53 @@ final class ApplyPlanner {
     }
 
     /**
+     * Project the exact plan facts which authorize a later mutation.
+     *
+     * Report-only buckets are intentionally excluded. The selected plan
+     * rows, deletion guard witnesses, retry receipts, and immutable source
+     * inventories remain part of the hash so a scoped apply or a locked
+     * recheck cannot reuse a plan after its mutation authority changed.
+     */
+    public static function plan_precondition_hash(array $plan): string {
+        $keys = [
+            'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
+            'collision', 'delete', 'delete_conflict', 'deleted',
+            'code_mismatch', 'code_drift', 'incomplete_apply', 'regen_pending', 'regen_context',
+            'missing_user', 'skipped_user_meta', 'uploads_inventory', 'effects_inventory',
+        ];
+        $basis = [];
+        foreach ($keys as $key) {
+            $basis[$key] = $plan[$key] ?? [];
+        }
+        return hash('sha256', Canon::encode($basis));
+    }
+
+    /**
+     * Project the authored UUIDs whose desired state is scheduled to be
+     * written in this revision. Deletion guards use this narrow witness to
+     * distinguish a parent repair from a child-only delete; conflicted rows
+     * and tombstones are deliberately excluded.
+     *
+     * @return array<string,bool>
+     */
+    public static function guard_repair_uuids(array $plan, bool $includeDrift = false): array {
+        $out = [];
+        $buckets = ['create', 'update', 'adopt'];
+        if ($includeDrift) {
+            $buckets[] = 'drift';
+        }
+        foreach ($buckets as $bucket) {
+            foreach ((array) ($plan[$bucket] ?? []) as $row) {
+                $uuid = (string) ($row['uuid'] ?? '');
+                if ($uuid !== '') {
+                    $out[$uuid] = true;
+                }
+            }
+        }
+        return $out;
+    }
+
+    /**
      * Project nested deletion candidates from the exact snapshot/build-plan
      * evidence already in memory. No target, ledger, policy, provider, or
      * filesystem call is permitted here: a later read could describe a
