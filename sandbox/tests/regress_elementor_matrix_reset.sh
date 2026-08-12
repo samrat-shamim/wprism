@@ -36,7 +36,7 @@ if reset.index(delete) >= reset.index(empty):
 
 required = (
     "ELEMENTOR_STDERR_LOG=$(mktemp",
-    'reset_env wp1 2>>"$ELEMENTOR_STDERR_LOG"',
+    "run_elementor_command reset_env wp1",
     "run_elementor_command check_elementor_content",
     "ELEMENTOR_WARNING_MATCHES=$(grep -nE",
     "elementor/core/isolation/elementor-adapter",

@@ -449,7 +449,14 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
 }
 
 run_elementor_command() {
-  "$@" 2>>"$ELEMENTOR_STDERR_LOG"
+  local command_log rc
+  command_log=$(mktemp "${ELEMENTOR_STDERR_LOG}.command.XXXXXX")
+  rc=0
+  "$@" 2>"$command_log" || rc=$?
+  cat "$command_log" >>"$ELEMENTOR_STDERR_LOG"
+  cat "$command_log" >&2
+  rm -f "$command_log"
+  return "$rc"
 }
 
 for ACF_VERSION in 6.0.0 6.8.7; do
@@ -597,8 +604,8 @@ for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
   say "boundary: elementor $ELEMENTOR_VERSION"
   ELEMENTOR_STDERR_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-elementor.XXXXXX")
 
-  reset_env wp1 2>>"$ELEMENTOR_STDERR_LOG"
-  reset_env wp2 2>>"$ELEMENTOR_STDERR_LOG"
+  run_elementor_command reset_env wp1
+  run_elementor_command reset_env wp2
   reset_case_repositories
 
   say "fetch + verify elementor $ELEMENTOR_VERSION (never a bare slug install — always a digest-checked artifact)"
@@ -665,7 +672,6 @@ EOF
   # The exact boundary must be warning-free. Keep stderr visible for normal
   # diagnostics, then reject the specific Elementor null-reference paths that
   # previously made the matrix green while human/exit status disagreed.
-  cat "$ELEMENTOR_STDERR_LOG" >&2
   ELEMENTOR_WARNING_MATCHES=$(grep -nE 'elementor/core/isolation/elementor-adapter\.php|elementor/core/base/document\.php|Elementor\\Core\\Isolation\\Elementor_Adapter' "$ELEMENTOR_STDERR_LOG" || true)
   if [ -n "$ELEMENTOR_WARNING_MATCHES" ]; then
     fail "unexpected Elementor PHP warning at exact $ELEMENTOR_VERSION boundary (captured stderr: $ELEMENTOR_STDERR_LOG):
