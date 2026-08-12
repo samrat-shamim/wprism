@@ -96,9 +96,12 @@ final class PlanSummary {
      * @param list<string> $viewCategories empty preserves the legacy full
      *   category summary; an explicit filtered status supplies its canonical
      *   requested subset while all readiness/global evidence remains full.
+     * @param ?string $environment When status supplies its environment name,
+     *   render host-side remediation. Null preserves target-side advice for
+     *   callers that do not own an environment registry.
      * @return array{lines: list<string>, ok: bool}
      */
-    public static function render(array $plan, array $viewCategories = []): array {
+    public static function render(array $plan, array $viewCategories = [], ?string $environment = null): array {
         $lines = [];
         $counts = [];
         foreach (self::BUCKETS as $k) {
@@ -279,6 +282,13 @@ final class PlanSummary {
         }
 
         foreach ($plan['warnings'] ?? [] as $w) {
+            // Apply attaches one target-form warning for each required row.
+            // Host status owns the environment name and renders the exact
+            // host command below, so repeating this warning would mix two
+            // execution surfaces in one first-time-user diagnosis.
+            if ($environment !== null && self::isRequiredEnvMissingWarning((string) $w, $envMissing)) {
+                continue;
+            }
             $lines[] = 'WARNING: ' . $w;
         }
 
@@ -320,11 +330,20 @@ final class PlanSummary {
             $lines[] = 'ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):';
             foreach ($envMissing as $r) {
                 $flag = !empty($r['required']) ? 'required' : 'optional';
-                $lines[] = '  - ' . ($r['name'] ?? '?') . " ($flag)";
+                $line = '  - ' . ($r['name'] ?? '?') . " ($flag)";
+                if ($environment !== null && !empty($r['required']) && is_string($r['name'] ?? null)) {
+                    $line .= '; run: `duo env-set ' . self::shellArg($environment)
+                        . ' --name=' . self::shellArg($r['name']) . ' --stdin`';
+                }
+                $lines[] = $line;
             }
-            $lines[] = $envMissingRequired
-                ? 'required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting'
-                : 'only optional env value(s) missing — safe to promote, listed for visibility';
+            if ($envMissingRequired) {
+                $lines[] = $environment !== null
+                    ? 'required env value(s) missing — run each required item command above before promoting'
+                    : 'required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting';
+            } else {
+                $lines[] = 'only optional env value(s) missing — safe to promote, listed for visibility';
+            }
         }
 
         if ($missingUser) {
@@ -503,6 +522,29 @@ final class PlanSummary {
             && $counts['drift'] === 0;
 
         return ['lines' => $lines, 'ok' => $ok];
+    }
+
+    /** @param list<array<string,mixed>> $envMissing */
+    private static function isRequiredEnvMissingWarning(string $warning, array $envMissing): bool {
+        foreach ($envMissing as $row) {
+            if (empty($row['required']) || !is_string($row['name'] ?? null)) {
+                continue;
+            }
+            $name = $row['name'];
+            $expected = "env_missing: option '$name' is required and not yet provisioned on "
+                . "this environment — see 'wp duo env-set --name=$name --stdin'";
+            if ($warning === $expected) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A readable shell token when safe; POSIX quoting otherwise. */
+    private static function shellArg(string $value): string {
+        return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1
+            ? $value
+            : escapeshellarg($value);
     }
 
     private static function label(array $r): string {

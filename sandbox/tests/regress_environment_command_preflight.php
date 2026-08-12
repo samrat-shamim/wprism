@@ -16,11 +16,12 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 $expected = [
     'doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities',
-    'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set',
+    'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
     'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
 ];
 $check(EnvironmentCommandPreflight::environmentVerbs() === $expected, 'environment command vocabulary remains ordered and closed');
 $check(EnvironmentCommandPreflight::requiresEnvironment('capture'), 'capture is environment-bound');
+$check(EnvironmentCommandPreflight::requiresEnvironment('lint'), 'lint is environment-bound');
 $check(!EnvironmentCommandPreflight::requiresEnvironment('envs'), 'offline envs command is not environment-bound');
 $check(!EnvironmentCommandPreflight::requiresEnvironment('adapter'), 'offline adapter catalog is not environment-bound');
 

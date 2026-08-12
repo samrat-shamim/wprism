@@ -574,7 +574,9 @@ final class Capture {
                 $lint = Lint::scan_tree($staging, $c->policy);
                 if ($lint) {
                     $candidate['warnings'][] = count($lint)
-                        . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
+                        . ' suspicious unrewritten ref(s) in captured state — review with host '
+                        . '`duo lint <env>` (the environment just captured), or directly on the target with '
+                        . '`wp duo lint --repo=' . $c->repo . '`';
                 }
                 $compiledCandidate = null;
                 if ($scopeContract !== null) {

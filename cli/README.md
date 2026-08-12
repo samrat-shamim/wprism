@@ -41,6 +41,7 @@ duo init   <env> [--yes]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
 duo capabilities <env> [--format=json]
 duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
+duo lint    <env> [extra wp-cli flags...]
 duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo explain <env> <bucket>:<entity-key> [--format=json] [planning flags...]
 duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
@@ -317,6 +318,11 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
   entries (a manifest-declared `class: "env"` option unset on this
   environment — DUO-3232, see "Env-bound value provisioning" below), and
   any plan-level warnings.
+
+  Each required env entry includes its exact host-side
+  `duo env-set <this-env> --name=<this-name> --stdin` command. Target-form
+  `wp duo env-set` advice from the agent is suppressed on this host-rendered
+  surface so one diagnosis never asks the operator to choose a transport.
 
   Entity rows that carry an authored WordPress display name — a post's
   `title` front matter, a term's or menu's `name` — expose it as the row's
@@ -683,6 +689,11 @@ Run `duo --help` for the full usage text (verbs, global flags, registry shape).
 The host rejects any materializer change outside `state/` and `media/`; native
 Git code conflicts remain in the disposable worktree. Plugin semantics belong
 in manifests, native actions, or plugin-owned providers—not this shell.
+
+- **`duo lint <env> [extra wp-cli flags...]`** — read-only passthrough to
+  `wp duo lint --repo=<repo_path> …`. It lets the operator follow capture's
+  lint warning without knowing the target transport or repository path;
+  findings stream live and the agent's exit code is preserved.
 
 - **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`** — pure
   passthrough to `wp duo env-set --repo=<repo_path> --name=<name> …`, same

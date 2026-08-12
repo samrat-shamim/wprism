@@ -141,6 +141,7 @@ Usage:
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
+  duo lint    <env> [extra wp-cli flags...]
   duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
   duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
@@ -342,6 +343,10 @@ Verbs:
                           normalized selectors + scope_hash; the target
                           recompiles and verifies the complete contract before
                           any target DDL/DML.
+  lint <env> [...]        `wp duo lint --repo=<repo_path> [...]`. Scan captured
+                          canonical state for suspicious unrewritten references
+                          through the configured environment transport. Read-only;
+                          output streams live; the agent exit code is preserved.
   plan <env> [...]        `wp duo plan --repo=<repo_path> [...]`. Optional
     --scope-contract=<p>  local scope evidence is validated and forwarded only
                           as compact selectors + scope_hash; scoped planning is
@@ -683,7 +688,7 @@ function main(array $argv): int {
         'init' => cmd_init($transport, $extra),
         'status' => cmd_status($transport, $extra),
         'adapter-observe' => cmd_adapter_observe($transport, $extra),
-        'capabilities', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'lint', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'capture' => cmd_capture($transport, $extra),
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),

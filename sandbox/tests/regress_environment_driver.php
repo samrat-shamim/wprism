@@ -264,8 +264,6 @@ putenv('DUO_SCOPE_ARGS=' . $scopeArgs);
 $scopeForward = invoke_cli([
     '--envs-file=' . $envsFile, 'scope', 'local-proof', '--roots=all', '--contract',
 ]);
-putenv('PATH=' . $oldPath);
-putenv('DUO_SCOPE_ARGS');
 assert_true($scopeForward['exit'] === 0, 'isolated public scope forwarding returned non-zero: ' . $scopeForward['stderr']);
 $forwarded = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
 assert_true(is_array($forwarded), 'scope forwarding did not invoke the transport wp command');
@@ -280,6 +278,21 @@ assert_true(
         && in_array('--roots=all', $forwarded, true)
         && in_array('--contract', $forwarded, true),
     'scope transport forwards control-plane --exec/skip flags and contract roots verbatim'
+);
+$lintForward = invoke_cli([
+    '--envs-file=' . $envsFile, 'lint', 'local-proof', '--format=json',
+]);
+putenv('PATH=' . $oldPath);
+putenv('DUO_SCOPE_ARGS');
+assert_true($lintForward['exit'] === 0, 'public lint forwarding returned non-zero: ' . $lintForward['stderr']);
+$lintArgs = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
+assert_true(
+    is_array($lintArgs)
+        && in_array('duo', $lintArgs, true)
+        && in_array('lint', $lintArgs, true)
+        && in_array('--repo=' . $tmp . '/repo', $lintArgs, true)
+        && in_array('--format=json', $lintArgs, true),
+    'public lint resolves the environment and forwards the bound repository plus user flags'
 );
 $controlArgs = CodeDeploy::controlArgs(['duo', 'scope']);
 assert_true(
@@ -362,6 +375,10 @@ assert_true(
 assert_true(
     $requirements->invoke(null, 'explain') === $requirements->invoke(null, 'plan'),
     'explain must demand exactly the attach + wp-cli control capabilities plan requires'
+);
+assert_true(
+    $requirements->invoke(null, 'lint') === $requirements->invoke(null, 'coverage'),
+    'lint must demand exactly the attach + wp-cli control capabilities of other read-only scans'
 );
 pass('every cli/duo verb reaching the driver preflight resolves through requirements()');
 

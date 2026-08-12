@@ -45,10 +45,24 @@ assert_passthrough(
     'ordinary passthrough preserves the exact agent argv and repo binding'
 );
 
+$lint = PassthroughCommand::run($driver, 'lint', ['--format=json']);
+assert_passthrough($lint === 23, 'lint passthrough preserves the transport exit code');
+assert_passthrough(
+    $driver->calls[1] === ['duo', 'lint', '--repo=/fixture/repo', '--format=json'],
+    'lint passthrough preserves the exact agent argv and repo binding'
+);
+$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+assert_passthrough(
+    is_string($captureSource)
+        && str_contains($captureSource, '`duo lint <env>` (the environment just captured)')
+        && str_contains($captureSource, '`wp duo lint --repo='),
+    'capture lint warning names both the host workflow and direct target fallback'
+);
+
 $scoped = PassthroughCommand::run($driver, 'plan', ['--format=json']);
 assert_passthrough($scoped === 23, 'unscoped plan remains a direct passthrough');
 assert_passthrough(
-    $driver->calls[1] === ['duo', 'plan', '--repo=/fixture/repo', '--format=json'],
+    $driver->calls[2] === ['duo', 'plan', '--repo=/fixture/repo', '--format=json'],
     'unscoped plan does not synthesize a scope wire argument'
 );
 

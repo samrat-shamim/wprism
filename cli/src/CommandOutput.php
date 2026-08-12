@@ -26,7 +26,7 @@ final class CommandOutput {
 
     /** Commands whose host preflight can emit the agent refusal envelope. */
     public static function wantsAgentRefusalJson(string $verb, array $extra): bool {
-        if (!in_array($verb, ['adapter-observe', 'capture', 'plan', 'explain', 'apply', 'refresh'], true)) {
+        if (!in_array($verb, ['adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'refresh'], true)) {
             return false;
         }
         foreach ($extra as $index => $arg) {

@@ -16,6 +16,7 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
 };
 
 $check(CommandOutput::wantsAgentRefusalJson('capture', ['--format=json']), 'compact JSON flag is recognized for agent commands');
+$check(CommandOutput::wantsAgentRefusalJson('lint', ['--format=json']), 'lint JSON flag selects the agent refusal envelope');
 $check(CommandOutput::wantsAgentRefusalJson('plan', ['--format', 'json']), 'spaced JSON flag is recognized for agent commands');
 $check(!CommandOutput::wantsAgentRefusalJson('doctor', ['--format=json']), 'unlisted commands do not claim the agent refusal envelope');
 $check(!CommandOutput::wantsAgentRefusalJson('capture', ['--format=human']), 'human format does not select the JSON envelope');

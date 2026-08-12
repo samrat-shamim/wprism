@@ -74,7 +74,11 @@ final class StatusCommand {
                 return 1;
             }
         }
-        $summary = PlanSummary::render($plan, $viewRequest === null ? [] : $viewRequest['category']);
+        $summary = PlanSummary::render(
+            $plan,
+            $viewRequest === null ? [] : $viewRequest['category'],
+            $driver->name()
+        );
         if ($viewRequest !== null) {
             /** @var array<string,mixed> $view */
             $view = $plan['plan_view'];

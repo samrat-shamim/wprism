@@ -8,7 +8,7 @@ final class EnvironmentCommandPreflight {
     /** @var list<string> */
     private const ENVIRONMENT_VERBS = [
         'doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities',
-        'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set',
+        'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
         'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
     ];
 
