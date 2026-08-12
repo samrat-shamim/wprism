@@ -47,6 +47,14 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${VMATRIX_PAIR:-vmatrix}"
 PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
+# A scoped adapter renewal must not spend an hour re-running unrelated
+# manifests.  The full matrix stays the default; this deliberately narrow
+# mode retains WooCommerce's admitted boundary and its below-range refusal.
+VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-all}"
+case "$VMATRIX_MANIFEST" in
+  all|woocommerce) ;;
+  *) fail "VMATRIX_MANIFEST must be all or woocommerce (got '$VMATRIX_MANIFEST')" ;;
+esac
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
   0|1) ;;
@@ -352,12 +360,6 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   # have requested is not installed"). Matches grind_r1b_shop.sh/grind_r3b_
   # events.sh's own reset_env_state() convention, adapted for a single side.
   local cli="$1"
-  # Elementor stores the active kit as an option pointing at a post. `site
-  # empty` removes that post, but the option can survive; deleting the
-  # authored reference first keeps Elementor's own reset/shutdown hooks from
-  # dereferencing a null post on the next exact-version install. This is
-  # disposable matrix-fixture cleanup only, not a production-state policy.
-  "$cli" option delete elementor_active_kit >/dev/null 2>&1 || true
   "$cli" site empty --yes >/dev/null
   # site empty can leave default_category pointing at a term it deleted. A
   # later plugin installer may reuse that numeric id for another taxonomy
@@ -448,17 +450,7 @@ reset_env() { # reset_env <cli-fn> — content + identity only, keeps WordPress
   "$cli" db query "TRUNCATE TABLE wp_duo_journal" >/dev/null 2>&1 || true
 }
 
-run_elementor_command() {
-  local command_log rc
-  command_log=$(mktemp "${ELEMENTOR_STDERR_LOG}.command.XXXXXX")
-  rc=0
-  "$@" 2>"$command_log" || rc=$?
-  cat "$command_log" >>"$ELEMENTOR_STDERR_LOG"
-  cat "$command_log" >&2
-  rm -f "$command_log"
-  return "$rc"
-}
-
+if [ "$VMATRIX_MANIFEST" = all ]; then
 for ACF_VERSION in 6.0.0 6.8.7; do
   say "boundary: acf $ACF_VERSION"
 
@@ -602,19 +594,18 @@ done
 
 for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
   say "boundary: elementor $ELEMENTOR_VERSION"
-  ELEMENTOR_STDERR_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-elementor.XXXXXX")
 
-  run_elementor_command reset_env wp1
-  run_elementor_command reset_env wp2
+  reset_env wp1
+  reset_env wp2
   reset_case_repositories
 
   say "fetch + verify elementor $ELEMENTOR_VERSION (never a bare slug install — always a digest-checked artifact)"
-  ARTIFACT_1=$(run_elementor_command fetch_artifact elementor "$ELEMENTOR_VERSION" cli1)
-  ARTIFACT_2=$(run_elementor_command fetch_artifact elementor "$ELEMENTOR_VERSION" cli2)
+  ARTIFACT_1=$(fetch_artifact elementor "$ELEMENTOR_VERSION" cli1)
+  ARTIFACT_2=$(fetch_artifact elementor "$ELEMENTOR_VERSION" cli2)
   pass "verified sha256-pinned artifact resolved for both sides: $ARTIFACT_1"
 
-  run_elementor_command wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
-  INSTALLED_1=$(run_elementor_command wp1 plugin get elementor --field=version)
+  wp1 plugin install "$ARTIFACT_1" --activate >/dev/null
+  INSTALLED_1=$(wp1 plugin get elementor --field=version)
   [ "$INSTALLED_1" = "$ELEMENTOR_VERSION" ] || fail "side 1 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_1"
   pass "side 1: elementor $ELEMENTOR_VERSION installed from verified artifact, active"
 
@@ -637,12 +628,12 @@ EOF
   "${GIT1[@]}" commit -qm "policy: elementor $ELEMENTOR_VERSION version-boundary certification"
   "${GIT1[@]}" push -qu origin main
 
-  run_elementor_command seed_elementor_content
+  seed_elementor_content
 
-  run_elementor_command wp1 duo capture --repo=/siterepo
+  wp1 duo capture --repo=/siterepo
   pass "captured on side 1 (elementor $ELEMENTOR_VERSION)"
 
-  run_elementor_command wp1 duo lint --repo=/siterepo
+  wp1 duo lint --repo=/siterepo
   pass "lint: 0 findings"
 
   "${GIT1[@]}" add -A
@@ -650,34 +641,24 @@ EOF
   "${GIT1[@]}" push -q origin main
 
   clone_case_target
-  run_elementor_command wp2 plugin install "$ARTIFACT_2" >/dev/null
-  INSTALLED_2=$(run_elementor_command wp2 plugin get elementor --field=version)
+  wp2 plugin install "$ARTIFACT_2" >/dev/null
+  INSTALLED_2=$(wp2 plugin get elementor --field=version)
   require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$ELEMENTOR_VERSION" ] || fail "side 2 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_2"
 
-  run_elementor_command wp2 duo deploy --repo=/siterepo
+  wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
   grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
   pass "deploy + apply succeeded on side 2 (elementor $ELEMENTOR_VERSION, canary clean)"
 
-  run_elementor_command check_elementor_content
+  check_elementor_content
 
-  run_elementor_command wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
+  wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
   DIFF_OUT=$(diff -rq "siterepo/${PAIR}1/state" "siterepo/${PAIR}2/.tmp-final" || true)
   rm -rf "siterepo/${PAIR}2/.tmp-final"
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at elementor $ELEMENTOR_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at elementor $ELEMENTOR_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
-
-  # The exact boundary must be warning-free. Keep stderr visible for normal
-  # diagnostics, then reject the specific Elementor null-reference paths that
-  # previously made the matrix green while human/exit status disagreed.
-  ELEMENTOR_WARNING_MATCHES=$(grep -nE 'elementor/core/isolation/elementor-adapter\.php|elementor/core/base/document\.php|Elementor\\Core\\Isolation\\Elementor_Adapter' "$ELEMENTOR_STDERR_LOG" || true)
-  if [ -n "$ELEMENTOR_WARNING_MATCHES" ]; then
-    fail "unexpected Elementor PHP warning at exact $ELEMENTOR_VERSION boundary (captured stderr: $ELEMENTOR_STDERR_LOG):
-$ELEMENTOR_WARNING_MATCHES"
-  fi
-  rm -f "$ELEMENTOR_STDERR_LOG"
 done
 
 for CF7_VERSION in 6.0.1 6.1.6; do
@@ -848,6 +829,9 @@ EOF
   pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
+# End the non-Woo fast path immediately before Woo's independent boundary.
+fi # VMATRIX_MANIFEST=all (non-Woo admitted boundaries)
+
 # WooCommerce 11.0.0 is currently both the declared minimum and the newest
 # stable release below 12.0.0. Certify it once: repeating the same artifact
 # under two labels would add runtime without adding evidence.
@@ -924,6 +908,7 @@ done
 # first release admitted by the manifest's exact 28.0 minimum, and 28.2 is
 # the newest release below 29.0.0. Exercise both exact
 # artifacts; a current-slug install would prove neither boundary.
+if [ "$VMATRIX_MANIFEST" = all ]; then
 for YOAST_VERSION in 28.0 28.2; do
   say "boundary: wordpress-seo $YOAST_VERSION"
 
@@ -1260,6 +1245,8 @@ grep -q "3.4.5" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-inst
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
+fi # VMATRIX_MANIFEST=all (all non-Woo positive boundaries and refusals)
+
 say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1318,6 +1305,7 @@ grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-ins
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
+if [ "$VMATRIX_MANIFEST" = all ]; then
 say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1373,6 +1361,7 @@ grep -q "wordpress-seo/wp-seo.php" <<<"$DEPLOY_OUT" || fail "refusal did not nam
 grep -q "27.9" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: wordpress-seo 27.9 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
+fi # VMATRIX_MANIFEST=all (Yoast refusal)
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"

@@ -278,6 +278,7 @@ final class CapabilityRegistry {
         $blockers = [];
         $perRowEvidence = [];
         $hasOutOfTree = false;
+        $hasPerManifestEvidence = false;
 
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
@@ -360,7 +361,7 @@ final class CapabilityRegistry {
 
             $selectedEvidence = $externalClaim !== null
                 ? (is_array($externalClaim['evidence'] ?? null) ? $externalClaim['evidence'] : [])
-                : ($outOfTree ? [] : $this->data['evidence']);
+                : ($outOfTree ? [] : (is_array($claim['evidence'] ?? null) ? $claim['evidence'] : []));
             $selectedPlatform = $externalClaim !== null
                 ? (is_array($externalClaim['platform'] ?? null) ? $externalClaim['platform'] : [])
                 : ($outOfTree ? [] : $this->data['platform']);
@@ -374,6 +375,11 @@ final class CapabilityRegistry {
             }
             if ((!$outOfTree || $externalClaim !== null)
                 && $revision !== null && $revision !== ''
+                // A scoped record's Git SHA is provenance only.  Its exact
+                // closure, adapter digest, artifacts, platform, and citations
+                // are checked at generation time; an unrelated unbound commit
+                // must not make this one adapter borrow or lose evidence.
+                && ($selectedEvidence['bundle_schema'] ?? null) !== 'duo-adapter-certification-bundle/v1'
                 && !hash_equals((string) ($selectedEvidence['git_revision'] ?? ''), $revision)) {
                 $reasons[] = self::reason(
                     'revision_not_certified',
@@ -398,8 +404,12 @@ final class CapabilityRegistry {
                 'platform' => $selectedPlatform,
                 'scope' => $outOfTree
                     ? ($externalClaim === null ? 'none' : 'site_certificate')
-                    : 'shipped_registry',
+                    : (($selectedEvidence['bundle_schema'] ?? null) === 'duo-adapter-certification-bundle/v1'
+                        ? 'scoped_adapter' : 'shipped_registry'),
             ];
+            $hasPerManifestEvidence = $hasPerManifestEvidence
+                || $outOfTree
+                || (($selectedEvidence['bundle_schema'] ?? null) === 'duo-adapter-certification-bundle/v1');
             foreach ($reasons as $reason) {
                 $blockers[] = [
                     'name' => $name,
@@ -418,7 +428,7 @@ final class CapabilityRegistry {
         // the historical top-level shipped fields byte-for-byte for --all and
         // shipped-only callers, but make mixed reports explicitly per-row so
         // a signed site claim can never appear to inherit the shipped bundle.
-        if ($hasOutOfTree) {
+        if ($hasPerManifestEvidence) {
             foreach ($rows as $i => &$row) {
                 $row['evidence'] = $perRowEvidence[$i]['evidence'];
                 $row['platform'] = $perRowEvidence[$i]['platform'];
@@ -431,11 +441,11 @@ final class CapabilityRegistry {
             'schema_version' => self::FORMAT,
             'registry_sha256' => hash('sha256', Canon::encode($this->data)),
             'platform' => $hasOutOfTree ? null : $this->data['platform'],
-            'evidence' => $hasOutOfTree ? null : $this->data['evidence'],
+            'evidence' => $hasPerManifestEvidence ? null : $this->data['evidence'],
             'query' => [
                 'operation' => $operation,
                 'surface' => $surface,
-                'revision' => $revision ?? ($hasOutOfTree ? null : $this->data['evidence']['git_revision']),
+                'revision' => $revision ?? ($hasPerManifestEvidence ? null : $this->data['evidence']['git_revision']),
             ],
             'target' => $target,
             'ready' => $blockers === [],
@@ -443,7 +453,7 @@ final class CapabilityRegistry {
             'manifests' => $rows,
             'profiles' => $this->profiles(),
         ];
-        if ($hasOutOfTree) {
+        if ($hasPerManifestEvidence) {
             $report['evidence_scope'] = 'per_manifest';
         }
         return $report;
@@ -712,10 +722,30 @@ final class CapabilityRegistry {
             if (($claim['status'] ?? null) !== ($disposition['status'] ?? null)) {
                 throw new \RuntimeException("duo: $label status for '$name' disagrees with its disposition");
             }
-            if (($claim['evidence']['status'] ?? null) !== $evidenceStatus
-                || ($claim['evidence']['bundle_digest'] ?? null) !== $bundleDigest
-                || ($claim['evidence']['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
+            $claimEvidence = $claim['evidence'] ?? null;
+            if (!is_array($claimEvidence) || array_is_list($claimEvidence)
+                || !in_array($claimEvidence['status'] ?? null, ['current', 'candidate'], true)
+                || ($claimEvidence['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
                 throw new \RuntimeException("duo: $label evidence binding for '$name' is malformed");
+            }
+            $claimSchema = $claimEvidence['bundle_schema'] ?? null;
+            if ($claimSchema === ManifestDispositions::BUNDLE_SCHEMA) {
+                if (($claimEvidence['status'] ?? null) !== $evidenceStatus
+                    || ($claimEvidence['bundle_digest'] ?? null) !== $bundleDigest) {
+                    throw new \RuntimeException("duo: $label global evidence binding for '$name' is malformed");
+                }
+            } elseif ($claimSchema === 'duo-adapter-certification-bundle/v1') {
+                if (($claimEvidence['subject'] ?? null) !== $name
+                    || ($claimEvidence['adapter_digest'] ?? null) !== ($claim['adapter_digest'] ?? null)
+                    || !preg_match('/^[0-9a-f]{64}$/', (string) ($claimEvidence['closure_digest'] ?? ''))
+                    || !preg_match('/^[0-9a-f]{64}$/', (string) ($claimEvidence['bundle_digest'] ?? ''))
+                    || !is_array($claimEvidence['force_hatches'] ?? null)
+                    || !array_is_list($claimEvidence['force_hatches'])
+                    || ($claimEvidence['force_hatches'] ?? null) !== []) {
+                    throw new \RuntimeException("duo: $label scoped evidence binding for '$name' is malformed");
+                }
+            } else {
+                throw new \RuntimeException("duo: $label evidence schema for '$name' is unsupported");
             }
             // A candidate is the intentional re-certification bootstrap: it
             // projects the newly reviewed citations before those future test
@@ -724,9 +754,9 @@ final class CapabilityRegistry {
             // contain those new IDs makes re-certification circular. Current
             // evidence has no such allowance: every certified citation must
             // name a passing test in the exact imported bundle.
-            if ($evidenceStatus === 'current' && ($claim['status'] ?? null) === 'certified') {
+            if (($claimEvidence['status'] ?? null) === 'current' && ($claim['status'] ?? null) === 'certified') {
                 foreach ($claim['evidence']['tests'] ?? [] as $test) {
-                    if (!isset($passingTests[$test])) {
+                    if ($claimSchema === ManifestDispositions::BUNDLE_SCHEMA && !isset($passingTests[$test])) {
                         throw new \RuntimeException(
                             "duo: $label certified claim '$name' cites absent or non-passing evidence '$test'"
                         );
@@ -757,14 +787,19 @@ final class CapabilityRegistry {
                     !== ($data['manifests'][$profile['manifest']]['adapter_digest'] ?? null)) {
                 throw new \RuntimeException("duo: $label profile '$name' is malformed");
             }
-            if (($profile['evidence']['status'] ?? null) !== $evidenceStatus
-                || ($profile['evidence']['bundle_digest'] ?? null) !== $bundleDigest
-                || ($profile['evidence']['tests'] ?? null) !== ($source['evidence']['tests'] ?? [])) {
+            $profileEvidence = $profile['evidence'] ?? null;
+            $manifestEvidence = $data['manifests'][$profile['manifest']]['evidence'] ?? null;
+            if (!is_array($profileEvidence) || !is_array($manifestEvidence)
+                || ($profileEvidence['tests'] ?? null) !== ($source['evidence']['tests'] ?? [])
+                || ($profileEvidence['status'] ?? null) !== ($manifestEvidence['status'] ?? null)
+                || ($profileEvidence['bundle_schema'] ?? null) !== ($manifestEvidence['bundle_schema'] ?? null)
+                || ($profileEvidence['bundle_digest'] ?? null) !== ($manifestEvidence['bundle_digest'] ?? null)) {
                 throw new \RuntimeException("duo: $label evidence binding for profile '$name' is malformed");
             }
-            if ($evidenceStatus === 'current' && ($profile['status'] ?? null) === 'certified') {
+            if (($profileEvidence['status'] ?? null) === 'current' && ($profile['status'] ?? null) === 'certified') {
                 foreach ($profile['evidence']['tests'] ?? [] as $test) {
-                    if (!isset($passingTests[$test])) {
+                    if (($profileEvidence['bundle_schema'] ?? null) === ManifestDispositions::BUNDLE_SCHEMA
+                        && !isset($passingTests[$test])) {
                         throw new \RuntimeException(
                             "duo: $label certified profile '$name' cites absent or non-passing evidence '$test'"
                         );

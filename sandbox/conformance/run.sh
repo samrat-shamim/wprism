@@ -89,8 +89,23 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 # a helper reaches only one of them. Full doctrine in the fragment itself.
 . conformance/asserts.sh
 
-ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
-  || fail "unknown manifest '$MANIFEST' (see $REG)"
+# A scoped certificate may bind a single extracted fixture entry instead of
+# the all-adapter fixture index.  The harness remains generic: it accepts the
+# same entry shape and never learns a plugin name.  Keeping the fixture input
+# singular is what lets an unrelated adapter-fixture edit stay out of one
+# adapter's conservative evidence closure.
+if [ -n "${CONFORMANCE_ENTRY_FILE:-}" ]; then
+  [ -f "$CONFORMANCE_ENTRY_FILE" ] \
+    || fail "CONFORMANCE_ENTRY_FILE is not a regular fixture entry: $CONFORMANCE_ENTRY_FILE"
+  ENTRY=$(jq -ce --arg manifest "$MANIFEST" '
+    if (keys | sort) == ["entry", "manifest"] and .manifest == $manifest and (.entry | type) == "object"
+    then .entry else error("entry must name the requested manifest") end
+  ' "$CONFORMANCE_ENTRY_FILE") \
+    || fail "CONFORMANCE_ENTRY_FILE must contain one exact named fixture entry for '$MANIFEST'"
+else
+  ENTRY=$(jq -e --arg m "$MANIFEST" '.[$m]' "$REG") \
+    || fail "unknown manifest '$MANIFEST' (see $REG)"
+fi
 jq -e '
   (.plugins | type == "array") and
   (.plugins | all(type == "object" and (keys == ["slug", "version"]) and

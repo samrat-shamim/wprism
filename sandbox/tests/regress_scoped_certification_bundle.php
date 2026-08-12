@@ -26,10 +26,24 @@ function expect_refusal(callable $fn, string $needle, string $message): void {
 function input(string $path, string $byte): array {
     return ['path' => $path, 'sha256' => hash('sha256', $byte), 'size' => strlen($byte)];
 }
+function asset(string $path, string $byte): array {
+    return ['path' => $path, 'sha256' => hash('sha256', $byte), 'size' => strlen($byte)];
+}
 function scoped_bundle(array $overrides = []): array {
     $inputs = [input('agent/src/Engine.php', 'engine'), input('manifests/woocommerce.json', 'manifest')];
+    $result = asset('results/woo-conformance.json', 'result');
+    $diff = asset('diffs/woo-conformance.json', 'diff');
+    $log = asset('logs/woo-conformance.txt', 'log');
+    $disposition = ['status' => 'certified'];
     $bundle = [
         'adapter_digest' => str_repeat('a', 64),
+        'artifacts' => [[
+            'name' => 'woocommerce',
+            'role' => 'certified-boundary',
+            'sha256' => str_repeat('d', 64),
+            'url' => 'https://downloads.wordpress.org/plugin/woocommerce.11.0.0.zip',
+            'version' => '11.0.0',
+        ]],
         'bundle_digest' => str_repeat('0', 64),
         'claims' => ['manifests.woocommerce' => ['woo-conformance']],
         'closure' => ['digest' => ScopedCertificationBundle::closureDigest($inputs), 'inputs' => $inputs],
@@ -38,12 +52,20 @@ function scoped_bundle(array $overrides = []): array {
         'format' => ScopedCertificationBundle::FORMAT,
         'git_revision' => str_repeat('b', 40),
         'platform' => ['agent_version' => '0.5.0', 'wordpress' => '7.0.2'],
+        'ratification' => [
+            'disposition' => $disposition,
+            'manifest' => 'woocommerce',
+            'sha256' => hash('sha256', Canon::encode($disposition)),
+        ],
         'subject' => ['manifest' => 'woocommerce'],
         'verdict' => 'pass',
         'tests' => [[
-            'evidence_sha256' => str_repeat('c', 64),
+            'diff' => $diff,
+            'evidence_sha256' => ScopedCertificationBundle::evidenceDigest([$result, $diff, $log]),
             'exit_code' => 0,
             'id' => 'woo-conformance',
+            'log' => $log,
+            'result' => $result,
             'verdict' => 'pass',
         ]],
     ];
@@ -61,25 +83,35 @@ $current = ScopedCertificationBundle::assertCurrent(
     str_repeat('a', 64),
     ['agent_version' => '0.5.0', 'wordpress' => '7.0.2'],
     $bundle['closure']['inputs'],
-    ['woo-conformance']
+    ['woo-conformance'],
+    $bundle['ratification']['disposition'],
+    $bundle['artifacts']
 );
 check($current['status'] === 'current', 'exact subject, adapter digest, platform, closure, and citations are current');
 
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'acf', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance']
+    $bundle, 'acf', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
 ), 'subject or adapter digest', 'cross-manifest subject cannot borrow scoped evidence');
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('d', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance']
+    $bundle, 'woocommerce', str_repeat('d', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
 ), 'subject or adapter digest', 'different adapter digest cannot borrow scoped evidence');
 
 $changedInput = $bundle['closure']['inputs'];
 $changedInput[0]['sha256'] = str_repeat('e', 64);
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $changedInput, ['woo-conformance']
+    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $changedInput, ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
 ), 'closure is not current', 'bound engine mutation expires only this scoped record');
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('a', 64), ['agent_version' => '0.5.0', 'wordpress' => '7.0.3'], $bundle['closure']['inputs'], ['woo-conformance']
+    $bundle, 'woocommerce', str_repeat('a', 64), ['agent_version' => '0.5.0', 'wordpress' => '7.0.3'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
 ), 'platform boundary is not current', 'platform mutation expires the scoped record');
+expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
+    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], ['status' => 'experimental'], $bundle['artifacts']
+), 'ratification fragment is not current', 'a changed reviewed disposition cannot borrow prior scoped evidence');
+$changedArtifacts = $bundle['artifacts'];
+$changedArtifacts[0]['sha256'] = str_repeat('e', 64);
+expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
+    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $changedArtifacts
+), 'artifacts are not current', 'a changed exact artifact boundary expires scoped evidence');
 expect_refusal(fn() => ScopedCertificationBundle::validate(scoped_bundle(['force_hatches' => ['override']])), 'empty list', 'forced scoped evidence is refused');
 expect_refusal(fn() => ScopedCertificationBundle::validate(scoped_bundle(['claims' => ['manifests.acf' => ['woo-conformance']]])), 'exactly manifests.woocommerce', 'cross-adapter citation is refused');
 $tampered = $bundle;

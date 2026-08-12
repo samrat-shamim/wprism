@@ -18,8 +18,8 @@ final class ScopedCertificationBundle {
     /** @return array<string,mixed> */
     public static function validate(array $bundle, string $label = 'scoped certification bundle'): array {
         self::exactKeys($bundle, [
-            'adapter_digest', 'bundle_digest', 'claims', 'closure', 'created_at',
-            'force_hatches', 'format', 'git_revision', 'platform', 'subject', 'tests', 'verdict',
+            'adapter_digest', 'artifacts', 'bundle_digest', 'claims', 'closure', 'created_at',
+            'force_hatches', 'format', 'git_revision', 'platform', 'ratification', 'subject', 'tests', 'verdict',
         ], $label);
         if (($bundle['format'] ?? null) !== self::FORMAT
             || ($bundle['verdict'] ?? null) !== 'pass'
@@ -45,6 +45,8 @@ final class ScopedCertificationBundle {
         }
         self::validateHatches($bundle['force_hatches'], "$label.force_hatches");
         self::validateClosure($bundle['closure'], $label);
+        self::validateArtifacts($bundle['artifacts'], "$label.artifacts");
+        self::validateRatification($bundle['ratification'], $manifest, "$label.ratification");
         $tests = self::validateTests($bundle['tests'], $label);
         self::validateClaims($bundle['claims'], $manifest, $tests, $label);
 
@@ -70,7 +72,9 @@ final class ScopedCertificationBundle {
         string $adapterDigest,
         array $platform,
         array $boundInputs,
-        array $requiredTests
+        array $requiredTests,
+        array $ratification,
+        array $artifacts
     ): array {
         self::validate($bundle);
         if (($bundle['subject']['manifest'] ?? null) !== $manifest
@@ -79,6 +83,11 @@ final class ScopedCertificationBundle {
         }
         if (Canon::encode($bundle['platform']) !== Canon::encode($platform)) {
             throw new \RuntimeException('duo: scoped certification platform boundary is not current');
+        }
+        self::assertRatificationCurrent($bundle['ratification'], $manifest, $ratification);
+        if (Canon::encode(self::normalizeArtifacts($bundle['artifacts'], 'scoped certification artifacts'))
+            !== Canon::encode(self::normalizeArtifacts($artifacts, 'current scoped certification artifacts'))) {
+            throw new \RuntimeException('duo: scoped certification artifacts are not current');
         }
         $currentInputs = self::normalizeInputs($boundInputs, 'current bound inputs');
         $recordedInputs = self::normalizeInputs($bundle['closure']['inputs'], 'scoped certification closure');
@@ -146,12 +155,20 @@ final class ScopedCertificationBundle {
             if (!is_array($test) || array_is_list($test)) {
                 throw new \RuntimeException("duo: {$label}.tests[$i] must be an object");
             }
-            self::exactKeys($test, ['evidence_sha256', 'exit_code', 'id', 'verdict'], "{$label}.tests[$i]");
+            self::exactKeys($test, ['diff', 'evidence_sha256', 'exit_code', 'id', 'log', 'result', 'verdict'], "{$label}.tests[$i]");
             $id = $test['id'] ?? null;
             if (!is_string($id) || preg_match('/^[a-z][a-z0-9-]*$/D', $id) !== 1
                 || isset($seen[$id]) || ($test['verdict'] ?? null) !== 'pass'
                 || ($test['exit_code'] ?? null) !== 0 || !self::sha($test['evidence_sha256'] ?? null)) {
                 throw new \RuntimeException("duo: $label.tests[$i] is not a unique passing evidence record");
+            }
+            $assets = [
+                self::asset($test['result'] ?? null, "{$label}.tests[$i].result"),
+                self::asset($test['diff'] ?? null, "{$label}.tests[$i].diff"),
+                self::asset($test['log'] ?? null, "{$label}.tests[$i].log"),
+            ];
+            if (!hash_equals((string) $test['evidence_sha256'], self::evidenceDigest($assets))) {
+                throw new \RuntimeException("duo: $label.tests[$i].evidence_sha256 does not bind its result, diff, and log");
             }
             $seen[$id] = true;
         }
@@ -207,6 +224,90 @@ final class ScopedCertificationBundle {
         if (!is_array($hatches) || !array_is_list($hatches) || $hatches !== []) {
             throw new \RuntimeException("duo: $label must be an empty list");
         }
+    }
+
+    private static function validateRatification($ratification, string $manifest, string $label): void {
+        if (!is_array($ratification) || array_is_list($ratification)) {
+            throw new \RuntimeException("duo: $label must be an object");
+        }
+        self::exactKeys($ratification, ['disposition', 'manifest', 'sha256'], $label);
+        if (($ratification['manifest'] ?? null) !== $manifest
+            || !is_array($ratification['disposition'] ?? null) || array_is_list($ratification['disposition'])
+            || !self::sha($ratification['sha256'] ?? null)
+            || !hash_equals((string) $ratification['sha256'], hash('sha256', Canon::encode($ratification['disposition'])))) {
+            throw new \RuntimeException("duo: $label must bind the exact one-manifest disposition fragment");
+        }
+    }
+
+    private static function assertRatificationCurrent(array $recorded, string $manifest, array $current): void {
+        self::validateRatification($recorded, $manifest, 'scoped certification ratification');
+        if (Canon::encode($recorded['disposition']) !== Canon::encode($current)) {
+            throw new \RuntimeException('duo: scoped certification ratification fragment is not current');
+        }
+    }
+
+    /** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
+    private static function validateArtifacts($artifacts, string $label): array {
+        return self::normalizeArtifacts($artifacts, $label);
+    }
+
+    /** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
+    private static function normalizeArtifacts($artifacts, string $label): array {
+        if (!is_array($artifacts) || !array_is_list($artifacts) || $artifacts === []) {
+            throw new \RuntimeException("duo: $label must be a non-empty list");
+        }
+        $out = [];
+        $seen = [];
+        foreach ($artifacts as $i => $artifact) {
+            if (!is_array($artifact) || array_is_list($artifact)) {
+                throw new \RuntimeException("duo: {$label}[$i] must be an object");
+            }
+            self::exactKeys($artifact, ['name', 'role', 'sha256', 'url', 'version'], "{$label}[$i]");
+            $name = $artifact['name'] ?? null;
+            $role = $artifact['role'] ?? null;
+            $url = $artifact['url'] ?? null;
+            $version = $artifact['version'] ?? null;
+            if (!is_string($name) || preg_match('/^[a-z][a-z0-9-]*$/D', $name) !== 1
+                || !in_array($role, ['certified-boundary', 'refusal-fixture'], true)
+                || !is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false
+                || !is_string($version) || $version === '' || !self::sha($artifact['sha256'] ?? null)) {
+                throw new \RuntimeException("duo: {$label}[$i] is malformed");
+            }
+            $key = "$name\0$role\0$version";
+            if (isset($seen[$key])) {
+                throw new \RuntimeException("duo: {$label} contains a duplicate artifact identity");
+            }
+            $seen[$key] = true;
+            $out[] = ['name' => $name, 'role' => $role, 'sha256' => $artifact['sha256'], 'url' => $url, 'version' => $version];
+        }
+        usort($out, static fn(array $a, array $b): int => strcmp(
+            $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
+            $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
+        ));
+        return $out;
+    }
+
+    /** @return array{path:string,sha256:string,size:int} */
+    private static function asset($asset, string $label): array {
+        if (!is_array($asset) || array_is_list($asset)) {
+            throw new \RuntimeException("duo: $label must be an asset descriptor");
+        }
+        self::exactKeys($asset, ['path', 'sha256', 'size'], $label);
+        $path = $asset['path'] ?? null;
+        if (!is_string($path) || $path === '' || str_starts_with($path, '/') || str_contains($path, '\\')
+            || str_contains($path, "\0") || str_contains($path, '//') || str_ends_with($path, '/')
+            || in_array('.', explode('/', $path), true) || in_array('..', explode('/', $path), true)
+            || !self::sha($asset['sha256'] ?? null) || !is_int($asset['size'] ?? null) || $asset['size'] < 0) {
+            throw new \RuntimeException("duo: $label is malformed");
+        }
+        return ['path' => $path, 'sha256' => $asset['sha256'], 'size' => $asset['size']];
+    }
+
+    /** @param list<array{path:string,sha256:string,size:int}> $assets */
+    public static function evidenceDigest(array $assets): string {
+        return hash('sha256', json_encode(
+            Canon::normalize($assets), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+        ) . "\n");
     }
 
     /** @param list<string> $values */

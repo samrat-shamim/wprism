@@ -7,6 +7,7 @@ declare(strict_types=1);
  *
  * Usage:
  *   php scripts/capability-registry.php import-bundle <bundle-dir|bundle.json>
+ *   php scripts/capability-registry.php import-adapter-bundle <bundle-dir|bundle.json>
  *   php scripts/capability-registry.php generate
  *   php scripts/capability-registry.php check
  *
@@ -38,10 +39,12 @@ function is_multisite(): bool { return false; }
 require $repo . '/agent/src/Canon.php';
 require $repo . '/agent/src/ManifestDispositions.php';
 require $repo . '/agent/src/CapabilityRegistry.php';
+require $repo . '/agent/src/ScopedCertificationBundle.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;
 use Duo\ManifestDispositions;
+use Duo\ScopedCertificationBundle;
 
 const EVIDENCE_FILE = '/manifests/capabilities/evidence.json';
 const REGISTRY_FILE = '/manifests/capabilities/registry.json';
@@ -174,6 +177,175 @@ function cap_import_bundle(string $repo, string $input): void {
     fwrite(STDOUT, "imported certification bundle $claimed\n");
 }
 
+/** The platform projection is shared by global and per-adapter evidence. */
+function cap_platform(string $repo): array {
+    $compatibility = cap_read_json($repo . '/docs/compatibility-baseline.json');
+    unset($compatibility['_comment']);
+    return [
+        'agent_version' => DUO_AGENT_VERSION,
+        'branchable_state' => 'only exact certified registry surfaces and operations',
+        'compatibility' => $compatibility,
+        'plugin_execution' => 'unmodified',
+        'site_mode' => 'single-site',
+        'spec_version' => DUO_SPEC_VERSION,
+    ];
+}
+
+/** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
+function cap_adapter_artifacts(string $repo, array $manifest): array {
+    $plugin = $manifest['plugin'] ?? null;
+    if (!is_string($plugin) || !str_contains($plugin, '/')) {
+        throw new RuntimeException('scoped certification requires a plugin-backed manifest');
+    }
+    $slug = strstr($plugin, '/', true);
+    $lock = cap_read_json($repo . '/sandbox/conformance/artifacts.lock.json');
+    $entries = $lock['plugins'][$slug] ?? null;
+    if (!is_array($entries) || array_is_list($entries)) {
+        throw new RuntimeException("scoped certification has no typed artifact lock entries for '$slug'");
+    }
+    $out = [];
+    foreach ($entries as $version => $entry) {
+        if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
+            continue;
+        }
+        $out[] = [
+            'name' => $slug,
+            'role' => $entry['role'],
+            'sha256' => $entry['sha256'] ?? null,
+            'url' => $entry['url'] ?? null,
+            'version' => (string) $version,
+        ];
+    }
+    usort($out, static fn(array $a, array $b): int => strcmp(
+        $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
+        $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
+    ));
+    if ($out === []) {
+        throw new RuntimeException("scoped certification has no certified/refusal artifact boundary for '$slug'");
+    }
+    return $out;
+}
+
+/** @return list<array{path:string,sha256:string,size:int}> */
+function cap_scoped_current_inputs(string $repo, array $recorded): array {
+    $out = [];
+    foreach ($recorded as $input) {
+        $path = $input['path'] ?? null;
+        if (!is_string($path) || $path === '' || str_starts_with($path, '/') || str_contains($path, '\\')
+            || str_contains($path, "\0") || str_contains($path, '//') || str_ends_with($path, '/')
+            || in_array('.', explode('/', $path), true) || in_array('..', explode('/', $path), true)) {
+            throw new RuntimeException('scoped certification closure has a malformed path');
+        }
+        $absolute = $repo . '/' . $path;
+        if (!is_file($absolute) || is_link($absolute)) {
+            throw new RuntimeException("scoped certification bound input is absent or unsafe: $path");
+        }
+        $hash = hash_file('sha256', $absolute);
+        $size = filesize($absolute);
+        if ($hash === false || $size === false) {
+            throw new RuntimeException("could not read scoped certification bound input: $path");
+        }
+        $out[] = ['path' => $path, 'sha256' => $hash, 'size' => $size];
+    }
+    usort($out, static fn(array $a, array $b): int => strcmp($a['path'], $b['path']));
+    return $out;
+}
+
+/** @return array{record:array,current:bool} */
+function cap_scoped_record(string $repo, array $record, string $name, array $manifest, array $disposition): array {
+    ScopedCertificationBundle::validate($record, "scoped certification '$name'");
+    try {
+        ScopedCertificationBundle::assertCurrent(
+            $record,
+            $name,
+            CapabilityRegistry::adapter_digest($manifest, $disposition, $repo . '/manifests'),
+            cap_platform($repo),
+            cap_scoped_current_inputs($repo, $record['closure']['inputs']),
+            $disposition['evidence']['tests'] ?? [],
+            $disposition,
+            cap_adapter_artifacts($repo, $manifest)
+        );
+        return ['record' => $record, 'current' => true];
+    } catch (RuntimeException $e) {
+        // A record that is well-formed but stale remains visible as candidate
+        // evidence.  It cannot fall back to global/older evidence for this
+        // adapter, so every consumer remains fail-closed until it is refreshed.
+        return ['record' => $record, 'current' => false];
+    }
+}
+
+function cap_import_adapter_bundle(string $repo, string $input): void {
+    $file = is_dir($input) ? rtrim($input, '/') . '/bundle.json' : $input;
+    $raw = @file_get_contents($file);
+    if ($raw === false) {
+        throw new RuntimeException('scoped bundle is unreadable');
+    }
+    $bundle = cap_read_json($file);
+    if (!hash_equals(Canon::encode($bundle), $raw)) {
+        throw new RuntimeException('scoped bundle must use Duo canonical JSON bytes');
+    }
+    $name = $bundle['subject']['manifest'] ?? null;
+    if (!is_string($name)) {
+        throw new RuntimeException('scoped bundle subject is malformed');
+    }
+    $manifest = cap_manifests($repo . '/manifests')[$name] ?? null;
+    $dispositions = ManifestDispositions::load($repo . '/manifests');
+    $disposition = $dispositions?->entry($name);
+    if (!is_array($manifest) || !is_array($disposition)) {
+        throw new RuntimeException("scoped bundle subject '$name' is not a shipped reviewed manifest");
+    }
+    $resolved = cap_scoped_record($repo, $bundle, $name, $manifest, $disposition);
+    if (!$resolved['current']) {
+        throw new RuntimeException("scoped bundle for '$name' is stale against the current adapter, closure, platform, artifacts, or citations");
+    }
+    $evidencePath = $repo . EVIDENCE_FILE;
+    $evidence = cap_read_json($evidencePath);
+    if (($evidence['format'] ?? null) !== CapabilityRegistry::EVIDENCE_FORMAT
+        || !in_array($evidence['status'] ?? null, ['candidate', 'current'], true)
+        || !is_array($evidence['bundle'] ?? null)) {
+        throw new RuntimeException('capability evidence attestation is malformed');
+    }
+    $scoped = $evidence['scoped'] ?? [];
+    if (!is_array($scoped) || (array_is_list($scoped) && $scoped !== [])) {
+        throw new RuntimeException('capability evidence scoped records are malformed');
+    }
+    $scoped[$name] = $bundle;
+    ksort($scoped, SORT_STRING);
+    $evidence['scoped'] = $scoped;
+    Canon::write_file($evidencePath, Canon::encode($evidence));
+    fwrite(STDOUT, "imported current scoped certification bundle {$bundle['bundle_digest']} for $name\n");
+}
+
+/** @return array<string,mixed> */
+function cap_scoped_claim_evidence(array $record, bool $current, string $name, array $tests): array {
+    if (($record['subject']['manifest'] ?? null) !== $name) {
+        throw new RuntimeException("scoped evidence entry '$name' has a different subject");
+    }
+    return [
+        'adapter_digest' => $record['adapter_digest'],
+        'bundle_digest' => $record['bundle_digest'],
+        'bundle_schema' => ScopedCertificationBundle::FORMAT,
+        'closure_digest' => $record['closure']['digest'],
+        'force_hatches' => $record['force_hatches'],
+        'git_revision' => $record['git_revision'],
+        'status' => $current ? 'current' : 'candidate',
+        'subject' => $name,
+        'tests' => $tests,
+    ];
+}
+
+/** @return array<string,mixed> */
+function cap_global_claim_evidence(array $bundle, string $status, array $tests): array {
+    return [
+        'bundle_digest' => $bundle['bundle_digest'],
+        'bundle_schema' => ManifestDispositions::BUNDLE_SCHEMA,
+        'force_hatches' => $bundle['force_hatches'] ?? [],
+        'git_revision' => $bundle['git_revision'] ?? null,
+        'status' => $status,
+        'tests' => $tests,
+    ];
+}
+
 /** @return list<array{path:string,reason:string}> */
 function cap_expired_inputs(string $repo, array $evidence): array {
     $expired = [];
@@ -255,6 +427,10 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
         || !in_array($evidence['status'] ?? null, ['candidate', 'current'], true)) {
         throw new RuntimeException('capability evidence attestation is malformed');
     }
+    $scopedRecords = $evidence['scoped'] ?? [];
+    if (!is_array($scopedRecords) || (array_is_list($scopedRecords) && $scopedRecords !== [])) {
+        throw new RuntimeException('capability evidence scoped records are malformed');
+    }
     $bundle = is_array($evidence['bundle'] ?? null) ? $evidence['bundle'] : $evidence;
     if (($bundle['schema_version'] ?? $bundle['bundle_schema'] ?? null) !== ManifestDispositions::BUNDLE_SCHEMA
         || !preg_match('/^[0-9a-f]{64}$/', (string) ($bundle['bundle_digest'] ?? ''))
@@ -275,8 +451,8 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
     $status = ($evidence['status'] ?? null) === 'current' && $expired === [] ? 'current' : 'candidate';
     $evidence['status'] = $status;
 
-    $compatibility = cap_read_json($repo . '/docs/compatibility-baseline.json');
-    unset($compatibility['_comment']);
+    $platform = cap_platform($repo);
+    $compatibility = $platform['compatibility'];
     $manifests = cap_manifests($manifestDir);
     $claims = [];
     foreach ($manifests as $name => $manifest) {
@@ -288,11 +464,24 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
             ? 'platform'
             : (str_starts_with($name, 'duo-') ? 'synthetic-fixture' : 'unmodified');
         $claimStatus = (string) $disposition['status'];
+        $adapterDigest = CapabilityRegistry::adapter_digest($manifest, $disposition, $manifestDir);
+        $requiredTests = $disposition['evidence']['tests'] ?? [];
+        $claimEvidence = cap_global_claim_evidence($bundle, $status, $requiredTests);
+        if (array_key_exists($name, $scopedRecords)) {
+            if (!is_array($scopedRecords[$name]) || array_is_list($scopedRecords[$name])) {
+                throw new RuntimeException("scoped evidence entry '$name' is malformed");
+            }
+            $scoped = cap_scoped_record($repo, $scopedRecords[$name], $name, $manifest, $disposition);
+            // A scoped entry is authoritative for its one subject even when it
+            // is stale.  Falling back to global evidence here would let an old
+            // adapter digest or an incomplete citation set look current.
+            $claimEvidence = cap_scoped_claim_evidence($scoped['record'], $scoped['current'], $name, $requiredTests);
+        }
         $claims[$name] = [
             'name' => $name,
             'status' => $claimStatus,
             'reason' => (string) $disposition['reason'],
-            'adapter_digest' => CapabilityRegistry::adapter_digest($manifest, $disposition, $manifestDir),
+            'adapter_digest' => $adapterDigest,
             'plugin_execution' => [
                 'mode' => $executionMode,
                 'status' => $claimStatus === 'certified' ? 'verified' : ($claimStatus === 'excluded' ? 'not-a-product-claim' : 'unverified'),
@@ -313,13 +502,7 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
             'lifecycle_phases' => $disposition['capabilities']['lifecycle_phases'],
             'deletion_semantics' => $disposition['capabilities']['deletion_semantics'],
             'unsupported' => $disposition['unsupported'],
-            'evidence' => [
-                'status' => $status,
-                'bundle_schema' => ManifestDispositions::BUNDLE_SCHEMA,
-                'bundle_digest' => $bundle['bundle_digest'],
-                'tests' => $disposition['evidence']['tests'] ?? [],
-                'force_hatches' => $bundle['force_hatches'] ?? [],
-            ],
+            'evidence' => $claimEvidence,
         ];
     }
 
@@ -334,13 +517,9 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
             'adapter_digest' => $claims[$manifest]['adapter_digest'],
             'supported_versions' => $profile['supported_versions'],
             'scope' => $profile['scope'],
-            'evidence' => [
-                'status' => $status,
-                'bundle_schema' => ManifestDispositions::BUNDLE_SCHEMA,
-                'bundle_digest' => $bundle['bundle_digest'],
+            'evidence' => array_replace($claims[$manifest]['evidence'], [
                 'tests' => $profile['evidence']['tests'],
-                'force_hatches' => $bundle['force_hatches'] ?? [],
-            ],
+            ]),
         ];
         $claims[$manifest]['surfaces'][] = 'profile:' . $name;
         $claims[$manifest]['surfaces'] = array_values(array_unique($claims[$manifest]['surfaces'], SORT_STRING));
@@ -354,14 +533,7 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
             'compatibility_sha256' => cap_sha($repo . '/docs/compatibility-baseline.json'),
             'evidence_sha256' => cap_sha($repo . EVIDENCE_FILE),
         ],
-        'platform' => [
-            'agent_version' => DUO_AGENT_VERSION,
-            'spec_version' => DUO_SPEC_VERSION,
-            'site_mode' => 'single-site',
-            'plugin_execution' => 'unmodified',
-            'branchable_state' => 'only exact certified registry surfaces and operations',
-            'compatibility' => $compatibility,
-        ],
+        'platform' => $platform,
         'evidence' => [
             'format' => CapabilityRegistry::EVIDENCE_FORMAT,
             'status' => $status,
@@ -402,10 +574,10 @@ function cap_docs(array $registry): string {
     $out .= "Duo agent **" . $registry['platform']['agent_version'] . "** / repo spec **"
         . $registry['platform']['spec_version'] . "** is certified only for the exact boundaries below. "
         . "Plugins execute unmodified; that fact is separate from whether their authored state is branchable.\n\n";
-    $out .= "Evidence bundle: `" . $evidence['bundle_digest'] . "` (" . strtoupper($evidence['status'])
-        . ", source revision `" . $evidence['git_revision'] . "`). Missing entries and unlisted surfaces are unsupported.\n\n";
-    $out .= "| Adapter | Authored state | Plugin execution | Versions | Operations |\n";
-    $out .= "|---|---|---|---|---|\n";
+    $out .= "Global full-release evidence bundle: `" . $evidence['bundle_digest'] . "` (" . strtoupper($evidence['status'])
+        . ", source revision `" . $evidence['git_revision'] . "`). Adapter rows may instead name an independently current scoped record. Missing entries and unlisted surfaces are unsupported.\n\n";
+    $out .= "| Adapter | Authored state | Plugin execution | Versions | Operations | Evidence |\n";
+    $out .= "|---|---|---|---|---|---|\n";
     foreach ($registry['manifests'] as $claim) {
         if ($claim['status'] === 'excluded') {
             continue;
@@ -413,7 +585,9 @@ function cap_docs(array $registry): string {
         $out .= '| ' . $claim['name'] . ' | ' . $claim['authored_state']['status'] . ' | '
             . $claim['plugin_execution']['mode'] . ' / ' . $claim['plugin_execution']['status'] . ' | '
             . str_replace('|', '\\|', cap_version_label($claim['supported_versions'])) . ' | '
-            . implode(', ', $claim['operations']) . " |\n";
+            . implode(', ', $claim['operations']) . ' | '
+            . strtoupper((string) $claim['evidence']['status']) . ' / `'
+            . $claim['evidence']['bundle_digest'] . "` |\n";
     }
     $out .= "\n## Platform and environment boundary\n\n";
     $compatibility = $registry['platform']['compatibility'];
@@ -433,7 +607,9 @@ function cap_docs(array $registry): string {
             : implode(', ', $claim['lifecycle_phases']);
         $out .= '- **' . $claim['name'] . '** (`' . $claim['adapter_digest'] . '`): '
             . implode(', ', array_map(fn(string $surface): string => '`' . $surface . '`', $claim['surfaces']))
-            . ". Lifecycle phases: " . $lifecyclePhases . ".\n";
+            . ". Lifecycle phases: " . $lifecyclePhases . '. Evidence: `'
+            . $claim['evidence']['bundle_schema'] . '` / `'
+            . $claim['evidence']['bundle_digest'] . '` (' . $claim['evidence']['status'] . ").\n";
     }
     if ($registry['profiles'] !== []) {
         $out .= "\n## Certified profiles\n\n";
@@ -527,12 +703,17 @@ try {
             throw new RuntimeException('usage: import-bundle <bundle-dir|bundle.json>');
         }
         cap_import_bundle($repo, $argv[2]);
+    } elseif ($command === 'import-adapter-bundle') {
+        if (!isset($argv[2])) {
+            throw new RuntimeException('usage: import-adapter-bundle <bundle-dir|bundle.json>');
+        }
+        cap_import_adapter_bundle($repo, $argv[2]);
     } elseif ($command === 'generate') {
         cap_generate($repo, false);
     } elseif ($command === 'check') {
         cap_generate($repo, true);
     } else {
-        throw new RuntimeException('usage: import-bundle <bundle>|generate|check');
+        throw new RuntimeException('usage: import-bundle <bundle>|import-adapter-bundle <bundle>|generate|check');
     }
 } catch (Throwable $e) {
     cap_fail($e->getMessage());
