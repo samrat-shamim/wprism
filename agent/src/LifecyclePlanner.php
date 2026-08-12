@@ -45,10 +45,15 @@ require_once __DIR__ . '/Deploy.php';
  * need any change.
  *
  * require_plugin_admin_functions()/current_active_plugins()/in_range() stay
- * on Deploy (widened private -> public where needed) rather than moving
- * here: all three are used by Deploy::run()/plugin_runtime_state() too (
- * verified by grep, not assumed), and in_range() already has real external
- * callers of its own beyond Deploy entirely (agent/src/Providers.php).
+ * on Deploy (the first two widened private -> public) rather than moving
+ * here, for two DIFFERENT reasons, not one: require_plugin_admin_functions()/
+ * current_active_plugins() are used by Deploy::run()/plugin_runtime_state()
+ * too (verified by grep, not assumed -- neither is exclusive to this moved
+ * cluster), while in_range() has no caller in run()/plugin_runtime_state()
+ * at all (its only internal callers were always inside this moved cluster)
+ * but was ALREADY public before this slice, with real external callers of
+ * its own beyond Deploy entirely (agent/src/Providers.php) -- moving it
+ * would have meant re-exporting it from a second place for no reason.
  * check_theme_range() moves here instead -- its only caller anywhere in the
  * repo is code_mismatch() itself.
  *
