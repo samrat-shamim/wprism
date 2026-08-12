@@ -18,6 +18,9 @@ require_once __DIR__ . '/ManifestGrammar.php';
 // DUO-3348 slice 4: adapter provenance / capability-readiness resolution,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/AdapterRegistry.php';
+// DUO-3348 slice 5: manifest-pin normalization/validation, required here for
+// the same "loads alone" reason as its neighbors above.
+require_once __DIR__ . '/PinResolver.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -144,7 +147,7 @@ final class Policy {
             self::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
-        $pins = self::normalize_manifest_pins($rawPins);
+        $pins = PinResolver::normalize_manifest_pins($rawPins);
         $dir = self::manifests_dir();
         // DUO-3314: every installed source is scanned, and ambiguous identity or
         // shadowing refused, before the first pin resolves — a broken adapter
@@ -153,7 +156,7 @@ final class Policy {
         // fourth argument supplies only the repository-owned adapter source;
         // ordinary loads continue to derive both config and source from $repo.
         $p->adapterSources = AdapterSources::discover($dir, $adapterRepo ?? $repo);
-        self::validate_manifest_sources($pins, $p->adapterSources);
+        PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         $p->manifestDispositions = class_exists(ManifestDispositions::class)
             ? ManifestDispositions::load($dir)
             : null;
@@ -239,7 +242,7 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
         self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
-        self::validate_manifest_pins($pins, $p);
+        PinResolver::validate_manifest_pins($pins, $p);
         $p->adapterSources->bind_explicit_pins($pins);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             // Only the shipped subset is a registry claim. Handing an
@@ -317,7 +320,7 @@ self::validate_post_type_children($manifest);
         self::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
 
-        $pins = self::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
+        $pins = PinResolver::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
         if (count($pins) !== count($snapshot['manifests'])) {
             throw new \RuntimeException('duo: frozen policy snapshot manifest count disagrees with site pins');
         }
@@ -364,7 +367,7 @@ self::validate_post_type_children($manifest);
         // Provenance is reconstructed before the reviewed registries so both of
         // them see the same shipped subset load() gave them (DUO-3314).
         $p->adapterSources = AdapterSources::from_snapshot($snapshot['adapter_sources'], $p->manifests);
-        self::validate_manifest_sources($pins, $p->adapterSources);
+        PinResolver::validate_manifest_sources($pins, $p->adapterSources);
         $shipped = $p->adapterSources->shipped_manifests($p->manifests);
         $dispositions = $snapshot['dispositions'] ?? null;
         if ($dispositions !== null) {
@@ -401,7 +404,7 @@ self::validate_post_type_children($manifest);
         self::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
         self::validate_no_conflicting_description_reference_rules($p->manifests);
         self::validate_reference_keyspaces_and_sidecars($p);
-        self::validate_manifest_pins($pins, $p);
+        PinResolver::validate_manifest_pins($pins, $p);
         $p->adapterSources->bind_explicit_pins($pins);
         return $p;
     }
@@ -545,142 +548,6 @@ self::validate_post_type_children($manifest);
     public function code_config(): ?array {
         $code = $this->site['code'] ?? null;
         return is_array($code) ? $code : null;
-    }
-
-    /**
-     * `site.duo.json` originally accepted a flat list of manifest names. A
-     * content pin is additive, never a flag day: each entry may instead be
-     * {name,digest}, while strings keep their exact historical meaning. Keep
-     * the declared digest separate from the loaded manifest so it cannot
-     * accidentally participate in policy precedence or the manifest's own
-     * content hash.
-     *
-     * DUO-3314 adds an equally optional `source`. Declaring it asserts WHICH
-     * adapter source must answer this pin, and validate_manifest_sources()
-     * refuses a mismatch: without it, removing a site-installed adapter and
-     * later installing a shipped one under the same name would silently swap
-     * which definition a site runs. An unknown key is refused outright rather
-     * than ignored — a pin whose author believed it constrained something is
-     * the failure this whole record exists to prevent.
-     *
-     * @return list<array{name:string,digest:?string,source:?string}>
-     */
-    private static function normalize_manifest_pins($rawPins): array {
-        if (!is_array($rawPins) || !array_is_list($rawPins)) {
-            throw new \RuntimeException('duo: site.duo.json manifests must be a JSON array');
-        }
-        $pins = [];
-        foreach ($rawPins as $i => $raw) {
-            if (is_string($raw) && $raw !== '') {
-                AdapterSources::assert_name($raw, "site.duo.json manifests[$i]");
-                $pins[] = ['name' => $raw, 'digest' => null, 'source' => null];
-                continue;
-            }
-            if (!is_array($raw) || !is_string($raw['name'] ?? null) || $raw['name'] === '') {
-                throw new \RuntimeException(
-                    "duo: site.duo.json manifests[$i] must be a non-empty name string or an object with "
-                    . 'a non-empty string name and optional digest and source'
-                );
-            }
-            AdapterSources::assert_name($raw['name'], "site.duo.json manifests[$i].name");
-            $unknown = array_diff(array_keys($raw), ['name', 'digest', 'source']);
-            if ($unknown !== []) {
-                throw new \RuntimeException(
-                    "duo: site.duo.json manifest '{$raw['name']}' declares unknown pin key(s) "
-                    . implode(',', $unknown) . ' — a pin accepts exactly name, digest, and source'
-                );
-            }
-            $digest = $raw['digest'] ?? null;
-            if ($digest !== null && (!is_string($digest) || !preg_match('/^[a-f0-9]{64}$/', $digest))) {
-                throw new \RuntimeException(
-                    "duo: site.duo.json manifest '{$raw['name']}' has an invalid digest; expected 64 lowercase "
-                    . 'hexadecimal characters'
-                );
-            }
-            $source = $raw['source'] ?? null;
-            // DUO-3339 adds the third source word. It is accepted in a pin for
-            // the same reason the other two are: validate_manifest_sources()
-            // below refuses a pin whose named source stops answering, which is
-            // the only thing that makes writing one down worth anything. A
-            // `plugin` pin is a deliberate statement that this site runs a
-            // definition a plugin bundles — and because precedence ranks the
-            // sources, a site or shipped adapter later claiming that name makes
-            // the pin refuse loudly rather than silently swapping the winner.
-            if ($source !== null && !in_array(
-                $source,
-                [AdapterSources::SHIPPED, AdapterSources::SITE, AdapterSources::PLUGIN],
-                true
-            )) {
-                throw new \RuntimeException(
-                    "duo: site.duo.json manifest '{$raw['name']}' declares source " . var_export($source, true)
-                    . ' — the installed adapter sources are "' . AdapterSources::SHIPPED . '", "'
-                    . AdapterSources::SITE . '", and "' . AdapterSources::PLUGIN . '"'
-                );
-            }
-            $pins[] = ['name' => $raw['name'], 'digest' => $digest, 'source' => $source];
-        }
-        return $pins;
-    }
-
-    /**
-     * A declared pin source is a refusal, not a preference: the overlay is
-     * resolved by name, so an operator who wrote down where an adapter comes
-     * from must be told when that stops being true rather than quietly served
-     * the other source's definition.
-     *
-     * @param list<array{name:string,digest:?string,source:?string}> $pins
-     */
-    private static function validate_manifest_sources(array $pins, AdapterSources $sources): void {
-        foreach ($pins as $pin) {
-            if ($pin['source'] === null) {
-                continue;
-            }
-            // A name nothing installed has no source to disagree with, and
-            // source() answers `shipped` by default. Reporting that as "you
-            // pinned plugin but it resolves from the shipped source" describes
-            // a shipped adapter that does not exist, and — since DUO-3339 —
-            // hides the honest answer: file() below throws the plugin
-            // source's own recorded refusal for exactly this name, with its
-            // remediation, or a not-found naming every source searched.
-            if ($sources->path($pin['name']) === null) {
-                continue;
-            }
-            $actual = $sources->source($pin['name']);
-            if ($actual !== $pin['source']) {
-                throw new \RuntimeException(
-                    "duo: manifest '{$pin['name']}' is pinned to the {$pin['source']} adapter source but resolves "
-                    . "from the $actual source — review which adapter this site intends to run, then update the "
-                    . 'site.duo.json pin'
-                );
-            }
-        }
-    }
-
-    /**
-     * Compare against DUO-3222's resolved_adapters() result instead of
-     * inventing a second digest implementation. Validation happens only
-     * after every manifest and cross-manifest contract has passed, so a pin
-     * can never turn malformed adapter content into a trusted artifact.
-     *
-     * @param list<array{name:string,digest:?string,source:?string}> $pins
-     */
-    private static function validate_manifest_pins(array $pins, self $policy): void {
-        if (!array_filter($pins, fn($pin) => $pin['digest'] !== null)) {
-            return;
-        }
-        $resolved = RepositoryCompiler::resolved_adapters($policy);
-        foreach ($pins as $i => $pin) {
-            if ($pin['digest'] === null) {
-                continue;
-            }
-            $actual = (string) ($resolved[$i]['digest'] ?? '');
-            if (!hash_equals($pin['digest'], $actual)) {
-                throw new \RuntimeException(
-                    "duo: manifest '{$pin['name']}' digest mismatch: expected {$pin['digest']}, actual $actual — "
-                    . 'review the manifest change, then update its site.duo.json pin'
-                );
-            }
-        }
     }
 
     /**

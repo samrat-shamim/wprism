@@ -1016,7 +1016,7 @@ expect_throw(
     . 'vocabulary that lagged the scan would refuse a source the engine actually installs from)'
 );
 // The pin source vocabulary is a PHP literal inside
-// Policy::normalize_manifest_pins(), never published data — which is why
+// PinResolver::normalize_manifest_pins(), never published data — which is why
 // DUO-3339/B2 added a third source word without moving one shipped manifest
 // byte or one release-gate byte comparison. Asserted rather than assumed,
 // because the day it IS published, adding a source becomes a shipped-artifact
