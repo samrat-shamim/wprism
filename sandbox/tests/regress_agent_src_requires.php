@@ -460,6 +460,7 @@ $knownGapsByFile = [
     'SidebarState' => ['Blocks', 'Canon', 'Db', 'Ledger', 'Policy', 'Secrets', 'Snapshot', 'Tokens', 'Uuid'],
     'Snapshot' => ['Canon', 'Db', 'IdentityNotes', 'Ledger', 'OptionState', 'Policy', 'Secrets', 'Tokens', 'Uuid'],
     'Tokens' => ['Capture', 'JsonRefs', 'Ledger', 'Policy'],
+    'UserMetaMaterializer' => ['Db'],
 ];
 $knownGaps = [];
 foreach ($knownGapsByFile as $basename => $names) {

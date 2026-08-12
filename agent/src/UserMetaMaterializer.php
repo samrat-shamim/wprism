@@ -1,6 +1,19 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Policy.php';
+require_once __DIR__ . '/Tokens.php';
+require_once __DIR__ . '/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/StructuredValue.php';
+// Deliberately NOT require_once('Db.php') here: sandbox/tests/regress_scoped_promotion_target.php
+// and regress_adapter_observation.php both stub a fake Duo\Db and reach this
+// file transitively through Apply.php without ever loading the real Db.php;
+// requiring it here fatals both suites with "Cannot redeclare class Duo\Db"
+// (caught by regress-offline-all while verifying this file). No test stubs
+// Policy/Tokens/ApplyFieldMaterializer/StructuredValue the same way, so
+// those four are required above; a caller that needs Db (like this file's
+// own test, or Apply.php itself) must require it explicitly.
+
 /**
  * The user entity materializer (DUO-3347 slice 5, one of the "Entity
  * materializers: posts, terms, menus, options/meta/users, relationships,
