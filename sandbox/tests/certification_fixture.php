@@ -224,7 +224,14 @@ function duo_cert_reseal_scoped_evidence(array &$evidence, array &$registry, str
         if (!is_dir($oldDir) || is_link($oldDir)) {
             throw new \RuntimeException("certification fixture manufacture failed: durable scoped evidence for '$name' is absent");
         }
-        duo_cert_copy_tree($oldDir, $newDir);
+        // A fixture built from a currently certified checkout re-derives the
+        // same content address. The complete durable directory was copied
+        // with the manifest library above, so copying it onto itself would
+        // make PHP's copy() reject source === destination. Only a changed
+        // closure needs a second durable directory.
+        if ($oldPath !== $newPath) {
+            duo_cert_copy_tree($oldDir, $newDir);
+        }
         Canon::write_file("$newDir/bundle.json", Canon::encode($record));
         ScopedCertificationBundle::assertEvidenceAssets($record, $newDir);
         ScopedCertificationBundle::assertCurrent(
