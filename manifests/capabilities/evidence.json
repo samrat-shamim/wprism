@@ -1732,7 +1732,7 @@
                         "version": "10.9.4"
                     }
                 ],
-                "bundle_digest": "92fa58ff5ebbc798e4afd8c9c418e644f7874d740d72b7f85f77f805a5afa6c1",
+                "bundle_digest": "cf8463507343270f9a52a96eaee31c19ed1f48face7bfe7caf25d17bc4e71976",
                 "claims": {
                     "manifests.woocommerce": [
                         "conformance-woocommerce",
@@ -1740,12 +1740,12 @@
                     ]
                 },
                 "closure": {
-                    "digest": "a825808d922dd6a958c07c3a998524464811aecbfec87c8d98a3fcd10530a0dc",
+                    "digest": "7c64b1c847dbacc4e99ef6d667316c91de54e43ed18a64f457f8072a4f169e09",
                     "inputs": [
                         {
                             "path": "Makefile",
-                            "sha256": "99b0b08368fe46cdff4f55fd80dd52bc620eff333828e08816519055d67f3bc7",
-                            "size": 90511
+                            "sha256": "686f8621737be1b6ec4e76b158c5c32024b19c3da53a4ec61ebb087be0e3172a",
+                            "size": 90745
                         },
                         {
                             "path": "agent/duo-loader.php",
@@ -1789,8 +1789,8 @@
                         },
                         {
                             "path": "agent/src/Apply.php",
-                            "sha256": "254ba6f360a3a6120c9e4b7f48581ce0cec6e2054ef4025de7dff699adafcfce",
-                            "size": 383957
+                            "sha256": "17592fe6203d190b82970857c55e0afe79c397129265d84caa186786887e4473",
+                            "size": 383477
                         },
                         {
                             "path": "agent/src/ApplyFieldMaterializer.php",
@@ -1799,8 +1799,8 @@
                         },
                         {
                             "path": "agent/src/ApplyPlanner.php",
-                            "sha256": "5ce92fb8abc0749da4059ba90b6f2e248d2f9840a50c755b000b0bd3cfe84a13",
-                            "size": 34302
+                            "sha256": "b63ec97f4d5bf734ca42ae20ae443238f1e4975ab3c38239615817f24db8739e",
+                            "size": 36714
                         },
                         {
                             "path": "agent/src/AtomicTreePublisher.php",
@@ -2104,8 +2104,13 @@
                         },
                         {
                             "path": "agent/src/Policy.php",
-                            "sha256": "d430ed93190b50e8d1f9ab603484b93146ff4c5138ab622317b0140f0ea2a2da",
-                            "size": 182121
+                            "sha256": "96b5572df01bd815df4fea8072e513e66c485b719e787701a0a032b57f766843",
+                            "size": 181685
+                        },
+                        {
+                            "path": "agent/src/PolicyWriter.php",
+                            "sha256": "bb1de617606b7e58db4d255ccbfe091b226d670ff5053516f9a34e8c7e151a06",
+                            "size": 1808
                         },
                         {
                             "path": "agent/src/PostMaterializer.php",
@@ -2679,10 +2684,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-12T21:15:39Z",
+                "created_at": "2026-08-12T21:49:37Z",
                 "force_hatches": [],
                 "format": "duo-adapter-certification-bundle/v1",
-                "git_revision": "5d51471329e0a4c4fc8ee65acf8e94224ca710e7",
+                "git_revision": "b1a632909ccb095c5af3d210e4aeb624e8ba89a7",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -2821,13 +2826,13 @@
                             "sha256": "7d6d73ec8d2572c84ef732ae011b831e52a1beff1c0863755bba42129844da8b",
                             "size": 151
                         },
-                        "evidence_sha256": "302377ae979468c64487db6b16841ac10d33a32557f6a608782a3e942b191dbc",
+                        "evidence_sha256": "15c623325609d444b2f27232f43b4c25209b91fcb8131ed409174bcc5af94a1a",
                         "exit_code": 0,
                         "id": "conformance-woocommerce",
                         "log": {
                             "path": "logs/conformance-woocommerce.txt",
-                            "sha256": "34ffab4f3f2cf5dc71f560d49bdd2212241f0f5773ac056244f32f34de40f853",
-                            "size": 26440
+                            "sha256": "ce46a5e0f3ee5fe4654bea30820169f105b873ae165defd7d10970055f5eb71c",
+                            "size": 26456
                         },
                         "result": {
                             "path": "results/conformance-woocommerce.json",
@@ -2842,13 +2847,13 @@
                             "sha256": "6140bad2809b210339a486b4fc6046f588e88a98c0db646049732aa9c24a32d9",
                             "size": 171
                         },
-                        "evidence_sha256": "00fd9d0ee3ff1800ddb0382f6263fc60b3b66a7a77edc76977d2f84535f1ddd3",
+                        "evidence_sha256": "9d742985041cbac7f7abd06cf80c29a2c7b61e59af2f3d5960cf1193c059db00",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "dcf8046dcaf5d34940442c5d548edf488438388f31df5d8628222d94ad12892a",
-                            "size": 28845
+                            "sha256": "837594896e8adf2dbf54625ab86de5219e5ce75059060da4d19dd5807e64bfe7",
+                            "size": 28854
                         },
                         "result": {
                             "path": "results/exact-artifact-version-matrix.json",
@@ -2860,7 +2865,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/woocommerce/92fa58ff5ebbc798e4afd8c9c418e644f7874d740d72b7f85f77f805a5afa6c1"
+            "path": "scoped/woocommerce/cf8463507343270f9a52a96eaee31c19ed1f48face7bfe7caf25d17bc4e71976"
         }
     },
     "status": "current"
