@@ -41,6 +41,7 @@ require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/PlanView.php';
 require __DIR__ . '/src/Pending.php';
 require __DIR__ . '/src/PendingCommand.php';
+require __DIR__ . '/src/StatusCommand.php';
 require __DIR__ . '/src/Triage.php';
 require __DIR__ . '/src/ClassificationBatch.php';
 require __DIR__ . '/src/ManifestValidate.php';
@@ -76,6 +77,7 @@ use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\EnvironmentMaterializer;
 use Duo\Orchestrator\PendingCommand;
+use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\PlanView;
@@ -1295,91 +1297,19 @@ function cmd_adopt(EnvironmentDriver $t, array $extra): int {
 
 /** @param list<string> $extra */
 function cmd_status(EnvironmentDriver $t, array $extra = []): int {
-    try {
-        $viewRequest = PlanView::requestFromArgs($extra);
-    } catch (PlanViewException $e) {
-        render_plan_view_refusal($e->reasonCode, $e->publicMessage, $e->remediation);
-        render_rollback_authority_status($t);
-        return 1;
-    }
-    $planArgs = ['duo', 'plan', '--repo=' . $t->repoPath()];
-    if ($viewRequest !== null) {
-        $planArgs = array_merge($planArgs, PlanView::agentArgs($viewRequest));
-    }
-    $planArgs[] = '--format=json';
-    $r = $t->captureWp($planArgs);
-    if ($r['exit'] !== 0) {
-        fwrite(STDERR, "duo: status: failed to fetch plan for '{$t->name()}' (exit {$r['exit']})\n");
-        $refusal = json_decode(trim($r['stdout']), true);
-        if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
+    return StatusCommand::run(
+        $t,
+        $extra,
+        static function (string $code, string $message, string $remediation): void {
+            render_plan_view_refusal($code, $message, $remediation);
+        },
+        static function (array $refusal): void {
             render_command_refusal_human($refusal);
-        } else {
-            $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
-            if ($msg !== '') {
-                fwrite(STDERR, $msg . "\n");
-            }
+        },
+        static function (EnvironmentDriver $driver): bool {
+            return render_rollback_authority_status($driver);
         }
-        render_rollback_authority_status($t);
-        return $r['exit'] !== 0 ? $r['exit'] : 1;
-    }
-    $plan = json_decode(trim($r['stdout']), true);
-    if (!is_array($plan)) {
-        fwrite(STDERR, "duo: status: could not parse plan JSON for '{$t->name()}'\n");
-        // Plan output can contain target-specific diagnostics. Status is a
-        // trust/readiness surface, not a raw transport debugger: never echo
-        // malformed agent bytes here (especially for a requested value-free
-        // plan view).
-        render_rollback_authority_status($t);
-        return 1;
-    }
-    try {
-        // `render()` deliberately tolerates partial unit fixtures. Status is
-        // a trust boundary, so it must refuse an incomplete agent envelope
-        // before converting counts into an exit status/readiness statement.
-        $plan = PlanContract::requireComplete($plan, 'status');
-    } catch (\Throwable) {
-        fwrite(STDERR, "duo: status: agent plan envelope is incomplete or malformed; refusing readiness\n");
-        render_rollback_authority_status($t);
-        return 1;
-    }
-    if ($viewRequest !== null) {
-        $violations = PlanView::violations($plan, $plan['plan_view'] ?? null, $viewRequest);
-        if ($violations !== []) {
-            // A legacy agent can still serve unfiltered status. A requested
-            // view is different: silently falling back would hide the user's
-            // requested display contract, so fail closed without echoing raw
-            // agent data or validation detail.
-            render_plan_view_refusal(
-                'plan_view_unavailable',
-                'the requested plan view is unavailable for this plan',
-                'update or repair the target agent, then rerun status with the same view filters'
-            );
-            render_rollback_authority_status($t);
-            return 1;
-        }
-    }
-    $summary = PlanSummary::render(
-        $plan,
-        $viewRequest === null ? [] : $viewRequest['category']
     );
-    if ($viewRequest !== null) {
-        /** @var array<string,mixed> $view */
-        $view = $plan['plan_view'];
-        foreach (PlanView::humanHeaderLines($view) as $line) {
-            echo $line . "\n";
-        }
-        // Only ordinary matches are new status itemization. PlanSummary below
-        // retains the complete established safety blocks (conflicts, blocked
-        // delete detail, collision, drift) plus all global diagnostics once.
-        foreach (PlanView::ordinaryHumanLines($plan, $view) as $line) {
-            echo $line . "\n";
-        }
-    }
-    foreach ($summary['lines'] as $line) {
-        echo $line . "\n";
-    }
-    $authorityOk = render_rollback_authority_status($t);
-    return $summary['ok'] && $authorityOk ? 0 : 1;
 }
 
 /** Keep status's host-only failures structured, bounded, and value-free. */
