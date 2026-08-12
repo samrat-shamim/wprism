@@ -513,6 +513,26 @@ final class WoocommerceProductLookups {
                 if ($parent && $this->is_variable($parent)) {
                     $variableRoots[$parentId] = $parent;
                     $attributeRoots[$parentId] = $parent;
+                    // A variation-path write still requires the complete
+                    // finite child set: verification checks every child and
+                    // the variable store derives the root from every visible
+                    // child. Refresh each sibling here as well so a stale
+                    // sibling lookup (or _price input) converges in one pass,
+                    // without widening into a catalog-wide scan.
+                    foreach ((array) $parent->get_children() as $childId) {
+                        $childId = (int) $childId;
+                        if ($childId <= 0 || isset($deletionIds[$childId])) {
+                            continue;
+                        }
+                        $this->heartbeat($heartbeat);
+                        $this->invalidate_product_caches($childId);
+                        $child = $this->load_product($childId);
+                        if ($child) {
+                            $products[$childId] = $child;
+                            $priceIds[$childId] = true;
+                        }
+                        $this->heartbeat($heartbeat);
+                    }
                 } else {
                     $attributeRoots[$id] = $product;
                 }
