@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/ApplyFieldMaterializer.php';
+
 /**
  * The menu entity materializer (DUO-3347 slice 4, one of the "Entity
  * materializers: posts, terms, menus, options/meta/users, relationships,

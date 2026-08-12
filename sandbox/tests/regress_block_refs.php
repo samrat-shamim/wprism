@@ -190,7 +190,7 @@ require __DIR__ . '/../../agent/src/Capture.php';
 // shortcode_attrs at all, so Shortcodes' own early-exit (empty rules)
 // fires before get_shortcode_regex() is ever called -- see regress_
 // shortcode_refs.php for the harness that DOES exercise that path.
-require __DIR__ . '/../../agent/src/Shortcodes.php';
+require_once __DIR__ . '/../../agent/src/Shortcodes.php';
 
 use Duo\Canon;
 use Duo\Policy;

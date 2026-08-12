@@ -19,6 +19,77 @@
  */
 declare(strict_types=1);
 
+/**
+ * Each extracted materializer must be loadable without relying on duo.php's
+ * bootstrap order.  Run the probes in fresh PHP processes so the classes
+ * loaded by this test's own fixture setup cannot mask a missing require_once.
+ */
+$standaloneProbes = [
+    [
+        'label' => 'ApplyFieldMaterializer self-requires Policy and Tokens',
+        'file' => __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php',
+        'classes' => ['Duo\\Policy', 'Duo\\Tokens'],
+    ],
+    [
+        'label' => 'MenuMaterializer self-requires its constructor dependencies',
+        'file' => __DIR__ . '/../../agent/src/MenuMaterializer.php',
+        'classes' => ['Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer'],
+    ],
+];
+$standaloneFailures = [];
+$standaloneResults = [];
+foreach ($standaloneProbes as $probe) {
+    $classLiterals = implode(', ', array_map(
+        static fn(string $class): string => var_export($class, true),
+        $probe['classes']
+    ));
+    $code = 'require_once ' . var_export($probe['file'], true) . ';'
+        . 'foreach ([' . $classLiterals . '] as $class) {'
+        . ' if (!class_exists($class, false)) { fwrite(STDERR, "missing:" . $class . "\\n"); exit(1); }'
+        . '}';
+    $pipes = [];
+    $process = proc_open([PHP_BINARY, '-d', 'display_errors=1', '-r', $code], [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        $standaloneResults[$probe['label']] = false;
+        $standaloneFailures[] = $probe['label'] . ' (could not start PHP subprocess)';
+        continue;
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exitCode = proc_close($process);
+    $standaloneResults[$probe['label']] = $exitCode === 0;
+    if ($exitCode !== 0) {
+        $standaloneFailures[] = $probe['label'] . ' (exit ' . $exitCode . ': ' . trim($stderr . $stdout) . ')';
+    }
+}
+
+$standaloneCheck = static function (bool $ok, string $message) use (&$standaloneFailures): void {
+    echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
+    if (!$ok) {
+        $standaloneFailures[] = $message;
+    }
+};
+foreach ($standaloneProbes as $probe) {
+    $standaloneCheck(
+        $standaloneResults[$probe['label']] ?? false,
+        $probe['label']
+    );
+}
+if ($standaloneFailures) {
+    echo "\n" . count($standaloneFailures) . " standalone-load failure(s):\n";
+    foreach ($standaloneFailures as $failure) {
+        echo "  - $failure\n";
+    }
+    exit(1);
+}
+
 require_once __DIR__ . '/../../agent/src/Canon.php';
 require_once __DIR__ . '/../../agent/src/OptionState.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
