@@ -62,6 +62,7 @@ require_once __DIR__ . '/src/CodeCompatibility.php';
 require_once __DIR__ . '/src/PathSafety.php';
 require_once __DIR__ . '/src/Code.php';
 require_once __DIR__ . '/src/ReferenceGraph.php';
+require_once __DIR__ . '/src/CompiledArtifact.php';
 require_once __DIR__ . '/src/RepositoryCompiler.php';
 require_once __DIR__ . '/src/ScopeClosure.php';
 require_once __DIR__ . '/src/Init.php';
