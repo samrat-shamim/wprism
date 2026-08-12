@@ -15,7 +15,10 @@ namespace Duo;
  * runtime resolver used by Capture, Apply, Lint, and RepositoryCompiler; only
  * the manifest-byte declaration grammar is moved here. Policy's load() and
  * from_snapshot() call this class directly, so no compatibility facade or
- * duplicated validator remains on Policy.
+ * duplicated validator remains on Policy. Taxonomy declarations that derive
+ * their object type from an option sub-key belong to this same collaborator:
+ * the validator checks only the manifest's cross-declaration shape and never
+ * reaches into a live option row or plugin code.
  */
 final class TaxonomyGrammar {
     /** Object keyspaces supported by the canonical taxonomy relationship contract. */
@@ -56,6 +59,51 @@ final class TaxonomyGrammar {
                     $pattern['object_keyspace'],
                     "manifest '$name' taxonomy_patterns[$i].object_keyspace"
                 );
+            }
+        }
+    }
+
+    /**
+     * Validate a taxonomy's option-backed object-type declaration.
+     *
+     * The option and sub-key are intentionally checked only when the same
+     * manifest declares the option's sub_keys map. A cross-manifest owner is a
+     * valid declaration boundary, so this grammar must not invent a global
+     * ownership rule from one manifest's local view.
+     */
+    public static function validate_object_type_option_refs(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['taxonomies'] ?? [] as $tax => $rule) {
+            $decl = $rule['object_type_from_option'] ?? null;
+            if ($decl === null) {
+                continue;
+            }
+            if (!is_array($decl)
+                || !is_string($decl['option'] ?? null) || $decl['option'] === ''
+                || !is_string($decl['sub_key'] ?? null) || $decl['sub_key'] === '') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option without both a "
+                    . 'non-empty string `option` and `sub_key`'
+                );
+            }
+            $ownSubKeys = $manifest['options'][$decl['option']]['sub_keys'] ?? null;
+            if ($ownSubKeys !== null) {
+                $subRule = $ownSubKeys[$decl['sub_key']] ?? null;
+                if ($subRule === null) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option.sub_key="
+                        . var_export($decl['sub_key'], true) . " but options.{$decl['option']}.sub_keys never "
+                        . 'declares that key'
+                    );
+                }
+                if (!empty($subRule['json_refs']) || !empty($subRule['key_refs'])) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' declares taxonomies.$tax.object_type_from_option pointing at "
+                        . "options.{$decl['option']}.sub_keys.{$decl['sub_key']}, but that sub-key declares "
+                        . 'json_refs/key_refs — object_type_from_option only supports plain, non-ref-typed '
+                        . 'sub-key values (post-type/taxonomy slugs, never ids)'
+                    );
+                }
             }
         }
     }

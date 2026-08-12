@@ -1,13 +1,13 @@
 <?php
 /**
- * Offline regression for TaxonomyGrammar (DUO-3348 slice 9: exact and
- * taxonomy-pattern object_keyspace declarations extracted from Policy.php).
+ * Offline regression for TaxonomyGrammar (DUO-3348 slice 10: taxonomy
+ * declaration validators extracted from Policy.php).
  *
  * regress_taxonomy_object_keyspace.php already covers the complete product
  * path through Policy::load()/from_snapshot(), including runtime resolution,
  * lint diagnostics, and repository compiler refusals. This direct suite adds
  * characterization of the manifest-only declaration grammar and proves the
- * moved validator is not duplicated on Policy.
+ * moved validators are not duplicated on Policy.
  */
 declare(strict_types=1);
 
@@ -16,6 +16,7 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 require_once __DIR__ . '/../../agent/src/TaxonomyGrammar.php';
+require_once __DIR__ . '/../../agent/src/OptionState.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
 
 use Duo\Policy;
@@ -133,6 +134,74 @@ $assertThrows(
     'taxonomy_patterns reports the indexed declaration path'
 );
 
+// ----------------------------------------------- object_type_from_option
+
+$assertAccepted(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'options' => [
+            'acme_settings' => [
+                'sub_keys' => ['object_type' => ['class' => 'authored']],
+            ],
+        ],
+        'taxonomies' => [
+            'acme_tax' => [
+                'object_type_from_option' => [
+                    'option' => 'acme_settings',
+                    'sub_key' => 'object_type',
+                ],
+            ],
+        ],
+    ]),
+    'object_type_from_option accepts a plain locally-declared option sub-key'
+);
+$assertAccepted(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'taxonomies' => [
+            'acme_tax' => [
+                'object_type_from_option' => [
+                    'option' => 'owned-by-another-manifest',
+                    'sub_key' => 'object_type',
+                ],
+            ],
+        ],
+    ]),
+    'object_type_from_option preserves the cross-manifest ownership boundary'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => ['option' => 'acme_settings']]],
+    ]),
+    'without both a non-empty string',
+    'object_type_from_option refuses a declaration missing sub_key'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'options' => ['acme_settings' => ['sub_keys' => ['other' => ['class' => 'authored']]]],
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => [
+            'option' => 'acme_settings', 'sub_key' => 'object_type',
+        ]]],
+    ]),
+    'never declares that key',
+    'object_type_from_option refuses an undeclared local sub-key'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_object_type_option_refs([
+        'name' => 'acme',
+        'options' => ['acme_settings' => ['sub_keys' => [
+            'object_type' => ['class' => 'authored', 'json_refs' => ['post' => []]],
+        ]]],
+        'taxonomies' => ['acme_tax' => ['object_type_from_option' => [
+            'option' => 'acme_settings', 'sub_key' => 'object_type',
+        ]]],
+    ]),
+    'json_refs/key_refs',
+    'object_type_from_option refuses a ref-typed local sub-key'
+);
+
 // ------------------------------------------------------ frozen Policy entry point
 
 $assertAccepted(
@@ -161,20 +230,60 @@ $assertThrows(
     'manifest \'acme\' taxonomy_patterns[0].object_keyspace must be one of post|term',
     'Policy::from_snapshot() refuses an invalid pattern object_keyspace declaration'
 );
+$assertAccepted(
+    static fn() => Policy::from_snapshot($frozenSnapshot([
+        'name' => 'acme',
+        'spec_version' => 2,
+        'options' => [
+            'acme_settings' => [
+                'autoload' => 'yes',
+                'sub_keys' => ['object_type' => ['class' => 'authored']],
+            ],
+        ],
+        'taxonomies' => [
+            'acme_tax' => ['object_type_from_option' => [
+                'option' => 'acme_settings', 'sub_key' => 'object_type',
+            ]],
+        ],
+    ])),
+    'a valid object_type_from_option declaration loads through Policy::from_snapshot()'
+);
+$assertThrows(
+    static fn() => Policy::from_snapshot($frozenSnapshot([
+        'name' => 'acme',
+        'spec_version' => 2,
+        'options' => [
+            'acme_settings' => [
+                'autoload' => 'yes',
+                'sub_keys' => ['other' => ['class' => 'authored']],
+            ],
+        ],
+        'taxonomies' => [
+            'acme_tax' => ['object_type_from_option' => [
+                'option' => 'acme_settings', 'sub_key' => 'object_type',
+            ]],
+        ],
+    ])),
+    'never declares that key',
+    'Policy::from_snapshot() refuses an object_type_from_option local sub-key typo'
+);
 
 $policy = new ReflectionClass(Policy::class);
 $grammar = new ReflectionClass(TaxonomyGrammar::class);
 $check(
     !$policy->hasMethod('validate_taxonomy_object_keyspace_declarations')
-        && !$policy->hasMethod('validate_taxonomy_object_keyspace_value'),
+        && !$policy->hasMethod('validate_taxonomy_object_keyspace_value')
+        && !$policy->hasMethod('validate_object_type_option_refs'),
     'Policy no longer defines the moved taxonomy declaration validators'
 );
 $check(
     $grammar->hasMethod('validate_taxonomy_object_keyspace_declarations')
         && $grammar->getMethod('validate_taxonomy_object_keyspace_declarations')->isPublic()
+        && $grammar->hasMethod('validate_object_type_option_refs')
+        && $grammar->getMethod('validate_object_type_option_refs')->isPublic()
         && $grammar->hasMethod('validate_taxonomy_object_keyspace_value')
         && $grammar->getMethod('validate_taxonomy_object_keyspace_value')->isPrivate(),
-    'TaxonomyGrammar exposes one load-time entry point and keeps its scalar helper private'
+    'TaxonomyGrammar exposes both taxonomy load-time entry points and keeps its scalar helper private'
 );
 $check(
     $grammar->hasConstant('TAXONOMY_RELATIONSHIP_OBJECTS')
