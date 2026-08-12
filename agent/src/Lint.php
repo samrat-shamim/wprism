@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/Shortcodes.php';
+require_once __DIR__ . '/StructuredReferenceScanner.php';
 
 /**
  * The generalized suspicious-ref linter (task #11's linter half; docs/
@@ -392,39 +393,9 @@ final class Lint {
     }
 
     /**
-     * Deep bare_id scan for a json_refs/key_refs-declared meta/option value
-     * (task #11 wave 2 — the linter half of the sub-key ref machinery: a
-     * declaration must make its OWN paths lint-clean while the linter keeps
-     * catching everything the declaration doesn't cover).
-     *
-     * Declared json_refs positions are walked with JsonRefs itself — the
-     * same path engine capture uses — and a raw numeric survivor at one of
-     * those exact positions is an unrewritten_registered_ref regardless of
-     * its key's spelling or whether the id resolves on this environment.
-     * This covers shapes such as Polylang nav_menus[theme][location][lang],
-     * whose ref-bearing leaf keys are language slugs rather than id-shaped
-     * names. Everything outside a declared position keeps the deliberately
-     * low-noise key-name heuristic below.
-     *
-     * The undeclared-position fallback is scoped to id-shaped KEY NAMES
-     * (looks_like_id_key() below — a sibling
-     * of unregistered_block_attr's looks_like_id_attr(), NOT a reuse; see
-     * that method's docblock for why) rather than flagging every numeric
-     * leaf — a blind full recursion would flood on
-     * Elementor's own legitimate small-int settings (column widths,
-     * opacity, z-index, ...) that routinely coincide with a real entity id,
-     * defeating the point of a low-noise signal. Also flags integer ARRAY
-     * KEYS on a non-list (associative) array — the wpseo_taxonomy_meta
-     * shape: an id-keyed map surviving capture with its keys still raw
-     * ints means no key_refs declaration covers it. Gated on
-     * !array_is_list($node): an ordinary LIST's own positional indices
-     * (0, 1, 2, ...) are never a meaningful id-keyed-map signal — they're
-     * guaranteed small integers that WILL routinely coincide with a real
-     * entity id (confirmed empirically: Elementor's own `wp_gallery` array
-     * tripped this on index 1 before this guard existed) — only an
-     * associative array's integer keys (never positional when present,
-     * always semantic) are checked, the same list/map distinction
-     * JsonRefs::walk() already makes for path resolution.
+     * Structured-reference scanning is delegated to the pure registry-ready
+     * collaborator; this facade preserves Lint's existing finding sink and
+     * call-site contract while keeping filesystem traversal here.
      */
     private static function scan_structured_bare_ids(
         $node,
@@ -434,148 +405,8 @@ final class Lint {
         array $jsonRefs = [],
         ?array $keyRefs = null
     ): void {
-        $declaredLocators = [];
-        foreach ($jsonRefs as $rule) {
-            $copy = $node;
-            JsonRefs::walk(
-                $copy,
-                JsonRefs::parse_path((string) $rule['path']),
-                function (&$container, $key, string $matchedLocator) use (
-                    &$declaredLocators, &$findings, $rel, $rule
-                ): void {
-                    $declaredLocators[$matchedLocator] = true;
-                    $value = $container[$key];
-                    if (is_array($value)) {
-                        return; // struct_capture() only rewrites scalar matches
-                    }
-                    foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                        if ($id <= 0) {
-                            continue; // json_refs' explicit unset convention
-                        }
-                        $hit = Pending::resolve_id($id);
-                        $kind = (string) ($rule['kind'] ?? 'entity');
-                        $findings[] = self::finding(
-                            'unrewritten_registered_ref',
-                            $rel,
-                            $matchedLocator . $locSuffix,
-                            $id,
-                            $hit,
-                            "json_refs path '" . (string) $rule['path'] . "' declares this value as a $kind "
-                                . 'reference, but it is still numeric in captured state — the declared rewrite '
-                                . 'to a {{...}} token never ran. This id is silently environment-bound and will '
-                                . 'point at the wrong entity (or nothing) once ids diverge on another environment.'
-                        );
-                    }
-                },
-                $locator
-            );
-        }
-        $declaredKeyLocators = [];
-        if ($keyRefs !== null) {
-            $scanDeclaredMap = function ($map, string $mapLocator) use (
-                &$declaredKeyLocators, &$findings, $rel, $keyRefs
-            ): void {
-                if (!is_array($map) || array_is_list($map)) {
-                    return;
-                }
-                foreach ($map as $key => $_value) {
-                    if (!(is_int($key) || (is_string($key) && preg_match('/^[1-9][0-9]*$/', $key)))) {
-                        continue;
-                    }
-                    $id = (int) $key;
-                    $rawLocator = "$mapLocator KEY $key";
-                    $declaredKeyLocators[$rawLocator] = true;
-                    $kind = (string) $keyRefs['kind'];
-                    $findings[] = self::finding(
-                        'unrewritten_registered_ref',
-                        $rel,
-                        $rawLocator,
-                        $id,
-                        Pending::resolve_id($id),
-                        "key_refs declares this map key as a $kind reference, but it is still numeric in "
-                            . 'captured state — the declared rewrite to a {{...}} token never ran'
-                    );
-                }
-            };
-            if (isset($keyRefs['path'])) {
-                $copy = $node;
-                JsonRefs::walk(
-                    $copy,
-                    JsonRefs::parse_path((string) $keyRefs['path']),
-                    function (&$container, $key, string $matchedLocator) use ($scanDeclaredMap): void {
-                        $scanDeclaredMap($container[$key], $matchedLocator);
-                    },
-                    $locator
-                );
-            } else {
-                $scanDeclaredMap($node, $locator);
-            }
-        }
-        self::scan_structured_bare_ids_by_key(
-            $node,
-            $rel,
-            $locator,
-            $findings,
-            $declaredLocators,
-            $declaredKeyLocators
-        );
-    }
-
-    /** Existing undeclared-position heuristic, excluding exact json_refs matches already classified above. */
-    private static function scan_structured_bare_ids_by_key(
-        $node,
-        string $rel,
-        string $locator,
-        array &$findings,
-        array $declaredLocators,
-        array $declaredKeyLocators = []
-    ): void {
-        if (!is_array($node)) {
-            return;
-        }
-        $isList = array_is_list($node);
-        foreach ($node as $key => $v) {
-            $childLocator = is_int($key) ? "{$locator}[{$key}]" : "{$locator}.{$key}";
-            if (is_int($key) && !$isList && !isset($declaredKeyLocators["$locator KEY $key"])) {
-                $hit = Pending::resolve_id($key);
-                if ($hit !== null) {
-                    $findings[] = self::finding('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
-                        "this structured value has an integer ARRAY KEY that matches an existing %s id "
-                        . "(#%d \"%s\", %s), with no declared key_refs path covering it — an id-keyed map "
-                        . "(an associative array whose integer KEYS are themselves entity ids) is exactly the "
-                        . "shape key_refs exists to rewrite; a resolved key_refs match is never still a raw integer key by this point, "
-                        . "so this is a genuine gap, not a false read. Small ids coincide; this is a signal to "
-                        . "investigate, not proof.",
-                        $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
-                    ));
-                }
-            } elseif (is_string($key)
-                && self::looks_like_id_key($key)
-                && !isset($declaredLocators[$childLocator])) {
-                foreach (Pending::numeric_candidates($v) as [$id, $locSuffix]) {
-                    $hit = Pending::resolve_id($id);
-                    if ($hit === null) {
-                        continue;
-                    }
-                    $findings[] = self::finding('bare_id', $rel, $childLocator . $locSuffix, $id, $hit, sprintf(
-                        "key '%s' inside a json_refs/key_refs-declared structure looks like an id (matches the "
-                        . "id/ids/ref/*Id/*Ids naming heuristic) and its value coincides with an existing %s id "
-                        . "(#%d \"%s\", %s), but no declared json_refs path covers this exact position — a "
-                        . "resolved json_refs match is never still a raw number by this point (it becomes a "
-                        . "token, or null if unmapped), so this is a genuine manifest gap, not a false read. "
-                        . "Small ids coincide; this is a signal to investigate, not proof.",
-                        $key, $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
-                    ));
-                }
-            }
-            self::scan_structured_bare_ids_by_key(
-                $v,
-                $rel,
-                $childLocator,
-                $findings,
-                $declaredLocators,
-                $declaredKeyLocators
-            );
+        foreach (StructuredReferenceScanner::scan($node, $rel, $locator, $jsonRefs, $keyRefs) as $finding) {
+            $findings[] = $finding;
         }
     }
 
