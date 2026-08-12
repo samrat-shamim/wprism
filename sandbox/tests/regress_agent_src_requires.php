@@ -439,6 +439,7 @@ $knownGapsByFile = [
     'Init' => ['AdapterSources', 'BoundHelper', 'Canon', 'Capture', 'Code', 'CommandRefusalException', 'InitialStateBoundaryException', 'PersonalData', 'Policy', 'Publish', 'RepositoryCompiler', 'Secrets'],
     'Journal' => ['CommandRefusalException', 'Db', 'Ledger', 'Policy'],
     'Ledger' => ['Db', 'Uuid'],
+    'LifecyclePlanner' => ['Code', 'CompiledRepository', 'Ledger', 'Policy'],
     'Lint' => ['Canon', 'OptionState', 'Pending', 'Policy', 'ReferenceRules'],
     'ManifestDispositions' => ['Canon'],
     'MenuMaterializer' => ['Db', 'Ledger', 'PlainData', 'Policy', 'Tokens'],
