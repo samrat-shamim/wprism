@@ -5,22 +5,29 @@ require_once __DIR__ . '/Policy.php';
 require_once __DIR__ . '/Tokens.php';
 require_once __DIR__ . '/ApplyFieldMaterializer.php';
 // Deliberately NOT require_once('Db.php') or require_once('Ledger.php')
-// here: the SAME conflict UserMetaMaterializer.php's own comment documents
-// for Db (regress_scoped_promotion_target.php / regress_adapter_observation.php
-// declare a fake Duo\Db and reach this file transitively through Apply.php)
-// applies to BOTH classes, in the SAME four files -- verified empirically
-// against make regress-offline-all itself after an initial hand-grepped
-// pass wrongly cleared Ledger (a `^class Ledger\b` pattern misses the
-// `final class Ledger {` shape every one of these four files actually
-// uses; `make regress-offline-all` caught the resulting "Cannot redeclare
-// class Duo\Ledger" fatal immediately). The precise, non-repeatable-miss
-// check: `grep -rlnE '^\s*(final\s+)?class\s+(Db|Ledger)\s*(\{|extends|
-// implements)' sandbox/tests/*.php` -- four files, every one declaring
-// BOTH: regress_adapter_observation.php, regress_code_revision_enforcement.php,
-// regress_lifecycle_phase_handoff_unit.php, regress_scoped_promotion_target.php.
-// Requiring either here would fatal all four with "Cannot redeclare class
-// Duo\Db"/"...Duo\Ledger". A caller that needs Db or Ledger (like Apply.php
-// itself) must require them explicitly.
+// here: four suites declare a fake Duo\Ledger (regress_adapter_observation.php,
+// regress_code_revision_enforcement.php, regress_lifecycle_phase_handoff_unit.php,
+// regress_scoped_promotion_target.php); three of those four ALSO declare a
+// fake Duo\Db (all but regress_code_revision_enforcement.php). Only TWO of
+// the four actually reach this file transitively through Apply.php --
+// regress_code_revision_enforcement.php (via Deploy.php) and regress_scoped_
+// promotion_target.php -- runtime-verified, not assumed (the other two are
+// pulled in by grep on filename alone and never load Apply.php at all).
+// Between those two reaching suites, Ledger's exclusion is necessary for
+// regress_code_revision_enforcement.php and Db's for regress_scoped_
+// promotion_target.php, so both stay excluded even though neither reaching
+// suite needs both. Verified empirically, the hard way: an initial pass
+// checked Db and Ledger with two DIFFERENT, non-equivalent grep patterns
+// (a `final class Db {`-shaped one for Db, a bare `^class Ledger\b` one for
+// Ledger) and wrongly cleared Ledger as unfaked; make regress-offline-all
+// caught the resulting "Cannot redeclare class Duo\Ledger" fatal
+// immediately. Re-verified with one symmetric pattern applied to both
+// classes: `grep -rnE '^\s*(final\s+)?class\s+(Db|Ledger)\s*(\{|extends|
+// implements)' sandbox/tests/*.php` (note -n, not -l -- printing the
+// matched line, not just the filename, is what actually distinguishes
+// which class a file fakes rather than merely that it fakes something).
+// A caller that needs Db or Ledger (like Apply.php itself) must require
+// them explicitly.
 
 /**
  * The term entity materializer (DUO-3347 slice 6, one of the "Entity
