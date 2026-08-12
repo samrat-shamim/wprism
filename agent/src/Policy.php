@@ -77,6 +77,9 @@ require_once __DIR__ . '/ReferenceKindGrammar.php';
 // preserves Policy's pre-existing implicit Code boundary; it does not load
 // Code.php or its materialization graph transitively.
 require_once __DIR__ . '/CodeConfigGrammar.php';
+// DUO-3348 slice 27: pure manifest export projection, required here so the
+// stable Policy::export_manifest() facade remains independently loadable.
+require_once __DIR__ . '/PolicyWriter.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -3455,20 +3458,7 @@ final class Policy {
         // loader refused, found via a sandbox/tests/ run that finally
         // exercised the full export-then-reload path).
         $specVersion = defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 0;
-        $out = ['name' => $name, 'spec_version' => $specVersion, 'options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []];
-        foreach (self::SECTIONS as $section) {
-            foreach ($sitePolicy[$section] ?? [] as $key => $rule) {
-                $matched = @preg_match('/' . $matchRegex . '/', $key);
-                if ($matched === false) {
-                    throw new \RuntimeException("duo: invalid --match regex '$matchRegex'");
-                }
-                if ($matched === 1) {
-                    $out[$section][$key] = $rule;
-                }
-            }
-            $out[$section] = (object) $out[$section]; // force {} not [] when empty, matching manifest style
-        }
-        return $out;
+        return PolicyWriter::export_manifest($sitePolicy, $matchRegex, $name, $specVersion, self::SECTIONS);
     }
 
     /**
