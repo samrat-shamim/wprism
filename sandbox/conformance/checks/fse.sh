@@ -83,6 +83,7 @@ say "guard: switch conf2 to a different bundled theme, plan must name both theme
 wp_conf2 theme activate twentytwentyfour >/dev/null || fail "could not activate twentytwentyfour on conf2"
 
 MISMATCH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | tail -1)
+require_duo_answered "conf2 duo plan after active-theme mismatch" json "$MISMATCH_PLAN"
 MISMATCH_WARNINGS=$(echo "$MISMATCH_PLAN" | jq -r '.warnings[]?')
 echo "$MISMATCH_WARNINGS" | grep -q 'active-theme mismatch' \
   || fail "plan did not warn about the active-theme mismatch after switching conf2 to twentytwentyfour"
@@ -99,6 +100,7 @@ pass "plan loudly warns: conf2 active theme 'twentytwentyfour' vs. captured 'twe
 say "guard: restore conf2's active theme, plan must be warning-free again"
 wp_conf2 theme activate twentytwentyfive >/dev/null || fail "could not restore twentytwentyfive on conf2"
 CLEAN_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | tail -1)
+require_duo_answered "conf2 duo plan after restoring active theme" json "$CLEAN_PLAN"
 CLEAN_WARNING_COUNT=$(echo "$CLEAN_PLAN" | jq '.warnings | length')
 [ "$CLEAN_WARNING_COUNT" = "0" ] \
   || fail "plan still warned after restoring the matching theme: $(echo "$CLEAN_PLAN" | jq -c '.warnings')"

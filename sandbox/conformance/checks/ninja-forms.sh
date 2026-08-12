@@ -16,6 +16,7 @@ set -euo pipefail
 CONF2_PORT="${CONF2_PORT:-8807}"
 
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-careers/") || fail "conf2 conformance-careers page did not return 200"
+require_observed_nonempty "conf2 Ninja Forms rendered response" "$FRONT"
 [ "${#FRONT}" -ge 1000 ] \
   || fail "conf2 conformance-careers response was suspiciously short (${#FRONT} bytes)"
 
@@ -35,12 +36,13 @@ grep -q 'First Name' <<<"$FRONT" \
 # own nf3_forms table directly rather than assumed.
 CONF2_FORM_ID=$($COMPOSE run --rm -T cli2 wp db query \
   "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names)
-[ -n "$CONF2_FORM_ID" ] || fail "conf2 has no 'Job Application' row in nf3_forms at all"
+require_fixture_ids CONF2_FORM_ID
 
 API_OUT=$($COMPOSE run --rm -T cli2 wp eval "
 \$form = Ninja_Forms()->form($CONF2_FORM_ID)->get();
 echo \$form->get_setting('title') . \"|\" . count(Ninja_Forms()->form($CONF2_FORM_ID)->get_fields()) . \"|\" . count(Ninja_Forms()->form($CONF2_FORM_ID)->get_actions());
 ")
+require_observed_nonempty "conf2 Ninja Forms API observation" "$API_OUT"
 [ "$API_OUT" = "Job Application|23|3" ] \
   || fail "Ninja_Forms()->form($CONF2_FORM_ID) on conf2 did not resolve correctly (got: $API_OUT, expected: Job Application|23|3)"
 pass "conf2 renders its own 'Job Application' form (id=$CONF2_FORM_ID) with correct content, and Ninja Forms' own model API resolves it server-side (23 fields, 3 actions)"
@@ -80,10 +82,14 @@ wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
 MAPS_NOW=$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_map' --skip-column-names | tr -d '[:space:]')
 STATES_NOW=$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_state' --skip-column-names | tr -d '[:space:]')
 REV_NOW=$(wp_conf2 db query "SELECT v FROM wp_duo_kv WHERE k='applied_revision'" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty "conf2 identity-map count after verified import" "$MAPS_NOW"
+require_observed_nonempty "conf2 identity-state count after verified import" "$STATES_NOW"
+require_observed_nonempty "conf2 applied revision after verified import" "$REV_NOW"
 [ "$MAPS_NOW" = "$EXPECTED_MAPS" ] || fail "identity import restored $MAPS_NOW/$EXPECTED_MAPS mappings"
 [ "$STATES_NOW" = "$EXPECTED_STATES" ] || fail "identity import restored $STATES_NOW/$EXPECTED_STATES sync states"
 [ "$REV_NOW" = "$EXPECTED_REV" ] || fail "identity import lost applied revision ($REV_NOW != $EXPECTED_REV)"
 RESTORED_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan after verified identity restore" json "$RESTORED_PLAN"
 [ "$(jq '[.create,.update,.drift,.conflict,.collision] | map(length) | add' <<<"$RESTORED_PLAN")" = 0 ] \
   || fail "verified identity restore did not return target to a clean plan: $RESTORED_PLAN"
 
@@ -93,7 +99,9 @@ STALE_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" 2>&1) || 
 require_duo_answered "conf2 duo identity-import (stale database/sidecar pairing probe)" human "$STALE_OUT"
 [ "$STALE_RC" -ne 0 ] && grep -q 'witness mismatch' <<<"$STALE_OUT" \
   || fail "stale database/sidecar pairing was not rejected: $STALE_OUT"
-[ "$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_map' --skip-column-names | tr -d '[:space:]')" = 0 ] \
+STALE_MAP_COUNT=$(wp_conf2 db query 'SELECT COUNT(*) FROM wp_duo_map' --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty "conf2 identity-map count after stale sidecar rejection" "$STALE_MAP_COUNT"
+[ "$STALE_MAP_COUNT" = 0 ] \
   || fail "stale sidecar import partially mutated duo_map"
 wp_conf2 db query "UPDATE wp_nf3_forms SET title='Job Application' WHERE id=$CONF2_FORM_ID" >/dev/null
 wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
@@ -104,7 +112,9 @@ CONFLICT_OUT=$(wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" 2>&1) 
 require_duo_answered "conf2 duo identity-import (conflicting live ledger probe)" human "$CONFLICT_OUT"
 [ "$CONFLICT_RC" -ne 0 ] && grep -q 'current identity ledger conflicts' <<<"$CONFLICT_OUT" \
   || fail "conflicting live ledger was not rejected: $CONFLICT_OUT"
-[ "$(wp_conf2 db query "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_form' AND local_id=$CONF2_FORM_ID" --skip-column-names | tr -d '[:space:]')" = '00000000-0000-4000-8000-000000000999' ] \
+CONFLICT_UUID=$(wp_conf2 db query "SELECT uuid FROM wp_duo_map WHERE id_kind='nf3_form' AND local_id=$CONF2_FORM_ID" --skip-column-names | tr -d '[:space:]')
+require_observed_nonempty "conf2 live identity mapping after conflict rejection" "$CONFLICT_UUID"
+[ "$CONFLICT_UUID" = '00000000-0000-4000-8000-000000000999' ] \
   || fail "conflicting sidecar import partially rebound the live mapping"
 wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state; DELETE FROM wp_duo_kv;' >/dev/null
 wp_conf2 duo identity-import --repo=/siterepo --in="$SIDE" >/dev/null
@@ -138,6 +148,7 @@ pass "mapped identity loss blocks; verified sidecar restores map/state/revision;
 # refuse atomically at table:nf3_forms and publish no partial child tombstones.
 CONF1_FORM_ID=$(wp_conf1 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names | tr -d '[:space:]')
 PAGE_ID=$(wp_conf1 post list --post_type=page --name=conformance-careers --field=ID | tr -d '[:space:]')
+require_fixture_ids CONF1_FORM_ID PAGE_ID
 wp_conf1 post update "$PAGE_ID" --post_content='<!-- wp:paragraph --><p>Applications are closed.</p><!-- /wp:paragraph -->' >/dev/null
 wp_conf1 db query "
   DELETE FROM wp_nf3_field_meta WHERE parent_id IN (SELECT id FROM wp_nf3_fields WHERE parent_id=$CONF1_FORM_ID);

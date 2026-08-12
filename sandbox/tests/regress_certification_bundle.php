@@ -237,7 +237,7 @@ check(
     'CF7 checker asks WP-CLI for the exact authored fixture ID without a truncating reader'
 );
 check(
-    str_contains($cf7Checker, '[[ "$CONF1_WPCF7_ID" =~ ^[0-9]+$ ]]'),
+    str_contains($cf7Checker, 'require_fixture_ids CONF1_WPCF7_ID'),
     'CF7 checker rejects zero or multiple source form IDs explicitly'
 );
 check(

@@ -130,6 +130,7 @@ rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-yoast-options-seed.php
 CONF1_PORT="${CONF1_PORT:-8806}"
 YOAST_FRONT=$(curl -fsSL "http://localhost:${CONF1_PORT}/conformance-yoast-post/") \
   || fail "conf1 front-end render of the seeded Yoast post failed"
+require_observed_nonempty "conf1 Yoast seed rendered response" "$YOAST_FRONT"
 [ "${#YOAST_FRONT}" -ge 1000 ] \
   || fail "conf1 seeded Yoast post response was suspiciously short (${#YOAST_FRONT} bytes)"
 if grep -qiE 'fatal error|uncaught' <<<"$YOAST_FRONT"; then

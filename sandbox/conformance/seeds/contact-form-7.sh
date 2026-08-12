@@ -32,6 +32,7 @@ echo "cf7_old_id=" . $old_id . "\n";
 PHPEOF
 CF7_OUT=$($COMPOSE run --rm -T cli1 wp eval-file /siterepo/.tmp-cf7-seed.php)
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-cf7-seed.php
+require_observed_nonempty "conf1 Contact Form 7 seed output" "$CF7_OUT"
 CF7_SHORTCODE=$(echo "$CF7_OUT" | sed -n 's/^cf7_shortcode=//p')
 [ -n "$CF7_SHORTCODE" ] || fail "contact-form-7 conformance seed did not produce a shortcode"
 CF7_LEGACY_SHORTCODE=$(echo "$CF7_OUT" | sed -n 's/^cf7_legacy_shortcode=//p')
@@ -50,6 +51,7 @@ PAGE_ID=$(wp_conf1 post create --post_type=page --post_title='Conformance Contac
 <!-- wp:shortcode -->
 $CF7_SHORTCODE
 <!-- /wp:shortcode -->")
+require_fixture_ids PAGE_ID
 
 echo "contact-form-7 seed: page=$PAGE_ID shortcode=$CF7_SHORTCODE"
 
@@ -59,5 +61,6 @@ LEGACY_PAGE_ID=$(wp_conf1 post create --post_type=page --post_title='Conformance
 <!-- wp:shortcode -->
 $CF7_LEGACY_SHORTCODE
 <!-- /wp:shortcode -->")
+require_fixture_ids LEGACY_PAGE_ID
 
 echo "contact-form-7 legacy seed: page=$LEGACY_PAGE_ID shortcode=$CF7_LEGACY_SHORTCODE old_id=$CF7_OLD_ID"

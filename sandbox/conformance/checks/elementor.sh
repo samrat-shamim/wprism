@@ -25,6 +25,7 @@ CONF2_PORT="${CONF2_PORT:-8807}"
 
 FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/duo-conformance-elementor-page/") \
   || fail "conf2 elementor page did not return 200"
+require_observed_nonempty "conf2 Elementor rendered response" "$FRONT"
 
 # The sharpest possible test of the report's exact corruption: conf1's own
 # origin must not leak into conf2's rendered output anywhere.
@@ -69,6 +70,7 @@ POST_CSS_URL="http://localhost:${CONF2_PORT}/wp-content/uploads/elementor/css/po
 grep -q "elementor-post-${PAGE_ID}-css" <<<"$FRONT" \
   || fail "conf2's rendered page has no elementor CSS link for its own post id ($PAGE_ID)"
 CSS=$(curl -fs "$POST_CSS_URL") || fail "could not fetch conf2's regenerated elementor CSS ($POST_CSS_URL)"
+require_observed_nonempty "conf2 Elementor regenerated CSS" "$CSS"
 if grep -q "localhost:${CONF1_PORT}" <<<"$CSS"; then
     fail "conf2's regenerated elementor CSS still references conf1 (localhost:${CONF1_PORT}) — the elementor-css provider did not pick up the rebound background_image"
 fi

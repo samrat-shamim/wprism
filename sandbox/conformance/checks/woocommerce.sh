@@ -38,6 +38,7 @@ foreach ($products as $p) {
 }
 echo "$variable_count|$variation_total|" . ($purchasable_variation ? "yes" : "no");
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce attribute/variation observation" "$API_OUT"
 echo "conf2 attribute/variation check: $API_OUT"
 
 grep -qE 'conf-color,conf-size' <<<"$API_OUT" \
@@ -57,6 +58,7 @@ $attachment = $id ? get_post($id) : null;
 $file = $id ? get_attached_file($id) : "";
 echo ($term ? "term" : "missing-term") . "|$id|" . ($attachment ? $attachment->post_type : "missing") . "|" . (($file && is_file($file)) ? "file" : "missing-file");
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce product-category thumbnail observation" "$TERM_META_OUT"
 echo "conf2 product-category thumbnail check: $TERM_META_OUT"
 grep -qE '^term\|[1-9][0-9]*\|attachment\|file$' <<<"$TERM_META_OUT" \
   || fail "conf2 product_cat thumbnail_id did not resolve to a local attachment with a real media file (got: $TERM_META_OUT)"
@@ -78,6 +80,7 @@ if ($class) $parts[] = "taxclass=conformance-reduced-rate";
 sort($parts);
 echo implode("|", $parts);
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce shipping/tax observation" "$SHIPPING_OUT"
 echo "conf2 shipping/tax check: $SHIPPING_OUT"
 grep -qE '(^|\|)flat=5\.99(\||$)' <<<"$SHIPPING_OUT" \
   || fail "conf2 did not resolve the rematerialized flat-rate instance settings (got: $SHIPPING_OUT)"
@@ -105,6 +108,7 @@ echo wp_json_encode([
   "gateway_title" => $cod ? (string) $cod->title : "missing",
 ]);
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce merchant-settings observation" "$MERCHANT_SETTINGS_OUT"
 echo "conf2 merchant-settings check: $MERCHANT_SETTINGS_OUT"
 echo "$MERCHANT_SETTINGS_OUT" | jq -e '
   .calc_taxes == "yes" and
@@ -125,6 +129,7 @@ $source = wc_get_orders(["billing_email" => "source-runtime@example.test", "limi
 $target = wc_get_orders(["billing_email" => "target-runtime@example.test", "limit" => -1, "return" => "ids"]);
 echo "source=" . count($source) . "|target=" . count($target) . "|hpos=" . (get_option("woocommerce_custom_orders_table_enabled") === "yes" ? "yes" : "no");
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce HPOS observation" "$ORDER_OUT"
 echo "conf2 HPOS runtime check: $ORDER_OUT"
 [ "$ORDER_OUT" = 'source=0|target=1|hpos=yes' ] \
   || fail "HPOS runtime sovereignty failed: source order propagated, target order disappeared, or HPOS is disabled (got: $ORDER_OUT)"
@@ -139,6 +144,7 @@ $source_queue = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}action
 $target_queue = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->prefix}actionscheduler_actions WHERE hook=\"duo_woo_target_runtime_probe\"");
 echo "review=$source_review|source_session=$source_session|target_session=$target_session|source_queue=$source_queue|target_queue=$target_queue";
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce runtime-surfaces observation" "$RUNTIME_OUT"
 echo "conf2 Woo runtime surfaces: $RUNTIME_OUT"
 [ "$RUNTIME_OUT" = 'review=0|source_session=0|target_session=1|source_queue=0|target_queue=1' ] \
   || fail "Woo runtime sovereignty failed for reviews, sessions, or queues (got: $RUNTIME_OUT)"
@@ -201,6 +207,7 @@ echo wp_json_encode([
   "cart_after_target_stock" => $simple_added && $variation_added && $cart->get_cart_contents_count() === 2,
 ]);
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 WooCommerce projection observation" "$PROJECTION_OUT"
 echo "conf2 Woo projection/cart check: $PROJECTION_OUT"
 jq -e '
   .simple_price == "14.99" and .small_price == "9.99" and .large_price == "12.99" and
@@ -216,6 +223,7 @@ FILTER_OUT=$(curl -fsSG "http://localhost:${CONF2_PORT}/wp-json/wc/store/v1/prod
   --data-urlencode 'attributes[0][attribute]=pa_conf-size' \
   --data-urlencode 'attributes[0][slug]=small') \
   || fail "conf2 Store API attribute-filter request failed"
+require_observed_nonempty "conf2 WooCommerce Store API filter response" "$FILTER_OUT"
 jq -e 'length >= 1 and any(.[]; .name == "Conformance Variable Widget" and .is_purchasable == true)' <<<"$FILTER_OUT" >/dev/null \
   || fail "Store API filtering/catalog visibility did not return the purchasable variable product"
 pass "Store API attribute filtering returns the visible, purchasable variable catalog product"
@@ -228,6 +236,7 @@ pass "bounded Woo price/product-meta/sale projections verified; attribute and ca
 
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/product/conformance-widget/") \
   || fail "conf2 Conformance Widget page did not return 200"
+require_observed_nonempty "conf2 WooCommerce rendered product response" "$FRONT"
 [ "${#FRONT}" -ge 5000 ] \
   || fail "conf2 product response was suspiciously short (${#FRONT} bytes)"
 if grep -qiE 'fatal error|uncaught' <<<"$FRONT"; then

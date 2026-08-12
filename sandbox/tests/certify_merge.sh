@@ -93,6 +93,7 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. conformance/asserts.sh
 
 # Dedicated, descriptively-named pair (not tied to any one agent/session)
 # so any future re-run picks the same identity. Ports chosen from the free
@@ -161,8 +162,7 @@ ABOUT_ID_B=$(wp2 post list --post_type=page --name=about --field=ID)
 TEAM_ID_B=$(wp2 post list --post_type=page --name=team --field=ID)
 HELLO_ID_B=$(wp2 post list --post_type=post --name=hello-duo --field=ID)
 SIZE_ATTR_ID_B=$(wp2 db query --skip-column-names "SELECT attribute_id FROM wp_woocommerce_attribute_taxonomies WHERE attribute_name='mergecert-size'" | tr -d '\r')
-[ -n "$ABOUT_ID_B" ] && [ -n "$TEAM_ID_B" ] && [ -n "$HELLO_ID_B" ] && [ -n "$SIZE_ATTR_ID_B" ] \
-  || fail "could not resolve env B's own local ids for the baseline entities after apply"
+require_fixture_ids ABOUT_ID_B TEAM_ID_B HELLO_ID_B SIZE_ATTR_ID_B
 echo "env B local ids: about=$ABOUT_ID_B team=$TEAM_ID_B hello=$HELLO_ID_B attr=$SIZE_ATTR_ID_B (expected to differ from A's — identity lives in duo_map/the natural-key uuid, never these)"
 
 say "sanity: baseline is byte-identical across environments before any divergence"
@@ -217,29 +217,40 @@ $GIT_A add -A && $GIT_A commit -qm "merge edit-b (About resolved: merged title)"
 say "PART 1 — apply merged main to env A"
 $GIT_A pull -q origin main
 wp1 duo apply --repo=/siterepo --default-author=admin >/dev/null
-[ "$(wp1 post get "$ABOUT_ID" --field=post_title)" = "About (merged)" ] || fail "A: About title not merged"
-[ "$(wp1 post get "$HELLO_ID" --field=post_title)" = "Hello Duo (B-edit)" ] || fail "A: B's Hello edit did not arrive"
+ABOUT_TITLE_A=$(wp1 post get "$ABOUT_ID" --field=post_title)
+require_observed_nonempty "A About post title after merge" "$ABOUT_TITLE_A"
+[ "$ABOUT_TITLE_A" = "About (merged)" ] || fail "A: About title not merged"
+HELLO_TITLE_A=$(wp1 post get "$HELLO_ID" --field=post_title)
+require_observed_nonempty "A Hello post title after merge" "$HELLO_TITLE_A"
+[ "$HELLO_TITLE_A" = "Hello Duo (B-edit)" ] || fail "A: B's Hello edit did not arrive"
 pass "env A converged to merged state"
 
 say "PART 1 — apply merged main to env B — drift must surface and be preserved"
 $GIT_B checkout -q main 2>/dev/null || $GIT_B checkout -qb main origin/main
 $GIT_B pull -q origin main
 PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+require_duo_answered "env B drift plan" json "$PLAN"
 echo "$PLAN" | jq -e '.drift | length == 1' >/dev/null || fail "expected exactly one drift entity in B's plan"
 echo "$PLAN" | jq -r '.drift[0].path' | grep -q -- '--team.md' || fail "drift is not the Team entity"
 set +e
 APPLY_B=$(wp2 duo apply --repo=/siterepo --default-author=admin 2>&1)
 APPLY_B_RC=$?
 set -e
+require_duo_answered "env B apply with preserved local drift" human "$APPLY_B"
 echo "$APPLY_B"
 [ "$APPLY_B_RC" -ne 0 ] || fail "apply with preserved local drift unexpectedly passed the mandatory post-apply convergence gate"
 grep -Fq 'post-apply convergence verification failed' <<<"$APPLY_B" \
   || fail "apply failure did not name the mandatory post-apply convergence gate"
 grep -q -- '--team.md' <<<"$APPLY_B" \
   || fail "post-apply convergence failure did not identify the intentionally drifted Team entity"
-[ "$(wp2 post get "$ABOUT_ID_B" --field=post_title)" = "About (merged)" ] || fail "B: About title not merged"
-[ "$(wp2 post get "$TEAM_ID_B" --field=post_title)" = "Team (B-local-drift)" ] || fail "B: local drift was clobbered"
+ABOUT_TITLE_B=$(wp2 post get "$ABOUT_ID_B" --field=post_title)
+require_observed_nonempty "B About post title after apply" "$ABOUT_TITLE_B"
+[ "$ABOUT_TITLE_B" = "About (merged)" ] || fail "B: About title not merged"
+TEAM_TITLE_B=$(wp2 post get "$TEAM_ID_B" --field=post_title)
+require_observed_nonempty "B Team post title after apply" "$TEAM_TITLE_B"
+[ "$TEAM_TITLE_B" = "Team (B-local-drift)" ] || fail "B: local drift was clobbered"
 RETRY_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+require_duo_answered "env B retry plan after preserved drift" json "$RETRY_PLAN"
 jq -e '.incomplete_apply | length == 1' <<<"$RETRY_PLAN" >/dev/null \
   || fail "failed convergence verification did not retain the mandatory retry marker"
 pass "B applied the non-drifted merge without clobbering Team, then failed closed before a false-green ledger advance"
@@ -249,11 +260,15 @@ wp2 duo capture --repo=/siterepo >/dev/null
 $GIT_B add -A && $GIT_B commit -qm "B: capture local Team edit" && $GIT_B push -q origin main
 $GIT_A pull -q origin main
 wp1 duo apply --repo=/siterepo --default-author=admin >/dev/null
-[ "$(wp1 post get "$TEAM_ID" --field=post_title)" = "Team (B-local-drift)" ] || fail "A: Team drift did not propagate after capture"
+TEAM_TITLE_A=$(wp1 post get "$TEAM_ID" --field=post_title)
+require_observed_nonempty "A Team post title after recapture" "$TEAM_TITLE_A"
+[ "$TEAM_TITLE_A" = "Team (B-local-drift)" ] || fail "A: Team drift did not propagate after capture"
 RETRY_B=$(wp2 duo apply --repo=/siterepo --default-author=admin --format=json | tail -1)
+require_duo_answered "B retry apply after capture" json "$RETRY_B"
 jq -e '.verification.verifier == "canonical-recapture/v1" and .verification.result == "pass"' <<<"$RETRY_B" >/dev/null \
   || fail "B's capture-first retry did not pass fresh-process canonical verification"
 CLEAN_PLAN=$(wp2 duo plan --repo=/siterepo --format=json | tail -1)
+require_duo_answered "B clean plan after retry" json "$CLEAN_PLAN"
 jq -e '.incomplete_apply | length == 0' <<<"$CLEAN_PLAN" >/dev/null \
   || fail "verified capture-first retry did not clear the incomplete-apply marker"
 pass "PART 1 complete: conflict, fail-closed drift preservation, capture-first recovery, and verified propagation all proven"
@@ -323,6 +338,7 @@ set +e
 COMPILE_CHECK=$(wp1 duo plan --repo=/siterepo --format=json 2>&1)
 COMPILE_CHECK_RC=$?
 set -e
+require_duo_answered "env A unresolved-conflict plan" json "$COMPILE_CHECK"
 echo "$COMPILE_CHECK"
 [ "$COMPILE_CHECK_RC" -ne 0 ] || fail "expected wp duo plan to refuse (repository_compilation_failed) on a tree with live conflict markers, got exit 0 — conflict-marker detection regressed"
 COMPILE_JSON=$(printf '%s\n' "$COMPILE_CHECK" | tail -1)
@@ -349,7 +365,9 @@ $GIT_B pull -q origin main
 wp2 duo apply --repo=/siterepo --default-author=admin >/dev/null
 
 LABEL_A=$(wp1 db query --skip-column-names "SELECT attribute_label FROM wp_woocommerce_attribute_taxonomies WHERE attribute_name='mergecert-size'" | tr -d '\r')
+require_observed_nonempty "A WooCommerce attribute label after conflict resolution" "$LABEL_A"
 LABEL_B=$(wp2 db query --skip-column-names "SELECT attribute_label FROM wp_woocommerce_attribute_taxonomies WHERE attribute_name='mergecert-size'" | tr -d '\r')
+require_observed_nonempty "B WooCommerce attribute label after conflict resolution" "$LABEL_B"
 [ "$LABEL_A" = "$RESOLVED_LABEL" ] || fail "A: attribute label not merged (got: $LABEL_A)"
 [ "$LABEL_B" = "$RESOLVED_LABEL" ] || fail "B: attribute label not merged (got: $LABEL_B)"
 pass "both environments converged on the resolved attribute_label via WooCommerce's own table — typed-snapshot table entity merge proven end to end"
@@ -363,10 +381,12 @@ pass "environments byte-identical — PART 2 complete"
 
 say "final hard lint gate on both environments' fully-converged state"
 LINT_RC_A=0; LINT_OUT_A=$(wp1 duo lint --repo=/siterepo --format=json) || LINT_RC_A=$?
+require_duo_answered "env A final lint" json "$LINT_OUT_A"
 LINT_JSON_A=$(printf '%s\n' "$LINT_OUT_A" | tail -1)
 printf '%s\n' "$LINT_JSON_A" | jq -e 'type == "array"' >/dev/null 2>&1 || fail "duo lint crashed or produced malformed output on A (exit $LINT_RC_A): $LINT_OUT_A"
 [ "$(printf '%s\n' "$LINT_JSON_A" | jq 'length')" = "0" ] || fail "lint found findings on A: $LINT_JSON_A"
 LINT_RC_B=0; LINT_OUT_B=$(wp2 duo lint --repo=/siterepo --format=json) || LINT_RC_B=$?
+require_duo_answered "env B final lint" json "$LINT_OUT_B"
 LINT_JSON_B=$(printf '%s\n' "$LINT_OUT_B" | tail -1)
 printf '%s\n' "$LINT_JSON_B" | jq -e 'type == "array"' >/dev/null 2>&1 || fail "duo lint crashed or produced malformed output on B (exit $LINT_RC_B): $LINT_OUT_B"
 [ "$(printf '%s\n' "$LINT_JSON_B" | jq 'length')" = "0" ] || fail "lint found findings on B: $LINT_JSON_B"

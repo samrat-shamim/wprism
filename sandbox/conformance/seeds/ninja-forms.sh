@@ -72,6 +72,7 @@ printf '%s' "$REMOVE_CONTACT_ME_PHP" > "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-r
 NF_CLEANUP=$(wp_conf1 eval-file /siterepo/.tmp-nf-remove-contact-me.php)
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-remove-contact-me.php
 printf '%s\n' "$NF_CLEANUP"
+require_observed_nonempty "conf1 Ninja Forms activation cleanup observation" "$NF_CLEANUP"
 require_fixture_state "conf1's own activation-created 'Contact Me' form is gone from nf3_forms" \
   "contact_me_remaining=0" "$(grep -o 'contact_me_remaining=[0-9]*' <<<"$NF_CLEANUP" | tail -1)"
 
@@ -105,11 +106,12 @@ for step in 1 2 3 4 5 6; do
     fi
 done
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-nf-import-step.php
-[ -n "$NF_FORM_ID" ] || fail "ninja-forms conformance seed: Job Application import did not complete after 6 steps"
+require_fixture_ids NF_FORM_ID
 
 PAGE_ID=$(wp_conf1 post create --post_type=page --post_title='Conformance Careers' --post_name=conformance-careers \
   --post_status=publish --porcelain \
   --post_content="<!-- wp:paragraph --><p>Conformance careers page.</p><!-- /wp:paragraph -->
 <!-- wp:ninja-forms/form {\"formID\":$NF_FORM_ID,\"formTitle\":\"Job Application\"} /-->")
+require_fixture_ids PAGE_ID
 
 echo "ninja-forms seed: page=$PAGE_ID form_id=$NF_FORM_ID (23 fields, 3 actions)"

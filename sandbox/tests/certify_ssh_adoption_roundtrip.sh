@@ -29,6 +29,7 @@ DUO="$ROOT/cli/duo"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
 
 cleanup() {
   docker rm -f "$SOURCE" "$TARGET" "$DB" >/dev/null 2>&1 || true
@@ -189,11 +190,15 @@ tar --no-xattrs -C "$TMP/source-site" -czf "$TMP/site-transfer.tgz" site.duo.jso
 scp -F "$TMP/ssh_config" "$TMP/site-transfer.tgz" duo-adoption-target:/tmp/site-transfer.tgz >/dev/null
 ssh_target 'cd /home/duo/site && rm -rf state && tar -xzf /tmp/site-transfer.tgz && rm /tmp/site-transfer.tgz'
 TARGET_RUNTIME_BEFORE="$(ssh_target "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo hash(\"sha256\", (string) get_post_meta(\$p->ID, \"legacy_runtime_token\", true));'")"
+require_observed_nonempty "target runtime checksum before apply" "$TARGET_RUNTIME_BEFORE"
 "$DUO" --envs-file="$TMP/envs.json" plan target --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null
 "$DUO" --envs-file="$TMP/envs.json" apply target --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null
 TARGET_RUNTIME_AFTER="$(ssh_target "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo hash(\"sha256\", (string) get_post_meta(\$p->ID, \"legacy_runtime_token\", true));'")"
+require_observed_nonempty "target runtime checksum after apply" "$TARGET_RUNTIME_AFTER"
 [ "$TARGET_RUNTIME_AFTER" = "$TARGET_RUNTIME_BEFORE" ] || fail "target apply changed runtime-owned state"
-[ "$(ssh_target "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo get_post_meta(\$p->ID, \"legacy_banner\", true);'")" = "source-authored-banner" ] \
+TARGET_BANNER="$(ssh_target "cd /var/www/html && wp eval '\$p=get_page_by_path(\"adoption-handbook\"); echo get_post_meta(\$p->ID, \"legacy_banner\", true);'")"
+require_observed_nonempty "target authored banner after apply" "$TARGET_BANNER"
+[ "$TARGET_BANNER" = "source-authored-banner" ] \
   || fail "target did not receive the source authored value"
 pass "cross-environment apply converged authored state and preserved target runtime state"
 

@@ -60,6 +60,7 @@ $og_default_ok = $og_default_id && get_post((int) $og_default_id) ? "yes" : "no"
 
 echo implode("|", [$primary_name, $og_image_ok, $company_ok, $person_ok, $og_default_ok]);
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 Yoast runtime observation" "$API_OUT"
 echo "conf2 Yoast API resolution: $API_OUT"
 
 [ "$API_OUT" != "NO_POST" ] || fail "conf2 has no 'conformance-yoast-post' post — seed content did not round-trip"
@@ -78,6 +79,7 @@ pass "conf2 resolves primary-category, per-term OG image, and site-wide logo/def
 echo "conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees"
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-yoast-post/") \
   || fail "conf2 conformance-yoast-post did not return 200"
+require_observed_nonempty "conf2 Yoast rendered response" "$FRONT"
 [ "${#FRONT}" -ge 1000 ] \
   || fail "conf2 conformance-yoast-post response was suspiciously short (${#FRONT} bytes)"
 if grep -qiE 'fatal error|uncaught' <<<"$FRONT"; then

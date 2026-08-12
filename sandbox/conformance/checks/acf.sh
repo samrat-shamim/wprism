@@ -58,6 +58,7 @@ echo implode("|", [
   $owner_login,
 ]);
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 ACF runtime observation" "$API_OUT"
 echo "conf2 ACF field resolution: $API_OUT"
 
 [ "$API_OUT" != "NO_CONTENT_POST" ] || fail "conf2 has no 'conf-acf-content' post — seed content did not round-trip"

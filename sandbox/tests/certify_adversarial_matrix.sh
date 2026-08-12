@@ -56,6 +56,7 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. conformance/asserts.sh
 
 command -v jq >/dev/null || fail "jq required"
 
@@ -165,6 +166,8 @@ pass "wp duo plan refuses loudly on the product path — repository_compilation_
 say "sanity: this is a repository-level refusal, not an environment-level one — the refused plan did not scramble either page's already-captured ledger mapping on its own owning environment"
 LOCAL_A=$(wp1 db query --skip-column-names "SELECT local_id FROM wp_duo_map WHERE uuid='$PAGE_A_UUID'" 2>/dev/null | tr -d '\r')
 LOCAL_B=$(wp2 db query --skip-column-names "SELECT local_id FROM wp_duo_map WHERE uuid='$PAGE_B_UUID'" 2>/dev/null | tr -d '\r')
+require_observed_nonempty "A ledger local id after refused duplicate plan" "$LOCAL_A"
+require_observed_nonempty "B ledger local id after refused duplicate plan" "$LOCAL_B"
 [ "$LOCAL_A" = "$PAGE_A" ] || fail "A's uuid maps to local_id $LOCAL_A on its own environment after the refused plan, expected $PAGE_A"
 [ "$LOCAL_B" = "$PAGE_B" ] || fail "B's uuid maps to local_id $LOCAL_B on its own environment after the refused plan, expected $PAGE_B"
 pass "no partial/incorrect ledger state resulted from the refused plan — both uuids still map to their own, correct, already-captured local ids"
@@ -247,6 +250,7 @@ LOC_FILE=$(ls siterepo/certmatrix1/state/tables/woocommerce_shipping_zone_locati
 # extension AND the --<local_id> tail, not just the extension.
 LOC_UUID=$(basename "$LOC_FILE" | sed -E 's/--[0-9]+\.json$//')
 LOC_LOCAL=$(wp1 db query --skip-column-names "SELECT location_id FROM wp_woocommerce_shipping_zone_locations WHERE zone_id=$ZONE_ID" 2>/dev/null | tr -d '\r')
+require_fixture_ids LOC_LOCAL
 echo "env A: zone=$ZONE_ID location uuid=$LOC_UUID local_id=$LOC_LOCAL"
 
 say "PART 2 — export the identity ledger (wp duo identity-export) — the disaster-recovery sidecar this drill will restore from"
@@ -281,6 +285,7 @@ pass "capture correctly fails closed on lost ledger history, naming the cause an
 say "PART 2 — THE FIX: restore the identity ledger (wp duo identity-import) — this is what turns the refusal above into a clean continuation"
 wp1 duo identity-import --repo=/siterepo --in=/siterepo/.tmp-identity-backup.json
 RESTORED_LOCAL=$(wp1 db query --skip-column-names "SELECT local_id FROM wp_duo_map WHERE uuid='$LOC_UUID'" 2>/dev/null | tr -d '\r')
+require_observed_nonempty "restored ledger local id after identity import" "$RESTORED_LOCAL"
 [ "$RESTORED_LOCAL" = "$LOC_LOCAL" ] \
   || fail "restored ledger does not map LOC_UUID back to its own real local_id (got: '$RESTORED_LOCAL', expected: $LOC_LOCAL)"
 pass "identity ledger restored — the shipping-zone location's uuid maps back to its own real, live local_id"

@@ -27,16 +27,22 @@ echo "$CONF2_MODS" | jq -e '.background_color == "3c8c3c"' >/dev/null \
 echo "$CONF2_MODS" | jq -e '.custom_logo | type == "number"' >/dev/null \
   || fail "theme_mods_twentytwentyfive.custom_logo did not re-resolve to a local attachment id on conf2: $CONF2_MODS"
 CONF2_LOGO_ID=$(echo "$CONF2_MODS" | jq -r '.custom_logo')
-[ "$(wp_conf2 post get "$CONF2_LOGO_ID" --field=post_type 2>/dev/null)" = "attachment" ] \
+CONF2_LOGO_TYPE=$(wp_conf2 post get "$CONF2_LOGO_ID" --field=post_type 2>/dev/null) || true
+require_observed_nonempty "conf2 custom_logo post type" "$CONF2_LOGO_TYPE"
+[ "$CONF2_LOGO_TYPE" = "attachment" ] \
   || fail "theme_mods_twentytwentyfive.custom_logo ($CONF2_LOGO_ID) does not point at a real attachment on conf2"
 echo "$CONF2_MODS" | jq -e --arg port "$CONF2_PORT" '.header_image | contains("localhost:" + $port)' >/dev/null \
   || fail "theme_mods_twentytwentyfive.header_image was not rewritten to conf2's own domain: $CONF2_MODS"
 echo "$CONF2_MODS" | jq -e '.header_image_data.attachment_id == .custom_logo' >/dev/null \
   || fail "theme_mods_twentytwentyfive.header_image_data.attachment_id did not re-resolve consistently with custom_logo: $CONF2_MODS"
 CONF2_CSS_ID=$(echo "$CONF2_MODS" | jq -r '.custom_css_post_id')
-[ "$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_type 2>/dev/null)" = "custom_css" ] \
+CONF2_CSS_TYPE=$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_type 2>/dev/null) || true
+require_observed_nonempty "conf2 custom_css post type" "$CONF2_CSS_TYPE"
+[ "$CONF2_CSS_TYPE" = "custom_css" ] \
   || fail "theme_mods_twentytwentyfive.custom_css_post_id ($CONF2_CSS_ID) does not point at a real custom_css post on conf2"
-[ "$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_content 2>/dev/null)" = 'body { background: #3c8c3c; }' ] \
+CONF2_CSS_CONTENT=$(wp_conf2 post get "$CONF2_CSS_ID" --field=post_content 2>/dev/null) || true
+require_observed_nonempty "conf2 custom_css post content" "$CONF2_CSS_CONTENT"
+[ "$CONF2_CSS_CONTENT" = 'body { background: #3c8c3c; }' ] \
   || fail "custom_css post content did not round-trip to conf2"
 pass "theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids"
 
@@ -51,6 +57,7 @@ jq -e '.records | has("theme_mods_twentytwentyone") | not' "$CONF_REPO1/state/op
 pass "theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared"
 
 PENDING2=$(wp_conf2 duo pending --repo=/siterepo --format=json)
+require_duo_answered "conf2 duo pending after apply" json "$PENDING2"
 [ "$PENDING2" = "[]" ] \
   || fail "wp duo pending on conf2 is no longer empty: $PENDING2"
 pass "wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly"
@@ -81,6 +88,7 @@ say "(DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates 
 wp_conf1 option update widget_regress_fake_type '{"2":{"title":"Regress Fake"}}' --format=json >/dev/null
 
 FAKE_PENDING=$(wp_conf1 duo pending --repo=/siterepo --format=json)
+require_duo_answered "conf1 duo pending unknown-widget probe" json "$FAKE_PENDING"
 echo "$FAKE_PENDING" | jq -e 'any(.section == "widgets" and .key == "regress_fake_type")' >/dev/null \
   || fail "unknown widget type regress_fake_type did not surface in wp duo pending's own widgets section (DUO-3278's gate_scan() diagnostic): $FAKE_PENDING"
 
@@ -223,6 +231,7 @@ git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 TITLE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan unforced conflict" json "$TITLE_PLAN"
 jq -e --arg uuid "$UA" \
   '.conflict | any(
     .uuid == $uuid
@@ -256,6 +265,7 @@ jq -e --arg uuid "$UA" \
 ! grep -q 'Target Environment Intent For Conflict' <<<"$TITLE_PLAN" \
   || fail "plan JSON leaked the target's raw conflicting title instead of hash-only evidence: $TITLE_PLAN"
 TITLE_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
+require_duo_answered "conf2 duo plan unforced conflict human view" human "$TITLE_HUMAN"
 grep -qE "^CONFLICT +.*'Branch Repository Intent For Conflict'" <<<"$TITLE_HUMAN" \
   || fail "human plan line does not show the WordPress title: $TITLE_HUMAN"
 for NEEDLE in \
@@ -530,6 +540,7 @@ require_observed_nonempty "conf2 wp_duo_state content_hash (unforced-conflict ba
 [ "$CONFLICT_BASE_AFTER" = "$CONFLICT_BASE_BEFORE" ] \
   || fail "unforced conflict advanced the target's last-synced base (before=$CONFLICT_BASE_BEFORE after=$CONFLICT_BASE_AFTER)"
 FORCED_CONFLICT=$(wp_conf2 duo apply --repo=/siterepo --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo apply --force-theirs conflict override" json "$FORCED_CONFLICT"
 jq -e --arg uuid "$UA" '.warnings | any(contains("FORCED conflict " + $uuid))' <<<"$FORCED_CONFLICT" >/dev/null \
   || fail "--force-theirs did not report the overridden conflict in machine output: $FORCED_CONFLICT"
 CONFLICT_TARGET_CONVERGED=$(wp_conf2 post list --post_type=page --name=branch-a --field=post_title) || true
@@ -543,7 +554,9 @@ pass "plan conflicts speak WordPress names, expose hash-only base/repository/tar
 # the explicit force path stays loud, comments are preserved, and the
 # tombstone receipt makes retry a no-op.
 HOME_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--home.md' -print -quit)
+require_fixture_values HOME_FILE
 HOME_UUID=$(basename "$HOME_FILE" | sed -E 's/--home\.md$//')
+require_fixture_values HOME_UUID
 HOME1=$(wp_conf1 post list --post_type=page --name=home --field=ID | tr -d '[:space:]')
 HOME2=$(wp_conf2 post list --post_type=page --name=home --field=ID | tr -d '[:space:]')
 require_fixture_ids HOME1 HOME2
@@ -551,6 +564,7 @@ COMMENT2=$(wp_conf2 comment create --comment_post_ID="$HOME2" --comment_content=
 require_fixture_ids COMMENT2
 wp_conf1 post delete "$HOME1" --force >/dev/null
 DELETE_CAPTURE=$(wp_conf1 duo capture --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf1 duo capture page deletion" json "$DELETE_CAPTURE"
 [ "$(jq -r '.counts.deletion' <<<"$DELETE_CAPTURE")" -ge 1 ] \
   || fail "page deletion did not emit a tombstone: $DELETE_CAPTURE"
 [ -f "$CONF_REPO1/state/deletions/$HOME_UUID.json" ] || fail "Home tombstone was not published"
@@ -560,6 +574,7 @@ git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 
 DELETE_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan referential page deletion" json "$DELETE_PLAN"
 jq -e --arg uuid "$HOME_UUID" '.delete | any(.uuid == $uuid and (.blocked | contains("comments reference")))' \
   <<<"$DELETE_PLAN" >/dev/null || fail "target-only comment did not block the explicit page deletion: $DELETE_PLAN"
 DELETE_RC=0
@@ -568,6 +583,7 @@ require_duo_answered "conf2 duo apply --with-deletes (referential guard probe)" 
 [ "$DELETE_RC" -ne 0 ] && grep -qi 'referential guard' <<<"$DELETE_OUT" \
   || fail "guarded page delete was not refused: $DELETE_OUT"
 DELETE_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-delete-referenced --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo apply forced page deletion" json "$DELETE_OUT"
 jq -e '.canary == "clean" and (.warnings | any(contains("FORCED delete")))' <<<"$DELETE_OUT" >/dev/null \
   || fail "forced page deletion was not loud and clean: $DELETE_OUT"
 [ -z "$(wp_conf2 post list --post_type=page --name=home --field=ID)" ] || fail "Home page survived exact deletion"
@@ -580,6 +596,7 @@ COMMENT2_REF=$(wp_conf2 comment get "$COMMENT2" --field=comment_ID 2>/dev/null) 
 [ "$COMMENT2_REF_RC" -ne 0 ] || require_observed_nonempty "conf2 comment get (preserved runtime comment)" "$COMMENT2_REF"
 [ "$COMMENT2_REF" = "$COMMENT2" ] || fail "runtime comment was cascaded or lost (expected=$COMMENT2 got=${COMMENT2_REF:-<empty>})"
 RETRY_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan page deletion retry" json "$RETRY_PLAN"
 jq -e --arg uuid "$HOME_UUID" '(.delete | length) == 0 and (.delete_conflict | length) == 0 and (.deleted | any(.uuid == $uuid))' \
   <<<"$RETRY_PLAN" >/dev/null || fail "page tombstone retry did not settle as deleted: $RETRY_PLAN"
 pass "explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently"
@@ -589,7 +606,9 @@ pass "explicit page tombstone guards and preserves comments, verifies exact dele
 # explicitly cascades and verifies revisions while --force-theirs reports
 # the overridden delete conflict.
 HELLO_FILE=$(find "$CONF_REPO1/state/posts/post" -name '*--hello-conformance.md' -print -quit)
+require_fixture_values HELLO_FILE
 HELLO_UUID=$(basename "$HELLO_FILE" | sed -E 's/--hello-conformance\.md$//')
+require_fixture_values HELLO_UUID
 HELLO1=$(wp_conf1 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
 HELLO2=$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID | tr -d '[:space:]')
 require_fixture_ids HELLO1 HELLO2
@@ -603,6 +622,7 @@ git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 BLOCKED_LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan guard-blocked deletion conflict" json "$BLOCKED_LOCAL_PLAN"
 jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
   .uuid == $uuid
   and (.blocked | contains("comments reference"))
@@ -611,6 +631,7 @@ jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
 )' <<<"$BLOCKED_LOCAL_PLAN" >/dev/null \
   || fail "guard-blocked deletion conflict advertised a destructive repository choice: $BLOCKED_LOCAL_PLAN"
 BLOCKED_LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
+require_duo_answered "conf2 duo plan guard-blocked deletion human view" human "$BLOCKED_LOCAL_HUMAN"
 ! grep -Fq 'DESTRUCTIVE OVERRIDE apply_repository' <<<"$BLOCKED_LOCAL_HUMAN" \
   || fail "guard-blocked deletion conflict advertised a destructive override in human output: $BLOCKED_LOCAL_HUMAN"
 BLOCKED_CONTENT_BEFORE=$(wp_conf2 post get "$HELLO2" --field=post_content) || true
@@ -669,6 +690,7 @@ HELLO_COMMENT_REF=$(wp_conf2 comment get "$HELLO_COMMENT" --field=comment_ID 2>/
 pass "guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation"
 wp_conf2 comment delete "$HELLO_COMMENT" --force >/dev/null
 LOCAL_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan local deletion conflict" json "$LOCAL_PLAN"
 jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
   .uuid == $uuid
   and (.reason | contains("changed locally"))
@@ -686,6 +708,7 @@ jq -e --arg uuid "$HELLO_UUID" '.delete_conflict | any(
 )' \
   <<<"$LOCAL_PLAN" >/dev/null || fail "local edit did not become a deletion conflict: $LOCAL_PLAN"
 LOCAL_HUMAN=$(wp_conf2 duo plan --repo=/siterepo)
+require_duo_answered "conf2 duo plan local deletion conflict human view" human "$LOCAL_HUMAN"
 for NEEDLE in \
   'WHY target_changed_since_delete_base' \
   'REPOSITORY intent=delete state=none expected-base=sha256:' \
@@ -732,6 +755,7 @@ require_duo_answered "conf2 duo apply --with-deletes (unforced delete conflict p
 [ "$LOCAL_RC" -ne 0 ] && grep -qi 'deletion conflicts' <<<"$LOCAL_OUT" \
   || fail "unforced delete conflict was not refused: $LOCAL_OUT"
 LOCAL_OUT=$(wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo apply forced local deletion conflict" json "$LOCAL_OUT"
 jq -e '.canary == "clean" and (.warnings | any(contains("FORCED deletion conflict")))' <<<"$LOCAL_OUT" >/dev/null \
   || fail "forced local-edit deletion did not report its override: $LOCAL_OUT"
 [ -z "$(wp_conf2 post list --post_type=post --name=hello-conformance --field=ID)" ] || fail "locally edited post survived forced deletion"
@@ -741,8 +765,11 @@ pass "delete-vs-local-edit conflicts; force-theirs is loud and revision children
 # conf2, then delete it on conf1. The tombstone therefore expects the new
 # branch hash while conf2's base is still the old hash.
 ATT_FILE=$(find "$CONF_REPO1/state/posts/attachment" -name '*--conformance-logo.md' -print -quit)
+require_fixture_values ATT_FILE
 ATT_UUID=$(basename "$ATT_FILE" | sed -E 's/--conformance-logo\.md$//')
+require_fixture_values ATT_UUID
 ATT1=$(wp_conf1 post list --post_type=attachment --name=conformance-logo --field=ID | tr -d '[:space:]')
+require_fixture_ids ATT1
 wp_conf1 post update "$ATT1" --post_title='Conformance Logo Branch Edit' >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
@@ -755,6 +782,7 @@ git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 
 git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 BRANCH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan branch deletion conflict" json "$BRANCH_PLAN"
 jq -e --arg uuid "$ATT_UUID" '.delete_conflict | any(.uuid == $uuid and (.reason | contains("expected hash")))' \
   <<<"$BRANCH_PLAN" >/dev/null || fail "delete-vs-branch-edit did not conflict on its expected base: $BRANCH_PLAN"
 wp_conf2 duo apply --repo=/siterepo --with-deletes --force-theirs --default-author=admin --format=json >/dev/null
@@ -763,8 +791,11 @@ pass "delete-vs-branch-edit conflicts on the tombstone expected base"
 
 # Missing guard infrastructure is a refusal, never a skipped warning.
 CHILD_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--shared-child.md' -print | sort | head -1)
+require_fixture_values CHILD_FILE
 CHILD_UUID=$(basename "$CHILD_FILE" | sed -E 's/--shared-child\.md$//')
+require_fixture_values CHILD_UUID
 CHILD1=$(wp_conf1 eval "echo \\Duo\\Ledger::id_for('$CHILD_UUID', \\Duo\\Ledger::KIND_POST);")
+require_fixture_ids CHILD1
 wp_conf1 post delete "$CHILD1" --force >/dev/null
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
@@ -773,6 +804,7 @@ git -C "$CONF_REPO1" push -q origin main
 git -C "$CONF_REPO2" pull -q origin main
 wp_conf2 db query 'RENAME TABLE wp_comments TO wp_comments_duo_hold' >/dev/null
 MISSING_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan missing guard table" json "$MISSING_PLAN"
 jq -e --arg uuid "$CHILD_UUID" '.delete | any(.uuid == $uuid and (.blocked | contains("required guard table")))' \
   <<<"$MISSING_PLAN" >/dev/null || fail "missing guard table did not fail closed: $MISSING_PLAN"
 wp_conf2 db query 'RENAME TABLE wp_comments_duo_hold TO wp_comments' >/dev/null
@@ -784,6 +816,7 @@ pass "missing reverse-reference guard infrastructure fails closed"
 # must reappear after rollback; removing the test FK lets both complete.
 ROLL_A1=$(wp_conf1 post create --post_type=page --post_title='Rollback Alpha' --post_name=rollback-alpha --post_status=publish --porcelain)
 ROLL_B1=$(wp_conf1 post create --post_type=page --post_title='Rollback Beta' --post_name=rollback-beta --post_status=publish --porcelain)
+require_fixture_ids ROLL_A1 ROLL_B1
 wp_conf1 duo capture --repo=/siterepo >/dev/null
 git -C "$CONF_REPO1" add -A
 git -C "$CONF_REPO1" -c user.name=duo -c user.email=duo@example.test commit -qm 'conformance: seed transactional deletion pair'
@@ -794,6 +827,7 @@ ROLL_A_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--rollback-alpha.md' -
 ROLL_B_FILE=$(find "$CONF_REPO1/state/posts/page" -name '*--rollback-beta.md' -print -quit)
 ROLL_A_UUID=$(basename "$ROLL_A_FILE" | sed -E 's/--rollback-alpha\.md$//')
 ROLL_B_UUID=$(basename "$ROLL_B_FILE" | sed -E 's/--rollback-beta\.md$//')
+require_fixture_values ROLL_A_FILE ROLL_B_FILE ROLL_A_UUID ROLL_B_UUID
 ROLL_A2=$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')
 ROLL_B2=$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')
 require_fixture_ids ROLL_A1 ROLL_B1 ROLL_A2 ROLL_B2
@@ -822,9 +856,13 @@ require_duo_answered "conf2 duo apply --with-deletes (injected FK rollback probe
 # sweep log; a docker-layer death of the `wp post list` reads themselves
 # remains diagnosable only by the pasted capture being healthy while the id
 # comes back empty.
-[ "$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')" = "$ROLL_A2" ] \
+ROLL_A_AFTER=$(wp_conf2 post list --post_type=page --name=rollback-alpha --field=ID | tr -d '[:space:]')
+require_observed_nonempty "conf2 rollback-alpha post after injected deletion failure" "$ROLL_A_AFTER"
+[ "$ROLL_A_AFTER" = "$ROLL_A2" ] \
   || fail "partial deletion failure did not roll back the first page: $ROLL_OUT"
-[ "$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')" = "$ROLL_B2" ] \
+ROLL_B_AFTER=$(wp_conf2 post list --post_type=page --name=rollback-beta --field=ID | tr -d '[:space:]')
+require_observed_nonempty "conf2 rollback-beta post after injected deletion failure" "$ROLL_B_AFTER"
+[ "$ROLL_B_AFTER" = "$ROLL_B2" ] \
   || fail "partial deletion failure lost the blocked page: $ROLL_OUT"
 wp_conf2 db query 'DROP TABLE wp_duo_delete_block' >/dev/null
 wp_conf2 duo apply --repo=/siterepo --with-deletes --default-author=admin --format=json >/dev/null
@@ -836,8 +874,10 @@ pass "partial delete failure rolls the transaction back; retry completes exactly
 # Clear environment-bound history to simulate a fresh target. Tombstones
 # remain `deleted`, never reinterpret absence through ledger history.
 TOMBSTONES=$(find "$CONF_REPO1/state/deletions" -type f -name '*.json' | wc -l | tr -d '[:space:]')
+require_observed_nonempty "repository tombstone count before fresh-target plan" "$TOMBSTONES"
 wp_conf2 db query 'TRUNCATE TABLE wp_duo_map; TRUNCATE TABLE wp_duo_state' >/dev/null
 FRESH_PLAN=$(wp_conf2 duo plan --repo=/siterepo --format=json | awk 'NF { line=$0 } END { print line }')
+require_duo_answered "conf2 duo plan fresh target deletion interpretation" json "$FRESH_PLAN"
 jq -e --argjson count "$TOMBSTONES" '(.deleted | length) == $count and (.delete | length) == 0 and (.delete_conflict | length) == 0' \
   <<<"$FRESH_PLAN" >/dev/null || fail "fresh target interpreted repository deletion intent differently: $FRESH_PLAN"
 pass "fresh and previously mapped targets make the same repository-level deletion decision"
