@@ -4,7 +4,8 @@ namespace Duo;
 /**
  * The pure post-type behavior grammar extracted from Policy.php
  * (DUO-3348): the closed `post_types.<type>.body` and `.phase` switches and
- * the direct `post_types.<parent>.children` relationship declaration.
+ * the direct `post_types.<parent>.children` relationship declaration, and
+ * the `post_types.<type>.regen_dependency` shape declaration.
  *
  * These values name engine behavior, not adapter-owned data. Keeping their
  * declaration validation beside the vocabulary makes a typo fail while the
@@ -71,6 +72,107 @@ final class PostTypeGrammar {
                     );
                 }
                 $seen[$childPostType] = true;
+            }
+        }
+    }
+
+    /**
+     * Validate `post_types.<type>.regen_dependency` shape at load time
+     * (DUO-3234). This checks only declaration shape: required keys, scalar
+     * types, and the strict top-level/batch key sets. It deliberately never
+     * touches the regenerator PHP file; regenerators() keeps that lazy-load
+     * and callable-contract responsibility for declarations actually used.
+     * The optional `effects` list is admitted here, while its entries remain
+     * the responsibility of validate_effect_contracts().
+     */
+    public static function validate_regen_dependencies(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
+            $regen = $decl['regen_dependency'] ?? null;
+            if ($regen === null) {
+                continue;
+            }
+            if (!is_array($regen) || array_is_list($regen)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency must be an object"
+                );
+            }
+            $regenerator = $regen['regenerator'] ?? null;
+            if (!is_string($regenerator) || $regenerator === '') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency needs a non-empty string 'regenerator'"
+                );
+            }
+            $verify = $regen['verify'] ?? null;
+            if (!is_array($verify) || !is_string($verify['table'] ?? null) || ($verify['table'] ?? '') === ''
+                || !is_string($verify['column'] ?? null) || ($verify['column'] ?? '') === '') {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency needs "
+                    . "verify: {table: <non-empty string>, column: <non-empty string>}"
+                );
+            }
+
+            $unknown = array_diff(
+                array_keys($regen),
+                ['regenerator', 'verify', 'batch', 'refresh', 'always_on_write', 'effects']
+            );
+            if ($unknown) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency contains unknown key(s): "
+                    . implode(', ', $unknown)
+                );
+            }
+            if (array_key_exists('batch', $regen) && array_key_exists('refresh', $regen)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency cannot declare both 'batch' and 'refresh'"
+                );
+            }
+            if (array_key_exists('always_on_write', $regen)
+                && (array_key_exists('batch', $regen) || array_key_exists('refresh', $regen))) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write is ambiguous beside batch/refresh"
+                );
+            }
+
+            // DUO-329x: batch/refresh is deliberately opt-in. Existing
+            // declarations (TEC included) retain the missing-row,
+            // regenerate(int) behavior above. Accept both names as a small
+            // compatibility affordance for manifest authors: "refresh"
+            // describes the always-on-write intent, while "batch" names the
+            // callable boundary. The engine normalizes either spelling via
+            // regen_batch().
+            foreach (['batch', 'refresh'] as $batchKey) {
+                if (!array_key_exists($batchKey, $regen)) {
+                    continue;
+                }
+                $batch = $regen[$batchKey];
+                if ($batch !== true && $batch !== false && !is_array($batch)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey must be "
+                        . 'a boolean or object'
+                    );
+                }
+                if (is_array($batch)) {
+                    $unknownBatch = array_diff(array_keys($batch), ['enabled', 'always_on_write']);
+                    if ($unknownBatch) {
+                        throw new \RuntimeException(
+                            "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey contains unknown key(s): "
+                            . implode(', ', $unknownBatch)
+                        );
+                    }
+                    foreach (['enabled', 'always_on_write'] as $flag) {
+                        if (array_key_exists($flag, $batch) && !is_bool($batch[$flag])) {
+                            throw new \RuntimeException(
+                                "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey.$flag must be boolean"
+                            );
+                        }
+                    }
+                }
+            }
+            if (array_key_exists('always_on_write', $regen) && !is_bool($regen['always_on_write'])) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write must be boolean"
+                );
             }
         }
     }

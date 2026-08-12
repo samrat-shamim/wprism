@@ -258,7 +258,7 @@ final class Policy {
             self::validate_tables($manifest, "manifest '$name'");
             self::validate_attr_rules($manifest);
             self::validate_widgets($manifest);
-            self::validate_regen_dependencies($manifest);
+            PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
             self::validate_env_options($manifest, "manifest '$name'");
@@ -387,7 +387,7 @@ final class Policy {
             self::validate_tables($manifest, "frozen manifest '$name'");
             self::validate_attr_rules($manifest);
             self::validate_widgets($manifest);
-            self::validate_regen_dependencies($manifest);
+            PostTypeGrammar::validate_regen_dependencies($manifest);
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
             self::validate_env_options($manifest, "frozen manifest '$name'");
@@ -3204,115 +3204,6 @@ final class Policy {
      */
     public static function assert_widget_grammar(string $type, mixed $decl, ?string $source = null): void {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);
-    }
-
-    /**
-     * Validate `post_types.<type>.regen_dependency` shape at load time
-     * (DUO-3234) — same "catch a bad declaration before it reaches a lookup
-     * call site" posture as validate_field_classes() immediately above,
-     * mirrored for its own key shape rather than extended, for the same
-     * reason regenerators() doesn't share code with interpreters(). Checks
-     * SHAPE only (required keys present, correct scalar types, and a strict
-     * top-level key set) — same as validate_field_classes() never touches
-     * interpreter files, this never touches the regenerator PHP file or
-     * class; that stays regenerators()'s lazy-load-on-first-use job, so a
-     * manifest pinning a regen_dependency declaration it never actually
-     * exercises this run pays no file-system cost merely for being loaded.
-     * The optional `effects` list is deliberately admitted here, but its
-     * entries remain solely the responsibility of validate_effect_contracts()
-     * below; keeping those schemas in one validator prevents two subtly
-     * different effect grammars from drifting apart.
-     */
-    private static function validate_regen_dependencies(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
-            $regen = $decl['regen_dependency'] ?? null;
-            if ($regen === null) {
-                continue;
-            }
-            if (!is_array($regen) || array_is_list($regen)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency must be an object"
-                );
-            }
-            $regenerator = $regen['regenerator'] ?? null;
-            if (!is_string($regenerator) || $regenerator === '') {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency needs a non-empty string 'regenerator'"
-                );
-            }
-            $verify = $regen['verify'] ?? null;
-            if (!is_array($verify) || !is_string($verify['table'] ?? null) || ($verify['table'] ?? '') === ''
-                || !is_string($verify['column'] ?? null) || ($verify['column'] ?? '') === '') {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency needs "
-                    . "verify: {table: <non-empty string>, column: <non-empty string>}"
-                );
-            }
-
-            $unknown = array_diff(
-                array_keys($regen),
-                ['regenerator', 'verify', 'batch', 'refresh', 'always_on_write', 'effects']
-            );
-            if ($unknown) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency contains unknown key(s): "
-                    . implode(', ', $unknown)
-                );
-            }
-            if (array_key_exists('batch', $regen) && array_key_exists('refresh', $regen)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency cannot declare both 'batch' and 'refresh'"
-                );
-            }
-            if (array_key_exists('always_on_write', $regen)
-                && (array_key_exists('batch', $regen) || array_key_exists('refresh', $regen))) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write is ambiguous beside batch/refresh"
-                );
-            }
-
-            // DUO-329x: batch/refresh is deliberately opt-in.  Existing
-            // declarations (TEC included) retain the missing-row,
-            // regenerate(int) behavior above.  Accept both names as a small
-            // compatibility affordance for manifest authors: "refresh"
-            // describes the always-on-write intent, while "batch" names the
-            // callable boundary.  The engine normalizes either spelling via
-            // regen_batch().
-            foreach (['batch', 'refresh'] as $batchKey) {
-                if (!array_key_exists($batchKey, $regen)) {
-                    continue;
-                }
-                $batch = $regen[$batchKey];
-                if ($batch !== true && $batch !== false && !is_array($batch)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey must be "
-                        . 'a boolean or object'
-                    );
-                }
-                if (is_array($batch)) {
-                    $unknownBatch = array_diff(array_keys($batch), ['enabled', 'always_on_write']);
-                    if ($unknownBatch) {
-                        throw new \RuntimeException(
-                            "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey contains unknown key(s): "
-                            . implode(', ', $unknownBatch)
-                        );
-                    }
-                    foreach (['enabled', 'always_on_write'] as $flag) {
-                        if (array_key_exists($flag, $batch) && !is_bool($batch[$flag])) {
-                            throw new \RuntimeException(
-                                "duo: manifest '$name' post_types.$postType.regen_dependency.$batchKey.$flag must be boolean"
-                            );
-                        }
-                    }
-                }
-            }
-            if (array_key_exists('always_on_write', $regen) && !is_bool($regen['always_on_write'])) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' post_types.$postType.regen_dependency.always_on_write must be boolean"
-                );
-            }
-        }
     }
 
     /**
