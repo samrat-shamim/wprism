@@ -3,7 +3,8 @@ namespace Duo;
 
 /**
  * The pure post-type behavior grammar extracted from Policy.php
- * (DUO-3348): the closed `post_types.<type>.body` and `.phase` switches.
+ * (DUO-3348): the closed `post_types.<type>.body` and `.phase` switches and
+ * the direct `post_types.<parent>.children` relationship declaration.
  *
  * These values name engine behavior, not adapter-owned data. Keeping their
  * declaration validation beside the vocabulary makes a typo fail while the
@@ -11,11 +12,69 @@ namespace Duo;
  * runtime lookup and changing capture/apply semantics.
  *
  * Policy keeps the public body_mode()/post_type_phase() lookup contract, but
- * its load()/from_snapshot() paths call this validator directly. No engine
+ * its load()/from_snapshot() paths call these validators directly. No engine
  * or WordPress class is needed here, so the grammar remains independently
  * loadable for offline checks.
  */
 final class PostTypeGrammar {
+    /**
+     * Validate the direct CPT parent/child declaration grammar. This describes
+     * only wp_posts.post_parent edges; it is not a cascade or discovery
+     * grammar. Every endpoint must be declared in the same manifest so a
+     * typo cannot reach a target query.
+     */
+    public static function validate_post_type_children(array $manifest): void {
+        $name = (string) ($manifest['name'] ?? '?');
+        $postTypes = (array) ($manifest['post_types'] ?? []);
+        foreach ($postTypes as $parentPostType => $decl) {
+            if (!is_array($decl) || !array_key_exists('children', $decl)) {
+                continue;
+            }
+            if (!is_string($parentPostType)
+                || !preg_match('/^[a-z0-9_-]{1,20}$/', $parentPostType)) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types key " . var_export($parentPostType, true)
+                    . ' cannot declare children: expected a WordPress post-type name'
+                );
+            }
+            $children = $decl['children'];
+            if (!is_array($children) || !array_is_list($children) || !$children) {
+                throw new \RuntimeException(
+                    "duo: manifest '$name' post_types.$parentPostType.children must be a non-empty list"
+                );
+            }
+            $seen = [];
+            foreach ($children as $index => $childPostType) {
+                if (!is_string($childPostType)
+                    || !preg_match('/^[a-z0-9_-]{1,20}$/', $childPostType)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
+                        . 'must be a WordPress post-type name'
+                    );
+                }
+                if ($childPostType === $parentPostType) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children "
+                        . 'cannot declare a CPT as its own child'
+                    );
+                }
+                if (!array_key_exists($childPostType, $postTypes)) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children[$index] "
+                        . "names undeclared child CPT '$childPostType'"
+                    );
+                }
+                if (isset($seen[$childPostType])) {
+                    throw new \RuntimeException(
+                        "duo: manifest '$name' post_types.$parentPostType.children "
+                        . "contains duplicate child CPT '$childPostType'"
+                    );
+                }
+                $seen[$childPostType] = true;
+            }
+        }
+    }
+
     /** The closed `post_types.<type>.body` vocabulary. */
     private const BODY_MODES = ['blocks', 'verbatim'];
 
