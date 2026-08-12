@@ -281,6 +281,16 @@ check_wire(
     'agent plan/apply and internal verifier carry scope_request only when present'
 );
 
+$hostSource = (string) file_get_contents("$root/cli/duo");
+$applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+check_wire(
+    str_contains($hostSource, "'--scope-request-b64=' . \$scopeInput['request_b64'], '--scoped-promotion', '--format=json'")
+        && str_contains($cliSource, "'scoped_promotion' => isset(\$assoc['scoped-promotion'])")
+        && str_contains($cliSource, "\$options['scoped_promotion']")
+        && str_contains($applySource, "\$work = \$a->rebuild_work(\$plan, \$compiled->tree(), \$opts, false, \$scopedPromotion)"),
+    'SSH scoped-promotion plan carries an explicit drift-inclusive action projection before claim'
+);
+
 if ($failures !== 0) {
     fwrite(STDERR, "FAIL: $failures scope wire assertion(s) failed\n");
     exit(1);
