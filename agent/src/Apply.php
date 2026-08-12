@@ -13,6 +13,7 @@ require_once __DIR__ . '/UserMetaMaterializer.php';
 require_once __DIR__ . '/TermMaterializer.php';
 require_once __DIR__ . '/OptionsMaterializer.php';
 require_once __DIR__ . '/RelationshipMaterializer.php';
+require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -36,6 +37,7 @@ final class Apply {
     private ?TermMaterializer $termMaterializer = null;
     private ?OptionsMaterializer $optionsMaterializer = null;
     private ?RelationshipMaterializer $relationshipMaterializer = null;
+    private ?AttachmentMaterializer $attachmentMaterializer = null;
     private CompiledRepository $compiled;
     private string $repo;
     /** @var string[] */
@@ -128,6 +130,10 @@ final class Apply {
 
     private function relationship_materializer(): RelationshipMaterializer {
         return $this->relationshipMaterializer ??= new RelationshipMaterializer($this->policy);
+    }
+
+    private function attachment_materializer(): AttachmentMaterializer {
+        return $this->attachmentMaterializer ??= new AttachmentMaterializer($this->field_materializer(), $this->compiled);
     }
 
     // ------------------------------------------------------------------ plan
@@ -4949,16 +4955,14 @@ final class Apply {
         return $this->taxes_by_object_type()['term_object'];
     }
 
+    /**
+     * Thin compatibility facade over AttachmentMaterializer::place_attachment()
+     * (DUO-3347 slice 9) — kept so this method's existing internal call site
+     * (finalize_post(), unchanged) needs no edit while this decomposition
+     * proceeds.
+     */
     private function place_attachment(int $id, array $front): void {
-        global $wpdb;
-        $bytes = $this->compiled->media_content((string) $front['media']);
-        $up = wp_upload_dir(null, false);
-        $dst = trailingslashit($up['basedir']) . $front['file'];
-        if (!is_file($dst) || hash_file('sha256', $dst) !== hash('sha256', $bytes)) {
-            Canon::write_file($dst, $bytes);
-        }
-        $this->upsert_meta($wpdb->postmeta, 'post_id', $id, '_wp_attached_file', $front['file']);
-        $this->upsert_meta($wpdb->postmeta, 'post_id', $id, '_wp_attachment_image_alt', (string) ($front['alt'] ?? ''));
+        $this->attachment_materializer()->place_attachment($id, $front);
     }
 
     /**
