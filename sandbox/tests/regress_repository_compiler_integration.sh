@@ -60,7 +60,7 @@ printf '\n<<<<<<< mutation-after-compile\n' >> "$PAGE"
 
 RAW_RC=0
 RAW=$(wp2 duo plan --repo="$REPO" --format=json 2>&1) || RAW_RC=$?
-[ "$RAW_RC" -eq 1 ] || fail "raw plan must reject the post-compile mutation"
+[ "$RAW_RC" -eq 1 ] || fail "raw plan must reject the post-compile mutation (rc=$RAW_RC): $RAW"
 RAW_JSON=$(printf '%s\n' "$RAW" | tail -1)
 printf '%s\n' "$RAW_JSON" | jq -e '
   .ok == false and .error == "repository_compilation_failed"
@@ -83,7 +83,7 @@ BEFORE_BLOG=$(wp2 option get blogname 2>/dev/null | tail -1)
 BEFORE_POSTS=$(wp2 post list --post_type=post,page --format=count 2>/dev/null | tail -1)
 RAW2_RC=0
 RAW2=$(wp2 duo apply --repo="$REPO" --format=json 2>&1) || RAW2_RC=$?
-[ "$RAW2_RC" -eq 1 ] || fail "raw apply must reject the changed tree"
+[ "$RAW2_RC" -eq 1 ] || fail "raw apply must reject the changed tree (rc=$RAW2_RC): $RAW2"
 printf '%s\n' "$RAW2" | tail -1 | jq -e '.error == "repository_compilation_failed"' >/dev/null \
   || fail "raw apply did not return the compiler failure payload"
 [ "$(wp2 option get blogname 2>/dev/null | tail -1)" = "$BEFORE_BLOG" ] || fail "failed compile changed options"
