@@ -752,7 +752,7 @@ final class CapabilityRegistry {
                     || ($claimEvidence['force_hatches'] ?? null) !== []) {
                     throw new \RuntimeException("duo: $label scoped evidence binding for '$name' is malformed");
                 }
-                if ($validateSourceFiles) {
+                if ($validateSourceFiles && ($claimEvidence['status'] ?? null) === 'current') {
                     self::assertScopedEvidenceCurrent(
                         $rawEvidence,
                         $evidenceFile,

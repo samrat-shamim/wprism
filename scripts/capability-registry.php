@@ -547,12 +547,28 @@ function cap_build_registry(string $repo, bool $requireCurrent): array {
         $requiredTests = $disposition['evidence']['tests'] ?? [];
         $claimEvidence = cap_global_claim_evidence($bundle, $status, $requiredTests);
         if (array_key_exists($name, $scopedRecords)) {
-            $entry = cap_scoped_entry($repo, $name, $scopedRecords[$name]);
-            $scoped = cap_scoped_record($repo, $entry['bundle'], $entry['dir'], $name, $manifest, $disposition);
             // A scoped entry is authoritative for its one subject even when it
             // is stale.  Falling back to global evidence here would let an old
             // adapter digest or an incomplete citation set look current.
-            $claimEvidence = cap_scoped_claim_evidence($scoped['record'], $scoped['current'], $name, $requiredTests);
+            try {
+                $entry = cap_scoped_entry($repo, $name, $scopedRecords[$name]);
+                $scoped = cap_scoped_record($repo, $entry['bundle'], $entry['dir'], $name, $manifest, $disposition);
+                $claimEvidence = cap_scoped_claim_evidence($scoped['record'], $scoped['current'], $name, $requiredTests);
+            } catch (RuntimeException $e) {
+                // A legacy/non-durable raw record cannot grant a current
+                // product claim.  Preserve its exact subject metadata only
+                // long enough to project an explicit candidate state; this
+                // lets the scoped certifier refresh a stale record without
+                // ever falling back to broad global evidence.
+                $raw = $scopedRecords[$name];
+                $record = is_array($raw) && is_array($raw['bundle'] ?? null)
+                    ? $raw['bundle'] : $raw;
+                if (!is_array($record) || array_is_list($record)) {
+                    throw $e;
+                }
+                ScopedCertificationBundle::validate($record, "scoped certification '$name'");
+                $claimEvidence = cap_scoped_claim_evidence($record, false, $name, $requiredTests);
+            }
         }
         $claims[$name] = [
             'name' => $name,
