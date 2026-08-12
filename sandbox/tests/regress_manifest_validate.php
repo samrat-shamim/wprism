@@ -260,6 +260,34 @@ check(
     count($shippedNames) >= 10 && in_array('core', $shippedNames, true) && in_array('woocommerce', $shippedNames, true),
     'every manifest in the directory gets its own row (' . count($shippedNames) . ' rows)'
 );
+$cf7Row = row($shippedReport, 'contact-form-7');
+check(
+    ($cf7Row['status'] ?? null) === 'ok',
+    'the shipped Contact Form 7 manifest remains a valid whole-type declaration'
+);
+$cf7Manifest = json_decode((string) file_get_contents($repo . '/manifests/contact-form-7.json'), true);
+check(
+    is_array($cf7Manifest)
+        && (($cf7Manifest['post_types']['wpcf7_contact_form'] ?? null) === []),
+    'contact-form-7 declares its non-public wpcf7_contact_form post type for discovery'
+);
+$dispositions = json_decode((string) file_get_contents($repo . '/manifests/dispositions.json'), true);
+check(
+    is_array($dispositions)
+        && in_array(
+            'post_types',
+            $dispositions['manifests']['contact-form-7']['capabilities']['entity_sections'] ?? [],
+            true
+        ),
+    'contact-form-7 disposition registers the declared post_types surface'
+);
+$registry = json_decode((string) file_get_contents($repo . '/manifests/capabilities/registry.json'), true);
+check(
+    is_array($registry)
+        && in_array('post_types', $registry['manifests']['contact-form-7']['surfaces'] ?? [], true)
+        && in_array('post_types.wpcf7_contact_form', $registry['manifests']['contact-form-7']['surfaces'] ?? [], true),
+    'generated capability registry carries the Contact Form 7 post_types surface'
+);
 check(
     !in_array('dispositions', $shippedNames, true),
     'dispositions.json is external review state loaded WITH the directory, never validated as a manifest of its own'
