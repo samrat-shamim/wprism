@@ -23,11 +23,11 @@ require_once __DIR__ . '/Tokens.php';
  * (run()'s own phase-1 loop, not extracted this slice -- run() is Apply's
  * central ~1100-line orchestrator, out of scope for a bounded slice) and a
  * reflection-based test caller (sandbox/tests/regress_post_field_
- * classification.php), fixed below. It was otherwise fully self-contained:
- * its only external collaborator is Tokens (home()) plus the static
- * Ledger/Db facades and $wpdb -- no Policy, matching AttachmentMaterializer's
- * precedent of a narrower-than-usual contract when the moved code genuinely
- * doesn't need it.
+ * classification.php), fixed in that file this slice. It was otherwise
+ * fully self-contained: its only external collaborator is Tokens (home())
+ * plus the static Ledger/Db facades and $wpdb -- no Policy, matching
+ * AttachmentMaterializer's precedent of a narrower-than-usual contract
+ * when the moved code genuinely doesn't need it.
  *
  * finalize_post() (phase 2 -- the field UPDATE, authored-meta/relationship/
  * attachment reconciliation) deliberately stays on Apply this slice: unlike

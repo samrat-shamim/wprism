@@ -43,10 +43,10 @@ $postMaterializer = new PostMaterializer($tokens);
 $check($postMaterializer instanceof PostMaterializer, 'PostMaterializer is directly constructible with (Tokens)');
 $check((new ReflectionMethod(PostMaterializer::class, 'ensure_post_row'))->isPublic(), 'ensure_post_row() is public on PostMaterializer');
 
-// The constructor takes exactly this one collaborator -- no Policy, an
-// even narrower contract than RelationshipMaterializer's (Policy)-only
-// shape: Policy is never referenced anywhere in the moved body (verified
-// by the require-hygiene scanner finding no gap against it).
+// The constructor takes exactly this one collaborator -- no Policy, a
+// different single collaborator than RelationshipMaterializer's
+// (Policy)-only shape: Policy is never referenced anywhere in the moved
+// body (verified by the require-hygiene scanner finding no gap against it).
 $constructorParams = (new ReflectionClass(PostMaterializer::class))->getConstructor()->getParameters();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $constructorParams) === ['Duo\\Tokens'],
