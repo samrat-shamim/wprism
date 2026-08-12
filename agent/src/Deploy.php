@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CodeCompatibility.php';
+require_once __DIR__ . '/DeployPlanner.php';
 
 /**
  * docs/proposals/code-half.md §3.4/§6: reconciles active_plugins/template/
@@ -1221,43 +1222,7 @@ final class Deploy {
      * @return list<string>
      */
     private static function order_deactivations(array $plugins, array $requirements): array {
-        $nodes = array_fill_keys($plugins, true);
-        $indegree = array_fill_keys($plugins, 0);
-        $edges = array_fill_keys($plugins, []);
-        foreach ($plugins as $plugin) {
-            foreach ($requirements[$plugin] ?? [] as $provider) {
-                if (!isset($nodes[$provider]) || isset($edges[$plugin][$provider])) {
-                    continue;
-                }
-                $edges[$plugin][$provider] = true;
-                $indegree[$provider]++;
-            }
-        }
-
-        $priority = array_reverse($plugins);
-        $ordered = [];
-        while (count($ordered) < count($plugins)) {
-            $next = null;
-            foreach ($priority as $candidate) {
-                if (isset($nodes[$candidate]) && $indegree[$candidate] === 0) {
-                    $next = $candidate;
-                    break;
-                }
-            }
-            if ($next === null) {
-                $cycle = array_keys($nodes);
-                sort($cycle, SORT_STRING);
-                throw new \RuntimeException(
-                    'duo: plugin dependency cycle prevents safe teardown: ' . implode(', ', $cycle)
-                );
-            }
-            $ordered[] = $next;
-            unset($nodes[$next]);
-            foreach (array_keys($edges[$next]) as $provider) {
-                $indegree[$provider]--;
-            }
-        }
-        return $ordered;
+        return DeployPlanner::order_deactivations($plugins, $requirements);
     }
 
     /**
@@ -1270,42 +1235,7 @@ final class Deploy {
      * @return list<string>
      */
     private static function order_activations(array $plugins, array $requirements): array {
-        $nodes = array_fill_keys($plugins, true);
-        $indegree = array_fill_keys($plugins, 0);
-        $edges = array_fill_keys($plugins, []);
-        foreach ($plugins as $plugin) {
-            foreach ($requirements[$plugin] ?? [] as $provider) {
-                if (!isset($nodes[$provider]) || isset($edges[$provider][$plugin])) {
-                    continue;
-                }
-                $edges[$provider][$plugin] = true;
-                $indegree[$plugin]++;
-            }
-        }
-
-        $ordered = [];
-        while (count($ordered) < count($plugins)) {
-            $next = null;
-            foreach ($plugins as $candidate) {
-                if (isset($nodes[$candidate]) && $indegree[$candidate] === 0) {
-                    $next = $candidate;
-                    break;
-                }
-            }
-            if ($next === null) {
-                $cycle = array_keys($nodes);
-                sort($cycle, SORT_STRING);
-                throw new \RuntimeException(
-                    'duo: plugin dependency cycle prevents safe activation: ' . implode(', ', $cycle)
-                );
-            }
-            $ordered[] = $next;
-            unset($nodes[$next]);
-            foreach (array_keys($edges[$next]) as $dependent) {
-                $indegree[$dependent]--;
-            }
-        }
-        return $ordered;
+        return DeployPlanner::order_activations($plugins, $requirements);
     }
 
     /** @return string[] */
