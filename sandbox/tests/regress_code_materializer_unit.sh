@@ -14,6 +14,7 @@ require_once "$root/agent/src/Canon.php";
 require_once "$root/agent/src/Code.php";
 
 use Duo\Code;
+use Duo\CodeMaterializer;
 
 function fail_materializer(string $message): never { throw new RuntimeException("FAIL: $message"); }
 function put_materializer(string $path, string $bytes): void {
@@ -50,6 +51,10 @@ register_shutdown_function(static function () use ($tmp, $target): void {
 
 $prior = descriptor_materializer($tmp . '/a', 'old', 'v1');
 $current = descriptor_materializer($tmp . '/b', 'new', 'v2');
+if (!method_exists(CodeMaterializer::class, 'materialize_payload')
+    || !method_exists(CodeMaterializer::class, 'verify_payload')) {
+    fail_materializer('CodeMaterializer does not expose the materialization seam');
+}
 // A target promoted before theme_templates existed retains this exact v1
 // descriptor in completed/history. A newly compiled descriptor must still be
 // able to use that bounded old ownership to prune only old/ during finalize.
@@ -66,6 +71,38 @@ put_materializer($target . '/plugins/old/orphan.php', 'partial orphan');
 put_materializer($target . '/plugins/new/new.php', file_get_contents($tmp . '/b/plugins/new/new.php'));
 put_materializer($target . '/plugins/new/orphan.php', 'stale new');
 put_materializer($target . '/plugins/sibling/keep.php', 'unmanaged sibling');
+
+// The extracted collaborator is directly exercised as well as through Code's
+// historical private facades below. This catches a facade that merely keeps
+// the old implementation while the new class remains unused.
+CodeMaterializer::assert_payload_targets($current);
+if (CodeMaterializer::created_paths_for_stage($current, null, []) !== []) {
+    fail_materializer('CodeMaterializer created-path provenance disagrees with the live target');
+}
+$directCallbackRan = false;
+$directExisting = file_get_contents($target . '/plugins/new/new.php');
+try {
+    CodeMaterializer::materialize_payload(
+        $tmp . '/b',
+        $current,
+        null,
+        null,
+        [],
+        [],
+        static function (?array $previous, ?array $staged, array $history, array $descriptor) use (&$directCallbackRan): void {
+            $directCallbackRan = true;
+            throw new RuntimeException('direct materializer callback checkpoint');
+        }
+    );
+    fail_materializer('direct CodeMaterializer callback checkpoint was bypassed');
+} catch (Throwable $e) {
+    if (!$directCallbackRan || $e->getMessage() !== 'direct materializer callback checkpoint') {
+        fail_materializer('direct CodeMaterializer did not preserve the preflight/callback boundary: ' . $e->getMessage());
+    }
+}
+if (file_get_contents($target . '/plugins/new/new.php') !== $directExisting) {
+    fail_materializer('direct CodeMaterializer callback checkpoint wrote before the ownership callback');
+}
 
 $method = new ReflectionMethod(Code::class, 'remove_old_owned_files');
 $method->setAccessible(true);
