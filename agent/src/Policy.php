@@ -423,12 +423,21 @@ self::validate_post_type_children($manifest);
      * so the disposition slot that feeds RepositoryCompiler::manifest_rows()
      * binds its origin into the adapter digest exactly where a reviewed entry
      * would sit — and every shipped row keeps hashing the bytes it always did.
+     *
+     * DUO-3348 slice 4: the implementation now lives in
+     * AdapterRegistry::manifest_disposition(); this method is a thin facade
+     * kept so every existing caller needs no change.
      */
     public function manifest_disposition(string $name): ?array {
         return $this->adapter_registry()->manifest_disposition($name);
     }
 
-    /** The generated evidence-bound claim for one pinned adapter. */
+    /**
+     * The generated evidence-bound claim for one pinned adapter.
+     *
+     * DUO-3348 slice 4: the implementation now lives in
+     * AdapterRegistry::capability_claim(); thin facade, as above.
+     */
     public function capability_claim(string $name): ?array {
         return $this->adapter_registry()->capability_claim($name);
     }
@@ -441,6 +450,10 @@ self::validate_post_type_children($manifest);
      * problems for only the actions its own work/deletion surfaces selected.
      * Calling the global provider view here would turn an unrelated or empty
      * plan into a blocker for a declaration it cannot execute on that plan.
+     *
+     * DUO-3348 slice 4: the implementation now lives in
+     * AdapterRegistry::certification_readiness_blockers(); thin facade, as
+     * manifest_disposition() above.
      */
     public function certification_readiness_blockers(): array {
         return $this->adapter_registry()->certification_readiness_blockers();
@@ -456,6 +469,10 @@ self::validate_post_type_children($manifest);
      * moment has no matching authored surface. Plan construction uses
      * certification_readiness_blockers() plus the selected-action method
      * below instead.
+     *
+     * DUO-3348 slice 4: the implementation now lives in
+     * AdapterRegistry::adapter_readiness_blockers(); thin facade, as
+     * manifest_disposition() above.
      */
     public function adapter_readiness_blockers(): array {
         return $this->adapter_registry()->adapter_readiness_blockers();
@@ -472,12 +489,22 @@ self::validate_post_type_children($manifest);
      *
      * @param list<array<string,mixed>> $actions
      * @return list<array<string,mixed>>
+     *
+     * DUO-3348 slice 4: the implementation now lives in
+     * AdapterRegistry::provider_readiness_blockers(); thin facade, as
+     * manifest_disposition() above.
      */
     public function provider_readiness_blockers(array $actions): array {
         return $this->adapter_registry()->provider_readiness_blockers($actions);
     }
 
-    /** Resolve CLI capability output from the same manifests and external review bytes. */
+    /**
+     * Resolve CLI capability output from the same manifests and external review bytes.
+     *
+     * DUO-3348 slice 4: the implementation now lives in
+     * AdapterRegistry::capability_report(); thin facade, as
+     * manifest_disposition() above.
+     */
     public function capability_report(array $query = []): array {
         return $this->adapter_registry()->capability_report($query);
     }

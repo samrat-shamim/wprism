@@ -13,13 +13,26 @@
  * regress_compiled_artifact.php (DUO-3348 slice 2): this file proves the
  * EXTRACTION itself is correct rather than re-covering that business logic —
  * that Policy's public methods are thin facades genuinely delegating to a
- * real AdapterRegistry instance (not leftover inline logic), that the
- * delegation is exact for the branch this bare fixture reaches (no
- * dispositions.json/capabilities registry present — the "unreviewed" path
- * every one of those richer suites also has to pass through first), and that
- * requiring AdapterRegistry.php transitively supplies CapabilityRegistry.php
- * on its own (the class-loading gap DUO-3440/DUO-3441/DUO-3442 each fixed one
- * file at a time).
+ * real AdapterRegistry instance (not leftover inline logic — the source-text
+ * checks near the bottom are the load-bearing proof of that, along with the
+ * byte-identical-body diff done at review time), and that requiring
+ * AdapterRegistry.php transitively supplies CapabilityRegistry.php on its
+ * own (the class-loading gap DUO-3440/DUO-3441/DUO-3442 each fixed one file
+ * at a time — mutation-tested at review time by deleting that require and
+ * confirming this suite's first check below catches it).
+ *
+ * This bare fixture has no dispositions.json/capabilities registry, so every
+ * value these 6 methods return on it is null/empty (the "unreviewed" path
+ * every one of those richer suites also has to pass through first). The
+ * manifest_disposition()/capability_claim() comparisons below therefore
+ * reduce to null === null on THIS fixture and don't independently prove a
+ * non-trivial value flows through — they check that the facade's answer is
+ * internally consistent with calling adapter_sources() directly, not that
+ * delegation happened at all (the source-text checks own that). Left as-is
+ * rather than built out into a populated-registry fixture: the richer
+ * existing suites already prove these methods correct end-to-end, and a
+ * fixture that could produce a non-null provenance/claim record here would
+ * duplicate that coverage rather than add to it.
  *
  * Exit 0 and "all AdapterRegistry checks passed" on success; any failed
  * check prints "FAIL: ..." and the script exits 1.

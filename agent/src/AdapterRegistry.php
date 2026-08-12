@@ -10,17 +10,23 @@ require_once __DIR__ . '/CapabilityRegistry.php';
  * actions can actually run, over the manifests/dispositions/registry a
  * Policy has already resolved.
  *
- * Extracted from Policy: the constructor's three fields are exactly what
- * this cluster ever read from a Policy instance. `Policy::adapter_sources()`
- * deliberately stays on Policy itself rather than moving here — it owns a
- * lazily-cached field (`$this->adapterSources ??= AdapterSources::discover(...)`)
- * that must keep observing and caching on the SAME Policy instance across
- * repeated calls; this class is constructed fresh per facade call (cheap,
- * no state of its own to lose — every field here is set once at Policy's
- * own load()/from_snapshot() time and never mutated), so caching a lazy
- * fallback locally would silently stop matching a policy built by an
- * offline test harness that never ran either. Every method below reaches
- * adapter provenance via `$this->policy->adapter_sources()` instead.
+ * Extracted from Policy: the constructor's three fields — the owning Policy
+ * itself, plus its already-resolved manifestDispositions/capabilityRegistry —
+ * are exactly what this cluster needs. The Policy field is a back-reference,
+ * not a narrow slice: methods below also reach `$policy->manifests`,
+ * `$policy->actions()`, and `$policy->adapter_sources()` through it, and
+ * `provider_readiness_blockers()` passes it on to `Providers::negotiate()`/
+ * `packaging_problems()`, which are strictly typed to `Policy` and would
+ * reject anything else. `Policy::adapter_sources()` deliberately stays on
+ * Policy itself rather than moving here — it owns a lazily-cached field
+ * (`$this->adapterSources ??= AdapterSources::discover(...)`) that must keep
+ * observing and caching on the SAME Policy instance across repeated calls;
+ * this class is constructed fresh per facade call (cheap, no state of its
+ * own to lose — every field here is set once at Policy's own load()/
+ * from_snapshot() time and never mutated), so caching a lazy fallback
+ * locally would silently stop matching a policy built by an offline test
+ * harness that never ran either. Every method below reaches adapter
+ * provenance via `$this->policy->adapter_sources()` instead.
  *
  * Deliberately does not require_once Policy.php: every reference to Policy
  * here is either the constructor's own type hint or an instance method call
@@ -29,7 +35,13 @@ require_once __DIR__ . '/CapabilityRegistry.php';
  * field (DUO-3347/DUO-3441), no fresh-process load of this file alone can
  * reach a Policy-class-not-found fatal through it. CapabilityRegistry IS
  * required below because `CapabilityRegistry::probe_target()` is a genuine
- * static call this file makes on its own.
+ * static call this file makes on its own — and because CapabilityRegistry.php
+ * itself require_once's AdapterSources.php, that one require also covers
+ * this file's own `AdapterSources::SHIPPED` reference in
+ * certification_readiness_blockers() below; a future edit that drops the
+ * CapabilityRegistry require without noticing this would reopen exactly the
+ * standalone-load gap DUO-3440/DUO-3441/DUO-3442 each fixed one file at a
+ * time.
  */
 final class AdapterRegistry {
     public function __construct(
