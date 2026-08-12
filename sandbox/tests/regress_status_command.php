@@ -6,6 +6,7 @@ require_once __DIR__ . '/../../cli/src/StatusCommand.php';
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\PlanContract;
+use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\StatusCommand;
 
 function fail_status_command(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
@@ -28,8 +29,14 @@ final class StatusCommandDriver implements EnvironmentDriver {
         if ($this->mode === 'env-missing') {
             $name = 'outfitters_catalog_gateway_secret';
             $plan['env_missing'] = [['name' => $name, 'required' => true]];
-            $plan['warnings'] = ["env_missing: option '$name' is required and not yet provisioned on "
-                . "this environment — see 'wp duo env-set --name=$name --stdin'"];
+            $plan['warnings'] = [
+                "env_missing: option '$name' is required and not yet provisioned on "
+                    . "this environment — see 'wp duo env-set --name=$name --stdin'",
+                'env_missing: separate diagnostic must remain visible',
+            ];
+        }
+        if ($this->mode === 'unsafe-env-missing') {
+            $plan['env_missing'] = [['name' => "unsafe\0option", 'required' => true]];
         }
         return ['exit' => 0, 'stdout' => json_encode($plan) . "\n", 'stderr' => ''];
     }
@@ -76,6 +83,42 @@ assert_status_command(
 assert_status_command(
     !str_contains($envMissingOutput, 'wp duo env-set'),
     'host status does not mix target-side env-set advice into host remediation'
+);
+assert_status_command(
+    str_contains($envMissingOutput, 'WARNING: env_missing: separate diagnostic must remain visible'),
+    'host status suppresses only the exact duplicate target warning'
+);
+
+$unsafeEnvMissing = new StatusCommandDriver('unsafe-env-missing');
+ob_start();
+$unsafeEnvMissingExit = StatusCommand::run(
+    $unsafeEnvMissing,
+    [],
+    static function (string $c, string $m, string $r): void {},
+    static function (array $r): void {},
+    static fn(EnvironmentDriver $d): bool => true
+);
+$unsafeEnvMissingOutput = (string) ob_get_clean();
+assert_status_command($unsafeEnvMissingExit === 1, 'control-bearing option name remains non-ready');
+assert_status_command(
+    str_contains($unsafeEnvMissingOutput, '<invalid-name>')
+        && str_contains($unsafeEnvMissingOutput, 'cannot render a safe command')
+        && !str_contains($unsafeEnvMissingOutput, "unsafe\0option"),
+    'control-bearing option name produces bounded one-line remediation instead of throwing'
+);
+
+$unsafeEnvironmentPlan = [];
+foreach (PlanContract::requiredBuckets() as $bucket) $unsafeEnvironmentPlan[$bucket] = [];
+$unsafeEnvironmentPlan['env_missing'] = [['name' => 'secret_name', 'required' => true]];
+$unsafeEnvironmentLines = implode("\n", PlanSummary::render(
+    $unsafeEnvironmentPlan,
+    [],
+    '--envs-file=/tmp/other'
+)['lines']);
+assert_status_command(
+    str_contains($unsafeEnvironmentLines, 'cannot render a safe command')
+        && !str_contains($unsafeEnvironmentLines, 'duo env-set --envs-file='),
+    'option-looking environment never renders as a positional command token'
 );
 
 $malformed = new StatusCommandDriver('malformed');

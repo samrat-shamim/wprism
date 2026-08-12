@@ -20,6 +20,17 @@ final class PassthroughCommand {
         if (in_array($verb, ['plan', 'apply'], true)) {
             return self::runScoped($driver, $verb, $extra);
         }
+        foreach ($extra as $arg) {
+            if (!is_string($arg) || self::isHostOwnedTargetFlag($arg)) {
+                return self::scopeWireRefusal(
+                    $verb,
+                    $extra,
+                    'invalid_arguments',
+                    "$verb received a host-owned target binding argument",
+                    'remove --repo/--path; the selected environment supplies both bindings'
+                );
+            }
+        }
         return $driver->streamWp(array_merge(['duo', $verb, '--repo=' . $driver->repoPath()], $extra));
     }
 
@@ -35,6 +46,15 @@ final class PassthroughCommand {
                     'invalid_arguments',
                     "$verb received a malformed scope argument",
                     'supply exactly --scope-contract=<local-path>'
+                );
+            }
+            if (self::isHostOwnedTargetFlag($arg)) {
+                return self::scopeWireRefusal(
+                    $verb,
+                    $extra,
+                    'invalid_arguments',
+                    "$verb received a host-owned target binding argument",
+                    'remove --repo/--path; the selected environment supplies both bindings'
                 );
             }
             if (self::isScopeRequestWireFlag($arg)) {
@@ -134,6 +154,16 @@ final class PassthroughCommand {
 
     public static function isScopeContractFlag(string $arg): bool {
         return str_starts_with($arg, '--scope-contract');
+    }
+
+    /** Repository and WordPress roots come only from the selected environment. */
+    public static function isHostOwnedTargetFlag(string $arg): bool {
+        foreach (['--repo', '--path'] as $flag) {
+            if ($arg === $flag || str_starts_with($arg, $flag . '=')) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public static function scopeWireRefusal(

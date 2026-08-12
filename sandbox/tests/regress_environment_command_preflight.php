@@ -32,6 +32,18 @@ file_put_contents($tmp . '/envs.json', json_encode([
 ], JSON_UNESCAPED_SLASHES));
 $transport = EnvironmentCommandPreflight::resolveTransport($tmp . '/envs.json', $tmp, 'fixture');
 $check($transport->name() === 'fixture' && $transport->repoPath() === '/repo', 'preflight resolves a trusted local transport without target contact');
+$numericRegistry = $tmp . '/numeric-envs.json';
+file_put_contents($numericRegistry, '{"envs":{"123":{"transport":"local","wp_path":"/wordpress","repo_path":"/repo"}}}');
+$numericTransport = EnvironmentCommandPreflight::resolveTransport($numericRegistry, $tmp, '123');
+$check($numericTransport->name() === '123', 'numeric-only environment names allowed by the public grammar resolve');
+$listRegistry = $tmp . '/list-envs.json';
+file_put_contents($listRegistry, '{"envs":[{"transport":"local","wp_path":"/wordpress","repo_path":"/repo"}]}');
+try {
+    EnvironmentCommandPreflight::resolveTransport($listRegistry, $tmp, '0');
+    $check(false, 'a JSON list cannot masquerade as numeric environment 0');
+} catch (RuntimeException $e) {
+    $check(str_contains($e->getMessage(), "'envs' must be an object"), 'registry preserves the non-empty JSON object/list boundary');
+}
 $report = EnvironmentCommandPreflight::capabilityReport($transport, 'capture');
 $check($report->ready() && $report->toArray()['operation'] === 'capture', 'preflight returns the driver-owned capability verdict');
 try {
@@ -40,6 +52,21 @@ try {
 } catch (RuntimeException $e) {
     $check(str_contains($e->getMessage(), "unknown environment 'missing'"), 'unknown environment keeps the existing closed diagnostic');
 }
-@unlink($tmp . '/envs.json'); @rmdir($tmp);
+foreach (['--envs-file=/tmp/other', "bad\0name"] as $invalidName) {
+    file_put_contents($tmp . '/invalid-envs.json', json_encode([
+        'envs' => [$invalidName => ['transport' => 'local', 'wp_path' => '/wordpress', 'repo_path' => '/repo']],
+    ], JSON_UNESCAPED_SLASHES));
+    try {
+        EnvironmentCommandPreflight::resolveTransport($tmp . '/invalid-envs.json', $tmp, $invalidName);
+        $check(false, 'unsafe environment name refuses at registry load');
+    } catch (RuntimeException $e) {
+        $check(
+            str_contains($e->getMessage(), 'environment names must match'),
+            'option-looking/control-bearing environment name refuses with the closed grammar'
+        );
+    }
+}
+@unlink($tmp . '/invalid-envs.json');
+@unlink($listRegistry); @unlink($numericRegistry); @unlink($tmp . '/envs.json'); @rmdir($tmp);
 echo $failures === 0 ? "PASS: environment command preflight\n" : "FAIL: $failures environment preflight assertions\n";
 exit($failures === 0 ? 0 : 1);

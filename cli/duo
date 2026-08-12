@@ -318,8 +318,9 @@ Verbs:
                           promote") if the plan has any conflict, deletion
                           conflict, collision, code_mismatch, code_drift,
                           blocked delete,
-                          a required env_missing entry (env-set --name=<name>
-                          --stdin to provision it), or ordinary state drift.
+                          a required env_missing entry (`duo env-set <env>
+                          --name=<name> --stdin` to provision it), or ordinary
+                          state drift.
                           Apply refuses code_drift unless --force-code-drift;
                           ordinary state drift is the one case apply does not
                           refuse on, but status still reports it as not clean.
@@ -511,6 +512,9 @@ Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):
     "dev":   {"transport": "local", "wp_path": "/var/www/html",
               "repo_path": "/home/me/site"}
   }}
+
+Environment names must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}; names that
+look like options or contain whitespace/control bytes are refused.
 
 site.duo.json is found at the current Git worktree root (search starts at the
 current directory); its auto-discovered .duo-envs.json must sit beside it. A

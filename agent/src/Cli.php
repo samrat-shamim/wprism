@@ -747,11 +747,18 @@ final class Cli {
                 }
                 $scopeRequest = $decoded;
             }
+            $hostEnvironment = $assoc['orchestrator-environment'] ?? null;
+            if ($hostEnvironment !== null
+                && (!is_string($hostEnvironment)
+                    || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $hostEnvironment) !== 1)) {
+                throw new \RuntimeException('duo: capture received an invalid orchestrator environment context');
+            }
             $summary = Capture::run(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('capture', '--repo'),
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs']),
-                $scopeRequest
+                $scopeRequest,
+                $hostEnvironment
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');

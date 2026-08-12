@@ -256,7 +256,14 @@ $fakeBin = $tmp . '/scope-bin';
 mkdir($fakeBin, 0700, true);
 $scopeArgs = $tmp . '/scope-args.txt';
 $fakeWp = $fakeBin . '/wp';
-file_put_contents($fakeWp, '#!/usr/bin/env bash' . "\n" . 'printf \'%s\\n\' "$@" > "$DUO_SCOPE_ARGS"' . "\n");
+file_put_contents(
+    $fakeWp,
+    '#!/usr/bin/env bash' . "\n"
+        . 'printf \'%s\\n\' "$@" > "$DUO_SCOPE_ARGS"' . "\n"
+        . 'for arg in "$@"; do' . "\n"
+        . '  if [ "$arg" = lint ]; then echo LINT_STREAM_MARKER; exit 23; fi' . "\n"
+        . 'done' . "\n"
+);
 chmod($fakeWp, 0700);
 $oldPath = getenv('PATH') ?: '';
 putenv('PATH=' . $fakeBin . ':' . $oldPath);
@@ -279,12 +286,28 @@ assert_true(
         && in_array('--contract', $forwarded, true),
     'scope transport forwards control-plane --exec/skip flags and contract roots verbatim'
 );
+$captureForward = invoke_cli([
+    '--envs-file=' . $envsFile, 'capture', 'local-proof', '--format=json',
+]);
+assert_true($captureForward['exit'] === 0, 'public capture forwarding returned non-zero: ' . $captureForward['stderr']);
+$captureArgs = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
+assert_true(
+    is_array($captureArgs)
+        && in_array('capture', $captureArgs, true)
+        && in_array('--repo=' . $tmp . '/repo', $captureArgs, true)
+        && in_array('--orchestrator-environment=local-proof', $captureArgs, true),
+    'public capture forwards its exact environment context for copy-ready lint remediation'
+);
 $lintForward = invoke_cli([
     '--envs-file=' . $envsFile, 'lint', 'local-proof', '--format=json',
 ]);
 putenv('PATH=' . $oldPath);
 putenv('DUO_SCOPE_ARGS');
-assert_true($lintForward['exit'] === 0, 'public lint forwarding returned non-zero: ' . $lintForward['stderr']);
+assert_true($lintForward['exit'] === 23, 'public lint did not preserve the agent failure exit: ' . $lintForward['stderr']);
+assert_true(
+    str_contains($lintForward['stdout'], 'LINT_STREAM_MARKER'),
+    'public lint did not stream the agent output marker'
+);
 $lintArgs = is_file($scopeArgs) ? file($scopeArgs, FILE_IGNORE_NEW_LINES) : false;
 assert_true(
     is_array($lintArgs)
@@ -293,6 +316,18 @@ assert_true(
         && in_array('--repo=' . $tmp . '/repo', $lintArgs, true)
         && in_array('--format=json', $lintArgs, true),
     'public lint resolves the environment and forwards the bound repository plus user flags'
+);
+$beforeOverrideArgs = is_file($scopeArgs) ? file_get_contents($scopeArgs) : false;
+$lintOverride = invoke_cli([
+    '--envs-file=' . $envsFile, 'lint', 'local-proof', '--repo=/other/repository', '--format=json',
+]);
+$lintOverrideBody = json_decode(trim($lintOverride['stdout']), true);
+assert_true(
+    $lintOverride['exit'] === 1
+        && is_array($lintOverrideBody)
+        && ($lintOverrideBody['error'] ?? null) === 'invalid_arguments'
+        && file_get_contents($scopeArgs) === $beforeOverrideArgs,
+    'public lint rejects a caller repository override before target contact'
 );
 $controlArgs = CodeDeploy::controlArgs(['duo', 'scope']);
 assert_true(
@@ -317,6 +352,11 @@ pass('public JSON/human paths share the report and refuse before target mutation
 // being updated in lockstep with the bug.
 $duoSource = file_get_contents(__DIR__ . '/../../cli/duo');
 assert_true(is_string($duoSource) && $duoSource !== '', 'could not read cli/duo');
+assert_true(
+    str_contains($duoSource, '`duo env-set <env>')
+        && str_contains($duoSource, '[A-Za-z0-9][A-Za-z0-9._-]{0,63}'),
+    'public help keeps the complete host env-set command and environment-name grammar'
+);
 
 // The vocabulary is a runtime collaborator, not a copied source anchor. This
 // keeps the contract tied to the implementation that dispatches commands.

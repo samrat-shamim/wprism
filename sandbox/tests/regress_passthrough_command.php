@@ -2,7 +2,9 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../cli/src/PassthroughCommand.php';
+require_once __DIR__ . '/../../agent/src/Capture.php';
 
+use Duo\Capture;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\PassthroughCommand;
@@ -51,12 +53,45 @@ assert_passthrough(
     $driver->calls[1] === ['duo', 'lint', '--repo=/fixture/repo', '--format=json'],
     'lint passthrough preserves the exact agent argv and repo binding'
 );
-$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+
+$beforeBindingRefusal = count($driver->calls);
+ob_start();
+$bindingRefusal = PassthroughCommand::run(
+    $driver,
+    'lint',
+    ['--repo=/other/repository', '--format=json']
+);
+$bindingJson = (string) ob_get_clean();
+$bindingRecord = json_decode(trim($bindingJson), true);
+assert_passthrough($bindingRefusal === 1, 'lint rejects a caller-supplied repository binding');
 assert_passthrough(
-    is_string($captureSource)
-        && str_contains($captureSource, '`duo lint <env>` (the environment just captured)')
-        && str_contains($captureSource, '`wp duo lint --repo='),
-    'capture lint warning names both the host workflow and direct target fallback'
+    ($bindingRecord['error'] ?? null) === 'invalid_arguments'
+        && count($driver->calls) === $beforeBindingRefusal,
+    'repository override refuses before target contact with a structured diagnostic'
+);
+ob_start();
+$pathRefusal = PassthroughCommand::run($driver, 'lint', ['--path=/other/wordpress', '--format=json']);
+ob_end_clean();
+assert_passthrough(
+    $pathRefusal === 1 && count($driver->calls) === $beforeBindingRefusal,
+    'WordPress path override refuses before target contact'
+);
+
+$warningMethod = new ReflectionMethod(Capture::class, 'lint_warning');
+$captureWarning = $warningMethod->invoke(null, 2, '/srv/site repo;literal', 'preview');
+assert_passthrough(
+    is_string($captureWarning)
+        && str_contains($captureWarning, 'run on the host: `duo lint preview`')
+        && str_contains($captureWarning, "`wp duo lint --repo='/srv/site repo;literal'`")
+        && !str_contains($captureWarning, '<env>'),
+    'capture lint warning gives copy-ready host and shell-safe direct-target commands'
+);
+$directCaptureWarning = $warningMethod->invoke(null, 1, '/srv/site repo;literal', null);
+assert_passthrough(
+    is_string($directCaptureWarning)
+        && !str_contains($directCaptureWarning, 'duo lint <env>')
+        && str_contains($directCaptureWarning, "`wp duo lint --repo='/srv/site repo;literal'`"),
+    'direct target capture emits only its copy-ready target remediation'
 );
 
 $scoped = PassthroughCommand::run($driver, 'plan', ['--format=json']);

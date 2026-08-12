@@ -330,10 +330,14 @@ final class PlanSummary {
             $lines[] = 'ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):';
             foreach ($envMissing as $r) {
                 $flag = !empty($r['required']) ? 'required' : 'optional';
-                $line = '  - ' . ($r['name'] ?? '?') . " ($flag)";
+                $name = is_string($r['name'] ?? null) ? $r['name'] : null;
+                $line = '  - ' . self::displayToken($name) . " ($flag)";
                 if ($environment !== null && !empty($r['required']) && is_string($r['name'] ?? null)) {
-                    $line .= '; run: `duo env-set ' . self::shellArg($environment)
-                        . ' --name=' . self::shellArg($r['name']) . ' --stdin`';
+                    $environmentArg = self::environmentArg($environment);
+                    $nameArg = self::shellArg($r['name']);
+                    $line .= $environmentArg !== null && $nameArg !== null
+                        ? '; run: `duo env-set ' . $environmentArg . ' --name=' . $nameArg . ' --stdin`'
+                        : '; cannot render a safe command — correct the environment/manifest name';
                 }
                 $lines[] = $line;
             }
@@ -541,10 +545,28 @@ final class PlanSummary {
     }
 
     /** A readable shell token when safe; POSIX quoting otherwise. */
-    private static function shellArg(string $value): string {
+    private static function shellArg(string $value): ?string {
+        if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return null;
+        }
         return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1
             ? $value
             : escapeshellarg($value);
+    }
+
+    /** Environment is a positional token, so option-looking names never render. */
+    private static function environmentArg(string $value): ?string {
+        return preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $value) === 1
+            ? $value
+            : null;
+    }
+
+    /** Keep untrusted plan names on one terminal line. */
+    private static function displayToken(?string $value): string {
+        if ($value === null || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return '<invalid-name>';
+        }
+        return $value;
     }
 
     private static function label(array $r): string {

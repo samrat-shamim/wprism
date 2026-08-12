@@ -60,6 +60,9 @@ duo -h | --help
 ```
 
 Run `duo --help` for the full usage text (verbs, global flags, registry shape).
+Environment names use the shell-safe grammar
+`[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; option-looking or control-bearing names
+are rejected when the registry is loaded.
 
 - **`duo envs`** — lists every environment in the merged registry with a
   one-line transport summary. Exit 0 if the registry has at least one

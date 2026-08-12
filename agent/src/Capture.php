@@ -119,11 +119,12 @@ final class Capture {
         string $repo,
         ?string $outDir = null,
         bool $forceUnresolvedRefs = false,
-        ?array $scopeRequest = null
+        ?array $scopeRequest = null,
+        ?string $hostEnvironment = null
     ): array {
         return self::run_internal(
             $repo, $outDir, $forceUnresolvedRefs, null, false,
-            null, null, null, null, $scopeRequest
+            null, null, null, null, $scopeRequest, $hostEnvironment
         );
     }
 
@@ -181,7 +182,8 @@ final class Capture {
         ?string $initialMediaIdentity = null,
         ?string $initialConfigIdentity = null,
         ?callable $onInitialPayloadReady = null,
-        ?array $scopeRequest = null
+        ?array $scopeRequest = null,
+        ?string $hostEnvironment = null
     ): array {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
@@ -439,6 +441,7 @@ final class Capture {
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
                 $lock, $initialBaseline, $scoped, $scopeContract,
                 $scopeSourceTreeSha256, $repoPath, $onInitialPayloadReady,
+                $hostEnvironment,
                 &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
@@ -573,10 +576,7 @@ final class Capture {
                 }
                 $lint = Lint::scan_tree($staging, $c->policy);
                 if ($lint) {
-                    $candidate['warnings'][] = count($lint)
-                        . ' suspicious unrewritten ref(s) in captured state — review with host '
-                        . '`duo lint <env>` (the environment just captured), or directly on the target with '
-                        . '`wp duo lint --repo=' . $c->repo . '`';
+                    $candidate['warnings'][] = self::lint_warning(count($lint), $c->repo, $hostEnvironment);
                 }
                 $compiledCandidate = null;
                 if ($scopeContract !== null) {
@@ -1085,6 +1085,20 @@ final class Capture {
                 );
             }
         }
+    }
+
+    private static function lint_warning(int $count, string $repo, ?string $hostEnvironment): string {
+        $warning = $count . ' suspicious unrewritten ref(s) in captured state — ';
+        if ($hostEnvironment !== null) {
+            $warning .= 'run on the host: `duo lint ' . self::shell_arg($hostEnvironment) . '`; or ';
+        }
+        return $warning . 'run directly on the target: `wp duo lint --repo=' . self::shell_arg($repo) . '`';
+    }
+
+    private static function shell_arg(string $value): string {
+        return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1
+            ? $value
+            : escapeshellarg($value);
     }
 
     /**

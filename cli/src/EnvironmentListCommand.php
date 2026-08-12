@@ -17,8 +17,9 @@ final class EnvironmentListCommand {
             fwrite(STDERR, "duo: no environments defined (looked for an 'envs' object in site.duo.json and .duo-envs.json)\n");
             return 1;
         }
-        $width = max(array_map('strlen', array_keys($envs)));
+        $width = max(array_map(static fn ($name): int => strlen((string) $name), array_keys($envs)));
         foreach ($envs as $name => $cfg) {
+            $name = (string) $name;
             try {
                 $transport = Transport::make($name, $cfg);
                 printf("%-{$width}s  %s\n", $name, $transport->describe());
