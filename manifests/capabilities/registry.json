@@ -1662,7 +1662,7 @@
                 "closure_digest": "73e81891dc60ea6ef1835c18e3765aa24544b1b6ba00726a647583ba510cd049",
                 "force_hatches": [],
                 "git_revision": "5594b7a0c2b89fdcb1ee12fa2edeed72d3c85ecd",
-                "status": "current",
+                "status": "candidate",
                 "subject": "woocommerce",
                 "tests": [
                     "conformance-woocommerce",
