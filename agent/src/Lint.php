@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Shortcodes.php';
+
 /**
  * The generalized suspicious-ref linter (task #11's linter half; docs/
  * frontier/{fse,polylang,elementor}.md — each independently proved that

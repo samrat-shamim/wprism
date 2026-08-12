@@ -1,6 +1,9 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Policy.php';
+require_once __DIR__ . '/Tokens.php';
+
 /**
  * Policy-owned authored field materialization used by Apply's entity paths.
  *
