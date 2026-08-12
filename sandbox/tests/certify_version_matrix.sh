@@ -724,7 +724,11 @@ EOF
   # plugin is free to normalize differently across its supported versions.
   TARGET_FORM_ID=$(wp2 post list --post_type=wpcf7_contact_form --title='Version Matrix Contact Form' --format=ids)
   TARGET_LEGACY_ID=$(wp2 post list --post_type=page --name=vmatrix-contact-legacy --format=ids)
-  [ "$TARGET_FORM_ID" != "$CF7_FORM_ID" ] || fail "CF7 $CF7_VERSION target reused the source form id"
+  # The source and target are isolated databases, so their independently
+  # created forms may legitimately receive the same numeric post ID.  The
+  # target title/meta/render assertions below prove target ownership; numeric
+  # inequality across databases would reject a valid deterministic fixture.
+  [[ "$TARGET_FORM_ID" =~ ^[0-9]+$ ]] || fail "CF7 $CF7_VERSION target form lookup did not return one numeric id"
   [ "$TARGET_LEGACY_ID" != "" ] || fail "CF7 $CF7_VERSION target legacy page is missing"
   TARGET_OLD_ID=$(wp2 post meta get "$TARGET_FORM_ID" _old_cf7_unit_id)
   [ "$TARGET_OLD_ID" = "$CF7_OLD_ID" ] || fail "CF7 $CF7_VERSION target lost _old_cf7_unit_id ($TARGET_OLD_ID vs $CF7_OLD_ID)"
