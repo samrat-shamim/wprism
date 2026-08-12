@@ -1709,6 +1709,23 @@ check(
     'user-meta safety grammar lives in UserMetaGrammar for both declarations and interpreter rules'
 );
 
+// ScopeGrammar owns the pure whole-entity scope declaration check and its
+// narrower vocabulary. Policy keeps the loader/writer/reporting boundaries,
+// but all four loader calls plus set_rule() and closed_vocabularies() must use
+// the same collaborator-owned values.
+$scopeGrammar = new ReflectionClass('Duo\\ScopeGrammar');
+check(
+    $scopeGrammar->hasMethod('validate_scope_classes')
+        && $scopeGrammar->getMethod('validate_scope_classes')->isPublic()
+        && $scopeGrammar->hasMethod('scopeClasses')
+        && $scopeGrammar->getMethod('scopeClasses')->isPublic()
+        && !$policyReflection->hasMethod('validate_scope_classes')
+        && !str_contains($policySource, 'SCOPE_CLASSES')
+        && substr_count($policySource, 'ScopeGrammar::validate_scope_classes(') === 4
+        && substr_count($policySource, 'ScopeGrammar::scopeClasses()') === 3,
+    'whole-entity scope declaration grammar and its vocabulary live in ScopeGrammar'
+);
+
 // ======================================================================
 echo "\n== exit codes and the command's own fail-closed paths ==\n";
 

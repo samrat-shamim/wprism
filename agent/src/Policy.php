@@ -59,6 +59,9 @@ require_once __DIR__ . '/FieldGrammar.php';
 // DUO-3348 slice 20: user-meta safety grammar, required here for the same
 // "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/UserMetaGrammar.php';
+// DUO-3348 slice 21: whole-entity scope declaration grammar, required here
+// for the same "loads alone" reason as its neighbors above.
+require_once __DIR__ . '/ScopeGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -201,7 +204,7 @@ final class Policy {
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
             self::validate_code_config($p->site, 'site.duo.json');
-            self::validate_scope_classes($p->site, 'site.duo.json', true);
+            ScopeGrammar::validate_scope_classes($p->site, 'site.duo.json', true);
             OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
             UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
@@ -278,7 +281,7 @@ final class Policy {
             ActionProviderGrammar::validate_actions($manifest);
             OptionGrammar::validate_env_options($manifest, "manifest '$name'");
             UserMetaGrammar::validate_user_meta_rules($manifest, "manifest '$name'", self::CLASSES, self::MISSING_USER_MODES);
-            self::validate_scope_classes($manifest, "manifest '$name'", false);
+            ScopeGrammar::validate_scope_classes($manifest, "manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "manifest '$name'");
             TaxonomyGrammar::validate_object_type_option_refs($manifest);
             TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations($manifest);
@@ -375,7 +378,7 @@ final class Policy {
         $p = new self();
         $p->site = $snapshot['site'];
         self::validate_code_config($p->site, 'frozen site.duo.json');
-        self::validate_scope_classes($p->site, 'frozen site.duo.json', true);
+        ScopeGrammar::validate_scope_classes($p->site, 'frozen site.duo.json', true);
         OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
         OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
         UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
@@ -407,7 +410,7 @@ final class Policy {
             ActionProviderGrammar::validate_actions($manifest);
             OptionGrammar::validate_env_options($manifest, "frozen manifest '$name'");
             UserMetaGrammar::validate_user_meta_rules($manifest, "frozen manifest '$name'", self::CLASSES, self::MISSING_USER_MODES);
-            self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
+            ScopeGrammar::validate_scope_classes($manifest, "frozen manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "frozen manifest '$name'");
             TaxonomyGrammar::validate_object_type_option_refs($manifest);
             // DUO-3318: validate_dynamic_options() was missing here while
@@ -3014,31 +3017,6 @@ final class Policy {
         return $out;
     }
 
-    /** Validate whole-entity scope dispositions at policy load time. Site
-     * rules live under policy.scope.{post_type,taxonomy}; manifests reuse
-     * their existing post_types/taxonomies declarations. Invalid scope
-     * input must fail every consumer, never turn into an implicit include
-     * or exclusion. */
-    private static function validate_scope_classes(array $source, string $label, bool $site): void {
-        $groups = $site
-            ? ($source['policy']['scope'] ?? [])
-            : ['post_type' => $source['post_types'] ?? [], 'taxonomy' => $source['taxonomies'] ?? []];
-        foreach (['post_type', 'taxonomy'] as $kind) {
-            foreach ($groups[$kind] ?? [] as $name => $rule) {
-                if (!is_string($name) || $name === '' || !is_array($rule)) {
-                    throw new \RuntimeException("duo: $label has an invalid scope.$kind declaration");
-                }
-                $class = $rule['class'] ?? ($site ? null : 'authored');
-                if (!in_array($class, self::SCOPE_CLASSES, true)) {
-                    throw new \RuntimeException(
-                        "duo: $label scope.$kind.$name.class=" . var_export($class, true)
-                        . ' (expected ' . implode('|', self::SCOPE_CLASSES) . ')'
-                    );
-                }
-            }
-        }
-    }
-
     /** Apply a source-level default without mutating the loaded artifact. */
     public static function with_option_autoload(array $rule, array $source): array {
         if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
@@ -3966,7 +3944,6 @@ final class Policy {
 
     private const SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
     public const CLASSES = ['authored', 'runtime', 'derived', 'env', 'managed'];
-    private const SCOPE_CLASSES = ['authored', 'runtime', 'derived', 'env'];
     private const CASTS = ['string', 'csv'];
 
     /**
@@ -3983,9 +3960,9 @@ final class Policy {
                 );
             }
             $class = $rule['class'] ?? '';
-            if (!in_array($class, self::SCOPE_CLASSES, true)) {
+            if (!in_array($class, ScopeGrammar::scopeClasses(), true)) {
                 throw new \RuntimeException(
-                    "duo: unknown scope class '$class' (expected " . implode('|', self::SCOPE_CLASSES) . ')'
+                    "duo: unknown scope class '$class' (expected " . implode('|', ScopeGrammar::scopeClasses()) . ')'
                 );
             }
             if (array_diff_key($rule, ['class' => true])) {
@@ -4131,7 +4108,7 @@ final class Policy {
         return [
             'classification_classes' => self::CLASSES,
             'classification_sections' => self::SECTIONS,
-            'scope_classes' => self::SCOPE_CLASSES,
+            'scope_classes' => ScopeGrammar::scopeClasses(),
             'value_casts' => self::CASTS,
             'pattern_keys' => self::PATTERN_KEYS,
             'option_autoload_values' => OptionState::AUTOLOAD_VALUES,
