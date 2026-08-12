@@ -335,6 +335,20 @@ write_manifest($fixtureDir, 'h', [
 $policy4 = Policy::load(null, ['h']);
 check_throws(fn() => $policy4->regenerators(), 'must define', 'a regenerator file missing regenerate() throws a clear contract-violation message');
 
+// The load-time calls must target the extracted pure grammar directly. Keep
+// this seam asserted so a future compatibility facade cannot silently put the
+// validator back into Policy.php while the behavior suite remains green.
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$postTypeGrammar = new \ReflectionClass('Duo\\PostTypeGrammar');
+$policyReflection = new \ReflectionClass(Policy::class);
+check(
+    $postTypeGrammar->hasMethod('validate_regen_dependencies')
+        && $postTypeGrammar->getMethod('validate_regen_dependencies')->isPublic()
+        && !$policyReflection->hasMethod('validate_regen_dependencies')
+        && substr_count($policySource, 'PostTypeGrammar::validate_regen_dependencies($manifest)') === 2,
+    'regen_dependency shape validation lives in PostTypeGrammar and both Policy load paths call it directly'
+);
+
 // ======================================================================
 echo "\n";
 if ($failures > 0) {
