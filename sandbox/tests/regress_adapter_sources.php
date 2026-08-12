@@ -1442,12 +1442,20 @@ check(
     'the shipped, certified library remains fully ready — this issue added no new blocker to it'
 );
 $plainReport = $plain->capability_report(['operation' => 'promote']);
+$plainRows = [];
+foreach ($plainReport['manifests'] ?? [] as $row) {
+    if (is_array($row) && is_string($row['name'] ?? null)) {
+        $plainRows[$row['name']] = $row;
+    }
+}
 check(
-    !array_key_exists('evidence_scope', $plainReport)
-    && is_array($plainReport['evidence'] ?? null)
+    ($plainReport['evidence_scope'] ?? null) === 'per_manifest'
+    && ($plainReport['evidence'] ?? null) === null
     && is_array($plainReport['platform'] ?? null)
-    && !array_key_exists('evidence_scope', $plainReport['manifests'][0] ?? []),
-    'a shipped-only report retains the historical global evidence/platform shape unchanged'
+    && ($plainRows['core']['evidence_scope'] ?? null) === 'shipped_registry'
+    && ($plainRows['woocommerce']['evidence_scope'] ?? null) === 'scoped_adapter'
+    && (($plainRows['woocommerce']['evidence']['status'] ?? null) === 'current'),
+    'a shipped-only report exposes each claim authority when its Woo evidence is scoped'
 );
 
 // ======================================================================

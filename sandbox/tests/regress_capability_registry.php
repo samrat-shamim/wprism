@@ -104,6 +104,57 @@ foreach ($currentFixture['profiles'] as &$profile) {
 unset($profile);
 $registry = CapabilityRegistry::from_snapshot($currentFixture, $dispositions, array_values($manifests));
 
+echo "\n== per-manifest scoped certification ==\n";
+$scopedFixture = $currentFixture;
+$scopedFixture['evidence']['status'] = 'candidate';
+foreach ($scopedFixture['manifests'] as &$claim) {
+    $claim['evidence']['status'] = 'candidate';
+}
+unset($claim);
+foreach ($scopedFixture['profiles'] as &$profile) {
+    $profile['evidence']['status'] = 'candidate';
+}
+unset($profile);
+$scopedWoo = &$scopedFixture['manifests']['woocommerce'];
+$scopedWoo['evidence'] = [
+    'adapter_digest' => $scopedWoo['adapter_digest'],
+    'bundle_digest' => str_repeat('c', 64),
+    'bundle_schema' => 'duo-adapter-certification-bundle/v1',
+    'closure_digest' => str_repeat('d', 64),
+    'force_hatches' => [],
+    'git_revision' => str_repeat('0', 40),
+    'status' => 'current',
+    'subject' => 'woocommerce',
+    'tests' => $dispositions->entry('woocommerce')['evidence']['tests'],
+];
+unset($scopedWoo);
+$scopedRegistry = CapabilityRegistry::from_snapshot($scopedFixture, $dispositions, array_values($manifests));
+$scopedTarget = $target ?? [
+    'wordpress' => '7.0.3', 'php' => '8.3.33',
+    'database' => ['client' => '11.8.8', 'server' => '11.8.8-MariaDB', 'engine' => 'MariaDB'],
+    'multisite' => false, 'active_theme' => ['template' => 'twentytwentyfive', 'stylesheet' => 'twentytwentyfive'], 'themes' => [],
+];
+$scopedTarget['active_plugins'] = ['woocommerce/woocommerce.php'];
+$scopedTarget['plugins'] = ['woocommerce/woocommerce.php' => '11.0.0'];
+$scopedReport = $scopedRegistry->report([$manifests['woocommerce']], [
+    'operation' => 'apply', 'revision' => str_repeat('f', 40),
+], $scopedTarget);
+check($scopedReport['ready'] === true, 'a current Woo scoped record remains certifying when global evidence is candidate');
+check(
+    ($scopedReport['evidence_scope'] ?? null) === 'per_manifest'
+    && array_key_exists('evidence', $scopedReport) && $scopedReport['evidence'] === null
+    && ($scopedReport['manifests'][0]['evidence_scope'] ?? null) === 'scoped_adapter',
+    'a scoped report exposes its per-manifest evidence authority instead of a misleading global field'
+);
+check(!in_array('revision_not_certified', reason_codes($scopedReport), true), 'unbound Git revision does not expire a current scoped Woo record');
+$mixedScoped = $scopedRegistry->report([$manifests['woocommerce'], $manifests['acf']], ['operation' => 'apply'], $scopedTarget);
+check(
+    in_array('evidence_not_current', reason_codes($mixedScoped), true)
+    && ($mixedScoped['manifests'][0]['evidence']['status'] ?? null) === 'current'
+    && ($mixedScoped['manifests'][1]['evidence']['status'] ?? null) === 'candidate',
+    'one scoped current record never upgrades an unrelated adapter or fallbacks to global evidence'
+);
+
 $missingCurrentEvidence = $currentFixture;
 $missingCurrentEvidence['evidence']['tests'] = array_values(array_filter(
     $missingCurrentEvidence['evidence']['tests'],

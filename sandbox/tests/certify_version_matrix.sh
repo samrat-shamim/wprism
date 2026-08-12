@@ -47,6 +47,14 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${VMATRIX_PAIR:-vmatrix}"
 PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
+# A scoped adapter renewal must not spend an hour re-running unrelated
+# manifests.  The full matrix stays the default; this deliberately narrow
+# mode retains WooCommerce's admitted boundary and its below-range refusal.
+VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-all}"
+case "$VMATRIX_MANIFEST" in
+  all|woocommerce) ;;
+  *) fail "VMATRIX_MANIFEST must be all or woocommerce (got '$VMATRIX_MANIFEST')" ;;
+esac
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
   0|1) ;;
@@ -459,6 +467,7 @@ run_elementor_command() {
   return "$rc"
 }
 
+if [ "$VMATRIX_MANIFEST" = all ]; then
 for ACF_VERSION in 6.0.0 6.8.7; do
   say "boundary: acf $ACF_VERSION"
 
@@ -848,6 +857,9 @@ EOF
   pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
+# End the non-Woo fast path immediately before Woo's independent boundary.
+fi # VMATRIX_MANIFEST=all (non-Woo admitted boundaries)
+
 # WooCommerce 11.0.0 is currently both the declared minimum and the newest
 # stable release below 12.0.0. Certify it once: repeating the same artifact
 # under two labels would add runtime without adding evidence.
@@ -924,6 +936,7 @@ done
 # first release admitted by the manifest's exact 28.0 minimum, and 28.2 is
 # the newest release below 29.0.0. Exercise both exact
 # artifacts; a current-slug install would prove neither boundary.
+if [ "$VMATRIX_MANIFEST" = all ]; then
 for YOAST_VERSION in 28.0 28.2; do
   say "boundary: wordpress-seo $YOAST_VERSION"
 
@@ -1260,6 +1273,8 @@ grep -q "3.4.5" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-inst
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
+fi # VMATRIX_MANIFEST=all (all non-Woo positive boundaries and refusals)
+
 say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1318,6 +1333,7 @@ grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-ins
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 
+if [ "$VMATRIX_MANIFEST" = all ]; then
 say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1373,6 +1389,7 @@ grep -q "wordpress-seo/wp-seo.php" <<<"$DEPLOY_OUT" || fail "refusal did not nam
 grep -q "27.9" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: wordpress-seo 27.9 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
+fi # VMATRIX_MANIFEST=all (Yoast refusal)
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"
