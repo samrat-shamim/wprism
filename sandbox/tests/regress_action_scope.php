@@ -354,6 +354,11 @@ $check(
         && ($scopedPromotionDriftProjection['work'][0]['uuid'] ?? null) === 'options/core',
     'receipt-bearing scoped promotion explicitly promotes selected drift into its bounded authored work set'
 );
+$check(
+    $selected($policy->actions_for($projectionSurfaces($scopedPromotionDriftProjection)))
+        === ['probe_legacy'],
+    'scoped promotion preflight and receipt-bearing apply diagnose the same action from selected drift'
+);
 
 $forcedProjection = $rebuildWorkMethod->invoke($apply, $projectionPlan, $tree, ['force_theirs' => true], false);
 $check(

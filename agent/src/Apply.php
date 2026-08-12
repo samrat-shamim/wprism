@@ -119,6 +119,11 @@ final class Apply {
         $a = new self($repo, $policy, $compiled);
         $scopeRequest = $opts['scope_request'] ?? null;
         $scoped = is_array($scopeRequest);
+        // The SSH checkpoint profile has a read-only pre-claim projection
+        // whose action diagnosis must match the receipt-bearing Apply path.
+        // Ordinary and local scoped plans deliberately retain their historical
+        // drift projection; only the explicit host profile opts in here.
+        $scopedPromotion = $scoped && !empty($opts['scoped_promotion']);
         if ($scoped) {
             // A scoped plan is strict observation. It may not provision or
             // repair ledger identity as a side effect of asking what a future
@@ -155,7 +160,7 @@ final class Apply {
                 $a->scoped_ledger_map_identity_hashes(),
                 $a->scoped_allows_target_old_menu_items($actual)
             );
-            $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false);
+            $work = $a->rebuild_work($plan, $compiled->tree(), $opts, false, $scopedPromotion);
             $surfaces = $a->rebuild_surfaces(
                 $work['work'],
                 $compiled->tree(),

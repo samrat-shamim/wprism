@@ -2390,7 +2390,7 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
 
     $planArgs = [
         'duo', 'plan', '--repo=' . $repo, '--compiled=' . $artifact,
-        '--scope-request-b64=' . $scopeInput['request_b64'], '--format=json',
+        '--scope-request-b64=' . $scopeInput['request_b64'], '--scoped-promotion', '--format=json',
     ];
     $planResult = $t->captureWp($planArgs);
     if (($planResult['exit'] ?? 1) !== 0) {

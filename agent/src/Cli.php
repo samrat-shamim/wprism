@@ -907,6 +907,8 @@ final class Cli {
      *   detection captures the live environment too, so it hits the identical gate.
      * [--scope-contract=<path>] : Consume one canonical duo-scope-contract/v1 file. The direct
      *   agent accepts the local evidence; host transports replace it with a compact request.
+     * [--scoped-promotion] : Internal SSH orchestrator preflight; includes selected drift in the
+     *   read-only action projection so it exactly matches receipt-bearing scoped Apply.
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
@@ -925,6 +927,7 @@ final class Cli {
                 'force_unresolved_refs' => isset($assoc['force-unresolved-refs']),
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
+                'scoped_promotion' => isset($assoc['scoped-promotion']),
             ];
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
@@ -943,6 +946,16 @@ final class Cli {
             $scopeRequest = self::scope_request($assoc, 'plan');
             if ($scopeRequest !== null) {
                 $options['scope_request'] = $scopeRequest;
+            }
+            if (!empty($options['scoped_promotion'])
+                && !array_key_exists('scope-request-b64', $assoc)) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'scoped promotion preflight requires a compact scope request',
+                    'supply --scope-request-b64 through the SSH orchestrator',
+                    [],
+                    'duo: --scoped-promotion is valid only with the compact scoped plan wire'
+                );
             }
             $plan = Apply::plan(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('plan', '--repo'),
