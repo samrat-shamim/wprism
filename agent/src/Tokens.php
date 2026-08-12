@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/IdentityTokenCodec.php';
+require_once __DIR__ . '/TextTokenizer.php';
 
 /**
  * Environment-bound values are tokenized at capture and re-bound at apply:
@@ -13,13 +14,11 @@ require_once __DIR__ . '/IdentityTokenCodec.php';
 final class Tokens {
     private string $home;
     private string $uploadsUrl;
-    /** JSON-escaped forms (every "/" -> "\/") of the two URLs above — every
-     *  "/" in a wp_json_encode()'d string is escaped this way when the
-     *  JSON_UNESCAPED_SLASHES flag is absent, which is Elementor's own
-     *  convention for _elementor_data (confirmed byte-level via xxd in
-     *  docs/frontier/elementor.md) and is legal, unremarkable JSON. */
-    private string $homeEscaped;
-    private string $uploadsUrlEscaped;
+    /** The pure {{home}}/{{uploads}} URL-prefix substitution, extracted to
+     *  TextTokenizer (DUO-3354); see its own docblock for exactly which
+     *  half of tokenize_text()/detokenize_text() moved and why the
+     *  query-ref rewrite that follows did not. */
+    private TextTokenizer $textTokenizer;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
     public array $warnings = [];
     /** @var string[] capture-time informational observations */
@@ -147,8 +146,7 @@ final class Tokens {
         $this->home = untrailingslashit((string) get_option('home'));
         $up = wp_upload_dir(null, false);
         $this->uploadsUrl = untrailingslashit((string) $up['baseurl']);
-        $this->homeEscaped = str_replace('/', '\/', $this->home);
-        $this->uploadsUrlEscaped = str_replace('/', '\/', $this->uploadsUrl);
+        $this->textTokenizer = new TextTokenizer($this->home, $this->uploadsUrl);
     }
 
     public function home(): string {
@@ -158,36 +156,16 @@ final class Tokens {
     // ---- text (URLs) ----
 
     /**
-     * Matches BOTH the plain form (`http://host/path`) and the JSON-escaped
-     * form (`http:\/\/host\/path`) of {{home}}/{{uploads}}, collapsing both
-     * to the SAME plain-spelled token — DESIGN.md §3.3's documented-but-
-     * unshipped claim ("the tokenizer also understands JSON-escaped URL
-     * forms"), now actually implemented. See detokenize_text() for why a
-     * single canonical (always-plain) token spelling is deliberately
-     * chosen over trying to preserve which form each occurrence originally
-     * used.
-     *
-     * Only the matched substring (the URL prefix) is touched; any residual
-     * escaped bytes immediately after it (e.g. the rest of an escaped path)
-     * are left completely alone — `{{uploads}}\/2026\/08\/x.png` is exactly
-     * what an escaped `http:\/\/host\/wp-content\/uploads\/2026\/08\/x.png`
-     * becomes, matching the shape DESIGN.md's own illustrative example uses.
-     *
-     * Uploads is matched before home in BOTH forms: the uploads URL is
-     * normally home-prefixed (`{home}/wp-content/uploads`), so replacing
-     * home first would destroy the literal substring the uploads match
-     * needs — same ordering constraint the original (plain-only) code
-     * already respected.
+     * The {{home}}/{{uploads}} URL-prefix substitution itself is
+     * TextTokenizer's (see its own docblock for the plain/JSON-escaped
+     * matching and ordering rules); this facade then rewrites any
+     * `{{home}}`-anchored query-string id ref the substitution exposed.
      */
     public function tokenize_text(string $s, string $contextLabel = ''): string {
         if ($s === '') {
             return $s;
         }
-        $s = str_replace($this->uploadsUrl, '{{uploads}}', $s);
-        $s = str_replace($this->uploadsUrlEscaped, '{{uploads}}', $s);
-        $s = str_replace($this->home, '{{home}}', $s);
-        $s = str_replace($this->homeEscaped, '{{home}}', $s);
-        return $this->tokenize_url_query_refs($s, $contextLabel);
+        return $this->tokenize_url_query_refs($this->textTokenizer->tokenize($s), $contextLabel);
     }
 
     /**
@@ -309,28 +287,16 @@ final class Tokens {
     }
 
     /**
-     * Always restores the PLAIN (unescaped) form — never the JSON-escaped
-     * one — regardless of which form the token replaced at capture. This is
-     * lossless where it matters: RFC 8259 makes escaping "/" inside a JSON
-     * string OPTIONAL (`/` and `\/` decode identically), so emitting the
-     * plain form at a position that sits inside JSON text is still valid,
-     * correctly-parseable JSON — Elementor's own json_decode() (or any
-     * conformant parser) reads it the same either way. Values that need
-     * Elementor's OWN escaped-everywhere convention on the wire get it back
-     * for free at the structural re-encode step (Tokens::struct_apply() /
-     * Capture.php's json_refs handling), which re-escapes the WHOLE
-     * reconstructed string uniformly — not by detokenize_text() trying to
-     * guess, per-occurrence, whether THIS spot was originally escaped
-     * (genuinely undecidable from the token alone, since both forms
-     * collapse to one canonical spelling above).
+     * The plain-form restore itself is TextTokenizer's (see its own
+     * docblock for why the always-plain spelling is deliberate); this
+     * facade then restores any query-string id ref token the substitution
+     * exposed.
      */
     public function detokenize_text(string $s): string {
         if ($s === '') {
             return $s;
         }
-        $s = str_replace('{{uploads}}', $this->uploadsUrl, $s);
-        $s = str_replace('{{home}}', $this->home, $s);
-        return $this->detokenize_url_query_refs($s);
+        return $this->detokenize_url_query_refs($this->textTokenizer->detokenize($s));
     }
 
     /**

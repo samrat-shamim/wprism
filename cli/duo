@@ -36,6 +36,7 @@ require __DIR__ . '/src/Init.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/DoctorCommand.php';
 require __DIR__ . '/src/CodeDeploy.php';
+require __DIR__ . '/src/AdoptCommand.php';
 require __DIR__ . '/src/ScopeCommand.php';
 require __DIR__ . '/src/PlanContract.php';
 require __DIR__ . '/src/PlanSummary.php';
@@ -68,10 +69,6 @@ require_once dirname(__DIR__) . '/agent/src/CanonicalSurfaces.php';
 require_once dirname(__DIR__) . '/agent/src/Deletion.php';
 require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
-use Duo\Orchestrator\Doctor;
-use Duo\Orchestrator\Adopt;
-use Duo\Orchestrator\AdoptionTransport;
-use Duo\Orchestrator\BootstrapEligibilityReport;
 use Duo\Orchestrator\Init;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\ScopeCommand;
@@ -104,6 +101,7 @@ use Duo\Orchestrator\EnvironmentCommandOptions;
 use Duo\Orchestrator\DriverCapabilitiesCommand;
 use Duo\Orchestrator\EnvironmentListCommand;
 use Duo\Orchestrator\DoctorCommand;
+use Duo\Orchestrator\AdoptCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshCommand;
 use Duo\Orchestrator\RebaseCommand;
@@ -881,85 +879,7 @@ function cmd_doctor(EnvironmentDriver $t): int {
 }
 
 function cmd_adopt(EnvironmentDriver $t, array $extra): int {
-    if ($extra !== []) {
-        fwrite(STDERR, "duo: adopt accepts no extra arguments\n");
-        return 1;
-    }
-    if (!$t instanceof AdoptionTransport) {
-        fwrite(STDERR, "duo: adopt requires a transport with explicit control-plane transfer authority\n");
-        return 1;
-    }
-
-    $eligibility = null;
-    if ($t instanceof \Duo\Orchestrator\LocalTransport) {
-        echo "adopt phase: read-only target eligibility\n";
-        $eligibility = BootstrapEligibilityReport::inspect(
-            $t,
-            $t->name(),
-            $t->driverId(),
-            dirname(__DIR__)
-        );
-        foreach ($eligibility->checks() as $check) {
-            $mark = $check['state'] === 'passed' ? 'PASS' : 'BLOCKED';
-            echo "[$mark] bootstrap {$check['code']} — {$check['reason']}\n";
-            if ($check['state'] !== 'passed') {
-                echo "  remediation: {$check['remediation']}\n";
-            }
-        }
-        echo 'eligibility ' . $eligibility->toArray()['digest'] . "\n";
-        if (!$eligibility->ready()) {
-            fwrite(STDERR, "duo: adopt refused because the target is not safely eligible; no bootstrap write was attempted\n");
-            return 1;
-        }
-    }
-
-    echo "adopt phase: staged install + transactional doctor\n";
-    $keyId = null;
-    $publicKey = null;
-    $recoveryConfig = null;
-    if ($t instanceof \Duo\Orchestrator\SshTransport && $t->rollbackConfigured()) {
-        try {
-            $authority = new RollbackAuthority($t);
-            $keyId = $authority->keyId();
-            $publicKey = $authority->publicKeyBase64();
-            $recoveryConfig = $t->recoveryConfig();
-        } catch (\Throwable $e) {
-            fwrite(STDERR, 'duo: adopt: ' . $e->getMessage() . "\n");
-            return 1;
-        }
-    }
-    $doctor = null;
-    $isolatedDoctor = $eligibility !== null;
-    $result = Adopt::install(
-        $t,
-        dirname(__DIR__),
-        $keyId,
-        $publicKey,
-        $recoveryConfig,
-        $eligibility,
-        static function () use ($t, &$doctor, $isolatedDoctor): bool {
-            $doctor = $isolatedDoctor ? Doctor::runIsolated($t) : Doctor::run($t);
-            return $doctor['ok'] === true;
-        }
-    );
-    if ($result['exit'] !== 0) {
-        fwrite(STDERR, "duo: adopt failed during {$result['phase']}\n");
-        print_transport_detail($result);
-        if (is_array($doctor)) {
-            DoctorCommand::render($doctor);
-        }
-        return $result['exit'];
-    }
-
-    $repoAction = $result['repo_created'] ? 'created seed site.duo.json' : 'retained existing site.duo.json';
-    echo "adopt: installed agent {$result['version']} + manifest library + rollback authority; $repoAction\n";
-    echo "adopt phase: doctor (verified before commit)\n";
-    if (!is_array($doctor)) {
-        fwrite(STDERR, "duo: adopt: committed transaction has no doctor verification result\n");
-        return 1;
-    }
-    DoctorCommand::render($doctor);
-    return 0;
+    return AdoptCommand::run($t, $extra, dirname(__DIR__));
 }
 
 /** @param list<string> $extra */
@@ -1343,19 +1263,7 @@ function is_orchestrator_internal_flag(string $arg): bool {
 
 /** Emit both distinct streams of a captured transport failure. */
 function print_transport_detail(array $result): void {
-    // Docker Compose writes container lifecycle chatter to stderr even when
-    // the command itself returns its structured diagnostic on stdout.  A
-    // stderr-wins choice hides the actual refusal in exactly that common
-    // transport shape, so preserve both distinct streams.
-    $seen = [];
-    foreach ([$result['stderr'] ?? '', $result['stdout'] ?? ''] as $stream) {
-        $detail = trim((string) $stream);
-        if ($detail === '' || isset($seen[$detail])) {
-            continue;
-        }
-        $seen[$detail] = true;
-        fwrite(STDERR, $detail . "\n");
-    }
+    CommandOutput::renderTransportDetail($result);
 }
 
 /** @return list<string> force flags that may also be passed to both lifecycle phases. */
