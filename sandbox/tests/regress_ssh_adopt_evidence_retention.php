@@ -133,6 +133,17 @@ $check(
 $refreshEnd = $priorFailureAt;
 if (is_int($refreshStart) && is_int($refreshEnd) && $refreshStart < $refreshEnd) {
     $refreshCapture = substr($harness, $refreshStart, $refreshEnd - $refreshStart);
+    $scopeHashDerivation = <<<'SH'
+FAILURE_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-failure-scope.json")"
+SH;
+    $sourceIdentityProjection = <<<'SH'
+jq -r '[(.live.roots // [])[], (.live.closure // [])[] | .entity] + [(.tombstones // [])[] | .uuid] | sort[]' \
+  "$TMP/duo3344-failure-scope.json" >"$TMP/duo3344-failure-scope-identities"
+SH;
+    $targetIdentityProjection = <<<'SH'
+jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/duo3344-refresh-identities"
+SH;
+    $identityEqualityGate = 'diff -u "$TMP/duo3344-failure-scope-identities" "$TMP/duo3344-refresh-identities" >/dev/null';
     $check(
         str_contains($refreshCapture, 'wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json')
             && str_contains($refreshCapture, '$SCOPED_REFRESH_STDOUT')
@@ -140,7 +151,11 @@ if (is_int($refreshStart) && is_int($refreshEnd) && $refreshStart < $refreshEnd)
             && str_contains($refreshCapture, '$SCOPED_REFRESH_EXIT')
             && str_contains($refreshCapture, '.scope.scope_hash == $h')
             && str_contains($refreshCapture, 'duo3344-failure-scope-identities')
-            && str_contains($refreshCapture, 'duo3344-refresh-identities'),
+            && str_contains($refreshCapture, 'duo3344-refresh-identities')
+            && str_contains($harness, $scopeHashDerivation)
+            && str_contains($harness, $sourceIdentityProjection)
+            && str_contains($refreshCapture, $targetIdentityProjection)
+            && str_contains($refreshCapture, $identityEqualityGate),
         'scoped refresh-export records private streams and proves exact scope hash/selected-identity continuity before target mutation'
     );
 }
