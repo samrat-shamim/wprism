@@ -1,0 +1,425 @@
+
+[1;36m== boot pair codexmacx3450 (codexmacx34501 :8920 / codexmacx34502 :8921), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: /private/tmp/duo-3450-cert-final2.VqXWrb/{agent,manifests}
+  source HEAD:    6a32f0df6dfc3e47204dcbd2fafef6d1da3f7498
+  invoked from:   /private/tmp/duo-3450-cert-final2.VqXWrb/sandbox
+  expected SHA:   6a32f0df6dfc3e47204dcbd2fafef6d1da3f7498 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 6a32f0df6dfc3e47204dcbd2fafef6d1da3f7498, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'codexmacx3450': databases ==[0m
+[1;32mok: wp_codexmacx34501, wp_codexmacx34502 exist[0m
+
+[1;36m== pair 'codexmacx3450': site-repo directories ==[0m
+
+[1;36m== pair 'codexmacx3450': web containers up ==[0m
+  (bind-mount source: /private/tmp/duo-3450-cert-final2.VqXWrb -- this pair.sh copy is running from /private/tmp/duo-3450-cert-final2.VqXWrb/sandbox)
+ Volume duo-codexmacx3450_wp2 Creating
+ Volume duo-codexmacx3450_wp2 Created
+ Volume duo-codexmacx3450_wp1 Creating
+ Volume duo-codexmacx3450_wp1 Created
+ Container duo-codexmacx3450-wp1-1 Creating
+ Container duo-codexmacx3450-wp2-1 Creating
+ Container duo-codexmacx3450-wp1-1 Created
+ Container duo-codexmacx3450-wp2-1 Created
+ Container duo-codexmacx3450-wp1-1 Starting
+ Container duo-codexmacx3450-wp2-1 Starting
+ Container duo-codexmacx3450-wp2-1 Started
+ Container duo-codexmacx3450-wp1-1 Started
+ Container duo-codexmacx3450-cli1-1 Creating
+ Container duo-codexmacx3450-cli2-1 Creating
+ Container duo-codexmacx3450-cli1-1 Created
+ Container duo-codexmacx3450-cli2-1 Created
+ Container duo-codexmacx3450-cli1-1 Starting
+ Container duo-codexmacx3450-cli2-1 Starting
+ Container duo-codexmacx3450-cli2-1 Started
+ Container duo-codexmacx3450-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'codexmacx3450': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'codexmacx3450': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-codexmacx3450-cli1-run-0a4ee5c3b330 Creating
+ Container duo-codexmacx3450-cli1-run-0a4ee5c3b330 Created
+Success: WordPress installed successfully.
+ Container duo-codexmacx3450-cli1-run-abcd45fb1658 Creating
+ Container duo-codexmacx3450-cli1-run-abcd45fb1658 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-codexmacx3450-cli1-run-ae94766ff58c Creating
+ Container duo-codexmacx3450-cli1-run-ae94766ff58c Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-codexmacx3450-cli1-run-75774b123949 Creating
+ Container duo-codexmacx3450-cli1-run-75774b123949 Created
+ Container duo-codexmacx3450-cli1-run-3f1eaef32ad4 Creating
+ Container duo-codexmacx3450-cli1-run-3f1eaef32ad4 Created
+ Container duo-codexmacx3450-cli1-run-8fd351114b55 Creating
+ Container duo-codexmacx3450-cli1-run-8fd351114b55 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-codexmacx3450-cli1-run-ef11aa63b8ec Creating
+ Container duo-codexmacx3450-cli1-run-ef11aa63b8ec Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:8920)
+ Container duo-codexmacx3450-cli2-run-2d65ac898d96 Creating
+ Container duo-codexmacx3450-cli2-run-2d65ac898d96 Created
+Success: WordPress installed successfully.
+ Container duo-codexmacx3450-cli2-run-fb8acd422e72 Creating
+ Container duo-codexmacx3450-cli2-run-fb8acd422e72 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-codexmacx3450-cli2-run-9f32111b5079 Creating
+ Container duo-codexmacx3450-cli2-run-9f32111b5079 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-codexmacx3450-cli2-run-c12431eb8dda Creating
+ Container duo-codexmacx3450-cli2-run-c12431eb8dda Created
+ Container duo-codexmacx3450-cli2-run-899119c6d298 Creating
+ Container duo-codexmacx3450-cli2-run-899119c6d298 Created
+ Container duo-codexmacx3450-cli2-run-6c701988eade Creating
+ Container duo-codexmacx3450-cli2-run-6c701988eade Created
+Success: Updated 'permalink_structure' option.
+ Container duo-codexmacx3450-cli2-run-c64fd232fcfe Creating
+ Container duo-codexmacx3450-cli2-run-c64fd232fcfe Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:8921)
+
+[1;36m== pair 'codexmacx3450' ready ==[0m
+  wp1: http://localhost:8920 (published on host port 8920)
+  wp2: http://localhost:8921 (published on host port 8921)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-codexmacx3450 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-codexmacx3450 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=codexmacx3450 must stay exported, or pass -p duo-codexmacx3450 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: woocommerce 11.0.0 (only stable in-range release; min == max-practical) ==[0m
+ Container duo-codexmacx3450-cli1-run-de38a432ac2d Creating
+ Container duo-codexmacx3450-cli1-run-de38a432ac2d Created
+ Container duo-codexmacx3450-cli1-run-3e0ec3b71296 Creating
+ Container duo-codexmacx3450-cli1-run-3e0ec3b71296 Created
+ Container duo-codexmacx3450-cli1-run-d12188f02aea Creating
+ Container duo-codexmacx3450-cli1-run-d12188f02aea Created
+ Container duo-codexmacx3450-cli1-run-ef28f3062548 Creating
+ Container duo-codexmacx3450-cli1-run-ef28f3062548 Created
+ Container duo-codexmacx3450-cli1-run-28def1f46b64 Creating
+ Container duo-codexmacx3450-cli1-run-28def1f46b64 Created
+ Container duo-codexmacx3450-cli1-run-52817e7cb4cd Creating
+ Container duo-codexmacx3450-cli1-run-52817e7cb4cd Created
+ Container duo-codexmacx3450-cli2-run-d64a4ab36ba3 Creating
+ Container duo-codexmacx3450-cli2-run-d64a4ab36ba3 Created
+ Container duo-codexmacx3450-cli2-run-f30253560a71 Creating
+ Container duo-codexmacx3450-cli2-run-f30253560a71 Created
+ Container duo-codexmacx3450-cli2-run-22cce9670e7d Creating
+ Container duo-codexmacx3450-cli2-run-22cce9670e7d Created
+ Container duo-codexmacx3450-cli2-run-5151c94b615d Creating
+ Container duo-codexmacx3450-cli2-run-5151c94b615d Created
+ Container duo-codexmacx3450-cli2-run-0a7c2ade6505 Creating
+ Container duo-codexmacx3450-cli2-run-0a7c2ade6505 Created
+ Container duo-codexmacx3450-cli2-run-50c83a73ed8b Creating
+ Container duo-codexmacx3450-cli2-run-50c83a73ed8b Created
+
+[1;36m== fetch + verify woocommerce 11.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-codexmacx3450-cli1-run-e58710946ae9 Creating
+ Container duo-codexmacx3450-cli1-run-e58710946ae9 Created
+artifact-cache: kind=plugin slug=woocommerce version=11.0.0 sha256=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666 source=cache-hit path=/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip
+ Container duo-codexmacx3450-cli2-run-bbf93764b598 Creating
+ Container duo-codexmacx3450-cli2-run-bbf93764b598 Created
+artifact-cache: kind=plugin slug=woocommerce version=11.0.0 sha256=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666 source=cache-hit path=/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip[0m
+ Container duo-codexmacx3450-cli1-run-1d697320e148 Creating
+ Container duo-codexmacx3450-cli1-run-1d697320e148 Created
+ Container duo-codexmacx3450-cli1-run-86a1911dfd0e Creating
+ Container duo-codexmacx3450-cli1-run-86a1911dfd0e Created
+ Container duo-codexmacx3450-cli1-run-4a1725cffa41 Creating
+ Container duo-codexmacx3450-cli1-run-4a1725cffa41 Created
+Warning: Orders table does not exist. Creating...
+[1;32mok: side 1: woocommerce 11.0.0 installed from verified artifact, active, HPOS enabled[0m
+ Container duo-codexmacx3450-cli1-run-d952c98ecc9f Creating
+ Container duo-codexmacx3450-cli1-run-d952c98ecc9f Created
+ Container duo-codexmacx3450-cli1-run-e2c816416c3d Creating
+ Container duo-codexmacx3450-cli1-run-e2c816416c3d Created
+ Container duo-codexmacx3450-cli2-run-4b6961d13ae7 Creating
+ Container duo-codexmacx3450-cli2-run-4b6961d13ae7 Created
+ Container duo-codexmacx3450-cli1-run-f78e9cb6aec5 Creating
+ Container duo-codexmacx3450-cli1-run-f78e9cb6aec5 Created
+ Container duo-codexmacx3450-cli1-run-f763b010d331 Creating
+ Container duo-codexmacx3450-cli1-run-f763b010d331 Created
+ Container duo-codexmacx3450-cli1-run-a3a3032344dd Creating
+ Container duo-codexmacx3450-cli1-run-a3a3032344dd Created
+ Container duo-codexmacx3450-cli1-run-1c1f04a352c8 Creating
+ Container duo-codexmacx3450-cli1-run-1c1f04a352c8 Created
+Success: Added term.
+ Container duo-codexmacx3450-cli1-run-1099191eacc1 Creating
+ Container duo-codexmacx3450-cli1-run-1099191eacc1 Created
+ Container duo-codexmacx3450-cli1-run-1912bb096785 Creating
+ Container duo-codexmacx3450-cli1-run-1912bb096785 Created
+ Container duo-codexmacx3450-cli1-run-7e33d813218b Creating
+ Container duo-codexmacx3450-cli1-run-7e33d813218b Created
+ Container duo-codexmacx3450-cli1-run-d54b1c3890be Creating
+ Container duo-codexmacx3450-cli1-run-d54b1c3890be Created
+ Container duo-codexmacx3450-cli1-run-b1b7b1697381 Creating
+ Container duo-codexmacx3450-cli1-run-b1b7b1697381 Created
+ Container duo-codexmacx3450-cli1-run-091cfda15607 Creating
+ Container duo-codexmacx3450-cli1-run-091cfda15607 Created
+ Container duo-codexmacx3450-cli1-run-e059ae04faf3 Creating
+ Container duo-codexmacx3450-cli1-run-e059ae04faf3 Created
+ Container duo-codexmacx3450-cli1-run-a9f238df5e11 Creating
+ Container duo-codexmacx3450-cli1-run-a9f238df5e11 Created
+ Container duo-codexmacx3450-cli1-run-00494fe3cbd2 Creating
+ Container duo-codexmacx3450-cli1-run-00494fe3cbd2 Created
+ Container duo-codexmacx3450-cli1-run-f470c696e06d Creating
+ Container duo-codexmacx3450-cli1-run-f470c696e06d Created
+ Container duo-codexmacx3450-cli1-run-0bf718b00686 Creating
+ Container duo-codexmacx3450-cli1-run-0bf718b00686 Created
+ Container duo-codexmacx3450-cli1-run-67c63848e87b Creating
+ Container duo-codexmacx3450-cli1-run-67c63848e87b Created
+sendmail: can't connect to remote host (127.0.0.1): Connection refused
+ Container duo-codexmacx3450-cli1-run-4db3cfcb1737 Creating
+ Container duo-codexmacx3450-cli1-run-4db3cfcb1737 Created
+ Container duo-codexmacx3450-cli1-run-884371586b0e Creating
+ Container duo-codexmacx3450-cli1-run-884371586b0e Created
+ Container duo-codexmacx3450-cli1-run-074bbaf0a83f Creating
+ Container duo-codexmacx3450-cli1-run-074bbaf0a83f Created
+ Container duo-codexmacx3450-cli1-run-0188850994f7 Creating
+ Container duo-codexmacx3450-cli1-run-0188850994f7 Created
+ Container duo-codexmacx3450-cli1-run-b39479926e2b Creating
+ Container duo-codexmacx3450-cli1-run-b39479926e2b Created
+ Container duo-codexmacx3450-cli1-run-282ec497d649 Creating
+ Container duo-codexmacx3450-cli1-run-282ec497d649 Created
+ Container duo-codexmacx3450-cli1-run-33f6c5208869 Creating
+ Container duo-codexmacx3450-cli1-run-33f6c5208869 Created
+ Container duo-codexmacx3450-cli1-run-36fa45fea82b Creating
+ Container duo-codexmacx3450-cli1-run-36fa45fea82b Created
+ Container duo-codexmacx3450-cli1-run-bfa1e68bdebe Creating
+ Container duo-codexmacx3450-cli1-run-bfa1e68bdebe Created
+ Container duo-codexmacx3450-cli1-run-dfe3b024c892 Creating
+ Container duo-codexmacx3450-cli1-run-dfe3b024c892 Created
+ Container duo-codexmacx3450-cli1-run-3ed5c30aba0b Creating
+ Container duo-codexmacx3450-cli1-run-3ed5c30aba0b Created
+ Container duo-codexmacx3450-cli1-run-eb7f32b2abce Creating
+ Container duo-codexmacx3450-cli1-run-eb7f32b2abce Created
+woocommerce seed: category=16 thumbnail=7 product=8 coupon=9 variable_product=10 (attrs size=1 color=2) zone=1 methods=1,2 tax_class=3 tax=1 source_runtime_order=13 source_runtime_review=1
+ Container duo-codexmacx3450-cli1-run-bc4645948a89 Creating
+ Container duo-codexmacx3450-cli1-run-bc4645948a89 Created
+Success: captured 12 posts, 11 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 2 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (woocommerce 11.0.0)[0m
+ Container duo-codexmacx3450-cli1-run-43f7c4476a4b Creating
+ Container duo-codexmacx3450-cli1-run-43f7c4476a4b Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-codexmacx3450-cli2-run-37734ab28d98 Creating
+ Container duo-codexmacx3450-cli2-run-37734ab28d98 Created
+ Container duo-codexmacx3450-cli2-run-55bbc245c9a4 Creating
+ Container duo-codexmacx3450-cli2-run-55bbc245c9a4 Created
+ Container duo-codexmacx3450-cli2-run-246a45df39bb Creating
+ Container duo-codexmacx3450-cli2-run-246a45df39bb Created
+activated: woocommerce/woocommerce.php
+Success: 1 activated, 0 deactivated
+ Container duo-codexmacx3450-cli2-run-70fc702f089f Creating
+ Container duo-codexmacx3450-cli2-run-70fc702f089f Created
+Warning: Orders table does not exist. Creating...
+ Container duo-codexmacx3450-cli2-run-20ddca0047a4 Creating
+ Container duo-codexmacx3450-cli2-run-20ddca0047a4 Created
+ Container duo-codexmacx3450-cli2-run-b1afb8df807d Creating
+ Container duo-codexmacx3450-cli2-run-b1afb8df807d Created
+ Container duo-codexmacx3450-cli2-run-103041cf44ba Creating
+ Container duo-codexmacx3450-cli2-run-103041cf44ba Created
+woocommerce postdeploy: target_runtime_order=7 (HPOS enabled and compatibility-synced before apply)
+ Container duo-codexmacx3450-cli2-run-a0e23137fce5 Creating
+ Container duo-codexmacx3450-cli2-run-a0e23137fce5 Created
+Warning: adopted env post 1 as 019ff786-8eab-7e60-8c6f-38c478cf2797 (posts/attachment/019ff786-8eab-7e60-8c6f-38c478cf2797--woocommerce-placeholder.md)
+Warning: adopted env post 2 as 019ff786-8eac-78aa-bb0d-0c8a3973a625 (posts/page/019ff786-8eac-78aa-bb0d-0c8a3973a625--shop.md)
+Warning: adopted env post 6 as 019ff786-8ead-7326-930f-1507dda03e9f (posts/page/019ff786-8ead-7326-930f-1507dda03e9f--refund_returns.md)
+Warning: adopted env post 5 as 019ff786-8ead-7367-a2ba-9fcb088a7642 (posts/page/019ff786-8ead-7367-a2ba-9fcb088a7642--my-account.md)
+Warning: adopted env post 4 as 019ff786-8ead-75e4-aea2-ea037e98b3c1 (posts/page/019ff786-8ead-75e4-aea2-ea037e98b3c1--checkout.md)
+Warning: adopted env post 3 as 019ff786-8ead-7e46-b939-3a7448fe7c1b (posts/page/019ff786-8ead-7e46-b939-3a7448fe7c1b--cart.md)
+Warning: adopted env term 1 as 019ff786-8eaf-7d12-821f-a4e339610028 (terms/category/019ff786-8eaf-7d12-821f-a4e339610028--uncategorized.json)
+Warning: adopted env term 2 as 019ff786-8ec6-7871-8002-39568643a12b (terms/product_type/019ff786-8ec6-7871-8002-39568643a12b--simple.json)
+Warning: adopted env term 3 as 019ff786-8ec9-72ff-a6cb-060a0d3507f3 (terms/product_type/019ff786-8ec9-72ff-a6cb-060a0d3507f3--grouped.json)
+Warning: adopted env term 5 as 019ff786-8eca-7a9f-b66d-64ea75a8acc6 (terms/product_type/019ff786-8eca-7a9f-b66d-64ea75a8acc6--external.json)
+Warning: adopted env term 4 as 019ff786-8eca-7e14-9c8e-8db3a1a5eb54 (terms/product_type/019ff786-8eca-7e14-9c8e-8db3a1a5eb54--variable.json)
+Warning: adopted env term 15 as 019ff786-8ecb-774a-9ffa-39a4b19005bd (terms/product_cat/019ff786-8ecb-774a-9ffa-39a4b19005bd--uncategorized.json)
+Warning: native action fired: transient.delete (verified)
+Warning: provider capability fired: woocommerce-cache@1.0.0 invalidate_cache_groups (0.002s, verified)
+Warning: provider capability fired: woocommerce-product-lookups@1.0.0 rebuild_product_lookups (0.102s, verified)
+Success: applied 33 entities (canary clean) — plan was: {"create":19,"update":2,"unchanged":2,"drift":0,"conflict":0,"adopt":12,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":2,"effects_inventory":142,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (woocommerce 11.0.0, HPOS, canary clean)[0m
+conf2 attribute/variation check: conf-color,conf-size|1|2|yes
+[1;32mok: conf2 resolves both attribute taxonomies + the variable product's variations via WooCommerce's own APIs, zero manual pre-provisioning, at least one variation purchasable[0m
+conf2 product-category thumbnail check: term|8|attachment|file
+[1;32mok: conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file[0m
+conf2 shipping/tax check: flat=5.99|free=50.00|tax=7.25|taxclass=conformance-reduced-rate
+[1;32mok: conf2 resolves shipping-zone methods, rematerialized instance-option names, custom tax class, and tax rate through WooCommerce APIs[0m
+conf2 merchant-settings check: {"calc_taxes":"yes","enabled":"yes","title":"Conformance COD Desk","description":"Pay at the conformance desk.","instructions":"Use code CONF-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes","gateway_enabled":"yes","gateway_title":"Conformance COD Desk"}
+[1;32mok: conf2 preserves authored tax enablement and distinctive COD settings through WooCommerce's option and gateway APIs[0m
+conf2 HPOS runtime check: source=0|target=1|hpos=yes
+[1;32mok: source-only HPOS order stayed source-only and target-only HPOS order survived apply[0m
+conf2 Woo runtime surfaces: review=0|source_session=0|target_session=1|source_queue=0|target_queue=1
+[1;32mok: source reviews/sessions/queues stayed source-only and target runtime session/queue survived apply[0m
+conf2 Woo projection/cart check: {"simple_price":"14.99","small_price":"9.99","large_price":"12.99","parent_prices":["9.99","12.99"],"lookup":{"min_price":"9.9900","max_price":"12.9900"},"sale_scheduled":true,"cart_blocked_without_target_stock":true,"cart_after_target_stock":true}
+[1;32mok: price/product-meta/schedule projections are current; cart refuses absent source inventory then accepts target-local simple+variation stock[0m
+[1;32mok: Store API attribute filtering returns the visible, purchasable variable catalog product[0m
+[1;32mok: bounded Woo price/product-meta/sale projections verified; attribute and category lookups remain explicit manual boundaries[0m
+[1;32mok: conf2 renders its own product page with no fatal marker or conf1 host leak[0m
+ Container duo-codexmacx3450-cli2-run-c31b5419e16d Creating
+ Container duo-codexmacx3450-cli2-run-c31b5419e16d Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 12 posts, 11 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 2 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at woocommerce 11.0.0 — the only currently available in-range boundary is proven without duplicate execution[0m
+
+[1;36m== negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-codexmacx3450-cli1-run-aa43e2ee10d9 Creating
+ Container duo-codexmacx3450-cli1-run-aa43e2ee10d9 Created
+ Container duo-codexmacx3450-cli1-run-7bb3dad82c9f Creating
+ Container duo-codexmacx3450-cli1-run-7bb3dad82c9f Created
+ Container duo-codexmacx3450-cli1-run-c834c2113bdf Creating
+ Container duo-codexmacx3450-cli1-run-c834c2113bdf Created
+ Container duo-codexmacx3450-cli1-run-301916cc2d4e Creating
+ Container duo-codexmacx3450-cli1-run-301916cc2d4e Created
+ Container duo-codexmacx3450-cli1-run-eff5877483ec Creating
+ Container duo-codexmacx3450-cli1-run-eff5877483ec Created
+ Container duo-codexmacx3450-cli1-run-4b0ae86be9b3 Creating
+ Container duo-codexmacx3450-cli1-run-4b0ae86be9b3 Created
+ Container duo-codexmacx3450-cli1-run-c85a4ea5341a Creating
+ Container duo-codexmacx3450-cli1-run-c85a4ea5341a Created
+artifact-cache: kind=plugin slug=woocommerce version=11.0.0 sha256=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666 source=cache-hit path=/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip
+ Container duo-codexmacx3450-cli1-run-751ae5ae3323 Creating
+ Container duo-codexmacx3450-cli1-run-751ae5ae3323 Created
+ Container duo-codexmacx3450-cli1-run-113e9be33357 Creating
+ Container duo-codexmacx3450-cli1-run-113e9be33357 Created
+ Container duo-codexmacx3450-cli1-run-311076e44a75 Creating
+ Container duo-codexmacx3450-cli1-run-311076e44a75 Created
+Warning: Orders table does not exist. Creating...
+ Container duo-codexmacx3450-cli1-run-522dc3908711 Creating
+ Container duo-codexmacx3450-cli1-run-522dc3908711 Created
+ Container duo-codexmacx3450-cli1-run-d64d03b64b9f Creating
+ Container duo-codexmacx3450-cli1-run-d64d03b64b9f Created
+ Container duo-codexmacx3450-cli2-run-03984c137ca6 Creating
+ Container duo-codexmacx3450-cli2-run-03984c137ca6 Created
+ Container duo-codexmacx3450-cli1-run-0c4bef672db2 Creating
+ Container duo-codexmacx3450-cli1-run-0c4bef672db2 Created
+ Container duo-codexmacx3450-cli1-run-7f2113aa00bf Creating
+ Container duo-codexmacx3450-cli1-run-7f2113aa00bf Created
+ Container duo-codexmacx3450-cli1-run-eb817e532539 Creating
+ Container duo-codexmacx3450-cli1-run-eb817e532539 Created
+ Container duo-codexmacx3450-cli1-run-486585a5ded2 Creating
+ Container duo-codexmacx3450-cli1-run-486585a5ded2 Created
+Success: Added term.
+ Container duo-codexmacx3450-cli1-run-aacc0c1e7940 Creating
+ Container duo-codexmacx3450-cli1-run-aacc0c1e7940 Created
+ Container duo-codexmacx3450-cli1-run-e16258adfc93 Creating
+ Container duo-codexmacx3450-cli1-run-e16258adfc93 Created
+ Container duo-codexmacx3450-cli1-run-52a99c0481d6 Creating
+ Container duo-codexmacx3450-cli1-run-52a99c0481d6 Created
+ Container duo-codexmacx3450-cli1-run-468ebaa82c2e Creating
+ Container duo-codexmacx3450-cli1-run-468ebaa82c2e Created
+ Container duo-codexmacx3450-cli1-run-6f0dad333da7 Creating
+ Container duo-codexmacx3450-cli1-run-6f0dad333da7 Created
+ Container duo-codexmacx3450-cli1-run-cc35c0766548 Creating
+ Container duo-codexmacx3450-cli1-run-cc35c0766548 Created
+ Container duo-codexmacx3450-cli1-run-7e2f8685bcb2 Creating
+ Container duo-codexmacx3450-cli1-run-7e2f8685bcb2 Created
+ Container duo-codexmacx3450-cli1-run-fbd5a192904b Creating
+ Container duo-codexmacx3450-cli1-run-fbd5a192904b Created
+ Container duo-codexmacx3450-cli1-run-34a6217667a1 Creating
+ Container duo-codexmacx3450-cli1-run-34a6217667a1 Created
+ Container duo-codexmacx3450-cli1-run-00596e2522e1 Creating
+ Container duo-codexmacx3450-cli1-run-00596e2522e1 Created
+ Container duo-codexmacx3450-cli1-run-654faf0ed62f Creating
+ Container duo-codexmacx3450-cli1-run-654faf0ed62f Created
+ Container duo-codexmacx3450-cli1-run-59ea3e2f78fe Creating
+ Container duo-codexmacx3450-cli1-run-59ea3e2f78fe Created
+sendmail: can't connect to remote host (127.0.0.1): Connection refused
+ Container duo-codexmacx3450-cli1-run-28b64b4ab822 Creating
+ Container duo-codexmacx3450-cli1-run-28b64b4ab822 Created
+ Container duo-codexmacx3450-cli1-run-9baccfe7734a Creating
+ Container duo-codexmacx3450-cli1-run-9baccfe7734a Created
+ Container duo-codexmacx3450-cli1-run-58c6804b4b00 Creating
+ Container duo-codexmacx3450-cli1-run-58c6804b4b00 Created
+ Container duo-codexmacx3450-cli1-run-a9ccea5ac751 Creating
+ Container duo-codexmacx3450-cli1-run-a9ccea5ac751 Created
+ Container duo-codexmacx3450-cli1-run-e82b2988c70f Creating
+ Container duo-codexmacx3450-cli1-run-e82b2988c70f Created
+ Container duo-codexmacx3450-cli1-run-9a756699a63d Creating
+ Container duo-codexmacx3450-cli1-run-9a756699a63d Created
+ Container duo-codexmacx3450-cli1-run-1b5daaa8a60e Creating
+ Container duo-codexmacx3450-cli1-run-1b5daaa8a60e Created
+ Container duo-codexmacx3450-cli1-run-b0815f73d65b Creating
+ Container duo-codexmacx3450-cli1-run-b0815f73d65b Created
+ Container duo-codexmacx3450-cli1-run-02dc4a5dc746 Creating
+ Container duo-codexmacx3450-cli1-run-02dc4a5dc746 Created
+ Container duo-codexmacx3450-cli1-run-7226be3ce43a Creating
+ Container duo-codexmacx3450-cli1-run-7226be3ce43a Created
+ Container duo-codexmacx3450-cli1-run-7e79045c02e4 Creating
+ Container duo-codexmacx3450-cli1-run-7e79045c02e4 Created
+ Container duo-codexmacx3450-cli1-run-cb74a4791faf Creating
+ Container duo-codexmacx3450-cli1-run-cb74a4791faf Created
+woocommerce seed: category=16 thumbnail=7 product=8 coupon=9 variable_product=10 (attrs size=1 color=2) zone=1 methods=1,2 tax_class=3 tax=1 source_runtime_order=13 source_runtime_review=1
+ Container duo-codexmacx3450-cli1-run-dda993f67577 Creating
+ Container duo-codexmacx3450-cli1-run-dda993f67577 Created
+Success: captured 12 posts, 11 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 2 media blob(s) -> /siterepo/state
+ Container duo-codexmacx3450-cli1-run-03adb874b5ae Creating
+ Container duo-codexmacx3450-cli1-run-03adb874b5ae Created
+ Container duo-codexmacx3450-cli1-run-04dfff5f4f83 Creating
+ Container duo-codexmacx3450-cli1-run-04dfff5f4f83 Created
+ Container duo-codexmacx3450-cli1-run-a36a719b1a6f Creating
+ Container duo-codexmacx3450-cli1-run-a36a719b1a6f Created
+artifact-cache: kind=plugin slug=woocommerce version=10.9.4 sha256=6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9 source=network-fetch path=/artifacts-cache/plugin-woocommerce-10.9.4-6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9.zip
+ Container duo-codexmacx3450-cli1-run-60ed02238d02 Creating
+ Container duo-codexmacx3450-cli1-run-60ed02238d02 Created
+ Container duo-codexmacx3450-cli1-run-b4bfb61ea313 Creating
+ Container duo-codexmacx3450-cli1-run-b4bfb61ea313 Created
+ Container duo-codexmacx3450-cli1-run-989919a417e7 Creating
+ Container duo-codexmacx3450-cli1-run-989919a417e7 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - woocommerce/woocommerce.php 10.9.4 is active in this environment, outside the 'woocommerce' manifest's declared version_range (>=11.0.0 <12.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'codexmacx3450': destroy ==[0m
+ Container duo-codexmacx3450-wp1-1 Stopping
+ Container duo-codexmacx3450-cli1-1 Stopping
+ Container duo-codexmacx3450-wp2-1 Stopping
+ Container duo-codexmacx3450-cli2-1 Stopping
+ Container duo-codexmacx3450-cli1-1 Stopped
+ Container duo-codexmacx3450-cli1-1 Removing
+ Container duo-codexmacx3450-cli2-1 Stopped
+ Container duo-codexmacx3450-cli2-1 Removing
+ Container duo-codexmacx3450-cli1-1 Removed
+ Container duo-codexmacx3450-cli2-1 Removed
+ Container duo-codexmacx3450-wp2-1 Stopped
+ Container duo-codexmacx3450-wp2-1 Removing
+ Container duo-codexmacx3450-wp1-1 Stopped
+ Container duo-codexmacx3450-wp1-1 Removing
+ Container duo-codexmacx3450-wp2-1 Removed
+ Container duo-codexmacx3450-wp1-1 Removed
+ Volume duo-codexmacx3450_wp1 Removing
+ Volume duo-codexmacx3450_wp2 Removing
+ Volume duo-codexmacx3450_wp1 Removed
+ Volume duo-codexmacx3450_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_codexmacx34501/wp_codexmacx34502 dropped[0m
+  siterepo/codexmacx3450{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed codexmacx3450 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m
