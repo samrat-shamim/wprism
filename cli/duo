@@ -36,6 +36,7 @@ require __DIR__ . '/src/Init.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/DoctorCommand.php';
 require __DIR__ . '/src/CodeDeploy.php';
+require __DIR__ . '/src/ScopeCommand.php';
 require __DIR__ . '/src/PlanContract.php';
 require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/PlanView.php';
@@ -71,6 +72,7 @@ use Duo\Orchestrator\AdoptionTransport;
 use Duo\Orchestrator\BootstrapEligibilityReport;
 use Duo\Orchestrator\Init;
 use Duo\Orchestrator\CodeDeploy;
+use Duo\Orchestrator\ScopeCommand;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\CommandEnvironmentProvider;
@@ -1656,10 +1658,7 @@ function read_scope_contract_input(string $path): array {
  * Other passthrough verbs deliberately retain their established bootstrap.
  */
 function cmd_scope(EnvironmentDriver $t, array $extra): int {
-    return $t->streamWp(CodeDeploy::controlArgs(array_merge(
-        ['duo', 'scope', '--repo=' . $t->repoPath()],
-        $extra
-    )));
+    return ScopeCommand::run($t, $extra);
 }
 
 /** One generated owner identifies every target-side phase of a host run. */
