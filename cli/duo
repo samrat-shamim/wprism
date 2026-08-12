@@ -34,6 +34,7 @@ require __DIR__ . '/src/BootstrapEligibility.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Init.php';
 require __DIR__ . '/src/Doctor.php';
+require __DIR__ . '/src/DoctorCommand.php';
 require __DIR__ . '/src/CodeDeploy.php';
 require __DIR__ . '/src/PlanContract.php';
 require __DIR__ . '/src/PlanSummary.php';
@@ -95,6 +96,7 @@ use Duo\Orchestrator\PassthroughCommand;
 use Duo\Orchestrator\EnvironmentCommandOptions;
 use Duo\Orchestrator\DriverCapabilitiesCommand;
 use Duo\Orchestrator\EnvironmentListCommand;
+use Duo\Orchestrator\DoctorCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshFieldResolutionCancelled;
 use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
@@ -1205,27 +1207,7 @@ function cmd_envs(?string $envsFileOverride): int {
 }
 
 function cmd_doctor(EnvironmentDriver $t): int {
-    $result = Doctor::run($t);
-    render_doctor_result($result);
-    return $result['ok'] ? 0 : 1;
-}
-
-/** @param array{ok:bool,checks:list<array{label:string,ok:bool,detail:string,advisory?:bool}>} $result */
-function render_doctor_result(array $result): void {
-    foreach ($result['checks'] as $c) {
-        // DUO-3231: an advisory check (DISALLOW_FILE_MODS today) never
-        // fails the command (Doctor::run()'s own $ok fold already skips
-        // it) — labeling a not-ok advisory row WARN rather than FAIL keeps
-        // the printed severity honest about that, matching the issue's own
-        // "reports its absence as a warning" language rather than implying
-        // doctor considers the environment broken.
-        $mark = $c['ok'] ? 'PASS' : (!empty($c['advisory']) ? 'WARN' : 'FAIL');
-        $line = "[$mark] {$c['label']}";
-        if (!$c['ok'] && $c['detail'] !== '') {
-            $line .= " — {$c['detail']}";
-        }
-        echo $line . "\n";
-    }
+    return DoctorCommand::run($t);
 }
 
 function cmd_adopt(EnvironmentDriver $t, array $extra): int {
@@ -1294,7 +1276,7 @@ function cmd_adopt(EnvironmentDriver $t, array $extra): int {
         fwrite(STDERR, "duo: adopt failed during {$result['phase']}\n");
         print_transport_detail($result);
         if (is_array($doctor)) {
-            render_doctor_result($doctor);
+            DoctorCommand::render($doctor);
         }
         return $result['exit'];
     }
@@ -1306,7 +1288,7 @@ function cmd_adopt(EnvironmentDriver $t, array $extra): int {
         fwrite(STDERR, "duo: adopt: committed transaction has no doctor verification result\n");
         return 1;
     }
-    render_doctor_result($doctor);
+    DoctorCommand::render($doctor);
     return 0;
 }
 
