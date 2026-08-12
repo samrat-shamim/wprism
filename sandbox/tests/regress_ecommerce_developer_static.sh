@@ -187,6 +187,27 @@ COMMENT_BLOCK_INPUT="$(printf '%s\n' '    /* PHP comment */' '    $url = "https:
 [ -x "$SCRIPT" ] || fail "$SCRIPT must be executable"
 bash -n "$SCRIPT"
 
+# The generic pair is the candidate-bound live harness.  Keep its WordPress
+# image tied to the one project-level evidence boundary instead of allowing a
+# floating registry tag to change the target core version underneath a proof.
+EXPECTED_WORDPRESS_VERSION="$(jq -er '.wordpress.last_verified | select(type == "string" and test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))' ../docs/compatibility-baseline.json)" \
+  || fail 'compatibility baseline does not expose one valid WordPress evidence version'
+EXPECTED_WORDPRESS_IMAGE="wordpress:${EXPECTED_WORDPRESS_VERSION}-php8.3-apache"
+EXPECTED_PAIR_WORDPRESS_IMAGE="\${DUO_WP_IMAGE:-${EXPECTED_WORDPRESS_IMAGE}}"
+pair_service_image() {
+  local service="$1"
+  awk -v service="$service" '
+    $0 == "  " service ":" { in_service = 1; next }
+    in_service && $0 ~ /^  [A-Za-z0-9_-]+:$/ { exit }
+    in_service && $1 == "image:" { print $2; exit }
+  ' pair.yml
+}
+[ "$(pair_service_image wp1)" = "$EXPECTED_PAIR_WORDPRESS_IMAGE" ] \
+  || fail "generic wp1 service is not pinned to the compatibility baseline ($EXPECTED_PAIR_WORDPRESS_IMAGE)"
+[ "$(pair_service_image wp2)" = "$EXPECTED_PAIR_WORDPRESS_IMAGE" ] \
+  || fail "generic wp2 service is not pinned to the compatibility baseline ($EXPECTED_PAIR_WORDPRESS_IMAGE)"
+pass "generic pair WordPress image is pinned to evidence boundary ${EXPECTED_WORDPRESS_VERSION}"
+
 # Build the bounded scan artifact before any text contracts run.  Keep the
 # original path in SCRIPT_SOURCE because the live collision probes and the
 # heredoc checks still need the actual executable.

@@ -14,8 +14,9 @@ session — the incident that motivated this redesign. New surface:
 **One shared MariaDB server, many pairs.** `sandbox/db.yml` brings up a
 single long-lived `mariadb:11` container (`duo-shared-db`, its own compose
 project `duo-db`) that hosts every pair's databases. `sandbox/pair.yml` is
-one generic pair template — services `wp1`, `wp2` (`wordpress:php8.3-apache`)
-and `cli1`, `cli2` (`wordpress:cli-php8.3`, `user: "33:33"`) — with no
+one generic pair template — services `wp1`, `wp2`
+(`wordpress:7.0.2-php8.3-apache` by default) and `cli1`, `cli2`
+(`wordpress:cli-php8.3`, `user: "33:33"`) — with no
 MariaDB service of its own. Each pair is brought up as its own compose
 project (`-p duo-<name>`), so any number of pairs come and go independently,
 each in its own blast radius. Everything is driven through
@@ -23,6 +24,12 @@ each in its own blast radius. Everything is driven through
 directly except pair.sh itself (it sets several env vars — `DUO_PAIR`,
 `DUO_PORT1/2`, `DUO_CODEBIND_PLUGIN` — that the compose files need to
 resolve correctly).
+
+The generic pair's WordPress core image is pinned to the exact
+evidence-bound version, so a floating registry tag cannot silently invalidate
+the capability baseline during a candidate proof. `DUO_WP_IMAGE` is an
+explicit override for exploratory local work; candidate-bound evidence leaves
+it unset and therefore uses `wordpress:7.0.2-php8.3-apache`.
 
 Why one server instead of one-per-pair: a clean-room reset becomes `DROP
 DATABASE` + `CREATE DATABASE` against a server that's already initialized

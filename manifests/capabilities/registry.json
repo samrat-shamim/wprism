@@ -1,8 +1,8 @@
 {
     "evidence": {
-        "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+        "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
         "bundle_schema": "duo-certification-bundle/v1",
-        "created_at": "2026-08-12T09:34:43Z",
+        "created_at": "2026-08-11T15:15:18Z",
         "environment_summary": {
             "active_plugins": [],
             "artifact_cache": {
@@ -289,11 +289,11 @@
                 "stylesheet": "twentytwentyfive",
                 "template": "twentytwentyfive"
             },
-            "wordpress": "7.0.3"
+            "wordpress": "7.0.2"
         },
         "force_hatches": [],
         "format": "duo-capability-evidence/v1",
-        "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
+        "git_revision": "502ba7445c9f8cea99484f4395874da75f094a3b",
         "harness": {
             "name": "duo-reference-certification",
             "version": 4
@@ -360,9 +360,9 @@
     },
     "format": "duo-capability-registry/v1",
     "generated_from": {
-        "compatibility_sha256": "31775767564833d8d4963faaaa10e0c79ac52fa0ba57c1b14227ad57edbb2ebe",
-        "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
-        "evidence_sha256": "2e2332ecff9ffebb3f2a628d455ef46a1f1274a89ce43ae96582656d6f8989bc"
+        "compatibility_sha256": "71e42e51f1b76a2ed447cff78e0cd8d7baec6f0ee1371deee24565266c491530",
+        "dispositions_sha256": "ebe89c8e7a8be66dfbcac54281770983c555d0a0c62234c5cf04bf808169824d",
+        "evidence_sha256": "8b14f2959ed87d2c6880e200295af41d9d6903e31a5bd082e865897e5e012262"
     },
     "manifests": {
         "acf": {
@@ -391,12 +391,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -453,7 +453,7 @@
             ]
         },
         "contact-form-7": {
-            "adapter_digest": "fe0d1cfa814cf32b53fc8d190861a647faf8c693a983440c00c2aed06ac7de72",
+            "adapter_digest": "cdb688b9991c1b0cb23a0d2a5e40be6a88ff55ce11d7278407d71961e8d0607f",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -478,12 +478,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -512,7 +512,7 @@
                 "mode": "unmodified",
                 "status": "verified"
             },
-            "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries, including legacy positional shortcode alternate binding.",
+            "reason": "Certified with real form/API/render behavior at both admitted artifact boundaries.",
             "status": "certified",
             "supported_versions": {
                 "plugin": "contact-form-7/wp-contact-form-7.php",
@@ -529,12 +529,7 @@
                 "post_meta._locale",
                 "post_meta._mail",
                 "post_meta._mail_2",
-                "post_meta._messages",
-                "post_meta._old_cf7_unit_id",
-                "post_types",
-                "post_types.wpcf7_contact_form",
-                "shortcode_attrs",
-                "shortcode_attrs.contact-form"
+                "post_meta._messages"
             ],
             "unsupported": [
                 {
@@ -577,12 +572,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -739,12 +734,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -808,12 +803,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -872,12 +867,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -946,12 +941,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1014,12 +1009,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1079,12 +1074,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1175,12 +1170,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1284,12 +1279,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1430,12 +1425,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1521,12 +1516,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1606,7 +1601,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "12fb092f964fa1010fe1c238cb9905f7c526500491317c89db1cedf6772cb355",
+            "adapter_digest": "02ab1102f901be88f5d9f10021e2e2146755c9a62d8a3c0f8420d92e88f7c8b4",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1638,12 +1633,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -1899,12 +1894,12 @@
                 },
                 "site_mode": "single-site",
                 "wordpress": {
-                    "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "last_verified": "7.0.2",
+                    "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",
@@ -2002,8 +1997,8 @@
                 "note": "Pinned by the sandbox harness's own Docker tags (wordpress:php8.3-apache / wordpress:cli-php8.3 -- see sandbox/pair.yml, sandbox/db.yml, sandbox/docker-compose.yml). Verified live: PHP 8.3.33 as of this writing."
             },
             "wordpress": {
-                "last_verified": "7.0.3",
-                "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                "last_verified": "7.0.2",
+                "note": "Exact evidence boundary, not a claimed range: the generic sandbox pair defaults to wordpress:7.0.2-php8.3-apache, and candidate-bound evidence must use that default. DUO_WP_IMAGE is an explicit local override for exploratory work; any other target version receives wordpress_version_mismatch until a fresh bundle updates this value. A wider range requires a real multi-version core matrix."
             }
         },
         "plugin_execution": "unmodified",
@@ -2014,7 +2009,7 @@
         "fse": {
             "adapter_digest": "2ce6183fdd3cdeb73ae70758787625ea6bbc54ae2fe64592724ed5cfd9278a23",
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "dbdc8fb5268611798e8be042aedb30f3cd8d68e7bdb1f85d352fce62a52812bd",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
                 "status": "candidate",

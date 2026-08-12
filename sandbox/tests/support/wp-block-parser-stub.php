@@ -6,7 +6,7 @@
  * agent/src/Blocks.php and agent/src/Lint.php depend on (parse_blocks(),
  * serialize_blocks()/serialize_block(), and their WP_Block_Parser* support
  * classes) — extracted from wp-includes/{blocks.php,class-wp-block-parser*.php}
- * of the `wordpress:php8.3-apache` image (core 7.0.2) so
+ * of the `wordpress:7.0.2-php8.3-apache` image so
  * sandbox/tests/regress_block_refs.sh can exercise the real engine code
  * with the real WP block grammar without booting a WordPress process or
  * docker at all.
