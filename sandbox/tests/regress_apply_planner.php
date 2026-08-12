@@ -7,17 +7,23 @@
  * regress_plan_category_summary.php) already exercise these methods'
  * behavior in depth, most via ReflectionMethod against Apply's own thin
  * facades — this file is deliberately narrower: it proves the extracted
- * methods are directly callable as ApplyPlanner's own public API, with no
- * Apply instance, WordPress, database, or Reflection required.
+ * methods are directly callable as ApplyPlanner's own public API. One small
+ * Apply-integrated regression additionally proves a declared literal `tt`
+ * table kind stays in raw ledger keyspace rather than being treated as a
+ * Snapshot reference token.
  */
 declare(strict_types=1);
 
+require_once __DIR__ . '/../../agent/src/Uuid.php';
 require_once __DIR__ . '/../../agent/src/ApplyPlanner.php';
+require_once __DIR__ . '/../../agent/src/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\ApplyPlanner;
 use Duo\Canon;
 use Duo\Policy;
 use Duo\Snapshot;
+use Duo\Uuid;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -114,7 +120,12 @@ $optionPolicy->manifests = [[
         'managed_option' => ['class' => 'managed', 'autoload' => 'yes'],
     ],
 ]];
-$optionPlanner = new ApplyPlanner($optionPolicy, [], static fn(string $uuid, string $kind): ?int => null);
+$optionPlanner = new ApplyPlanner(
+    $optionPolicy,
+    [],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
 $desiredOptions = [
     'format' => 'duo-options/v1',
     'records' => [
@@ -154,6 +165,132 @@ $check(
     $optionPlanner->option_rebuild_names($desiredOptions, $unchangedOptions) === [],
     'option projection: an authored record equal to the target produces no rebuild work'
 );
+
+// ----------------------------------------------- natural-key continuity notes
+
+$naturalKeyUuid = Uuid::v5(Uuid::NAMESPACE_DUO, 'acme_rooms:fresh-room');
+$naturalKeyCollisionResolverCalls = [];
+$naturalKeyTableResolverCalls = [];
+$naturalKeyPlanner = new ApplyPlanner(
+    new Policy(),
+    [
+        'acme_rooms' => [
+            'id_kind' => 'acme_room',
+            'identity' => ['mode' => 'natural_key', 'column' => 'code'],
+        ],
+        'mapped_rooms' => [
+            'id_kind' => 'mapped_room',
+            'identity' => ['mode' => 'mapped'],
+        ],
+    ],
+    static function (string $uuid, string $kind) use (&$naturalKeyCollisionResolverCalls): ?int {
+        $naturalKeyCollisionResolverCalls[] = [$uuid, $kind];
+        return null;
+    },
+    static function (string $uuid, string $kind) use (&$naturalKeyTableResolverCalls, $naturalKeyUuid): ?int {
+        $naturalKeyTableResolverCalls[] = [$uuid, $kind];
+        return $uuid === $naturalKeyUuid && $kind === 'acme_room' ? 71 : null;
+    }
+);
+$check(
+    $naturalKeyPlanner->natural_key_continuity_annotations(
+        $naturalKeyUuid,
+        'acme_rooms',
+        ['columns' => ['code' => 'fresh-room']],
+        null
+    ) === [],
+    'natural-key annotation: a retained UUID equal to the current key produces no rename note'
+);
+$renameNote = 'acme_rooms row renamed-room: renamed since first capture (uuid retained via ledger)';
+$check(
+    $naturalKeyPlanner->natural_key_continuity_annotations(
+        $naturalKeyUuid,
+        'acme_rooms',
+        ['columns' => ['code' => 'renamed-room']],
+        ['content' => Canon::encode(['columns' => ['code' => 'renamed-room']])]
+    ) === [$renameNote],
+    'natural-key annotation: desired and observed rename notes collapse to one deterministic plan annotation'
+);
+$check(
+    $naturalKeyPlanner->natural_key_continuity_annotations(
+        $naturalKeyUuid,
+        'acme_rooms',
+        null,
+        ['content' => Canon::encode(['columns' => ['code' => 'target-renamed-room']])]
+    ) === ['acme_rooms row target-renamed-room: renamed since first capture (uuid retained via ledger)'],
+    'natural-key annotation: a same-snapshot observed front is projected without a target reread'
+);
+$check($naturalKeyCollisionResolverCalls === [], 'natural-key annotation: continuity leaves collision-token resolution untouched');
+$check(
+    $naturalKeyTableResolverCalls === [
+        [$naturalKeyUuid, 'acme_room'],
+        [$naturalKeyUuid, 'acme_room'],
+        [$naturalKeyUuid, 'acme_room'],
+    ],
+    'natural-key annotation: the planner uses only its injected raw-table resolver'
+);
+$unmappedPlanner = new ApplyPlanner(
+    new Policy(),
+    ['acme_rooms' => ['id_kind' => 'acme_room', 'identity' => ['mode' => 'natural_key', 'column' => 'code']]],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
+$check(
+    $unmappedPlanner->natural_key_continuity_annotations(
+        $naturalKeyUuid,
+        'acme_rooms',
+        ['columns' => ['code' => 'renamed-room']],
+        null
+    ) === [],
+    'natural-key annotation: a fresh target with no retained mapping does not claim a rename'
+);
+$check(
+    $naturalKeyPlanner->natural_key_continuity_annotations(
+        $naturalKeyUuid,
+        'mapped_rooms',
+        ['columns' => ['code' => 'renamed-room']],
+        null
+    ) === [],
+    'natural-key annotation: mapped identity tables never produce continuity notes'
+);
+
+final class ApplyPlannerRawTableLedgerWpdb {
+    public string $prefix = 'wp_';
+    public string $last_error = '';
+
+    /** @var list<array{0:string,1:string}> */
+    public array $ledgerLookups = [];
+
+    public function prepare(string $query, mixed ...$args): string {
+        $this->ledgerLookups[] = [(string) ($args[0] ?? ''), (string) ($args[1] ?? '')];
+        return $query;
+    }
+
+    public function get_var(string $query): ?string {
+        $lookup = $this->ledgerLookups[array_key_last($this->ledgerLookups)];
+        return $lookup[1] === 'tt' ? '73' : null;
+    }
+}
+
+$rawTableLedgerWpdb = new ApplyPlannerRawTableLedgerWpdb();
+$GLOBALS['wpdb'] = $rawTableLedgerWpdb;
+$applyReflection = new ReflectionClass(\Duo\Apply::class);
+$applyForRawTt = $applyReflection->newInstanceWithoutConstructor();
+$applyReflection->getProperty('policy')->setValue($applyForRawTt, new Policy());
+$applyReflection->getProperty('snapshotRowTablesCache')->setValue($applyForRawTt, [
+    'tt_rooms' => [
+        'id_kind' => 'tt',
+        'identity' => ['mode' => 'natural_key', 'column' => 'code'],
+    ],
+]);
+$rawTtUuid = 'f2e8bd3d-8c9e-5f4a-9b79-c872f4e8414c';
+$rawTtRow = [];
+$rawTtArgs = [&$rawTtRow, $rawTtUuid, 'tt_rooms', ['columns' => ['code' => 'renamed-room']], null];
+$applyReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($applyForRawTt, $rawTtArgs);
+$check($rawTtRow['annotations'] === [
+    'tt_rooms row renamed-room: renamed since first capture (uuid retained via ledger)',
+], 'Apply preserves a declared raw tt ledger kind for natural-key continuity');
+$check($rawTableLedgerWpdb->ledgerLookups === [[$rawTtUuid, 'tt']], 'Apply sends literal declared tt to Ledger unchanged');
 
 // ----------------------------------------------------------- work projection
 
@@ -225,6 +362,7 @@ $tablePolicy->manifests = [$ninjaManifest];
 $tablePlanner = new ApplyPlanner(
     $tablePolicy,
     Snapshot::row_tables($tablePolicy),
+    static fn(string $uuid, string $kind): ?int => null,
     static fn(string $uuid, string $kind): ?int => null
 );
 $tableTree = [
@@ -372,9 +510,9 @@ final class ApplyPlannerCollisionWpdb {
 $plannerConstructor = (new ReflectionClass(ApplyPlanner::class))->getConstructor();
 $check(
     array_map(static fn(ReflectionParameter $p): string => (string) $p->getType(), $plannerConstructor->getParameters()) === [
-        'Duo\\Policy', 'array', 'Closure',
+        'Duo\\Policy', 'array', 'Closure', 'Closure',
     ],
-    'collision planner: constructor takes only Policy, Apply’s declared table roster, and a ledger-id resolver'
+    'collision planner: constructor separates collision-token and raw-table ledger resolvers'
 );
 
 $plannerPolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
@@ -382,7 +520,7 @@ $resolverCalls = [];
 $collisionPlanner = new ApplyPlanner($plannerPolicy, [], static function (string $uuid, string $kind) use (&$resolverCalls): ?int {
     $resolverCalls[] = [$uuid, $kind];
     return $uuid === 'parent-1' && $kind === 'post' ? 7 : null;
-});
+}, static fn(string $uuid, string $kind): ?int => null);
 $wpdb = new ApplyPlannerCollisionWpdb();
 $collisionEntity = [
     'type' => 'post',
@@ -477,7 +615,8 @@ $tablePlanner = new ApplyPlanner(
     static function (string $uuid, string $kind) use (&$tableResolverCalls, $roomUuid): ?int {
         $tableResolverCalls[] = [$uuid, $kind];
         return $uuid === $roomUuid && $kind === 'acme_room' ? 13 : null;
-    }
+    },
+    static fn(string $uuid, string $kind): ?int => null
 );
 $wpdb->collisionIds = [91];
 $tableCache = [];
@@ -533,6 +672,12 @@ $check(
         && preg_match('/public static function plan_precondition_hash\(/', $plannerSource) === 1
         && preg_match('/private function plan_precondition_hash\([^}]*?return ApplyPlanner::plan_precondition_hash\(/s', $applySource) === 1,
     'mutation authority: Apply keeps thin facades while planner owns repair UUID and precondition projections'
+);
+$check(
+    preg_match('/public function natural_key_continuity_annotations\(/', $plannerSource) === 1
+        && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
+        && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
+    'natural-key annotation: planner owns the projection while Apply keeps the plan-row compatibility facade'
 );
 
 if ($failures) {

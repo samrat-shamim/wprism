@@ -164,7 +164,8 @@ final class Apply {
             static fn(string $uuid, string $kind): ?int => Ledger::id_for(
                 $uuid,
                 $kind === 'tt' ? Ledger::KIND_TT : $kind
-            )
+            ),
+            static fn(string $uuid, string $kind): ?int => Ledger::id_for($uuid, $kind)
         );
     }
 
@@ -1096,25 +1097,12 @@ final class Apply {
         ?array $desired,
         ?array $env
     ): void {
-        $decl = $this->snapshotRowTables()[$table] ?? null;
-        if (!is_array($decl) || ($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
-            return;
-        }
-        if (Ledger::id_for($uuid, (string) ($decl['id_kind'] ?? '')) === null) {
-            return;
-        }
-
-        $fronts = [];
-        if ($desired !== null) {
-            $fronts[] = $desired;
-        }
-        $content = $env['content'] ?? null;
-        if (is_string($content)) {
-            $fronts[] = Canon::decode($content);
-        }
-        foreach ($fronts as $front) {
-            $columns = is_array($front['columns'] ?? null) ? $front['columns'] : [];
-            $note = IdentityNotes::natural_key_continuity($uuid, $table, $decl, $columns);
+        foreach ($this->apply_planner()->natural_key_continuity_annotations(
+            $uuid,
+            $table,
+            $desired,
+            $env
+        ) as $note) {
             if ($note !== null && !in_array($note, $row['annotations'] ?? [], true)) {
                 $row['annotations'][] = $note;
             }

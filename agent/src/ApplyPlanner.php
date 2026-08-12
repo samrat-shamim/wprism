@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/Canon.php';
+require_once __DIR__ . '/IdentityNotes.php';
 require_once __DIR__ . '/OptionState.php';
 require_once __DIR__ . '/Policy.php';
 require_once __DIR__ . '/Snapshot.php';
@@ -17,8 +18,9 @@ require_once __DIR__ . '/Snapshot.php';
  * live-DB-backed collision/adoption lookup in
  * `find_collision()`/`collision_parent_id()`/`one_collision()` is now the
  * first stateful planner responsibility here as well. The work/deletion
- * ordering projection used by plan, apply, and scoped recovery also lives
- * here because it reads only the immutable plan/tree and injected policy.
+ * ordering and natural-key continuity annotation projections used by plan,
+ * apply, and scoped recovery also live here because they read only explicit
+ * immutable inputs and injected collaborators.
  * The remaining `build_plan()` comparison/guard-ref orchestration stays in
  * `Apply` for a later slice, per the issue's "extract one collaborator at a
  * time" guardrail.
@@ -30,6 +32,9 @@ require_once __DIR__ . '/Snapshot.php';
  * need no behavior change.
  */
 final class ApplyPlanner {
+    /** @var \Closure(string,string):?int */
+    private readonly \Closure $tableLedgerIdFor;
+
     /**
      * The planner owns the policy needed for typed-table collision lookup and
      * the already-memoized authored-table roster supplied by Apply. Keeping
@@ -37,13 +42,65 @@ final class ApplyPlanner {
      * Apply for cache state or silently re-read the manifest on every entity.
      *
      * @param array<string,array> $snapshotRowTables
-     * @param \Closure(string,string):?int $ledgerIdFor
+     * @param \Closure(string,string):?int $ledgerIdFor Resolves engine reference tokens used by Snapshot collision checks.
+     * @param \Closure(string,string):?int $tableLedgerIdFor Resolves a declared table's raw ledger id_kind.
      */
     public function __construct(
         private readonly Policy $policy,
         private readonly array $snapshotRowTables,
-        private readonly \Closure $ledgerIdFor
+        private readonly \Closure $ledgerIdFor,
+        \Closure $tableLedgerIdFor
     ) {
+        // A declaration is already in ledger keyspace: its literal `tt` must
+        // not be rewritten as the engine token spelling `term_taxonomy`.
+        // Snapshot collision references still use $ledgerIdFor and retain
+        // that translation.
+        $this->tableLedgerIdFor = $tableLedgerIdFor;
+    }
+
+    /**
+     * Project the informational natural-key continuity notes for one planned
+     * typed-table row. The ledger resolver is an explicit input boundary:
+     * without an already-retained local identity, a UUID differing from the
+     * current key is only a fresh-target/adoption question, never a rename
+     * claim. Desired and same-snapshot observed fronts are both inspected so
+     * a plan describes the continuity fact on either side without a target
+     * reread; duplicate notes are collapsed deterministically.
+     *
+     * @return list<string>
+     */
+    public function natural_key_continuity_annotations(
+        string $uuid,
+        string $table,
+        ?array $desired,
+        ?array $env
+    ): array {
+        $decl = $this->snapshotRowTables[$table] ?? null;
+        if (!is_array($decl) || ($decl['identity']['mode'] ?? 'mapped') !== 'natural_key') {
+            return [];
+        }
+        if (($this->tableLedgerIdFor)($uuid, (string) ($decl['id_kind'] ?? '')) === null) {
+            return [];
+        }
+
+        $fronts = [];
+        if ($desired !== null) {
+            $fronts[] = $desired;
+        }
+        $content = $env['content'] ?? null;
+        if (is_string($content)) {
+            $fronts[] = Canon::decode($content);
+        }
+
+        $annotations = [];
+        foreach ($fronts as $front) {
+            $columns = is_array($front['columns'] ?? null) ? $front['columns'] : [];
+            $note = IdentityNotes::natural_key_continuity($uuid, $table, $decl, $columns);
+            if ($note !== null && !in_array($note, $annotations, true)) {
+                $annotations[] = $note;
+            }
+        }
+        return $annotations;
     }
 
     /** Same-slug target entity: managed with a different UUID or adoptable. */
