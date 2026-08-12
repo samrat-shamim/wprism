@@ -20,7 +20,7 @@ final class AttributeGrammar {
      * shortcode twin `shortcode_attrs` (tagName => list of rules).
      *
      * Structure only — the ref KIND vocabulary is checked once, across every
-     * pinned manifest, by validate_ref_kinds() below, because a legal kind
+     * pinned manifest, by ReferenceKindGrammar::validate_ref_kinds(), because a legal kind
      * includes any declared table's id_kind and no single manifest can see
      * that set. What this catches is the shape errors that used to fail
      * silently: Blocks::apply_rewrite() skips any rule whose `path` names an

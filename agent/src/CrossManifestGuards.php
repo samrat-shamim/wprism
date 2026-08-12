@@ -33,14 +33,12 @@ require_once __DIR__ . '/Policy.php';
  *
  * `validate_ledger_kind_claims()` looks like it belongs in this family at
  * first glance (it is also a cross-manifest "no conflicting claim" guard)
- * but is NOT included here: its only caller is `Policy::validate_ref_kinds()`,
+ * but is NOT included here: its only caller is `ReferenceKindGrammar::validate_ref_kinds()`,
  * which computes a shared `$idKinds` set once and passes it to both that
  * method and the ref/token-kind vocabulary checks "so the three [vocabularies]
- * can never be derived from different inputs" (Policy.php's own comment) --
- * moving it alone would either duplicate that computation or leave an
- * awkward cross-file call into a single sub-helper. It stays with
- * `validate_ref_kinds()` for a future slice that moves that whole cluster
- * together.
+ * can never be derived from different inputs". The whole cluster now lives in
+ * ReferenceKindGrammar, so the shared set stays local to that grammar rather
+ * than creating a cross-file call into a single sub-helper.
  *
  * `Policy::taxonomy_pattern_matches()` and `Policy::with_option_autoload()`
  * looked cluster-exclusive at first too (each is used here) but both have

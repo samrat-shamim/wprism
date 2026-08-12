@@ -2758,7 +2758,7 @@ final class Cli {
             ],
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
-                'check' => 'Policy::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
+                'check' => 'ReferenceKindGrammar::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 'why' => $repo === null
                     ? 'both guards take the SITE half of policy as INPUT: a table declared in site.duo.json '
                         . 'extends the legal ref/token/ledger kind vocabulary, and a site policy.options rule is '

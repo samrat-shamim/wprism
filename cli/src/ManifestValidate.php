@@ -79,7 +79,7 @@ final class ManifestValidate {
      *
      *   - the ref/token/ledger kind vocabularies union their engine base with
      *     every `id_kind` declared by a pinned manifest AND by
-     *     `site.duo.json`'s own `policy.tables` (Policy::validate_ref_kinds()),
+     *     `site.duo.json`'s own `policy.tables` (ReferenceKindGrammar::validate_ref_kinds()),
      *     so a manifest referencing a kind the SITE declares is legal there and
      *     refused here;
      *   - two manifests declaring contradictory rules for one option name are
@@ -138,7 +138,7 @@ final class ManifestValidate {
         $rows = array_merge($rows, [
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
-                'check' => 'Policy::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
+                'check' => 'ReferenceKindGrammar::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 'why' => 'both guards take the SITE half of policy as INPUT, not just the manifests: a table '
                     . 'declared in site.duo.json extends the legal ref/token/ledger kind vocabulary, and a '
                     . 'site policy.options rule is the explicit resolution for one option two manifests declare '
