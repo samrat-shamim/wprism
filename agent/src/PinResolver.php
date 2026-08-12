@@ -15,10 +15,13 @@ require_once __DIR__ . '/AdapterSources.php';
  * pure relocation, same idiom as ManifestGrammar (DUO-3348 slice 1): no
  * external caller existed (grep-verified across the repo before moving), so
  * Policy needed no compatibility facade, unlike ManifestGrammar's
- * assert_widget_grammar() facade kept for SidebarState.php. The one
- * mechanical change validate_manifest_pins() needed is its own type hint:
- * `self $policy` meant Policy inside Policy; moved into this class it would
- * silently mean PinResolver instead, so it is now spelled `Policy $policy`.
+ * assert_widget_grammar() facade kept for SidebarState.php. Two mechanical
+ * changes came with the move, both required by crossing a class boundary
+ * rather than any logic change: all three went `private` → `public` (a
+ * cross-class caller cannot reach `private`), and validate_manifest_pins()'s
+ * own type hint changed from `self $policy` — Policy, while the method lived
+ * inside Policy — to `Policy $policy` explicit, since a bare `self` here
+ * would now silently mean PinResolver instead.
  *
  * Deliberately does not require_once RepositoryCompiler.php, even though
  * validate_manifest_pins() calls `RepositoryCompiler::resolved_adapters()`:

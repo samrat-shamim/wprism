@@ -168,10 +168,14 @@ if (!defined('DUO_SPEC_VERSION')) {
 putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 // Policy::load() itself calls PinResolver::validate_manifest_pins()
 // internally as part of loading 'm' (no digest pins here, so it already
-// takes the early-return branch without incident) -- this additionally
-// calls it a SECOND time, directly and in isolation, so a regression in
-// that branch specifically fails THIS assertion rather than hiding inside
-// load()'s own success.
+// takes the early-return branch without incident) -- if that branch broke,
+// load() itself would fatal right here, uncaught, before reaching the
+// second, direct call below. This additionally calls validate_manifest_
+// pins() a SECOND time, in isolation: not to catch a regression load()
+// would otherwise hide (it wouldn't -- an uncaught fatal is already loud),
+// but to pin the failure to this one function specifically, with a named
+// assertion message, rather than an unattributed crash somewhere inside
+// load()'s much larger body.
 $policy = Policy::load(null, ['m']);
 try {
     // No pin carries a digest, so this must return WITHOUT ever reaching
@@ -207,15 +211,16 @@ $check(
     'Policy.php calls all three PinResolver methods exactly twice each (once from load(), once from from_snapshot())'
 );
 
-// === Standalone independence from RepositoryCompiler.php: every check above
-// ran in a process that never required RepositoryCompiler.php (Policy.php IS
-// required, deliberately, to get a real Policy for the type hint above --
-// but Policy.php's own require chain does not reach RepositoryCompiler.php
-// either, matching PinResolver.php's own documented reasoning for not
-// requiring it).
+// === Corroborates, rather than independently proves, that the process
+// stayed clean throughout: the actual proof that the early-return branch
+// never touches RepositoryCompiler.php is the direct call above (:182)
+// succeeding rather than fataling on a missing class -- this check confirms
+// nothing ELSE along the way (Policy.php's own require chain, the fixture
+// construction, etc.) accidentally loaded RepositoryCompiler.php either,
+// which would have made that earlier proof coincidental rather than causal.
 $check(
     !class_exists(\Duo\RepositoryCompiler::class, false),
-    'this test process never loaded RepositoryCompiler.php at any point -- the early-return branch above genuinely never touched it'
+    'RepositoryCompiler.php was never loaded anywhere in this process -- corroborates the early-return proof above'
 );
 
 if ($failures) {
