@@ -1693,6 +1693,22 @@ check(
     'post/menu field declaration grammar lives in FieldGrammar while Policy retains shared field vocabularies'
 );
 
+// UserMetaGrammar owns the same safety check for static declarations and
+// interpreter-returned rules. Policy retains only the published vocabularies;
+// keep all loader and runtime lookup call sites wired to the collaborator.
+$userMetaGrammar = new ReflectionClass('Duo\\UserMetaGrammar');
+check(
+    $userMetaGrammar->hasMethod('validate_user_meta_rules')
+        && $userMetaGrammar->getMethod('validate_user_meta_rules')->isPublic()
+        && $userMetaGrammar->hasMethod('validate_user_meta_rule')
+        && $userMetaGrammar->getMethod('validate_user_meta_rule')->isPublic()
+        && !$policyReflection->hasMethod('validate_user_meta_rules')
+        && !$policyReflection->hasMethod('validate_user_meta_rule')
+        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rules(') === 4
+        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rule(') === 4,
+    'user-meta safety grammar lives in UserMetaGrammar for both declarations and interpreter rules'
+);
+
 // ======================================================================
 echo "\n== exit codes and the command's own fail-closed paths ==\n";
 
