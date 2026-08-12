@@ -70,5 +70,6 @@ printf '%s' "$REMOVE_CONTACT_ME_PHP" > "${CONF_REPO2:-siterepo/conf2}"/.tmp-nf-r
 NF_CLEANUP=$(wp_conf2 eval-file /siterepo/.tmp-nf-remove-contact-me.php)
 rm -f "${CONF_REPO2:-siterepo/conf2}"/.tmp-nf-remove-contact-me.php
 printf '%s\n' "$NF_CLEANUP"
+require_observed_nonempty "conf2 Ninja Forms activation cleanup observation" "$NF_CLEANUP"
 require_fixture_state "conf2's own activation-created 'Contact Me' form is gone from nf3_forms" \
   "contact_me_remaining=0" "$(grep -o 'contact_me_remaining=[0-9]*' <<<"$NF_CLEANUP" | tail -1)"

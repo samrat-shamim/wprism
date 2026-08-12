@@ -165,4 +165,5 @@ echo json_encode([
 PHPEOF
 SEED_JSON=$(wp_conf1 eval-file /siterepo/.tmp-seed-acf.php)
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-seed-acf.php
+require_observed_nonempty "conf1 ACF seed output" "$SEED_JSON"
 echo "acf seed: $SEED_JSON"

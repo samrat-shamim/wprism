@@ -138,7 +138,7 @@ $result = WC_Tax::create_tax_class("Conformance Reduced Rate");
 if (is_wp_error($result)) { throw new RuntimeException($result->get_error_message()); }
 ' >/dev/null
 TAX_CLASS_ID=$(wp_conf1 db query "SELECT tax_rate_class_id FROM wp_wc_tax_rate_classes WHERE slug='conformance-reduced-rate'" --skip-column-names)
-[ -n "$TAX_CLASS_ID" ] || { echo "failed to create Conformance Reduced Rate tax class" >&2; exit 1; }
+require_observed_nonempty "conf1 WooCommerce tax-class id" "$TAX_CLASS_ID"
 TAX_ID=$(wp_conf1 wc tax create --country=US --state=CA --rate=7.2500 \
   --name='Conformance CA Sales Tax' --priority=1 --shipping=true --order=1 \
   --class=conformance-reduced-rate --porcelain --user=admin)
@@ -154,6 +154,7 @@ SOURCE_ORDER_ID=$(wp_conf1 eval "
 \$order->save();
 echo \$order->get_id();
 ")
+require_fixture_ids SOURCE_ORDER_ID
 
 # Reviews, sessions, and arbitrary queued jobs are commerce runtime. Populate
 # all three on the source so promotion evidence proves they do not leak to the

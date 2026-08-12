@@ -16,6 +16,7 @@ CONF1_PORT="${CONF1_PORT:-8806}"
 CONF2_PORT="${CONF2_PORT:-8807}"
 
 FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-contact/") || fail "conf2 conformance-contact page did not return 200"
+require_observed_nonempty "conf2 Contact Form 7 rendered response" "$FRONT"
 
 if grep -q "localhost:${CONF1_PORT}" <<<"$FRONT"; then
     fail "conf2's rendered contact page links back to conf1 (localhost:${CONF1_PORT})"
@@ -34,8 +35,7 @@ CONF2_WPCF7_ID="${CONF2_WPCF7_IDS[0]}"
 
 CONF1_WPCF7_ID=$($COMPOSE run --rm -T cli1 wp post list \
   --post_type=wpcf7_contact_form --name=conformance-contact-form --format=ids)
-[[ "$CONF1_WPCF7_ID" =~ ^[0-9]+$ ]] \
-  || fail "expected one numeric source _wpcf7 id for conformance-contact-form, got '${CONF1_WPCF7_ID:-none}'"
+require_fixture_ids CONF1_WPCF7_ID
 if [ "$CONF2_WPCF7_ID" = "$CONF1_WPCF7_ID" ]; then
     fail "conf2's rendered form uses conf1's numeric post id ($CONF1_WPCF7_ID) — ids should differ across environments"
 fi
@@ -47,6 +47,7 @@ pass "conf2 renders its own numeric CF7 id ($CONF2_WPCF7_ID, conf1's was $CONF1_
 # source tenant's raw alternate, and the target must render its own form row.
 LEGACY_FRONT=$(curl -fs "http://localhost:${CONF2_PORT}/conformance-contact-legacy/") \
   || fail "conf2 legacy contact page did not return 200"
+require_observed_nonempty "conf2 legacy Contact Form 7 rendered response" "$LEGACY_FRONT"
 if grep -q "localhost:${CONF1_PORT}" <<<"$LEGACY_FRONT"; then
     fail "conf2's legacy contact page links back to conf1 (localhost:${CONF1_PORT})"
 fi
@@ -66,6 +67,7 @@ if [ "$LEGACY_CONF2_ID" = "$CONF1_WPCF7_ID" ]; then
     fail "legacy CF7 render used conf1's numeric post id ($CONF1_WPCF7_ID)"
 fi
 LEGACY_CONF2_OLD_ID=$($COMPOSE run --rm -T cli2 wp post meta get "$LEGACY_CONF2_ID" _old_cf7_unit_id)
+require_fixture_values LEGACY_CONF2_OLD_ID
 [ "$LEGACY_CONF2_OLD_ID" = "3199001" ] \
   || fail "target legacy form lost its canonical _old_cf7_unit_id (got '${LEGACY_CONF2_OLD_ID:-none}')"
 if rg -n '\[contact-form[[:space:]]+3199001([[:space:]]|\])' "$CONF_REPO1/state/posts" >/dev/null 2>&1; then
@@ -75,6 +77,7 @@ pass "legacy positional shortcode resolved through _old_cf7_unit_id to conf2's o
 
 # A real anonymous submission on conf2 must not touch conf1 in any way (mail-only, zero DB footprint on either side).
 CONF1_POSTS_BEFORE=$($COMPOSE run --rm -T cli1 wp post list --post_type=any --format=count)
+require_observed_nonempty "conf1 post-count baseline before anonymous Contact Form 7 submission" "$CONF1_POSTS_BEFORE"
 UNIT_TAG=$(grep -o '_wpcf7_unit_tag" value="[^"]*"' <<<"$FRONT" | sed 's/.*value="//;s/"//')
 curl -fs -X POST "http://localhost:${CONF2_PORT}/conformance-contact/" \
   -d "_wpcf7=$CONF2_WPCF7_ID" -d "_wpcf7_version=6.1.6" -d "_wpcf7_locale=en_US" \
@@ -83,6 +86,7 @@ curl -fs -X POST "http://localhost:${CONF2_PORT}/conformance-contact/" \
   --data-urlencode "your-subject=Conformance check" --data-urlencode "your-message=Automated conformance submission." \
   -o /dev/null || fail "anonymous CF7 submission on conf2 failed"
 CONF1_POSTS_AFTER=$($COMPOSE run --rm -T cli1 wp post list --post_type=any --format=count)
+require_observed_nonempty "conf1 post-count after anonymous Contact Form 7 submission" "$CONF1_POSTS_AFTER"
 [ "$CONF1_POSTS_BEFORE" = "$CONF1_POSTS_AFTER" ] \
   || fail "conf1's post count changed ($CONF1_POSTS_BEFORE -> $CONF1_POSTS_AFTER) after an anonymous submission on conf2 — runtime isolation violated"
 pass "anonymous submission on conf2 succeeded and left conf1 untouched (CF7 is mail-only, zero DB footprint on either side)"

@@ -238,6 +238,7 @@ check_ninja_forms_boundary_content() {
   local front form_id api_out
   front=$(curl -fsSL "http://localhost:${PORT2}/conformance-careers/") \
     || fail "side 2 conformance-careers page did not return 200"
+  require_observed_nonempty "side 2 Ninja Forms careers page" "$front"
   [ "${#front}" -ge 1000 ] \
     || fail "side 2 conformance-careers response was suspiciously short (${#front} bytes)"
   if grep -qiE 'fatal error|uncaught' <<<"$front"; then
@@ -249,11 +250,12 @@ check_ninja_forms_boundary_content() {
     || fail "side 2 rendered form is missing its own field content"
 
   form_id=$(wp2 db query "SELECT id FROM wp_nf3_forms WHERE title='Job Application'" --skip-column-names | tr -d '[:space:]')
-  [ -n "$form_id" ] || fail "side 2 has no Job Application row in nf3_forms"
+  require_fixture_ids form_id
   api_out=$(wp2 eval "
 \$form = Ninja_Forms()->form($form_id)->get();
 echo \$form->get_setting('title') . '|' . count(Ninja_Forms()->form($form_id)->get_fields()) . '|' . count(Ninja_Forms()->form($form_id)->get_actions());
 ")
+  require_observed_nonempty "side 2 Ninja Forms model API" "$api_out"
   [ "$api_out" = "Job Application|23|3" ] \
     || fail "side 2 Ninja Forms model API mismatch (got: $api_out)"
   pass "side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions"
@@ -491,6 +493,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get advanced-custom-fields --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$ACF_VERSION" ] || fail "side 2 installed version mismatch: expected $ACF_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -561,6 +564,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get ninja-forms --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$NINJA_VERSION" ] || fail "side 2 installed version mismatch: expected $NINJA_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -630,6 +634,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get elementor --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$ELEMENTOR_VERSION" ] || fail "side 2 installed version mismatch: expected $ELEMENTOR_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -711,6 +716,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get contact-form-7 --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$CF7_VERSION" ] || fail "side 2 installed version mismatch: expected $CF7_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -728,12 +734,14 @@ EOF
   # created forms may legitimately receive the same numeric post ID.  The
   # target title/meta/render assertions below prove target ownership; numeric
   # inequality across databases would reject a valid deterministic fixture.
-  [[ "$TARGET_FORM_ID" =~ ^[0-9]+$ ]] || fail "CF7 $CF7_VERSION target form lookup did not return one numeric id"
+  require_fixture_ids TARGET_FORM_ID TARGET_LEGACY_ID
   [ "$TARGET_LEGACY_ID" != "" ] || fail "CF7 $CF7_VERSION target legacy page is missing"
   TARGET_OLD_ID=$(wp2 post meta get "$TARGET_FORM_ID" _old_cf7_unit_id)
+  require_fixture_values TARGET_OLD_ID
   [ "$TARGET_OLD_ID" = "$CF7_OLD_ID" ] || fail "CF7 $CF7_VERSION target lost _old_cf7_unit_id ($TARGET_OLD_ID vs $CF7_OLD_ID)"
   LEGACY_FRONT=$(curl -fs "http://localhost:${PORT2}/vmatrix-contact-legacy/") \
     || fail "CF7 $CF7_VERSION target legacy page did not render"
+  require_observed_nonempty "CF7 $CF7_VERSION target legacy page" "$LEGACY_FRONT"
   grep -q "_wpcf7\" value=\"$TARGET_FORM_ID\"" <<<"$LEGACY_FRONT" \
     || fail "CF7 $CF7_VERSION target legacy page did not resolve its own form id $TARGET_FORM_ID"
   pass "target: contact-form-7 $CF7_VERSION legacy positional shortcode resolves to target form $TARGET_FORM_ID"
@@ -794,6 +802,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get polylang --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$POLYLANG_VERSION" ] || fail "side 2 installed version mismatch: expected $POLYLANG_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -864,6 +873,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get woocommerce --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$WOO_VERSION" ] || fail "side 2 installed version mismatch: expected $WOO_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -935,6 +945,7 @@ EOF
   clone_case_target
   wp2 plugin install "$ARTIFACT_2" >/dev/null
   INSTALLED_2=$(wp2 plugin get wordpress-seo --field=version)
+  require_fixture_values INSTALLED_2
   [ "$INSTALLED_2" = "$YOAST_VERSION" ] || fail "side 2 installed version mismatch: expected $YOAST_VERSION, got $INSTALLED_2"
 
   wp2 duo deploy --repo=/siterepo
@@ -1118,7 +1129,9 @@ reset_case_repositories
 # negative control owns.
 IN_RANGE_ARTIFACT=$(fetch_artifact ninja-forms 3.14.11 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get ninja-forms --field=version)" = "3.14.11" ] \
+NEGATIVE_INSTALLED=$(wp1 plugin get ninja-forms --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "3.14.11" ] \
   || fail "negative control premise did not install exact ninja-forms 3.14.11 bytes"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
@@ -1172,7 +1185,9 @@ reset_case_repositories
 # gate against a real Polylang state tree rather than an empty repository.
 IN_RANGE_ARTIFACT=$(fetch_artifact polylang 3.8.6 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get polylang --field=version)" = "3.8.6" ] \
+NEGATIVE_INSTALLED=$(wp1 plugin get polylang --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "3.8.6" ] \
   || fail "negative control premise did not install exact polylang 3.8.6 bytes"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {
@@ -1227,7 +1242,9 @@ reset_case_repositories
 # or old-schema behavior outside the manifest's claim.
 IN_RANGE_ARTIFACT=$(fetch_artifact woocommerce 11.0.0 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get woocommerce --field=version)" = "11.0.0" ] \
+NEGATIVE_INSTALLED=$(wp1 plugin get woocommerce --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "11.0.0" ] \
   || fail "negative control premise did not install exact woocommerce 11.0.0 bytes"
 wp1 wc hpos enable >/dev/null
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
@@ -1282,7 +1299,9 @@ reset_case_repositories
 # seed/schema behavior and proves the manifest boundary itself is enforced.
 IN_RANGE_ARTIFACT=$(fetch_artifact wordpress-seo 28.0 cli1)
 wp1 plugin install "$IN_RANGE_ARTIFACT" --activate >/dev/null
-[ "$(wp1 plugin get wordpress-seo --field=version)" = "28.0" ] \
+NEGATIVE_INSTALLED=$(wp1 plugin get wordpress-seo --field=version)
+require_fixture_values NEGATIVE_INSTALLED
+[ "$NEGATIVE_INSTALLED" = "28.0" ] \
   || fail "negative control premise did not install exact wordpress-seo 28.0 bytes"
 cat > "siterepo/${PAIR}1/site.duo.json" <<'EOF'
 {

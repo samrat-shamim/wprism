@@ -90,7 +90,9 @@ if ($restricted !== 1) {
 echo "restriction row confirmed live: membership_id=$level_id page_id=$page_id\n";
 PHPEOF
 printf '%s' "$SEED_PHP" > "${CONF_REPO1:-siterepo/conf1}"/.tmp-pmpro-seed.php
-wp_conf1 eval-file /siterepo/.tmp-pmpro-seed.php
+PM_OUT=$(wp_conf1 eval-file /siterepo/.tmp-pmpro-seed.php)
+require_observed_nonempty "conf1 PMPro seed output" "$PM_OUT"
+printf '%s\n' "$PM_OUT"
 rm -f "${CONF_REPO1:-siterepo/conf1}"/.tmp-pmpro-seed.php
 
 echo "paid-memberships-pro seed: system pages generated, one level + levelmeta + one restricted page authored on conf1"

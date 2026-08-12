@@ -22,6 +22,7 @@ cd "$(dirname "$0")/.."   # -> sandbox/
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. conformance/asserts.sh
 
 command -v jq >/dev/null || fail "jq required"
 
@@ -95,8 +96,12 @@ wp1 duo capture --repo=/siterepo >/dev/null
 "${GIT2[@]}" pull -q origin main
 wp2 duo deploy --repo=/siterepo --format=json >/dev/null
 wp2 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --format=json >/dev/null
-[ "$(read_settings 1 | jq -r .)" = blue ] || fail "env1 baseline is not scalar blue"
-[ "$(read_settings 2 | jq -r .)" = blue ] || fail "env2 baseline is not scalar blue"
+BASELINE_SETTINGS_1=$(read_settings 1)
+require_observed_nonempty "env1 baseline settings" "$BASELINE_SETTINGS_1"
+[ "$(jq -r . <<<"$BASELINE_SETTINGS_1")" = blue ] || fail "env1 baseline is not scalar blue"
+BASELINE_SETTINGS_2=$(read_settings 2)
+require_observed_nonempty "env2 baseline settings" "$BASELINE_SETTINGS_2"
+[ "$(jq -r . <<<"$BASELINE_SETTINGS_2")" = blue ] || fail "env2 baseline is not scalar blue"
 pass "baseline: both environments run v$V1 and canonical duo_loop_color is the scalar 'blue'"
 
 say "state-v1 branch: env2 authors green while still running v1"
@@ -146,15 +151,20 @@ say "integration ordering step 1: merge code-v2 into main FIRST"
 "${GIT1[@]}" checkout -q main
 "${GIT1[@]}" merge -q --no-ff code-v2 -m "merge code-v2 before state-v1"
 LIVE_V1=$(wp1 eval 'echo get_file_data(WP_PLUGIN_DIR . "/duo-loop-demo/duo-loop-demo.php", ["Version" => "Version"])["Version"];' 2>&1 | tail -1)
+require_observed_nonempty "env1 live v2 plugin version" "$LIVE_V1"
 [ "$LIVE_V1" = "$V2" ] || fail "env1 did not see merged v2 code (got '$LIVE_V1')"
-[ "$(read_settings 1 | jq -r .)" = blue ] || fail "state changed before the explicit v2 migration"
+PRE_MIGRATION_SETTINGS_1=$(read_settings 1)
+require_observed_nonempty "env1 settings before explicit migration" "$PRE_MIGRATION_SETTINGS_1"
+[ "$(jq -r . <<<"$PRE_MIGRATION_SETTINGS_1")" = blue ] || fail "state changed before the explicit v2 migration"
 pass "code merged independently; database is still visibly in the v1 scalar shape"
 
 say "integration ordering step 2: run the merged code's migration, then reconcile/re-baseline code"
 MIG1=$(wp1 duo-loop migrate 2>&1 | tail -1)
+require_duo_answered "env1 v2 migration" json "$MIG1"
 echo "$MIG1" | jq -e '.migrated == true and .settings == {"label":"blue","schema":2}' >/dev/null \
   || fail "env1 v2 migration did not produce the expected object: $MIG1"
 DEPLOY1=$(wp1 duo deploy --repo=/siterepo --force-code-drift --format=json | tail -1)
+require_duo_answered "env1 v2 deploy" json "$DEPLOY1"
 echo "$DEPLOY1" | jq -e --arg old "$V1" --arg new "$V2" \
   '.code_drift | any(.plugin == "duo-loop-demo/duo-loop-demo.php" and .recorded_version == $old and .installed_version == $new)' >/dev/null \
   || fail "deploy did not report the accepted v1-to-v2 code transition: $DEPLOY1"
@@ -196,8 +206,11 @@ pass "integration revision contains v2 code plus green expressed in v2 state"
 say "materialize the resolved integration revision on env1"
 REV=$("${GIT1[@]}" rev-parse HEAD)
 APPLY1=$(wp1 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --format=json | tail -1)
+require_duo_answered "env1 v2 apply" json "$APPLY1"
 echo "$APPLY1" | jq -e '.canary == "clean"' >/dev/null || fail "env1 apply canary was not clean: $APPLY1"
-read_settings 1 | jq -e '. == {"label":"green","schema":2}' >/dev/null \
+FINAL_SETTINGS_1=$(read_settings 1)
+require_observed_nonempty "env1 settings after v2 apply" "$FINAL_SETTINGS_1"
+jq -e '. == {"label":"green","schema":2}' <<<"$FINAL_SETTINGS_1" >/dev/null \
   || fail "env1 did not materialize the resolved v2 state"
 pass "env1 runs v2 with the state-v1 editorial change preserved"
 
@@ -206,11 +219,14 @@ say "env2 follows the same code-first boundary: checkout merged code, migrate v1
 "${GIT2[@]}" checkout -q main
 "${GIT2[@]}" merge -q --ff-only origin/main
 LIVE_V2=$(wp2 eval 'echo get_file_data(WP_PLUGIN_DIR . "/duo-loop-demo/duo-loop-demo.php", ["Version" => "Version"])["Version"];' 2>&1 | tail -1)
+require_observed_nonempty "env2 live v2 plugin version" "$LIVE_V2"
 [ "$LIVE_V2" = "$V2" ] || fail "env2 did not see merged v2 code (got '$LIVE_V2')"
 MIG2=$(wp2 duo-loop migrate 2>&1 | tail -1)
+require_duo_answered "env2 v2 migration" json "$MIG2"
 echo "$MIG2" | jq -e '.migrated == true and .settings == {"label":"green","schema":2}' >/dev/null \
   || fail "env2 migration did not carry its v1 green value into v2: $MIG2"
 DEPLOY2=$(wp2 duo deploy --repo=/siterepo --force-code-drift --format=json | tail -1)
+require_duo_answered "env2 v2 deploy" json "$DEPLOY2"
 echo "$DEPLOY2" | jq -e --arg old "$V1" --arg new "$V2" \
   '.code_drift | any(.plugin == "duo-loop-demo/duo-loop-demo.php" and .recorded_version == $old and .installed_version == $new)' >/dev/null \
   || fail "env2 deploy did not report the accepted v1-to-v2 transition: $DEPLOY2"
@@ -219,8 +235,11 @@ wp2 duo capture --repo=/siterepo >/dev/null
   || fail "env2's required post-migration re-capture differs from the resolved integration revision: $("${GIT2[@]}" status --short)"
 pass "env2 post-migration re-capture matches the resolved integration revision byte-for-byte"
 APPLY2=$(wp2 duo apply --repo=/siterepo --adopt-by-slug=terms --default-author=admin --revision="$REV" --format=json | tail -1)
+require_duo_answered "env2 v2 apply" json "$APPLY2"
 echo "$APPLY2" | jq -e '.canary == "clean"' >/dev/null || fail "env2 apply canary was not clean: $APPLY2"
-read_settings 2 | jq -e '. == {"label":"green","schema":2}' >/dev/null \
+FINAL_SETTINGS_2=$(read_settings 2)
+require_observed_nonempty "env2 settings after v2 apply" "$FINAL_SETTINGS_2"
+jq -e '. == {"label":"green","schema":2}' <<<"$FINAL_SETTINGS_2" >/dev/null \
   || fail "env2 did not materialize the resolved v2 state"
 pass "env2 migrated before state apply and reached the same resolved value"
 
@@ -231,6 +250,8 @@ diff -r "siterepo/${PAIR}1/.tmp-skew1" "siterepo/${PAIR}2/.tmp-skew2" \
   || fail "post-version-skew environments did not re-capture byte-identically"
 LINT1=$(wp1 duo lint --repo=/siterepo --format=json | tail -1)
 LINT2=$(wp2 duo lint --repo=/siterepo --format=json | tail -1)
+require_duo_answered "env1 final lint" json "$LINT1"
+require_duo_answered "env2 final lint" json "$LINT2"
 echo "$LINT1" | jq -e 'length == 0' >/dev/null || fail "env1 lint findings: $LINT1"
 echo "$LINT2" | jq -e 'length == 0' >/dev/null || fail "env2 lint findings: $LINT2"
 rm -rf "siterepo/${PAIR}1/.tmp-skew1" "siterepo/${PAIR}2/.tmp-skew2"

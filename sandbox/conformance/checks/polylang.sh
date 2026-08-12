@@ -24,6 +24,7 @@ POST_EN_ID=$(wp_conf2 post list --post_type=post --name=conformance-polylang-pos
 POST_FR_ID=$(wp_conf2 post list --post_type=post --name=conformance-polylang-post-fr --field=ID)
 NEWS_ID=$(wp_conf2 eval "echo get_term_by('slug', 'conformance-polylang-news', 'category')->term_id;")
 ACT_ID=$(wp_conf2 eval "echo get_term_by('slug', 'conformance-polylang-actualites', 'category')->term_id;")
+require_fixture_ids POST_EN_ID POST_FR_ID NEWS_ID ACT_ID
 echo "conf2 local ids: post_en=$POST_EN_ID post_fr=$POST_FR_ID news=$NEWS_ID actualites=$ACT_ID"
 
 # Anti-coincidence sanity: the fillers live ONLY on conf1 (created, then
@@ -35,6 +36,7 @@ echo "conf2 local ids: post_en=$POST_EN_ID post_fr=$POST_FR_ID news=$NEWS_ID act
 # high in isolation — check the actual conf1 id (echoed by the seed step
 # above into the run log) against conf2's here.
 CONF1_POST_EN_ID=$(wp_conf1 post list --post_type=post --name=conformance-polylang-post-en --field=ID)
+require_fixture_ids CONF1_POST_EN_ID
 echo "conf1 local id: post_en=$CONF1_POST_EN_ID (vs conf2's $POST_EN_ID)"
 [ "$CONF1_POST_EN_ID" != "$POST_EN_ID" ] \
   || fail "post_en landed on the SAME id ($POST_EN_ID) on both conf1 and conf2 — anti-coincidence fillers had no effect; (b) below would pass even on the old, broken code"
@@ -42,6 +44,7 @@ echo "ok: post_en's conf1 id ($CONF1_POST_EN_ID) and conf2 id ($POST_EN_ID) genu
 
 # --- (b) pll_get_post_translations() on conf2, using conf2's OWN local ids ---
 POST_TR=$(wp_conf2 eval "echo json_encode(pll_get_post_translations($POST_EN_ID));")
+require_observed_nonempty "conf2 Polylang post translation map" "$POST_TR"
 echo "pll_get_post_translations($POST_EN_ID) = $POST_TR"
 jq -e --argjson en "$POST_EN_ID" --argjson fr "$POST_FR_ID" '.en == $en and .fr == $fr' <<<"$POST_TR" >/dev/null \
   || fail "pll_get_post_translations($POST_EN_ID) did not return {en:$POST_EN_ID, fr:$POST_FR_ID} — got $POST_TR"
@@ -49,6 +52,7 @@ echo "ok: pll_get_post_translations() returns the correct pair using conf2-local
 
 # --- (c) pll_get_term_translations() on conf2, using conf2's OWN local ids ---
 TERM_TR=$(wp_conf2 eval "echo json_encode(pll_get_term_translations($NEWS_ID));")
+require_observed_nonempty "conf2 Polylang English term translation map" "$TERM_TR"
 echo "pll_get_term_translations($NEWS_ID) = $TERM_TR"
 jq -e --argjson en "$NEWS_ID" --argjson fr "$ACT_ID" '.en == $en and .fr == $fr' <<<"$TERM_TR" >/dev/null \
   || fail "pll_get_term_translations($NEWS_ID) did not return {en:$NEWS_ID, fr:$ACT_ID} — got $TERM_TR"
@@ -58,10 +62,13 @@ echo "ok: pll_get_term_translations() returns the correct pair using conf2-local
 # language getter (proves the term_language relationship, not just
 # term_translations).
 TERM_TR_FR=$(wp_conf2 eval "echo json_encode(pll_get_term_translations($ACT_ID));")
+require_observed_nonempty "conf2 Polylang French term translation map" "$TERM_TR_FR"
 jq -e --argjson en "$NEWS_ID" --argjson fr "$ACT_ID" '.en == $en and .fr == $fr' <<<"$TERM_TR_FR" >/dev/null \
   || fail "pll_get_term_translations($ACT_ID) did not return the same pair — got $TERM_TR_FR"
 NEWS_LANG=$(wp_conf2 eval "echo pll_get_term_language($NEWS_ID, 'slug');")
 ACT_LANG=$(wp_conf2 eval "echo pll_get_term_language($ACT_ID, 'slug');")
+require_observed_nonempty "conf2 Polylang English term language" "$NEWS_LANG"
+require_observed_nonempty "conf2 Polylang French term language" "$ACT_LANG"
 [ "$NEWS_LANG" = "en" ] || fail "News's term_language is '$NEWS_LANG', expected 'en'"
 [ "$ACT_LANG" = "fr" ] || fail "Actualites's term_language is '$ACT_LANG', expected 'fr'"
 echo "ok: term_language relationships (capability 1) correct in both directions"
@@ -100,13 +107,17 @@ POST_GROUP_TT=$(wp_conf2 db query "
   JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
   WHERE tr.object_id = $POST_EN_ID AND tt.taxonomy = 'post_translations'
 " --skip-column-names)
+require_observed_nonempty "conf2 Polylang post translation term-taxonomy id" "$POST_GROUP_TT"
 TERM_GROUP_TT=$(wp_conf2 db query "
   SELECT tr.term_taxonomy_id FROM wp_term_relationships tr
   JOIN wp_term_taxonomy tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
   WHERE tr.object_id = $NEWS_ID AND tt.taxonomy = 'term_translations'
 " --skip-column-names)
+require_observed_nonempty "conf2 Polylang term translation term-taxonomy id" "$TERM_GROUP_TT"
 POST_GROUP_DESC=$(wp_conf2 db query "SELECT description FROM wp_term_taxonomy WHERE term_taxonomy_id = $POST_GROUP_TT" --skip-column-names)
 TERM_GROUP_DESC=$(wp_conf2 db query "SELECT description FROM wp_term_taxonomy WHERE term_taxonomy_id = $TERM_GROUP_TT" --skip-column-names)
+require_observed_nonempty "conf2 Polylang post translation serialized description" "$POST_GROUP_DESC"
+require_observed_nonempty "conf2 Polylang term translation serialized description" "$TERM_GROUP_DESC"
 echo "post_translations group description: $POST_GROUP_DESC"
 echo "term_translations group description: $TERM_GROUP_DESC"
 for DESC in "$POST_GROUP_DESC" "$TERM_GROUP_DESC"; do
@@ -132,6 +143,7 @@ echo "ok: re-serialized descriptions are byte-exact PHP serialize() output with 
 # --- render/negative host-leak convention (checks/fse.sh's methodology, ---
 # --- extended here to prove ordinary post round-trip wasn't disturbed) ----
 FRONT=$(curl -fsSL "http://localhost:${CONF2_PORT}/conformance-polylang-post-en/") || fail "conf2 post_en page did not return 200"
+require_observed_nonempty "conf2 Polylang rendered response" "$FRONT"
 [ "${#FRONT}" -ge 1000 ] \
   || fail "conf2 post_en response was suspiciously short (${#FRONT} bytes)"
 if grep -qiE 'fatal error|uncaught' <<<"$FRONT"; then

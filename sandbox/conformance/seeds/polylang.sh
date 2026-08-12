@@ -70,7 +70,9 @@ pll_set_term_language($act_id, "fr");
 pll_save_term_translations(["en" => $news_id, "fr" => $act_id]);
 echo "$news_id $act_id\n";
 ')
+require_observed_nonempty "conf1 Polylang translated-term seed output" "$TERM_OUT"
 read -r NEWS_TERM_ID ACT_TERM_ID <<< "$TERM_OUT"
+require_fixture_ids NEWS_TERM_ID ACT_TERM_ID
 echo "conf1 categories: news=$NEWS_TERM_ID actualites=$ACT_TERM_ID"
 
 echo "translated post pair (post-object relationships: language + post_translations, already-working machinery)"
@@ -80,6 +82,7 @@ POST_EN=$(wp_conf1 post create --post_type=post --post_title='Conformance Polyla
 POST_FR=$(wp_conf1 post create --post_type=post --post_title='Conformance Polylang Post FR' \
   --post_name=conformance-polylang-post-fr --post_status=publish \
   --post_content='<!-- wp:paragraph --><p>Contenu de conformite (Francais).</p><!-- /wp:paragraph -->' --porcelain)
+require_fixture_ids POST_EN POST_FR
 
 # language BEFORE category: Polylang swaps a term for its same-language
 # translation on wp_set_object_terms() otherwise (regress_collision.sh's
@@ -94,6 +97,8 @@ echo 'tagged';
 "
 CATS_EN=$(wp_conf1 eval "echo implode(',', wp_list_pluck(wp_get_post_terms($POST_EN, 'category'), 'slug'));")
 CATS_FR=$(wp_conf1 eval "echo implode(',', wp_list_pluck(wp_get_post_terms($POST_FR, 'category'), 'slug'));")
+require_observed_nonempty "conf1 Polylang English category readback" "$CATS_EN"
+require_observed_nonempty "conf1 Polylang French category readback" "$CATS_FR"
 [ "$CATS_EN" = "conformance-polylang-news" ] || fail "post_en category mismatch: $CATS_EN"
 [ "$CATS_FR" = "conformance-polylang-actualites" ] || fail "post_fr category mismatch: $CATS_FR"
 

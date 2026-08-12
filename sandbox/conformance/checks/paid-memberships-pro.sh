@@ -46,6 +46,7 @@ echo implode("|", [
   $level_id,
 ]);
 ' 2>&1 | tail -1)
+require_observed_nonempty "conf2 PMPro runtime observation" "$API_OUT"
 echo "conf2 PMPro resolution: $API_OUT"
 
 [ "$API_OUT" != "NO_PAGE" ] || fail "conf2 has no 'conformance-members-only' page — seed content did not round-trip"

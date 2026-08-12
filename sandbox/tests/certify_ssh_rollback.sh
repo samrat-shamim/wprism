@@ -26,6 +26,7 @@ DUO="$ROOT/cli/duo"
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
+. "$ROOT/sandbox/conformance/asserts.sh"
 
 cleanup_fixture() {
   docker rm -f "$SOURCE" "$TARGET" "$SOURCE_DB" "$TARGET_DB" >/dev/null 2>&1 || true
@@ -251,10 +252,18 @@ EOF
 pass "both hosts adopted; target recovery providers passed product preflight"
 
 say "execute closed crash matrix and converge rollback + commit generations"
-SOURCE_HOST_HASH="$(ssh_source hostname | shasum -a 256 | awk '{print $1}')"
-TARGET_HOST_HASH="$(ssh_target hostname | shasum -a 256 | awk '{print $1}')"
-SOURCE_DB_HASH="$(ssh_source "cd /var/www/html && wp db query 'SELECT @@hostname,DATABASE()' --skip-column-names" | shasum -a 256 | awk '{print $1}')"
-TARGET_DB_HASH="$(ssh_target "cd /var/www/html && wp db query 'SELECT @@hostname,DATABASE()' --skip-column-names" | shasum -a 256 | awk '{print $1}')"
+SOURCE_HOST_RAW="$(ssh_source hostname)"
+TARGET_HOST_RAW="$(ssh_target hostname)"
+require_observed_nonempty "source SSH hostname" "$SOURCE_HOST_RAW"
+require_observed_nonempty "target SSH hostname" "$TARGET_HOST_RAW"
+SOURCE_HOST_HASH="$(printf '%s' "$SOURCE_HOST_RAW" | shasum -a 256 | awk '{print $1}')"
+TARGET_HOST_HASH="$(printf '%s' "$TARGET_HOST_RAW" | shasum -a 256 | awk '{print $1}')"
+SOURCE_DB_RAW="$(ssh_source "cd /var/www/html && wp db query 'SELECT @@hostname,DATABASE()' --skip-column-names")"
+TARGET_DB_RAW="$(ssh_target "cd /var/www/html && wp db query 'SELECT @@hostname,DATABASE()' --skip-column-names")"
+require_observed_nonempty "source database identity" "$SOURCE_DB_RAW"
+require_observed_nonempty "target database identity" "$TARGET_DB_RAW"
+SOURCE_DB_HASH="$(printf '%s' "$SOURCE_DB_RAW" | shasum -a 256 | awk '{print $1}')"
+TARGET_DB_HASH="$(printf '%s' "$TARGET_DB_RAW" | shasum -a 256 | awk '{print $1}')"
 [ "$SOURCE_HOST_HASH" != "$TARGET_HOST_HASH" ] || fail "SSH host fingerprints are not independent"
 [ "$SOURCE_DB_HASH" != "$TARGET_DB_HASH" ] || fail "database fingerprints are not independent"
 HARNESS_REVISION="$(shasum -a 256 sandbox/tests/certify_ssh_rollback.sh sandbox/tests/fixtures/ssh-rollback-certify-driver.php sandbox/bin/ssh-rollback-certification.php recovery/*.php cli/src/RollbackAuthority.php cli/src/VerifiedRollbackProfile.php | shasum -a 256 | awk '{print $1}')"
@@ -264,11 +273,16 @@ pass "198 injected cases produced signed-chain evidence and only verified rollba
 
 say "prove target cleanup, destroy owned fixture, then sign the canonical bundle"
 STATUS="$(ssh_target 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
+require_observed_nonempty "target rollback status" "$STATUS"
 jq -e '.terminal == true and .state == "committed" and .exclusion_state == "released"' <<<"$STATUS" >/dev/null \
   || fail "target did not finish committed with exclusion released"
-[ "$(ssh_target "find /home/duo/site/.duo /home/duo/provider-state -type f \\( -name '*.sql' -o -name '*.dump' -o -name '*.plain' \\) -print | wc -l | tr -d ' '")" = 0 ] \
+TARGET_PLAINTEXT_COUNT="$(ssh_target "find /home/duo/site/.duo /home/duo/provider-state -type f \\( -name '*.sql' -o -name '*.dump' -o -name '*.plain' \\) -print | wc -l | tr -d ' '")"
+require_observed_nonempty "target plaintext checkpoint count" "$TARGET_PLAINTEXT_COUNT"
+[ "$TARGET_PLAINTEXT_COUNT" = 0 ] \
   || fail "plaintext checkpoint material remains"
-[ "$(ssh_target "php -r '\$s=json_decode(file_get_contents(\"/home/duo/provider-state/exclusion.json\"),true);echo \$s[\"state\"];'")" = released ] \
+TARGET_EXCLUSION_STATE="$(ssh_target "php -r '\$s=json_decode(file_get_contents(\"/home/duo/provider-state/exclusion.json\"),true);echo \$s[\"state\"];'")"
+require_observed_nonempty "target maintenance exclusion state" "$TARGET_EXCLUSION_STATE"
+[ "$TARGET_EXCLUSION_STATE" = released ] \
   || fail "maintenance exclusion remains held"
 
 cleanup_fixture
