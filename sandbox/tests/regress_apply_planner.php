@@ -17,6 +17,7 @@ require_once __DIR__ . '/../../agent/src/ApplyPlanner.php';
 use Duo\ApplyPlanner;
 use Duo\Canon;
 use Duo\Policy;
+use Duo\Snapshot;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -152,6 +153,104 @@ $unchangedOptions = [
 $check(
     $optionPlanner->option_rebuild_names($desiredOptions, $unchangedOptions) === [],
     'option projection: an authored record equal to the target produces no rebuild work'
+);
+
+// ----------------------------------------------------------- work projection
+
+$optionPolicy->manifests[0]['post_types'] = [
+    'definition' => ['phase' => 'early'],
+];
+$workTree = [
+    'regular-create' => ['type' => 'post', 'post_type' => 'post'],
+    'early-create' => ['type' => 'post', 'post_type' => 'definition'],
+    'adopt-term' => ['type' => 'term'],
+    'update-options' => ['type' => 'options'],
+    'conflict-menu' => ['type' => 'menu'],
+    'drift-post' => ['type' => 'post', 'post_type' => 'post'],
+];
+$workPlan = [
+    'create' => [['uuid' => 'regular-create'], ['uuid' => 'early-create']],
+    'adopt' => [['uuid' => 'adopt-term']],
+    'update' => [['uuid' => 'update-options']],
+    'conflict' => [['uuid' => 'conflict-menu']],
+    'drift' => [['uuid' => 'drift-post']],
+    'delete' => [
+        ['uuid' => 'post-delete', 'deletion_kind' => 'post'],
+        ['uuid' => 'term-delete', 'deletion_kind' => 'term'],
+    ],
+    'delete_conflict' => [['uuid' => 'menu-delete', 'deletion_kind' => 'menu']],
+    'deleted' => [['uuid' => 'retry-term', 'deletion_kind' => 'term']],
+];
+$workProjection = $optionPlanner->rebuild_work($workPlan, $workTree, [], false);
+$check(
+    array_column($workProjection['work'], 'uuid') === [
+        'early-create', 'regular-create', 'adopt-term', 'update-options', 'conflict-menu',
+    ],
+    'work projection: early posts lead and the remaining authored buckets retain their stable order'
+);
+$check(
+    array_column($workProjection['delete_work'], 'uuid') === ['post-delete', 'term-delete']
+        && array_column($workProjection['rebuild_delete_work'], 'uuid') === ['post-delete', 'term-delete'],
+    'work projection: ordinary apply selects only authorized deletes and shares that order with rebuild work'
+);
+$forcedRetryProjection = $optionPlanner->rebuild_work(
+    $workPlan,
+    $workTree,
+    ['force_theirs' => true],
+    true,
+    true
+);
+$check(
+    array_column($forcedRetryProjection['work'], 'uuid') === [
+        'early-create', 'regular-create', 'adopt-term', 'update-options', 'conflict-menu', 'drift-post',
+    ],
+    'work projection: scoped-promotion drift is opt-in while conflicts remain in the negotiated work set'
+);
+$check(
+    array_column($forcedRetryProjection['delete_work'], 'uuid') === ['post-delete', 'menu-delete', 'term-delete']
+        && array_column($forcedRetryProjection['rebuild_delete_work'], 'uuid') === [
+            'post-delete', 'menu-delete', 'retry-term', 'term-delete',
+        ],
+    'work projection: forced conflicts and incomplete-apply tombstones widen only their declared projections'
+);
+
+$ninjaManifest = json_decode(
+    (string) file_get_contents(__DIR__ . '/../../manifests/ninja-forms.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$tablePolicy = new Policy();
+$tablePolicy->manifests = [$ninjaManifest];
+$tablePlanner = new ApplyPlanner(
+    $tablePolicy,
+    Snapshot::row_tables($tablePolicy),
+    static fn(string $uuid, string $kind): ?int => null
+);
+$tableTree = [
+    'table-parent' => ['type' => 'nf3_forms'],
+    'table-child' => ['type' => 'nf3_fields'],
+    'table-post' => ['type' => 'post', 'post_type' => 'post'],
+];
+$tablePlan = [
+    'create' => [
+        ['uuid' => 'table-child'],
+        ['uuid' => 'table-parent'],
+        ['uuid' => 'table-post'],
+    ],
+    'delete' => [
+        ['uuid' => 'table-parent-delete', 'deletion_kind' => 'table', 'deletion_type' => 'nf3_forms'],
+        ['uuid' => 'table-child-delete', 'deletion_kind' => 'table', 'deletion_type' => 'nf3_fields'],
+    ],
+];
+$tableProjection = $tablePlanner->rebuild_work($tablePlan, $tableTree, [], false);
+$check(
+    array_column($tableProjection['work'], 'uuid') === ['table-post', 'table-parent', 'table-child'],
+    'work projection: declared table parents follow ordinary entities and precede dependent table children'
+);
+$check(
+    array_column($tableProjection['delete_work'], 'uuid') === ['table-child-delete', 'table-parent-delete'],
+    'work projection: declared table deletion order is child-before-parent from the manifest graph'
 );
 
 // ------------------------------------------------------- nested_delete_candidate_counts
@@ -357,6 +456,13 @@ $check(
     preg_match('/public function option_rebuild_names\(/', $plannerSource) === 1
         && preg_match('/private function option_rebuild_names\([^}]*?return \$this->apply_planner\(\)->option_rebuild_names\(/s', $applySource) === 1,
     'option projection: implementation lives on ApplyPlanner while Apply keeps only its facade'
+);
+$check(
+    preg_match('/public function rebuild_work\(/', $plannerSource) === 1
+        && preg_match('/private function rebuild_work\([^}]*?return \$this->apply_planner\(\)->rebuild_work\(/s', $applySource) === 1
+        && preg_match('/private function phase2_rank\([^}]*?return \$this->apply_planner\(\)->phase2_rank\(/s', $applySource) === 1
+        && preg_match('/private function deletion_rank\([^}]*?return \$this->apply_planner\(\)->deletion_rank\(/s', $applySource) === 1,
+    'work projection: Apply keeps only compatibility facades while planner owns work and ordering projections'
 );
 
 if ($failures) {

@@ -1318,37 +1318,14 @@ final class Apply {
         return ['name' => $name, 'previously_set' => $previouslySet];
     }
 
-    /**
-     * Phase-2 finalize order: 'early' post types first, then ordinary
-     * posts/terms/menus/options, then declared table rows in their own
-     * topo order (parents before children — nf3_forms before nf3_fields/
-     * nf3_actions) — offset past every other rank since nothing in this
-     * round's scope cross-references between tables and posts/terms in
-     * either direction, so their RELATIVE order to each other never
-     * matters, only their INTERNAL order does.
-     */
+    /** Thin compatibility facade over ApplyPlanner::phase2_rank(). */
     private function phase2_rank(array $entity): int {
-        if (isset($this->snapshotRowTables()[$entity['type']])) {
-            return 2 + Snapshot::phase2_rank($this->policy, $entity['type']);
-        }
-        if ($entity['type'] === 'post'
-            && $this->policy->post_type_phase($entity['post_type'] ?? '') === 'early') {
-            return 0;
-        }
-        return 1;
+        return $this->apply_planner()->phase2_rank($entity);
     }
 
-    /** Delete custom-table children before their declared parents. */
+    /** Thin compatibility facade over ApplyPlanner::deletion_rank(). */
     private function deletion_rank(array $row): int {
-        if (($row['deletion_kind'] ?? '') === 'table') {
-            return 100 + Snapshot::phase2_rank($this->policy, (string) $row['deletion_type']);
-        }
-        return match ($row['deletion_kind'] ?? '') {
-            'post' => 30,
-            'menu' => 20,
-            'term' => 10,
-            default => 0,
-        };
+        return $this->apply_planner()->deletion_rank($row);
     }
 
     /**
@@ -6897,13 +6874,10 @@ final class Apply {
     }
 
     /**
-     * The one work/deletion projection every rebuild consumer must share.
-     *
-     * A plan needs it to diagnose only provider actions it would select;
-     * run() needs the same rows for its pre-mutation negotiation and actual
-     * rebuild. Keeping retry tombstones, forced conflicts, and sort order in
-     * one helper prevents status from diagnosing a different action set from
-     * the one Apply can later invoke.
+     * Thin compatibility facade over ApplyPlanner::rebuild_work(). A plan
+     * needs the same projection as apply and scoped recovery; keeping this
+     * entry point avoids widening their existing call-site contracts during
+     * the one-collaborator-at-a-time migration.
      *
      * @param array<string,mixed> $plan
      * @param array<string,array<string,mixed>> $tree
@@ -6917,56 +6891,13 @@ final class Apply {
         bool $retryingIncompleteApply,
         bool $includeScopedPromotionDrift = false
     ): array {
-        $deleteWork = (array) ($plan['delete'] ?? []);
-        if (!empty($opts['force_theirs'])) {
-            $deleteWork = array_merge($deleteWork, (array) ($plan['delete_conflict'] ?? []));
-        }
-        usort($deleteWork, fn(array $a, array $b): int =>
-            $this->deletion_rank($b) <=> $this->deletion_rank($a)
-            ?: ($a['uuid'] <=> $b['uuid'])
+        return $this->apply_planner()->rebuild_work(
+            $plan,
+            $tree,
+            $opts,
+            $retryingIncompleteApply,
+            $includeScopedPromotionDrift
         );
-
-        // A previous apply can have committed authored rows and failed after
-        // a tombstone target was already absent. Include those immutable
-        // tombstones in the retry surface set so bounded derived-state
-        // actions still clear/verify their rows on the next attempt.
-        $rebuildDeleteWork = $deleteWork;
-        if ($retryingIncompleteApply) {
-            $rebuildDeleteWork = array_merge($rebuildDeleteWork, (array) ($plan['deleted'] ?? []));
-            usort($rebuildDeleteWork, fn(array $a, array $b): int =>
-                $this->deletion_rank($b) <=> $this->deletion_rank($a)
-                ?: ((string) ($a['uuid'] ?? '') <=> (string) ($b['uuid'] ?? ''))
-            );
-        }
-
-        // Deterministic, declared ordering for BOTH phases: 'early' post
-        // types (definition CPTs) lead. This is also the exact authored work
-        // set whose canonical surfaces may select a provider action.
-        $work = array_merge(
-            (array) ($plan['create'] ?? []),
-            (array) ($plan['adopt'] ?? []),
-            (array) ($plan['update'] ?? []),
-            array_map(fn(array $row): array => $row, (array) ($plan['conflict'] ?? []))
-        );
-        if ($includeScopedPromotionDrift) {
-            // A normal apply leaves environment-only drift for capture. The
-            // externally checkpointed scoped-promotion profile is the one
-            // reviewed exception: its held all-writer exclusion and encrypted
-            // before-image authorize replacing selected drift with the frozen
-            // repository state. Keep this opt-in at the shared projection so
-            // plan diagnostics and ordinary/scoped apply cannot accidentally
-            // widen their mutation set.
-            $work = array_merge($work, (array) ($plan['drift'] ?? []));
-        }
-        usort($work, fn(array $x, array $y): int =>
-            $this->phase2_rank($tree[(string) $x['uuid']]) <=> $this->phase2_rank($tree[(string) $y['uuid']])
-        );
-
-        return [
-            'work' => $work,
-            'delete_work' => $deleteWork,
-            'rebuild_delete_work' => $rebuildDeleteWork,
-        ];
     }
 
     /**
