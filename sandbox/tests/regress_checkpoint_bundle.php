@@ -258,7 +258,7 @@ try {
     RollbackControl::installPublicKey($scopedRoot, $keyId, base64_encode($public));
     $scopedRuntime = $scopedRoot . '/recovery-runtime';
     mkdir($scopedRuntime, 0700);
-    foreach (['rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
+    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
         copy(dirname(__DIR__, 2) . '/recovery/' . $runtimeFile, $scopedRuntime . '/' . $runtimeFile);
     }
     $scopedProviderState = $tmp . '/scoped-provider-state';
@@ -475,7 +475,7 @@ try {
     RollbackControl::installPublicKey($openRoot, $keyId, base64_encode($public));
     $openRuntime = $openRoot . '/recovery-runtime';
     mkdir($openRuntime, 0700);
-    foreach (['rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
+    foreach (['CanonicalJson.php','AtomicStore.php','ProtocolLock.php','ProviderClient.php','rollback-control.php','RecoveryExecutor.php','CheckpointBundle.php','CodeRelease.php','UploadBundle.php','EffectBundle.php'] as $runtimeFile) {
         copy(dirname(__DIR__, 2) . '/recovery/' . $runtimeFile, $openRuntime . '/' . $runtimeFile);
     }
     $openProviderState = $tmp . '/scoped-open-provider-state';
