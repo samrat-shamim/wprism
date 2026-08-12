@@ -50,7 +50,8 @@ assert_redacted_json_refusal() {
 }
 
 assert_typed_json_refusal() {
-  local error_code="$1" message="$2" remediation="$3" key="$4" shape_key="$5" shape="$6" output="$7" label="$8" json
+  local error_code="$1" message="$2" remediation="$3" key="$4" shape_key="$5" shape="$6"
+  local diagnostic_message="$7" diagnostic_remediation="$8" output="$9" label="${10}" json
   json=$(tail -n 1 <<<"$output")
   jq -e \
     --arg error_code "$error_code" \
@@ -58,7 +59,9 @@ assert_typed_json_refusal() {
     --arg remediation "$remediation" \
     --arg key "$key" \
     --arg shape_key "$shape_key" \
-    --arg shape "$shape" '
+    --arg shape "$shape" \
+    --arg diagnostic_message "$diagnostic_message" \
+    --arg diagnostic_remediation "$diagnostic_remediation" '
       (keys | sort) == ["command", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
       and .format == "duo-command-refusal/v1"
       and .ok == false
@@ -68,12 +71,13 @@ assert_typed_json_refusal() {
       and .message == $message
       and .remediation == $remediation
       and (.diagnostics | length == 1)
+      and ((.diagnostics[0] | keys | sort) == (["code", "key", "message", "remediation", "surface", $shape_key] | sort))
       and .diagnostics[0].code == $error_code
       and .diagnostics[0].surface == "user_meta"
       and .diagnostics[0].key == $key
       and .diagnostics[0][$shape_key] == $shape
-      and (.diagnostics[0].message | type) == "string"
-      and (.diagnostics[0].remediation | type) == "string"
+      and .diagnostics[0].message == $diagnostic_message
+      and .diagnostics[0].remediation == $diagnostic_remediation
     ' <<<"$json" >/dev/null \
     || fail "$label did not use the reviewed typed JSON refusal envelope: $json"
 }
@@ -214,7 +218,13 @@ assert_typed_json_refusal \
   personal_data_refused \
   "capture found personal data on an authored user-meta surface" \
   "keep the named field environment-local, or record an explicit reviewed allow-pii decision" \
-  contact_email personal_data_shape "email address" "$PII_FAIL" "PII refusal"
+  contact_email personal_data_shape "email address" \
+  "authored user meta matched a personal-data signature" \
+  "keep it environment-local or explicitly review allow-pii for this field" \
+  "$PII_FAIL" "PII refusal"
+PII_FAIL_JSON=$(tail -n 1 <<<"$PII_FAIL")
+! grep -Fq 'pii-editor' <<<"$PII_FAIL_JSON" || fail "PII refusal exposed the exact login"
+! grep -Fq 'editor@example.test' <<<"$PII_FAIL_JSON" || fail "PII refusal exposed the raw email value"
 
 tmp_policy=$(mktemp)
 jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
@@ -227,7 +237,12 @@ assert_typed_json_refusal \
   secret_state_refused \
   "capture found secret-shaped data on an authored surface" \
   "reclassify the named surface as environment/runtime state, or explicitly review and allow the false positive" \
-  api_token secret_shape "github token" "$SECRET_FAIL" "secret refusal"
+  api_token secret_shape "github token" \
+  "authored state matched a secret signature" \
+  "reclassify it or record an explicit reviewed allow-secret decision" \
+  "$SECRET_FAIL" "secret refusal"
+SECRET_FAIL_JSON=$(tail -n 1 <<<"$SECRET_FAIL")
+! grep -Fq 'ghp_abcdefghijklmnopqrstuvwxyz123456' <<<"$SECRET_FAIL_JSON" || fail "secret refusal exposed the raw token"
 pass "PII and hard-secret scanning refuse in JSON with reviewed typed envelopes"
 
 printf '\nREGRESS_USER_META PASSED\n'
