@@ -230,6 +230,7 @@ write_site_policy() { # <path>
 }
 
 source_uuid() { source_wp post meta get "$1" _duo_uuid | tr -d '\r\n'; }
+source_title() { source_wp post get "$1" --field=post_title | tr -d '\r\n'; }
 target_post_id() {
   target_wp post list --post_status=any --meta_key=_duo_uuid --meta_value="$1" --format=ids \
     | tr -d '[:space:]'
@@ -345,11 +346,22 @@ pass "source seeded (post $POST_UUID in term $TERM_UUID); target baseline conver
 say "(2) create genuine in-scope source drift and capture it before scope derivation"
 NEW_SOURCE_TITLE='DUO-3344 chain post (source drift captured)'
 source_wp post update "$POST_ID" --post_title="$NEW_SOURCE_TITLE" >/dev/null
+[ "$(source_title "$POST_ID")" = "$NEW_SOURCE_TITLE" ] \
+  || fail "source live post did not retain the requested in-scope title drift"
 run_duo_json source-drift-capture "$TMP/source-drift-capture.json" capture source --format=json
 git -C "$SITE1" add -A
 SOURCE_DRIFT_FILES="$(git -C "$SITE1" diff --cached --name-only)"
 [ -n "$SOURCE_DRIFT_FILES" ] \
   || fail "source capture produced no repository bytes for the in-scope title drift"
+STAGED_POST_REL="$(git -C "$SITE1" diff --cached --name-only -- "state/posts/post/${POST_UUID}--*.md" | tr -d '\r')"
+[ "$(printf '%s\n' "$STAGED_POST_REL" | awk 'NF { n++ } END { print n + 0 }')" = 1 ] \
+  || fail "ordinary capture did not stage exactly one selected post file (got: $STAGED_POST_REL)"
+STAGED_FRONT="$TMP/source-drift-front.json"
+git -C "$SITE1" show ":$STAGED_POST_REL" \
+  | awk 'NR == 1 && $0 == "---" { inside=1; next } inside && $0 == "---" { exit } inside { print }' \
+  > "$STAGED_FRONT"
+jq -e --arg title "$NEW_SOURCE_TITLE" '.title == $title' "$STAGED_FRONT" >/dev/null \
+  || fail "ordinary capture staged the selected post without the requested title in its front matter"
 git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm 'capture: genuine in-scope source drift'
 pass "source live post changed and ordinary capture produced repository drift: $(tr '\n' ' ' <<<"$SOURCE_DRIFT_FILES")"
 
@@ -419,9 +431,12 @@ if [ -s "$PLAN_TOUCHED" ]; then
 fi
 jq -e --arg h "$(jq -r '.scope_hash' "$CONTRACT")" '.scope.scope_hash == $h' "$TMP/chain-plan.json" >/dev/null \
   || fail "scoped plan echoed a different scope_hash than the contract it was given"
+PLAN_UPDATE_MATCHES="$(jq --arg uuid "$POST_UUID" '(.update // []) | map(select(.uuid == $uuid)) | length' "$TMP/chain-plan.json")"
+[ "$PLAN_UPDATE_MATCHES" = 1 ] \
+  || fail "scoped plan did not contain the real captured in-scope post update in .update (matches: $PLAN_UPDATE_MATCHES)"
 PLAN_SELECTED_MATCHES="$(jq --arg uuid "$POST_UUID" '[(.create // [])[], (.update // [])[], (.delete // [])[]] | map(select(.uuid == $uuid)) | length' "$TMP/chain-plan.json")"
 [ "$PLAN_SELECTED_MATCHES" = 1 ] \
-  || fail "scoped plan did not contain the real captured in-scope post update (matches: $PLAN_SELECTED_MATCHES)"
+  || fail "scoped plan duplicated the selected post across action buckets (matches: $PLAN_SELECTED_MATCHES)"
 TARGET_TITLE_BEFORE_APPLY="$(target_title "$(target_post_id "$POST_UUID")")"
 [ "$TARGET_TITLE_BEFORE_APPLY" != "$NEW_SOURCE_TITLE" ] \
   || fail "target already had the source drift before scoped apply; the live propagation proof is vacuous"
