@@ -535,6 +535,27 @@ Canon::write_file($stateDir . '/options/core.json', Canon::encode(OptionState::d
     ], 'yes'),
 ])));
 
+// S0 -- the structured traversal is a standalone collaborator as well as a
+// Lint facade.  Keep the shipped hyphenated Yoast key shape in this direct
+// characterization so an extraction cannot silently narrow the historical
+// id-key heuristic while all existing end-to-end fixtures remain green.
+$lintSource = file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
+check(class_exists('Duo\\StructuredReferenceScanner'), 'S0: structured scanner collaborator is loadable');
+check(str_contains((string) $lintSource, 'StructuredReferenceScanner::scan'), 'S0: Lint delegates structured traversal to the collaborator');
+$directStructured = \Duo\StructuredReferenceScanner::scan(
+    ['wpseo_opengraph-image-id' => 777],
+    'direct-structured.json',
+    'meta',
+    [],
+    null,
+    static fn(int $id): ?array => ['kind' => 'post', 'id' => $id, 'title' => 'Some Real Post', 'post_type' => 'post']
+);
+check(count($directStructured) === 1, 'S0: standalone scan finds the hyphenated id key (got ' . json_encode($directStructured) . ')');
+if (count($directStructured) === 1) {
+    check($directStructured[0]['locator'] === 'meta.wpseo_opengraph-image-id', 'S0: standalone scan preserves the exact locator');
+    check($directStructured[0]['value'] === 777, 'S0: standalone scan preserves the raw numeric survivor');
+}
+
 $findings = Lint::scan_tree($stateDir, $policy);
 $byPath = [];
 foreach ($findings as $f) {
