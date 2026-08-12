@@ -1040,8 +1040,10 @@ block_absent exact-plugin-identity-replacement-rollback "$REPLACEMENT_ROLLBACK_P
 ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
   'target_wp maintenance-mode activate' \
   'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP"' \
-  'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql"' \
-  'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql"' \
+  'mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"' \
+  'cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"' \
+  'assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET"' \
+  'control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql"' \
   'ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = '\''active_plugins'\'' LIMIT 1")"' \
   'if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r' \
   'assert_eq "$NATIVE_ACTIVE_PLUGINS_JSON" "$ROLLBACK_ACTIVE_PLUGINS_JSON"' \
@@ -1055,7 +1057,7 @@ ordered_contract exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" \
 if grep -Fq 'target_wp db import' "$SCRIPT"; then
   fail 'exact v1 rollback bypasses the isolated control-plane database import'
 fi
-block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql"' \
+block_contains exact-v1-rollback "$ROLLBACK_PHASE_BLOCK" 'control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql"' \
   'exact v1 rollback does not restore its dump through the fatal-safe control operation'
 ROLLBACK_PRE_STAGE_BLOCK="$(sed -n '/control_wp recoveryDbImportArgs/,/if ! RESTORE_OUT=/p' <<<"$ROLLBACK_PHASE_BLOCK")"
 block_absent exact-v1-pre-stage "$ROLLBACK_PRE_STAGE_BLOCK" 'target_wp ' \

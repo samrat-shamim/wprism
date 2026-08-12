@@ -40,6 +40,7 @@ ECOMMERCE_HOST_GID="$(id -g)"
 SITE="siterepo/${PAIR}1"
 OTHER_SITE="siterepo/${PAIR}2"
 ORIGIN="siterepo/origin-${PAIR}.git"
+V1_CHECKPOINT_TARGET="$OTHER_SITE/.duo/checkpoints/ecommerce-v1.sql"
 for pair_path in "$SITE" "$OTHER_SITE" "$ORIGIN"; do
   if [ -e "$pair_path" ] || [ -L "$pair_path" ]; then
     fail "refusing to reuse pre-existing pair path: $pair_path"
@@ -2291,12 +2292,15 @@ assert_receipt "$V1_ARTIFACT" 'v1 deploy/apply' "$V1_REVISION"
 V1_TARGET_MANAGED_CODE_TREE_HASH="$(target_managed_code_tree_hash)"
 assert_eq "$V1_SOURCE_MANAGED_CODE_TREE_HASH" "$V1_TARGET_MANAGED_CODE_TREE_HASH" 'v1 source/target managed code tree checkpoint'
 assert_eq "$V1_REVISION" "$(ledger_revision)" 'recorded v1 target code revision'
+assert_eq retail "$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'duo_commerce_extension_settings' LIMIT 1")" 'raw v1 setting before database checkpoint export'
 target_wp db export /siterepo/.tmp-ecommerce-v1-db.sql --porcelain >/dev/null
 cp "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" "$V1_DB_DUMP"
 [ -s "$V1_DB_DUMP" ] || fail "v1 exact rollback checkpoint was not exported"
 V1_DB_DUMP_SHA256="$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')"
 [[ "$V1_DB_DUMP_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail "v1 pair-local database checkpoint SHA-256 is malformed"
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before runtime order'
+grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_DB_DUMP" \
+  || fail 'v1 database checkpoint does not contain the raw scalar option value'
 TARGET_ORDER_ID="$(target_wp eval '
 $customer = wc_create_new_customer("runtime-customer@example.invalid", "runtime-customer", "runtime-customer-password", ["first_name" => "Target", "last_name" => "Runtime"]);
 if (is_wp_error($customer)) { throw new RuntimeException("target runtime customer seed failed: " . $customer->get_error_message()); }
@@ -3421,8 +3425,13 @@ if ! target_wp maintenance-mode activate >/dev/null; then
 fi
 ROLLBACK_MAINTENANCE_HELD=1
 assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_DB_DUMP" | awk '{print $1}')" 'retained v1 database checkpoint bytes before rollback import'
-assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$OTHER_SITE/.tmp-ecommerce-v1-db.sql" | awk '{print $1}')" 'pair-local v1 database checkpoint bytes before rollback import'
-control_wp recoveryDbImportArgs "/siterepo/.tmp-ecommerce-v1-db.sql" >/dev/null
+mkdir -p "$(dirname "$V1_CHECKPOINT_TARGET")"
+cp "$V1_DB_DUMP" "$V1_CHECKPOINT_TARGET"
+chmod 0644 "$V1_CHECKPOINT_TARGET"
+assert_eq "$V1_DB_DUMP_SHA256" "$(sha256sum "$V1_CHECKPOINT_TARGET" | awk '{print $1}')" 'immutable v1 database checkpoint bytes before rollback import'
+grep -Eq "'duo_commerce_extension_settings','retail'," "$V1_CHECKPOINT_TARGET" \
+  || fail 'immutable v1 database checkpoint lost the raw scalar option value before rollback import'
+control_wp recoveryDbImportArgs "/siterepo/.duo/checkpoints/ecommerce-v1.sql" >/dev/null
 ROLLBACK_ACTIVE_PLUGINS_RAW="$(target_db_scalar "SELECT option_value FROM wp_options WHERE option_name = 'active_plugins' LIMIT 1")"
 if ! ROLLBACK_ACTIVE_PLUGINS_JSON="$(php -r '
 $value = unserialize((string) ($argv[1] ?? ""), ["allowed_classes" => false]);
