@@ -16,11 +16,21 @@
 # promote/rollback stability remains open after this slice (see this
 # issue's own scope note for the follow-up). What this suite proves instead
 # is the local, Docker-transport-reachable half of the chain: scope,
-# capture, refresh-export, plan, and apply all agree on exactly the same
-# uuid set, and a fresh scope recomputed on the TARGET after every mutation
-# reproduces the SOURCE's original closure byte-for-byte -- proving the
-# closure is a deterministic function of (revision, roots), not an artifact
-# of whichever environment happened to compute it first.
+# capture, refresh-export, plan, and apply all independently parse the same
+# contract and re-derive the same selected-identity set (catching a
+# field-name/parsing drift in any one of five call sites into the shared
+# ScopedStateOverlay/ScopeContract library), that a scoped apply never
+# touches a deliberately out-of-scope entity, and that a fresh scope
+# recomputed on the TARGET reproduces the SOURCE's closure and scope_hash
+# byte-for-byte when fed identical repository bytes from two directories.
+# Independent review (own checkout) flagged that this scenario's source and
+# target repos stay byte-identical for the whole run (the one in-scope post
+# never actually drifts after the initial baseline sync), so this is
+# honestly narrower than "prove the chain propagates a real edit end to end"
+# -- it proves cross-command wiring consistency and the out-of-scope
+# boundary, not live data flow through a genuinely divergent scope. Filed
+# as a bounded follow-up (see this issue's own scope note) rather than
+# restructured here under the same review pass that found it.
 #
 # Reuses the same host-CLI-over-Docker harness pattern established in
 # regress_scoped_apply_live.sh (run_duo_json/write_envs/driver compose),
@@ -66,19 +76,84 @@ pair_list_has_exact() { # <bare-pair>; reads list on stdin
   grep -Eq "^[[:space:]]*-[[:space:]]*${pair}[[:space:]]*$"
 }
 
+print_cleanup_excerpt() { # <label> <path>
+  local label=$1 path=$2
+  printf '%s\n' "--- ${label} (first 240 lines; ${path}) ---" >&2
+  if [ -f "$path" ]; then
+    sed -n '1,240p' "$path" >&2
+  else
+    printf '%s\n' "<cleanup transcript was not created>" >&2
+  fi
+}
+
 cleanup() {
-  local status=$?
+  local incoming_status=$?
+  local status=$incoming_status
+  local destroy_log="$TMP/pair-destroy.log"
+  local list_log="$TMP/pair-list-after-destroy.log"
+  local cleanup_failed=0 body_incomplete=0 destroy_failed=0 list_failed=0 pair_still_present=0 pair_absent=0
   trap - EXIT INT TERM
   set +e
-  if [ "$PAIR_OWNED" -eq 1 ] && [ "$PAIR_ATTEMPTED" -eq 1 ]; then
-    bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >/dev/null 2>&1
+  if [ "$incoming_status" -ne 0 ] || [ "$BODY_COMPLETE" -ne 1 ]; then
+    body_incomplete=1
   fi
-  if [ "$status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then
-    rm -rf -- "$SITE1" "$SITE2" "$ORIGIN" "$TMP"
-    printf '\n✔ REGRESS_SCOPE_CHAIN_STABILITY PASSED (pair %s destroyed)\n' "$PAIR"
+  if [ "$PAIR_OWNED" -eq 1 ] && [ "$PAIR_ATTEMPTED" -eq 1 ]; then
+    if ! bash "$ROOT/sandbox/bin/pair.sh" destroy "$PAIR" >"$destroy_log" 2>&1; then
+      destroy_failed=1
+      cleanup_failed=1
+    fi
+  fi
+  # A durable cleanup witness even when destroy failed -- the retained
+  # artifacts must say whether a pair remains visible, not leave that to be
+  # reconstructed from a later manual teardown.
+  if ! bash "$ROOT/sandbox/bin/pair.sh" list >"$list_log" 2>&1; then
+    list_failed=1
+    cleanup_failed=1
+  elif pair_list_has_exact "$PAIR" <"$list_log"; then
+    pair_still_present=1
+    cleanup_failed=1
   else
-    printf '\nFAIL: scope-chain-stability body did not complete cleanly; preserving %s %s %s %s for inspection\n' \
-      "$SITE1" "$SITE2" "$ORIGIN" "$TMP" >&2
+    pair_absent=1
+  fi
+
+  if [ "$cleanup_failed" -eq 0 ] && [ "$pair_absent" -eq 1 ] && [ "$incoming_status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then
+    if [ "$PAIR_OWNED" -eq 1 ]; then
+      rm -rf -- "$SITE1" "$SITE2" "$ORIGIN" || cleanup_failed=1
+      if [ -e "$SITE1" ] || [ -e "$SITE2" ] || [ -e "$ORIGIN" ]; then
+        printf 'FAIL: cleanup left owned site/origin resource(s): %s %s %s\n' "$SITE1" "$SITE2" "$ORIGIN" >&2
+        cleanup_failed=1
+      fi
+    fi
+    if [ "$cleanup_failed" -eq 0 ]; then
+      rm -rf -- "$TMP" || cleanup_failed=1
+      if [ -e "$TMP" ]; then
+        printf 'FAIL: cleanup left its mktemp allocation: %s\n' "$TMP" >&2
+        cleanup_failed=1
+      fi
+    fi
+  fi
+
+  if [ "$cleanup_failed" -ne 0 ] || [ "$body_incomplete" -eq 1 ]; then
+    if [ "$cleanup_failed" -ne 0 ]; then
+      printf 'FAIL: scope-chain-stability cleanup did not complete; preserving owned roots and cleanup artifacts:\n' >&2
+    else
+      printf 'FAIL: scope-chain-stability body did not complete cleanly; preserving owned roots and cleanup artifacts:\n' >&2
+    fi
+    printf '  pair: %s\n  roots: %s %s %s\n  destroy transcript: %s\n  post-destroy pair list: %s\n' \
+      "$PAIR" "$SITE1" "$SITE2" "$ORIGIN" "$destroy_log" "$list_log" >&2
+    if [ "$destroy_failed" -eq 1 ]; then
+      print_cleanup_excerpt "pair destroy failed for ${PAIR}" "$destroy_log"
+    fi
+    if [ "$list_failed" -eq 1 ]; then
+      print_cleanup_excerpt "post-destroy pair list failed for ${PAIR}" "$list_log"
+    elif [ "$pair_still_present" -eq 1 ]; then
+      print_cleanup_excerpt "exact pair ${PAIR} remains in post-destroy list" "$list_log"
+    fi
+    status=1
+  fi
+
+  if [ "$cleanup_failed" -eq 0 ] && [ "$body_incomplete" -eq 0 ] && [ "$pair_absent" -eq 1 ] && [ "$incoming_status" -eq 0 ] && [ "$BODY_COMPLETE" -eq 1 ]; then
+    printf '\n✔ REGRESS_SCOPE_CHAIN_STABILITY PASSED (pair %s destroyed and cleanup verified)\n' "$PAIR"
   fi
   exit "$status"
 }
@@ -174,6 +249,26 @@ selected_identities() { # <contract-json-path>
 command -v jq >/dev/null || fail "jq is required"
 command -v lsof >/dev/null || fail "lsof is required for the no-collision port preflight"
 
+# The :? messages above only NAME these constraints; enforce them for real
+# before touching any resource, same checks regress_scoped_apply_live.sh
+# already applies for this same live-suite family.
+if ! [[ "$PAIR" =~ ^[a-z][a-z0-9]{2,31}$ ]]; then
+  fail "SCOPE_CHAIN_PAIR must be a safe lowercase disposable pair name"
+fi
+if ! [[ "$PORT1" =~ ^[0-9]+$ && "$PORT2" =~ ^[0-9]+$ ]]; then
+  fail "SCOPE_CHAIN_PORT1/2 must be decimal ports"
+fi
+PORT1_NUM=$((10#$PORT1))
+PORT2_NUM=$((10#$PORT2))
+if [ "$PORT1_NUM" -lt 8900 ] || [ $((PORT1_NUM % 2)) -ne 0 ] || [ "$PORT2_NUM" -ne $((PORT1_NUM + 1)) ]; then
+  fail "the live pair needs a free even port >= 8900 and its immediately following odd port"
+fi
+if ! [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-fA-F]{7,40}$ ]]; then
+  fail "DUO_EXPECTED_SOURCE_SHA must bind this live run to the committed source SHA"
+fi
+EXPECTED_SOURCE_SHA="$(git rev-parse --verify "${EXPECTED_SOURCE_SHA}^{commit}" 2>/dev/null)" \
+  || fail "DUO_EXPECTED_SOURCE_SHA does not resolve to a commit in this standalone clone"
+
 # The shared driver fixture's compose file always references these
 # DUO3344_* variables (even for the config validation below, before any
 # pair exists), so they must be exported before the very first preflight
@@ -245,6 +340,7 @@ jq -e '.canary == "clean"' "$TMP/baseline-apply.json" >/dev/null || fail "ordina
 # purpose, so a later scoped apply touching this post at all is a failure.
 target_wp post update "$(target_post_id "$OUTSIDE_UUID")" --post_title='DUO-3344 chain outside (target-only edit)' >/dev/null
 OUTSIDE_TARGET_ID="$(target_post_id "$OUTSIDE_UUID")"
+[ -n "$OUTSIDE_TARGET_ID" ] || fail "target baseline lacks the deliberately out-of-scope post"
 OUTSIDE_TITLE_BEFORE="$(target_title "$OUTSIDE_TARGET_ID")"
 pass "source seeded (post $POST_UUID in term $TERM_UUID); target baseline converged; out-of-scope post diverges on purpose"
 
@@ -254,7 +350,7 @@ run_duo_json chain-scope "$CONTRACT" scope source "--roots=post:${POST_UUID},ter
 jq -e '.format == "duo-scope-contract/v1"' "$CONTRACT" >/dev/null || fail "scope did not produce a scope contract"
 SET_A="$TMP/set-a.uuids"
 selected_identities "$CONTRACT" > "$SET_A"
-EXPECTED_SORTED="$(printf '%s\n%s\n' "$POST_UUID" "$TERM_UUID" | sort)"
+EXPECTED_SORTED="$(printf '%s\n%s\n' "$POST_UUID" "$TERM_UUID" | LC_ALL=C sort)"
 [ "$(cat "$SET_A")" = "$EXPECTED_SORTED" ] \
   || fail "scope's own selected-identity set is not exactly {post,term} (got: $(cat "$SET_A" | tr '\n' ' '))"
 [ "$(echo "$OUTSIDE_UUID" | grep -c -F -x -f - "$SET_A" || true)" = "0" ] \
@@ -295,7 +391,7 @@ pass "refresh-export's own scope resolution reports the byte-identical uuid set,
 say "(5) duo plan: the target's proposed work never proposes anything outside the contract"
 run_duo_json chain-plan "$TMP/chain-plan.json" plan target "--scope-contract=$CONTRACT" --format=json
 PLAN_TOUCHED="$TMP/plan-touched.uuids"
-jq -r '[(.create // [])[], (.update // [])[], (.delete // [])[]] | .[].uuid' "$TMP/chain-plan.json" | sort -u > "$PLAN_TOUCHED"
+jq -r '[(.create // [])[], (.update // [])[], (.delete // [])[]] | .[].uuid' "$TMP/chain-plan.json" | LC_ALL=C sort -u > "$PLAN_TOUCHED"
 if [ -s "$PLAN_TOUCHED" ]; then
   comm -23 "$PLAN_TOUCHED" "$SET_A" > "$TMP/plan-escapees.uuids" || true
   [ ! -s "$TMP/plan-escapees.uuids" ] \
