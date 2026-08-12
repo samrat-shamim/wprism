@@ -17,6 +17,71 @@ say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
+assert_redacted_json_refusal() {
+  local command="$1" output="$2" label="$3" json remediation
+  case "$command" in
+    apply)
+      remediation='inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase'
+      ;;
+    capture)
+      remediation='inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt'
+      ;;
+    *)
+      fail "redacted JSON refusal helper has no reviewed remediation for $command"
+      ;;
+  esac
+  json=$(tail -n 1 <<<"$output")
+  jq -e --arg command "$command" --arg remediation "$remediation" '
+    (keys | sort) == ["command", "details_redacted", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
+    and .format == "duo-command-refusal/v1"
+    and .ok == false
+    and .command == $command
+    and .error == ($command + "_failed")
+    and .reason_code == ($command + "_failed")
+    and .message == ($command + " refused at an unclassified safety gate")
+    and .remediation == $remediation
+    and .details_redacted == true
+    and (.diagnostics | length == 1)
+    and .diagnostics[0].code == ($command + "_failed")
+    and .diagnostics[0].message == ($command + " refused at an unclassified safety gate")
+    and .diagnostics[0].remediation == $remediation
+  ' <<<"$json" >/dev/null \
+    || fail "$label did not use the reviewed redacted JSON envelope: $json"
+}
+
+assert_typed_json_refusal() {
+  local error_code="$1" message="$2" remediation="$3" key="$4" shape_key="$5" shape="$6"
+  local diagnostic_message="$7" diagnostic_remediation="$8" output="$9" label="${10}" json
+  json=$(tail -n 1 <<<"$output")
+  jq -e \
+    --arg error_code "$error_code" \
+    --arg message "$message" \
+    --arg remediation "$remediation" \
+    --arg key "$key" \
+    --arg shape_key "$shape_key" \
+    --arg shape "$shape" \
+    --arg diagnostic_message "$diagnostic_message" \
+    --arg diagnostic_remediation "$diagnostic_remediation" '
+      (keys | sort) == ["command", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
+      and .format == "duo-command-refusal/v1"
+      and .ok == false
+      and .command == "capture"
+      and .error == $error_code
+      and .reason_code == $error_code
+      and .message == $message
+      and .remediation == $remediation
+      and (.diagnostics | length == 1)
+      and ((.diagnostics[0] | keys | sort) == (["code", "key", "message", "remediation", "surface", $shape_key] | sort))
+      and .diagnostics[0].code == $error_code
+      and .diagnostics[0].surface == "user_meta"
+      and .diagnostics[0].key == $key
+      and .diagnostics[0][$shape_key] == $shape
+      and .diagnostics[0].message == $diagnostic_message
+      and .diagnostics[0].remediation == $diagnostic_remediation
+    ' <<<"$json" >/dev/null \
+    || fail "$label did not use the reviewed typed JSON refusal envelope: $json"
+}
+
 command -v jq >/dev/null || fail "jq required"
 
 say "reset and converge this test's own pair"
@@ -102,9 +167,12 @@ echo "$PLAN" | jq -e \
 if APPLY_FAIL=$(wp2 duo apply --repo=/siterepo --format=json 2>&1); then
   fail "apply should refuse the case-divergent required login"
 fi
-grep -q "exact login 'case.editor' is absent" <<<"$APPLY_FAIL" || fail "missing-user refusal did not name exact login"
+assert_redacted_json_refusal apply "$APPLY_FAIL" "missing-user refusal"
+APPLY_FAIL_JSON=$(tail -n 1 <<<"$APPLY_FAIL")
+! grep -Fq 'case.editor' <<<"$APPLY_FAIL_JSON" \
+  || fail "redacted missing-user refusal exposed the exact login in JSON: $APPLY_FAIL_JSON"
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "blue" ] || fail "required-login refusal happened after mutation"
-pass "missing exact login blocks before mutation; warn-only login remains explicitly skipped"
+pass "missing exact login blocks before mutation; JSON refusal is redacted and plan JSON carries the login; warn-only login remains explicitly skipped"
 
 say "once the exact login exists, apply proceeds and reports the warn-only skip"
 wp2 user delete "$TARGET_CASE" --yes >/dev/null
@@ -146,7 +214,17 @@ wp1 user meta update "$SOURCE_PII" contact_email editor@example.test >/dev/null
 if PII_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "PII-bearing authored user meta should refuse without allow_pii"
 fi
-grep -q "PII guard tripped" <<<"$PII_FAIL" || fail "PII refusal did not identify the gate"
+assert_typed_json_refusal \
+  personal_data_refused \
+  "capture found personal data on an authored user-meta surface" \
+  "keep the named field environment-local, or record an explicit reviewed allow-pii decision" \
+  contact_email personal_data_shape "email address" \
+  "authored user meta matched a personal-data signature" \
+  "keep it environment-local or explicitly review allow-pii for this field" \
+  "$PII_FAIL" "PII refusal"
+PII_FAIL_JSON=$(tail -n 1 <<<"$PII_FAIL")
+! grep -Fq 'pii-editor' <<<"$PII_FAIL_JSON" || fail "PII refusal exposed the exact login"
+! grep -Fq 'editor@example.test' <<<"$PII_FAIL_JSON" || fail "PII refusal exposed the raw email value"
 
 tmp_policy=$(mktemp)
 jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
@@ -155,7 +233,16 @@ wp1 user meta update "$SOURCE_PII" api_token ghp_abcdefghijklmnopqrstuvwxyz12345
 if SECRET_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "secret-bearing authored user meta should refuse without allow_secret"
 fi
-grep -q "secret guard tripped" <<<"$SECRET_FAIL" || fail "secret refusal did not identify the gate"
-pass "PII and hard-secret scanning are both active on user-meta values"
+assert_typed_json_refusal \
+  secret_state_refused \
+  "capture found secret-shaped data on an authored surface" \
+  "reclassify the named surface as environment/runtime state, or explicitly review and allow the false positive" \
+  api_token secret_shape "github token" \
+  "authored state matched a secret signature" \
+  "reclassify it or record an explicit reviewed allow-secret decision" \
+  "$SECRET_FAIL" "secret refusal"
+SECRET_FAIL_JSON=$(tail -n 1 <<<"$SECRET_FAIL")
+! grep -Fq 'ghp_abcdefghijklmnopqrstuvwxyz123456' <<<"$SECRET_FAIL_JSON" || fail "secret refusal exposed the raw token"
+pass "PII and hard-secret scanning refuse in JSON with reviewed typed envelopes"
 
 printf '\nREGRESS_USER_META PASSED\n'
