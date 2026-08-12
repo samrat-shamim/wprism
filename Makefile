@@ -774,16 +774,45 @@ regress-attachment-materializer:
 # constructed from (Tokens) -- no Policy, matching AttachmentMaterializer's
 # even-narrower-than-usual precedent. Stays a thin Apply facade since its
 # only caller (run()'s phase-1 loop, not extracted this slice) wasn't
-# touched. finalize_post() -- the other half of post materialization --
-# deliberately stays on Apply this slice: it also calls resolve_login()/
-# reads $defaultAuthor, and resolve_login() has a second caller inside
-# run() seeding $defaultAuthor, so untangling that shared state is a
-# separate, later slice's work. Deliberately a wiring/shape proof only --
+# touched. Slice 11 moved finalize_post() too, along with resolve_login()/
+# its $userIds memoization cache (the shared-state coupling that blocked
+# slice 10 from moving it), widening the constructor to (Policy, Tokens,
+# ApplyFieldMaterializer, RelationshipMaterializer, AttachmentMaterializer)
+# -- the three additional collaborators finalize_post() itself calls
+# directly now rather than through Apply's own now-removed facades over
+# them, which would be circular. Deliberately a wiring/shape proof only --
 # full behavioral coverage already exists in
 # regress_post_field_classification.php and every live conformance
 # manifest sweep, unchanged by this extraction.
 regress-post-materializer:
 	php sandbox/tests/regress_post_materializer.php
+
+# DUO-3347 slice 12: delete_entity()/assert_zero() moved from Apply.php into
+# a new DeleteExecutor.php (the executor half of the "DeleteGuardEvaluator/
+# DeleteExecutor" target seam -- guard evaluation, i.e. build_plan()'s own
+# collision detection that decides whether a delete is authorized at all,
+# stays out: it is entangled with ApplyPlanner, a materially larger and
+# riskier cut than this already-decided, already-authorized row deletion,
+# and DUO-3347's own guardrail against changing conflict semantics or
+# deletion authority in extraction PRs applies directly). Constructed from
+# (Policy, RelationshipMaterializer, MenuMaterializer) -- no $scopeContract:
+# the only place delete_entity() read it was the trailing
+# REGEN_PENDING_PREFIX marker cleanup, reconciliation bookkeeping that
+# stayed on Apply's own facade rather than moving here, so this class never
+# needed it as a dependency at all. assign_locations()'s own Apply facade
+# is kept (not deleted) despite losing its last production caller here,
+# because regress_lifecycle_options_snapshot.php invokes it via
+# ReflectionMethod against Apply::class for a genuine behavioral test --
+# caught by grepping for reflection-based callers specifically, not just
+# bare method-name mentions, before this slice's code was written.
+# delete_post_relationships()/delete_term_relationships() had no such
+# caller and were removed entirely, covered by
+# regress_relationship_materializer.php. Deliberately a wiring/shape proof
+# only -- full behavioral coverage already exists in
+# regress_lifecycle_options_snapshot.php and every live conformance
+# manifest sweep's own entity-delete paths, unchanged by this extraction.
+regress-delete-executor:
+	php sandbox/tests/regress_delete_executor.php
 
 # DUO-3348 slice 2: CompiledRepository/RepositoryCompilationException moved
 # out of RepositoryCompiler.php into their own CompiledArtifact.php (the
@@ -1419,8 +1448,8 @@ regress-offline-all: code-half-unit \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command \
-	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar
-	@echo "regress-offline-all: 159 offline suites green"
+	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor
+	@echo "regress-offline-all: 160 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
