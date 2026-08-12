@@ -2012,7 +2012,8 @@ final class Cli {
      *   wp-cli keeps the LAST occurrence of a repeated flag rather than
      *   accumulating (see `classify`'s docblock for the same quirk). Forms:
      *   post:<uuid>, term:<uuid>, table:<table>:<uuid>, menu:<slug>,
-     *   sidebar:<id>, user-meta:<login>, options,
+     *   sidebar:<id>, user-meta:<login>, options, option:<name> (one
+     *   authored option; preview-only — see DUO-3344),
      *   path:<state-relative-path>, or `all` for the whole revision — a
      *   full-site operation is this same model with a wider root set, not a
      *   separate code path.
