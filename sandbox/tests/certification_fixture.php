@@ -157,6 +157,38 @@ function duo_cert_seal_library(string $repo, string $root): string {
     $registry = Canon::decode(Canon::read_file("$repo/manifests/capabilities/registry.json"));
     $bundle = $evidence['bundle'];
 
+    // A current scoped claim is revalidated from the root inferred from its
+    // durable evidence path, rather than trusting the generated projection.
+    // Preserve that invariant in this hermetic fixture: copy every declared
+    // scoped closure byte from the real source tree beside the copied manifest
+    // library.  Re-sealing only the global attestation must not make a scoped
+    // claim look current while its closure is absent.
+    foreach ($evidence['scoped'] ?? [] as $name => $entry) {
+        $scoped = is_array($entry) ? ($entry['bundle'] ?? null) : null;
+        $inputs = is_array($scoped) ? ($scoped['closure']['inputs'] ?? null) : null;
+        if (!is_string($name) || !is_array($inputs) || !array_is_list($inputs)) {
+            throw new \RuntimeException("certification fixture manufacture failed: malformed scoped evidence for '$name'");
+        }
+        foreach ($inputs as $input) {
+            $relative = is_array($input) ? ($input['path'] ?? null) : null;
+            if (!is_string($relative) || $relative === '' || str_starts_with($relative, '/')
+                || str_contains($relative, '\\') || in_array('..', explode('/', $relative), true)) {
+                throw new \RuntimeException("certification fixture manufacture failed: unsafe scoped input for '$name'");
+            }
+            $source = "$repo/$relative";
+            $target = "$root/$relative";
+            if (!is_file($source) || is_link($source)) {
+                throw new \RuntimeException("certification fixture manufacture failed: scoped input '$relative' for '$name' is absent or unsafe");
+            }
+            if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0777, true) && !is_dir(dirname($target))) {
+                throw new \RuntimeException("certification fixture manufacture failed: cannot create scoped input directory for '$relative'");
+            }
+            if (!copy($source, $target)) {
+                throw new \RuntimeException("certification fixture manufacture failed: cannot copy scoped input '$relative'");
+            }
+        }
+    }
+
     // Bind the attestation to the bytes this tree actually has — what
     // re-running certification on it would record. A bound input the branch
     // deleted is simply no longer bound.
@@ -213,6 +245,13 @@ function duo_cert_seal_library(string $repo, string $root): string {
     );
     foreach (['manifests', 'profiles'] as $section) {
         foreach ($registry[$section] as $name => $claim) {
+            // A scoped record has its own content-addressed authority.  The
+            // global fixture re-seal must not overwrite that digest with the
+            // synthetic release-wide one, or the runtime cross-check rightly
+            // detects a split attestation.
+            if (($claim['evidence']['bundle_schema'] ?? null) === 'duo-adapter-certification-bundle/v1') {
+                continue;
+            }
             $claim['evidence']['status'] = 'current';
             $claim['evidence']['bundle_digest'] = $bundle['bundle_digest'];
             $registry[$section][$name] = $claim;
@@ -266,8 +305,18 @@ function duo_cert_assert_sealed(string $repo, string $manifestDir): void {
     }
     foreach (['manifests', 'profiles'] as $section) {
         foreach ($registry[$section] as $name => $claim) {
-            if (($claim['evidence']['status'] ?? null) !== 'current'
-                || !hash_equals((string) ($claim['evidence']['bundle_digest'] ?? ''), $digest)) {
+            $claimEvidence = $claim['evidence'] ?? [];
+            if (($claimEvidence['bundle_schema'] ?? null) === 'duo-adapter-certification-bundle/v1') {
+                $scoped = $evidence['scoped'][$name]['bundle'] ?? null;
+                if (!is_array($scoped)
+                    || ($claimEvidence['status'] ?? null) !== 'current'
+                    || !hash_equals((string) ($claimEvidence['bundle_digest'] ?? ''), (string) ($scoped['bundle_digest'] ?? ''))) {
+                    $fail("the sealed registry claim '$name' does not cite its current scoped attestation");
+                }
+                continue;
+            }
+            if (($claimEvidence['status'] ?? null) !== 'current'
+                || !hash_equals((string) ($claimEvidence['bundle_digest'] ?? ''), $digest)) {
                 $fail("the sealed registry claim '$name' does not cite the sealed attestation as current");
             }
         }
@@ -286,6 +335,25 @@ function duo_cert_assert_sealed(string $repo, string $manifestDir): void {
     if ($expired !== [] || count($bound) < 2) {
         $fail('the sealed attestation does not bind this working tree ('
             . ($expired === [] ? count($bound) . ' bound inputs' : 'expired: ' . implode(', ', $expired)) . ')');
+    }
+
+    foreach ($evidence['scoped'] ?? [] as $name => $entry) {
+        $scoped = is_array($entry) ? ($entry['bundle'] ?? null) : null;
+        $inputs = is_array($scoped) ? ($scoped['closure']['inputs'] ?? null) : null;
+        if (!is_string($name) || !is_array($inputs) || !array_is_list($inputs)) {
+            $fail('the sealed library has malformed scoped evidence');
+        }
+        foreach ($inputs as $input) {
+            $relative = is_array($input) ? ($input['path'] ?? null) : null;
+            $expectedHash = is_array($input) ? ($input['sha256'] ?? null) : null;
+            $expectedSize = is_array($input) ? ($input['size'] ?? null) : null;
+            $file = is_string($relative) ? dirname($manifestDir) . "/$relative" : '';
+            if (!is_file($file)
+                || !is_string($expectedHash) || !hash_equals($expectedHash, (string) hash_file('sha256', $file))
+                || !is_int($expectedSize) || $expectedSize !== filesize($file)) {
+                $fail("the sealed library is missing current scoped closure input for '$name'");
+            }
+        }
     }
 }
 
