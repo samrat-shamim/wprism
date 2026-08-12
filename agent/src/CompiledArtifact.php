@@ -1,17 +1,20 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/Code.php';
-// Deliberately NOT require_once('Canon.php') here, matching the pre-extraction
-// file exactly: CompiledRepository has always called Canon::encode()/write_file()
-// without requiring Canon.php itself, relying on a caller (agent/duo.php's
-// bootstrap, or a test's own hand-picked require list) to have loaded it first.
-// sandbox/tests/regress_cli_json_refusals.php depends on exactly this laxity —
-// it stubs a fake Duo\Canon and requires RepositoryCompiler.php (hence this
-// file) without ever loading the real Canon.php; adding that require here
+// Deliberately NOT require_once('Canon.php') or require_once('Code.php') here,
+// matching the pre-extraction file exactly: CompiledRepository has always
+// called Canon::encode()/write_file() and Code::assert_descriptor() without
+// requiring either file itself, relying on a caller (agent/duo.php's bootstrap,
+// or a test's own hand-picked require list) to have loaded them first.
+// sandbox/tests/regress_cli_json_refusals.php depends on exactly this laxity
+// for Canon — it stubs a fake Duo\Canon and requires RepositoryCompiler.php
+// (hence this file) without ever loading the real Canon.php; requiring it here
 // fatals that suite with "Cannot redeclare class Duo\Canon" (caught by
-// regress-offline-all during this slice's own verification). Any caller that
-// needs Canon (like this file's own test) must require it explicitly itself.
+// regress-offline-all during this slice's own verification). No current caller
+// stubs Code the same way, but the risk is identical in kind, so this file
+// stays symmetric about both rather than requiring one and not the other. Any
+// caller that needs Canon or Code (like this file's own test) must require
+// them explicitly itself.
 
 /**
  * One immutable, typed result of compiling a repository revision. The
