@@ -539,10 +539,6 @@ function main(array $argv): int {
     }
 
     $verb = array_shift($rest);
-    // Compatibility source anchor retained for existing audit tooling:
-    // $verbsNeedingEnv = ['doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'plan', 'explain', 'apply', 'deploy', 'env-set', 'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase'];
-    // The executable vocabulary itself is owned by EnvironmentCommandPreflight.
-    $verbsNeedingEnv = EnvironmentCommandPreflight::environmentVerbs();
     if ($verb === 'envs') {
         return cmd_envs($envsFileOverride);
     }
@@ -567,7 +563,7 @@ function main(array $argv): int {
 
     // Same shape, same reason (DUO-3339): the adapter catalog reports what is
     // installed on THIS machine and where it came from. It sits beside
-    // manifest-validate rather than in $verbsNeedingEnv deliberately — the
+    // manifest-validate rather than in the environment-bound vocabulary deliberately — the
     // operator most likely to run `duo adapter doctor` is the one whose
     // repository is in a state that makes every environment-bound command
     // refuse, and requiring an <env> would put the answer behind the problem.
@@ -575,7 +571,7 @@ function main(array $argv): int {
         return AdapterCatalog::run($rest);
     }
 
-    if (!in_array($verb, $verbsNeedingEnv, true)) {
+    if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {
         fwrite(STDERR, "duo: unknown verb '$verb'\n\n" . duo_usage() . "\n");
         return 1;
     }
@@ -620,9 +616,6 @@ function main(array $argv): int {
         return cmd_driver_capabilities($transport, $extra);
     }
 
-    // Historical audit anchor: the collaborator delegates to this driver's
-    // exact capabilityReport() contract without contacting the target.
-    // $transport->capabilityReport($verb);
     try {
         $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $verb);
     } catch (\Throwable $e) {

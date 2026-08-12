@@ -11,6 +11,7 @@ require_once __DIR__ . '/../../cli/src/SshTransport.php';
 require_once __DIR__ . '/../../cli/src/Doctor.php';
 require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
 require_once __DIR__ . '/../../cli/src/Refresh.php';
+require_once __DIR__ . '/../../cli/src/EnvironmentCommandPreflight.php';
 
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DockerTransport;
@@ -18,6 +19,7 @@ use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\DriverCapability;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
+use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\LocalTransport;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\SshTransport;
@@ -301,13 +303,10 @@ pass('public JSON/human paths share the report and refuse before target mutation
 $duoSource = file_get_contents(__DIR__ . '/../../cli/duo');
 assert_true(is_string($duoSource) && $duoSource !== '', 'could not read cli/duo');
 
-assert_true(
-    preg_match('/\$verbsNeedingEnv\s*=\s*\[(.*?)\];/s', $duoSource, $verbsMatch) === 1,
-    'could not locate $verbsNeedingEnv in cli/duo'
-);
-preg_match_all("/'([^']+)'/", $verbsMatch[1], $verbNames);
-$verbsNeedingEnv = $verbNames[1];
-assert_true(count($verbsNeedingEnv) >= 15, 'scraped an implausibly short $verbsNeedingEnv');
+// The vocabulary is a runtime collaborator, not a copied source anchor. This
+// keeps the contract tied to the implementation that dispatches commands.
+$verbsNeedingEnv = EnvironmentCommandPreflight::environmentVerbs();
+assert_true(count($verbsNeedingEnv) >= 15, 'environment preflight vocabulary is implausibly short');
 assert_true(in_array('scope', $verbsNeedingEnv, true), 'scope is not registered in $verbsNeedingEnv');
 assert_true(
     str_contains($duoSource, "'scope' => cmd_scope(\$transport, \$extra)")
@@ -316,19 +315,26 @@ assert_true(
     'scope dispatch is not registered through the isolated control-plane forwarding path'
 );
 assert_true(in_array('explain', $verbsNeedingEnv, true), 'explain is not registered in $verbsNeedingEnv');
+assert_true(
+    str_contains($duoSource, 'EnvironmentCommandPreflight::requiresEnvironment('),
+    'cli/duo does not ask the preflight collaborator whether a command needs an environment'
+);
 
-// A verb may legitimately never reach the preflight if main() returns for it
-// first (driver-capabilities renders the report itself). Derive that from the
-// source position rather than trusting a hand-kept exemption list.
-$preflightAt = strpos($duoSource, '$transport->capabilityReport(');
-assert_true($preflightAt !== false, 'could not locate the driver preflight call in cli/duo');
+// A verb may legitimately never reach the common preflight if main() returns
+// for it first (driver-capabilities renders the report itself). Keep that
+// single, explicit exception in the behavioral check.
+assert_true(
+    str_contains($duoSource, 'EnvironmentCommandPreflight::capabilityReport('),
+    'cli/duo does not route driver capability checks through the preflight collaborator'
+);
 
 $requirements = new ReflectionMethod(DriverCapabilityReport::class, 'requirements');
 $unknown = [];
 $reachedPreflight = 0;
 foreach ($verbsNeedingEnv as $verb) {
-    $earlyReturn = strpos($duoSource, "\$verb === '$verb'");
-    if ($earlyReturn !== false && $earlyReturn < $preflightAt) {
+    // driver-capabilities renders its report directly after transport setup;
+    // all other environment verbs use the common driver preflight path.
+    if ($verb === 'driver-capabilities') {
         continue;
     }
     $reachedPreflight++;
