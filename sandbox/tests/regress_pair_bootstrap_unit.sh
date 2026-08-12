@@ -407,6 +407,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   mkdir -p "$bin_dir/../lib"
   cp "$ROOT/sandbox/bin/pair.sh" "$bin_dir/pair.sh"
   cp "$ROOT/sandbox/lib/pair_identity.sh" "$bin_dir/../lib/pair_identity.sh"
+  cp "$ROOT/sandbox/lib/pair_budget_lock.sh" "$bin_dir/../lib/pair_budget_lock.sh"
 }
 
 run_case() {

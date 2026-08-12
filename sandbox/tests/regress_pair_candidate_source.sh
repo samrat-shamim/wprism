@@ -87,6 +87,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   mkdir -p "$bin_dir/../lib"
   cp "$ROOT/sandbox/bin/pair.sh" "$bin_dir/pair.sh"
   cp "$ROOT/sandbox/lib/pair_identity.sh" "$bin_dir/../lib/pair_identity.sh"
+  cp "$ROOT/sandbox/lib/pair_budget_lock.sh" "$bin_dir/../lib/pair_budget_lock.sh"
 }
 
 # Every mutation pair.sh can perform before it reaches a container, expressed
@@ -618,7 +619,7 @@ run_conformance_passthrough_case() {
 }
 
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/conformance/run.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/conformance/run.sh" \
   "$ROOT/sandbox/tests/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \
