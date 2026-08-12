@@ -213,11 +213,14 @@ $assertOk(
 
 $assertThrows(
     static fn() => CrossManifestGuards::validate_no_conflicting_option_rules([
-        ['name' => 'a', 'options' => ['x' => ['class' => 'authored', 'autoload' => 'yes']]],
+        ['name' => 'a', 'options' => ['x' => ['class' => 'authored']]],
         ['name' => 'b', 'options' => ['x' => ['class' => 'authored']], 'option_autoload' => 'no'],
     ], []),
     'declare contradictory rules',
-    "Policy::with_option_autoload() is reachable: a manifest-level autoload default makes an otherwise-identical rule diverge"
+    "Policy::with_option_autoload() is reachable: 'a' and 'b' declare byte-identical raw option rules for x, "
+        . "differing only in that 'b's manifest carries an option_autoload default and 'a's doesn't -- this can "
+        . "only throw if with_option_autoload() actually merges that default into 'b's effective rule before "
+        . "comparison; a no-op merge would leave both rules identical and wrongly accept them"
 );
 
 // --------------------------------------------------- structural: moved, not duplicated
@@ -243,7 +246,7 @@ $check(
 $check(
     (new ReflectionClass(Policy::class))->hasMethod('with_option_autoload')
         && (new ReflectionMethod(Policy::class, 'with_option_autoload'))->isPublic(),
-    'with_option_autoload() stayed on Policy (used across a dozen call sites beyond this cluster) and is now public'
+    'with_option_autoload() stayed on Policy (used at 7 other call sites beyond this cluster) and is now public'
 );
 
 if ($failures) {

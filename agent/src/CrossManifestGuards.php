@@ -46,7 +46,7 @@ require_once __DIR__ . '/Policy.php';
  * looked cluster-exclusive at first too (each is used here) but both have
  * substantial call sites elsewhere in Policy.php -- `taxonomy_pattern_matches()`
  * from the live `taxonomy_object_keyspace()` runtime-resolution path,
- * `with_option_autoload()` from a dozen call sites across rule/option
+ * `with_option_autoload()` from 7 other call sites across rule/option
  * resolution generally -- caught by grepping every referenced symbol across
  * the whole file before finalizing scope (the same discipline
  * `assert_min_max_range()` needed in slice 6). Both stayed on Policy,
