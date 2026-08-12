@@ -9,6 +9,21 @@ namespace Duo\Orchestrator;
  * command handlers do not each grow a subtly different error channel.
  */
 final class CommandOutput {
+    /** Emit both distinct streams of a captured transport failure. */
+    public static function renderTransportDetail(array $result): void {
+        // Docker Compose writes lifecycle chatter to stderr while the command
+        // diagnostic is often on stdout; retain both without duplicating text.
+        $seen = [];
+        foreach ([$result['stderr'] ?? '', $result['stdout'] ?? ''] as $stream) {
+            $detail = trim((string) $stream);
+            if ($detail === '' || isset($seen[$detail])) {
+                continue;
+            }
+            $seen[$detail] = true;
+            fwrite(STDERR, $detail . "\n");
+        }
+    }
+
     /** Commands whose host preflight can emit the agent refusal envelope. */
     public static function wantsAgentRefusalJson(string $verb, array $extra): bool {
         if (!in_array($verb, ['adapter-observe', 'capture', 'plan', 'explain', 'apply', 'refresh'], true)) {
