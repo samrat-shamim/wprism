@@ -102,9 +102,27 @@ echo "$PLAN" | jq -e \
 if APPLY_FAIL=$(wp2 duo apply --repo=/siterepo --format=json 2>&1); then
   fail "apply should refuse the case-divergent required login"
 fi
-grep -q "exact login 'case.editor' is absent" <<<"$APPLY_FAIL" || fail "missing-user refusal did not name exact login"
+APPLY_FAIL_JSON=$(tail -n 1 <<<"$APPLY_FAIL")
+jq -e '
+  (keys | sort) == ["command", "details_redacted", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
+  and .format == "duo-command-refusal/v1"
+  and .ok == false
+  and .command == "apply"
+  and .error == "apply_failed"
+  and .reason_code == "apply_failed"
+  and .message == "apply refused at an unclassified safety gate"
+  and .remediation == "inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase"
+  and .details_redacted == true
+  and (.diagnostics | length == 1)
+  and .diagnostics[0].code == "apply_failed"
+  and .diagnostics[0].message == "apply refused at an unclassified safety gate"
+  and .diagnostics[0].remediation == "inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase"
+' <<<"$APPLY_FAIL_JSON" >/dev/null \
+  || fail "missing-user refusal did not use the reviewed redacted JSON envelope: $APPLY_FAIL_JSON"
+! grep -Fq 'case.editor' <<<"$APPLY_FAIL_JSON" \
+  || fail "redacted missing-user refusal exposed the exact login in JSON: $APPLY_FAIL_JSON"
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "blue" ] || fail "required-login refusal happened after mutation"
-pass "missing exact login blocks before mutation; warn-only login remains explicitly skipped"
+pass "missing exact login blocks before mutation; JSON refusal is redacted and plan JSON carries the login; warn-only login remains explicitly skipped"
 
 say "once the exact login exists, apply proceeds and reports the warn-only skip"
 wp2 user delete "$TARGET_CASE" --yes >/dev/null
