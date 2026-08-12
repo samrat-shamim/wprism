@@ -10,6 +10,7 @@ require_once __DIR__ . '/../../cli/src/DockerTransport.php';
 require_once __DIR__ . '/../../cli/src/SshTransport.php';
 require_once __DIR__ . '/../../cli/src/Doctor.php';
 require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
+require_once __DIR__ . '/../../cli/src/ScopeCommand.php';
 require_once __DIR__ . '/../../cli/src/Refresh.php';
 require_once __DIR__ . '/../../cli/src/EnvironmentCommandPreflight.php';
 
@@ -23,6 +24,7 @@ use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\LocalTransport;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\SshTransport;
+use Duo\Orchestrator\ScopeCommand;
 
 function fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -311,8 +313,12 @@ assert_true(in_array('scope', $verbsNeedingEnv, true), 'scope is not registered 
 assert_true(
     str_contains($duoSource, "'scope' => cmd_scope(\$transport, \$extra)")
         && str_contains($duoSource, 'function cmd_scope(')
-        && str_contains($duoSource, 'CodeDeploy::controlArgs'),
-    'scope dispatch is not registered through the isolated control-plane forwarding path'
+        && str_contains($duoSource, 'ScopeCommand::run($t, $extra)'),
+    'scope dispatch is not registered through the extracted isolated control-plane handler'
+);
+assert_true(
+    (new ReflectionMethod(ScopeCommand::class, 'run'))->isStatic(),
+    'scope command handler does not expose its standalone static boundary'
 );
 assert_true(in_array('explain', $verbsNeedingEnv, true), 'explain is not registered in $verbsNeedingEnv');
 assert_true(
