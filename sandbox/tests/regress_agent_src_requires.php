@@ -416,6 +416,7 @@ $knownGapsByFile = [
     'AdapterSources' => ['Canon', 'ManifestDispositions', 'Policy'],
     'Apply' => ['Blocks', 'Canary', 'Canon', 'Capture', 'Code', 'CompiledRepository', 'DatabaseMutationException', 'Db', 'Deletion', 'Deploy', 'IdentityNotes', 'Ledger', 'LedgerScopedApplySessionStorage', 'NativeActions', 'OptionState', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Tokens'],
     'ApplyFieldMaterializer' => ['Db', 'StructuredValue'],
+    'AttachmentMaterializer' => ['CompiledRepository'],
     'Blocks' => ['Capture', 'Policy', 'Shortcodes', 'Tokens'],
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
