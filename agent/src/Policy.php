@@ -72,6 +72,11 @@ require_once __DIR__ . '/ReferenceKeyspaceGrammar.php';
 // DUO-3348 slice 24: ref/token/ledger kind vocabulary grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceKindGrammar.php';
+// DUO-3348 slice 25: optional site code-declaration grammar, required here
+// for the same "loads alone" reason as its neighbors above. The grammar
+// preserves Policy's pre-existing implicit Code boundary; it does not load
+// Code.php or its materialization graph transitively.
+require_once __DIR__ . '/CodeConfigGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -213,7 +218,7 @@ final class Policy {
                 throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
-            self::validate_code_config($p->site, 'site.duo.json');
+            CodeConfigGrammar::validate_site_code($p->site, 'site.duo.json');
             ScopeGrammar::validate_scope_classes($p->site, 'site.duo.json', true);
             OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
@@ -391,7 +396,7 @@ final class Policy {
 
         $p = new self();
         $p->site = $snapshot['site'];
-        self::validate_code_config($p->site, 'frozen site.duo.json');
+        CodeConfigGrammar::validate_site_code($p->site, 'frozen site.duo.json');
         ScopeGrammar::validate_scope_classes($p->site, 'frozen site.duo.json', true);
         OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
         OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
@@ -604,28 +609,6 @@ final class Policy {
      */
     private function adapter_registry(): AdapterRegistry {
         return new AdapterRegistry($this, $this->manifestDispositions, $this->capabilityRegistry);
-    }
-
-    /**
-     * The v0 code half is deliberately opt-in and deliberately narrow. Do
-     * not accept a tempting near-miss here: a future layout must get a new
-     * format rather than silently being interpreted as this payload format.
-     */
-    private static function validate_code_config(array $site, string $label): void {
-        if (!array_key_exists('code', $site)) {
-            return; // legacy state-only repositories remain fully supported
-        }
-        $code = $site['code'];
-        if (!is_array($code) || array_is_list($code)) {
-            throw new \RuntimeException(
-                "duo: $label code must be an object with exactly format, layout, and source"
-            );
-        }
-        try {
-            Code::assert_config($code);
-        } catch (\Throwable $t) {
-            throw new \RuntimeException("duo: $label code declaration is invalid: {$t->getMessage()}", 0, $t);
-        }
     }
 
     /** @return ?array{format:int,layout:string,source:string} */
