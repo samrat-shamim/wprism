@@ -152,9 +152,17 @@ $check(substr_count($materializerSource, 'function reconcile_authored_meta(') ==
     'postmeta reconciliation has one implementation in the collaborator');
 $check(substr_count($materializerSource, 'function reconcile_authored_term_meta(') === 1,
     'termmeta reconciliation has one implementation in the collaborator');
-$check(substr_count($applySource, 'private function reconcile_authored_meta(') === 1
-    && str_contains($applySource, '$this->field_materializer()->reconcile_authored_meta'),
-    'Apply keeps a thin postmeta compatibility facade');
+// reconcile_authored_meta()'s only caller, finalize_post(), itself moved to
+// PostMaterializer in DUO-3347 slice 11 -- the new
+// PostMaterializer::finalize_post() calls
+// ApplyFieldMaterializer::reconcile_authored_meta() directly (calling back
+// through Apply's own facade would be circular), so Apply's own facade is
+// now genuinely dead code and was removed entirely rather than kept, the
+// same "no other caller, no facade needed" treatment TermMaterializer's
+// encode_description()/reconcile_term_relationships() already established
+// (slice 6).
+$check(!str_contains($applySource, 'private function reconcile_authored_meta('),
+    'Apply no longer defines reconcile_authored_meta() at all (moved to PostMaterializer\'s own call site, no facade needed -- it had no other caller)');
 $check(substr_count($applySource, 'private function reconcile_authored_term_meta(') === 1
     && str_contains($applySource, '$this->field_materializer()->reconcile_authored_term_meta'),
     'Apply keeps a thin termmeta compatibility facade');

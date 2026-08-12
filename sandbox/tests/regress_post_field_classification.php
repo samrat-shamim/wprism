@@ -52,10 +52,12 @@ require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
 require __DIR__ . '/../../agent/src/Blocks.php';
+require __DIR__ . '/../../agent/src/CompiledArtifact.php';
 require __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\Apply;
 use Duo\Canon;
+use Duo\CompiledRepository;
 use Duo\OptionState;
 use Duo\Policy;
 use Duo\RepositoryAuthorization;
@@ -292,6 +294,19 @@ function apply_instance(Policy $policy, Tokens $tokens): Apply {
     set_private($apply, 'repo', '/offline');
     set_private($apply, 'policy', $policy);
     set_private($apply, 'tokens', $tokens);
+    // DUO-3347 slice 11: finalize_post()'s facade now lazily constructs
+    // PostMaterializer, which eagerly constructs AttachmentMaterializer as
+    // one of its five collaborators (needed for the type==='attachment'
+    // branch) -- and AttachmentMaterializer's constructor requires a real
+    // CompiledRepository instance, unconditionally, regardless of which
+    // post type is actually being finalized. None of this suite's fixture
+    // posts are attachments, so place_attachment() itself is never called
+    // and this stub is never read -- it only needs to exist so
+    // AttachmentMaterializer's constructor has something typed to store.
+    // In real production use $compiled is always set via Apply's own
+    // constructor before any post is finalized; this offline suite is the
+    // one place that reflects past that constructor entirely.
+    set_private($apply, 'compiled', (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor());
     return $apply;
 }
 

@@ -80,16 +80,19 @@ $check(
     'place_attachment() keeps its original two parameters -- CompiledRepository travels via the constructor, not a third parameter'
 );
 
-// === Prove the extraction itself: Apply.php no longer inlines the body,
-// and its remaining call site is a thin facade.
+// === Prove the extraction itself. place_attachment()'s only caller,
+// finalize_post(), itself moved to PostMaterializer in DUO-3347 slice 11 --
+// the new PostMaterializer::finalize_post() calls
+// AttachmentMaterializer::place_attachment() directly (calling back through
+// Apply's own facade would be circular), so Apply's place_attachment()
+// facade is now genuinely dead code and was removed entirely rather than
+// kept, the same "no other caller, no facade needed" treatment
+// TermMaterializer's encode_description()/reconcile_term_relationships()
+// already established (slice 6).
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
 $check(
-    !preg_match('/private function place_attachment\(int \$id, array \$front\): void \{\s*global \$wpdb;\s*\$bytes = \$this->compiled->media_content/', $applySource),
-    'Apply.php no longer inlines place_attachment()\'s own body (only the facade remains)'
-);
-$check(
-    str_contains($applySource, '$this->attachment_materializer()->place_attachment($id, $front);'),
-    'Apply::place_attachment() is a thin facade delegating to AttachmentMaterializer'
+    !str_contains($applySource, 'private function place_attachment('),
+    'Apply.php no longer defines place_attachment() at all (moved to PostMaterializer\'s own call site, no facade needed -- it had no other caller)'
 );
 
 if ($failures) {

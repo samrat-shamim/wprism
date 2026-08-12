@@ -78,18 +78,27 @@ $check(
     'reconcile_relationships() keeps its four original parameters and gains the new explicit "taxesForPostType" one'
 );
 
-// === Prove the extraction itself: Apply.php no longer inlines these
-// bodies, and its remaining call sites are thin facades.
+// === Prove the extraction itself. delete_post_relationships()/
+// delete_term_relationships() are still called from Apply's own
+// delete_entity() (part of the still-unextracted DeleteGuardEvaluator/
+// DeleteExecutor seam), so both stay thin facades. reconcile_relationships()
+// lost its only caller when DUO-3347 slice 11 moved finalize_post() itself
+// to PostMaterializer -- the new PostMaterializer::finalize_post() calls
+// RelationshipMaterializer::reconcile_relationships() directly (calling
+// back through Apply's own facade would be circular), so Apply's
+// reconcile_relationships() facade is now genuinely dead code and was
+// removed entirely rather than kept, the same "no other caller, no facade
+// needed" treatment TermMaterializer's encode_description()/
+// reconcile_term_relationships() already established (slice 6).
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
 $check(
-    str_contains($applySource, '$this->relationship_materializer()->reconcile_relationships(')
-        && str_contains($applySource, '$this->relationship_materializer()->delete_post_relationships($id, $postType);')
+    str_contains($applySource, '$this->relationship_materializer()->delete_post_relationships($id, $postType);')
         && str_contains($applySource, '$this->relationship_materializer()->delete_term_relationships($termId);'),
-    'Apply\'s three relationship methods are thin facades delegating to RelationshipMaterializer'
+    'Apply\'s two delete-side relationship methods are still thin facades delegating to RelationshipMaterializer'
 );
 $check(
-    !preg_match('/private function reconcile_relationships\(\s*int \$postId,\s*string \$postType,\s*array \$termsField,\s*array \$termOrders = \[\]\s*\): void \{\s*global \$wpdb;/', $applySource),
-    'Apply.php no longer inlines reconcile_relationships()\'s own body (only the facade remains)'
+    !str_contains($applySource, 'private function reconcile_relationships('),
+    'Apply.php no longer defines reconcile_relationships() at all (moved to PostMaterializer\'s own call site, no facade needed -- it had no other caller)'
 );
 
 if ($failures) {
