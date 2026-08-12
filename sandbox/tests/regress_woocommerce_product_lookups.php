@@ -60,6 +60,11 @@ $expectedRequires = [
     'functions' => [
         'wc_get_product',
         'wc_get_container',
+        'wc_get_attribute_taxonomies',
+        'wc_attribute_taxonomy_name',
+        'get_option',
+        'wp_parse_args',
+        'untrailingslashit',
         'add_filter',
         'remove_filter',
         'get_post_meta',
@@ -75,6 +80,7 @@ $expectedRequires = [
         'WC_Data_Store',
         'WC_Product_Variable',
         'WC_Product_Grouped',
+        'WC_Cache_Helper',
     ],
 ];
 check(is_array($declaration)
@@ -159,8 +165,28 @@ $needles = [
     'wc_get_attribute_taxonomies' => 'Woo attribute definitions are refreshed through the public API',
     "delete_transient('wc_attribute_taxonomies')" => 'Woo attribute transient is invalidated before regeneration',
     "invalidate_cache_group('woocommerce-attributes')" => 'Woo attribute object-cache group is invalidated',
+    "is_callable(['\\\\WC_Cache_Helper', 'invalidate_cache_group'])" => 'Woo cache helper method availability fails closed beyond the declared class requirement',
     'register_taxonomy' => 'new Woo attribute taxonomies are registered for products',
     "'update_count_callback' => '_update_post_term_count'" => 'registered Woo attribute taxonomy keeps its count callback',
+    'attribute_public' => 'attribute registration branches on Woo\'s authored public flag',
+    'isset($attribute->attribute_public) ? $attribute->attribute_public : 1' => 'legacy Woo attributes default to public exactly as WooCommerce does',
+    'woocommerce_taxonomy_objects_{$taxonomy}' => 'Woo taxonomy object types remain filterable by taxonomy',
+    'woocommerce_taxonomy_args_{$taxonomy}' => 'Woo taxonomy args remain filterable by taxonomy',
+    'woocommerce_attribute_show_in_nav_menus' => 'public Woo attributes retain the nav-menu filter seam',
+    "get_option('woocommerce_permalinks', [])" => 'public Woo attributes read the reviewed permalink setting without persisting defaults',
+    'wp_parse_args' => 'the option-write-free projection applies Woo 11.0.0 permalink defaults',
+    'untrailingslashit' => 'the attribute rewrite base mirrors Woo permalink normalization',
+    'sanitize_title' => 'public Woo attribute rewrites use Woo slug sanitization',
+    'trailingslashit' => 'public Woo attribute rewrites preserve Woo trailing-slash composition',
+    "'show_in_quick_edit' => false" => 'attribute taxonomy quick edit stays disabled like WooCommerce',
+    "'show_in_menu' => false" => 'attribute taxonomy menu stays disabled like WooCommerce',
+    "'meta_box_cb' => false" => 'attribute taxonomy meta box stays disabled like WooCommerce',
+    "'query_var' => 1 ===" => 'attribute queryability follows attribute_public exactly',
+    "'rewrite' => false" => 'non-public attributes explicitly disable rewrites',
+    "'sort' => false" => 'attribute taxonomy sorting stays disabled like WooCommerce',
+    "'public' => 1 ===" => 'attribute taxonomy public visibility follows attribute_public exactly',
+    "'show_in_nav_menus' => 1 ===" => 'attribute nav visibility follows public status and Woo filter output',
+    "'capabilities' =>" => 'attribute taxonomy capabilities stay on Woo product-term capabilities',
     "is_on_sale('edit')" => 'simple active-price selection comes from WooCommerce public sale semantics',
     "get_sale_price('edit')" => 'simple sale-price value comes from WooCommerce public accessors',
     "get_regular_price('edit')" => 'simple regular-price value comes from WooCommerce public accessors',
@@ -196,6 +222,9 @@ $needles = [
 foreach ($needles as $needle => $message) {
     check(is_string($source) && str_contains($source, $needle), $message);
 }
+check(!str_contains($code, 'wc_get_permalink_structure')
+    && !str_contains($code, "update_option('woocommerce_permalinks'"),
+    'late taxonomy repair cannot normalize or persist the unrelated Woo permalink option');
 $verifyStart = is_string($source) ? strpos($source, 'private function verify_meta_row') : false;
 $beforeRead = $verifyStart !== false ? strpos($source, '$applied = $this->read_lookup_row($table, $id);', $verifyStart) : false;
 $forcedRefresh = $verifyStart !== false ? strpos($source, '$derived = $this->woo_republished_lookup_row($productStore, $id);', $verifyStart) : false;
@@ -255,19 +284,47 @@ $lookupAction = $actions[2] ?? [];
 check(($lookupAction['triggers'] ?? null) === ['post:product', 'post:product_variation'],
     'the lookup action is narrowed to exactly the two post types the regen_dependency declarations covered');
 $effectIds = array_map(static fn(array $e): string => (string) $e['id'], (array) ($lookupAction['effects'] ?? []));
-check(count($effectIds) === 106 && count(array_unique($effectIds)) === 106,
-    'both post types\' supported effect lists remain distinct (53 + 53) after the unsupported attribute-table effects are removed — the manifest note '
+check(count($effectIds) === 118 && count(array_unique($effectIds)) === 118,
+    'both post types\' supported effect lists remain distinct (59 + 59), including the bounded late taxonomy registration filters and permalink reads — the manifest note '
     . 'records why product and variation ids stay separate even where they name the same resource');
-check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 53
-    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 53,
+check(count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-product-'))) === 59
+    && count(array_filter($effectIds, static fn(string $id): bool => str_starts_with($id, 'woocommerce-variation-'))) === 59,
     'and neither half was dropped or renamed on the way');
+$registrationFilterSelector = [
+    'scope' => 'external',
+    'type' => 'provider_resource',
+    'value' => 'woocommerce-attribute-taxonomy-registration-filters:v1',
+];
+foreach (['product', 'variation'] as $kind) {
+    $byId = [];
+    foreach ((array) ($lookupAction['effects'] ?? []) as $effect) {
+        $byId[(string) ($effect['id'] ?? '')] = $effect;
+    }
+    check(($byId["woocommerce-$kind-attribute-nav-menu-filter"]['selector'] ?? null) === [
+        'scope' => 'external',
+        'type' => 'hook',
+        'value' => 'woocommerce_attribute_show_in_nav_menus',
+    ], "the $kind action declares Woo's exact public attribute nav-menu filter callback");
+    check(($byId["woocommerce-$kind-attribute-taxonomy-registration-filters"]['selector'] ?? null)
+        === $registrationFilterSelector,
+        "the $kind action bounds every valid Woo taxonomy object/args callback, including multibyte slugs, as one provider-owned filter-family resource");
+    check(($byId["woocommerce-$kind-permalink-pre-option-filter"]['selector']['value'] ?? null)
+            === 'pre_option_woocommerce_permalinks'
+        && ($byId["woocommerce-$kind-permalink-pre-option-generic-filter"]['selector']['value'] ?? null)
+            === 'pre_option'
+        && ($byId["woocommerce-$kind-permalink-option-filter"]['selector']['value'] ?? null)
+            === 'option_woocommerce_permalinks'
+        && ($byId["woocommerce-$kind-permalink-default-option-filter"]['selector']['value'] ?? null)
+            === 'default_option_woocommerce_permalinks',
+        "the $kind action declares the complete option-write-free WordPress option-read callback boundary");
+}
 $inventory = $policy->effects_inventory();
 check(array_filter($inventory, static fn(array $row): bool =>
     $row['manifest'] === 'woocommerce' && $row['phase'] === 'regenerator') === [],
     'the effects inventory now carries them under the rebuild phase of the declaring action, with no '
     . 'orphaned regenerator-phase rows left behind');
 check(count(array_filter($inventory, static fn(array $row): bool =>
-    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 106,
+    $row['source'] === 'provider:woocommerce-product-lookups/rebuild_product_lookups')) === 118,
     'every one of them is attributed to the exact provider capability a recovery operator would re-run');
 
 if ($failures > 0) {

@@ -12,7 +12,7 @@
     "note": "Pinned by the sandbox harness's own Docker tag (mariadb:11 -- see sandbox/db.yml, sandbox/docker-compose.yml). Verified live: 11.8.8-MariaDB as of this writing. MySQL is not claimed or tested against; a site running MySQL instead of MariaDB is genuinely untested, not merely unpinned."
   },
   "wordpress": {
-    "last_verified": "7.0.2",
+    "last_verified": "7.0.3",
     "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
   }
 }

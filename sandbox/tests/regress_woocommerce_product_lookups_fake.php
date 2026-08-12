@@ -6,8 +6,9 @@
  * allowed to call.  It proves stale _price repair, variable-root dedupe,
  * deletion context (including the parent id), runtime stock preservation, and
  * exact product-meta lookup verification without Docker. Attribute lookup is
- * a deliberate unsupported boundary and is characterized as outside provider
- * authority.
+ * a deliberate unsupported boundary and is characterized as untouched, while
+ * the separate post-init taxonomy refresh is checked against WooCommerce's
+ * public registration contract for both private and public attributes.
  */
 
 namespace Automattic\WooCommerce\Internal\ProductAttributesLookup {
@@ -872,6 +873,8 @@ namespace {
     $unsupportedAttributeRows = $fakeAttrLookup;
     $wpdb = new FakeWpdb();
     $fakeRegisteredTaxonomies = [];
+    /** @var list<array{taxonomy:string,object_types:list<string>,args:array}> */
+    $fakeTaxonomyRegistrations = [];
     $fakeDeletedTransients = [];
     $fakeWpCache = [];
     $fakeLookupWriteFaults = [];
@@ -890,6 +893,13 @@ namespace {
     $fakeSaleUnscheduleCalls = [];
     $fakeSaleVerificationFailure = false;
     $fakeFilters = [];
+    /** @var list<array{hook:string,value:mixed,args:list<mixed>}> */
+    $fakeApplyFilterCalls = [];
+    $fakeOptions = [
+        'woocommerce_permalinks' => ['attribute_base' => 'attribute'],
+        'woocommerce_schema_version' => 1000,
+    ];
+    $fakeOptionReads = [];
     $fakeTermQueries = [];
 
     function wc_get_product($id = false) {
@@ -965,8 +975,39 @@ namespace {
     }
     function wc_get_attribute_taxonomies(): array {
         return [
-            (object) ['attribute_id' => 7, 'attribute_name' => 'grind-size', 'attribute_label' => 'Grind Size'],
-            (object) ['attribute_id' => 8, 'attribute_name' => 'color', 'attribute_label' => 'Color'],
+            // The two values deliberately exercise both sides of Woo's
+            // attribute_public branch. The first is a private attribute: a
+            // same-request repair must not silently widen it to a public,
+            // queryable, rewrite-enabled taxonomy.
+            (object) [
+                'attribute_id' => 7,
+                'attribute_name' => 'grind-size',
+                'attribute_label' => 'Grind Size',
+                'attribute_public' => 0,
+            ],
+            (object) [
+                'attribute_id' => 8,
+                'attribute_name' => 'color',
+                'attribute_label' => 'Color',
+                'attribute_public' => 1,
+            ],
+            // Woo treats legacy rows that predate attribute_public as public.
+            // The late-registration mirror must retain that exact default.
+            (object) [
+                'attribute_id' => 9,
+                'attribute_name' => 'legacy',
+                'attribute_label' => 'Legacy',
+            ],
+            // Woo 11 measures the taxonomy-name limit in bytes and permits
+            // multibyte slugs. Keep this private so the fake's deliberately
+            // small sanitize_title() does not stand in for WordPress's UTF-8
+            // rewrite implementation; the dynamic filter names are the seam.
+            (object) [
+                'attribute_id' => 10,
+                'attribute_name' => '尺寸',
+                'attribute_label' => '尺寸',
+                'attribute_public' => 0,
+            ],
         ];
     }
     function wc_attribute_taxonomy_name(string $name): string {
@@ -977,8 +1018,13 @@ namespace {
         return in_array($taxonomy, $fakeRegisteredTaxonomies, true);
     }
     function register_taxonomy(string $taxonomy, array $objectTypes, array $args = []): object {
-        global $fakeRegisteredTaxonomies;
+        global $fakeRegisteredTaxonomies, $fakeTaxonomyRegistrations;
         $fakeRegisteredTaxonomies[] = $taxonomy;
+        $fakeTaxonomyRegistrations[] = [
+            'taxonomy' => $taxonomy,
+            'object_types' => array_values($objectTypes),
+            'args' => $args,
+        ];
         return (object) ['name' => $taxonomy, 'object_type' => $objectTypes, 'args' => $args];
     }
     function wc_get_container(): FakeContainer { return new FakeContainer(); }
@@ -1097,7 +1143,8 @@ namespace {
         return false;
     }
     function apply_filters(string $hook, mixed $value, mixed ...$args): mixed {
-        global $fakeFilters;
+        global $fakeFilters, $fakeApplyFilterCalls;
+        $fakeApplyFilterCalls[] = ['hook' => $hook, 'value' => $value, 'args' => $args];
         $filters = $fakeFilters[$hook] ?? [];
         ksort($filters, SORT_NUMERIC);
         foreach ($filters as $callbacks) {
@@ -1128,8 +1175,33 @@ namespace {
             : [101 => 'red'];
     }
     function wc_sanitize_taxonomy_name(string $name): string { return $name; }
+    function absint($value): int { return abs((int) $value); }
+    function __(string $text, string $domain = ''): string { return $text; }
+    function _x(string $text, string $context, string $domain = ''): string { return $text; }
+    function sanitize_title(string $title): string {
+        $title = strtolower(trim($title));
+        $title = (string) preg_replace('/[^a-z0-9]+/', '-', $title);
+        return trim($title, '-');
+    }
+    function trailingslashit(string $value): string { return rtrim($value, '/') . '/'; }
+    function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
+    function wp_parse_args(array $args, array $defaults = []): array {
+        return array_merge($defaults, $args);
+    }
     function is_wp_error($value): bool { return false; }
-    function get_option(string $key, $default = false) { return $key === 'woocommerce_schema_version' ? 1000 : $default; }
+    function get_option(string $key, $default = false) {
+        global $fakeOptions, $fakeOptionReads;
+        $fakeOptionReads[] = $key;
+        $pre = apply_filters("pre_option_{$key}", false, $key, $default);
+        $pre = apply_filters('pre_option', $pre, $key, $default);
+        if ($pre !== false) {
+            return $pre;
+        }
+        if (!array_key_exists($key, $fakeOptions)) {
+            return apply_filters("default_option_{$key}", $default, $key, true);
+        }
+        return apply_filters("option_{$key}", $fakeOptions[$key], $key);
+    }
 
     require dirname(__DIR__, 2) . '/agent/src/Canon.php';
     require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
@@ -1143,6 +1215,25 @@ namespace {
     $reflection = new \ReflectionClass(\Duo\Policy::class);
     $policy = $reflection->newInstanceWithoutConstructor();
     $adapter = new \Duo\Providers\WoocommerceProductLookups($policy);
+    // These are the real WordPress/WooCommerce filter seams. Keep the args
+    // filters identity-preserving so the registration assertions below pin
+    // Woo's exact defaults; make the public object filter visibly change its
+    // result so the fake proves the provider passes filtered object types to
+    // register_taxonomy(), rather than merely mentioning the hook in source.
+    add_filter('woocommerce_taxonomy_objects_pa_grind-size',
+        static fn(array $objectTypes): array => $objectTypes, 10, 1);
+    add_filter('woocommerce_taxonomy_objects_pa_color',
+        static fn(array $objectTypes): array => ['product', 'product_variation'], 10, 1);
+    add_filter('woocommerce_taxonomy_args_pa_grind-size',
+        static fn(array $args): array => $args, 10, 1);
+    add_filter('woocommerce_taxonomy_args_pa_color',
+        static fn(array $args): array => $args, 10, 1);
+    add_filter('woocommerce_taxonomy_objects_pa_尺寸',
+        static fn(array $objectTypes): array => $objectTypes, 10, 1);
+    add_filter('woocommerce_taxonomy_args_pa_尺寸',
+        static fn(array $args): array => $args, 10, 1);
+    add_filter('woocommerce_attribute_show_in_nav_menus',
+        static fn(bool $default, string $taxonomy): bool => true, 10, 2);
     // Prime a product read before the registry refresh. The adapter must evict
     // this stale parsed object after registering the newly-applied taxonomy.
     wc_get_product(15);
@@ -1253,11 +1344,187 @@ namespace {
         && in_array('product_11', WC_Cache_Helper::$invalidatedGroups, true),
         'Woo cache-helper invalidates the affected product groups');
     $check(in_array('pa_grind-size', $fakeRegisteredTaxonomies, true)
-        && in_array('pa_color', $fakeRegisteredTaxonomies, true),
-        'newly-applied Woo attribute taxonomies are registered before product reads');
+        && in_array('pa_color', $fakeRegisteredTaxonomies, true)
+        && in_array('pa_尺寸', $fakeRegisteredTaxonomies, true),
+        'newly-applied ASCII and multibyte Woo attribute taxonomies are registered before product reads');
     $check(in_array('wc_attribute_taxonomies', $fakeDeletedTransients, true)
         && in_array('woocommerce-attributes', WC_Cache_Helper::$invalidatedGroups, true),
         'Woo attribute transient and object cache are refreshed before registration');
+    $check(in_array('woocommerce_permalinks', $fakeOptionReads, true),
+        'attribute rewrite derivation reads the Woo permalink setting without the mutating Woo helper');
+
+    // DUO-3368: refresh_attribute_taxonomy_registry() is a post-init repair,
+    // not permission to invent a new taxonomy contract. Its registration
+    // args must remain byte-for-byte equivalent to WooCommerce's own
+    // class-wc-post-types.php branch for both attribute_public values, and
+    // both Woo filter seams must be honored before registration.
+    $registrationByTaxonomy = [];
+    foreach ($fakeTaxonomyRegistrations as $registration) {
+        $registrationByTaxonomy[$registration['taxonomy']] = $registration;
+    }
+    $capabilities = [
+        'manage_terms' => 'manage_product_terms',
+        'edit_terms' => 'edit_product_terms',
+        'delete_terms' => 'delete_product_terms',
+        'assign_terms' => 'assign_product_terms',
+    ];
+    $hiddenLabels = [
+        'name' => 'Product Grind Size',
+        'singular_name' => 'Grind Size',
+        'search_items' => 'Search Grind Size',
+        'all_items' => 'All Grind Size',
+        'parent_item' => 'Parent Grind Size',
+        'parent_item_colon' => 'Parent Grind Size:',
+        'edit_item' => 'Edit Grind Size',
+        'update_item' => 'Update Grind Size',
+        'add_new_item' => 'Add new Grind Size',
+        'new_item_name' => 'New Grind Size',
+        'not_found' => 'No &quot;Grind Size&quot; found',
+        'back_to_items' => '&larr; Back to "Grind Size" attributes',
+    ];
+    $publicLabels = [
+        'name' => 'Product Color',
+        'singular_name' => 'Color',
+        'search_items' => 'Search Color',
+        'all_items' => 'All Color',
+        'parent_item' => 'Parent Color',
+        'parent_item_colon' => 'Parent Color:',
+        'edit_item' => 'Edit Color',
+        'update_item' => 'Update Color',
+        'add_new_item' => 'Add new Color',
+        'new_item_name' => 'New Color',
+        'not_found' => 'No &quot;Color&quot; found',
+        'back_to_items' => '&larr; Back to "Color" attributes',
+    ];
+    $legacyLabels = [
+        'name' => 'Product Legacy',
+        'singular_name' => 'Legacy',
+        'search_items' => 'Search Legacy',
+        'all_items' => 'All Legacy',
+        'parent_item' => 'Parent Legacy',
+        'parent_item_colon' => 'Parent Legacy:',
+        'edit_item' => 'Edit Legacy',
+        'update_item' => 'Update Legacy',
+        'add_new_item' => 'Add new Legacy',
+        'new_item_name' => 'New Legacy',
+        'not_found' => 'No &quot;Legacy&quot; found',
+        'back_to_items' => '&larr; Back to "Legacy" attributes',
+    ];
+    $expectedHiddenArgs = [
+        'hierarchical' => false,
+        'update_count_callback' => '_update_post_term_count',
+        'labels' => $hiddenLabels,
+        'show_ui' => true,
+        'show_in_quick_edit' => false,
+        'show_in_menu' => false,
+        'meta_box_cb' => false,
+        'query_var' => false,
+        'rewrite' => false,
+        'sort' => false,
+        'public' => false,
+        'show_in_nav_menus' => false,
+        'capabilities' => $capabilities,
+    ];
+    $expectedPublicArgs = [
+        'hierarchical' => false,
+        'update_count_callback' => '_update_post_term_count',
+        'labels' => $publicLabels,
+        'show_ui' => true,
+        'show_in_quick_edit' => false,
+        'show_in_menu' => false,
+        'meta_box_cb' => false,
+        'query_var' => true,
+        'rewrite' => [
+            'slug' => 'attribute/color',
+            'with_front' => false,
+            'hierarchical' => true,
+        ],
+        'sort' => false,
+        'public' => true,
+        'show_in_nav_menus' => true,
+        'capabilities' => $capabilities,
+    ];
+    $expectedLegacyArgs = $expectedPublicArgs;
+    $expectedLegacyArgs['labels'] = $legacyLabels;
+    $expectedLegacyArgs['rewrite']['slug'] = 'attribute/legacy';
+    $check(($registrationByTaxonomy['pa_grind-size']['object_types'] ?? null) === ['product'],
+        'the non-public attribute keeps the default product object type after the objects filter');
+    $check(($registrationByTaxonomy['pa_color']['object_types'] ?? null) === ['product', 'product_variation'],
+        'the public attribute receives the object types returned by its Woo taxonomy-objects filter');
+    $check(($registrationByTaxonomy['pa_legacy']['object_types'] ?? null) === ['product'],
+        'an attribute row without attribute_public retains Woo\'s public default and product object type');
+    $check(($registrationByTaxonomy['pa_尺寸']['object_types'] ?? null) === ['product']
+        && ($registrationByTaxonomy['pa_尺寸']['args']['public'] ?? null) === false
+        && ($registrationByTaxonomy['pa_尺寸']['args']['query_var'] ?? null) === false
+        && ($registrationByTaxonomy['pa_尺寸']['args']['rewrite'] ?? null) === false,
+        'a valid multibyte Woo attribute crosses both dynamic filters without widening its private contract');
+    $check(($registrationByTaxonomy['pa_grind-size']['args'] ?? null) === $expectedHiddenArgs,
+        'attribute_public=0 registers the complete Woo contract without public/query/rewrite visibility');
+    $check(($registrationByTaxonomy['pa_color']['args'] ?? null) === $expectedPublicArgs,
+        'attribute_public=1 registers the complete Woo contract with its public rewrite and nav visibility');
+    $check(($registrationByTaxonomy['pa_legacy']['args'] ?? null) === $expectedLegacyArgs,
+        'an absent legacy attribute_public value defaults to Woo\'s complete public registration contract');
+    $filterCallsFor = static function (string $hook) use (&$fakeApplyFilterCalls): array {
+        return array_values(array_filter(
+            $fakeApplyFilterCalls,
+            static fn(array $call): bool => $call['hook'] === $hook
+        ));
+    };
+    $registryRefresh = new \ReflectionMethod($adapter, 'refresh_attribute_taxonomy_registry');
+    $registryRefresh->setAccessible(true);
+    unset($fakeOptions['woocommerce_permalinks']);
+    $registryRefresh->invoke($adapter);
+    $fakeOptions['woocommerce_permalinks'] = ['attribute_base' => 'attribute'];
+    $hiddenObjectsCalls = $filterCallsFor('woocommerce_taxonomy_objects_pa_grind-size');
+    $publicObjectsCalls = $filterCallsFor('woocommerce_taxonomy_objects_pa_color');
+    $hiddenArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_grind-size');
+    $publicArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_color');
+    $legacyObjectsCalls = $filterCallsFor('woocommerce_taxonomy_objects_pa_legacy');
+    $legacyArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_legacy');
+    $multibyteObjectsCalls = $filterCallsFor('woocommerce_taxonomy_objects_pa_尺寸');
+    $multibyteArgsCalls = $filterCallsFor('woocommerce_taxonomy_args_pa_尺寸');
+    $navCalls = $filterCallsFor('woocommerce_attribute_show_in_nav_menus');
+    $check(count($hiddenObjectsCalls) === 1 && $hiddenObjectsCalls[0]['value'] === ['product']
+        && $hiddenObjectsCalls[0]['args'] === [],
+        'the non-public taxonomy objects filter receives exactly WooCommerce\'s product default');
+    $check(count($publicObjectsCalls) === 1 && $publicObjectsCalls[0]['value'] === ['product']
+        && $publicObjectsCalls[0]['args'] === [],
+        'the public taxonomy objects filter receives exactly WooCommerce\'s product default');
+    $check(count($hiddenArgsCalls) === 1 && $hiddenArgsCalls[0]['value'] === $expectedHiddenArgs
+        && $hiddenArgsCalls[0]['args'] === [],
+        'the non-public taxonomy args filter sees the full unmodified Woo contract');
+    $check(count($publicArgsCalls) === 1 && $publicArgsCalls[0]['value'] === $expectedPublicArgs
+        && $publicArgsCalls[0]['args'] === [],
+        'the public taxonomy args filter sees the full rewrite-enabled Woo contract');
+    $check(count($legacyObjectsCalls) === 1 && $legacyObjectsCalls[0]['value'] === ['product']
+        && $legacyObjectsCalls[0]['args'] === []
+        && count($legacyArgsCalls) === 1 && $legacyArgsCalls[0]['value'] === $expectedLegacyArgs
+        && $legacyArgsCalls[0]['args'] === [],
+        'legacy public-default registration preserves both Woo taxonomy filter seams');
+    $check(count($multibyteObjectsCalls) === 1 && $multibyteObjectsCalls[0]['value'] === ['product']
+        && $multibyteObjectsCalls[0]['args'] === []
+        && count($multibyteArgsCalls) === 1
+        && ($multibyteArgsCalls[0]['value']['public'] ?? null) === false
+        && $multibyteArgsCalls[0]['args'] === [],
+        'multibyte attribute registration invokes both provider-owned dynamic filter families');
+    $check(count($filterCallsFor('pre_option_woocommerce_permalinks')) >= 1
+        && count($filterCallsFor('pre_option')) >= 1
+        && count($filterCallsFor('option_woocommerce_permalinks')) >= 1
+        && count($filterCallsFor('default_option_woocommerce_permalinks')) >= 1,
+        'permalink projection crosses every declared present/missing specific and generic option-read filter');
+    $publicNavCalls = array_values(array_filter(
+        $navCalls,
+        static fn(array $call): bool => in_array(($call['args'][0] ?? null), ['pa_color', 'pa_legacy'], true)
+    ));
+    $check(count($navCalls) === 2 && count($publicNavCalls) === 2
+        && array_reduce($publicNavCalls, static fn(bool $ok, array $call): bool =>
+            $ok && $call['value'] === false, true),
+        'the nav-menu filter runs only for explicit/default-public attributes with Woo\'s false default and taxonomy name');
+    $check(count(array_filter(
+        $navCalls,
+        static fn(array $call): bool => ($call['args'][0] ?? null) === 'pa_grind-size'
+    )) === 0,
+        'the non-public attribute cannot invoke the public-only nav-menu filter');
 
     // The old fake made wc_delete_product_transients() and
     // invalidate_attribute_count() no-ops, so a green lookup test could not

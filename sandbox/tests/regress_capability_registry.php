@@ -123,7 +123,7 @@ check_throws(
 );
 
 $target = [
-    'wordpress' => '7.0.2',
+    'wordpress' => '7.0.3',
     'php' => '8.3.33',
     'database' => ['client' => '11.8.8', 'server' => '11.8.8-MariaDB', 'engine' => 'MariaDB'],
     'multisite' => false,
