@@ -117,8 +117,9 @@ final class AdapterCatalog {
             ],
             [
                 'surface' => 'the pinned SET (cross-manifest guards)',
-                'check' => 'Policy::validate_one_owner_per_declared_name() / '
-                    . 'validate_no_conflicting_provider_ids() / validate_no_conflicting_adapter_claims()',
+                'check' => 'CrossManifestGuards::validate_one_owner_per_declared_name() / '
+                    . 'ActionProviderGrammar::validate_no_conflicting_provider_ids() / '
+                    . 'Policy::validate_no_conflicting_adapter_claims()',
                 'why' => 'each adapter\'s grammar verdict here is an ISOLATED load, so a manifest can read `ok` '
                     . 'and still be illegal in company — one owner per declared name, globally unique provider '
                     . 'ids, and one plugin/theme range per claim are properties of a SET. '
@@ -126,7 +127,7 @@ final class AdapterCatalog {
             ],
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
-                'check' => 'Policy::validate_ref_kinds() / Policy::validate_no_conflicting_option_rules()',
+                'check' => 'Policy::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 // Three states, not two: a run that WAS given --repo but whose
                 // source carries a refusal did not get to use it either, and
                 // saying otherwise would be the one claim on this list that is

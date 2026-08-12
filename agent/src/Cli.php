@@ -2748,8 +2748,9 @@ final class Cli {
             ],
             [
                 'surface' => 'the pinned SET (cross-manifest guards)',
-                'check' => 'Policy::validate_one_owner_per_declared_name() / '
-                    . 'validate_no_conflicting_provider_ids() / validate_no_conflicting_adapter_claims()',
+                'check' => 'CrossManifestGuards::validate_one_owner_per_declared_name() / '
+                    . 'ActionProviderGrammar::validate_no_conflicting_provider_ids() / '
+                    . 'Policy::validate_no_conflicting_adapter_claims()',
                 'why' => "each adapter's grammar verdict here is an ISOLATED load, so a manifest can read `ok` "
                     . 'and still be illegal in company — one owner per declared name, globally unique provider '
                     . 'ids, and one plugin/theme range per claim are properties of a SET, which `duo plan` and '
@@ -2757,7 +2758,7 @@ final class Cli {
             ],
             [
                 'surface' => 'site.duo.json policy.tables / policy.options',
-                'check' => 'Policy::validate_ref_kinds() / Policy::validate_no_conflicting_option_rules()',
+                'check' => 'Policy::validate_ref_kinds() / CrossManifestGuards::validate_no_conflicting_option_rules()',
                 'why' => $repo === null
                     ? 'both guards take the SITE half of policy as INPUT: a table declared in site.duo.json '
                         . 'extends the legal ref/token/ledger kind vocabulary, and a site policy.options rule is '
