@@ -2,6 +2,8 @@
 namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
+require_once __DIR__ . '/Policy.php';
+require_once __DIR__ . '/Snapshot.php';
 
 /**
  * The pure conflict/display-projection half of plan production (DUO-3347
@@ -10,12 +12,12 @@ require_once __DIR__ . '/CommandRefusal.php';
  *
  * These six functions are exactly the ones `build_plan()` and `explain()`
  * call that read only their own explicit parameters — no `$this`, no
- * `$wpdb`, no Policy, no Ledger. Everything else `build_plan()` does (the
- * 600+ line comparison/collision/guard-ref orchestration itself, and the
- * live-DB-backed collision detection in `find_collision()`/
- * `collision_parent_id()`/`one_collision()`) stays in `Apply` for a later
- * slice, per the issue's "extract one collaborator at a time" guardrail —
- * this is deliberately a first cut of the seam, not the whole thing.
+ * `$wpdb`, no Policy, no Ledger. The live-DB-backed collision/adoption
+ * lookup in `find_collision()`/`collision_parent_id()`/`one_collision()` is
+ * now the first stateful planner responsibility here as well. Everything
+ * else `build_plan()` does (the 600+ line comparison/guard-ref orchestration)
+ * stays in `Apply` for a later slice, per the issue's "extract one
+ * collaborator at a time" guardrail.
  *
  * `Apply` keeps `conflict_view()`, `forced_override_evidence()`,
  * `incomplete_override_refusal()`, `entity_display_title()`,
@@ -24,6 +26,119 @@ require_once __DIR__ . '/CommandRefusal.php';
  * need no behavior change.
  */
 final class ApplyPlanner {
+    /**
+     * The planner owns the policy needed for typed-table collision lookup and
+     * the already-memoized authored-table roster supplied by Apply. Keeping
+     * the roster an explicit input avoids making this collaborator reach into
+     * Apply for cache state or silently re-read the manifest on every entity.
+     *
+     * @param array<string,array> $snapshotRowTables
+     * @param \Closure(string,string):?int $ledgerIdFor
+     */
+    public function __construct(
+        private readonly Policy $policy,
+        private readonly array $snapshotRowTables,
+        private readonly \Closure $ledgerIdFor
+    ) {
+    }
+
+    /** Same-slug target entity: managed with a different UUID or adoptable. */
+    public function find_collision(array $e, array $tree, array &$cache): ?int {
+        global $wpdb;
+        $uuid = (string) ($e['data']['uuid'] ?? '');
+        if ($uuid !== '' && array_key_exists($uuid, $cache)) {
+            return $cache[$uuid];
+        }
+        if (isset($this->snapshotRowTables[$e['type']])) {
+            // Natural-key identity tables only (for example, WooCommerce
+            // attribute taxonomies pre-provisioned on the target) have a
+            // collision concept. Mapped-identity tables return null here.
+            // $tree and $cache remain explicit because a parent-scoped key
+            // may name a parent row that is itself only adoptable.
+            $id = Snapshot::find_collision($this->policy, $e, $tree, $cache);
+            if ($uuid !== '') {
+                $cache[$uuid] = $id;
+            }
+            return $id;
+        }
+        if ($e['type'] === 'post') {
+            $front = $e['data'];
+            $parentId = $this->collision_parent_id($front['parent'] ?? null, 'post', $tree, $cache);
+            if (!empty($front['parent']) && $parentId === null) {
+                return $cache[$uuid] = null;
+            }
+            $ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT p.ID FROM {$wpdb->posts} p WHERE p.post_name = %s AND p.post_type = %s "
+                . 'AND p.post_parent = %d ORDER BY p.ID ASC',
+                $front['slug'], $front['type'], $parentId ?? 0
+            )) ?: [];
+            return $cache[$uuid] = $this->one_collision(
+                $ids,
+                "post {$front['type']}/{$front['slug']} under parent " . ($parentId ?? 0)
+            );
+        }
+        if ($e['type'] === 'term' || $e['type'] === 'menu') {
+            $front = $e['data'];
+            $tax = $e['type'] === 'menu' ? 'nav_menu' : $front['taxonomy'];
+            $slug = $front['slug'];
+            $parentId = $e['type'] === 'menu'
+                ? 0
+                : $this->collision_parent_id($front['parent'] ?? null, 'term', $tree, $cache);
+            if ($e['type'] !== 'menu' && !empty($front['parent']) && $parentId === null) {
+                return $cache[$uuid] = null;
+            }
+            $ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT t.term_id FROM {$wpdb->terms} t
+                 JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
+                 WHERE t.slug = %s AND tt.taxonomy = %s AND tt.parent = %d ORDER BY t.term_id ASC",
+                $slug, $tax, $parentId ?? 0
+            )) ?: [];
+            return $cache[$uuid] = $this->one_collision(
+                $ids,
+                "term $tax/$slug under parent " . ($parentId ?? 0)
+            );
+        }
+        return null;
+    }
+
+    private function collision_parent_id($parentUuid, string $kind, array $tree, array &$cache): ?int {
+        if ($parentUuid === null || $parentUuid === '') {
+            return 0;
+        }
+        // Post parents are serialized through the ordinary typed-token
+        // grammar; term parents are bare UUID fields. Normalize both to the
+        // canonical parent UUID before consulting either ledger or tree.
+        if (is_string($parentUuid)
+            && preg_match('/^\{\{' . preg_quote($kind, '/') . ':([^}]+)\}\}$/', $parentUuid, $m)) {
+            $parentUuid = $m[1];
+        }
+        // Keep the planner independent of Ledger's class-load boundary. These
+        // are the stable id_kind values the injected resolver accepts; Apply's
+        // compatibility facade translates them to Ledger constants at the
+        // engine bootstrap boundary.
+        $idKind = $kind === 'post' ? 'post' : 'term';
+        $mapped = ($this->ledgerIdFor)((string) $parentUuid, $idKind);
+        if ($mapped !== null) {
+            return $mapped;
+        }
+        $parent = $tree[(string) $parentUuid] ?? null;
+        if ($parent === null || $parent['type'] !== $kind) {
+            return null;
+        }
+        return $this->find_collision($parent, $tree, $cache);
+    }
+
+    private function one_collision(array $ids, string $identity): ?int {
+        $ids = array_values(array_unique(array_map('intval', $ids)));
+        if (count($ids) > 1) {
+            throw new \RuntimeException(
+                "duo: conflicting adoption key for $identity matches local ids " . implode(', ', $ids)
+                . '; full natural identity must be unique before adoption'
+            );
+        }
+        return $ids ? $ids[0] : null;
+    }
+
     /**
      * Project nested deletion candidates from the exact snapshot/build-plan
      * evidence already in memory. No target, ledger, policy, provider, or
