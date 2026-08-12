@@ -39,6 +39,7 @@ function scoped_bundle(array $overrides = []): array {
         'git_revision' => str_repeat('b', 40),
         'platform' => ['agent_version' => '0.5.0', 'wordpress' => '7.0.2'],
         'subject' => ['manifest' => 'woocommerce'],
+        'verdict' => 'pass',
         'tests' => [[
             'evidence_sha256' => str_repeat('c', 64),
             'exit_code' => 0,
@@ -89,6 +90,18 @@ $missingTests['tests'] = [];
 $missingTests['bundle_digest'] = ScopedCertificationBundle::digest($missingTests);
 expect_refusal(fn() => ScopedCertificationBundle::validate($missingTests), 'non-empty list', 'missing evidence tests are refused');
 check(Canon::encode($bundle['closure']['inputs']) === Canon::encode($valid['closure']['inputs']), 'validation preserves canonical closure identity');
+
+foreach (['./agent/src/Engine.php', 'agent//src/Engine.php', 'agent/src/'] as $alias) {
+    $nonCanonical = $bundle;
+    $nonCanonical['closure']['inputs'][0]['path'] = $alias;
+    // Keep the original closure digest: the path must be rejected before any
+    // caller can manufacture a digest for a noncanonical identity.
+    $nonCanonical['bundle_digest'] = ScopedCertificationBundle::digest($nonCanonical);
+    expect_refusal(fn() => ScopedCertificationBundle::validate($nonCanonical), 'malformed or duplicated', "noncanonical closure alias '$alias' is refused");
+}
+$missingVerdict = $bundle;
+unset($missingVerdict['verdict']);
+expect_refusal(fn() => ScopedCertificationBundle::validate($missingVerdict), 'unsupported keys', 'missing verdict is refused rather than defaulted');
 
 if ($failures !== 0) {
     fwrite(STDERR, "$failures scoped certification assertion(s) failed\n");

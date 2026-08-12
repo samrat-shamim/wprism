@@ -19,10 +19,10 @@ final class ScopedCertificationBundle {
     public static function validate(array $bundle, string $label = 'scoped certification bundle'): array {
         self::exactKeys($bundle, [
             'adapter_digest', 'bundle_digest', 'claims', 'closure', 'created_at',
-            'force_hatches', 'format', 'git_revision', 'platform', 'subject', 'tests',
+            'force_hatches', 'format', 'git_revision', 'platform', 'subject', 'tests', 'verdict',
         ], $label);
         if (($bundle['format'] ?? null) !== self::FORMAT
-            || ($bundle['verdict'] ?? 'pass') !== 'pass'
+            || ($bundle['verdict'] ?? null) !== 'pass'
             || !self::sha($bundle['adapter_digest'] ?? null)
             || !self::sha($bundle['bundle_digest'] ?? null)
             || !is_string($bundle['git_revision'] ?? null)
@@ -144,9 +144,9 @@ final class ScopedCertificationBundle {
         $seen = [];
         foreach ($tests as $i => $test) {
             if (!is_array($test) || array_is_list($test)) {
-                throw new \RuntimeException("duo: $label.tests[$i] must be an object");
+                throw new \RuntimeException("duo: {$label}.tests[$i] must be an object");
             }
-            self::exactKeys($test, ['evidence_sha256', 'exit_code', 'id', 'verdict'], "$label.tests[$i]");
+            self::exactKeys($test, ['evidence_sha256', 'exit_code', 'id', 'verdict'], "{$label}.tests[$i]");
             $id = $test['id'] ?? null;
             if (!is_string($id) || preg_match('/^[a-z][a-z0-9-]*$/D', $id) !== 1
                 || isset($seen[$id]) || ($test['verdict'] ?? null) !== 'pass'
@@ -184,15 +184,17 @@ final class ScopedCertificationBundle {
         $seen = [];
         foreach ($inputs as $i => $input) {
             if (!is_array($input) || array_is_list($input)) {
-                throw new \RuntimeException("duo: $label[$i] must be an object");
+                throw new \RuntimeException("duo: {$label}[$i] must be an object");
             }
-            self::exactKeys($input, ['path', 'sha256', 'size'], "$label[$i]");
+            self::exactKeys($input, ['path', 'sha256', 'size'], "{$label}[$i]");
             $path = $input['path'] ?? null;
             if (!is_string($path) || $path === '' || str_starts_with($path, '/')
                 || str_contains($path, '\\') || str_contains($path, "\0")
+                || str_contains($path, '//') || str_ends_with($path, '/')
+                || in_array('.', explode('/', $path), true)
                 || in_array('..', explode('/', $path), true) || isset($seen[$path])
                 || !self::sha($input['sha256'] ?? null) || !is_int($input['size'] ?? null) || $input['size'] < 0) {
-                throw new \RuntimeException("duo: $label[$i] is malformed or duplicated");
+                throw new \RuntimeException("duo: {$label}[$i] is malformed or duplicated");
             }
             $seen[$path] = true;
             $out[] = ['path' => $path, 'sha256' => $input['sha256'], 'size' => $input['size']];
