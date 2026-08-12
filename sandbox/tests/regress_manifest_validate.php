@@ -1664,6 +1664,19 @@ check(
     'attribute declaration grammar and its vocabularies live in AttributeGrammar while Policy retains only shared casts'
 );
 
+// The pure reference-valued declaration shape grammar belongs to
+// ReferenceShapeGrammar; Policy retains the later keyspace/sidecar pass
+// because that pass needs the full declared-table set. Keep every site and
+// manifest loader path wired directly to the extracted collaborator.
+$referenceShapeGrammar = new ReflectionClass('Duo\\ReferenceShapeGrammar');
+check(
+    $referenceShapeGrammar->hasMethod('validate_reference_shapes')
+        && $referenceShapeGrammar->getMethod('validate_reference_shapes')->isPublic()
+        && !$policyReflection->hasMethod('validate_reference_shapes')
+        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 4,
+    'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while Policy retains keyspace resolution'
+);
+
 // ======================================================================
 echo "\n== exit codes and the command's own fail-closed paths ==\n";
 

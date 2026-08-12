@@ -50,6 +50,9 @@ require_once __DIR__ . '/OptionGrammar.php';
 // DUO-3348 slice 17: block/shortcode attribute declaration grammar, required
 // here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/AttributeGrammar.php';
+// DUO-3348 slice 18: pure reference-valued declaration shape grammar,
+// required here for the same "loads alone" reason as its neighbors above.
+require_once __DIR__ . '/ReferenceShapeGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -198,7 +201,7 @@ final class Policy {
             self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
             self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
             SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
-            self::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
+            ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
         }
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
         $pins = PinResolver::normalize_manifest_pins($rawPins);
@@ -279,7 +282,7 @@ final class Policy {
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
             DiscoveryGrammar::validate_discovery_contract($manifest);
-            self::validate_reference_shapes($manifest, "manifest '$name'");
+            ReferenceShapeGrammar::validate_reference_shapes($manifest, "manifest '$name'");
             $p->manifests[] = $manifest;
         }
         CrossManifestGuards::validate_no_conflicting_option_rules(
@@ -372,7 +375,7 @@ final class Policy {
         self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
         self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
         SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
-        self::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
+        ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
 
         $pins = PinResolver::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
         if (count($pins) !== count($snapshot['manifests'])) {
@@ -415,7 +418,7 @@ final class Policy {
             self::validate_adapter_contract($manifest);
             ActionProviderGrammar::validate_effect_contracts($manifest);
             DiscoveryGrammar::validate_discovery_contract($manifest);
-            self::validate_reference_shapes($manifest, "frozen manifest '$name'");
+            ReferenceShapeGrammar::validate_reference_shapes($manifest, "frozen manifest '$name'");
             $p->manifests[] = $manifest;
         }
         // Provenance is reconstructed before the reviewed registries so both of
@@ -2679,78 +2682,6 @@ final class Policy {
     /** @return array{rule:?array, source:?string} */
     public function menu_field_rule_details(string $field): array {
         return $this->rule_details('menu_fields', $field);
-    }
-
-    /** Load-time validation for every surface using the shared ref grammar. */
-    private static function validate_reference_shapes(array $source, string $label): void {
-        foreach (['options', 'post_meta', 'term_meta', 'user_meta'] as $section) {
-            foreach (($source[$section] ?? []) as $name => $rule) {
-                if (!is_array($rule) || array_is_list($rule)) {
-                    continue; // the section's existing validator owns its base shape
-                }
-                self::validate_reference_value_rule(
-                    $rule,
-                    "$label.$section.$name",
-                    $section === 'options'
-                );
-            }
-        }
-        foreach (['option_patterns', 'meta_patterns', 'option_name_refs'] as $section) {
-            foreach (($source[$section] ?? []) as $i => $rule) {
-                if (is_array($rule) && !array_is_list($rule)) {
-                    self::validate_reference_value_rule($rule, "$label.{$section}[$i]");
-                }
-            }
-        }
-        foreach (($source['dynamic_options'] ?? []) as $name => $declaration) {
-            foreach (($declaration['sub_keys'] ?? []) as $key => $rule) {
-                if (is_array($rule) && !array_is_list($rule)) {
-                    self::validate_reference_value_rule(
-                        $rule,
-                        "$label.dynamic_options.$name.sub_keys.$key"
-                    );
-                }
-            }
-        }
-        foreach (($source['taxonomies'] ?? []) as $taxonomy => $declaration) {
-            if (isset($declaration['description_refs'])) {
-                ReferenceRules::description(
-                    $declaration['description_refs'],
-                    "$label.taxonomies.$taxonomy.description_refs"
-                );
-            }
-        }
-        foreach (($source['tables'] ?? []) as $table => $declaration) {
-            if (($declaration['class'] ?? '') !== 'authored_snapshot_meta') {
-                continue;
-            }
-            foreach (($declaration['keys'] ?? []) as $key => $rule) {
-                if (!is_array($rule) || array_is_list($rule)) {
-                    throw new \RuntimeException(
-                        "duo: $label.tables.$table.keys.$key must be an attached-meta rule object"
-                    );
-                }
-                self::validate_reference_value_rule($rule, "$label.tables.$table.keys.$key");
-            }
-        }
-    }
-
-    private static function validate_reference_value_rule(
-        array $rule,
-        string $where,
-        bool $allowSubKeys = false
-    ): void {
-        ReferenceRules::value_rule($rule, $where);
-        if (array_key_exists('sub_keys', $rule) && !$allowSubKeys) {
-            throw new \RuntimeException(
-                "duo: $where cannot declare sub_keys; the one-level sub_keys map belongs only on an exact or dynamic option declaration"
-            );
-        }
-        foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
-            if (is_array($subRule) && !array_is_list($subRule)) {
-                self::validate_reference_value_rule($subRule, "$where.sub_keys.$name", false);
-            }
-        }
     }
 
     /**
