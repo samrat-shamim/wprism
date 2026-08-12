@@ -394,7 +394,7 @@ regress-journal-bootstrap:
 # detection, and both public host orchestration paths. Keep this separate
 # from the Docker/live promotion regression below so it is cheap to run while
 # iterating on the safety gates.
-code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-compiler regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-lifecycle-options-snapshot regress-journal-bootstrap regress-code-compatibility
+code-half-unit: regress-repository-compiler regress-code-revision-enforcement regress-code-descriptor-compiler regress-code-descriptor-unit regress-code-materializer-unit regress-code-ownership-pruner regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-template-mismatch regress-code-deploy-unit regress-promotion-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-lifecycle-options-snapshot regress-journal-bootstrap regress-code-compatibility
 
 regress-repository-compiler:
 	bash sandbox/tests/regress_repository_compiler.sh
@@ -649,6 +649,19 @@ regress-code-descriptor-unit:
 
 regress-code-materializer-unit:
 	bash sandbox/tests/regress_code_materializer_unit.sh
+
+# DUO-3350 slice 5: removal authority (remove_old_owned_files/
+# assert_removal_safe/owned_extra_files and their eight internal-only
+# helpers) moved from Code.php into a new CodeOwnershipPruner.php -- the
+# seam CodeMaterializer.php's own docblock already named as its declared
+# successor. Code keeps thin facades over all three public entry points,
+# matching every prior slice in this issue. Deliberately a wiring/shape
+# proof plus a minimal standalone-reachability smoke test only -- full
+# prune/preflight/type-conflict/foreign-candidate behavioral coverage
+# already exists in regress-code-materializer-unit/regress-code-stage-lock-unit
+# (both reflect into Code's kept facade, unchanged by this extraction).
+regress-code-ownership-pruner:
+	php sandbox/tests/regress_code_ownership_pruner.php
 
 regress-code-completed-unit:
 	bash sandbox/tests/regress_code_completed_unit.sh
