@@ -10,14 +10,20 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
 // the real CompiledArtifact.php; requiring it here fatals that suite with
 // "Cannot redeclare class Duo\CompiledRepository" (caught by
 // regress-offline-all while verifying this file). Checked individually,
-// not assumed: no other file in the repo fakes CompiledRepository (grep
-// -rlE '^\s*(final\s+)?class\s+CompiledRepository\s*(\{|extends|implements)'
-// sandbox/tests/*.php returns exactly this one match), and the other class
+// not assumed: no other sandbox/tests/*.php suite fakes CompiledRepository
+// (grep -rlE '^\s*(final\s+)?class\s+CompiledRepository\s*(\{|extends|implements)'
+// sandbox/tests/*.php returns exactly this one match; three .sh suites also
+// fake it -- regress_code_compatibility.sh, regress_code_stage_lock_unit.sh,
+// regress_code_stage_transaction_unit.sh -- but none of the three loads
+// Apply.php at all, so none reaches this file either way). The other class
 // this file references, Canon, is faked by exactly one file
-// (regress_cli_json_refusals.php) that does NOT reach Apply.php's require
-// chain at all (traced its full require list -- Secrets/CommandRefusal/
-// Deletion/RepositoryAuthorization/Code/RepositoryCompiler/Cli.php, none of
-// which requires Apply.php), so Canon.php is safely required directly below.
+// (regress_cli_json_refusals.php), which structurally cannot load the real
+// Apply.php regardless of its require list: it declares its own fake
+// `final class Apply` (own line ~59), so any attempt to also load the real
+// Apply.php would itself fatal on redeclaration first -- the same guarantee
+// this exclusion relies on, not merely an empirical trace of what its
+// requires currently happen to reach. Canon.php is safely required directly
+// below.
 
 /**
  * The attachment materializer (DUO-3347 slice 9, one of the "Entity
@@ -39,11 +45,10 @@ require_once __DIR__ . '/ApplyFieldMaterializer.php';
  * Unlike the shared, memoized, per-call state TermMaterializer's
  * $termObjectTaxes and RelationshipMaterializer's $taxesForPostType had to
  * take as explicit method parameters, CompiledRepository is a genuinely
- * immutable value object -- set once in Apply's own constructor and never
- * mutated for the lifetime of one apply run (docs/proposals/fresh-roadmap's
- * own refactoring rule: "prefer immutable inputs/results across seams") --
- * so it is injected once through the constructor here, not threaded through
- * on every call.
+ * immutable value object -- set exactly once, in Apply's own constructor,
+ * and never reassigned anywhere else in Apply.php (grep-verified: `$this->
+ * compiled =` matches only that one line) -- so it is injected once through
+ * the constructor here, not threaded through on every call.
  *
  * Moved verbatim; Apply keeps place_attachment() as a thin compatibility
  * facade via a lazily-constructed instance (attachment_materializer()), the
