@@ -461,6 +461,38 @@ PHP;
     el_ok(($explicitlyTrusted['branch']['_machine_local'] ?? false) === true,
         'explicit --envs-file equivalent remains an operator-selected trust input');
 
+    $nestedRegistryRoot = $tmp . '/nested-registry';
+    mkdir($nestedRegistryRoot . '/code/wp-content/plugins/acme', 0700, true);
+    el_ok(el_process(['git', 'init', '--quiet'], $nestedRegistryRoot)['exit'] === 0,
+        'nested-registry authority fixture has an actual Git worktree root');
+    file_put_contents($nestedRegistryRoot . '/site.duo.json', json_encode(['envs' => [
+        'production' => ['transport' => 'ssh', 'host' => 'trusted.example', 'wp_path' => '/wp', 'repo_path' => '/repo'],
+    ]], JSON_THROW_ON_ERROR));
+    file_put_contents($nestedRegistryRoot . '/.duo-envs.json', json_encode(['envs' => [
+        'production' => ['transport' => 'ssh', 'host' => 'trusted-local.example', 'wp_path' => '/wp', 'repo_path' => '/repo'],
+    ]], JSON_THROW_ON_ERROR));
+    $nestedOverlay = $nestedRegistryRoot . '/code/wp-content/plugins/acme/.duo-envs.json';
+    file_put_contents($nestedOverlay, json_encode(['envs' => [
+        'production' => ['transport' => 'ssh', 'host' => 'attacker.invalid', 'wp_path' => '/wp', 'repo_path' => '/repo'],
+    ]], JSON_THROW_ON_ERROR));
+    el_throws(
+        static fn() => Registry::load(null, dirname($nestedOverlay)),
+        'outside registry root',
+        'a nested untracked overlay cannot shadow the site-root environment authority'
+    );
+    $rootRegistry = Registry::load(null, $nestedRegistryRoot);
+    el_ok(($rootRegistry['production']['host'] ?? null) === 'trusted-local.example',
+        'the co-located machine-local overlay still replaces the checked-in environment entry');
+    unlink($nestedOverlay);
+    file_put_contents(dirname($nestedOverlay) . '/site.duo.json', json_encode(['envs' => [
+        'production' => ['transport' => 'ssh', 'host' => 'attacker.invalid', 'wp_path' => '/wp', 'repo_path' => '/repo'],
+    ]], JSON_THROW_ON_ERROR));
+    el_throws(
+        static fn() => Registry::load(null, dirname($nestedOverlay)),
+        'refusing a nested site.duo.json',
+        'vendored code cannot shadow the Git-root site registry with a nearer site.duo.json'
+    );
+
     $missing = el_cli(['env', 'materialize', 'branch', '--from', 'production']);
     el_ok($missing['exit'] !== 0 && str_contains($missing['stderr'], 'requires exactly --from')
         && !str_contains($missing['stderr'], 'environment_provider'), 'public parser refuses incomplete intent before registry/provider access');
@@ -474,6 +506,12 @@ PHP;
     el_ok($reapFlags['exit'] !== 0 && str_contains($reapFlags['stderr'], 'accepts only optional --format=json'), 'public reap has no force or name-only destruction escape hatch');
     $help = el_cli(['--help']);
     el_ok($help['exit'] === 0 && str_contains($help['stdout'], 'duo env materialize') && str_contains($help['stdout'], 'duo env reap'), 'public help documents materialize and exact reap');
+    el_ok(
+        str_contains($help['stdout'], 'auto-discovered .duo-envs.json must sit beside it')
+            && str_contains($help['stdout'], 'nested registry/overlay is refused')
+            && !str_contains($help['stdout'], 'Both registry files are found by walking upward'),
+        'public help matches the root-bound automatic registry discovery contract'
+    );
 
     echo "PASS: environment lifecycle provider and journal regression\n";
 } finally {

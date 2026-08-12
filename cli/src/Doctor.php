@@ -1,6 +1,8 @@
 <?php
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/Transport.php';
+
 /**
  * `duo doctor <env>` — five checks, each gated on the previous one so a
  * broken transport doesn't produce a wall of confusing downstream failures.
@@ -34,7 +36,29 @@ final class Doctor {
             $r = $captureWp(['eval', $snippet]);
             $out = trim($r['stdout']);
             $agentPresent = $r['exit'] === 0 && $out === 'duo-ok';
-            $detail = $agentPresent ? '' : ($r['exit'] !== 0 ? self::reason($r) : "agent class not found (wp eval returned '$out')");
+            if ($agentPresent) {
+                $detail = '';
+            } elseif ($r['exit'] !== 0) {
+                $detail = self::reason($r);
+            } else {
+                $adoption = $t instanceof AdoptionTransport ? $t->capabilityReport('adopt') : null;
+                if ($adoption !== null && $adoption->ready()) {
+                    $detail = "agent class not found (wp eval returned '$out'); next step: duo adopt "
+                        . escapeshellarg($t->name());
+                } elseif ($adoption !== null) {
+                    $remediation = array_values(array_unique(array_map(
+                        static fn(array $row): string => (string) $row['remediation'],
+                        $adoption->blockers()
+                    )));
+                    $detail = "agent class not found (wp eval returned '$out'); host-side duo adopt is not ready "
+                        . "for driver '" . $t->driverId() . "': " . implode('; ', $remediation)
+                        . '; then rerun duo doctor ' . escapeshellarg($t->name());
+                } else {
+                    $detail = "agent class not found (wp eval returned '$out'); host-side duo adopt is unavailable "
+                        . "for driver '" . $t->driverId() . "'; install or mount the Duo agent through that "
+                        . "environment's control plane, then rerun duo doctor " . escapeshellarg($t->name());
+                }
+            }
             $checks[] = self::check('duo agent present', $agentPresent, $detail);
         } else {
             $checks[] = self::check('duo agent present', false, 'skipped: WordPress not installed');

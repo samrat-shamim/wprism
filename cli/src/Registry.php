@@ -8,9 +8,11 @@ namespace Duo\Orchestrator;
  * The overlay wins whole-entry per environment name; there is no
  * per-key deep merge.
  *
- * Both files are found by walking upward from the starting directory,
- * the same way git locates .git — so `duo` works from any subdirectory
- * of a site repo (or of wherever the overlay lives).
+ * site.duo.json is found by walking upward from the starting directory and,
+ * inside Git, accepted only at that worktree's root. The automatically trusted
+ * overlay is pinned beside it, or to the current Git root when no site file
+ * exists. Nested registries are refused rather than allowed to shadow target
+ * authority.
  */
 final class Registry {
     /**
@@ -21,7 +23,14 @@ final class Registry {
     public static function load(?string $overlayOverride, string $startDir): array {
         $envs = [];
 
+        $gitRoot = self::findGitRoot($startDir);
         $siteFile = self::findUpwards($startDir, 'site.duo.json');
+        if ($siteFile !== null && $gitRoot !== null && dirname($siteFile) !== $gitRoot) {
+            throw new \RuntimeException(
+                "$siteFile: refusing a nested site.duo.json outside Git worktree root $gitRoot; "
+                . 'the site registry must be rooted in the repository whose environments it controls'
+            );
+        }
         if ($siteFile !== null) {
             $envs = self::mergeIn($envs, self::readEnvsFile($siteFile), dirname($siteFile), false);
         }
@@ -32,7 +41,19 @@ final class Registry {
                 throw new \RuntimeException("--envs-file={$overlayOverride}: file not found");
             }
         } else {
-            $overlayFile = self::findUpwards($startDir, '.duo-envs.json');
+            $registryDir = $siteFile !== null
+                ? dirname($siteFile)
+                : ($gitRoot ?? (realpath($startDir) ?: $startDir));
+            $nearestOverlay = self::findUpwards($startDir, '.duo-envs.json');
+            if ($nearestOverlay !== null && dirname($nearestOverlay) !== $registryDir) {
+                throw new \RuntimeException(
+                    "$nearestOverlay: refusing an auto-discovered .duo-envs.json outside registry root "
+                    . "$registryDir; keep the machine-local overlay beside site.duo.json (or at the Git root "
+                    . 'when no site file exists), or select another trusted file explicitly with --envs-file'
+                );
+            }
+            $candidate = $registryDir . '/.duo-envs.json';
+            $overlayFile = is_file($candidate) ? $candidate : null;
             if ($overlayFile !== null && self::isGitTracked($overlayFile)) {
                 throw new \RuntimeException(
                     "$overlayFile: refusing a Git-tracked .duo-envs.json; "
@@ -99,6 +120,21 @@ final class Registry {
             $parent = dirname($dir);
             if ($parent === $dir) {
                 return null; // reached filesystem root
+            }
+            $dir = $parent;
+        }
+    }
+
+    /** Find the containing Git worktree without executing repository hooks. */
+    private static function findGitRoot(string $startDir): ?string {
+        $dir = realpath($startDir) ?: $startDir;
+        while (true) {
+            if (is_dir($dir . '/.git') || is_file($dir . '/.git')) {
+                return $dir;
+            }
+            $parent = dirname($dir);
+            if ($parent === $dir) {
+                return null;
             }
             $dir = $parent;
         }

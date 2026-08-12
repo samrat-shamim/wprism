@@ -50,12 +50,15 @@ does not infer bootstrap authority from a bind mount or shell access.
 
 ### 1. Describe the environment
 
-Duo reads two optional registry files, found by walking upward from your
-current directory: the committed `site.duo.json` and a gitignored, machine-
-local `.duo-envs.json` overlay. The overlay replaces a same-named entry
-*whole* — there is no per-key merge — so for any environment exactly one file
-is the source of truth. Anything secret or machine-specific belongs in the
-overlay.
+Duo searches upward for the committed `site.duo.json`, but inside Git accepts
+it only at the current worktree root, then reads a gitignored, machine-local
+`.duo-envs.json` overlay beside it. Before a site file exists, the automatically
+discovered overlay must be at the current Git worktree root. A nested registry
+or overlay is refused rather than allowed to shadow environment authority;
+`--envs-file` is the explicit overlay trust override. The overlay replaces a
+same-named entry *whole* — there is no per-key merge — so for any environment
+exactly one file is the source of truth. Anything secret or machine-specific
+belongs in the overlay.
 
 ```json
 {
@@ -337,18 +340,13 @@ repository, recreate the configured path as a new ordinary empty directory
 (restoring only reviewed adoption-seed files), and run `duo init` again; never
 delete only the journal and leave its partial payload behind.
 
-Then append the two orchestrator-side lines, which the template does not carry:
-
-```gitignore
-.duo-envs.json
-.duo/
-```
-
-The first keeps the machine-local registry overlay out of git; the second keeps
-the operational artifact and checkpoint directory out. `duo doctor` separately
-checks that `.duo-env-values.json` is not git-tracked — a tracked one is a
-blocking failure wherever it can find a `git` binary to check with, which is
-the template's line earning its place.
+The generated template already keeps the root-local machine registry
+(`/.duo-envs.json`), operational artifact/checkpoint directory (`/.duo/`), and
+environment-value scratch file (`/.duo-env-values.json`) out of Git. The root
+anchors preserve legitimate same-named files inside vendored code. `duo doctor`
+separately checks that the environment-value file is not Git-tracked — a
+tracked one is a blocking failure wherever it can find a `git` binary to check
+with.
 
 ## Prove a second environment before you promote anything
 
