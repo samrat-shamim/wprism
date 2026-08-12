@@ -4,7 +4,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals
 .PHONY: regress-plan-explain
-.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup
+.PHONY: regress-plan-category-summary regress-plan-category-summary-live regress-plugin-adapter-source regress-scoped-apply-live regress-scoped-apply-live-cleanup regress-scope-chain-stability
 .PHONY: regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 .PHONY: regress-control-plane-seams regress-code-descriptor-compiler regress-agent-src-requires
@@ -1127,6 +1127,26 @@ regress-scoped-apply-live:
 	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
 	SCOPED_APPLY_LIVE_PAIR="$(SCOPED_APPLY_LIVE_PAIR)" SCOPED_APPLY_LIVE_PORT1="$(SCOPED_APPLY_LIVE_PORT1)" SCOPED_APPLY_LIVE_PORT2="$(SCOPED_APPLY_LIVE_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_scoped_apply_live.sh
 
+# DUO-3344 slice 6 live proof: the SAME scope contract's selected-identity
+# set flows unchanged through scope -> capture -> refresh-export -> plan ->
+# apply, then an independently-recomputed scope on the TARGET after
+# mutation reproduces the SOURCE's original closure byte-for-byte. Explicit
+# disposable-pair inputs, absent from regress-offline-all, same rationale as
+# regress-scoped-apply-live above. Deliberately does not cover scoped
+# promote/rollback: cli/duo refuses scoped promotion outright over anything
+# but SshTransport, an entirely different live harness than this one.
+#
+#   make regress-scope-chain-stability \
+#     SCOPE_CHAIN_PAIR=claudemaca3344 \
+#     SCOPE_CHAIN_PORT1=8900 SCOPE_CHAIN_PORT2=8901 \
+#     DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)
+regress-scope-chain-stability:
+	@test -n "$(SCOPE_CHAIN_PAIR)" || { echo 'SCOPE_CHAIN_PAIR is required; use an unused disposable pair name' >&2; exit 2; }
+	@test -n "$(SCOPE_CHAIN_PORT1)" || { echo 'SCOPE_CHAIN_PORT1 is required; choose a free even port >= 8900' >&2; exit 2; }
+	@test -n "$(SCOPE_CHAIN_PORT2)" || { echo 'SCOPE_CHAIN_PORT2 is required; use PORT1 + 1' >&2; exit 2; }
+	@test -n "$(DUO_EXPECTED_SOURCE_SHA)" || { echo 'DUO_EXPECTED_SOURCE_SHA is required; bind evidence to git rev-parse HEAD' >&2; exit 2; }
+	SCOPE_CHAIN_PAIR="$(SCOPE_CHAIN_PAIR)" SCOPE_CHAIN_PORT1="$(SCOPE_CHAIN_PORT1)" SCOPE_CHAIN_PORT2="$(SCOPE_CHAIN_PORT2)" DUO_EXPECTED_SOURCE_SHA="$(DUO_EXPECTED_SOURCE_SHA)" bash sandbox/tests/regress_scope_chain_stability.sh
+
 regress-snapshot-meta:
 	bash sandbox/tests/regress_snapshot_meta.sh
 
@@ -1237,6 +1257,7 @@ regress-live-list:
 	@echo "  regress-plan-category-summary-live        pair codexsma3345 9060/9061 (parameterized: PLAN_CATEGORY_SUMMARY_PAIR/PLAN_CATEGORY_SUMMARY_PORT1/PLAN_CATEGORY_SUMMARY_PORT2)"
 	@echo "  regress-provider-requirements-live        pair claudemacb3317 8930/8931 (parameterized: PROVIDER_REQUIREMENTS_PAIR/PROVIDER_REQUIREMENTS_PORT1/PROVIDER_REQUIREMENTS_PORT2)"
 	@echo "  regress-scoped-apply-live                 explicit SCOPED_APPLY_LIVE_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (public scoped plan/apply exact-source proof)"
+	@echo "  regress-scope-chain-stability              explicit SCOPE_CHAIN_PAIR/PORT1/PORT2 + DUO_EXPECTED_SOURCE_SHA (scope->capture->refresh-export->plan->apply identity-set stability)"
 	@echo "  regress-parent-scoped-natural-key         pair claudemacb3318 8930/8931 (parameterized: PARENT_KEY_PAIR/PARENT_KEY_PORT1/PARENT_KEY_PORT2)"
 	@echo "  regress-menu-item-meta-gate               pair asub3275 8954/8955"
 	@echo "  regress-widgets                           pair awid3278 8960/..."
