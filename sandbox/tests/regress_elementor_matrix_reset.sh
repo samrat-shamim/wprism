@@ -38,6 +38,7 @@ required = (
     "ELEMENTOR_STDERR_LOG=$(mktemp",
     "local command_log rc",
     '"$@" 2>"$command_log" || rc=$?',
+    'cat "$command_log" >>"$ELEMENTOR_STDERR_LOG"',
     'cat "$command_log" >&2',
     'return "$rc"',
     "run_elementor_command reset_env wp1",
