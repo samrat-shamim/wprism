@@ -12,9 +12,19 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/ManifestGrammar.php';
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 2);
+}
 
+require_once __DIR__ . '/../../agent/src/Canon.php';
+require_once __DIR__ . '/../../agent/src/OptionState.php';
+require_once __DIR__ . '/../../agent/src/ManifestGrammar.php';
+require_once __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/manifest_fixtures.php';
+
+use Duo\Canon;
 use Duo\ManifestGrammar;
+use Duo\Policy;
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -292,6 +302,138 @@ $check(ManifestGrammar::identityModes() === ['mapped', 'natural_key', 'composite
     'identityModes(): exact closed vocabulary');
 $check(ManifestGrammar::widgetSettingCodecs() === ['blocks'], 'widgetSettingCodecs(): exact closed vocabulary');
 $check(ManifestGrammar::widgetSettingRefs() === ['term'], 'widgetSettingRefs(): exact closed vocabulary');
+
+// --------------------------------------------------------- aggregate loaders
+
+$assertPasses(
+    fn() => ManifestGrammar::validate_tables([
+        'tables' => ['acme_runtime' => ['class' => 'runtime']],
+    ], 'site.duo.json'),
+    'aggregate table validation accepts a valid keyed declaration'
+);
+$assertThrows(
+    fn() => ManifestGrammar::validate_tables(['tables' => ['acme_bad' => 'not-an-object']], 'site.duo.json'),
+    'must be declared as an object of table rules',
+    'aggregate table validation keeps the per-declaration refusal'
+);
+$assertThrows(
+    fn() => ManifestGrammar::validate_tables(['tables' => ['not-an-object']], 'site.duo.json'),
+    'tables must be an object keyed by unprefixed table name',
+    'aggregate table validation refuses a list-shaped table map'
+);
+$assertPasses(
+    fn() => ManifestGrammar::validate_widgets([
+        'name' => 'acme',
+        'widgets' => ['acme_card' => ['settings' => ['title' => ['class' => 'authored']]]],
+    ]),
+    'aggregate widget validation accepts a valid keyed declaration'
+);
+$assertThrows(
+    fn() => ManifestGrammar::validate_widgets(['name' => 'acme', 'widgets' => ['not-a-widget!' => []]]),
+    'names an invalid widget type',
+    'aggregate widget validation keeps the per-declaration refusal'
+);
+$assertThrows(
+    fn() => ManifestGrammar::validate_widgets(['name' => 'acme', 'widgets' => ['card']]),
+    'widgets must be an object keyed by widget type',
+    'aggregate widget validation refuses a list-shaped widget map'
+);
+
+$validManifestA = manifest_a([
+    'widgets' => ['acme_card' => ['settings' => ['title' => ['class' => 'authored']]]],
+]);
+$validManifestB = manifest_b();
+$frozenSnapshot = static function (array $manifests, array $sitePolicy = []): array {
+    return [
+        'adapter_sources' => ['format' => 'duo-adapter-sources/v1', 'out_of_tree' => []],
+        'capabilities' => null,
+        'dispositions' => null,
+        'format' => 'duo-policy-snapshot/v4',
+        'manifests' => $manifests,
+        'site' => [
+            'manifests' => array_map(static fn(array $manifest): string => (string) $manifest['name'], $manifests),
+            'policy' => array_merge([
+                'options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => [],
+            ], $sitePolicy),
+            'spec_version' => DUO_SPEC_VERSION,
+        ],
+    ];
+};
+$assertPasses(
+    fn() => Policy::from_snapshot($frozenSnapshot([$validManifestA, $validManifestB], [
+        'tables' => ['site_runtime' => ['class' => 'runtime']],
+    ])),
+    'Policy::from_snapshot() reaches both extracted aggregate grammars'
+);
+$assertThrows(
+    fn() => Policy::from_snapshot($frozenSnapshot([
+        $validManifestA,
+        manifest_b(['widgets' => ['bad widget!' => ['settings' => ['title' => ['class' => 'authored']]]]]),
+    ])),
+    'names an invalid widget type',
+    'Policy::from_snapshot() preserves aggregate widget refusals'
+);
+$assertThrows(
+    fn() => Policy::from_snapshot($frozenSnapshot([
+        manifest_a(['tables' => ['acme_bad' => 'not-an-object']]),
+        $validManifestB,
+    ])),
+    'must be declared as an object of table rules',
+    'Policy::from_snapshot() preserves aggregate table refusals'
+);
+
+$loadRoot = sys_get_temp_dir() . '/duo_regress_manifest_grammar_' . bin2hex(random_bytes(4));
+$loadManifests = $loadRoot . '/manifests';
+mkdir($loadManifests, 0777, true);
+manifest_fixture_code($loadManifests);
+Canon::write_file($loadRoot . '/site.duo.json', Canon::encode([
+    'manifests' => ['a', 'b'],
+    'policy' => ['options' => [], 'post_meta' => [], 'term_meta' => [], 'user_meta' => []],
+    'spec_version' => DUO_SPEC_VERSION,
+]));
+Canon::write_file($loadManifests . '/a.json', Canon::encode($validManifestA));
+Canon::write_file($loadManifests . '/b.json', Canon::encode($validManifestB));
+$previousManifestsDir = getenv('DUO_MANIFESTS_DIR');
+putenv("DUO_MANIFESTS_DIR=$loadManifests");
+$assertPasses(
+    fn() => Policy::load($loadRoot),
+    'Policy::load() reaches both extracted aggregate grammars'
+);
+Canon::write_file($loadManifests . '/b.json', Canon::encode(
+    manifest_b(['widgets' => ['bad widget!' => ['settings' => ['title' => ['class' => 'authored']]]]])
+));
+$assertThrows(
+    fn() => Policy::load($loadRoot),
+    'names an invalid widget type',
+    'Policy::load() preserves aggregate widget refusals'
+);
+if ($previousManifestsDir === false) {
+    putenv('DUO_MANIFESTS_DIR');
+} else {
+    putenv("DUO_MANIFESTS_DIR=$previousManifestsDir");
+}
+foreach (glob($loadManifests . '/*') ?: [] as $file) {
+    if (is_file($file)) {
+        @unlink($file);
+    }
+}
+manifest_fixture_code_cleanup($loadManifests);
+@rmdir($loadManifests);
+@unlink($loadRoot . '/site.duo.json');
+@rmdir($loadRoot);
+
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$policyReflection = new ReflectionClass(Policy::class);
+$grammarReflection = new ReflectionClass(ManifestGrammar::class);
+$check(
+    !$policyReflection->hasMethod('validate_tables')
+        && !$policyReflection->hasMethod('validate_widgets')
+        && $grammarReflection->getMethod('validate_tables')->isPublic()
+        && $grammarReflection->getMethod('validate_widgets')->isPublic()
+        && substr_count($policySource, 'ManifestGrammar::validate_tables(') === 4
+        && substr_count($policySource, 'ManifestGrammar::validate_widgets(') === 2,
+    'both Policy loader paths call ManifestGrammar aggregate validators and no private duplicates remain'
+);
 
 // ---------------------------------------------------------------------- summary
 
