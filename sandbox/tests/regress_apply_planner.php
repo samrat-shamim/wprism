@@ -1,6 +1,6 @@
 <?php
 /**
- * Offline regression for ApplyPlanner (DUO-3347 slice 2: the pure
+ * Offline regression for ApplyPlanner (DUO-3347: the pure
  * conflict/display-projection half of plan production extracted out of
  * Apply.php). Existing suites (regress_conflict_view.php,
  * regress_plan_title_render.php, regress_lifecycle_state_handoff.php,
@@ -15,6 +15,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../../agent/src/ApplyPlanner.php';
 
 use Duo\ApplyPlanner;
+use Duo\Canon;
 use Duo\Policy;
 
 $failures = [];
@@ -102,6 +103,56 @@ $check(ApplyPlanner::lifecycle_comparison_hash('options/core', null, $transition
     'lifecycle_comparison_hash: no environment hash returns null unchanged');
 $check(ApplyPlanner::lifecycle_comparison_hash('options/core', 'envhash', null) === 'envhash',
     'lifecycle_comparison_hash: no recorded transition returns the environment hash unchanged');
+
+// --------------------------------------------------------- option projection
+
+$optionPolicy = new Policy();
+$optionPolicy->manifests = [[
+    'name' => 'option-fixture',
+    'options' => [
+        'managed_option' => ['class' => 'managed', 'autoload' => 'yes'],
+    ],
+]];
+$optionPlanner = new ApplyPlanner($optionPolicy, [], static fn(string $uuid, string $kind): ?int => null);
+$desiredOptions = [
+    'format' => 'duo-options/v1',
+    'records' => [
+        'authored_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'desired'],
+        'managed_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'lifecycle'],
+        'absent_option' => ['state' => 'absent'],
+    ],
+];
+$check(
+    $optionPlanner->option_rebuild_names($desiredOptions, null) === ['authored_option'],
+    'option projection: fresh targets select authored records but exclude managed and absent records'
+);
+$observedOptions = [
+    'content' => Canon::encode([
+        'format' => 'duo-options/v1',
+        'records' => [
+            'authored_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'old'],
+            'managed_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'old-lifecycle'],
+            'target_only_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'target'],
+        ],
+    ]),
+];
+$check(
+    $optionPlanner->option_rebuild_names($desiredOptions, $observedOptions) === ['authored_option'],
+    'option projection: changed authored records are selected while managed and target-only records stay untouched'
+);
+$unchangedOptions = [
+    'content' => Canon::encode([
+        'format' => 'duo-options/v1',
+        'records' => [
+            'authored_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'desired'],
+            'managed_option' => ['state' => 'present', 'autoload' => 'yes', 'value' => 'different-lifecycle'],
+        ],
+    ]),
+];
+$check(
+    $optionPlanner->option_rebuild_names($desiredOptions, $unchangedOptions) === [],
+    'option projection: an authored record equal to the target produces no rebuild work'
+);
 
 // ------------------------------------------------------- nested_delete_candidate_counts
 
@@ -295,8 +346,17 @@ $check(
     'collision planner: build_plan delegates through the planner collaborator'
 );
 $check(
+    str_contains($applySource, '$this->apply_planner()->option_rebuild_names($e[\'data\'], $envE);'),
+    'option projection: build_plan delegates rebuild-name selection through the planner collaborator'
+);
+$check(
     preg_match('/public function find_collision\(/', $plannerSource) === 1,
     'collision planner: the moved product-path method is public on ApplyPlanner'
+);
+$check(
+    preg_match('/public function option_rebuild_names\(/', $plannerSource) === 1
+        && preg_match('/private function option_rebuild_names\([^}]*?return \$this->apply_planner\(\)->option_rebuild_names\(/s', $applySource) === 1,
+    'option projection: implementation lives on ApplyPlanner while Apply keeps only its facade'
 );
 
 if ($failures) {
