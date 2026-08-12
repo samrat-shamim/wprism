@@ -1676,12 +1676,35 @@ final class RefreshFieldDiff {
     }
 
     /**
+     * Return the same bounded, local-only label used by the interactive
+     * resolver so ordinary refresh output can identify a WordPress record.
+     * The label is presentation data only and never enters a hashed plan,
+     * public field-diff contract, journal, or resolution.
+     */
+    public static function localPlanEntryLabel(array $entry): string {
+        $versions = is_array($entry['versions'] ?? null) ? $entry['versions'] : [];
+        return self::localRecordLabel(
+            $entry,
+            is_array($versions['base'] ?? null) ? $versions['base'] : null,
+            is_array($versions['production'] ?? null) ? $versions['production'] : null,
+            is_array($versions['branch'] ?? null) ? $versions['branch'] : null,
+            ''
+        );
+    }
+
+    /**
      * A local-only human hint. Prefer an engine-authored display field from
      * the current branch, then production/base, and finally a safe path. It
      * deliberately never touches body, meta, options, user meta, or opaque
      * document members.
      */
-    private static function localRecordLabel(array $entry, ?array $base, ?array $production, ?array $branch): string {
+    private static function localRecordLabel(
+        array $entry,
+        ?array $base,
+        ?array $production,
+        ?array $branch,
+        string $fallback = 'record'
+    ): string {
         // An automatic production-only row will materialize production bytes;
         // show that role's ordinary display label first. Every other path is
         // branch-scaffolded, including compatible rows and conflicts.
@@ -1699,7 +1722,7 @@ final class RefreshFieldDiff {
             }
         }
         // This final fallback is closed vocabulary, not a private value.
-        return 'record';
+        return $fallback;
     }
 
     private static function localAuthoredLabel(?array $row): string {

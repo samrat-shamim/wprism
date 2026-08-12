@@ -567,9 +567,11 @@ final class Refresh {
         // Disable rename folding so each canonical path is checked directly;
         // porcelain's `old -> new` display is otherwise ambiguous to a path
         // boundary even when both ends are under state/.
-        $paths = array_filter(explode("\n", self::gitStdout($worktree, [
-            'status', '--porcelain=v1', '--untracked-files=all', '--no-renames',
-        ])));
+        // NUL mode keeps status columns and paths byte-exact: no first-column
+        // trimming and no Git C-quoting of Unicode, whitespace, or newlines.
+        $paths = array_filter(explode("\0", self::gitRawStdout($worktree, [
+            'status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames',
+        ])), static fn(string $row): bool => $row !== '');
         foreach ($paths as $line) {
             $path = trim(substr($line, 3));
             if ($path === '' || (!str_starts_with($path, 'state/') && !str_starts_with($path, 'media/'))) {
@@ -584,13 +586,13 @@ final class Refresh {
         // error, then repeat the boundary on the staged set.
         self::git($worktree, ['add', '-A']);
         self::assertNoUnmerged($worktree);
-        $status = self::gitStdout($worktree, ['diff', '--cached', '--name-only']);
-        foreach (array_filter(explode("\n", $status)) as $path) {
+        $status = self::gitRawStdout($worktree, ['diff', '--cached', '--name-only', '-z']);
+        foreach (array_filter(explode("\0", $status), static fn(string $path): bool => $path !== '') as $path) {
             if (!str_starts_with($path, 'state/') && !str_starts_with($path, 'media/')) {
                 throw new \RuntimeException("semantic materializer staged non-state path '$path'; no branch was created");
             }
         }
-        if (trim($status) !== '') {
+        if ($status !== '') {
             self::git($worktree, ['commit', '-m', 'duo refresh rebase ' . $planHash]);
         }
     }
@@ -740,6 +742,14 @@ final class Refresh {
             throw new \RuntimeException('git ' . implode(' ', $args) . ' failed: ' . self::reason($result));
         }
         return trim($result['stdout']);
+    }
+
+    private static function gitRawStdout(string $cwd, array $args): string {
+        $result = self::run(array_merge(['git', '-C', $cwd], $args));
+        if ($result['exit'] !== 0) {
+            throw new \RuntimeException('git ' . implode(' ', $args) . ' failed: ' . self::reason($result));
+        }
+        return $result['stdout'];
     }
 
     private static function transportReason(array $result): string {
