@@ -33,7 +33,13 @@ namespace Duo\Orchestrator {
             // This intentionally leaves a conflict unresolved, proving the
             // host cannot create a branch merely because Git code replay ended.
             if (self::$resolved) {
+                // Exercise an unstaged-only porcelain row as the first status
+                // line. Its leading X column is semantically significant and
+                // must survive the host Git-output boundary.
+                file_put_contents($worktree . '/state/base.json', "{\"rebased\":true}\n");
                 file_put_contents($worktree . '/state/rebased.json', json_encode(['resolution' => $resolution], JSON_THROW_ON_ERROR) . "\n");
+                file_put_contents($worktree . "/state/ label-é.json", "{}\n");
+                file_put_contents($worktree . "/state/line\nbreak.json", "{}\n");
             }
             return ['format' => 'duo-refresh-materialization/v1', 'plan_hash' => $plan['plan_hash'], 'resolved' => self::$resolved];
         }
@@ -269,6 +275,9 @@ try {
     $complete = Refresh::rebase($transport, 'production', 'refresh-complete', ['strategy' => 'ours', 'records' => []]);
     ok_refresh(run_refresh(['git', 'rev-parse', 'refresh-complete'], $repo) === $complete['head'], 'strictly validated candidate is atomically published as a new ref');
     ok_refresh(run_refresh(['git', 'show', 'refresh-complete:state/rebased.json'], $repo) !== '', 'semantic state materialization is committed on candidate only');
+    ok_refresh(run_refresh(['git', 'show', "refresh-complete:state/ label-é.json"], $repo) === '{}'
+        && run_refresh(['git', 'show', "refresh-complete:state/line\nbreak.json"], $repo) === '{}',
+        'byte-exact boundary accepts Unicode, whitespace, and newline state paths');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'successful rebase still preserves source checkout/ref');
     $completeRun = json_decode((string) file_get_contents($repo . '/.git/duo-refresh/runs/' . $complete['run_id'] . '/run.json'), true, 512, JSON_THROW_ON_ERROR);
     ok_refresh(($completeRun['resolution']['strategy'] ?? null) === 'ours', 'declared conflict strategy is immutable run evidence');

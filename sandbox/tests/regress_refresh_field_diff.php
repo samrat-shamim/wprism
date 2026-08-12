@@ -481,6 +481,36 @@ $localPresentation = RefreshFieldDiff::interactivePresentation(
     $localPresentationProjection['diff'],
     $localPresentationProjection['bundle']
 );
+$localEntriesById = [];
+foreach ($localPresentationPlan['entries'] as $entry) $localEntriesById[$entry['id']] = $entry;
+$check(
+    RefreshFieldDiff::localPlanEntryLabel($localEntriesById['post:11111111-1111-4111-8111-111111111111']) === 'TTY Branch Label'
+        && RefreshFieldDiff::localPlanEntryLabel($localEntriesById['sidebar:tty-fallback']) === 'path:sidebars/TTY Fallback.json',
+    'ordinary refresh can reuse sanitized local WordPress labels without widening public field-diff data'
+);
+$check(
+    RefreshFieldDiff::localPlanEntryLabel([
+        'category' => 'production-only',
+        'versions' => [
+            'branch' => $row('branch-post', 'post', 'posts/post/branch.md', $post('"Branch title"', '"excerpt"', '"draft"', "body\n")),
+            'production' => $row('production-post', 'post', 'posts/post/production.md', $post('"Production title"', '"excerpt"', '"draft"', "body\n")),
+            'base' => $row('base-post', 'post', 'posts/post/base.md', $post('"Base title"', '"excerpt"', '"draft"', "body\n")),
+        ],
+    ]) === 'Production title'
+        && RefreshFieldDiff::localPlanEntryLabel([
+            'versions' => [
+                'branch' => $row('branch-menu', 'menu', 'menus/branch.json', "{\"name\":\"Branch menu\"}\n"),
+                'production' => $row('production-menu', 'menu', 'menus/production.json', "{\"name\":\"Production menu\"}\n"),
+            ],
+        ]) === 'Branch menu'
+        && RefreshFieldDiff::localPlanEntryLabel([
+            'versions' => [
+                'base' => $row('base-term', 'term', 'terms/category/base.json', $term('"Base category"', '"description"')),
+            ],
+        ]) === 'Base category'
+        && RefreshFieldDiff::localPlanEntryLabel(['versions' => 'malformed']) === '',
+    'ordinary labels preserve branch-production-base precedence and reject malformed or empty candidates'
+);
 $localPresentationIn = fopen('php://temp', 'r+');
 $localPresentationOut = fopen('php://temp', 'r+');
 fwrite($localPresentationIn, "q\n");

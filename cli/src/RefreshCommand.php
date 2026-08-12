@@ -7,6 +7,7 @@ require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 require_once __DIR__ . '/Refresh.php';
+require_once __DIR__ . '/RefreshFieldDiff.php';
 
 /** Host command boundary for semantic refresh planning and field-diff output. */
 final class RefreshCommand {
@@ -47,24 +48,7 @@ final class RefreshCommand {
                 self::renderFieldDiff($result['field_diff']);
                 return 0;
             }
-            echo 'refresh plan: ' . $result['plan_path'] . "\n";
-            echo 'base=' . ($result['context']['base_commit'] ?? '?')
-                . ' production=' . ($result['context']['production_commit'] ?? '?')
-                . ' branch=' . ($result['context']['branch_commit'] ?? '?') . "\n";
-            echo 'plan_hash=' . ($result['plan']['plan_hash'] ?? '?') . "\n";
-            $counts = $result['plan']['scope_counts'] ?? ($result['plan']['counts'] ?? []);
-            if (is_array($counts)) {
-                $parts = [];
-                foreach (['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'] as $category) {
-                    $parts[] = $category . '=' . (int) ($counts[$category] ?? 0);
-                }
-                echo 'categories: ' . implode(' ', $parts) . "\n";
-            }
-            foreach ((array) ($result['plan']['entries'] ?? []) as $entry) {
-                if (($entry['category'] ?? null) === 'conflicting' && ($entry['in_scope'] ?? true) === true) {
-                    echo 'conflict ' . ($entry['id'] ?? '?') . ': ' . ($entry['reason'] ?? 'semantic divergence') . "\n";
-                }
-            }
+            self::renderPlan($result);
             return 0;
         } catch (\Throwable $e) {
             if ($json) {
@@ -77,6 +61,34 @@ final class RefreshCommand {
             }
             fwrite(STDERR, 'duo: refresh: ' . $e->getMessage() . "\n");
             return 1;
+        }
+    }
+
+    /** @param array<string,mixed> $result */
+    private static function renderPlan(array $result): void {
+        echo 'refresh plan: ' . ($result['plan_path'] ?? '?') . "\n";
+        echo 'base=' . ($result['context']['base_commit'] ?? '?')
+            . ' production=' . ($result['context']['production_commit'] ?? '?')
+            . ' branch=' . ($result['context']['branch_commit'] ?? '?') . "\n";
+        echo 'plan_hash=' . ($result['plan']['plan_hash'] ?? '?') . "\n";
+        $counts = $result['plan']['scope_counts'] ?? ($result['plan']['counts'] ?? []);
+        if (is_array($counts)) {
+            $parts = [];
+            foreach (['unchanged', 'production-only', 'branch-only', 'compatible', 'conflicting'] as $category) {
+                $parts[] = $category . '=' . (int) ($counts[$category] ?? 0);
+            }
+            echo 'categories: ' . implode(' ', $parts) . "\n";
+        }
+        foreach ((array) ($result['plan']['entries'] ?? []) as $entry) {
+            if (($entry['category'] ?? null) === 'conflicting' && ($entry['in_scope'] ?? true) === true) {
+                $label = RefreshFieldDiff::localPlanEntryLabel($entry);
+                $labelSuffix = $label === '' ? '' : ' ' . json_encode(
+                    $label,
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+                );
+                echo 'conflict ' . ($entry['id'] ?? '?') . $labelSuffix . ': '
+                    . ($entry['reason'] ?? 'semantic divergence') . "\n";
+            }
         }
     }
 

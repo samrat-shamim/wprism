@@ -65,4 +65,50 @@ assert_refresh_command((new ReflectionMethod(RefreshCommand::class, 'run'))->isS
 assert_refresh_command(CommandOutput::wantsAgentRefusalJson('refresh', ['--format=json']),
     'refresh uses the shared host refusal-format detector');
 
+$renderPlan = new ReflectionMethod(RefreshCommand::class, 'renderPlan');
+$postLabelContent = "---\n" . json_encode(
+    ['title' => "Canvas \"Weekender\"\nSale"],
+    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+) . "\n---\n";
+ob_start();
+$renderPlan->invoke(null, [
+    'plan_path' => '/tmp/refresh-plan.json',
+    'context' => ['base_commit' => 'base', 'production_commit' => 'production', 'branch_commit' => 'branch'],
+    'plan' => [
+        'plan_hash' => 'plan-hash',
+        'counts' => ['unchanged' => 0, 'production-only' => 0, 'branch-only' => 0, 'compatible' => 0, 'conflicting' => 3],
+        'entries' => [
+            [
+                'id' => 'post:11111111-1111-4111-8111-111111111111',
+                'category' => 'conflicting',
+                'reason' => 'same field changed',
+                'versions' => ['branch' => [
+                    'type' => 'post',
+                    'path' => 'posts/product/canvas-weekender.md',
+                    'content' => $postLabelContent,
+                ]],
+            ],
+            [
+                'id' => 'term:22222222-2222-4222-8222-222222222222',
+                'category' => 'conflicting',
+                'versions' => ['branch' => ['path' => 'terms/product_cat/weekend.json']],
+            ],
+            ['id' => 'option:opaque', 'category' => 'conflicting'],
+        ],
+    ],
+]);
+$renderedPlan = (string) ob_get_clean();
+assert_refresh_command(str_contains(
+    $renderedPlan,
+    'conflict post:11111111-1111-4111-8111-111111111111 "Canvas \\"Weekender\\" Sale": same field changed'
+), 'ordinary conflict rendering quotes and sanitizes the WordPress label');
+assert_refresh_command(str_contains(
+    $renderedPlan,
+    'conflict term:22222222-2222-4222-8222-222222222222 "path:terms/product_cat/weekend.json": semantic divergence'
+), 'ordinary conflict rendering falls back to a safe local path');
+assert_refresh_command(str_contains(
+    $renderedPlan,
+    'conflict option:opaque: semantic divergence'
+), 'ordinary conflict rendering omits an unavailable label cleanly');
+
 echo "PASS: refresh command\n";
