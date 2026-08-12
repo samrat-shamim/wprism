@@ -214,6 +214,16 @@ PHP,
         . 'ConvergenceVerifier-touching method without a "Class ...ConvergenceVerifier not found" fatal'
 );
 
+// Canon is the one ConvergenceVerifier dependency worth an isolation check.
+// hash()'s live siblings (verify()/verify_local()/verify_scoped_local()) also
+// reference Capture/ScopedApply/ScopedApplySession without requiring them,
+// but that's not a gap this suite can usefully pin: each of those classes'
+// OWN require chain bottoms out in ANOTHER unrequired class one level
+// further down (Capture -> Canary, ScopedApply -> Ledger) before ever
+// reaching a $wpdb-bound WordPress call -- so no standalone probe of them
+// can terminate in a clean pass or a specific, attributable failure either
+// way. Canon is different: requiring it is enough, full stop, because
+// Canon.php is itself a dependency-free leaf.
 $isolatedProbeCheck(
     __DIR__ . '/../../agent/src/ConvergenceVerifier.php',
     <<<'PHP'
