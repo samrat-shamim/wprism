@@ -112,16 +112,25 @@ final class Init {
     /** @return list<string> */
     public static function nextSteps(string $env, string $repo): array {
         $gitRepo = escapeshellarg($repo);
+        $envArg = escapeshellarg($env);
         return [
             'Managed state scope is clean. Coverage outside the selected adapters remains advisory, not a whole-site guarantee.',
-            "The Git worktree is ready at target path $repo; run the following Git commands inside that target environment.",
-            'Next steps:',
+            "The Git worktree is ready at target path $repo.",
+            'Publish it, then make an ordinary developer checkout. Confirm the target worktree is on the intended named branch (not detached), and replace the quoted YOUR_* values before running these commands:',
             "  1. git -C $gitRepo add .gitignore site.duo.json code state media && git -C $gitRepo commit -m \"duo: initial code and state baselines\"",
-            "  2. git -C $gitRepo switch -c <branch>             # branch",
-            "  3. duo capture $env                              # capture authored state",
-            "  4. duo plan $env                                 # preview",
-            "  5. duo promote $env                              # promote with a DB checkpoint",
-            '  6. follow the exact checkpoint receipt on failure # rollback',
+            "  2. git -C $gitRepo remote add origin 'YOUR_GIT_URL' # skip if origin already exists",
+            "  3. TARGET_BRANCH=\$(git -C $gitRepo symbolic-ref --quiet --short HEAD) && test -n \"\$TARGET_BRANCH\" || { echo 'target worktree is detached; switch to the intended branch first' >&2; exit 1; }",
+            "  4. git -C $gitRepo push -u origin \"HEAD:refs/heads/\$TARGET_BRANCH\"",
+            "  5. git clone --branch \"\$TARGET_BRANCH\" 'YOUR_GIT_URL' 'YOUR_WORKSPACE' # exact initialized baseline",
+            "  6. export DUO_CLI='YOUR_DUO_CLI'                   # absolute path to an installed Duo cli/duo; it is not in the site repo",
+            "  7. git -C 'YOUR_WORKSPACE' switch -c 'YOUR_BRANCH' # feature branch",
+            "Do not assume that checkout is the live environment: Duo commands for $envArg always operate on its configured repo_path ($repo), never on 'YOUR_WORKSPACE'.",
+            "In 'YOUR_WORKSPACE', recreate the complete machine-local connection for $envArg in the untracked .duo-envs.json overlay, then run `\"\$DUO_CLI\" envs` and verify that it names the intended target and repo_path.",
+            "Point or materialize that target environment to 'YOUR_BRANCH' before capturing WordPress-authored changes. Then, from 'YOUR_WORKSPACE':",
+            "  \"\$DUO_CLI\" capture $envArg                   # capture authored state from the configured target",
+            "  \"\$DUO_CLI\" plan $envArg                      # preview",
+            "  \"\$DUO_CLI\" promote $envArg                   # promote with a DB checkpoint",
+            '  follow the exact checkpoint receipt on failure     # rollback',
             'Executable code remains a separate content-addressed half under code/wp-content; review its descriptor and ownership boundary independently from state.',
         ];
     }

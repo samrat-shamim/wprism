@@ -1149,8 +1149,14 @@ preflight isolation, runtime reconciliation, and inverse contract.
 
 ### Where the registry comes from
 
-`duo` merges **two** optional files, found by walking upward from the
-current directory (git-style — so it works from any subdirectory):
+`duo` merges **two** optional files. It searches upward for `site.duo.json` so
+commands work from any subdirectory, but inside Git accepts that file only at
+the current worktree root. It then accepts an automatically discovered
+machine-local overlay only beside that site file. When no site file exists,
+the overlay must be at the current Git worktree root. A nearer nested registry
+or overlay is refused instead of being allowed to shadow the trusted
+environment names; use the explicit overlay override only when you
+intentionally trust another path:
 
 1. **`site.duo.json`** — the site repo's own policy file (see
    [spec/repo-format.md](../spec/repo-format.md)). Committable: the `envs`
@@ -1188,8 +1194,9 @@ override for the machine-local half of the registry.
 ### Suggested `.gitignore` line
 
 ```
-.duo-envs.json
-.duo/
+/.duo-envs.json
+/.duo/
+/.duo-env-values.json
 ```
 
 (Already added to this repo's `.gitignore` for the sandbox.)

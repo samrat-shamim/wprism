@@ -166,11 +166,115 @@ check(str_contains($rendered, 'redacted counts are incomplete'), 'rendering disc
 check(!str_contains($rendered, 'sk_live_') && !str_contains($rendered, '@example.'), 'rendering cannot expose secret or PII values from the count-only report');
 
 $next = implode("\n", Init::nextSteps('shop', '/srv/shop-state'));
-foreach (['branch', 'duo capture shop', 'duo plan shop', 'duo promote shop', 'rollback'] as $step) {
+foreach (['branch', '"$DUO_CLI" capture \'shop\'', '"$DUO_CLI" plan \'shop\'', '"$DUO_CLI" promote \'shop\'', 'rollback'] as $step) {
     check(str_contains($next, $step), "workflow guide includes $step");
 }
 check(str_contains($next, 'Coverage outside the selected adapters remains advisory'), 'guide does not turn a managed-scope proof into a whole-site guarantee');
 check(str_contains($next, "git -C '/srv/shop-state'"), 'guide runs Git in the target-owned worktree');
+check(str_contains($next, "remote add origin 'YOUR_GIT_URL'")
+    && str_contains($next, 'symbolic-ref --quiet --short HEAD')
+    && str_contains($next, 'push -u origin "HEAD:refs/heads/$TARGET_BRANCH"')
+    && str_contains($next, "git clone --branch \"\$TARGET_BRANCH\" 'YOUR_GIT_URL' 'YOUR_WORKSPACE'"),
+    'guide carries the initialized target repository through publish and developer checkout');
+check(
+    str_contains($next, "Duo commands for 'shop' always operate on its configured repo_path (/srv/shop-state)")
+        && str_contains($next, 'never on \'YOUR_WORKSPACE\'')
+        && str_contains($next, 'untracked .duo-envs.json overlay')
+        && str_contains($next, 'Point or materialize that target environment')
+        && str_contains($next, "export DUO_CLI='YOUR_DUO_CLI'")
+        && str_contains($next, 'it is not in the site repo'),
+    'guide distinguishes the developer checkout from the target-bound environment before any Duo mutation'
+);
+$hostileNext = implode("\n", Init::nextSteps('prod; echo PWNED', '/srv/shop-state'));
+check(
+    str_contains($hostileNext, "capture 'prod; echo PWNED'")
+        && !str_contains($hostileNext, 'capture prod; echo PWNED'),
+    'rendered Duo handoff shell-quotes an environment name containing metacharacters'
+);
+
+// Run every rendered Git handoff command against paths containing spaces.
+// This keeps the first-run guide copyable and catches shell-significant
+// placeholders or a missing -C/argument quote instead of merely asserting
+// that some promising words were printed.
+$handoffRoot = sys_get_temp_dir() . '/duo-init-handoff-' . bin2hex(random_bytes(6));
+$handoffTarget = $handoffRoot . '/target repo';
+$handoffRemote = $handoffRoot . '/remote repo.git';
+$handoffWorkspace = $handoffRoot . '/developer workspace';
+register_shutdown_function(static function () use ($handoffRoot): void {
+    exec('rm -rf ' . escapeshellarg($handoffRoot));
+});
+mkdir($handoffTarget . '/code', 0777, true);
+mkdir($handoffTarget . '/state', 0777, true);
+mkdir($handoffTarget . '/media', 0777, true);
+file_put_contents(
+    $handoffTarget . '/.gitignore',
+    (string) file_get_contents(__DIR__ . '/../site-repo.gitignore.template')
+);
+file_put_contents($handoffTarget . '/site.duo.json', "{}\n");
+file_put_contents($handoffTarget . '/code/.keep', "\n");
+file_put_contents($handoffTarget . '/state/.keep', "\n");
+file_put_contents($handoffTarget . '/media/.keep', "\n");
+mkdir($handoffTarget . '/code/wp-content/plugins/acme/.duo', 0777, true);
+file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.duo/config.json', "{}\n");
+file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.duo-envs.json', "{}\n");
+file_put_contents($handoffTarget . '/code/wp-content/plugins/acme/.duo-env-values.json', "{}\n");
+$nestedProtocolFiles = [
+    '.tmp-cache', '.duo-init-code-example', '.duo-init-attempt', '.duo-init-attempt.next',
+    '.x.duo-init-y', 'state.capture.lock', 'state.capture-staging/payload',
+    'state.capture-backup/payload', 'state.capture-intent', 'state.capture-receipt',
+    'state.capture-intent.tmp.1', 'state.capture-receipt.tmp.1',
+    'state.capture-intent.previous', 'state.capture-intent.next',
+    'state.capture-receipt.previous', 'state.capture-receipt.next',
+];
+foreach ($nestedProtocolFiles as $relative) {
+    $path = $handoffTarget . '/code/wp-content/plugins/acme/' . $relative;
+    if (!is_dir(dirname($path))) mkdir(dirname($path), 0777, true);
+    file_put_contents($path, "nested vendored payload\n");
+}
+foreach ([
+    'git init --initial-branch=develop ' . escapeshellarg($handoffTarget),
+    'git -C ' . escapeshellarg($handoffTarget) . ' config user.name ' . escapeshellarg('Duo Regression'),
+    'git -C ' . escapeshellarg($handoffTarget) . ' config user.email ' . escapeshellarg('duo-regression@example.invalid'),
+    'git init --bare --initial-branch=main ' . escapeshellarg($handoffRemote),
+] as $setupCommand) {
+    exec($setupCommand . ' 2>&1', $setupOutput, $setupExit);
+    check($setupExit === 0, "handoff fixture setup executes: $setupCommand");
+}
+$handoffCommands = [];
+foreach (Init::nextSteps('shop', $handoffTarget) as $line) {
+    if (preg_match('/^  ([1-7])\. (.+?)(?: +#.*)?$/', $line, $match) === 1) {
+        $handoffCommands[(int) $match[1]] = $match[2];
+    }
+}
+check(array_keys($handoffCommands) === [1, 2, 3, 4, 5, 6, 7], 'guide renders a complete executable repository handoff');
+foreach ($handoffCommands as $number => $command) {
+    $handoffCommands[$number] = str_replace(
+        ["'YOUR_GIT_URL'", "'YOUR_WORKSPACE'", "'YOUR_BRANCH'"],
+        [escapeshellarg($handoffRemote), escapeshellarg($handoffWorkspace), escapeshellarg('feature/first-change')],
+        $command
+    );
+}
+$handoffCommands[6] = str_replace("'YOUR_DUO_CLI'", escapeshellarg('/bin/true'), $handoffCommands[6]);
+exec(implode("\n", $handoffCommands) . ' 2>&1', $commandOutput, $commandExit);
+check($commandExit === 0, 'complete rendered handoff executes after placeholder replacement');
+exec('git -C ' . escapeshellarg($handoffWorkspace) . ' branch --show-current 2>&1', $branchOutput, $branchExit);
+check($branchExit === 0 && implode("\n", $branchOutput) === 'feature/first-change', 'rendered handoff leaves the developer checkout on the requested branch');
+exec('git --git-dir=' . escapeshellarg($handoffRemote) . ' show-ref --verify refs/heads/develop 2>&1', $developOutput, $developExit);
+check($developExit === 0, 'rendered handoff publishes the existing non-main branch despite a different remote default');
+exec('git -C ' . escapeshellarg($handoffWorkspace) . ' merge-base --is-ancestor origin/develop HEAD 2>&1', $baselineOutput, $baselineExit);
+check($baselineExit === 0, 'developer feature branch starts from the exact initialized target baseline');
+check(
+    is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.duo/config.json')
+        && is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.duo-envs.json')
+        && is_file($handoffWorkspace . '/code/wp-content/plugins/acme/.duo-env-values.json'),
+    'root-anchored authority ignores preserve legitimate same-named files inside vendored plugin code'
+);
+foreach ($nestedProtocolFiles as $relative) {
+    check(
+        is_file($handoffWorkspace . '/code/wp-content/plugins/acme/' . $relative),
+        "root-anchored protocol ignores preserve nested vendored $relative"
+    );
+}
 
 $badJson = new InitTransport([['exit' => 0, 'stdout' => "not-json\n", 'stderr' => '']]);
 try {
@@ -650,10 +754,14 @@ check(
     'live coverage proves both sides of the completed-journal unlink crash boundary'
 );
 check(
-    str_contains($ignoreTemplate, '.duo-init-attempt')
-        && str_contains($ignoreTemplate, '.duo-init-attempt.next')
-        && str_contains($ignoreTemplate, '.duo-init-code-*')
-        && str_contains($ignoreTemplate, '.*.duo-init-*')
+    str_contains($ignoreTemplate, '/.tmp*')
+        && str_contains($ignoreTemplate, '/.duo-init-attempt')
+        && str_contains($ignoreTemplate, '/.duo-init-attempt.next')
+        && str_contains($ignoreTemplate, '/.duo-init-code-*')
+        && str_contains($ignoreTemplate, '/.*.duo-init-*')
+        && str_contains($ignoreTemplate, "/.duo/\n")
+        && str_contains($ignoreTemplate, "/.duo-envs.json\n")
+        && str_contains($ignoreTemplate, "/.duo-env-values.json\n")
         && str_contains($ignoreTemplate, 'state.capture-intent.previous')
         && str_contains($ignoreTemplate, 'state.capture-intent.next')
         && str_contains($ignoreTemplate, 'state.capture-receipt.previous')
@@ -866,6 +974,53 @@ if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 // no WordPress.
 // The predicate resolves the fixed capture-record slots through Publish.
 require_once __DIR__ . '/../../agent/src/Publish.php';
+$ignoreFixture = sys_get_temp_dir() . '/duo-init-ignore-' . bin2hex(random_bytes(6));
+if (!mkdir($ignoreFixture, 0777, true)) fail('could not create the init ignore fixture');
+register_shutdown_function(static function () use ($ignoreFixture): void {
+    if (is_file($ignoreFixture . '/.gitignore')) unlink($ignoreFixture . '/.gitignore');
+    if (is_dir($ignoreFixture)) rmdir($ignoreFixture);
+});
+$ensureGitignore = (new ReflectionClass(\Duo\Init::class))->getMethod('ensure_gitignore');
+$ignorePublication = $ensureGitignore->invoke(null, $ignoreFixture, 'absent');
+$generatedIgnore = (string) file_get_contents($ignoreFixture . '/.gitignore');
+check(is_array($ignorePublication)
+    && str_contains($generatedIgnore, "/.tmp*\n")
+    && str_contains($generatedIgnore, "/.duo/\n")
+    && str_contains($generatedIgnore, "/.duo-envs.json\n")
+    && str_contains($generatedIgnore, "/.duo-env-values.json\n")
+    && str_contains($generatedIgnore, "/.duo-init-code-*\n")
+    && str_contains($generatedIgnore, "/state.capture.lock\n"),
+    'first init writes every target-local authority and environment overlay ignore rule');
+$legacyIgnoreFixture = sys_get_temp_dir() . '/duo-init-legacy-ignore-' . bin2hex(random_bytes(6));
+if (!mkdir($legacyIgnoreFixture, 0777, true)) fail('could not create the legacy ignore fixture');
+register_shutdown_function(static function () use ($legacyIgnoreFixture): void {
+    if (is_file($legacyIgnoreFixture . '/.gitignore')) unlink($legacyIgnoreFixture . '/.gitignore');
+    if (is_dir($legacyIgnoreFixture)) rmdir($legacyIgnoreFixture);
+});
+$legacyRules = [
+    '.tmp*', '.duo/', '.duo-envs.json', '.duo-init-code-*', '.*.duo-init-*',
+    '.duo-init-attempt', '.duo-init-attempt.next', 'state.capture.lock',
+    'state.capture-staging/', 'state.capture-backup/', 'state.capture-intent',
+    'state.capture-receipt', 'state.capture-intent.tmp.*', 'state.capture-receipt.tmp.*',
+    'state.capture-intent.previous', 'state.capture-intent.next',
+    'state.capture-receipt.previous', 'state.capture-receipt.next', '.duo-env-values.json',
+];
+$legacyIgnore = "vendor/\n" . implode("\n", $legacyRules) . "\n";
+file_put_contents($legacyIgnoreFixture . '/.gitignore', $legacyIgnore);
+$legacyIdentity = (new ReflectionClass(\Duo\Init::class))->getMethod('regular_file_identity')
+    ->invoke(null, $legacyIgnoreFixture . '/.gitignore', '.gitignore');
+$ensureGitignore->invoke(null, $legacyIgnoreFixture, $legacyIdentity);
+$migratedIgnore = (string) file_get_contents($legacyIgnoreFixture . '/.gitignore');
+$migratedLines = preg_split('/\r?\n/', $migratedIgnore);
+check(str_contains($migratedIgnore, "vendor/\n"), 'init ignore migration preserves unrelated rules');
+foreach ($legacyRules as $legacyRule) {
+    check(
+        is_array($migratedLines)
+            && in_array('/' . $legacyRule, $migratedLines, true)
+            && !in_array($legacyRule, $migratedLines, true),
+        "init root-anchors the prior broad Duo rule $legacyRule"
+    );
+}
 $recoveryReason = (new ReflectionClass(\Duo\Init::class))
     ->getMethod('interrupted_attempt_manual_recovery_reason');
 $recoveryReason->setAccessible(true);
