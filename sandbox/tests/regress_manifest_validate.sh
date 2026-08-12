@@ -128,7 +128,15 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # Providers::negotiate() surfaces named in the deferred document below. Keep
 # the private helpers explicit here so a new WordPress reach cannot hide behind
 # the wider dependency graph.
-wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,Deploy.php:code_mismatch,Deploy.php:code_drift,Deploy.php:record_code_versions,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Deploy.php:check_theme_range,Providers.php:plugin_supplied_providers'
+#
+# DUO-3350 slice 6 moved code_mismatch()/code_drift()/record_code_versions()/
+# check_theme_range() from Deploy.php into LifecyclePlanner.php (Deploy keeps
+# thin facades over the first three; check_theme_range had no other caller
+# and moved with no facade) -- this scanner keys its allowlist on exact
+# "file.php:function_name" pairs, so those four entries move filenames too.
+# current_active_plugins/plugin_runtime_state/run stay on Deploy.php
+# unchanged.
+wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
 wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {
