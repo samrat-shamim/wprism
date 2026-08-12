@@ -464,7 +464,7 @@ final class Apply {
                 // differs from the captured target. A retry row is widened
                 // back to all desired records in rebuild_surfaces(), because
                 // its prior authored mutation may already be target-equal.
-                $row['rebuild_option_names'] = $this->option_rebuild_names($e['data'], $envE);
+                $row['rebuild_option_names'] = $this->apply_planner()->option_rebuild_names($e['data'], $envE);
             }
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
                 $envFront = Canon::decode($envE['content']);
@@ -1080,49 +1080,7 @@ final class Apply {
      * @return list<string>
      */
     private function option_rebuild_names(array $desiredDocument, ?array $env): array {
-        $desired = OptionState::records($desiredDocument);
-        if ($env === null) {
-            $names = [];
-            foreach ($desired as $name => $record) {
-                if (($record['state'] ?? null) === 'absent') {
-                    continue;
-                }
-                if (($record['state'] ?? null) === 'present'
-                    && isset($this->policy)
-                    && (($this->policy->option_rule((string) $name)['class'] ?? null) === 'managed')) {
-                    continue;
-                }
-                $names[] = (string) $name;
-            }
-            sort($names, SORT_STRING);
-            return $names;
-        }
-        $envDocument = Canon::decode((string) ($env['content'] ?? ''));
-        $observed = OptionState::records($envDocument);
-        $names = [];
-        // Target-only records are intentionally absent from this projection:
-        // omission is not deletion authority, and apply_options() preserves
-        // them untouched. Only desired records can be authored/deleted by
-        // this revision.
-        foreach ($desired as $name => $record) {
-            if (($record['state'] ?? null) === 'absent') {
-                continue;
-            }
-            if (($record['state'] ?? null) === 'present'
-                && isset($this->policy)
-                && (($this->policy->option_rule((string) $name)['class'] ?? null) === 'managed')) {
-                continue;
-            }
-            if (!array_key_exists($name, $observed)
-                || !hash_equals(
-                    OptionState::record_hash($record),
-                    OptionState::record_hash($observed[$name])
-                )) {
-                $names[] = (string) $name;
-            }
-        }
-        sort($names, SORT_STRING);
-        return $names;
+        return $this->apply_planner()->option_rebuild_names($desiredDocument, $env);
     }
 
     /**

@@ -2,6 +2,8 @@
 namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
+require_once __DIR__ . '/Canon.php';
+require_once __DIR__ . '/OptionState.php';
 require_once __DIR__ . '/Policy.php';
 require_once __DIR__ . '/Snapshot.php';
 
@@ -10,12 +12,12 @@ require_once __DIR__ . '/Snapshot.php';
  * slice 2, first cut of the issue's "ApplyPlanner: immutable plan and
  * conflict production" target seam).
  *
- * These six functions are exactly the ones `build_plan()` and `explain()`
- * call that read only their own explicit parameters — no `$this`, no
- * `$wpdb`, no Policy, no Ledger. The live-DB-backed collision/adoption
- * lookup in `find_collision()`/`collision_parent_id()`/`one_collision()` is
- * now the first stateful planner responsibility here as well. Everything
- * else `build_plan()` does (the 600+ line comparison/guard-ref orchestration)
+ * The pure plan projections here read only explicit inputs plus the planner's
+ * injected Policy — no `$wpdb`, no target reads, and no Apply state. The
+ * live-DB-backed collision/adoption lookup in
+ * `find_collision()`/`collision_parent_id()`/`one_collision()` is now the
+ * first stateful planner responsibility here as well. Everything else
+ * `build_plan()` does (the 600+ line comparison/guard-ref orchestration)
  * stays in `Apply` for a later slice, per the issue's "extract one
  * collaborator at a time" guardrail.
  *
@@ -137,6 +139,58 @@ final class ApplyPlanner {
             );
         }
         return $ids ? $ids[0] : null;
+    }
+
+    /**
+     * Select the desired option records whose phase-2 rebuild must run.
+     *
+     * This is a pure projection over canonical option state and an optional
+     * same-snapshot target observation. Target-only records are deliberately
+     * ignored: omission is not deletion authority, and managed lifecycle
+     * options are handled by Deploy rather than authored option materialization.
+     * Keeping the policy lookup here prevents build_plan() from owning a
+     * second copy of the planner's option-selection contract.
+     *
+     * @return list<string>
+     */
+    public function option_rebuild_names(array $desiredDocument, ?array $env): array {
+        $desired = OptionState::records($desiredDocument);
+        if ($env === null) {
+            $names = [];
+            foreach ($desired as $name => $record) {
+                if (($record['state'] ?? null) === 'absent') {
+                    continue;
+                }
+                if (($record['state'] ?? null) === 'present'
+                    && (($this->policy->option_rule((string) $name)['class'] ?? null) === 'managed')) {
+                    continue;
+                }
+                $names[] = (string) $name;
+            }
+            sort($names, SORT_STRING);
+            return $names;
+        }
+        $envDocument = Canon::decode((string) ($env['content'] ?? ''));
+        $observed = OptionState::records($envDocument);
+        $names = [];
+        foreach ($desired as $name => $record) {
+            if (($record['state'] ?? null) === 'absent') {
+                continue;
+            }
+            if (($record['state'] ?? null) === 'present'
+                && (($this->policy->option_rule((string) $name)['class'] ?? null) === 'managed')) {
+                continue;
+            }
+            if (!array_key_exists($name, $observed)
+                || !hash_equals(
+                    OptionState::record_hash($record),
+                    OptionState::record_hash($observed[$name])
+                )) {
+                $names[] = (string) $name;
+            }
+        }
+        sort($names, SORT_STRING);
+        return $names;
     }
 
     /**
