@@ -17,6 +17,38 @@ say() { printf '\n== %s ==\n' "$*"; }
 pass() { printf 'ok: %s\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
+assert_redacted_json_refusal() {
+  local command="$1" output="$2" label="$3" json remediation
+  case "$command" in
+    apply)
+      remediation='inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase'
+      ;;
+    capture)
+      remediation='inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt'
+      ;;
+    *)
+      fail "redacted JSON refusal helper has no reviewed remediation for $command"
+      ;;
+  esac
+  json=$(tail -n 1 <<<"$output")
+  jq -e --arg command "$command" --arg remediation "$remediation" '
+    (keys | sort) == ["command", "details_redacted", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
+    and .format == "duo-command-refusal/v1"
+    and .ok == false
+    and .command == $command
+    and .error == ($command + "_failed")
+    and .reason_code == ($command + "_failed")
+    and .message == ($command + " refused at an unclassified safety gate")
+    and .remediation == $remediation
+    and .details_redacted == true
+    and (.diagnostics | length == 1)
+    and .diagnostics[0].code == ($command + "_failed")
+    and .diagnostics[0].message == ($command + " refused at an unclassified safety gate")
+    and .diagnostics[0].remediation == $remediation
+  ' <<<"$json" >/dev/null \
+    || fail "$label did not use the reviewed redacted JSON envelope: $json"
+}
+
 command -v jq >/dev/null || fail "jq required"
 
 say "reset and converge this test's own pair"
@@ -102,23 +134,8 @@ echo "$PLAN" | jq -e \
 if APPLY_FAIL=$(wp2 duo apply --repo=/siterepo --format=json 2>&1); then
   fail "apply should refuse the case-divergent required login"
 fi
+assert_redacted_json_refusal apply "$APPLY_FAIL" "missing-user refusal"
 APPLY_FAIL_JSON=$(tail -n 1 <<<"$APPLY_FAIL")
-jq -e '
-  (keys | sort) == ["command", "details_redacted", "diagnostics", "error", "format", "message", "ok", "reason_code", "remediation"]
-  and .format == "duo-command-refusal/v1"
-  and .ok == false
-  and .command == "apply"
-  and .error == "apply_failed"
-  and .reason_code == "apply_failed"
-  and .message == "apply refused at an unclassified safety gate"
-  and .remediation == "inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase"
-  and .details_redacted == true
-  and (.diagnostics | length == 1)
-  and .diagnostics[0].code == "apply_failed"
-  and .diagnostics[0].message == "apply refused at an unclassified safety gate"
-  and .diagnostics[0].remediation == "inspect apply_in_progress and recovery evidence, then resume or recover according to the recorded phase"
-' <<<"$APPLY_FAIL_JSON" >/dev/null \
-  || fail "missing-user refusal did not use the reviewed redacted JSON envelope: $APPLY_FAIL_JSON"
 ! grep -Fq 'case.editor' <<<"$APPLY_FAIL_JSON" \
   || fail "redacted missing-user refusal exposed the exact login in JSON: $APPLY_FAIL_JSON"
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "blue" ] || fail "required-login refusal happened after mutation"
@@ -164,7 +181,7 @@ wp1 user meta update "$SOURCE_PII" contact_email editor@example.test >/dev/null
 if PII_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "PII-bearing authored user meta should refuse without allow_pii"
 fi
-grep -q "PII guard tripped" <<<"$PII_FAIL" || fail "PII refusal did not identify the gate"
+assert_redacted_json_refusal capture "$PII_FAIL" "PII refusal"
 
 tmp_policy=$(mktemp)
 jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
@@ -173,7 +190,7 @@ wp1 user meta update "$SOURCE_PII" api_token ghp_abcdefghijklmnopqrstuvwxyz12345
 if SECRET_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then
   fail "secret-bearing authored user meta should refuse without allow_secret"
 fi
-grep -q "secret guard tripped" <<<"$SECRET_FAIL" || fail "secret refusal did not identify the gate"
-pass "PII and hard-secret scanning are both active on user-meta values"
+assert_redacted_json_refusal capture "$SECRET_FAIL" "secret refusal"
+pass "PII and hard-secret scanning refuse in JSON with the reviewed redacted envelope"
 
 printf '\nREGRESS_USER_META PASSED\n'
