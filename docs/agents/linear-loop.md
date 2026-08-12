@@ -170,10 +170,13 @@ branch or edit files before this passes.
    freshly-fetched `origin/main`, never a stale local `main`; never work in
    the clone's own checkout. Re-entering an interrupted issue whose worktree
    or branch already exists: reuse the existing branch's worktree
-   (`git worktree add <path> <branch>` if only the branch survives) and
-   rebase it onto `origin/main` — never reset it to `origin/main`, which
-   would discard the earlier work; after a rebase, pushes need
-   `--force-with-lease`.
+   (`git worktree add <path> <branch>` if only the branch survives). If no
+   candidate freeze `C+B` is recorded, rebase the interrupted branch onto
+   `origin/main` — never reset it to `origin/main`, which would discard the
+   earlier work; after that rebase, pushes need `--force-with-lease`. If a
+   freeze is recorded, resume and review/bundle the exact frozen `C` instead;
+   a required bound-input update must use the explicit break-and-repeat rule
+   in the ordering section above, not an automatic rebase on re-entry.
 2. Fix the **root cause** within the pinned architecture — no quick fixes,
    silent fallbacks, or compat shims. Match the codebase's comment style
    (rationale-dense docblocks stating constraints and evidence).
@@ -272,17 +275,35 @@ branch or edit files before this passes.
   {branch} {canonical} ../duo-wp-live-DUO-XXXX`), run from there.
   `stop`/`destroy`/`list` are deliberately ungated — cleanup must never be
   blocked by a variable left exported in your shell.
-- **Ordering: the bundle is always LAST.** Dispatch the independent review
-  before launching the bundle and land every finding first — a single
-  manifest-byte fix from review moves a digest and invalidates a running
-  bundle wholesale (cost a full restart on DUO-3338). Re-fetch and rebase
-  onto `origin/main` immediately before launching, too: the certification
-  attestation binds agent/cli/spec digests as well as manifests, so ANOTHER
-  agent's merge to any bound input invalidates a running bundle just as
-  thoroughly (cost DUO-3338's second restart). The bundle itself refuses
-  linked worktrees and dirty trees: run it from a clean standalone clone at
-  the branch's exact HEAD (the `duo-wp-cert-<issue>` pattern), never from
-  your issue worktree, with `CERT_BUNDLE_PAIR`/`CERT_BUNDLE_PORT1`/
+- **Ordering: freeze the reviewed candidate before bundle certification.**
+  The terminal sequence is: `rebase once → final independent review of exact
+  C over B → record/freeze C+B → bundle at C → deterministic import/generate
+  child E → merge`. The initial independent review still happens before the
+  bundle work; the final review is the exact-head readback immediately before
+  the freeze. Land every finding before that freeze — a single manifest-byte
+  fix from review moves a digest and invalidates a running bundle wholesale
+  (cost a full restart on DUO-3338).
+
+  Record candidate `C`, base `B`, and the bundle bound-input closure in the PR
+  before launch. Once `C+B` is recorded, do not rebase merely because
+  unrelated `main` commits land after the freeze. Merge the frozen PR if
+  GitHub still reports it clean/mergeable and no direct or conflicting
+  semantic overlap is found. The only allowed post-freeze source-branch
+  commit is deterministic bundle import/generation output (plus an
+  evidence-pointer-only PR body update).
+
+  If a required bound-input change must enter this PR, explicitly break the
+  freeze, preserve the immutable old bundle as historical evidence, nominate
+  one new candidate, and repeat the final review/bundle sequence once. Never
+  silently relabel old evidence current. Unbound changes can proceed without
+  invalidating the frozen candidate; document the range proof. This freeze
+  rule does not weaken exact-source binding, bundle import validation,
+  force-hatch refusal, independent review, or the close-gate proof below.
+
+  The bundle remains the last evidence-producing step. It refuses linked
+  worktrees and dirty trees: run it from a clean standalone clone at the
+  branch's exact `C` (the `duo-wp-cert-<issue>` pattern), never from your
+  issue worktree, with `CERT_BUNDLE_PAIR`/`CERT_BUNDLE_PORT1`/
   `CERT_BUNDLE_PORT2` allocated from your `PORT_BASE` (its defaults —
   `certbundle`, 8880/8881 — collide on a shared host). It also serializes
   itself host-wide: a second launch refuses by naming the holder, or with
@@ -293,9 +314,9 @@ branch or edit files before this passes.
   checkout, recorded in the PR. Sequence (maximal — the live/sweep/bundle
   steps each apply only per Evidence scoping's minimal set): implement →
   offline-all → targeted live suites → targeted sweeps → review → fixes +
-  registry regenerate → rebase onto fresh `origin/main` → bundle (clean
-  clone) → generated-evidence commit → merge promptly (Close gate order
-  unchanged).
+  registry regenerate → rebase once → final independent review of exact C over
+  B → freeze C+B → bundle at C (clean clone) → deterministic import/generate
+  child E → merge promptly (Close gate order unchanged).
 - **Registry regenerate after ANY manifest/provider/regenerator byte change**
   (`php scripts/capability-registry.php generate`, candidate state) before
   running anything live — interpreter, manifest-sourced provider, and (since
