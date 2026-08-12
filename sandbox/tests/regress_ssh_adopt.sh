@@ -27,6 +27,8 @@ IMAGE="${PREFIX}-ssh-image"
 PORT=""
 TMP=""
 DIAG_DIR=""
+HERMETIC_ROOT=""
+HERMETIC_MANIFESTS=""
 DUO="$ROOT/cli/duo"
 SUITE_LABEL="regress-ssh-adopt"
 RUN_ID=""
@@ -39,6 +41,9 @@ TARGET_OWNED=0
 SCOPED_PLAN_STDOUT=""
 SCOPED_PLAN_STDERR=""
 SCOPED_PLAN_EXIT=""
+SCOPED_REFRESH_STDOUT=""
+SCOPED_REFRESH_STDERR=""
+SCOPED_REFRESH_EXIT=""
 SCOPED_PROMOTE_STDOUT=""
 SCOPED_PROMOTE_STDERR=""
 SCOPED_PROMOTE_EXIT=""
@@ -195,11 +200,30 @@ RUN_ID="${PREFIX}-${SOURCE_SHA:0:12}-$$-${RANDOM}${RANDOM}"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
+
+# The shipped capability attestation is intentionally candidate/expired on a
+# tree that has not yet imported its reference bundle.  The product must keep
+# refusing such a target; this live fixture manufactures the same byte-for-byte
+# manifest library with only its attestation re-sealed against this exact clean
+# checkout, just as the init certification fixture does.  Manufacture happens
+# before Docker so a broken premise cannot be reported as a target failure.
+HERMETIC_ROOT="$TMP/hermetic-certification"
+HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT")" \
+  || fail "could not manufacture the hermetic current-evidence manifest library"
+[ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
+  || fail "hermetic certification fixture returned an unexpected manifests path"
+HERMETIC_CAPABILITIES_ARCHIVE="$TMP/hermetic-capabilities.tar"
+tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities \
+  || fail "could not archive the hermetic current-evidence capability projection"
+
 DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt-diagnostics.XXXXXX")"
 chmod 0700 "$DIAG_DIR"
 SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"
 SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"
 SCOPED_PLAN_EXIT="$DIAG_DIR/scoped-plan.exit"
+SCOPED_REFRESH_STDOUT="$DIAG_DIR/scoped-refresh.stdout"
+SCOPED_REFRESH_STDERR="$DIAG_DIR/scoped-refresh.stderr"
+SCOPED_REFRESH_EXIT="$DIAG_DIR/scoped-refresh.exit"
 SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"
 SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"
 SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"
@@ -209,7 +233,7 @@ SCOPED_SUCCESS_PROMOTE_EXIT="$DIAG_DIR/scoped-success-promote.exit"
 AUTHORITY_STATUS_STDOUT="$DIAG_DIR/authority-status.stdout"
 AUTHORITY_STATUS_STDERR="$DIAG_DIR/authority-status.stderr"
 AUTHORITY_STATUS_EXIT="$DIAG_DIR/authority-status.exit"
-for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
+for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do
   ( umask 077; : >"$diagnostic_file" )
   chmod 0600 "$diagnostic_file"
 done
@@ -496,6 +520,16 @@ grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/manif
 ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && mv manifests-real manifests'
 pass "unsafe destination is a loud failure with agent and site policy unchanged"
 
+say "install the hermetic current-evidence capability projection for scoped promotion"
+REMOTE_CAPABILITIES_ARCHIVE="/tmp/${PREFIX}-hermetic-capabilities-${RUN_ID}.tar"
+scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE" \
+  "duo-adopt-fixture:${REMOTE_CAPABILITIES_ARCHIVE}" >/dev/null
+ssh_fixture "rm -rf /var/www/html/wp-content/mu-plugins/manifests/capabilities && mkdir -p /var/www/html/wp-content/mu-plugins/manifests && tar -C /var/www/html/wp-content/mu-plugins/manifests -xf '$REMOTE_CAPABILITIES_ARCHIVE' && rm -f '$REMOTE_CAPABILITIES_ARCHIVE'"
+if ! ssh_fixture 'php -r '\''$p="/var/www/html/wp-content/mu-plugins/manifests/capabilities/registry.json"; $r=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); exit(($r["evidence"]["status"]??null)==="current" ? 0 : 1);'\'''; then
+  fail "target did not install the hermetic current-evidence capability projection"
+fi
+pass "target capability evidence is current without weakening the product certification gate"
+
 say "exercise a real checkpointed SSH scoped promotion and its recovery boundary"
 ssh_fixture 'php -r '\''$p="/home/duo/site/site.duo.json"; $d=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); $d["policy"]["options"]["duo3344_scoped_option"]=["autoload"=>"preserve","class"=>"authored"]; file_put_contents($p,json_encode($d,JSON_UNESCAPED_SLASHES)."\n");'\'''
 ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-failure --autoload=no >/dev/null'
@@ -503,6 +537,32 @@ ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-
   || fail "could not capture the desired scoped-promotion source state"
 "$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-failure-scope.json" \
   || fail "could not mint the desired scoped-promotion contract"
+
+# Cross-command identity fence: refresh-export must associate the same
+# immutable contract before the target is deliberately moved to its prior
+# value. Keep the contract on the target only for this read-only command and
+# retain its bounded result privately if the command or later promotion fails.
+FAILURE_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-failure-scope.json")"
+jq -r '[(.live.roots // [])[], (.live.closure // [])[] | .entity] + [(.tombstones // [])[] | .uuid] | sort[]' \
+  "$TMP/duo3344-failure-scope.json" >"$TMP/duo3344-failure-scope-identities"
+scp -F "$TMP/ssh_config" "$TMP/duo3344-failure-scope.json" \
+  duo-adopt-fixture:/home/duo/site/.duo3344-scope-chain.json >/dev/null
+if ssh_fixture 'cd /var/www/html && wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json' >"$SCOPED_REFRESH_STDOUT" 2>"$SCOPED_REFRESH_STDERR"; then
+  SCOPED_REFRESH_CODE=0
+else
+  SCOPED_REFRESH_CODE=$?
+fi
+printf '%s\n' "$SCOPED_REFRESH_CODE" >"$SCOPED_REFRESH_EXIT"
+ssh_fixture 'rm -f /home/duo/site/.duo3344-scope-chain.json'
+[ "$SCOPED_REFRESH_CODE" -eq 0 ] \
+  || fail "target scoped refresh-export did not complete before promotion"
+jq -e --arg h "$FAILURE_SCOPE_HASH" \
+  '.format == "duo-refresh-production/v1" and .scope.format == "duo-refresh-scope/v1" and .scope.scope_hash == $h' \
+  "$SCOPED_REFRESH_STDOUT" >/dev/null \
+  || fail "target scoped refresh-export did not echo the exact scope hash"
+jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/duo3344-refresh-identities"
+diff -u "$TMP/duo3344-failure-scope-identities" "$TMP/duo3344-refresh-identities" >/dev/null \
+  || fail "target scoped refresh-export changed the selected identity set"
 ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-failure --autoload=no >/dev/null'
 
 # Begin and abort an ordinary promotion first. The target deliberately retains
@@ -595,6 +655,11 @@ jq -e '
   and .state == "rolled_back" and .terminal == true
 ' "$AUTHORITY_STATUS_STDOUT" >/dev/null \
   || fail "scoped failure did not leave a signed rolled_back terminal receipt"
+jq -e --arg h "$FAILURE_SCOPE_HASH" '
+  .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
+  and .scope_hash == $h and .state == "rolled_back" and .terminal == true
+' "$AUTHORITY_STATUS_STDOUT" >/dev/null \
+  || fail "scoped failure changed the immutable scope hash"
 FAIL_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"
 jq -e '
   .status.state == "rolled_back"
@@ -628,6 +693,7 @@ ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option desired-
   || fail "could not capture the successful scoped-promotion source state"
 "$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-success-scope.json" \
   || fail "could not mint the successful scoped-promotion contract"
+SUCCESS_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-success-scope.json")"
 ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-success --autoload=no >/dev/null'
 
 # Keep the committed retry's bounded public result private when it fails or
@@ -651,10 +717,12 @@ jq -e --argjson failed_generation "$(jq -r '.generation' "$AUTHORITY_STATUS_STDO
   and .scoped_apply.scoped_receipt.phase == "complete"
 ' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null \
   || fail "successful scoped promotion did not return its receipt-bound terminal result"
+jq -e --arg h "$SUCCESS_SCOPE_HASH" '.scope_hash == $h' "$SCOPED_SUCCESS_PROMOTE_STDOUT" >/dev/null \
+  || fail "successful scoped promotion changed the immutable scope hash"
 SUCCESS_STATUS="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php status --root=/home/duo/site/.duo/control')"
-jq -e '
+jq -e --arg h "$SUCCESS_SCOPE_HASH" '
   .ok == true and .receipt_format == "duo-scoped-promotion-receipt/v1"
-  and .state == "committed" and .terminal == true and .exclusion_state == "released"
+  and .scope_hash == $h and .state == "committed" and .terminal == true and .exclusion_state == "released"
 ' <<<"$SUCCESS_STATUS" >/dev/null \
   || fail "successful scoped promotion did not leave a signed committed terminal receipt with v2 exclusion released"
 SUCCESS_EVIDENCE="$(ssh_fixture 'php /home/duo/site/.duo/control/recovery-runtime/rollback-control.php active-evidence --root=/home/duo/site/.duo/control')"

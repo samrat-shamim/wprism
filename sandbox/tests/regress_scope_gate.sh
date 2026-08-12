@@ -55,7 +55,7 @@ mkdir -p "$HOST_REPO/state-out"
 printf 'preserve-last-known-good\n' > "$HOST_REPO/state-out/sentinel"
 RC=0
 BLOCKED=$(wp1 --require="$REPO/register.php" duo capture --repo="$REPO" --out="$OUT" 2>&1) || RC=$?
-[ "$RC" -eq 1 ] || fail "unscoped public surfaces must block capture (rc=$RC)"
+[ "$RC" -eq 1 ] || fail "unscoped public surfaces must block capture (rc=$RC): $BLOCKED"
 printf '%s\n' "$BLOCKED" | grep -q "post_type 'duo_book' has 1 capturable entity" \
   || fail "post-type diagnostic lacks name/count: $BLOCKED"
 printf '%s\n' "$BLOCKED" | grep -q "taxonomy 'duo_genre' has 1 capturable entity" \

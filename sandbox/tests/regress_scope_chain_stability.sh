@@ -23,14 +23,12 @@
 # touches a deliberately out-of-scope entity, and that a fresh scope
 # recomputed on the TARGET reproduces the SOURCE's closure and scope_hash
 # byte-for-byte when fed identical repository bytes from two directories.
-# Independent review (own checkout) flagged that this scenario's source and
-# target repos stay byte-identical for the whole run (the one in-scope post
-# never actually drifts after the initial baseline sync), so this is
-# honestly narrower than "prove the chain propagates a real edit end to end"
-# -- it proves cross-command wiring consistency and the out-of-scope
-# boundary, not live data flow through a genuinely divergent scope. Filed
-# as a bounded follow-up (see this issue's own scope note) rather than
-# restructured here under the same review pass that found it.
+# The scenario deliberately creates a real source-side in-scope edit after
+# the baseline, captures it, and pushes the resulting repository bytes to the
+# target before plan/apply. The target plan must therefore contain a real
+# selected update (not a clean no-op), while the deliberately divergent
+# out-of-scope post remains untouched. This makes the chain a proof of live
+# data flow as well as cross-command contract stability.
 #
 # Reuses the same host-CLI-over-Docker harness pattern established in
 # regress_scoped_apply_live.sh (run_duo_json/write_envs/driver compose),
@@ -232,6 +230,7 @@ write_site_policy() { # <path>
 }
 
 source_uuid() { source_wp post meta get "$1" _duo_uuid | tr -d '\r\n'; }
+source_title() { source_wp post get "$1" --field=post_title | tr -d '\r\n'; }
 target_post_id() {
   target_wp post list --post_status=any --meta_key=_duo_uuid --meta_value="$1" --format=ids \
     | tr -d '[:space:]'
@@ -344,7 +343,29 @@ OUTSIDE_TARGET_ID="$(target_post_id "$OUTSIDE_UUID")"
 OUTSIDE_TITLE_BEFORE="$(target_title "$OUTSIDE_TARGET_ID")"
 pass "source seeded (post $POST_UUID in term $TERM_UUID); target baseline converged; out-of-scope post diverges on purpose"
 
-say "(2) duo scope: compute the authoritative contract and its selected-identity set"
+say "(2) create genuine in-scope source drift and capture it before scope derivation"
+NEW_SOURCE_TITLE='DUO-3344 chain post (source drift captured)'
+source_wp post update "$POST_ID" --post_title="$NEW_SOURCE_TITLE" >/dev/null
+[ "$(source_title "$POST_ID")" = "$NEW_SOURCE_TITLE" ] \
+  || fail "source live post did not retain the requested in-scope title drift"
+run_duo_json source-drift-capture "$TMP/source-drift-capture.json" capture source --format=json
+git -C "$SITE1" add -A
+SOURCE_DRIFT_FILES="$(git -C "$SITE1" diff --cached --name-only)"
+[ -n "$SOURCE_DRIFT_FILES" ] \
+  || fail "source capture produced no repository bytes for the in-scope title drift"
+STAGED_POST_REL="$(git -C "$SITE1" diff --cached --name-only -- "state/posts/post/${POST_UUID}--*.md" | tr -d '\r')"
+[ "$(printf '%s\n' "$STAGED_POST_REL" | awk 'NF { n++ } END { print n + 0 }')" = 1 ] \
+  || fail "ordinary capture did not stage exactly one selected post file (got: $STAGED_POST_REL)"
+STAGED_FRONT="$TMP/source-drift-front.json"
+git -C "$SITE1" show ":$STAGED_POST_REL" \
+  | awk 'NR == 1 && $0 == "---" { inside=1; next } inside && $0 == "---" { exit } inside { print }' \
+  > "$STAGED_FRONT"
+jq -e --arg title "$NEW_SOURCE_TITLE" '.title == $title' "$STAGED_FRONT" >/dev/null \
+  || fail "ordinary capture staged the selected post without the requested title in its front matter"
+git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm 'capture: genuine in-scope source drift'
+pass "source live post changed and ordinary capture produced repository drift: $(tr '\n' ' ' <<<"$SOURCE_DRIFT_FILES")"
+
+say "(3) duo scope: compute the authoritative contract over the captured drift"
 CONTRACT="$TMP/chain.scope.json"
 run_duo_json chain-scope "$CONTRACT" scope source "--roots=post:${POST_UUID},term:${TERM_UUID}" --contract --format=json
 jq -e '.format == "duo-scope-contract/v1"' "$CONTRACT" >/dev/null || fail "scope did not produce a scope contract"
@@ -355,9 +376,9 @@ EXPECTED_SORTED="$(printf '%s\n%s\n' "$POST_UUID" "$TERM_UUID" | LC_ALL=C sort)"
   || fail "scope's own selected-identity set is not exactly {post,term} (got: $(cat "$SET_A" | tr '\n' ' '))"
 [ "$(echo "$OUTSIDE_UUID" | grep -c -F -x -f - "$SET_A" || true)" = "0" ] \
   || fail "scope incorrectly included the deliberately out-of-scope post"
-pass "scope selects exactly {post, term}; the out-of-scope post is excluded"
+pass "scope selects exactly {post, term} over the captured source drift; the out-of-scope post is excluded"
 
-say "(3) duo capture: the same contract's overlay lands exactly the selected entities"
+say "(4) duo capture: the same contract's overlay lands exactly the selected entities"
 run_duo_json chain-capture "$TMP/chain-capture.json" capture source "--scope-contract=$CONTRACT" --format=json
 jq -e --arg h "$(jq -r '.scope_hash' "$CONTRACT")" '.scope.scope_hash == $h' "$TMP/chain-capture.json" >/dev/null \
   || fail "scoped capture echoed a different scope_hash than the contract it was given"
@@ -369,7 +390,18 @@ CAPTURE_ROOT="$SITE1$(echo "$STATE_DIR" | sed 's#^/siterepo##')"
   || fail "scoped capture did not write the selected term under $CAPTURE_ROOT/terms"
 pass "scoped capture's overlay contains exactly the files named by the contract's own selected-identity set"
 
-say "(4) duo refresh-export: the same contract's production read reports the identical identity set"
+say "(5) publish the captured source revision and pull it into the target repository"
+git -C "$SITE1" add -A
+if ! git -C "$SITE1" diff --cached --quiet; then
+  git -C "$SITE1" -c user.name=duo3344-source -c user.email=duo3344-source@example.test commit -qm 'capture: scoped source drift'
+fi
+git -C "$SITE1" push -q origin main
+git -C "$SITE2" pull -q --ff-only origin main
+[ "$(git -C "$SITE2" rev-parse HEAD)" = "$(git -C "$SITE1" rev-parse HEAD)" ] \
+  || fail "target repository did not receive the captured source revision"
+pass "target repository pulled the source revision produced by the scoped capture"
+
+say "(6) duo refresh-export: the same contract's production read reports the identical identity set"
 # refresh-export is not a registered host verb (cmd_scoped_passthrough only
 # covers capture/plan/apply/promote/refresh/rebase), so it must be invoked
 # directly against the container -- which means the contract needs a path
@@ -388,7 +420,7 @@ REFRESH_IDENTITIES="$(jq -r '.scope.selected_identities | sort | .[]' "$TMP/refr
   || fail "refresh-export's selected_identities differ from scope's own set (refresh-export: $(echo "$REFRESH_IDENTITIES" | tr '\n' ' '); expected: $(echo "$EXPECTED_SORTED" | tr '\n' ' '))"
 pass "refresh-export's own scope resolution reports the byte-identical uuid set, independently of scope/capture's code path"
 
-say "(5) duo plan: the target's proposed work never proposes anything outside the contract"
+say "(7) duo plan: the target proposes the captured in-scope update and nothing outside the contract"
 run_duo_json chain-plan "$TMP/chain-plan.json" plan target "--scope-contract=$CONTRACT" --format=json
 PLAN_TOUCHED="$TMP/plan-touched.uuids"
 jq -r '[(.create // [])[], (.update // [])[], (.delete // [])[]] | .[].uuid' "$TMP/chain-plan.json" | LC_ALL=C sort -u > "$PLAN_TOUCHED"
@@ -399,9 +431,18 @@ if [ -s "$PLAN_TOUCHED" ]; then
 fi
 jq -e --arg h "$(jq -r '.scope_hash' "$CONTRACT")" '.scope.scope_hash == $h' "$TMP/chain-plan.json" >/dev/null \
   || fail "scoped plan echoed a different scope_hash than the contract it was given"
-pass "scoped plan's proposed work set is a subset of the contract's selected identities"
+PLAN_UPDATE_MATCHES="$(jq --arg uuid "$POST_UUID" '(.update // []) | map(select(.uuid == $uuid)) | length' "$TMP/chain-plan.json")"
+[ "$PLAN_UPDATE_MATCHES" = 1 ] \
+  || fail "scoped plan did not contain the real captured in-scope post update in .update (matches: $PLAN_UPDATE_MATCHES)"
+PLAN_SELECTED_MATCHES="$(jq --arg uuid "$POST_UUID" '[(.create // [])[], (.update // [])[], (.delete // [])[]] | map(select(.uuid == $uuid)) | length' "$TMP/chain-plan.json")"
+[ "$PLAN_SELECTED_MATCHES" = 1 ] \
+  || fail "scoped plan duplicated the selected post across action buckets (matches: $PLAN_SELECTED_MATCHES)"
+TARGET_TITLE_BEFORE_APPLY="$(target_title "$(target_post_id "$POST_UUID")")"
+[ "$TARGET_TITLE_BEFORE_APPLY" != "$NEW_SOURCE_TITLE" ] \
+  || fail "target already had the source drift before scoped apply; the live propagation proof is vacuous"
+pass "scoped plan contains the captured post update and excludes all out-of-scope identities"
 
-say "(6) duo apply: converges the selected work while the out-of-scope post stays byte-identical"
+say "(8) duo apply: converges the selected work while the out-of-scope post stays byte-identical"
 run_duo_json chain-apply "$TMP/chain-apply.json" apply target "--scope-contract=$CONTRACT" --format=json
 jq -e '.format == "duo-scoped-apply-result/v1" and .verification.result == "pass"' "$TMP/chain-apply.json" >/dev/null \
   || fail "scoped apply did not converge cleanly"
@@ -409,9 +450,11 @@ jq -e '.format == "duo-scoped-apply-result/v1" and .verification.result == "pass
   || fail "scoped apply mutated the deliberately out-of-scope post"
 TARGET_POST_ID="$(target_post_id "$POST_UUID")"
 [ -n "$TARGET_POST_ID" ] || fail "scoped apply did not materialize the selected post on target"
-pass "scoped apply converges the selected post/term only; the out-of-scope post is byte-untouched"
+[ "$(target_title "$TARGET_POST_ID")" = "$NEW_SOURCE_TITLE" ] \
+  || fail "scoped apply did not converge the selected post to the captured source title"
+pass "scoped apply converges the real selected update; the out-of-scope post is byte-untouched"
 
-say "(7) the capstone: a fresh scope recomputed on the TARGET, post-apply, reproduces the SAME closure"
+say "(9) the capstone: a fresh scope recomputed on the TARGET, post-apply, reproduces the SAME closure"
 TARGET_CONTRACT="$TMP/target-chain.scope.json"
 run_duo_json target-chain-scope "$TARGET_CONTRACT" scope target "--roots=post:${POST_UUID},term:${TERM_UUID}" --contract --format=json
 SET_B="$TMP/set-b.uuids"

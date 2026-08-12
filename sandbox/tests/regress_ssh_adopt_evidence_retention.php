@@ -5,13 +5,14 @@ declare(strict_types=1);
  * Offline source contract for the SSH adoption/scoped-promotion live harness.
  *
  * The deliberate post-begin promote fault is the one live failure where the
- * exact pre-promote scoped plan plus failure and success promote stdout/stderr
- * are essential to distinguish an engine regression from a fixture or
- * transport problem. They used to live only in transient values inside a
- * secret-bearing scratch tree that the EXIT trap always deleted. This check
- * proves the repair keeps a separate private, bounded evidence directory while
- * still destroying SSH keys, environment config, and DB credentials on every
- * exit. It reads source only: no Docker, SSH host, WordPress, or live target.
+ * exact pre-promote scoped refresh/plan plus failure and success promote
+ * stdout/stderr are essential to distinguish an engine regression from a
+ * fixture or transport problem. They used to live only in transient values
+ * inside a secret-bearing scratch tree that the EXIT trap always deleted. This
+ * check proves the repair keeps a separate private, bounded evidence directory
+ * while still destroying SSH keys, environment config, and DB credentials on
+ * every exit. It reads source only: no Docker, SSH host, WordPress, or live
+ * target.
  */
 
 $root = dirname(__DIR__, 2);
@@ -60,10 +61,31 @@ $check(
     'the retained diagnostic directory is explicitly mode 0700'
 );
 
+$hermeticAt = strpos($harness, '# The shipped capability attestation is intentionally candidate/expired');
+$hermeticArchive = 'tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities';
+$scopedSay = 'say "install the hermetic current-evidence capability projection for scoped promotion"';
+$hermeticInstall = 'tar -C /var/www/html/wp-content/mu-plugins/manifests -xf \'$REMOTE_CAPABILITIES_ARCHIVE\'';
+$scopedAt = strpos($harness, $scopedSay);
+$check(
+    is_int($hermeticAt) && is_int($scopedAt) && $hermeticAt < $scopedAt
+        && str_contains($harness, 'HERMETIC_ROOT="$TMP/hermetic-certification"')
+        && str_contains($harness, 'certification_fixture.php "$HERMETIC_ROOT"')
+        && str_contains($harness, $hermeticArchive)
+        && str_contains($harness, 'scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE"')
+        && str_contains($harness, $hermeticInstall)
+        && str_contains($harness, '"evidence"]["status"]??null)==="current"')
+        && !str_contains(substr($harness, $scopedAt), 'capability-registry.php import-bundle')
+        && !str_contains(substr($harness, $scopedAt), 'DUO_MANIFESTS_DIR=') ,
+    'scoped SSH promotion manufactures and installs only the hermetic current-evidence projection before promotion, without importing or bypassing the product gate'
+);
+
 $diagnosticAssignments = [
     'SCOPED_PLAN_STDOUT="$DIAG_DIR/scoped-plan.stdout"',
     'SCOPED_PLAN_STDERR="$DIAG_DIR/scoped-plan.stderr"',
     'SCOPED_PLAN_EXIT="$DIAG_DIR/scoped-plan.exit"',
+    'SCOPED_REFRESH_STDOUT="$DIAG_DIR/scoped-refresh.stdout"',
+    'SCOPED_REFRESH_STDERR="$DIAG_DIR/scoped-refresh.stderr"',
+    'SCOPED_REFRESH_EXIT="$DIAG_DIR/scoped-refresh.exit"',
     'SCOPED_PROMOTE_STDOUT="$DIAG_DIR/scoped-promote.stdout"',
     'SCOPED_PROMOTE_STDERR="$DIAG_DIR/scoped-promote.stderr"',
     'SCOPED_PROMOTE_EXIT="$DIAG_DIR/scoped-promote.exit"',
@@ -80,7 +102,7 @@ $check(
         static fn(bool $ok, string $assignment): bool => $ok && str_contains($harness, $assignment),
         true
     )
-        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
+        && str_contains($harness, 'for diagnostic_file in "$SCOPED_PLAN_STDOUT" "$SCOPED_PLAN_STDERR" "$SCOPED_PLAN_EXIT" "$SCOPED_REFRESH_STDOUT" "$SCOPED_REFRESH_STDERR" "$SCOPED_REFRESH_EXIT" "$SCOPED_PROMOTE_STDOUT" "$SCOPED_PROMOTE_STDERR" "$SCOPED_PROMOTE_EXIT" "$SCOPED_SUCCESS_PROMOTE_STDOUT" "$SCOPED_SUCCESS_PROMOTE_STDERR" "$SCOPED_SUCCESS_PROMOTE_EXIT" "$AUTHORITY_STATUS_STDOUT" "$AUTHORITY_STATUS_STDERR" "$AUTHORITY_STATUS_EXIT"; do')
         && str_contains($harness, '( umask 077; : >"$diagnostic_file" )')
         && str_contains($harness, 'chmod 0600 "$diagnostic_file"'),
     'only the bounded plan, promote, and authority-status streams and numeric exits are precreated mode 0600'
@@ -98,6 +120,9 @@ $expectedDiagnosticNames = [
     'scoped-promote.exit',
     'scoped-promote.stderr',
     'scoped-promote.stdout',
+    'scoped-refresh.exit',
+    'scoped-refresh.stderr',
+    'scoped-refresh.stdout',
     'scoped-success-promote.exit',
     'scoped-success-promote.stderr',
     'scoped-success-promote.stdout',
@@ -108,6 +133,7 @@ $check(
 );
 
 $failureScopeMint = '"$DUO" --envs-file="$TMP/envs.json" scope target --roots=options --contract >"$TMP/duo3344-failure-scope.json"';
+$refreshStart = strpos($harness, 'if ssh_fixture \'cd /var/www/html && wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json\'');
 $priorFailure = "ssh_fixture 'cd /var/www/html && wp option update duo3344_scoped_option prior-failure --autoload=no >/dev/null'";
 $faultArm = "ssh_fixture 'touch /home/duo/recovery-fixture/duo3344-scoped-fault-active'";
 $planStart = strpos($harness, 'if "$DUO" --envs-file="$TMP/envs.json" plan target --scope-contract="$TMP/duo3344-failure-scope.json"');
@@ -116,12 +142,41 @@ $scopeMintAt = strpos($harness, $failureScopeMint);
 $priorFailureAt = strpos($harness, $priorFailure);
 $faultArmAt = strpos($harness, $faultArm);
 $check(
-    is_int($scopeMintAt) && is_int($priorFailureAt) && is_int($faultArmAt)
+    is_int($scopeMintAt) && is_int($refreshStart) && is_int($priorFailureAt) && is_int($faultArmAt)
         && is_int($planStart) && is_int($promoteStart)
-        && $scopeMintAt < $priorFailureAt && $priorFailureAt < $faultArmAt
+        && $scopeMintAt < $refreshStart && $refreshStart < $priorFailureAt && $priorFailureAt < $faultArmAt
         && $faultArmAt < $planStart && $planStart < $promoteStart,
-    'the read-only diagnostic plan runs on the exact prior-failure target after scope minting and before promote'
+    'the read-only scoped refresh and diagnostic plan run after scope minting and before promote'
 );
+$refreshEnd = $priorFailureAt;
+if (is_int($refreshStart) && is_int($refreshEnd) && $refreshStart < $refreshEnd) {
+    $refreshCapture = substr($harness, $refreshStart, $refreshEnd - $refreshStart);
+    $scopeHashDerivation = <<<'SH'
+FAILURE_SCOPE_HASH="$(jq -r '.scope_hash' "$TMP/duo3344-failure-scope.json")"
+SH;
+    $sourceIdentityProjection = <<<'SH'
+jq -r '[(.live.roots // [])[], (.live.closure // [])[] | .entity] + [(.tombstones // [])[] | .uuid] | sort[]' \
+  "$TMP/duo3344-failure-scope.json" >"$TMP/duo3344-failure-scope-identities"
+SH;
+    $targetIdentityProjection = <<<'SH'
+jq -r '(.scope.selected_identities // [])[]' "$SCOPED_REFRESH_STDOUT" | LC_ALL=C sort >"$TMP/duo3344-refresh-identities"
+SH;
+    $identityEqualityGate = 'diff -u "$TMP/duo3344-failure-scope-identities" "$TMP/duo3344-refresh-identities" >/dev/null';
+    $check(
+        str_contains($refreshCapture, 'wp duo refresh-export --repo=/home/duo/site --scope-contract=/home/duo/site/.duo3344-scope-chain.json --format=json')
+            && str_contains($refreshCapture, '$SCOPED_REFRESH_STDOUT')
+            && str_contains($refreshCapture, '$SCOPED_REFRESH_STDERR')
+            && str_contains($refreshCapture, '$SCOPED_REFRESH_EXIT')
+            && str_contains($refreshCapture, '.scope.scope_hash == $h')
+            && str_contains($refreshCapture, 'duo3344-failure-scope-identities')
+            && str_contains($refreshCapture, 'duo3344-refresh-identities')
+            && str_contains($harness, $scopeHashDerivation)
+            && str_contains($harness, $sourceIdentityProjection)
+            && str_contains($refreshCapture, $targetIdentityProjection)
+            && str_contains($refreshCapture, $identityEqualityGate),
+        'scoped refresh-export records private streams and proves exact scope hash/selected-identity continuity before target mutation'
+    );
+}
 if (!is_int($planStart) || !is_int($promoteStart) || $planStart >= $promoteStart) {
     exit(1);
 }
@@ -183,6 +238,7 @@ $check(
     is_int($rawStatusStart) && is_int($rawStatusEnd) && $rawStatusStart < $rawStatusEnd
         && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.receipt_format == "duo-scoped-promotion-receipt/v1"')
         && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.state == "rolled_back" and .terminal == true')
+        && str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), '.scope_hash == $h')
         && !str_contains(substr($harness, $rawStatusStart, $rawStatusEnd - $rawStatusStart), 'exclusion_state')
         && str_contains($harness, "jq -e '.state == \"released\"' <<<\"$(ssh_fixture 'cat /home/duo/recovery-fixture/provider-state.json')\""),
     'raw authority-status proves the signed terminal receipt while the existing provider-state assertion independently proves exclusion release'
@@ -210,7 +266,7 @@ $check(
         && !str_contains($successCapture, '$TMP/duo3344-success.err'),
     'the committed scoped-promote retry retains private stdout, stderr, and exit before parsing its receipt directly from stdout'
 );
-foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
+foreach (['SCOPED_PLAN_STDOUT', 'SCOPED_PLAN_STDERR', 'SCOPED_REFRESH_STDOUT', 'SCOPED_REFRESH_STDERR', 'SCOPED_PROMOTE_STDOUT', 'SCOPED_PROMOTE_STDERR', 'SCOPED_SUCCESS_PROMOTE_STDOUT', 'SCOPED_SUCCESS_PROMOTE_STDERR', 'AUTHORITY_STATUS_STDOUT', 'AUTHORITY_STATUS_STDERR'] as $diagnosticVariable) {
     $check(
         preg_match('/(?:\\bcat\\b|\\becho\\b|\\bprintf\\b)[^\\n]*\\$' . $diagnosticVariable . '\\b/', $harness) !== 1,
         "$diagnosticVariable is never printed or catted into terminal/CI output"

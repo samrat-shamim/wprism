@@ -213,12 +213,10 @@ $needles = [
     '` IS NULL' => 'a derivation of SQL NULL is compared as NULL rather than coerced',
     // Only that the named read boundary exists — this string appears at BOTH
     // call sites, so it cannot and does not pin their ORDER around the
-    // refresh. That ordering is the load-bearing property (the refresh runs
-    // with a cleared cache, so it always REPLACEs, and a row read only
-    // afterwards would be one this verification had just written), and it is
-    // covered behaviorally by the sibling-variation case in
-    // regress_woocommerce_product_lookups_fake.php, which fails when the
-    // before-read is moved after the refresh.
+    // refresh. Pin the order separately below: the refresh runs with a
+    // cleared cache, so it always REPLACEs, and a row read only afterwards
+    // would be one this verification had just written. The sibling-variation
+    // case below covers the separate DUO-3373 finite-set decision.
     'read_lookup_row($table, $id)' => 'the stored-row read has a single named boundary',
 ];
 foreach ($needles as $needle => $message) {
@@ -227,6 +225,11 @@ foreach ($needles as $needle => $message) {
 check(!str_contains($code, 'wc_get_permalink_structure')
     && !str_contains($code, "update_option('woocommerce_permalinks'"),
     'late taxonomy repair cannot normalize or persist the unrelated Woo permalink option');
+$verifyStart = is_string($source) ? strpos($source, 'private function verify_meta_row') : false;
+$beforeRead = $verifyStart !== false ? strpos($source, '$applied = $this->read_lookup_row($table, $id);', $verifyStart) : false;
+$forcedRefresh = $verifyStart !== false ? strpos($source, '$derived = $this->woo_republished_lookup_row($productStore, $id);', $verifyStart) : false;
+check($verifyStart !== false && $beforeRead !== false && $forcedRefresh !== false && $beforeRead < $forcedRefresh,
+    'lookup verification snapshots the apply row before Woo re-derives it');
 // The retired rebuild of Woo's lookup columns, stated as absences so a future
 // change cannot quietly reintroduce a second, drifting copy of rules that live
 // in a protected WooCommerce method. Deliberately narrow: wc_format_decimal()

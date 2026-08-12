@@ -145,7 +145,7 @@ say "human output and exit status agree"
 HUMAN_RC=0
 HUMAN=$(wp1 duo apply --repo="$REPO" 2>&1) || HUMAN_RC=$?
 printf '%s\n' "$HUMAN"
-[ "$HUMAN_RC" -eq 1 ] || fail "human apply output must exit 1"
+[ "$HUMAN_RC" -eq 1 ] || fail "human apply output must exit 1 (rc=$HUMAN_RC): $HUMAN"
 printf '%s\n' "$HUMAN" | grep -q 'repository authorization failed' || fail "human output did not name the authorization gate"
 printf '%s\n' "$HUMAN" | grep -q 'no target mutation attempted' || fail "human output did not state the truthful mutation boundary"
 pass "human output, machine output, and exit status agree"

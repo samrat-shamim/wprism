@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Failure injection for stage's materialized-payload -> staged-ledger handoff.
+# DUO-3350 CodeStageTransaction seam: failure injection for stage's
+# materialized-payload -> staged-ledger handoff.
 # Every marker statement and COMMIT must roll back all five temporary receipt
 # keys. A child PHP process retries from the serialized Ledger snapshot left by
 # rollback, proving a fresh wp-cli process is not permanently stranded.
@@ -294,5 +295,30 @@ if (($result['staged'] ?? false) !== true
     throw new \RuntimeException('FAIL: successful first stage did not bind its created-path provenance');
 }
 
-echo "ok: stage receipt is atomic across every marker statement and COMMIT failure\n";
+// The facade and the extracted collaborator must expose the same atomic
+// receipt contract. Exercise the collaborator directly with the same fake
+// ledger/transaction seam so a future facade-only implementation cannot make
+// the direct boundary drift silently.
+$reset();
+if (!class_exists(CodeStageTransaction::class, false)) {
+    throw new \RuntimeException('FAIL: CodeStageTransaction was not loaded by the Code facade');
+}
+CodeStageTransaction::publish(
+    [$descriptor['code_revision'] => $descriptor],
+    $descriptor,
+    $artifact,
+    ['plugins/fixture/fixture.php']
+);
+$directExpected = [
+    Code::CODE_STAGE_HISTORY_KEY => Canon::encode([$descriptor]),
+    Code::CODE_STAGE_DESCRIPTOR_KEY => Canon::encode($descriptor),
+    Code::CODE_STAGE_ARTIFACT_KEY => $artifact,
+    Code::CODE_STAGE_CREATED_PATHS_KEY => Canon::encode(['plugins/fixture/fixture.php']),
+    Code::CODE_STAGE_REVISION_KEY => $descriptor['code_revision'],
+];
+if (Ledger::$rows !== $directExpected || Db::$starts !== 1 || Db::$commits !== 1 || Db::$rollbacks !== 0) {
+    throw new \RuntimeException('FAIL: direct CodeStageTransaction publish drifted from the facade receipt contract');
+}
+
+echo "ok: CodeStageTransaction receipt is atomic across every marker statement and COMMIT failure\n";
 PHP
