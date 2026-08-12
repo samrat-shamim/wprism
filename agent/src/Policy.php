@@ -56,6 +56,9 @@ require_once __DIR__ . '/ReferenceShapeGrammar.php';
 // DUO-3348 slice 19: pure post/menu field declaration grammar, required here
 // for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/FieldGrammar.php';
+// DUO-3348 slice 20: user-meta safety grammar, required here for the same
+// "loads alone" reason as its neighbors above.
+require_once __DIR__ . '/UserMetaGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -201,7 +204,7 @@ final class Policy {
             self::validate_scope_classes($p->site, 'site.duo.json', true);
             OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
             OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
-            self::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json');
+            UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
             self::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
             SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
             ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
@@ -274,7 +277,7 @@ final class Policy {
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
             OptionGrammar::validate_env_options($manifest, "manifest '$name'");
-            self::validate_user_meta_rules($manifest, "manifest '$name'");
+            UserMetaGrammar::validate_user_meta_rules($manifest, "manifest '$name'", self::CLASSES, self::MISSING_USER_MODES);
             self::validate_scope_classes($manifest, "manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "manifest '$name'");
             TaxonomyGrammar::validate_object_type_option_refs($manifest);
@@ -375,7 +378,7 @@ final class Policy {
         self::validate_scope_classes($p->site, 'frozen site.duo.json', true);
         OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
         OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
-        self::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json');
+        UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
         self::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
         SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
         ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
@@ -403,7 +406,7 @@ final class Policy {
             ActionProviderGrammar::validate_providers($manifest);
             ActionProviderGrammar::validate_actions($manifest);
             OptionGrammar::validate_env_options($manifest, "frozen manifest '$name'");
-            self::validate_user_meta_rules($manifest, "frozen manifest '$name'");
+            UserMetaGrammar::validate_user_meta_rules($manifest, "frozen manifest '$name'", self::CLASSES, self::MISSING_USER_MODES);
             self::validate_scope_classes($manifest, "frozen manifest '$name'", false);
             SubKeyGrammar::validate_sub_keys($manifest, "frozen manifest '$name'");
             TaxonomyGrammar::validate_object_type_option_refs($manifest);
@@ -2048,7 +2051,7 @@ final class Policy {
     public function meta_rule_for_user(string $key, array $allMeta): ?array {
         $rule = $this->meta_rule_for_interpreter_hook('user_meta_rule', 'user_meta', $key, $allMeta);
         if ($rule !== null) {
-            self::validate_user_meta_rule($rule, "user_meta.$key");
+            UserMetaGrammar::validate_user_meta_rule($rule, "user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
         }
         return $rule;
     }
@@ -2269,7 +2272,7 @@ final class Policy {
             if ($rule === null) {
                 continue;
             }
-            self::validate_user_meta_rule($rule, "interpreter $name user_meta.$key");
+            UserMetaGrammar::validate_user_meta_rule($rule, "interpreter $name user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
             foreach ($this->manifests as $m) {
                 if (($m['interpreter'] ?? null) === $name) {
                     return [
@@ -2282,7 +2285,7 @@ final class Policy {
         }
         $details = $this->rule_details('user_meta', $key);
         if ($details['rule'] !== null) {
-            self::validate_user_meta_rule($details['rule'], "user_meta.$key");
+            UserMetaGrammar::validate_user_meta_rule($details['rule'], "user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
         }
         return $details;
     }
@@ -2869,53 +2872,8 @@ final class Policy {
         ManifestGrammar::assert_widget_grammar($type, $decl, $source);
     }
 
-    /** Validate the user-meta-only safety vocabulary at policy load time. */
-    private static function validate_user_meta_rules(array $source, string $label): void {
-        foreach ((array) ($source['user_meta'] ?? []) as $key => $rule) {
-            if (!is_array($rule)) {
-                throw new \RuntimeException("duo: $label user_meta.$key must be a rule object");
-            }
-            self::validate_user_meta_rule($rule, "$label user_meta.$key");
-        }
-    }
-
-    /** Interpreter-returned rules pass through this same check at lookup. */
-    /**
-     * The closed `user_meta.<key>.missing_user` vocabulary: whether an authored
-     * user-meta row whose owning user is absent on the target blocks the apply
-     * or degrades to a warning. Engine-owned — each value binds apply to a
-     * different refusal posture.
-     */
+    /** Published shared input for UserMetaGrammar's missing-user vocabulary. */
     private const MISSING_USER_MODES = ['block', 'warn'];
-
-    private static function validate_user_meta_rule(array $rule, string $where): void {
-        $class = $rule['class'] ?? null;
-        if (!in_array($class, self::CLASSES, true)) {
-            throw new \RuntimeException(
-                "duo: $where has an invalid or missing class (expected " . implode('|', self::CLASSES) . ')'
-            );
-        }
-        if (isset($rule['allow_pii']) && !is_bool($rule['allow_pii'])) {
-            throw new \RuntimeException("duo: $where allow_pii must be a boolean");
-        }
-        if (isset($rule['allow_secret']) && !is_bool($rule['allow_secret'])) {
-            throw new \RuntimeException("duo: $where allow_secret must be a boolean");
-        }
-        if ($class !== 'authored' && (!empty($rule['allow_pii']) || !empty($rule['allow_secret']))) {
-            throw new \RuntimeException(
-                "duo: $where PII/secret capture exceptions are valid only for class=authored"
-            );
-        }
-        if (isset($rule['missing_user'])) {
-            if ($class !== 'authored') {
-                throw new \RuntimeException("duo: $where missing_user is valid only for class=authored");
-            }
-            if (!in_array($rule['missing_user'], self::MISSING_USER_MODES, true)) {
-                throw new \RuntimeException("duo: $where missing_user must be block or warn");
-            }
-        }
-    }
-
     /**
      * Option names classified `env`, keyed by name, value = the full rule
      * (including the mandatory `required` flag validate_env_options()
@@ -4069,7 +4027,7 @@ final class Policy {
             throw new \RuntimeException('duo: allow_secret must be a boolean');
         }
         if ($section === 'user_meta') {
-            self::validate_user_meta_rule($rule, "user_meta.$key");
+            UserMetaGrammar::validate_user_meta_rule($rule, "user_meta.$key", self::CLASSES, self::MISSING_USER_MODES);
         } elseif (isset($rule['allow_pii']) || isset($rule['missing_user'])) {
             throw new \RuntimeException('duo: allow_pii and missing_user are valid only for user_meta rules');
         }
