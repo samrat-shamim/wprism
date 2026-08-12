@@ -53,6 +53,9 @@ require_once __DIR__ . '/AttributeGrammar.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
+// DUO-3348 slice 19: pure post/menu field declaration grammar, required here
+// for the same "loads alone" reason as its neighbors above.
+require_once __DIR__ . '/FieldGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -260,8 +263,8 @@ final class Policy {
                 // every plugin-bundled manifest.
                 $p->adapterSources->assert_installed_contract($key, $manifest);
             }
-            self::validate_field_classes($manifest);
-            self::validate_menu_field_classes($manifest);
+            FieldGrammar::validate_field_classes($manifest, self::DERIVABLE_FIELD_COLUMNS, self::FIELD_CLASSES);
+            FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES);
             PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "manifest '$name'");
@@ -389,8 +392,8 @@ final class Policy {
             if ($name === '' || !hash_equals((string) $pins[$i]['name'], $name)) {
                 throw new \RuntimeException("duo: frozen policy snapshot manifest order/name disagrees with site pin $i");
             }
-            self::validate_field_classes($manifest);
-            self::validate_menu_field_classes($manifest);
+            FieldGrammar::validate_field_classes($manifest, self::DERIVABLE_FIELD_COLUMNS, self::FIELD_CLASSES);
+            FieldGrammar::validate_menu_field_classes($manifest, self::MENU_DERIVABLE_FIELDS, self::MENU_FIELD_CLASSES);
             PostTypeGrammar::validate_post_type_children($manifest);
             PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "frozen manifest '$name'");
@@ -2515,7 +2518,8 @@ final class Policy {
      * v2-supported post FIELD classification surface (task #88 origin,
      * extended by the evidence-backed Woo timestamp case). A field
      * name must appear here before ANY manifest may declare it under
-     * `post_types.<type>.fields.<field>` — validate_field_classes() below
+     * `post_types.<type>.fields.<field>` — FieldGrammar::validate_field_classes()
+     * enforces this at load() time
      * enforces this at load() time, loudly, rather than silently ignoring
      * an unsupported declaration. `title` is derived for Woo variation
      * self-healing; `modified`/`modified_gmt` are derived for Woo products
@@ -2617,7 +2621,7 @@ final class Policy {
      * purpose as DERIVABLE_FIELD_COLUMNS above (task #88), but for `menus/*.json`
      * entities: a field name must appear here before ANY manifest may
      * declare it under top-level `menu_fields.<field>` —
-     * validate_menu_field_classes() below enforces this at load() time.
+     * FieldGrammar::validate_menu_field_classes() enforces this at load() time.
      * Deliberately just 'locations': it is the only menu field with a
      * proven self-healing precedent under a real plugin (Polylang).
      *
@@ -2792,83 +2796,6 @@ final class Policy {
         foreach (($rule['sub_keys'] ?? []) as $name => $subRule) {
             if (is_array($subRule) && !array_is_list($subRule)) {
                 self::assert_reference_rule_keyspaces($subRule, $allowed, "$where.sub_keys.$name");
-            }
-        }
-    }
-
-    /**
-     * Loud, load-time guard for field_class()'s manifest input (mirrors
-     * interpreters()'s "throw immediately, never degrade silently" posture
-     * for a bad manifest declaration): a manifest naming an unsupported
-     * field, or an unsupported class for a supported field, fails EVERY
-     * command that loads this manifest (capture/plan/apply/lint/pending),
-     * not just the specific post_type/field it misdeclares — the original
-     * task #88 "start scope tight" instruction, extended only by the
-     * evidence-backed Woo timestamp case, is enforced structurally rather
-     * than left as a convention. Called from load() for every manifest, so
-     * a bad declaration can never reach field_class()'s per-post lookup.
-     */
-    private static function validate_field_classes(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
-            foreach ($decl['fields'] ?? [] as $field => $rule) {
-                if (!array_key_exists($field, self::DERIVABLE_FIELD_COLUMNS)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' declares post_types.$postType.fields.$field, but only "
-                        . implode(', ', array_keys(self::DERIVABLE_FIELD_COLUMNS))
-                        . ' may be field-classified in v2 (the evidence-backed allowlist remains deliberately '
-                        . 'tight — see Policy::DERIVABLE_FIELD_COLUMNS\' docblock). The post-field vocabulary is '
-                        . 'engine-owned: a new derivable field is an engine change with a spec bump (allowlist '
-                        . 'entry, wp_posts column mapping, and its own evidence), never a manifest declaration'
-                    );
-                }
-                $class = $rule['class'] ?? null;
-                if (!in_array($class, self::FIELD_CLASSES, true)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' declares post_types.$postType.fields.$field.class="
-                        . var_export($class, true) . ' but only ' . implode(', ', self::FIELD_CLASSES)
-                        . ' is supported for post fields in v2 — the class vocabulary for this surface is '
-                        . 'engine-owned (field_class() defaults every undeclared field to authored, so '
-                        . 'declaring authored is a no-op and any other class has no defined apply semantics)'
-                    );
-                }
-            }
-        }
-    }
-
-    /**
-     * Loud, load-time guard for menu_field_class()'s manifest input —
-     * DUO-3272's own version of validate_field_classes() immediately
-     * above, kept as its own function rather than merged into it (the same
-     * "mirrored for its own key shape rather than extended" posture
-     * validate_regen_dependencies() documents for itself): `menu_fields.
-     * <field>` is a flat, single-level top-level manifest key — menus have
-     * no "type" dimension the way posts do, so there is no per-type
-     * declaration to nest under. Also unlike validate_field_classes(),
-     * MENU_FIELD_CLASSES accepts 'authored' as well as 'derived' — core.
-     * json needs to express its own v0 baseline declaration here (DUO-3249
-     * precedence needs a core declaration to exist at all), not just a
-     * plugin's override. A manifest naming an unsupported menu field, or
-     * an unsupported class for a supported one, fails EVERY command that
-     * loads this manifest — exactly like its post-field counterpart.
-     */
-    private static function validate_menu_field_classes(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['menu_fields'] ?? [] as $field => $rule) {
-            if (!in_array($field, self::MENU_DERIVABLE_FIELDS, true)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares menu_fields.$field, but only "
-                    . implode(', ', self::MENU_DERIVABLE_FIELDS) . ' may be field-classified in v2 (DUO-3272 '
-                    . 'scoped this deliberately tight, mirroring task #88 — see Policy::MENU_DERIVABLE_FIELDS\' docblock)'
-                );
-            }
-            $class = $rule['class'] ?? null;
-            if (!in_array($class, self::MENU_FIELD_CLASSES, true)) {
-                throw new \RuntimeException(
-                    "duo: manifest '$name' declares menu_fields.$field.class="
-                    . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
-                    . ' is supported for menu fields in v2'
-                );
             }
         }
     }
