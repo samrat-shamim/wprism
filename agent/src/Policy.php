@@ -38,6 +38,9 @@ require_once __DIR__ . '/TaxonomyGrammar.php';
 // cross-manifest identical-pattern guard, required here for the same
 // "loads alone" reason as its neighbors.
 require_once __DIR__ . '/OptionReferenceGrammar.php';
+// DUO-3348 slice 12: the closed post-type body/phase declaration grammar,
+// required here for the same "loads alone" reason as its neighbors.
+require_once __DIR__ . '/PostTypeGrammar.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -248,7 +251,7 @@ final class Policy {
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
 self::validate_post_type_children($manifest);
-            self::validate_post_type_contracts($manifest);
+            PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "manifest '$name'");
             self::validate_attr_rules($manifest);
             self::validate_widgets($manifest);
@@ -377,7 +380,7 @@ self::validate_post_type_children($manifest);
             self::validate_field_classes($manifest);
             self::validate_menu_field_classes($manifest);
 self::validate_post_type_children($manifest);
-            self::validate_post_type_contracts($manifest);
+            PostTypeGrammar::validate_post_type_contracts($manifest);
             self::validate_tables($manifest, "frozen manifest '$name'");
             self::validate_attr_rules($manifest);
             self::validate_widgets($manifest);
@@ -2382,7 +2385,7 @@ self::validate_post_type_children($manifest);
                 return $mode;
             }
         }
-        return 'blocks';
+        return PostTypeGrammar::defaultBodyMode();
     }
 
     /**
@@ -2397,7 +2400,7 @@ self::validate_post_type_children($manifest);
                 return $phase;
             }
         }
-        return 'normal';
+        return PostTypeGrammar::defaultPostTypePhase();
     }
 
     /**
@@ -2926,64 +2929,6 @@ self::validate_post_type_children($manifest);
                     . var_export($class, true) . ' but only ' . implode(', ', self::MENU_FIELD_CLASSES)
                     . ' is supported for menu fields in v2'
                 );
-            }
-        }
-    }
-
-    /**
-     * The closed `post_types.<t>.body` vocabulary. 'blocks' (the default) runs
-     * the block parser and URL tokenizer over post_content; 'verbatim'
-     * byte-preserves it, for a definition CPT whose body is serialized data
-     * where a URL substitution would corrupt the encoded string lengths.
-     * Consumers compare against 'verbatim' EXACTLY (Capture, Apply, Lint), so
-     * every other spelling — including a plausible-looking 'raw' or 'none' —
-     * silently meant 'blocks' and quietly corrupted the very bodies the
-     * declaration was written to protect.
-     */
-    private const BODY_MODES = ['blocks', 'verbatim'];
-
-    /**
-     * The closed `post_types.<t>.phase` vocabulary. 'early' finalizes a type
-     * before all others in apply phase 2 — for definition CPTs whose content
-     * interpreters read to type OTHER entities' meta. Same silent-failure
-     * shape as `body`: Apply compares against 'early' exactly, so a misspelled
-     * phase reverted the type to glob-alphabetical ordering, which is the
-     * precise accident declared ordering exists to remove.
-     */
-    private const POST_TYPE_PHASES = ['normal', 'early'];
-
-    /**
-     * Loud, load-time guard for the two per-post-type behavior switches
-     * body_mode()/post_type_phase() read (DUO-3318).
-     *
-     * Both accessors default an absent OR unrecognized value to the safe
-     * spelling and return it silently — correct as a lookup contract (a
-     * consumer may not invent a mode), wrong as the ONLY check, because it
-     * makes a typo indistinguishable from an intentional omission. This is
-     * the same posture validate_field_classes() takes for the sibling
-     * `fields` key, mirrored rather than merged for the same reason
-     * validate_menu_field_classes() gives for itself: these are flat scalar
-     * switches on the post-type declaration, not a nested per-name rule map.
-     */
-    private static function validate_post_type_contracts(array $manifest): void {
-        $name = (string) ($manifest['name'] ?? '?');
-        foreach ($manifest['post_types'] ?? [] as $postType => $decl) {
-            if (!is_array($decl)) {
-                continue; // shape already refused by validate_scope_classes()
-            }
-            foreach ([['body', self::BODY_MODES], ['phase', self::POST_TYPE_PHASES]] as [$key, $legal]) {
-                if (!array_key_exists($key, $decl)) {
-                    continue;
-                }
-                if (!in_array($decl[$key], $legal, true)) {
-                    throw new \RuntimeException(
-                        "duo: manifest '$name' declares post_types.$postType.$key="
-                        . var_export($decl[$key], true) . ' but the vocabulary is closed ('
-                        . implode(', ', $legal) . ') — it is engine-owned, because each value names engine '
-                        . 'behavior the engine implements; a new one is an engine change with a spec bump, not a '
-                        . 'manifest declaration'
-                    );
-                }
             }
         }
     }
@@ -4892,8 +4837,8 @@ self::validate_post_type_children($manifest);
             'user_meta_missing_user_modes' => self::MISSING_USER_MODES,
             'post_derivable_fields' => self::DERIVABLE_FIELD_COLUMNS,
             'post_field_classes' => self::FIELD_CLASSES,
-            'post_type_body_modes' => self::BODY_MODES,
-            'post_type_phases' => self::POST_TYPE_PHASES,
+            'post_type_body_modes' => PostTypeGrammar::bodyModes(),
+            'post_type_phases' => PostTypeGrammar::postTypePhases(),
             'menu_derivable_fields' => self::MENU_DERIVABLE_FIELDS,
             'menu_field_classes' => self::MENU_FIELD_CLASSES,
             'table_classes' => ManifestGrammar::tableClasses(),
