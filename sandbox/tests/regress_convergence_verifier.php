@@ -174,39 +174,65 @@ $check(
 );
 $check($getVerifierProp('scopedSession') === $sessionSentinel, 'scopedSession must pass through by identity, unchanged');
 
-// ---- 6. DUO-3440: Apply.php must self-require ConvergenceVerifier.php, the
-// same way it already self-requires ApplyPlanner.php/PlanExplanation.php/
-// PlanCategorySummary.php/PlanView.php -- every sibling collaborator
-// extracted FROM Apply FOR Apply. This suite's own top-of-file requires
-// (line 22, above) load ConvergenceVerifier.php before Apply.php, so every
-// check above would keep passing even if Apply.php's own require were
-// missing -- that masking is exactly how this gap first shipped undetected.
-// Proving it needs a genuinely separate process: PHP class loading is
-// process-global, so nothing in THIS process can "unrequire"
-// ConvergenceVerifier.php once loaded above.
-$applyPhpAbsolutePath = realpath(__DIR__ . '/../../agent/src/Apply.php');
-$isolatedProbe = tempnam(sys_get_temp_dir(), 'duo-convergence-verifier-isolation-');
-file_put_contents($isolatedProbe, '<?php'
-    . "\nrequire " . var_export($applyPhpAbsolutePath, true) . ';'
-    . <<<'PHP'
+// ---- 6/7. DUO-3440/DUO-3441: both Apply.php and ConvergenceVerifier.php
+// must carry their OWN collaborator requires (Apply -> ConvergenceVerifier;
+// ConvergenceVerifier -> Canon), the same way every sibling extraction
+// already self-requires its own dependency. This suite's own top-of-file
+// requires (lines 19-23, above) load Canon.php and ConvergenceVerifier.php
+// before Apply.php regardless, so every check above would keep passing even
+// if either file's own require were missing -- that masking is exactly how
+// both gaps shipped undetected. Proving either one needs a genuinely
+// separate process: PHP class loading is process-global, so nothing already
+// inside THIS process can "unrequire" a class to recreate the standalone
+// scenario the bugs are actually about.
+$isolatedProbeCheck = static function (string $requiredFile, string $probeBody, string $needle, string $label) use ($check): void {
+    $absolutePath = realpath($requiredFile);
+    $probe = tempnam(sys_get_temp_dir(), 'duo-isolation-probe-');
+    file_put_contents($probe, "<?php\nrequire " . var_export($absolutePath, true) . ";\n" . $probeBody);
+    $output = [];
+    $exit = null;
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($probe) . ' 2>&1', $output, $exit);
+    unlink($probe);
+    $output = implode("\n", $output);
+    $check(
+        $exit === 0 && str_contains($output, $needle),
+        "$label (exit=" . var_export($exit, true) . ($exit === 0 ? '' : "; output: $output") . ')'
+    );
+};
 
+$isolatedProbeCheck(
+    __DIR__ . '/../../agent/src/Apply.php',
+    <<<'PHP'
 $rm = new ReflectionMethod(\Duo\Apply::class, 'verification_hash');
 $rm->setAccessible(true);
 $apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
 echo $rm->invoke($apply, ['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
-PHP);
-$isolatedOutput = [];
-$isolatedExit = null;
-exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($isolatedProbe) . ' 2>&1', $isolatedOutput, $isolatedExit);
-unlink($isolatedProbe);
-$isolatedOutput = implode("\n", $isolatedOutput);
-$check(
-    $isolatedExit === 0 && str_contains($isolatedOutput, 'duo-3440-isolation-probe'),
+PHP,
+    'duo-3440-isolation-probe',
     'Apply.php must carry its OWN collaborator requires when required standalone: a fresh process '
         . 'requiring only agent/src/Apply.php (not the full agent/duo.php bootstrap) must reach a '
-        . 'ConvergenceVerifier-touching method without a "Class ...ConvergenceVerifier not found" '
-        . 'fatal (exit=' . var_export($isolatedExit, true)
-        . ($isolatedExit === 0 ? '' : "; output: $isolatedOutput") . ')'
+        . 'ConvergenceVerifier-touching method without a "Class ...ConvergenceVerifier not found" fatal'
+);
+
+// Canon is the one ConvergenceVerifier dependency worth an isolation check.
+// hash()'s live siblings (verify()/verify_local()/verify_scoped_local()) also
+// reference Capture/ScopedApply/ScopedApplySession without requiring them,
+// but that's not a gap this suite can usefully pin: each of those classes'
+// OWN require chain bottoms out in ANOTHER unrequired class one level
+// further down (Capture -> Canary, ScopedApply -> Ledger) before ever
+// reaching a $wpdb-bound WordPress call -- so no standalone probe of them
+// can terminate in a clean pass or a specific, attributable failure either
+// way. Canon is different: requiring it is enough, full stop, because
+// Canon.php is itself a dependency-free leaf.
+$isolatedProbeCheck(
+    __DIR__ . '/../../agent/src/ConvergenceVerifier.php',
+    <<<'PHP'
+echo \Duo\ConvergenceVerifier::hash(['type' => 'term', 'data' => ['name' => 'duo-3441-isolation-probe']]);
+PHP,
+    hash('sha256', \Duo\Canon::encode(['name' => 'duo-3441-isolation-probe'])),
+    'ConvergenceVerifier.php must carry its OWN Canon.php require when required standalone: a fresh '
+        . 'process requiring only agent/src/ConvergenceVerifier.php must reach the non-post hash() path '
+        . '(the only path that touches Canon) without a "Class ...Canon not found" fatal'
 );
 
 if ($failures) {
