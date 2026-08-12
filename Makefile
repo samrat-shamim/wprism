@@ -675,6 +675,12 @@ regress-apply-field-materializer:
 regress-path-safety:
 	php sandbox/tests/regress_path_safety.php
 
+# DUO-3350 slice 2: the lifecycle dependency graph planner is independent of
+# WordPress side effects; Deploy retains compatibility facades for its reads
+# and execution path.
+regress-deploy-planner:
+	php sandbox/tests/regress_deploy_planner.php
+
 # DUO-3345 (structured-refusal slice): the real agent command handlers emit
 # one versioned, actionable, credential-redacted JSON refusal for every
 # primary compile/capture/plan/apply/deploy failure while human mode and the
@@ -1113,10 +1119,10 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-cli-json-refusals regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-grind-r1c-manifest-preserve regress-observation-guards regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scope-wire regress-manifest-grammar
-	@echo "regress-offline-all: 124 offline suites green"
+	@echo "regress-offline-all: 125 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
