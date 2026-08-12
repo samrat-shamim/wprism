@@ -40,6 +40,7 @@ require __DIR__ . '/src/PlanContract.php';
 require __DIR__ . '/src/PlanSummary.php';
 require __DIR__ . '/src/PlanView.php';
 require __DIR__ . '/src/Pending.php';
+require __DIR__ . '/src/PendingCommand.php';
 require __DIR__ . '/src/Triage.php';
 require __DIR__ . '/src/ClassificationBatch.php';
 require __DIR__ . '/src/ManifestValidate.php';
@@ -74,7 +75,7 @@ use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\EnvironmentMaterializer;
-use Duo\Orchestrator\Pending;
+use Duo\Orchestrator\PendingCommand;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\PlanView;
@@ -3547,59 +3548,15 @@ function promote_failed(
  * @return array{ok:bool, exit:int, items:list<array<string,mixed>>}
  */
 function fetch_pending(EnvironmentDriver $t): array {
-    $r = $t->captureWp(['duo', 'pending', '--repo=' . $t->repoPath(), '--format=json']);
-    if ($r['exit'] !== 0) {
-        fwrite(STDERR, "duo: pending: failed to fetch the review queue for '{$t->name()}' (exit {$r['exit']})\n");
-        // DUO-3399: `duo pending --format=json` now answers a refusal with the
-        // common envelope on STDOUT, so the stderr-else-stdout fallback below
-        // would dump raw JSON at a human. Decode and render the public fields
-        // exactly as cmd_status() does; anything that is not a v1 envelope
-        // still falls through to the original passthrough.
-        $refusal = json_decode(trim($r['stdout']), true);
-        if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
-            render_command_refusal_human($refusal);
-        } else {
-            $msg = trim($r['stderr'] !== '' ? $r['stderr'] : $r['stdout']);
-            if ($msg !== '') {
-                fwrite(STDERR, $msg . "\n");
-            }
-        }
-        return ['ok' => false, 'exit' => $r['exit'] !== 0 ? $r['exit'] : 1, 'items' => []];
-    }
-    $items = json_decode(trim($r['stdout']), true);
-    if (!is_array($items)) {
-        fwrite(STDERR, "duo: pending: could not parse review-queue JSON for '{$t->name()}'\n");
-        fwrite(STDERR, "raw output:\n{$r['stdout']}\n");
-        return ['ok' => false, 'exit' => 1, 'items' => []];
-    }
-    return ['ok' => true, 'exit' => 0, 'items' => array_values($items)];
+    return PendingCommand::fetch($t, static function (array $refusal): void {
+        render_command_refusal_human($refusal);
+    });
 }
 
 function cmd_pending(EnvironmentDriver $t, array $extra): int {
-    if (in_array('--format=json', $extra, true)) {
-        // Raw passthrough, same precedent as `duo status` vs. `duo plan
-        // --format=json` (see cli/README.md): `duo pending` parses and
-        // renders a table by default, but scripting/cross-checking wants
-        // the agent's own JSON verbatim.
-        return $t->streamWp(['duo', 'pending', '--repo=' . $t->repoPath(), '--format=json']);
-    }
-    if ($extra) {
-        fwrite(STDERR, 'duo: pending: unknown flag(s): ' . implode(' ', $extra) . "\n");
-        return 1;
-    }
-    $res = fetch_pending($t);
-    if (!$res['ok']) {
-        return $res['exit'];
-    }
-    if (!$res['items']) {
-        echo "review queue is empty\n";
-        return 0;
-    }
-    $summary = Pending::render($res['items']);
-    foreach ($summary['lines'] as $line) {
-        echo $line . "\n";
-    }
-    return 0;
+    return PendingCommand::run($t, $extra, static function (array $refusal): void {
+        render_command_refusal_human($refusal);
+    });
 }
 
 /**
