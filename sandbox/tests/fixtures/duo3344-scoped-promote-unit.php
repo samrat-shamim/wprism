@@ -817,7 +817,7 @@ PHP
         'purpose' => 'read-only scope evidence; never mutation authority',
         'read_only_evidence' => true,
         'resolution' => ['live_root_entities' => [], 'tombstone_uuids' => []],
-        'selectors' => ['option:fixture'],
+        'selectors' => ['options'],
         'source' => [
             'artifact_hash' => $artifactHash,
             'manifest_hash' => $hash('fixture-manifest'),
@@ -1005,10 +1005,21 @@ PHP
     ]);
     $sensitiveRefusal = scoped_host_json($sensitiveStatus['stdout'], 'sensitive authority preflight refusal');
     $sensitivePublicBytes = $sensitiveStatus['stdout'] . $sensitiveStatus['stderr'];
+    $sensitiveReachedAuthorityStatus = false;
+    foreach (scoped_host_lines($sshLog) as $command) {
+        if (str_contains($command, 'authority-status')) {
+            $sensitiveReachedAuthorityStatus = true;
+            break;
+        }
+    }
     scoped_host_ok(
         $sensitiveStatus['exit'] !== 0
             && ($sensitiveRefusal['reason_code'] ?? null) === 'scoped_promotion_preflight_failed'
-            && !str_contains($sensitivePublicBytes, 'PRIVATE_TARGET_PATH')
+            && $sensitiveReachedAuthorityStatus,
+        'scoped authority preflight failure reaches the target then returns its public refusal'
+    );
+    scoped_host_ok(
+        !str_contains($sensitivePublicBytes, 'PRIVATE_TARGET_PATH')
             && !str_contains($sensitivePublicBytes, 'provider-token')
             && !str_contains($sensitivePublicBytes, '/srv/secret'),
         'public JSON redacts target/provider stderr from scoped authority preflight failures'
