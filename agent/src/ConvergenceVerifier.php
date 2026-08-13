@@ -2,6 +2,10 @@
 namespace Duo;
 
 require_once __DIR__ . '/Canon.php';
+require_once __DIR__ . '/OptionState.php';
+require_once __DIR__ . '/ScopeClosure.php';
+require_once __DIR__ . '/ScopedApply.php';
+require_once __DIR__ . '/ScopedApplySession.php';
 
 /**
  * Read-only post-apply convergence verification (DUO-3220): re-captures the
