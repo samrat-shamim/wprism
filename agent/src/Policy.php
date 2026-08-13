@@ -50,6 +50,9 @@ require_once __DIR__ . '/OptionGrammar.php';
 // DUO-3348 slice 17: block/shortcode attribute declaration grammar, required
 // here for the same "loads alone" reason as its neighbors.
 require_once __DIR__ . '/AttributeGrammar.php';
+// DUO-3348 slice 50: block/shortcode structural registry projection is pure
+// manifest work; Policy retains the public compatibility accessors below.
+require_once __DIR__ . '/ContentAttributeRuleResolver.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
@@ -1131,13 +1134,7 @@ final class Policy {
 
     /** blockName => list of {path, kind, type} rules, merged across manifests. */
     public function block_attr_rules(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['block_attrs'] ?? [] as $block => $rules) {
-                $out[$block] = $rules;
-            }
-        }
-        return $out;
+        return $this->content_attribute_rule_resolver()->block_attr_rules();
     }
 
     /**
@@ -1157,13 +1154,12 @@ final class Policy {
      * grammar, `shortcode_parse_atts()`'s own return shape).
      */
     public function shortcode_attr_rules(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['shortcode_attrs'] ?? [] as $tag => $rules) {
-                $out[$tag] = $rules;
-            }
-        }
-        return $out;
+        return $this->content_attribute_rule_resolver()->shortcode_attr_rules();
+    }
+
+    /** Fresh because manifests stay publicly mutable in offline fixtures. */
+    private function content_attribute_rule_resolver(): ContentAttributeRuleResolver {
+        return new ContentAttributeRuleResolver($this->manifests);
     }
 
     /**
