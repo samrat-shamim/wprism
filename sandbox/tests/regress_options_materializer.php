@@ -18,9 +18,26 @@
  */
 declare(strict_types=1);
 
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 2);
+}
+
+function untrailingslashit(string $value): string { return rtrim($value, '/\\'); }
+function get_option(string $name, mixed $default = false): mixed {
+    return $name === 'home' ? 'https://options-materializer.example.test' : $default;
+}
+function wp_upload_dir(mixed $time = null, bool $create = true, bool $refresh = false): array {
+    return ['baseurl' => 'https://options-materializer.example.test/wp-content/uploads'];
+}
+function wp_cache_delete(...$args): bool { return true; }
+function maybe_serialize(mixed $value): mixed {
+    return is_array($value) || is_object($value) ? serialize($value) : $value;
+}
+
 require_once __DIR__ . '/../../agent/src/Canon.php';
 require_once __DIR__ . '/../../agent/src/OptionState.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Db.php';
 require_once __DIR__ . '/../../agent/src/Ledger.php';
 require_once __DIR__ . '/../../agent/src/Tokens.php';
 require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
@@ -30,6 +47,31 @@ use Duo\ApplyFieldMaterializer;
 use Duo\OptionsMaterializer;
 use Duo\Policy;
 use Duo\Tokens;
+
+final class OptionsMaterializerAcfFakeWpdb {
+    public string $options = 'wp_options';
+    public string $last_error = '';
+    /** @var list<array{table:string,data:array,where?:array}> */
+    public array $writes = [];
+
+    public function prepare(string $query, mixed ...$args): array {
+        return ['sql' => $query, 'args' => $args];
+    }
+
+    public function get_var(array|string $query): ?int {
+        return null;
+    }
+
+    public function insert(string $table, array $data, mixed $format = null): int {
+        $this->writes[] = ['table' => $table, 'data' => $data];
+        return 1;
+    }
+
+    public function update(string $table, array $data, array $where, mixed $format = null, mixed $whereFormat = null): int {
+        $this->writes[] = ['table' => $table, 'data' => $data, 'where' => $where];
+        return 1;
+    }
+}
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -75,9 +117,12 @@ $check(
 );
 $applyOptionsParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_options'))->getParameters();
 $check(
-    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionsParams) === ['document', 'withDeletes', 'warnings']
-        && $applyOptionsParams[2]->isPassedByReference(),
-    'apply_options() takes the caller\'s warnings collection as an explicit by-reference third parameter'
+    array_map(static fn(ReflectionParameter $p): string => $p->getName(), $applyOptionsParams)
+        === ['document', 'withDeletes', 'warnings', 'classificationDocument']
+        && $applyOptionsParams[2]->isPassedByReference()
+        && $applyOptionsParams[3]->isOptional()
+        && (string) $applyOptionsParams[3]->getType() === '?array',
+    'apply_options() takes warnings by reference and an optional immutable classification-document input'
 );
 $applyOptionSubKeysParams = (new ReflectionMethod(OptionsMaterializer::class, 'apply_option_sub_keys'))->getParameters();
 $check(
@@ -96,8 +141,56 @@ foreach (['option_apply_target', 'dynamic_option_rule_for_name', 'dynamic_option
     );
 }
 $check(
-    str_contains($applySource, '$this->options_materializer()->apply_options($document, $withDeletes, $this->warnings);'),
-    'Apply::apply_options() is a thin facade delegating to OptionsMaterializer, passing its own $warnings collection through by reference'
+    str_contains($applySource, '$this->options_materializer()->apply_options(')
+        && str_contains($applySource, '$classificationDocument'),
+    'Apply::apply_options() is a thin facade delegating its explicit immutable classification document to OptionsMaterializer'
+);
+
+// A record-scoped option write must retain the complete immutable carrier as
+// classification context while passing only the selected record to the write
+// loop. ACF's options-page convention is the concrete manifest-owned case:
+// `options_<field>` cannot be classified without its excluded
+// `_options_<field>` shadow pointer. The engine owns only the generic
+// two-document boundary; Acf::option_rule() remains the manifest interpreter.
+$acfPolicy = Policy::load(null, ['acf']);
+$acfPolicy->prime_interpreters_from_repository([
+    'field_scoped_tagline' => [
+        'type' => 'post',
+        'path' => 'state/posts/acf-field/field_scoped_tagline.md',
+        'data' => ['type' => 'acf-field', 'slug' => 'field_scoped_tagline'],
+        'body' => serialize(['key' => 'field_scoped_tagline', 'type' => 'text']),
+    ],
+]);
+$acfTokens = new Tokens();
+$acfMaterializer = new OptionsMaterializer(
+    $acfPolicy,
+    $acfTokens,
+    new ApplyFieldMaterializer($acfPolicy, $acfTokens)
+);
+$acfFullDocument = \Duo\OptionState::document([
+    'options_scoped_tagline' => \Duo\OptionState::present('Scoped ACF tagline', 'yes'),
+    '_options_scoped_tagline' => \Duo\OptionState::present('field_scoped_tagline', 'yes'),
+]);
+$acfSelectedDocument = \Duo\OptionState::document([
+    'options_scoped_tagline' => \Duo\OptionState::present('Scoped ACF tagline', 'yes'),
+]);
+$GLOBALS['wpdb'] = new OptionsMaterializerAcfFakeWpdb();
+$acfWarnings = [];
+$missingCompanionRefused = false;
+try {
+    $acfMaterializer->apply_options($acfSelectedDocument, false, $acfWarnings);
+} catch (RuntimeException $failure) {
+    $missingCompanionRefused = str_contains($failure->getMessage(), 'policy declares');
+}
+$acfMaterializer->apply_options($acfSelectedDocument, false, $acfWarnings, $acfFullDocument);
+$acfWrites = $GLOBALS['wpdb']->writes;
+$check(
+    $missingCompanionRefused
+        && count($acfWrites) === 1
+        && ($acfWrites[0]['data']['option_name'] ?? null) === 'options_scoped_tagline'
+        && ($acfWrites[0]['data']['option_value'] ?? null) === 'Scoped ACF tagline'
+        && !str_contains((string) ($acfWrites[0]['data']['option_name'] ?? ''), '_options_'),
+    'record-scoped materialization uses an excluded ACF shadow only as immutable classification context and writes only the selected option'
 );
 
 if ($failures) {

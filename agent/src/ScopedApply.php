@@ -194,9 +194,10 @@ final class ScopedApply {
 
     /**
      * Give OptionsMaterializer exactly the names authorized by one bounded
-     * plan row. Its normal document-level API remains unchanged; the scope
-     * boundary lives here with the immutable contract rather than in a
-     * plugin-aware engine branch.
+     * plan row. The caller still supplies the complete frozen document as
+     * read-only classification context: a manifest-owned interpreter may
+     * need an excluded companion record to classify a selected record, but
+     * that companion never reaches the materialization write set.
      */
     public static function selected_option_document(array $document, array $contract, array $row): array {
         $allowed = array_fill_keys(self::option_root_names($contract), true);
@@ -259,7 +260,16 @@ final class ScopedApply {
             throw new \RuntimeException('duo: scoped options carrier is malformed during target observation', 0, $failure);
         }
         foreach (self::option_root_names($contract) as $name) {
-            if (!array_key_exists($name, $source) || !array_key_exists($name, $target)) {
+            if (!array_key_exists($name, $source)) {
+                throw new \RuntimeException("duo: selected option '$name' disappeared from the scoped target carrier");
+            }
+            // `absent` is explicit no-value/no-delete intent. It is not a
+            // request to erase a target-owned value, so the projected
+            // post-apply carrier must retain that exact target record.
+            if (($source[$name]['state'] ?? '') === 'absent') {
+                continue;
+            }
+            if (!array_key_exists($name, $target)) {
                 throw new \RuntimeException("duo: selected option '$name' disappeared from the scoped target carrier");
             }
             $target[$name] = $source[$name];
@@ -1904,6 +1914,13 @@ final class ScopedApply {
                 } catch (\Throwable $failure) {
                     $matchesDesired = false;
                     break;
+                }
+                // `absent` deliberately carries no target mutation intent.
+                // A present/absent target record is therefore already the
+                // desired terminal state, while its observed value remains
+                // sealed in selected_before_root for preflight race checks.
+                if (($expectedRecords[$name]['state'] ?? null) === 'absent') {
+                    continue;
                 }
                 if (!isset($expectedRecords[$name], $observedRecords[$name])
                     || !hash_equals(

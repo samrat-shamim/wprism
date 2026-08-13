@@ -3093,7 +3093,10 @@ final class Apply {
                     $document = ($scoped && ScopedApply::has_record_scoped_options($this->scopeContract))
                         ? ScopedApply::selected_option_document($e['data'], $this->scopeContract, $r)
                         : $e['data'];
-                    $this->apply_options($document, !empty($opts['with_deletes']));
+                    $classificationDocument = ($scoped && ScopedApply::has_record_scoped_options($this->scopeContract))
+                        ? $e['data']
+                        : null;
+                    $this->apply_options($document, !empty($opts['with_deletes']), $classificationDocument);
                 } elseif ($e['type'] === 'user-meta') {
                     $this->finalize_user_meta($e['data']);
                 } elseif ($e['type'] === SidebarState::ENTITY_TYPE) {
@@ -4544,8 +4547,13 @@ final class Apply {
      * already used by PostMaterializer::finalize_post() and
      * DeleteExecutor::delete_entity().
      */
-    private function apply_options(array $document, bool $withDeletes): void {
-        $this->options_materializer()->apply_options($document, $withDeletes, $this->warnings);
+    private function apply_options(array $document, bool $withDeletes, ?array $classificationDocument = null): void {
+        $this->options_materializer()->apply_options(
+            $document,
+            $withDeletes,
+            $this->warnings,
+            $classificationDocument
+        );
     }
 
     private function upsert_option(string $name, string $value, string $autoload): void {

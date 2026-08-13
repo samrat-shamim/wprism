@@ -304,6 +304,13 @@ final class ConvergenceVerifier {
                     $expected = null;
                     $observed = null;
                 }
+                // An explicit absent record says only that this source has
+                // no authored value or deletion intent. It must not turn a
+                // target-owned value into a false convergence failure after
+                // the scoped no-op terminalizes.
+                if (is_array($expected) && ($expected['state'] ?? '') === 'absent') {
+                    continue;
+                }
                 if (!is_array($expected) || !is_array($observed)
                     || !hash_equals(OptionState::record_hash($expected), OptionState::record_hash($observed))) {
                     $failures[] = hash('sha256', $identity) . ':mismatch';

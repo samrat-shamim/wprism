@@ -451,6 +451,31 @@ check(
         ) === 'desired',
     'scoped plan/apply selects only the named option, overlays only that record onto the target carrier, and keeps recovery inside the selected virtual record'
 );
+$absentOptionContract = ScopeContract::resolve($compiled, $policy, ['option:blogdescription']);
+$absentOptionDecision = \Duo\ScopedApply::option_plan_decision(
+    (array) $compiled->tree()['options/core']['data'],
+    $optionTargetActual['options/core'],
+    [],
+    $absentOptionContract,
+    []
+);
+$absentOptionCandidate = \Duo\ScopedApply::target_option_candidate_row(
+    $compiled->tree()['options/core'],
+    $optionTargetActual['options/core'],
+    $absentOptionContract
+);
+$absentOptionCandidateRecords = OptionState::records(Canon::decode((string) $absentOptionCandidate['content']));
+$absentOptionBeforeRoot = \Duo\ScopedApply::selected_observation_root($optionTargetActual, $absentOptionContract);
+check(
+    ($absentOptionDecision['bucket'] ?? null) === 'unchanged'
+        && (($absentOptionDecision['row']['rebuild_option_names'] ?? null) === [])
+        && Canon::encode($absentOptionCandidateRecords['blogdescription'] ?? null)
+            === Canon::encode(OptionState::present('protected sibling drift', 'yes'))
+        && \Duo\ScopedApply::authored_state(
+            $optionTargetActual, $compiled, $policy, $absentOptionContract, $absentOptionBeforeRoot
+        ) === 'desired',
+    'a scoped absent option root preserves a target-owned value and terminalizes as an explicit no-mutation intent'
+);
 $pageOptionContract = ScopeContract::resolve($compiled, $policy, ['option:page_on_front']);
 $escapedOptionRows = [];
 foreach ($compiled->tree() as $identity => $row) {

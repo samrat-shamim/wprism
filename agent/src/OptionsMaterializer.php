@@ -64,15 +64,39 @@ final class OptionsMaterializer {
     ) {
     }
 
-    /** @param string[] $warnings appended to in place (sub-key merge diagnostics) */
-    public function apply_options(array $document, bool $withDeletes, array &$warnings): void {
+    /**
+     * @param string[] $warnings appended to in place (sub-key merge diagnostics)
+     * @param ?array<string,mixed> $classificationDocument immutable complete
+     *   source carrier for rule classification only; its unselected records
+     *   are never iterated for writes.
+     */
+    public function apply_options(
+        array $document,
+        bool $withDeletes,
+        array &$warnings,
+        ?array $classificationDocument = null
+    ): void {
         // DUO-3263: an interpreter-classified option (ACF's options-page
         // fields) needs the same document-sourced sibling map (the shadow
         // pointer) RepositoryAuthorization/RepositoryCompiler already build
         // from this same document (including valid v2 deletion witnesses) —
         // built once, reused per name below.
-        $allOptions = OptionState::classification_values($document);
-        foreach (OptionState::records($document) as $name => $record) {
+        $writeRecords = OptionState::records($document);
+        $classificationDocument ??= $document;
+        $classificationRecords = OptionState::records($classificationDocument);
+        foreach ($writeRecords as $name => $record) {
+            if (!isset($classificationRecords[$name])
+                || !hash_equals(
+                    OptionState::record_hash($record),
+                    OptionState::record_hash($classificationRecords[$name])
+                )) {
+                throw new \RuntimeException(
+                    "duo: option '$name' materialization has no identical immutable classification record"
+                );
+            }
+        }
+        $allOptions = OptionState::classification_values($classificationDocument);
+        foreach ($writeRecords as $name => $record) {
             if ($record['state'] === 'absent') {
                 continue; // explicit no-value/no-delete intent; target row is untouched
             }
