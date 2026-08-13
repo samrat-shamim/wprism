@@ -12,6 +12,10 @@ require_once __DIR__ . '/CompiledArtifact.php';
 // repository tree builder. Keep the long-lived RepositoryCompiler methods as
 // compatibility facades while the extracted collaborator owns byte projection.
 require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+// DUO-3348 slice 31: repository-owned attachment/blob validation and full
+// media cataloguing are independent of tree parsing and Policy. Required
+// directly so existing RepositoryCompiler consumers keep one closed load graph.
+require_once __DIR__ . '/RepositoryMediaCatalog.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -68,17 +72,8 @@ final class RepositoryCompiler {
     private array $identities = [];
     /** @var array<string,array<string,mixed>> */
     private array $deletions = [];
-    /** @var array<string,string> upload-relative path => source path */
-    private array $uploadPaths = [];
-    /** @var array<string,string> derivative directory/basename prefix => source path */
-    private array $uploadDerivativeRoots = [];
-    /** @var array<string,array{sha256:string,base64:string}> media blob => immutable payload */
-    private array $media = [];
-    /** @var array<string,string> every content-addressed blob in media/, including safe orphans */
-    private array $mediaCatalog = [];
-    /** Exact media directory used for this compilation. Normally repo/media;
-     * scoped transaction probes may supply an immutable byte-for-byte view. */
-    private string $mediaDir;
+    /** Attachment/blob validation state for this compilation's resolved media root. */
+    private RepositoryMediaCatalog $mediaCatalog;
 
     private function __construct(
         string $stateDir,
@@ -89,9 +84,17 @@ final class RepositoryCompiler {
     ) {
         $this->stateDir = rtrim($stateDir, '/');
         $this->repo = rtrim($mediaRoot, '/'); // media/ root only — see compile_staged()'s docblock for why this can differ from stateDir's own parent
-        $this->mediaDir = $mediaDir === null ? $this->repo . '/media' : rtrim($mediaDir, '/');
         $this->policy = $policy;
         $this->completenessOptional = $completenessOptional;
+        // Keep the existing compiler-level accumulator and one final fail()
+        // sort: a bad media path must be reported alongside independent tree,
+        // schema, and reference findings rather than short-circuiting media.
+        $this->mediaCatalog = new RepositoryMediaCatalog(
+            $mediaDir === null ? $this->repo . '/media' : rtrim($mediaDir, '/'),
+            function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
+                $this->add($code, $path, $locator, $message, $relatedPath);
+            }
+        );
     }
 
     public static function compile(string $repo, Policy $policy): CompiledRepository {
@@ -435,7 +438,7 @@ final class RepositoryCompiler {
         foreach ($this->policy->repository_constraint_diagnostics($tree) as $d) {
             $this->diagnostics[] = $d + ['severity' => 'blocking', 'locator' => '', 'message' => 'adapter constraint failed'];
         }
-        $this->catalog_media_directory();
+        $this->mediaCatalog->catalog_directory();
         if ($this->diagnostics) {
             $this->fail();
         }
@@ -445,8 +448,8 @@ final class RepositoryCompiler {
         // CLI/CI consumers do not lose their stable contract.
         RepositoryAuthorization::assert_tree($this->policy, $tree);
 
-        ksort($this->media, SORT_STRING);
-        ksort($this->mediaCatalog, SORT_STRING);
+        $media = $this->mediaCatalog->referenced_media();
+        $mediaCatalog = $this->mediaCatalog->catalog();
         $siteHash = self::site_hash($this->policy);
         $stateSiteHash = self::state_site_hash($this->policy);
         $manifestHash = self::manifest_hash($this->policy);
@@ -457,7 +460,7 @@ final class RepositoryCompiler {
             'site_hash' => $stateSiteHash,
             'manifest_hash' => $manifestHash,
             'sources' => $sourceRows,
-            'media' => $this->mediaCatalog,
+            'media' => $mediaCatalog,
         ];
         $revision = hash('sha256', Canon::encode($revisionInputs));
         $payload = [
@@ -478,8 +481,8 @@ final class RepositoryCompiler {
             // complete declaration has blocked unknown/irreversible effects.
             'effects_inventory' => $this->policy->effects_inventory(),
             'revision_hash' => $revision,
-            'media_catalog' => $this->mediaCatalog,
-            'media' => $this->media,
+            'media_catalog' => $mediaCatalog,
+            'media' => $media,
             'tree' => $tree,
             'deletions' => $this->deletions,
         ];
@@ -638,7 +641,7 @@ final class RepositoryCompiler {
                 'source_hash' => hash('sha256', $content), 'content' => $content,
                 'data' => $data, 'body' => (string) $body,
             ];
-            $this->validate_attachment($path, $data);
+            $this->mediaCatalog->validate_attachment($path, $data);
             return $entry;
         }
         if ($kind === 'term') {
@@ -920,99 +923,6 @@ final class RepositoryCompiler {
                 "taxonomy '$taxonomy' resolves to object_keyspace='$actual'; this field requires '$expected'"
             );
         }
-    }
-
-    private function validate_attachment(string $path, array $data): void {
-        if (($data['type'] ?? '') !== 'attachment') {
-            return;
-        }
-        foreach (['file','media','mime','alt'] as $field) {
-            if (!array_key_exists($field, $data) || !is_string($data[$field])) {
-                $this->add('schema_content_mismatch', $path, $field, 'attachment field is required and must be a string');
-            }
-        }
-        $upload = (string) ($data['file'] ?? '');
-        // WordPress normally stores Y/m/basename, but plugins legitimately
-        // create upload-root files (WooCommerce's placeholder is the
-        // canonical example) and may use their own safe subdirectories.
-        // The portable invariant is a normalized relative path, not one
-        // particular directory policy.
-        $segments = explode('/', $upload);
-        $safeUpload = $upload !== ''
-            && !str_starts_with($upload, '/')
-            && !str_contains($upload, '\\')
-            && !preg_match('/[\x00-\x1f\x7f]/', $upload)
-            && !array_filter($segments, static fn(string $part): bool => $part === '' || $part === '.' || $part === '..');
-        if (!$safeUpload) {
-            $this->add('unsafe_media_path', $path, 'file', "upload path '$upload' is not a normalized relative path");
-        } elseif (isset($this->uploadPaths[$upload])) {
-            $this->add('duplicate_upload_path', $path, 'file', "upload path '$upload' is also owned by {$this->uploadPaths[$upload]}", $this->uploadPaths[$upload]);
-        } else {
-            $this->uploadPaths[$upload] = $path;
-            $directory = dirname($upload);
-            $root = ($directory === '.' ? '' : $directory . '/')
-                . pathinfo(basename($upload), PATHINFO_FILENAME) . '-';
-            if (isset($this->uploadDerivativeRoots[$root])) {
-                $this->add(
-                    'duplicate_media_derivative_root',
-                    $path,
-                    'file',
-                    "upload path '$upload' shares derivative root '$root*' with {$this->uploadDerivativeRoots[$root]}",
-                    $this->uploadDerivativeRoots[$root]
-                );
-            } else {
-                $this->uploadDerivativeRoots[$root] = $path;
-            }
-        }
-        $blob = (string) ($data['media'] ?? '');
-        if (!preg_match('/^([0-9a-f]{64})\.[A-Za-z0-9]+$/', $blob, $m)) {
-            $this->add('unsafe_media_path', $path, 'media', "media reference '$blob' is not content-addressed");
-            return;
-        }
-        $absolute = $this->mediaDir . '/' . $blob;
-        if (is_link($absolute)) {
-            $this->add('unsafe_media_path', $path, 'media', "media/$blob is a symbolic link");
-            return;
-        }
-        if (!is_file($absolute)) {
-            $this->add('missing_media_blob', $path, 'media', "media/$blob does not exist");
-            return;
-        }
-        $bytes = Canon::read_file($absolute);
-        $actual = hash('sha256', $bytes);
-        if (!hash_equals($m[1], $actual)) {
-            $this->add('media_hash_mismatch', $path, 'media', "media/$blob hashes to $actual");
-            return;
-        }
-        $this->media[$blob] = ['sha256' => $actual, 'base64' => base64_encode($bytes)];
-    }
-
-    /** Hash the whole media partition so an artifact identifies one exact
-     * repository revision even when capture has left safe orphan blobs. */
-    private function catalog_media_directory(): void {
-        $dir = $this->mediaDir;
-        if (!is_dir($dir)) {
-            return;
-        }
-        foreach (new \FilesystemIterator($dir, \FilesystemIterator::SKIP_DOTS) as $file) {
-            $name = $file->getFilename();
-            $path = 'media/' . $name;
-            if ($file->isLink() || !$file->isFile()) {
-                $this->add('unsafe_media_path', $path, '', 'media entries must be regular files directly under media/');
-                continue;
-            }
-            if (!preg_match('/^([0-9a-f]{64})\.[A-Za-z0-9]+$/', $name, $m)) {
-                $this->add('unsafe_media_path', $path, '', 'media filename is not content-addressed');
-                continue;
-            }
-            $actual = hash_file('sha256', $file->getPathname());
-            if (!hash_equals($m[1], $actual)) {
-                $this->add('media_hash_mismatch', $path, '', "filename hash does not match $actual");
-                continue;
-            }
-            $this->mediaCatalog[$name] = $actual;
-        }
-        ksort($this->mediaCatalog, SORT_STRING);
     }
 
     private function register_identity(string $uuid, string $kind, string $path): bool {
