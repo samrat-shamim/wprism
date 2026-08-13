@@ -238,7 +238,6 @@ if (isset(Ledger::$rows[Code::CODE_STAGE_HISTORY_KEY])) {
     }
 }
 $remove = new \ReflectionMethod(Code::class, 'remove_old_owned_files');
-$remove->setAccessible(true);
 $remove->invoke(null, null, null, $history, $emptyDescriptor);
 if (file_get_contents($target . '/plugins/foreign-candidate/foreign.php') !== '<?php // operator owned') {
     throw new \RuntimeException('FAIL: later cleanup traversed a never-materialized component root');

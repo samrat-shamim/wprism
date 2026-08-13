@@ -234,7 +234,6 @@ $check(
 $codeReflection = new ReflectionClass(Code::class);
 $crossCheck = static function (string $method, array $args) use ($codeReflection): void {
     $rm = $codeReflection->getMethod($method);
-    $rm->setAccessible(true);
     $viaCode = $rm->invokeArgs(null, $args);
     $viaPathSafety = call_user_func_array(['Duo\\PathSafety', $method], $args);
     if ($viaCode !== $viaPathSafety) {
@@ -263,7 +262,6 @@ $check(
 // Code's facade (which supplies self::ROOTS internally) -- checked
 // separately rather than through the generic helper above.
 $rm = $codeReflection->getMethod('safe_component_root');
-$rm->setAccessible(true);
 $viaCode = $rm->invoke(null, 'plugins/woocommerce');
 $viaPathSafety = PathSafety::safe_component_root('plugins/woocommerce', ['mu-plugins', 'plugins', 'themes']);
 $check(

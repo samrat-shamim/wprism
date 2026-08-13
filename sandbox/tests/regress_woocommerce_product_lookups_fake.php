@@ -1281,7 +1281,6 @@ namespace {
         'sale scheduling retry restores the exact future action after a verification failure');
 
     $groupedDiscovery = new \ReflectionMethod($adapter, 'find_grouped_parent_ids');
-    $groupedDiscovery->setAccessible(true);
     $wpdb->failReadContaining = "meta_key = '_children'";
     $groupedReadFailedClosed = false;
     try {
@@ -1298,7 +1297,6 @@ namespace {
         'grouped-parent discovery fails closed when its database read fails');
 
     $verifyExactState = new \ReflectionMethod($adapter, 'verify_exact_state');
-    $verifyExactState->setAccessible(true);
     $verifyExactStateArgs = [WC_Data_Store::load('product'), [], [], [999 => 999], null];
     $wpdb->failReadContaining = 'wc_product_meta_lookup';
     $deletionReadFailedClosed = false;
@@ -1471,7 +1469,6 @@ namespace {
         ));
     };
     $registryRefresh = new \ReflectionMethod($adapter, 'refresh_attribute_taxonomy_registry');
-    $registryRefresh->setAccessible(true);
     unset($fakeOptions['woocommerce_permalinks']);
     $registryRefresh->invoke($adapter);
     $fakeOptions['woocommerce_permalinks'] = ['attribute_base' => 'attribute'];

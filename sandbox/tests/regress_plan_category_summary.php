@@ -359,7 +359,6 @@ $check(PlanCategorySummary::build($malformedPlan, $tree, $deletions, $context) =
 // The nested-candidate helper is deliberately private production plumbing;
 // reflection lets this offline fixture prove its pure evidence projection.
 $nested = new ReflectionMethod(Apply::class, 'nested_delete_candidate_counts');
-$nested->setAccessible(true);
 $nestedTree = [
     'menu-update' => ['type' => 'menu', 'data' => ['items' => [
         ['uuid' => 'item-keep'], ['uuid' => 'item-new'],

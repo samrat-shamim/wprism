@@ -143,7 +143,6 @@ $sessionSentinel = (new ReflectionClass(ScopedApplySession::class))->newInstance
 
 $setApplyProp = static function (string $name, $value) use ($applyReflection, $apply): void {
     $prop = $applyReflection->getProperty($name);
-    $prop->setAccessible(true);
     $prop->setValue($apply, $value);
 };
 $setApplyProp('repo', '/sentinel-repo');
@@ -153,13 +152,11 @@ $setApplyProp('scopedObservation', ['sentinel' => 'scoped-observation']);
 $setApplyProp('scopedSession', $sessionSentinel);
 
 $buildVerifier = $applyReflection->getMethod('convergence_verifier');
-$buildVerifier->setAccessible(true);
 $verifier = $buildVerifier->invoke($apply);
 $check($verifier instanceof ConvergenceVerifier, 'convergence_verifier() must return a ConvergenceVerifier');
 
 $getVerifierProp = static function (string $name) use ($verifierReflection, $verifier) {
     $prop = $verifierReflection->getProperty($name);
-    $prop->setAccessible(true);
     return $prop->getValue($verifier);
 };
 $check($getVerifierProp('repo') === '/sentinel-repo', 'repo must pass through to ConvergenceVerifier unchanged');
@@ -204,7 +201,6 @@ $isolatedProbeCheck(
     __DIR__ . '/../../agent/src/Apply.php',
     <<<'PHP'
 $rm = new ReflectionMethod(\Duo\Apply::class, 'verification_hash');
-$rm->setAccessible(true);
 $apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
 echo $rm->invoke($apply, ['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
 PHP,

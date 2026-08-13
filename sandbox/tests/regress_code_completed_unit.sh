@@ -15,6 +15,7 @@ function get_theme_root(): string { return WP_CONTENT_DIR . '/themes'; }
 
 final class FakeWpdbCompleted {
     public string $prefix = 'wp_';
+    public string $last_error = '';
     /** @var array<string,string> */
     public array $rows = [];
     public function prepare(string $sql, ...$args): string {

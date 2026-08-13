@@ -670,7 +670,6 @@ foreach (['product', 'product_variation'] as $postType) {
         "$postType provider-resource aggregates are explicit, finite, wildcard-free, and do not falsely narrow valid multibyte Woo filter names"
     );
     $selectorMatcher = new ReflectionMethod(EffectBundle::class, 'matchesDeclaredSelector');
-    $selectorMatcher->setAccessible(true);
     $aggregateSelector = (array) ($cacheProviderResources[0]['selector'] ?? []);
     $selectorMatches = static function (array $actual) use ($selectorMatcher, $aggregateSelector): bool {
         return (bool) $selectorMatcher->invoke(null, $aggregateSelector, $actual);
@@ -839,7 +838,6 @@ foreach (['product', 'product_variation'] as $postType) {
         "$postType generic provider-resource matcher rejects malformed or secret-shaped values, aggregate-self, wildcards, and extra keys"
     );
     $compileMembers = new ReflectionMethod(EffectBundle::class, 'compileProviderResourceMembers');
-    $compileMembers->setAccessible(true);
     woo_effect_check(
         $compileMembers->invoke(null, [
             'exact' => ['fixed-resource'],

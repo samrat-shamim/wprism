@@ -626,7 +626,6 @@ $frozen = RepositoryCompiler::read_artifact($path, Policy::load($mutable));
 if ($frozen->artifact_hash() !== $compiled->artifact_hash()) fail('loading compiled input reread mutable state files');
 if ($frozen->media_content("{$m['mediaHash']}.txt") !== "duo-compiler-media\n") fail('compiled input reread mutable media');
 $snapshotOptions = new ReflectionMethod(Capture::class, 'repository_options');
-$snapshotOptions->setAccessible(true);
 $frozenOptions = $snapshotOptions->invoke(null, $mutable, Policy::load($mutable), $frozen);
 if (!is_array($frozenOptions) || (OptionState::values($frozenOptions)['blogname'] ?? null) !== 'Duo') {
     fail('apply snapshot option preflight reopened mutable state instead of using its compiled artifact');

@@ -136,7 +136,6 @@ $check($report['manifests'] === [], 'capability_report(): manifests is empty wit
 // === Prove genuine delegation to a real AdapterRegistry, not leftover inline
 // logic quietly still doing the work under the old method names.
 $rm = new ReflectionMethod(Policy::class, 'adapter_registry');
-$rm->setAccessible(true);
 $registry = $rm->invoke($policy);
 $check($registry instanceof AdapterRegistry, 'Policy::adapter_registry() constructs a real Duo\AdapterRegistry instance');
 $check(

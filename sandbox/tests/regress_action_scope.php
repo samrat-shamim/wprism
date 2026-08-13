@@ -163,14 +163,10 @@ $expectThrow($bad, 'unknown key', 'unknown action key');
 
 $apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
 $policyProperty = new ReflectionProperty(\Duo\Apply::class, 'policy');
-$policyProperty->setAccessible(true);
 $policyProperty->setValue($apply, $policy);
 $surfaceMethod = new ReflectionMethod(\Duo\Apply::class, 'rebuild_surfaces');
-$surfaceMethod->setAccessible(true);
 $rebuildWorkMethod = new ReflectionMethod(\Duo\Apply::class, 'rebuild_work');
-$rebuildWorkMethod->setAccessible(true);
 $optionNamesMethod = new ReflectionMethod(\Duo\Apply::class, 'option_rebuild_names');
-$optionNamesMethod->setAccessible(true);
 $optionDelta = $optionNamesMethod->invoke(
     $apply,
     [

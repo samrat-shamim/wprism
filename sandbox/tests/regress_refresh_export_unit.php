@@ -136,7 +136,6 @@ Ledger::require_read_only_mapping($uuid, 'post', 'post', 7, 'fixture post');
 check_re($wpdb->queries === 0, 'read-only ledger helper attempted a mutation query');
 
 $identify = new ReflectionMethod(Snapshot::class, 'identify_row');
-$identify->setAccessible(true);
 // DUO-3318: identify_row() takes the capture-direction tokenizer, because a
 // parent-scoped natural key's ref component derives from the REFERENCED row's
 // uuid. The strict read-only branch under test returns before touching it —
@@ -163,11 +162,9 @@ $tokensClass = new ReflectionClass(Tokens::class);
 $tokens = $tokensClass->newInstanceWithoutConstructor();
 foreach (['policy' => $policy, 'tokens' => $tokens] as $property => $value) {
     $slot = $captureClass->getProperty($property);
-    $slot->setAccessible(true);
     $slot->setValue($capture, $value);
 }
 $taxonomies = $captureClass->getMethod('taxes_by_object_type');
-$taxonomies->setAccessible(true);
 try {
     $taxonomies->invoke($capture, ['plugin_exact_taxonomy'], ['post'], true);
     fail_re('strict export silently accepted an unregistered scoped plugin taxonomy');
@@ -198,7 +195,6 @@ check_re(preg_match('/Snapshot::(?:repair_truncated_entity_types|prune_dead_map|
 check_re(!str_contains($code, 'Canon::write_file('), 'exporter writes filesystem state');
 
 $records = new ReflectionMethod(RefreshExport::class, 'records');
-$records->setAccessible(true);
 $result = $records->invoke(null, [[
     'uuid'=>'options/core', 'type'=>'options', 'path'=>'options/core.json', 'content'=>"{}\n",
 ], [
@@ -224,7 +220,6 @@ $optionContent = Canon::encode(OptionState::document([
     'blogname' => OptionState::present('selected title', 'yes'),
 ]));
 $scopedLive = new ReflectionMethod(RefreshExport::class, 'scoped_live_entities');
-$scopedLive->setAccessible(true);
 $projected = $scopedLive->invoke(null, [
     ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => $optionContent],
     ['uuid' => $uuid, 'type' => 'post', 'path' => "posts/post/$uuid--fixture.md", 'content' => "visible\n"],

@@ -49,6 +49,7 @@ function legacy_descriptor_test(array $descriptor): array {
 /** Minimal read-only wpdb seam for ledger descriptor/history loading. */
 final class DescriptorLedgerWpdb {
     public string $prefix = 'wp_';
+    public string $last_error = '';
     /** @var array<string,string> */
     public array $kv = [];
 
@@ -216,11 +217,9 @@ $GLOBALS['wpdb']->kv = [
     Code::CODE_STAGE_HISTORY_KEY => Canon::encode([$legacyDescriptor]),
 ];
 $storedDescriptor = new ReflectionMethod(Code::class, 'stored_descriptor');
-$storedDescriptor->setAccessible(true);
 $loadedLegacy = $storedDescriptor->invoke(null);
 assert_test(is_array($loadedLegacy) && Canon::encode($loadedLegacy) === Canon::encode($legacyDescriptor), 'completed legacy descriptor no longer loads as self-verifying ownership');
 $storedHistory = new ReflectionMethod(Code::class, 'stored_stage_history');
-$storedHistory->setAccessible(true);
 $loadedHistory = $storedHistory->invoke(null);
 assert_test(
     isset($loadedHistory[$legacyDescriptor['code_revision']])
@@ -518,7 +517,6 @@ assert_test($codeChanged->code_revision() !== $baselineCodeRevision, 'code-only 
 assert_test($codeChanged->artifact_hash() !== $baseline->artifact_hash(), 'artifact_hash must bind the separate code descriptor');
 
 $expectedArtifact = new ReflectionMethod(Code::class, 'assert_expected_artifact');
-$expectedArtifact->setAccessible(true);
 $expectedArtifact->invoke(null, $baseline, ['artifact_hash' => $baseline->artifact_hash()]);
 try {
     $expectedArtifact->invoke(null, $codeChanged, ['artifact_hash' => $baseline->artifact_hash()]);

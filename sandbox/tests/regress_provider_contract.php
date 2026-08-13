@@ -1225,7 +1225,6 @@ $check(str_contains($problemsSource, 'self::packaging_problem($t)')
 $check(str_contains($problemsSource, 'self::publishable_foreign_detail(get_class($t)'),
     'DUO-3403: the generic diagnosis branch routes its third-party detail through the secret/path floor');
 $foreignFloor = new \ReflectionMethod(\Duo\Providers::class, 'publishable_foreign_detail');
-$foreignFloor->setAccessible(true);
 $cleanDetail = 'RuntimeException: duo_providers callback for adapter "acme" returned no identity';
 $check($foreignFloor->invoke(null, $cleanDetail) === $cleanDetail,
     'DUO-3403: a clean third-party diagnosis message publishes verbatim — the intended transparency is preserved');

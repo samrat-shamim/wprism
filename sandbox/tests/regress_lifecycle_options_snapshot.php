@@ -421,20 +421,16 @@ $compiled = CompiledRepository::create([
 // apply_option_sub_keys() reads a manifest-owned live option blob.
 $applyReflection = new ReflectionClass(Apply::class);
 $applyConstructor = $applyReflection->getConstructor();
-$applyConstructor->setAccessible(true);
 $apply = $applyReflection->newInstanceWithoutConstructor();
 $applyConstructor->invoke($apply, '/unused', $policy(false), $compiled);
 $assignLocations = new ReflectionMethod(Apply::class, 'assign_locations');
-$assignLocations->setAccessible(true);
 // DUO-3347 slice 7: apply_option_sub_keys() moved from Apply onto
 // OptionsMaterializer (Apply keeps only apply_options() as a facade). Fetched
 // via Apply's own options_materializer() factory rather than hand-built, so
 // this test's OptionsMaterializer is wired with the exact same Policy/Tokens/
 // ApplyFieldMaterializer instances the real facade would use.
 $applyOptionSubKeys = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'apply_option_sub_keys');
-$applyOptionSubKeys->setAccessible(true);
 $optionsMaterializerAccessor = new ReflectionMethod(Apply::class, 'options_materializer');
-$optionsMaterializerAccessor->setAccessible(true);
 $optionsMaterializer = $optionsMaterializerAccessor->invoke($apply);
 
 $wpdb->optionRows = [
@@ -747,11 +743,9 @@ $check(
 // where locations are actually consumed.
 $captureReflection = new ReflectionClass(Capture::class);
 $captureConstructor = $captureReflection->getConstructor();
-$captureConstructor->setAccessible(true);
 $captureForMenus = $captureReflection->newInstanceWithoutConstructor();
 $captureConstructor->invoke($captureForMenus, '/unused', $policy(false));
 $scopeMenus = new ReflectionMethod(Capture::class, 'scope_menus');
-$scopeMenus->setAccessible(true);
 $captureOptionRowsBeforeMenus = $wpdb->optionRows;
 $wpdb->menuTerms = [(object) [
     'term_id' => 7,
@@ -848,9 +842,7 @@ $sidebarPolicy->manifests[0]['widgets'] = [
 ];
 $sidebarDeclared = $sidebarPolicy->widget_types();
 $sidebarLoadWidgets = new ReflectionMethod(SidebarState::class, 'load_widget_options');
-$sidebarLoadWidgets->setAccessible(true);
 $sidebarLoadSidebars = new ReflectionMethod(SidebarState::class, 'load_sidebars_option');
-$sidebarLoadSidebars->setAccessible(true);
 $sidebarWidgetValue = [3 => ['title' => 'Hello'], '_multiwidget' => 1];
 $sidebarAssignmentsValue = ['sidebar-1' => ['text-3'], 'array_version' => 3];
 $wpdb->optionRows = [
