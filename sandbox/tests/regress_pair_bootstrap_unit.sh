@@ -409,6 +409,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_identity.sh" "$bin_dir/../lib/pair_identity.sh"
   cp "$ROOT/sandbox/lib/pair_budget_lock.sh" "$bin_dir/../lib/pair_budget_lock.sh"
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
+  cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
 }
 
 run_case() {
@@ -1932,7 +1933,7 @@ run_destroy_clears_marker_case() {
 
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_db.sh" \
-  "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
+  "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
 grep -Fq 'GIT_CONFIG_KEY_0: safe.directory' "$ROOT/sandbox/pair.yml" \
   || fail "pair CLI services do not declare the exact Git trust key"

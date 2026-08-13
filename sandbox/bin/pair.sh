@@ -84,6 +84,10 @@ source "lib/pair_budget_lock.sh"
 # shellcheck source=../lib/pair_db.sh
 source "lib/pair_db.sh"
 
+[ -r "lib/pair_compose.sh" ] || fail "pair compose library is missing: lib/pair_compose.sh (the launcher cannot safely build compose invocations or query compose state)"
+# shellcheck source=../lib/pair_compose.sh
+source "lib/pair_compose.sh"
+
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/manifests sources must always live, regardless of
@@ -220,7 +224,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh) invoke pair.sh
 # as a subprocess. One exported variable reaches every subcommand from every
 # caller with no argv plumbing anywhere -- the same reasoning that put
-# DUO_AGENT_SRC/DUO_MANIFESTS_SRC into sandbox/.env in pair_compose().
+# DUO_AGENT_SRC/DUO_MANIFESTS_SRC into sandbox/.env in pair_compose_configure().
 #
 # Deliberately NOT applied to stop/destroy/list: those are teardown and
 # inspection, never evidence, and cleanup must never be blocked by a variable
@@ -233,14 +237,14 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   # while the gate is off: `reset` never needed git at all (it only touches
   # databases and site-repo directories relative to its own cwd), and `up`/
   # `start` already fail closed on exactly this condition further down, in
-  # pair_compose()/reserve_pair_budget(), with their own diagnostics. Failing
+  # pair_compose_configure()/reserve_pair_budget(), with their own diagnostics. Failing
   # here would add a brand-new failure mode to an ungated `reset` run from a
   # non-Git copy of this script -- caught by regress_pair_bootstrap_unit.sh's
   # reset_codebind_refusal case, which reset from a scratch directory and got
   # this refusal instead of its codebind one. With the gate ON it is fatal:
   # a run that demands an exact source cannot proceed without identifying it.
   canonical="$(canonical_root)" || canonical=""
-  # DUO-3277's canonical bind root stays exactly what pair_compose() exports
+  # DUO-3277's canonical bind root stays exactly what pair_compose_configure() exports
   # and writes to sandbox/.env. A baked source only ever changes what this
   # gate VERIFIES, never what any later compose call mounts.
   [ -n "$canonical" ] && PAIR_CANONICAL_ROOT="$canonical"
@@ -365,63 +369,9 @@ validate_name() { # validate_name <name>
 # lib/pair_db.sh (pair_db_sql/pair_db_ensure_up/pair_db_ensure_app_user/
 # pair_db_create/pair_db_drop) --------------------------------------------
 
-# --- pair-level compose plumbing --------------------------------------------
-
-# Sets the global array PAIR_COMPOSE to the full `docker compose` argv for
-# pair <name>, given whichever overlay files this call wants layered in.
-pair_compose() { # pair_compose <name> [overlay-file ...]
-  local name="$1"; shift
-  PAIR_COMPOSE=(docker compose -p "duo-${name}" -f pair.yml)
-  local f
-  for f in "$@"; do PAIR_COMPOSE+=(-f "$f"); done
-  # DUO-3277: every PAIR_COMPOSE invocation needs DUO_AGENT_SRC/
-  # DUO_MANIFESTS_SRC in the environment now, not just `up` -- pair.yml
-  # references them unconditionally, so `stop`/`start`/`destroy` (which
-  # never went through cmd_up's own export) would otherwise hand compose
-  # an EMPTY bind-mount source (":/var/www/html/...:ro", invalid spec) the
-  # moment it re-parses pair.yml at all, which compose does for every
-  # subcommand regardless of whether it ends up creating anything.
-  # Exported HERE, the one place every subcommand already funnels through,
-  # rather than duplicated at each call site (caught live: the first
-  # version of this fix only set them in cmd_up and `stop` broke instantly).
-  local root="${PAIR_CANONICAL_ROOT:-}"
-  if [ -z "$root" ]; then
-    if ! root="$(canonical_root)"; then
-      fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- DUO_AGENT_SRC/DUO_MANIFESTS_SRC cannot be computed"
-    fi
-    PAIR_CANONICAL_ROOT="$root"
-  fi
-  export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
-
-  # DUO-3277 (CI caught this the first version above missed): that export
-  # only reaches pair.sh's OWN "${PAIR_COMPOSE[@]}" calls -- it dies with
-  # this process and never reaches the many OTHER scripts (sandbox/
-  # conformance/run.sh, every regress_*.sh/grind_*.sh) that invoke `pair.sh
-  # up` once as a subprocess and then make their own separate, direct
-  # `docker compose -f pair.yml ...` calls afterward (confirmed: that's how
-  # essentially every one of them actually works, not a hypothetical edge
-  # case -- see run.sh's own $COMPOSE + its wp_env() helper). Those scripts
-  # already re-export DUO_PAIR/DUO_PORT1/DUO_PORT2 themselves for the same
-  # process-boundary reason (see run.sh's comment by its own export line),
-  # but making every caller duplicate canonical_root()'s git logic too
-  # would be fragile -- easy to add a new call site and forget it, with no
-  # loud failure until that exact path runs.
-  #
-  # Persist the same two values to sandbox/.env instead, in addition to the
-  # export above: docker compose auto-loads a file by that exact name from
-  # the CWD (verified live with `env -i` stripping every inherited
-  # variable -- compose still resolved both mounts correctly from .env
-  # alone), and every caller in this codebase already `cd`s into sandbox/
-  # before making its own compose calls (this script's own line 45 above;
-  # run.sh's equivalent). One write here, in the single choke point every
-  # subcommand already funnels through, covers every current AND future
-  # caller with zero changes to any of them. Overwritten (never appended)
-  # so a stale value can never survive a worktree/checkout change; safe
-  # under concurrent pair.sh invocations against the same checkout too,
-  # since canonical_root() is a pure function of the checkout, not the pair
-  # name -- any two concurrent writers here always agree on the value.
-  printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" > .env
-}
+# --- pair-level compose plumbing: invocation building and compose-state
+# discovery are in lib/pair_compose.sh (pair_compose_configure/
+# pair_compose_live_pairs/pair_compose_stopped_pairs) ------------------------
 
 prepare_siterepo_roots() { # prepare_siterepo_roots <name>
   local name="$1"
@@ -633,33 +583,13 @@ clear_needs_install_markers() { # clear_needs_install_markers <name>
   done
 }
 
-live_pairs() { # live_pairs — one live pair name per line
-  # Filtered by ConfigFiles (must include this sandbox's pair.yml), not by
-  # project-name pattern: the legacy sandbox/docker-compose.yml's own
-  # project is literally named "duo-sandbox", which — being lowercase
-  # letters only — would otherwise pass right through a naming-convention
-  # filter and get miscounted as one of this redesign's own pairs.  Every
-  # command in this query is checked: unavailable Docker, malformed JSON, or
-  # unavailable jq is a refusal condition, never an empty list.
-  local json
-  json="$(docker compose ls --format json 2>/dev/null)" || return 1
-  [ -n "$json" ] || return 1
-  printf '%s\n' "$json" | jq -r '
-    if type != "array" then error("compose ls did not return an array")
-    else .[]
-      | select((.ConfigFiles // "") | type == "string")
-      | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
-      | select((.Name // "") | type == "string")
-      | select((.Name // "") | startswith("duo-"))
-      | .Name[4:]
-    end
-  '
-}
+# --- live_pairs()/stopped_pairs() (compose-state discovery) are in
+# lib/pair_compose.sh as pair_compose_live_pairs()/pair_compose_stopped_pairs() ---
 
 wait_pair_visible() { # wait_pair_visible <name>
   local name="$1" live
   for _ in $(seq 1 60); do
-    if ! live="$(live_pairs)"; then
+    if ! live="$(pair_compose_live_pairs)"; then
       fail "could not verify pair '$name' became live after compose start"
     fi
     if printf '%s\n' "$live" | grep -Fqx -- "$name"; then
@@ -668,24 +598,6 @@ wait_pair_visible() { # wait_pair_visible <name>
     sleep 1
   done
   fail "pair '$name' did not become visible in Compose after start"
-}
-
-stopped_pairs() { # stopped_pairs — one stopped pair name per line
-  local json
-  json="$(docker compose ls -a --format json 2>/dev/null)" || return 1
-  [ -n "$json" ] || return 1
-  printf '%s\n' "$json" | jq -r '
-    if type != "array" then error("compose ls did not return an array")
-    else .[]
-      | select((.ConfigFiles // "") | type == "string")
-      | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
-      | select((.Status // "") | type == "string")
-      | select((.Status // "") | contains("running") | not)
-      | select((.Name // "") | type == "string")
-      | select((.Name // "") | startswith("duo-"))
-      | .Name[4:]
-    end
-  '
 }
 
 pair_budget() {
@@ -825,7 +737,7 @@ certbundle_reserved_pair() { # certbundle_reserved_pair <candidate>; 0 = pre-bud
   [ -n "$candidate" ] || return 1
   [ -f "$holder_file" ] && [ -f "$lock_file" ] || return 1
   # jq, the same reader certify_reference_bundle.sh's own
-  # certbundle_lock_read_holder() uses, and already required by live_pairs()
+  # certbundle_lock_read_holder() uses, and already required by pair_compose_live_pairs()
   # above. A record that is absent, malformed, or carries a non-string pair is
   # simply not a reservation.
   recorded="$(jq -r 'if (.pair | type) == "string" then .pair else empty end' \
@@ -843,7 +755,7 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
   PAIR_CANONICAL_ROOT="$root"
   budget_lock_acquire "$root"
 
-  if ! live="$(live_pairs)"; then
+  if ! live="$(pair_compose_live_pairs)"; then
     budget_lock_release
     fail "could not enumerate live pair Compose projects; refusing without a verified budget"
   fi
@@ -1128,7 +1040,7 @@ cmd_up() {
 
   # Resolve the canonical bind sources before any shared DB or pair-directory
   # mutation. A copied/non-Git launcher must fail closed without leaving
-  # orphan schemas behind. pair_compose only builds argv and writes the
+  # orphan schemas behind. pair_compose_configure only builds argv and writes the
   # canonical-source .env; it does not contact Docker or require the codebind
   # source directories to exist yet.
   local overlays=()
@@ -1139,7 +1051,7 @@ cmd_up() {
   [ "$wordpress_offline" = 1 ] && overlays+=(pair.wordpress-offline.yml)
   export DUO_PAIR="$name" DUO_PORT1="$port1" DUO_PORT2="$port2" DUO_CODEBIND_PLUGIN="$codebind"
   export DUO_ARTIFACT_OFFLINE="$wordpress_offline"
-  pair_compose "$name" "${overlays[@]}"
+  pair_compose_configure "$name" "${overlays[@]}"
 
   say "shared infra: MariaDB (duo-db) + duo-shared network"
   pair_db_ensure_up
@@ -1164,7 +1076,7 @@ cmd_up() {
 
   say "pair '$name': web containers up"
   # DUO-3277: agent/manifests bind-mount sources always resolve against
-  # the canonical checkout (see pair_compose()/canonical_root()), never
+  # the canonical checkout (see pair_compose_configure()/canonical_root()), never
   # wherever this script itself was invoked from -- if that resolved
   # differently than whatever config an EXISTING container for this pair
   # was created with (e.g. a pair `up`'d from a worktree before this fix,
@@ -1336,7 +1248,7 @@ cmd_stop() {
   local name="${1:?usage: pair.sh stop <name>}"
   validate_name "$name"
   say "pair '$name': stop (free RAM/CPU; containers, volumes, databases all kept)"
-  pair_compose "$name"
+  pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" stop
   pass "stopped — resume with: pair.sh start $name"
@@ -1377,7 +1289,7 @@ cmd_start() {
   pair_db_ensure_up
   check_dead_mounts "$name"
   say "pair '$name': start (state exactly as it was at stop)"
-  pair_compose "$name"
+  pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" start
   wait_pair_visible "$name"
@@ -1394,7 +1306,7 @@ cmd_destroy() {
   # descendants first, while the exact cli mounts still exist and before any
   # container/volume/database mutation. Missing roots remain a no-op.
   repo_host "$name" both
-  pair_compose "$name"
+  pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
   pair_db_ensure_up
@@ -1430,7 +1342,7 @@ cmd_list() {
 
   say "stopped pairs (kept, zero footprint — resume with: pair.sh start <name>)"
   local stopped
-  stopped=$(stopped_pairs)
+  stopped=$(pair_compose_stopped_pairs)
   if [ -z "$stopped" ]; then
     echo "  (none)"
   else
