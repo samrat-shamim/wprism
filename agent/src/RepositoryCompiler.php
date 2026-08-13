@@ -24,6 +24,7 @@ require_once __DIR__ . '/RepositoryEntityParser.php';
 require_once __DIR__ . '/RepositoryIdentityRegistry.php';
 require_once __DIR__ . '/RepositoryReferenceGraphValidator.php';
 require_once __DIR__ . '/RepositoryPortableShapeValidator.php';
+require_once __DIR__ . '/RepositoryMenuLocationValidator.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -91,6 +92,8 @@ final class RepositoryCompiler {
     private RepositoryReferenceGraphValidator $referenceGraphValidator;
     /** Validates declared canonical-reference shapes through this compiler's aggregate sink. */
     private RepositoryPortableShapeValidator $portableShapeValidator;
+    /** Validates authored menu-location uniqueness through this compiler's aggregate sink. */
+    private RepositoryMenuLocationValidator $menuLocationValidator;
 
     private function __construct(
         string $stateDir,
@@ -140,6 +143,12 @@ final class RepositoryCompiler {
             }
         );
         $this->portableShapeValidator = new RepositoryPortableShapeValidator(
+            $policy,
+            function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
+                $this->add($code, $path, $locator, $message, $relatedPath);
+            }
+        );
+        $this->menuLocationValidator = new RepositoryMenuLocationValidator(
             $policy,
             function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
                 $this->add($code, $path, $locator, $message, $relatedPath);
@@ -372,7 +381,7 @@ final class RepositoryCompiler {
         usort($sourceRows, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
         $this->policy->prime_interpreters_from_repository($tree);
         $this->identityRegistry->validate_natural_identities($tree);
-        $this->validate_menu_locations($tree);
+        $this->menuLocationValidator->validate($tree);
         $this->referenceGraphValidator->validate($tree, $this->deletions);
         $this->portableShapeValidator->validate($tree);
         // A comparison revision may predate code opt-in. Keep compiling and
@@ -499,43 +508,6 @@ final class RepositoryCompiler {
         }
         ksort($out, SORT_STRING);
         return $out;
-    }
-
-    /**
-     * One active theme location may name one menu. This is a compiler
-     * invariant rather than an apply-time overwrite rule: it rejects both an
-     * malformed full source tree and a scoped candidate that combines a
-     * selected source menu with an excluded target holder before any scoped
-     * authority/session or target mutation can be created. A manifest that
-     * classifies locations as derived owns that whole surface and is exempt.
-     */
-    private function validate_menu_locations(array $tree): void {
-        if ($this->policy->menu_field_class('locations') === 'derived') {
-            return;
-        }
-        $holders = [];
-        foreach ($tree as $entity) {
-            if (($entity['type'] ?? '') !== 'menu') {
-                continue;
-            }
-            $path = (string) ($entity['path'] ?? '');
-            foreach ((array) ($entity['data']['locations'] ?? []) as $i => $location) {
-                if (!is_string($location) || $location === '') {
-                    continue; // validate_schema() owns the shape diagnostic.
-                }
-                if (isset($holders[$location])) {
-                    $this->add(
-                        'duplicate_menu_location',
-                        $path,
-                        "locations[$i]",
-                        "menu location '$location' is already assigned by {$holders[$location]}",
-                        $holders[$location]
-                    );
-                    continue;
-                }
-                $holders[$location] = $path;
-            }
-        }
     }
 
     private function add(string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
