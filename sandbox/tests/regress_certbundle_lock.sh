@@ -857,6 +857,9 @@ PAIR_READINESS_SH="$(dirname "$PAIR_SH")/../lib/pair_readiness.sh"
 PAIR_BOOTSTRAP_SH="$(dirname "$PAIR_SH")/../lib/pair_bootstrap.sh"
 [ -f "$PAIR_BOOTSTRAP_SH" ] \
   || fail "cannot find the pair-bootstrap library required by the pair tool: $PAIR_BOOTSTRAP_SH"
+PAIR_SITEREPO_SH="$(dirname "$PAIR_SH")/../lib/pair_siterepo.sh"
+[ -f "$PAIR_SITEREPO_SH" ] \
+  || fail "cannot find the pair-siterepo library required by the pair tool: $PAIR_SITEREPO_SH"
 # Empty on a host with no util-linux flock(1) (an ordinary macOS/BSD box):
 # the probe cases that need a REAL flock to shim say so and skip.
 REAL_FLOCK="$(command -v flock 2>/dev/null || true)"
@@ -952,6 +955,7 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
   cp "$PAIR_COMPOSE_SH" "$root/sandbox/lib/pair_compose.sh"
   cp "$PAIR_READINESS_SH" "$root/sandbox/lib/pair_readiness.sh"
   cp "$PAIR_BOOTSTRAP_SH" "$root/sandbox/lib/pair_bootstrap.sh"
+  cp "$PAIR_SITEREPO_SH" "$root/sandbox/lib/pair_siterepo.sh"
   chmod +x "$root/sandbox/bin/pair.sh"
   write_pair_fakes "$root/bin"
   path_value="$root/bin:$PATH"

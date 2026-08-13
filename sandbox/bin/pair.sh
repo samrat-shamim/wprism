@@ -97,6 +97,10 @@ source "lib/pair_readiness.sh"
 # shellcheck source=../lib/pair_bootstrap.sh
 source "lib/pair_bootstrap.sh"
 
+[ -r "lib/pair_siterepo.sh" ] || fail "pair site-repository library is missing: lib/pair_siterepo.sh (the launcher cannot safely hand back or clear exact pair roots)"
+# shellcheck source=../lib/pair_siterepo.sh
+source "lib/pair_siterepo.sh"
+
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/manifests sources must always live, regardless of
@@ -156,7 +160,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # DUO-3377: the container-side destination pair.yml mounts DUO_AGENT_SRC to.
 # Matched exactly, never by prefix: the sibling duo-loader.php mount lives in
 # the same directory, and pair.codebind.yml adds its own mounts one tree over
-# (wp-content/plugins/, see refuse_codebind_reset).
+# (wp-content/plugins/, see pair_siterepo_refuse_codebind_reset).
 AGENT_MOUNT_DEST=/var/www/html/wp-content/mu-plugins/duo
 
 # DUO-3377: the agent bind source BAKED INTO an existing pair's containers,
@@ -382,162 +386,6 @@ validate_name() { # validate_name <name>
 # discovery are in lib/pair_compose.sh (pair_compose_configure/
 # pair_compose_live_pairs/pair_compose_stopped_pairs) ------------------------
 
-prepare_siterepo_roots() { # prepare_siterepo_roots <name>
-  local name="$1"
-  mkdir -p "siterepo/${name}1" "siterepo/${name}2"
-
-  # These are disposable sandbox bind-mount roots, shared by two different
-  # users: the host process creates/commits the repository, while wp-cli runs
-  # as uid 33 and creates capture locks plus atomic staging directories at the
-  # repository root. Linux CI preserves host ownership on bind mounts (unlike
-  # some desktop Docker filesystems), so mkdir's ordinary 0755 would leave a
-  # fresh checkout host-only and every capture would fail before it
-  # could acquire state.capture.lock. Keep this deliberately scoped to the two
-  # throwaway sandbox roots; it is not a production permission recommendation.
-  chmod 0777 "siterepo/${name}1" "siterepo/${name}2"
-}
-
-# DUO-3420: return one pair-owned bind root to the host user after uid 33 has
-# created capture/state trees in it. The path is never accepted from argv: it
-# is derived only from an already validated pair name and a closed side value.
-# A one-shot root container bind-mounts precisely that resolved directory at
-# /siterepo, crossing the uid boundary without sudo or granting host cleanup
-# authority over another pair or the canonical checkout. Direct `docker run`
-# also keeps reset's established non-Git-copy behavior: no agent/manifests
-# source resolution or pair service/volume creation is needed for a handback.
-#
-# The root inode is preserved. Missing roots are a no-op (destroy of a pair
-# that never reached repository creation stays a no-op); a symlink or other
-# non-directory refuses instead of following/replacing it. chown/chmod and the
-# host-side ownership readback are all checked so reset/destroy fail before
-# database/container mutation when the handback cannot be proved.
-repo_host_stat_owner() { # repo_host_stat_owner <ordinary path>
-  local path="$1" owner
-  if owner="$(stat -c '%u:%g' "$path" 2>/dev/null)"; then
-    : # GNU stat.
-  elif owner="$(stat -f '%u:%g' "$path" 2>/dev/null)"; then
-    : # BSD stat.
-  else
-    return 1
-  fi
-  printf '%s\n' "$owner"
-}
-
-repo_host_stat_inode() { # repo_host_stat_inode <ordinary path>
-  local path="$1" inode
-  if inode="$(stat -c '%i' "$path" 2>/dev/null)"; then
-    : # GNU stat.
-  elif inode="$(stat -f '%i' "$path" 2>/dev/null)"; then
-    : # BSD stat.
-  else
-    return 1
-  fi
-  printf '%s\n' "$inode"
-}
-
-repo_host_revalidate_root() { # repo_host_revalidate_root <root> <expected-inode>
-  local root="$1" expected_inode="$2" actual_inode
-  if [ -L "$root" ] || [ ! -d "$root" ]; then
-    fail "exact pair repository root changed from an ordinary directory during ownership handback: $root"
-  fi
-  actual_inode="$(repo_host_stat_inode "$root")" \
-    || fail "could not read exact pair repository inode after ownership handback: $root"
-  [ "$actual_inode" = "$expected_inode" ] \
-    || fail "exact pair repository inode changed during ownership handback: $root"
-}
-
-repo_host_one() { # repo_host_one <name> <side (1|2)>
-  local name="$1" side="$2" root root_abs host_uid host_gid owner owner_uid root_inode_before cli_image
-  root="siterepo/${name}${side}"
-  case "$side" in
-    1|2) ;;
-    *) fail "repository side '$side' invalid — expected 1 or 2" ;;
-  esac
-  if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
-    fail "pair '$name' repository root is not an ordinary directory: $root — refusing ownership handback"
-  fi
-  [ -d "$root" ] || return 0
-
-  host_uid="$(id -u)" || fail "could not resolve the host uid for repository handback"
-  host_gid="$(id -g)" || fail "could not resolve the host gid for repository handback"
-  [[ "$host_uid" =~ ^[0-9]+$ ]] && [[ "$host_gid" =~ ^[0-9]+$ ]] \
-    || fail "host uid/gid must be decimal integers for repository handback (got ${host_uid}:${host_gid})"
-
-  root_abs="$(cd "$(dirname "$root")" && pwd -P)/$(basename "$root")" \
-    || fail "could not resolve exact pair repository path for ownership handback: $root"
-  if [ -L "$root_abs" ] || [ ! -d "$root_abs" ]; then
-    fail "pair '$name' repository root is not an ordinary physical directory: $root_abs — refusing ownership handback"
-  fi
-  root_inode_before="$(repo_host_stat_inode "$root_abs")" \
-    || fail "could not read exact pair repository inode before ownership handback: $root"
-  [[ "$root_inode_before" =~ ^[0-9]+$ ]] \
-    || fail "exact pair repository inode is malformed before ownership handback: $root"
-
-  cli_image="${DUO_CLI_IMAGE:-wordpress:cli-php8.3}"
-  if ! docker run --rm -u root \
-    --mount "type=bind,src=${root_abs},dst=/siterepo" \
-    --entrypoint sh "$cli_image" -ceu '
-uid="$1"; gid="$2"
-chown -R "$uid:$gid" /siterepo
-chmod -R ugo+rwX /siterepo
-chmod 0777 /siterepo
-' sh "$host_uid" "$host_gid"; then
-    fail "could not return exact pair repository $root from container uid 33 to host ${host_uid}:${host_gid}"
-  fi
-
-  # Docker Desktop may return an exact host UID but a translated GID for this
-  # bind root. Revalidate its closed path/inode before every host mutation;
-  # a foreign UID is never normalized, and a final literal uid:gid readback is
-  # still mandatory after the narrowly scoped host-side repair.
-  repo_host_revalidate_root "$root_abs" "$root_inode_before"
-  owner="$(repo_host_stat_owner "$root_abs")" || {
-    fail "could not verify host ownership of exact pair repository $root after handback"
-  }
-  if ! [[ "$owner" =~ ^[0-9]+:[0-9]+$ ]]; then
-    fail "exact pair repository ownership readback is malformed after handback: $owner"
-  fi
-  owner_uid="${owner%%:*}"
-  if [ "$owner_uid" != "$host_uid" ]; then
-    fail "exact pair repository $root has foreign uid after handback (got ${owner}; expected uid ${host_uid})"
-  fi
-  if [ "$owner" != "${host_uid}:${host_gid}" ]; then
-    # -h prevents a root-path symlink race from following a target; no -R is
-    # intentional. Docker already chowns the tree recursively, while this
-    # host repair changes only the prevalidated exact bind-root directory.
-    if ! chgrp -h "$host_gid" "$root_abs"; then
-      repo_host_revalidate_root "$root_abs" "$root_inode_before"
-      fail "could not normalize exact pair repository $root to host group ${host_gid} after handback"
-    fi
-    repo_host_revalidate_root "$root_abs" "$root_inode_before"
-    owner="$(repo_host_stat_owner "$root_abs")" || {
-      fail "could not verify host ownership of exact pair repository $root after host-side normalization"
-    }
-  fi
-  [ "$owner" = "${host_uid}:${host_gid}" ] \
-    || fail "exact pair repository $root still has owner $owner after handback (expected ${host_uid}:${host_gid})"
-}
-
-repo_host() { # repo_host <name> [1|2|both]
-  local name="$1" selector="${2:-both}"
-  validate_name "$name"
-  case "$selector" in
-    1|2) repo_host_one "$name" "$selector" ;;
-    both)
-      # Validate both exact roots before mutating either one, so a malformed
-      # peer path cannot leave a half-transition behind.
-      local root
-      for root in "siterepo/${name}1" "siterepo/${name}2"; do
-        if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
-          fail "pair '$name' repository root is not an ordinary directory: $root — refusing ownership handback"
-        fi
-      done
-      repo_host_one "$name" 1
-      repo_host_one "$name" 2
-      ;;
-    *) fail "repository side '$selector' invalid — expected 1, 2, or both" ;;
-  esac
-}
-
 # DUO-3412: the "this side's database was dropped out from under it" record —
 # the one piece of state that lets `up` know it must not trust the
 # `is-installed` probe it is about to make.
@@ -569,8 +417,8 @@ repo_host() { # repo_host <name> [1|2|both]
 # inside siterepo/<name>{1,2}: those two are bind-mounted into the containers
 # as /siterepo and ARE the site repository the agent captures and commits, so
 # a stray dot-file there is content drift in someone's evidence — and
-# cmd_reset's own clear_siterepo_root() empties them, which would delete the
-# marker in the same breath that wrote it.
+# cmd_reset's own pair_siterepo_clear_root() empties them, which would delete
+# the marker in the same breath that wrote it.
 # --- compose state/discovery is in lib/pair_compose.sh; bounded readiness
 # waits are in lib/pair_readiness.sh (pair_readiness_wait_*()); WordPress
 # installation and reset-to-bootstrap state are in lib/pair_bootstrap.sh ---
@@ -857,7 +705,7 @@ cmd_up() {
   pass "wp_${name}1, wp_${name}2 exist"
 
   say "pair '$name': site-repo directories"
-  prepare_siterepo_roots "$name"
+  pair_siterepo_prepare_roots "$name"
   local force_recreate=()
   if [ -n "$codebind" ]; then
     # Bootstrap-order requirement inherited from spike G (see
@@ -936,70 +784,18 @@ cmd_up() {
   echo "  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=${name} must stay exported, or pass -p duo-${name} and set WORDPRESS_DB_NAME/etc. yourself)"
 }
 
-clear_siterepo_root() { # clear_siterepo_root <path>
-  local root="$1"
-
-  # Preserve the bind-root inode. Docker's default rprivate bind propagation
-  # pins the directory that existed when a container was created; deleting
-  # and recreating that directory makes a running ordinary web/site container
-  # see stale content forever. Codebind pairs are refused separately because
-  # their nested plugin inode would still be replaced. Remove only children
-  # in place instead. A
-  # pre-existing symlink/non-directory is not a valid disposable root and is
-  # removed before the real directory is made.
-  if [ -L "$root" ] || { [ -e "$root" ] && [ ! -d "$root" ]; }; then
-    rm -rf -- "$root"
-  fi
-  mkdir -p -- "$root"
-  chmod -R ugo+rwX "$root"
-  find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
-  chmod 0777 "$root"
-}
-
-refuse_codebind_reset() { # refuse_codebind_reset <name>
-  local name="$1" container mounts source destination existing
-
-  # pair.codebind.yml adds a nested plugin bind source whose inode is pinned
-  # independently of /siterepo/<name>. Clearing that nested directory in place
-  # would still leave a running/stopped container attached to stale code, so
-  # reset has an explicit fail-closed contract for codebind pairs. Destroy the
-  # pair and bring it back with --codebind after the clean-room reset instead.
-  if ! existing="$(docker ps -a --format '{{.Names}}' 2>/dev/null)"; then
-    fail "could not enumerate pair containers before reset; refusing without a verified codebind check"
-  fi
-  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1" \
-                   "duo-${name}-cli1-1" "duo-${name}-cli2-1"; do
-    if ! printf '%s\n' "$existing" | grep -Fqx -- "$container"; then
-      continue
-    fi
-    if ! mounts="$(docker inspect "$container" \
-      --format '{{range .Mounts}}{{.Source}}{{"\t"}}{{.Destination}}{{"\n"}}{{end}}' \
-      2>/dev/null)"; then
-      fail "could not inspect existing pair container $container before reset; refusing without a verified codebind check"
-    fi
-    while IFS=$'\t' read -r source destination; do
-      [ -n "${destination:-}" ] || continue
-      case "$destination" in
-        /var/www/html/wp-content/plugins/*)
-          fail "pair '$name' has a codebind mount on $container ($source -> $destination); reset is refused because Docker pins that nested inode. Run 'pair.sh destroy $name' then 'pair.sh up $name <port1> <port2> --codebind <plugin-dir>'"
-          ;;
-      esac
-    done <<< "$mounts"
-  done
-}
-
 cmd_reset() {
   local name="${1:?usage: pair.sh reset <name>}"
   validate_name "$name"
   # DUO-3377: reset is a mutation (DROP/CREATE of both databases, plus the
   # site-repo clear below) and is what every conformance sweep runs FIRST, so
-  # the gate has to sit ahead of it -- ahead of refuse_codebind_reset's docker
+  # the gate has to sit ahead of pair_siterepo_refuse_codebind_reset's Docker
   # queries too, since the source question is answerable without them.
   assert_candidate_source reset
-  refuse_codebind_reset "$name"
+  pair_siterepo_refuse_codebind_reset "$name"
   # Refuse before DROP/CREATE if uid-33 descendants cannot be returned to the
   # host process that clears them. The helper preserves both bind-root inodes.
-  repo_host "$name" both
+  pair_siterepo_host "$name" both
   pair_db_ensure_up
 
   say "pair '$name': reset"
@@ -1014,10 +810,10 @@ cmd_reset() {
   # the DROP: a marker left behind by a reset that failed to drop anything
   # would force `wp core install` onto a site that is still installed.
   pair_bootstrap_mark_sides_need_install "$name"
-  clear_siterepo_root "siterepo/${name}1"
-  clear_siterepo_root "siterepo/${name}2"
+  pair_siterepo_clear_root "siterepo/${name}1"
+  pair_siterepo_clear_root "siterepo/${name}2"
   rm -rf -- "siterepo/origin-${name}.git"
-  prepare_siterepo_roots "$name"
+  pair_siterepo_prepare_roots "$name"
   pass "wp_${name}1/wp_${name}2 dropped + recreated empty; siterepo/${name}{1,2} cleared in place and origin-${name}.git removed"
   echo "  reset covers: both databases (DROP/CREATE) and the site-repo contents"
   echo "  (siterepo/${name}{1,2}, origin-${name}.git). The two ordinary site-repo"
@@ -1100,7 +896,7 @@ cmd_destroy() {
   # Cleanup callers remove the pair roots after destroy. Return uid-33 capture
   # descendants first, while the exact cli mounts still exist and before any
   # container/volume/database mutation. Missing roots remain a no-op.
-  repo_host "$name" both
+  pair_siterepo_host "$name" both
   pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
@@ -1246,7 +1042,7 @@ USAGE
 case "${1:-}" in
   up)      shift; cmd_up "$@" ;;
   reset)   shift; cmd_reset "$@" ;;
-  repo-host) shift; repo_host "$@" ;;
+  repo-host) shift; pair_siterepo_host "$@" ;;
   stop)    shift; cmd_stop "$@" ;;
   start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;
