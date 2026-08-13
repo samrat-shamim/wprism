@@ -758,7 +758,7 @@ say "case 14 — shipped ordering: the lock is acquired before any preflight or 
 line_of() { grep -n -x -- "$2" "$1" | head -1 | cut -d: -f1; }
 SOURCE_LIB_LINE=$(line_of "$SHIPPED" "source lib/certbundle_lock.sh")
 ACQUIRE_LINE=$(line_of "$SHIPPED" "certbundle_lock_acquire")
-PREFLIGHT_LINE=$(line_of "$SHIPPED" "assert_exact_certification_checkout")
+PREFLIGHT_LINE=$(line_of "$SHIPPED" "certbundle_source_assert_exact_checkout")
 WORKROOT_LINE=$(grep -n 'WORK_ROOT=$(mktemp -d ' "$SHIPPED" | head -1 | cut -d: -f1)
 [ -n "$SOURCE_LIB_LINE" ] || fail "certify_reference_bundle.sh no longer sources certbundle_lock.sh"
 [ -n "$ACQUIRE_LINE" ] || fail "certify_reference_bundle.sh no longer calls certbundle_lock_acquire at top level"
@@ -772,7 +772,7 @@ WORKROOT_LINE=$(grep -n 'WORK_ROOT=$(mktemp -d ' "$SHIPPED" | head -1 | cut -d: 
 pass "acquire (line $ACQUIRE_LINE) precedes the preflight (line $PREFLIGHT_LINE) and the work root (line $WORKROOT_LINE)"
 
 say "case 14b — every evidence child and the final bundle are bound to one preflighted source commit"
-SOURCE_LINE=$(grep -n '^SOURCE_SHA=$(git -C "\$REPO_ROOT" rev-parse' "$SHIPPED" | head -1 | cut -d: -f1)
+SOURCE_LINE=$(grep -n '^SOURCE_SHA=$(certbundle_source_freeze_sha)' "$SHIPPED" | head -1 | cut -d: -f1)
 DUO_EXPORT_LINE=$(line_of "$SHIPPED" 'export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"')
 CONF_EXPORT_LINE=$(line_of "$SHIPPED" 'export CONF_EXPECTED_SOURCE_SHA="$SOURCE_SHA"')
 MATERIALIZE_LINE=$(line_of "$SHIPPED" 'say "materialize the content-addressed machine-readable bundle"')
@@ -782,9 +782,9 @@ MATERIALIZE_LINE=$(line_of "$SHIPPED" 'say "materialize the content-addressed ma
   || fail "the source SHA must be frozen after clean-checkout proof and before the first work-root/mutation"
 [ "$DUO_EXPORT_LINE" -lt "$MATERIALIZE_LINE" ] && [ "$CONF_EXPORT_LINE" -lt "$MATERIALIZE_LINE" ] \
   || fail "exact-source expectations must reach every child before any evidence is materialized"
-[ "$(grep -c '^assert_exact_source_unchanged$' "$SHIPPED")" -ge 2 ] \
+[ "$(grep -c '^certbundle_source_assert_unchanged "\$SOURCE_SHA"$' "$SHIPPED")" -ge 2 ] \
   || fail "the runner must re-read HEAD/cleanliness before bundle materialization and again before success"
-assert_in "$SHIPPED" 'assert_expected_source_sha CERT_BUNDLE_EXPECTED_SOURCE_SHA' \
+assert_in "$SHIPPED" 'certbundle_source_assert_expected_sha "$SOURCE_SHA" CERT_BUNDLE_EXPECTED_SOURCE_SHA' \
   "a launcher-owned expected commit is not enforced"
 assert_in "$SHIPPED" 'GIT_REVISION="$SOURCE_SHA"' \
   "the bundle labels evidence with a late HEAD read instead of the exercised source snapshot"
