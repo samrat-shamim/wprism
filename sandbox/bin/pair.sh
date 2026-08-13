@@ -88,6 +88,10 @@ source "lib/pair_db.sh"
 # shellcheck source=../lib/pair_compose.sh
 source "lib/pair_compose.sh"
 
+[ -r "lib/pair_readiness.sh" ] || fail "pair readiness library is missing: lib/pair_readiness.sh (the launcher cannot safely verify pair, mount, and database readiness)"
+# shellcheck source=../lib/pair_readiness.sh
+source "lib/pair_readiness.sh"
+
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/manifests sources must always live, regardless of
@@ -583,22 +587,8 @@ clear_needs_install_markers() { # clear_needs_install_markers <name>
   done
 }
 
-# --- live_pairs()/stopped_pairs() (compose-state discovery) are in
-# lib/pair_compose.sh as pair_compose_live_pairs()/pair_compose_stopped_pairs() ---
-
-wait_pair_visible() { # wait_pair_visible <name>
-  local name="$1" live
-  for _ in $(seq 1 60); do
-    if ! live="$(pair_compose_live_pairs)"; then
-      fail "could not verify pair '$name' became live after compose start"
-    fi
-    if printf '%s\n' "$live" | grep -Fqx -- "$name"; then
-      return 0
-    fi
-    sleep 1
-  done
-  fail "pair '$name' did not become visible in Compose after start"
-}
+# --- compose state/discovery is in lib/pair_compose.sh; bounded readiness
+# waits are in lib/pair_readiness.sh (pair_readiness_wait_*()) ---
 
 pair_budget() {
   # Dynamic host budget instead of a hardcoded pair count: **2 RUNNING pairs
@@ -817,51 +807,6 @@ RewriteRule . /index.php [L]
 </IfModule>
 # END WordPress
 EOF
-}
-
-wait_db_ready() { # wait_db_ready <name> <side (1|2)>
-  # THE readiness fix task #74 called for: a check that actually requires
-  # the database to be reachable, run through this pair's own cli
-  # container (so it also proves the network path and WORDPRESS_DB_* creds
-  # are right) — not `wp core version`, which is a static-file read that
-  # would happily report "ready" even if the database were unreachable.
-  # `wp db query "SELECT 1"` works against a database that exists but has
-  # zero tables yet (our exact state right after CREATE DATABASE, before
-  # `core install` has run), unlike `wp db check` (mysqlcheck), which
-  # checks tables and would have nothing to check yet.
-  local name="$1" side="$2"
-  for _ in $(seq 1 90); do
-    if "${PAIR_COMPOSE[@]}" run --rm -T "cli${side}" wp db query "SELECT 1" >/dev/null 2>&1; then
-      return 0
-    fi
-    sleep 2
-  done
-  fail "env ${name}${side} never reached its database"
-}
-
-wait_web_mountpoints() { # wait_web_mountpoints <name>
-  # pair.yml mounts the shared wp-content tree and then mounts the Duo MU
-  # directory/file underneath that named volume. Starting cli1/cli2 in the
-  # same compose transaction races Docker's volume initialization: a CLI
-  # container can try to create the nested file mountpoint while the first
-  # web container is still populating the volume. The web services own that
-  # initialization; wait until both can see the nested mounts before asking
-  # Compose to create the CLI services.
-  local name="$1" side all_ready mount_check
-  mount_check='test -d /var/www/html/wp-content/mu-plugins/duo && test -f /var/www/html/wp-content/mu-plugins/duo-loader.php'
-  for _ in $(seq 1 60); do
-    all_ready=1
-    for side in 1 2; do
-      if ! "${PAIR_COMPOSE[@]}" exec -T "wp$side" sh -c "$mount_check" >/dev/null 2>&1; then
-        all_ready=0
-      fi
-    done
-    if [ "$all_ready" = 1 ]; then
-      return 0
-    fi
-    sleep 1
-  done
-  fail "env ${name} web containers never exposed the nested Duo MU mountpoints"
 }
 
 install_and_activate_theme() { # install_and_activate_theme <cli service> <theme slug>
@@ -1092,7 +1037,7 @@ cmd_up() {
   # but never create CLI services until the web containers have established
   # pair.yml's nested MU bind mountpoints inside their named volumes.
   "${PAIR_COMPOSE[@]}" up -d "${force_recreate[@]}" wp1 wp2
-  wait_web_mountpoints "$name"
+  pair_readiness_wait_web_mountpoints "$name"
   "${PAIR_COMPOSE[@]}" up -d cli1 cli2
   # Once both web and CLI containers exist, the pair is visible to the next
   # strict compose-list query. Release before the potentially long WP
@@ -1102,8 +1047,8 @@ cmd_up() {
   pass "web mountpoints established; CLI containers up"
 
   say "pair '$name': waiting for DB-level readiness (both sides)"
-  wait_db_ready "$name" 1
-  wait_db_ready "$name" 2
+  pair_readiness_wait_db "$name" 1
+  pair_readiness_wait_db "$name" 2
   pass "both sides reach their database"
 
   local url1 url2
@@ -1292,7 +1237,7 @@ cmd_start() {
   pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" start
-  wait_pair_visible "$name"
+  pair_readiness_wait_pair_visible "$name"
   disarm_budget_up_cleanup
   pass "running again — same ports/config as before the stop"
 }
