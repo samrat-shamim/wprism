@@ -1090,12 +1090,24 @@ final class Capture {
     private static function lint_warning(int $count, string $repo, ?string $hostEnvironment): string {
         $warning = $count . ' suspicious unrewritten ref(s) in captured state — ';
         if ($hostEnvironment !== null) {
-            $warning .= 'run on the host: `duo lint ' . self::shell_arg($hostEnvironment) . '`; or ';
+            $environmentArg = self::shell_arg($hostEnvironment);
+            if ($environmentArg !== null) {
+                $warning .= 'run on the host: `duo lint ' . $environmentArg . '`; or ';
+            }
         }
-        return $warning . 'run directly on the target: `wp duo lint --repo=' . self::shell_arg($repo) . '`';
+        $repoArg = self::shell_arg($repo);
+        if ($repoArg === null) {
+            return $warning . 'run directly on the target with a control-free `--repo` path; '
+                . 'the configured repository path is unsafe to render';
+        }
+        return $warning . 'run directly on the target: `wp duo lint --repo=' . $repoArg . '`';
     }
 
-    private static function shell_arg(string $value): string {
+    /** Keep a copy-ready argument bounded and on one terminal line. */
+    private static function shell_arg(string $value): ?string {
+        if (strlen($value) > 4096 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return null;
+        }
         return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1
             ? $value
             : escapeshellarg($value);

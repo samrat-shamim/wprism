@@ -34,6 +34,87 @@ final class PassthroughCommand {
         return $driver->streamWp(array_merge(['duo', $verb, '--repo=' . $driver->repoPath()], $extra));
     }
 
+    /**
+     * Preserve the ordinary env-set wire contract while masking the terminal
+     * that actually owns an interactive operator's keyboard. Docker and SSH
+     * intentionally run the target without a PTY, so target-side stty cannot
+     * suppress echo on the host terminal. Piped input has no terminal echo and
+     * follows the ordinary passthrough path unchanged.
+     *
+     * @param null|callable():bool $stdinIsTty
+     * @param null|callable(bool):bool $setTerminalEcho
+     */
+    public static function runEnvSet(
+        EnvironmentDriver $driver,
+        array $extra,
+        ?callable $stdinIsTty = null,
+        ?callable $setTerminalEcho = null
+    ): int {
+        $hasStdin = false;
+        foreach ($extra as $arg) {
+            if (!is_string($arg) || self::isHostOwnedTargetFlag($arg)) {
+                return self::run($driver, 'env-set', $extra);
+            }
+            if ($arg === '--stdin' || str_starts_with($arg, '--stdin=')) {
+                $hasStdin = true;
+            }
+        }
+        if (!$hasStdin) {
+            return self::run($driver, 'env-set', $extra);
+        }
+
+        $stdinIsTty ??= static function (): bool {
+            if (function_exists('stream_isatty')) {
+                return @stream_isatty(STDIN);
+            }
+            return function_exists('posix_isatty') && @posix_isatty(STDIN);
+        };
+        if (!$stdinIsTty()) {
+            return self::run($driver, 'env-set', $extra);
+        }
+
+        $setTerminalEcho ??= static function (bool $enabled): bool {
+            if (PHP_OS_FAMILY === 'Windows' || !function_exists('exec')) {
+                return false;
+            }
+            $output = [];
+            $exitCode = 1;
+            exec($enabled ? 'stty echo 2>/dev/null' : 'stty -echo 2>/dev/null', $output, $exitCode);
+            return $exitCode === 0;
+        };
+        if (!$setTerminalEcho(false)) {
+            return self::scopeWireRefusal(
+                'env-set',
+                $extra,
+                'stdin_masking_unavailable',
+                'the local terminal could not disable echo for secret input',
+                'repair the local terminal or pipe the value from a trusted non-interactive source, then retry'
+            );
+        }
+
+        $echoMasked = true;
+        register_shutdown_function(static function () use (&$echoMasked, $setTerminalEcho): void {
+            if ($echoMasked) {
+                $setTerminalEcho(true);
+            }
+        });
+        $exitCode = 1;
+        $restored = false;
+        try {
+            $exitCode = self::run($driver, 'env-set', $extra);
+        } finally {
+            $restored = $setTerminalEcho(true);
+            $echoMasked = !$restored;
+            if (!$restored) {
+                fwrite(
+                    STDERR,
+                    "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
+                );
+            }
+        }
+        return $restored ? $exitCode : 2;
+    }
+
     public static function runScoped(EnvironmentDriver $driver, string $verb, array $extra): int {
         $forward = [];
         $contractPath = null;

@@ -725,6 +725,8 @@ final class Cli {
      *   excluded live row/media blob/tombstone byte-for-byte. Version 1 can delete only a selected live
      *   identity with reviewed deletion capability and no excluded inbound referrer; it cannot resurrect
      *   a selected tombstone or mint a new identity.
+     * [--scope-request-b64=<request>] : Orchestrator-reserved compact scope request.
+     * [--orchestrator-environment=<name>] : Orchestrator-reserved host presentation context.
      * [--json]           : JSON summary (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */

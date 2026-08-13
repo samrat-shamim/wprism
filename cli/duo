@@ -379,10 +379,11 @@ Verbs:
     --name=<name>         (--value=<value> | --stdin)`. Provisions one
     (--value=<v>|--stdin)   manifest-declared class="env" option on <env> —
                           see `duo status`'s env_missing checklist for what
-                          still needs a value. --stdin reads from STDIN with
-                          echo disabled and is never logged (deliberately
-                          not named --prompt, which wp-cli reserves as its
-                          own global flag); --value is scriptable but lands
+                          still needs a value. Interactive --stdin masks the
+                          local terminal before Docker/SSH passthrough and is
+                          never logged; piped input stays non-interactive
+                          (deliberately not named --prompt, which wp-cli
+                          reserves as its own global flag); --value lands
                           in shell history like any other flag. Refuses any
                           name not declared class="env" by the loaded policy.
   promote <env> [...]     Compile once. A production SSH target with the
@@ -692,7 +693,8 @@ function main(array $argv): int {
         'init' => cmd_init($transport, $extra),
         'status' => cmd_status($transport, $extra),
         'adapter-observe' => cmd_adapter_observe($transport, $extra),
-        'capabilities', 'lint', 'plan', 'explain', 'apply', 'env-set', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'env-set' => PassthroughCommand::runEnvSet($transport, $extra),
         'capture' => cmd_capture($transport, $extra),
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),

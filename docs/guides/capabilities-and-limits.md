@@ -138,9 +138,11 @@ to write one:
 duo env-set production --name=woocommerce_stripe_key --stdin
 ```
 
-Prefer `--stdin` for anything actually secret: it reads with terminal echo
-disabled and is never logged, whereas `--value` lands in shell history and
-process listings like any other flag. `env-set` refuses any name the loaded
+Prefer `--stdin` for anything actually secret: interactive host use masks the
+local terminal before input crosses Docker or SSH, direct target use masks at
+the agent, and piped input never acquires a terminal echo. The value is never
+logged or placed in argv, whereas `--value` lands in shell history and process
+listings like any other flag. `env-set` refuses any name the loaded
 policy did not declare `class: "env"`, refuses an option declaring `sub_keys`
 (a structured plugin-managed blob a bare string write would corrupt), and
 refuses an empty value.

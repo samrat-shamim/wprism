@@ -698,14 +698,18 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   lint warning without knowing the target transport or repository path;
   findings stream live and the agent's exit code is preserved.
 
-- **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`** — pure
+- **`duo env-set <env> --name=<name> (--value=<value> | --stdin)`** — guarded
   passthrough to `wp duo env-set --repo=<repo_path> --name=<name> …`, same
   live-streaming/exit-code contract as capture/plan/apply above. This is
   the one passthrough verb where that matters for more than consistency:
-  `--stdin` reads the value from STDIN with the terminal's echo disabled,
-  and passthrough's use of `passthru()` (rather than the captured-output
-  `proc_open` doctor/status use) is exactly what lets STDIN reach the
-  agent process interactively through any of the three transports. Named
+  `--stdin` disables echo on the local terminal before inherited input
+  reaches Docker/SSH, whose target process intentionally has no PTY; direct
+  target use retains the agent's own masking. If local masking cannot be
+  enabled, interactive host use refuses before target contact. Piped input
+  has no terminal echo and passes through unchanged. `passthru()` (rather
+  than the captured-output `proc_open` doctor/status use) lets STDIN reach
+  the agent through all three transports without putting the value in argv.
+  Named
   `--stdin`, not `--prompt` — wp-cli reserves `--prompt` globally for its
   own generic per-parameter prompting and consumes it before any command
   ever sees it, confirmed live rather than assumed. See "Env-bound value
@@ -1276,8 +1280,9 @@ environment currently has *something* non-empty in each declared slot:
   Polylang's `polylang` — that a bare string write would corrupt; every
   such option shipped today is `required: false` for exactly this
   reason), and refuses an empty value (which `env_missing` would
-  immediately re-flag as still-missing). `--stdin` reads the value from
-  STDIN with terminal echo disabled and is never printed back or logged
+  immediately re-flag as still-missing). Interactive host `--stdin` masks
+  the local terminal before transport; direct target use masks at the agent,
+  and piped input has no terminal echo. The value is never printed or logged
   (not `--prompt` — see the passthrough section above for why that name
   was unavailable); its own "value for '&lt;name&gt;': " prompt writes to
   STDERR, never STDOUT, so `--stdin --format=json` is still safe to pipe

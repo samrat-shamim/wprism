@@ -21,6 +21,7 @@ function assert_passthrough(bool $condition, string $message): void {
 final class RecordingPassthroughDriver implements EnvironmentDriver {
     /** @var list<list<string>> */
     public array $calls = [];
+    public bool $throwOnStream = false;
 
     public function name(): string { return 'fixture'; }
     public function driverId(): string { return 'fixture'; }
@@ -30,6 +31,9 @@ final class RecordingPassthroughDriver implements EnvironmentDriver {
     public function captureWp(array $wpArgs): array { return ['exit' => 0, 'stdout' => '', 'stderr' => '']; }
     public function streamWp(array $wpArgs): int {
         $this->calls[] = array_values(array_map('strval', $wpArgs));
+        if ($this->throwOnStream) {
+            throw new RuntimeException('fixture transport failure');
+        }
         return 23;
     }
     public function wpInstruction(array $wpArgs): string { return implode(' ', $wpArgs); }
@@ -53,6 +57,97 @@ assert_passthrough(
     $driver->calls[1] === ['duo', 'lint', '--repo=/fixture/repo', '--format=json'],
     'lint passthrough preserves the exact agent argv and repo binding'
 );
+
+$envDriver = new RecordingPassthroughDriver();
+$echoTransitions = [];
+$envSet = PassthroughCommand::runEnvSet(
+    $envDriver,
+    ['--name=gateway_secret', '--stdin'],
+    static fn(): bool => true,
+    static function (bool $enabled) use (&$echoTransitions): bool {
+        $echoTransitions[] = $enabled;
+        return true;
+    }
+);
+assert_passthrough($envSet === 23, 'interactive env-set preserves the transport exit code');
+assert_passthrough(
+    $echoTransitions === [false, true]
+        && $envDriver->calls === [[
+            'duo', 'env-set', '--repo=/fixture/repo', '--name=gateway_secret', '--stdin',
+        ]],
+    'interactive env-set masks the host terminal around the exact inherited-STDIN target call'
+);
+
+$pipedDriver = new RecordingPassthroughDriver();
+$pipedEchoTouched = false;
+$pipedEnvSet = PassthroughCommand::runEnvSet(
+    $pipedDriver,
+    ['--name=gateway_secret', '--stdin'],
+    static fn(): bool => false,
+    static function (bool $_enabled) use (&$pipedEchoTouched): bool {
+        $pipedEchoTouched = true;
+        return true;
+    }
+);
+assert_passthrough(
+    $pipedEnvSet === 23 && !$pipedEchoTouched && count($pipedDriver->calls) === 1,
+    'piped env-set input needs no terminal mutation and keeps passthrough behavior'
+);
+
+$malformedStdinDriver = new RecordingPassthroughDriver();
+$malformedStdinTransitions = [];
+$malformedStdin = PassthroughCommand::runEnvSet(
+    $malformedStdinDriver,
+    ['--name=gateway_secret', '--stdin=unexpected'],
+    static fn(): bool => true,
+    static function (bool $enabled) use (&$malformedStdinTransitions): bool {
+        $malformedStdinTransitions[] = $enabled;
+        return true;
+    }
+);
+assert_passthrough(
+    $malformedStdin === 23 && $malformedStdinTransitions === [false, true],
+    'option-shaped stdin input cannot bypass local masking before target validation'
+);
+
+$refusedEnvDriver = new RecordingPassthroughDriver();
+ob_start();
+$maskingRefusal = PassthroughCommand::runEnvSet(
+    $refusedEnvDriver,
+    ['--name=gateway_secret', '--stdin', '--format=json'],
+    static fn(): bool => true,
+    static fn(bool $enabled): bool => $enabled
+);
+$maskingJson = (string) ob_get_clean();
+$maskingRecord = json_decode(trim($maskingJson), true);
+assert_passthrough(
+    $maskingRefusal === 1
+        && ($maskingRecord['error'] ?? null) === 'stdin_masking_unavailable'
+        && $refusedEnvDriver->calls === [],
+    'interactive env-set fails closed before target contact when local echo cannot be disabled'
+);
+
+$throwingEnvDriver = new RecordingPassthroughDriver();
+$throwingEnvDriver->throwOnStream = true;
+$throwingEchoTransitions = [];
+try {
+    PassthroughCommand::runEnvSet(
+        $throwingEnvDriver,
+        ['--name=gateway_secret', '--stdin'],
+        static fn(): bool => true,
+        static function (bool $enabled) use (&$throwingEchoTransitions): bool {
+            $throwingEchoTransitions[] = $enabled;
+            return true;
+        }
+    );
+    fail_passthrough('throwing env-set transport should propagate its failure');
+} catch (RuntimeException $failure) {
+    assert_passthrough(
+        $failure->getMessage() === 'fixture transport failure'
+            && $throwingEchoTransitions === [false, true],
+        'interactive env-set restores local echo when the transport throws'
+    );
+}
 
 $beforeBindingRefusal = count($driver->calls);
 ob_start();
@@ -92,6 +187,36 @@ assert_passthrough(
         && !str_contains($directCaptureWarning, 'duo lint <env>')
         && str_contains($directCaptureWarning, "`wp duo lint --repo='/srv/site repo;literal'`"),
     'direct target capture emits only its copy-ready target remediation'
+);
+$unsafeCaptureWarning = $warningMethod->invoke(null, 1, "/srv/site\n\x1bINJECT", 'preview');
+assert_passthrough(
+    is_string($unsafeCaptureWarning)
+        && preg_match('/[\x00-\x1F\x7F]/', $unsafeCaptureWarning) !== 1
+        && !str_contains($unsafeCaptureWarning, 'INJECT')
+        && str_contains($unsafeCaptureWarning, 'run on the host: `duo lint preview`')
+        && str_contains($unsafeCaptureWarning, 'configured repository path is unsafe to render'),
+    'capture lint warning replaces a control-bearing repository command with one bounded safe line'
+);
+$oversizedCaptureWarning = $warningMethod->invoke(null, 1, '/srv/' . str_repeat('a', 4096), null);
+assert_passthrough(
+    is_string($oversizedCaptureWarning)
+        && strlen($oversizedCaptureWarning) < 256
+        && str_contains($oversizedCaptureWarning, 'configured repository path is unsafe to render'),
+    'capture lint warning does not print an unbounded repository path'
+);
+
+$agentCliSource = file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
+$captureMethodAt = is_string($agentCliSource) ? strpos($agentCliSource, 'public function capture(') : false;
+$captureDocStart = $captureMethodAt === false
+    ? false
+    : strrpos(substr($agentCliSource, 0, $captureMethodAt), '/**');
+$captureDoc = ($captureDocStart === false || $captureMethodAt === false)
+    ? ''
+    : substr($agentCliSource, $captureDocStart, $captureMethodAt - $captureDocStart);
+assert_passthrough(
+    str_contains($captureDoc, '[--scope-request-b64=<request>]')
+        && str_contains($captureDoc, '[--orchestrator-environment=<name>]'),
+    'capture declares both orchestrator-reserved inputs in the WP-CLI synopsis before host forwarding'
 );
 
 $scoped = PassthroughCommand::run($driver, 'plan', ['--format=json']);
