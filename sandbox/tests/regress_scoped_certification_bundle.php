@@ -188,7 +188,17 @@ $changedArtifacts[0]['sha256'] = str_repeat('e', 64);
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
     $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $changedArtifacts
 ), 'artifacts are not current', 'a changed exact artifact boundary expires scoped evidence');
-expect_refusal(fn() => ScopedCertificationBundle::validate(scoped_bundle(['force_hatches' => ['override']])), 'empty list', 'forced scoped evidence is refused');
+$forced = ScopedCertificationBundle::validate(scoped_bundle([
+    'force_hatches' => [ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH],
+]));
+check(
+    $forced['force_hatches'] === [ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH],
+    'the one named pair-budget override is preserved as auditable scoped evidence'
+);
+expect_refusal(fn() => ScopedCertificationBundle::validate(scoped_bundle(['force_hatches' => ['override']])), 'empty or exactly', 'unknown forced scoped evidence is refused');
+expect_refusal(fn() => ScopedCertificationBundle::validate(scoped_bundle([
+    'force_hatches' => [ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH, ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH],
+])), 'empty or exactly', 'duplicate forced scoped evidence is refused');
 expect_refusal(fn() => ScopedCertificationBundle::validate(scoped_bundle(['claims' => ['manifests.acf' => ['woo-conformance']]])), 'exactly manifests.woocommerce', 'cross-adapter citation is refused');
 $tampered = $bundle;
 $tampered['bundle_digest'] = str_repeat('f', 64);

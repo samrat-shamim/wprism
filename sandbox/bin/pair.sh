@@ -473,11 +473,10 @@ pair_budget() {
 # budget in between is refused ("refusing to bring up new pair ... over
 # budget"), which ends the bundle in an immutable FAIL verdict after the legs
 # it had already earned (observed live: leg 6, ~25 minutes of green burned).
-# DUO_PAIR_BUDGET_OVERRIDE=1 is not the answer for a certification: nothing in
-# the bundle detects the override today, so its manifest would affirmatively
-# claim force_hatches:[] for a run whose budget WAS forced -- silently wrong
-# evidence, which is worse than recorded-as-forced (DUO-3406 tracks making the
-# bundle detect and record it).
+# DUO_PAIR_BUDGET_OVERRIDE=1 is recorded by the scoped and reference
+# certifiers, so a forced run never falsely claims force_hatches:[]. Such a
+# bundle remains auditable but cannot be published as a current capability
+# claim; the reservation below is still preferred for an unforced certifier.
 #
 # The slot was committed when the bundle started and the lock is the thing that
 # says it still is, so while that lock is held the recorded pair counts as

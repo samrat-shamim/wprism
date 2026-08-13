@@ -82,6 +82,13 @@ check(
     && str_contains($matrixHarness, 'fi # VMATRIX_MANIFEST=all (non-Woo admitted boundaries)'),
     'version matrix exposes a Woo-only lane without weakening the default full matrix'
 );
+$scopedHarness = (string) file_get_contents($source . '/sandbox/tests/certify_adapter_bundle.sh');
+check(
+    str_contains($scopedHarness, "FORCE_HATCHES='[\"DUO_PAIR_BUDGET_OVERRIDE\"]'")
+    && str_contains($scopedHarness, '--argjson force_hatches "$FORCE_HATCHES"')
+    && str_contains($scopedHarness, 'force_hatches:$force_hatches'),
+    'scoped wrapper seals the explicit pair-budget override into its build spec'
+);
 $root = sys_get_temp_dir() . '/duo-adapter-bundle-' . bin2hex(random_bytes(6));
 register_shutdown_function(fn() => remove_tree($root));
 mkdir($root, 0777, true);
@@ -146,6 +153,48 @@ check(
 
 $verified = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1, 'json' => null, 'err' => 'missing bundle'];
 check($verified['exit'] === 0 && ($verified['json']['verdict'] ?? null) === 'valid', 'fresh scoped bundle immediately verifies against exact current inputs');
+
+$invalidHatchSpec = $spec;
+$invalidHatchSpec['force_hatches'] = ['unreviewed-hatch'];
+$invalidHatchPath = "$root/invalid-hatch.spec.json";
+write_json($invalidHatchPath, $invalidHatchSpec);
+$invalidHatch = run([PHP_BINARY, $builder, 'build', $invalidHatchPath, "$root/invalid-hatch-bundles"]);
+check(
+    $invalidHatch['exit'] !== 0 && str_contains($invalidHatch['err'], 'force_hatches must be empty or exactly'),
+    'builder rejects an unreviewed force hatch rather than treating it as a generic override'
+);
+
+$forcedSpec = $spec;
+$forcedSpec['force_hatches'] = ['DUO_PAIR_BUDGET_OVERRIDE'];
+$forcedSpecPath = "$root/forced.spec.json";
+write_json($forcedSpecPath, $forcedSpec);
+$forcedBuilt = run([PHP_BINARY, $builder, 'build', $forcedSpecPath, "$root/forced-bundles"]);
+$forcedBundle = $forcedBuilt['json']['bundle'] ?? null;
+$forcedManifest = is_string($forcedBundle) && is_file($forcedBundle . '/bundle.json')
+    ? json_decode((string) file_get_contents($forcedBundle . '/bundle.json'), true) : null;
+$forcedVerified = is_string($forcedBundle) ? run([PHP_BINARY, $builder, 'verify', $forcedBundle, $repo]) : ['exit' => 1, 'json' => null];
+check(
+    $forcedBuilt['exit'] === 0
+    && ($forcedManifest['force_hatches'] ?? null) === ['DUO_PAIR_BUDGET_OVERRIDE']
+    && $forcedVerified['exit'] === 0,
+    'builder emits and verifies a forced bundle with its pair-budget override sealed into evidence'
+);
+$forcedTarget = "$root/forced-target";
+run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $forcedTarget]);
+foreach ([
+    'agent/src/CapabilityRegistry.php', 'agent/src/ScopedCertificationBundle.php',
+    'scripts/capability-registry.php', 'sandbox/conformance/entries/woocommerce.json',
+] as $relative) {
+    if (!is_dir(dirname($forcedTarget . '/' . $relative))) mkdir(dirname($forcedTarget . '/' . $relative), 0777, true);
+    copy($source . '/' . $relative, $forcedTarget . '/' . $relative);
+}
+$forcedImport = is_string($forcedBundle)
+    ? run([PHP_BINARY, $forcedTarget . '/scripts/capability-registry.php', 'import-adapter-bundle', $forcedBundle])
+    : ['exit' => 0, 'err' => 'missing forced bundle'];
+check(
+    $forcedImport['exit'] !== 0 && str_contains($forcedImport['err'], 'current capability claim must be produced without overrides'),
+    'forced scoped evidence cannot be imported as a current capability claim'
+);
 
 // A descriptor without its immutable bytes is not evidence.  Import must
 // reject this before it can make a projected claim current.
