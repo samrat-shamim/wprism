@@ -2,11 +2,11 @@
 # Compose invocation plumbing and compose-state discovery for one pair --
 # building the `docker compose` argv a pair's own subcommands run against,
 # and querying `docker compose ls` for which pairs are currently live or
-# stopped. Waiting for a condition to become true (a pair to become visible,
-# a database to become ready) stays in pair.sh; this library only builds
-# invocations and answers point-in-time discovery queries. Identity/naming,
-# host budget, database lifecycle, and WordPress installation stay in
-# pair.sh or their own libraries; they call into this narrow boundary.
+# stopped. Bounded observations that wait for a condition to become true live
+# in pair_readiness.sh; this library only builds invocations and answers
+# point-in-time discovery queries. Identity/naming, host budget, database
+# lifecycle, and WordPress installation stay in pair.sh or their own
+# libraries; they call into this narrow boundary.
 #
 # Expects its caller to have already defined a fail() function and to have
 # sourced lib/pair_identity.sh first (pair_compose_configure() calls

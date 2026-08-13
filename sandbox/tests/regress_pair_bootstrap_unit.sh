@@ -410,6 +410,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_budget_lock.sh" "$bin_dir/../lib/pair_budget_lock.sh"
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
+  cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
 }
 
 run_case() {
@@ -1933,7 +1934,19 @@ run_destroy_clears_marker_case() {
 
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_db.sh" \
-  "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
+  "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" \
+  "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_readiness.sh"' \
+  'pair launcher no longer loads its readiness library'
+assert_file_contains "$ROOT/sandbox/lib/pair_readiness.sh" 'pair_readiness_wait_pair_visible()' \
+  'pair-readiness library no longer owns Compose visibility observation'
+assert_file_contains "$ROOT/sandbox/lib/pair_readiness.sh" 'pair_readiness_wait_db()' \
+  'pair-readiness library no longer owns per-side database readiness'
+assert_file_contains "$ROOT/sandbox/lib/pair_readiness.sh" 'pair_readiness_wait_web_mountpoints()' \
+  'pair-readiness library no longer owns nested-MU mountpoint readiness'
+if grep -qE '^wait_(pair_visible|db_ready|web_mountpoints)\\(\\)' "$ROOT/sandbox/bin/pair.sh"; then
+  fail 'pair launcher still owns a readiness wait instead of delegating to pair_readiness.sh'
+fi
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
 grep -Fq 'GIT_CONFIG_KEY_0: safe.directory' "$ROOT/sandbox/pair.yml" \
   || fail "pair CLI services do not declare the exact Git trust key"
@@ -1957,7 +1970,7 @@ assert_before "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"
   || fail "pair handback retained a sibling capability probe"
 ! grep -Fq 'chgrp -R' "$ROOT/sandbox/bin/pair.sh" \
   || fail "pair handback widened exact-root group normalization recursively"
-pass "pair launcher, identity library, and offline regression parse cleanly"
+pass "pair launcher, readiness library, and offline regression parse cleanly"
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case default pairunit "" canonical
