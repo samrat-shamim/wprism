@@ -466,7 +466,7 @@ $knownGapsByFile = [
     'RepositoryCompiler' => ['Canon', 'Code', 'CodeCompilationException', 'CodeStateContract', 'JsonRefs', 'OptionState', 'Policy', 'ReferenceRules', 'RepositoryAuthorization', 'SidebarState', 'Snapshot', 'UserMetaState'],
     'ScopeClosure' => ['CompiledRepository', 'Policy', 'SidebarState', 'UserMetaState'],
     'ScopeContract' => ['Canon', 'CompiledRepository', 'Deletion', 'Policy', 'ReferenceGraph'],
-    'ScopedApply' => ['Canon', 'CompiledRepository', 'Db', 'Ledger', 'Policy', 'ReferenceGraph', 'RepositoryCompiler', 'ScopeContract', 'ScopedApplySession', 'ScopedApplySessionStorage', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Uuid'],
+    'ScopedApply' => ['Canon', 'CompiledRepository', 'Db', 'Ledger', 'Policy', 'ReferenceGraph', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Uuid'],
     'ScopedStateOverlay' => ['Canon', 'CompiledRepository', 'Policy', 'ScopeClosure', 'ScopeContract'],
     'Shortcodes' => ['Capture', 'Policy', 'Tokens'],
     'SidebarState' => ['Blocks', 'Canon', 'Db', 'Ledger', 'Policy', 'Secrets', 'Snapshot', 'Tokens', 'Uuid'],
@@ -500,6 +500,10 @@ foreach ([
     ['Apply', 'ConvergenceVerifier'],
     ['ConvergenceVerifier', 'Canon'],
     ['Capture', 'Canary'],
+    ['Capture', 'ScopedApply'],
+    ['ConvergenceVerifier', 'ScopeClosure'],
+    ['ConvergenceVerifier', 'OptionState'],
+    ['ScopedApply', 'ScopeClosure'],
 ] as [$file, $dependency]) {
     $pattern = "~^require_once __DIR__ \\. '/" . preg_quote($dependency, '~') . "\\.php';\\R~m";
     $changed = preg_replace($pattern, '', $mutated[$file], 1, $count);
@@ -508,7 +512,7 @@ foreach ([
     $mutatedGaps = find_gaps($mutated, $classFiles, $knownGaps);
     check(isset($mutatedGaps["$file::$dependency"]), "scanner missed mutated $file::$dependency gap");
 }
-fwrite(STDOUT, "ok: mutations for DUO-3440/3441/3442 are detected before the explicit baseline allowlist\n");
+fwrite(STDOUT, "ok: mutations for DUO-3440/3441/3442/3474 are detected before the explicit baseline allowlist\n");
 
 if ($gaps !== []) {
     foreach ($gaps as $key => $reason) {

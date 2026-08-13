@@ -3,6 +3,8 @@ namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/OptionState.php';
+require_once __DIR__ . '/ScopeClosure.php';
+require_once __DIR__ . '/ScopedApplySession.php';
 require_once __DIR__ . '/ApplyPlanner.php';
 
 /** Atomic duo_kv adapter for the generic scoped-session protocol. */

@@ -70,12 +70,12 @@ if ($probeExit !== 0) {
 }
 fwrite(STDOUT, "ok: Capture standalone load reaches its next dependency wall without a Canary class failure\n");
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Canon.php';
+require_once __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/fixtures/duo-publish-stale-is-file.php';
-require __DIR__ . '/../../agent/src/Publish.php';
-require __DIR__ . '/../../agent/src/TransientDbException.php';
-require __DIR__ . '/../../agent/src/Capture.php';
+require_once __DIR__ . '/../../agent/src/Publish.php';
+require_once __DIR__ . '/../../agent/src/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Capture.php';
 // DUO-3236 (P8 below): RepositoryCompiler::compile_staged() is the new gate
 // Capture.php now runs against the staged candidate before Publish::swap().
 // Confirmed target-DB-free (agent/src/RepositoryCompiler.php's own
@@ -83,16 +83,17 @@ require __DIR__ . '/../../agent/src/Capture.php';
 // this compiler") — same offline-testability precedent already established
 // by sandbox/tests/regress_repository_compiler.sh, whose dependency list
 // this mirrors exactly.
-require __DIR__ . '/../../agent/src/Uuid.php';
-// CaptureTransaction now self-loads Db as its direct transaction dependency.
-// Keep this legacy fixture load idempotent for both dependency layouts.
+require_once __DIR__ . '/../../agent/src/Uuid.php';
+// CaptureTransaction and Capture's scoped-option helper can both load this
+// compiler support graph before the fixture reaches it. Keep every support
+// import idempotent for either production dependency layout.
 require_once __DIR__ . '/../../agent/src/Db.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Snapshot.php';
-require __DIR__ . '/../../agent/src/Deletion.php';
-require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
-require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Deletion.php';
+require_once __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
+require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
 // RepositoryEntityParser closes the compiler's sidebar dependency. Keep this
 // support load idempotent so the capture/publish harness remains valid both
 // before and after the compiler parser boundary is loaded transitively.
