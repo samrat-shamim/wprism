@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/BlockReferenceScanner.php';
+require_once __DIR__ . '/SerializedTermDescriptionScanner.php';
 require_once __DIR__ . '/ShortcodeReferenceScanner.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
 require_once __DIR__ . '/LintFinding.php';
@@ -535,33 +536,8 @@ final class Lint {
         self::flag_escaped_home($findings, $rel, 'description', $desc, $home, $homeEscaped);
         self::flag_unrewritten_url_query_ref($findings, $rel, 'description', $desc);
 
-        // (d) serialized_desc_ids — PHP-serialized data with NO declared
-        // description_refs rewrite path (Polylang's post_translations/
-        // term_translations shape, for any taxonomy nobody has declared
-        // description_refs for).
-        $data = @unserialize($desc, ['allowed_classes' => false]);
-        if ($data === false && $desc !== 'b:0;') {
-            return; // does not parse as serialized PHP data at all
-        }
-        $items = is_array($data) ? $data : [$data];
-        foreach ($items as $k => $v) {
-            if (!is_numeric($v) || str_contains((string) $v, '.')) {
-                continue;
-            }
-            $id = (int) $v;
-            $hit = Pending::resolve_id($id);
-            if ($hit === null) {
-                continue;
-            }
-            $locator = is_array($data) ? ('description[' . $k . ']') : 'description';
-            $findings[] = LintFinding::make('serialized_desc_ids', $rel, $locator, $id, $hit, sprintf(
-                "this term's description unserializes to PHP data containing an integer that matches an "
-                . "existing %s id (#%d \"%s\", %s); taxonomy '%s' has no 'description_refs' declaration, so "
-                . "nothing rewrites this term's description (Capture tokenize_text()'s it as an opaque string) "
-                . "and this id is silently environment-bound — a serialized map of entity ids stored in a "
-                . "term's description, before a description_refs declaration covers it.",
-                $hit['kind'], $hit['id'], $hit['title'], $hit['post_type'], $taxonomy
-            ));
+        foreach (SerializedTermDescriptionScanner::scan($desc, $taxonomy, $rel) as $finding) {
+            $findings[] = $finding;
         }
     }
 
