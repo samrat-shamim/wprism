@@ -88,11 +88,12 @@ export DUO_PAIR_TEST_COMPOSE_LS='[
   {"Name":"duo-good","Status":"running(1)","ConfigFiles":"/repo/sandbox/pair.yml"},
   {"Name":"duo-noconfig","Status":"running(1)"},
   {"Name":123,"Status":"running(1)","ConfigFiles":"/repo/sandbox/pair.yml"},
-  {"Status":"running(1)","ConfigFiles":"/repo/sandbox/pair.yml"}
+  {"Status":"running(1)","ConfigFiles":"/repo/sandbox/pair.yml"},
+  {"Name":"duo-arrayconfig","Status":"running(1)","ConfigFiles":["/repo/sandbox/pair.yml"]}
 ]'
 got="$(pair_compose_live_pairs)"
 [ "$got" = "good" ] || fail "malformed rows should be silently excluded, not fatal or matched; got: $got"
-pass "a missing ConfigFiles, a numeric Name, and a missing Name are all excluded without failing the whole query"
+pass "a missing ConfigFiles, a numeric Name, a missing Name, and an array-typed ConfigFiles are all excluded without failing the whole query"
 
 say "malformed compose ls output is a refusal, never an empty list"
 export DUO_PAIR_TEST_COMPOSE_LS='{"not":"an array"}'
@@ -121,5 +122,18 @@ if pair_compose_live_pairs >/dev/null 2>&1; then
   fail "an empty compose ls payload must refuse, matching the documented 'never an empty list' contract"
 fi
 pass "an empty payload refuses, consistent with malformed/failed compose ls"
+unset DUO_PAIR_TEST_COMPOSE_LS
+
+say "jq missing from PATH is a refusal too, not an empty list"
+# A PATH with the fake docker but no jq at all -- the query's own second
+# stage (docker compose ls succeeds; the pipe into jq is what's missing).
+NO_JQ_BIN="$TMP/no-jq-bin"
+mkdir -p "$NO_JQ_BIN"
+ln -sf "$FAKE_BIN/docker" "$NO_JQ_BIN/docker"
+export DUO_PAIR_TEST_COMPOSE_LS='[{"Name":"duo-abc12","Status":"running(1)","ConfigFiles":"/repo/sandbox/pair.yml"}]'
+if (PATH="$NO_JQ_BIN"; pair_compose_live_pairs) >/dev/null 2>&1; then
+  fail "a PATH with no jq must refuse (non-zero from the pipeline), not silently return empty"
+fi
+pass "a missing jq refuses rather than reporting zero live pairs"
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_COMPOSE_UNIT PASSED\033[0m\n'
