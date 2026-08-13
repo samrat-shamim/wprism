@@ -2,6 +2,8 @@
 namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
+require_once __DIR__ . '/OptionState.php';
+require_once __DIR__ . '/ApplyPlanner.php';
 
 /** Atomic duo_kv adapter for the generic scoped-session protocol. */
 final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage {
@@ -85,7 +87,6 @@ final class ScopedApply {
         if (($request['format'] ?? null) === ScopeContract::FORMAT) {
             $contract = ScopeContract::from_array($request);
             ScopeContract::assert_associated($contract, $compiled, $policy);
-            ScopeContract::assert_mutation_supported($contract, 'scoped plan/apply');
             return $contract;
         }
         $keys = array_keys($request);
@@ -102,13 +103,321 @@ final class ScopedApply {
             ScopeContract::normalize_selectors($request['selectors']),
             (string) ($request['scope_hash'] ?? '')
         );
-        ScopeContract::assert_mutation_supported($contract, 'scoped plan/apply');
         return $contract;
     }
 
     /** @return array<string,true> */
     public static function selected_set(array $contract): array {
-        return array_fill_keys(ScopedStateOverlay::selected_identities($contract), true);
+        $selected = array_fill_keys(ScopedStateOverlay::selected_identities($contract), true);
+        // `options` owns the complete physical carrier. A redundant
+        // `option:<name>` selector must not turn into a second synthetic
+        // selected row alongside it: keep the whole-carrier contract's
+        // ordinary semantics rather than manufacturing an absent virtual row.
+        if (isset($selected['options/core'])) {
+            foreach (array_keys($selected) as $identity) {
+                if (ScopeClosure::is_option_root($identity)) {
+                    unset($selected[$identity]);
+                }
+            }
+        }
+        return $selected;
+    }
+
+    /** True when virtual option roots, rather than the whole carrier, are selected. */
+    public static function has_record_scoped_options(array $contract): bool {
+        return ScopeContract::option_root_names($contract) !== []
+            && !isset(self::selected_set($contract)['options/core']);
+    }
+
+    /** @return list<string> */
+    public static function option_root_names(array $contract): array {
+        return ScopeContract::option_root_names($contract);
+    }
+
+    /**
+     * `duo_state.uuid` is deliberately limited to 64 characters, while an
+     * authored wp_options name can be longer than a virtual
+     * `options/core#<name>` identity. Keep option bases in the same durable
+     * table using a disjoint, domain-separated 252-bit token. The leading
+     * non-hex byte cannot collide with ordinary UUID/hash state identities.
+     */
+    public static function option_state_identity(string $name): string {
+        if ($name === '' || str_contains($name, "\0")) {
+            throw new \RuntimeException('duo: scoped option state identity has an invalid option name');
+        }
+        return 'o' . substr(hash('sha256', "duo:scoped-option-state/v1\0" . $name), 0, 63);
+    }
+
+    /** @return array<string,array<string,mixed>> selected name => canonical record */
+    public static function selected_option_records(array $document, array $contract): array {
+        $records = OptionState::records($document);
+        $out = [];
+        foreach (self::option_root_names($contract) as $name) {
+            if (!array_key_exists($name, $records)) {
+                throw new \RuntimeException("duo: scoped option '$name' disappeared from the frozen carrier");
+            }
+            $out[$name] = $records[$name];
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /** @return array<string,string> durable option-state identity => record hash */
+    public static function option_state_hashes(array $document, array $contract, ?array $names = null): array {
+        $allowed = array_fill_keys(self::option_root_names($contract), true);
+        $wanted = $names === null
+            ? null
+            : array_fill_keys(array_map('strval', $names), true);
+        $out = [];
+        foreach (OptionState::records($document) as $name => $record) {
+            if (!isset($allowed[$name])) {
+                if ($wanted !== null) {
+                    throw new \RuntimeException('duo: scoped option state row escaped its selected records');
+                }
+                continue;
+            }
+            if ($wanted === null || isset($wanted[$name])) {
+                $out[self::option_state_identity($name)] = OptionState::record_hash($record);
+            }
+        }
+        if ($wanted !== null) {
+            $documentRecords = OptionState::records($document);
+            foreach (array_keys($wanted) as $name) {
+                if (!isset($allowed[$name]) || !array_key_exists($name, $documentRecords)) {
+                    throw new \RuntimeException('duo: scoped option state row omitted a selected record');
+                }
+            }
+        }
+        ksort($out, SORT_STRING);
+        return $out;
+    }
+
+    /**
+     * Give OptionsMaterializer exactly the names authorized by one bounded
+     * plan row. Its normal document-level API remains unchanged; the scope
+     * boundary lives here with the immutable contract rather than in a
+     * plugin-aware engine branch.
+     */
+    public static function selected_option_document(array $document, array $contract, array $row): array {
+        $allowed = array_fill_keys(self::option_root_names($contract), true);
+        $requested = (array) ($row['rebuild_option_names'] ?? []);
+        $records = self::selected_option_records($document, $contract);
+        $out = [];
+        foreach ($requested as $name) {
+            if (!is_string($name) || !isset($allowed[$name]) || !isset($records[$name])) {
+                throw new \RuntimeException('duo: scoped option plan row escaped its selected records');
+            }
+            $out[$name] = $records[$name];
+        }
+        return OptionState::document($out);
+    }
+
+    /**
+     * Recovery replays the selected virtual records, not an ordinary physical
+     * carrier retry.  The latter is intentionally widened by
+     * CanonicalSurfaces and would make a sibling mutable after a lost response.
+     *
+     * @param array<string,mixed>|null $plannedRow
+     * @param list<string> $names
+     * @param array<string,mixed> $sourceRow
+     * @return array<string,mixed>
+     */
+    public static function recovery_option_row(?array $plannedRow, array $names, array $sourceRow): array {
+        $names = array_values(array_unique(array_map('strval', $names)));
+        sort($names, SORT_STRING);
+        if ($names === []) {
+            throw new \RuntimeException('duo: scoped option recovery has no selected records');
+        }
+        $row = $plannedRow ?? [
+            'uuid' => 'options/core',
+            'type' => 'options',
+            'path' => (string) ($sourceRow['path'] ?? ''),
+        ];
+        if (($row['uuid'] ?? null) !== 'options/core' || ($row['type'] ?? null) !== 'options') {
+            throw new \RuntimeException('duo: scoped option recovery row is not the options carrier');
+        }
+        unset($row['retry']);
+        $row['rebuild_option_names'] = $names;
+        return $row;
+    }
+
+    /**
+     * Build the complete post-apply candidate carrier from the target's
+     * current sibling records plus source-owned selected records. The caller
+     * stages this row beside every other observed target row before the
+     * ordinary contract closure re-walk; no sibling is taken from source.
+     *
+     * @param array<string,mixed> $sourceRow
+     * @param array<string,mixed> $targetRow
+     * @return array<string,mixed>
+     */
+    public static function target_option_candidate_row(array $sourceRow, array $targetRow, array $contract): array {
+        try {
+            $source = OptionState::records(Canon::decode((string) ($sourceRow['content'] ?? '')));
+            $target = OptionState::records(Canon::decode((string) ($targetRow['content'] ?? '')));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: scoped options carrier is malformed during target observation', 0, $failure);
+        }
+        foreach (self::option_root_names($contract) as $name) {
+            if (!array_key_exists($name, $source) || !array_key_exists($name, $target)) {
+                throw new \RuntimeException("duo: selected option '$name' disappeared from the scoped target carrier");
+            }
+            $target[$name] = $source[$name];
+        }
+        $row = $targetRow;
+        $row['uuid'] = 'options/core';
+        $row['type'] = 'options';
+        $row['path'] = (string) ($sourceRow['path'] ?? 'options/core.json');
+        $row['content'] = Canon::encode(OptionState::document($target));
+        return $row;
+    }
+
+    /** @return list<array<string,mixed>> */
+    private static function option_observation_rows(array $actual, array $contract, bool $selected): array {
+        $carrier = $actual['options/core'] ?? null;
+        if (!is_array($carrier)) {
+            throw new \RuntimeException('duo: scoped options target observation could not read options/core');
+        }
+        try {
+            $records = OptionState::records(Canon::decode((string) ($carrier['content'] ?? '')));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: scoped options target observation has malformed options/core', 0, $failure);
+        }
+        $roots = array_fill_keys(self::option_root_names($contract), true);
+        $rows = [];
+        foreach ($records as $name => $record) {
+            if (isset($roots[$name]) !== $selected) {
+                continue;
+            }
+            $identity = 'options/core#' . $name;
+            $rows[] = [
+                'identity_hash' => hash('sha256', $identity),
+                'type' => 'option',
+                'content_hash' => OptionState::record_hash($record),
+                'state' => 'live',
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int =>
+            [$a['identity_hash'], $a['type'], $a['content_hash']]
+                <=> [$b['identity_hash'], $b['type'], $b['content_hash']]
+        );
+        return $rows;
+    }
+
+    /**
+     * Record-aware three-way plan decision for the physical options carrier.
+     * A sibling carrier change is neither selected drift nor a conflict: it
+     * remains protected target state and is never given to the materializer.
+     *
+     * @param array<string,array{entity_type:string,content_hash:string}> $base
+     * @param list<string> $eligibleNames ApplyPlanner's existing non-managed,
+     *   changed-record projection for this exact snapshot.
+     * @return array{bucket:string,row:array<string,mixed>}
+     */
+    public static function option_plan_decision(
+        array $desiredDocument,
+        ?array $observed,
+        array $base,
+        array $contract,
+        array $eligibleNames
+    ): array {
+        $eligible = array_fill_keys(array_map('strval', $eligibleNames), true);
+        $desired = self::selected_option_records($desiredDocument, $contract);
+        $observedRecords = [];
+        if ($observed !== null) {
+            try {
+                $observedRecords = OptionState::records(Canon::decode((string) ($observed['content'] ?? '')));
+            } catch (\Throwable $failure) {
+                throw new \RuntimeException('duo: scoped options target observation is malformed', 0, $failure);
+            }
+        }
+
+        $updates = [];
+        $drift = [];
+        $conflicts = [];
+        $deletes = [];
+        $firstSync = false;
+        foreach ($desired as $name => $record) {
+            if (!isset($eligible[$name]) || ($record['state'] ?? '') === 'absent') {
+                continue;
+            }
+            $actual = $observedRecords[$name] ?? OptionState::absent();
+            if (($record['state'] ?? '') === 'deleted') {
+                if (($actual['state'] ?? '') !== 'present') {
+                    continue;
+                }
+                if (!hash_equals((string) ($record['expected_hash'] ?? ''), OptionState::record_hash($actual))) {
+                    $conflicts[] = $name;
+                    continue;
+                }
+                $baseHash = $base[self::option_state_identity($name)]['content_hash'] ?? null;
+                if (is_string($baseHash) && hash_equals($baseHash, OptionState::record_hash($record))) {
+                    // The selected tombstone was already the durable base;
+                    // an exact-value recreation is still target drift, not
+                    // fresh deletion authority.
+                    $conflicts[] = $name;
+                    continue;
+                }
+                $updates[] = $name;
+                $deletes[] = $name;
+                continue;
+            }
+
+            $desiredHash = OptionState::record_hash($record);
+            $actualHash = OptionState::record_hash($actual);
+            if (hash_equals($desiredHash, $actualHash)) {
+                continue;
+            }
+            $baseHash = $base[self::option_state_identity($name)]['content_hash'] ?? null;
+            if (!is_string($baseHash) || $baseHash === '') {
+                $updates[] = $name;
+                $firstSync = true;
+            } elseif (hash_equals($actualHash, $baseHash)) {
+                $updates[] = $name;
+            } elseif (hash_equals($desiredHash, $baseHash)) {
+                $drift[] = $name;
+            } else {
+                $conflicts[] = $name;
+            }
+        }
+        sort($updates, SORT_STRING);
+        sort($drift, SORT_STRING);
+        sort($conflicts, SORT_STRING);
+        sort($deletes, SORT_STRING);
+
+        $row = ['rebuild_option_names' => array_values(array_unique(array_merge($updates, $conflicts)))];
+        if ($deletes !== []) {
+            $row['option_deletes'] = $deletes;
+        }
+        if ($drift !== []) {
+            $row['option_drift_names'] = $drift;
+        }
+        if ($conflicts !== []) {
+            $row['option_conflict_names'] = $conflicts;
+            $row['conflict_view'] = ApplyPlanner::conflict_view(
+                'selected_option_and_target_changed_since_base',
+                'update',
+                'record-scoped',
+                null,
+                null,
+                null,
+                null,
+                null,
+                array_merge($deletes === [] ? [] : ['--with-deletes'], ['--force-theirs'])
+            );
+            return ['bucket' => 'conflict', 'row' => $row];
+        }
+        if ($updates !== []) {
+            if ($firstSync) {
+                $row['first_sync'] = true;
+            }
+            return ['bucket' => 'update', 'row' => $row];
+        }
+        if ($drift !== []) {
+            return ['bucket' => 'drift', 'row' => $row];
+        }
+        $row['rebuild_option_names'] = [];
+        return ['bucket' => 'unchanged', 'row' => $row];
     }
 
     /**
@@ -121,6 +430,7 @@ final class ScopedApply {
      */
     public static function project_plan(array $plan, array $contract): array {
         $selected = self::selected_set($contract);
+        $recordScopedOptions = self::has_record_scoped_options($contract);
         foreach ([
             'create', 'update', 'unchanged', 'drift', 'conflict', 'adopt',
             'collision', 'delete', 'delete_conflict', 'deleted', 'missing_user',
@@ -129,6 +439,7 @@ final class ScopedApply {
             $plan[$bucket] = array_values(array_filter(
                 (array) ($plan[$bucket] ?? []),
                 static fn(array $row): bool => isset($selected[(string) ($row['uuid'] ?? '')])
+                    || ($recordScopedOptions && ($row['uuid'] ?? null) === 'options/core')
             ));
         }
         // Global retry debt is intentionally not projected away. Scoped apply
@@ -164,9 +475,13 @@ final class ScopedApply {
     ): array {
         ScopeContract::assert_associated($contract, $compiled, $policy);
         $selected = self::selected_set($contract);
+        $recordScopedOptions = self::has_record_scoped_options($contract);
         $rows = [];
         foreach ($actual as $identity => $row) {
             $identity = (string) $identity;
+            if ($recordScopedOptions && $identity === 'options/core') {
+                continue;
+            }
             if (isset($selected[$identity])) {
                 continue;
             }
@@ -178,6 +493,14 @@ final class ScopedApply {
             ];
         }
         foreach ($compiled->tree() as $identity => $row) {
+            if ($recordScopedOptions && (string) $identity === 'options/core') {
+                $targetCarrier = $actual['options/core'] ?? null;
+                if (!is_array($targetCarrier)) {
+                    throw new \RuntimeException('duo: scoped options target observation could not read options/core');
+                }
+                $rows[] = self::target_option_candidate_row($row, $targetCarrier, $contract);
+                continue;
+            }
             if (!isset($selected[(string) $identity])) {
                 continue;
             }
@@ -206,6 +529,16 @@ final class ScopedApply {
         $selectedRows = [];
         $protectedRows = [];
         foreach ($actual as $identity => $row) {
+            if ($recordScopedOptions && (string) $identity === 'options/core') {
+                foreach (self::option_observation_rows($actual, $contract, true) as $evidence) {
+                    $selectedRows[(string) $evidence['identity_hash']] = $evidence;
+                }
+                foreach (self::option_observation_rows($actual, $contract, false) as $evidence) {
+                    unset($evidence['state']);
+                    $protectedRows[] = $evidence;
+                }
+                continue;
+            }
             $evidence = [
                 'identity_hash' => hash('sha256', (string) $identity),
                 'type' => (string) ($row['type'] ?? ''),
@@ -218,6 +551,13 @@ final class ScopedApply {
             }
         }
         foreach (array_keys($selected) as $identity) {
+            if ($recordScopedOptions && ScopeClosure::is_option_root($identity)) {
+                $key = hash('sha256', $identity);
+                if (!isset($selectedRows[$key])) {
+                    throw new \RuntimeException("duo: selected option '$identity' disappeared from the target observation");
+                }
+                continue;
+            }
             if (!isset($selectedRows[$identity])) {
                 $selectedRows[$identity] = [
                     'identity_hash' => hash('sha256', $identity),
@@ -1465,8 +1805,36 @@ final class ScopedApply {
      */
     public static function selected_observation_root(array $actual, array $contract): string {
         $selected = self::selected_set($contract);
+        $recordScopedOptions = self::has_record_scoped_options($contract);
         $rows = [];
         foreach (array_keys($selected) as $identity) {
+            if ($recordScopedOptions && ScopeClosure::is_option_root($identity)) {
+                $carrier = $actual['options/core'] ?? null;
+                try {
+                    $records = is_array($carrier)
+                        ? OptionState::records(Canon::decode((string) ($carrier['content'] ?? '')))
+                        : [];
+                } catch (\Throwable $failure) {
+                    $records = [];
+                }
+                $name = ScopeClosure::option_name_from_root($identity);
+                if (!array_key_exists($name, $records)) {
+                    $rows[$identity] = [
+                        'identity_hash' => hash('sha256', $identity),
+                        'state' => 'absent',
+                        'type' => '',
+                        'content_hash' => hash('sha256', 'duo:absent'),
+                    ];
+                } else {
+                    $rows[$identity] = [
+                        'identity_hash' => hash('sha256', $identity),
+                        'type' => 'option',
+                        'content_hash' => OptionState::record_hash($records[$name]),
+                        'state' => 'live',
+                    ];
+                }
+                continue;
+            }
             $observed = $actual[$identity] ?? null;
             if (is_array($observed)) {
                 $rows[$identity] = [
@@ -1522,6 +1890,31 @@ final class ScopedApply {
 
         $matchesDesired = true;
         foreach (array_keys($selected) as $identity) {
+            if (self::has_record_scoped_options($contract) && ScopeClosure::is_option_root($identity)) {
+                $name = ScopeClosure::option_name_from_root($identity);
+                $expectedCarrier = $compiled->tree()['options/core'] ?? null;
+                $observedCarrier = $actual['options/core'] ?? null;
+                try {
+                    $expectedRecords = is_array($expectedCarrier)
+                        ? OptionState::records((array) ($expectedCarrier['data'] ?? []))
+                        : [];
+                    $observedRecords = is_array($observedCarrier)
+                        ? OptionState::records(Canon::decode((string) ($observedCarrier['content'] ?? '')))
+                        : [];
+                } catch (\Throwable $failure) {
+                    $matchesDesired = false;
+                    break;
+                }
+                if (!isset($expectedRecords[$name], $observedRecords[$name])
+                    || !hash_equals(
+                        OptionState::record_hash($expectedRecords[$name]),
+                        OptionState::record_hash($observedRecords[$name])
+                    )) {
+                    $matchesDesired = false;
+                    break;
+                }
+                continue;
+            }
             $expected = $compiled->tree()[$identity] ?? null;
             $observed = $actual[$identity] ?? null;
             if (is_array($expected)) {

@@ -797,6 +797,26 @@ final class Capture {
                             hash('sha256', $e['hash_basis'] ?? $e['content'])
                         );
                     }
+                    if ($scoped && ScopedApply::has_record_scoped_options($scopeContract)) {
+                        $options = null;
+                        foreach ($candidate['entities'] as $entity) {
+                            if (($entity['uuid'] ?? null) === 'options/core') {
+                                $options = $entity;
+                                break;
+                            }
+                        }
+                        if (!is_array($options)) {
+                            throw new \RuntimeException('duo: scoped capture lost its options carrier before ledger finalization');
+                        }
+                        try {
+                            $document = Canon::decode((string) ($options['content'] ?? ''));
+                            foreach (ScopedApply::option_state_hashes((array) $document, $scopeContract) as $identity => $hash) {
+                                Ledger::set_state_hash($identity, 'option', $hash);
+                            }
+                        } catch (\Throwable $failure) {
+                            throw new \RuntimeException('duo: scoped capture options carrier is malformed before ledger finalization', 0, $failure);
+                        }
+                    }
                     if ($scoped) {
                         foreach ($authorizedScopedDeletions as $identity) {
                             // This is the only map/state removal in scoped

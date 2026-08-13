@@ -511,9 +511,10 @@ try {
     check(false, 'a colliding pair of option names elsewhere in the SAME document does not block an unrelated option\'s own resolution (' . $e->getMessage() . ')');
 }
 
-// A contract can bind the exact option record as immutable evidence. Capture
-// and refresh own record-aware carrier overlays, but the generic guard remains
-// mandatory for consumers that still own whole-document mutation mechanics.
+// A contract can bind the exact option record as immutable evidence. Capture,
+// refresh, and scoped plan/apply own record-aware carrier overlays; the
+// generic guard remains mandatory for consumers that still require a
+// whole-document lifecycle/rollback authority.
 $defaultCategoryContract = ScopeContract::resolve($compiled, $policy, ['option:default_category']);
 $defaultCategoryRoot = $defaultCategoryContract['live']['roots'][0] ?? null;
 check(
@@ -527,7 +528,7 @@ check(
 );
 ScopeContract::assert_associated($defaultCategoryContract, $compiled, $policy);
 try {
-    ScopeContract::assert_mutation_supported($defaultCategoryContract, 'scoped plan/apply');
+    ScopeContract::assert_mutation_supported($defaultCategoryContract, 'scoped promote');
     check(false, 'the option contract is refused before scoped mutation work');
 } catch (RuntimeException $e) {
     check(str_contains($e->getMessage(), 'does not support per-option scoped mutation'),

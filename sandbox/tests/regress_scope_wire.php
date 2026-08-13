@@ -312,24 +312,34 @@ check_wire(
     'capture forwards an option-root contract as compact evidence for its record-aware target overlay'
 );
 
-foreach (['plan', 'apply', 'promote'] as $optionVerb) {
+foreach (['plan', 'apply'] as $optionVerb) {
     $optionRefusal = invoke_wire($root, $envsPath, $fakeBin, $argsPath, $optionVerb, [
         "--scope-contract=$optionContractPath", '--format=json',
     ]);
-    $optionEnvelope = json_decode(trim($optionRefusal['stdout']), true);
+    $optionObservation = scope_wire_observation($optionRefusal, $optionContract);
     check_wire(
-        $optionRefusal['exit'] !== 0
-            && is_array($optionEnvelope)
-            && ($optionEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
-            && ($optionEnvelope['reason_code'] ?? null) === 'scoped_option_mutation_unsupported'
-            && !is_file($argsPath)
-            && !str_contains($optionRefusal['stdout'], $optionContractPath)
-            && !str_contains($optionRefusal['stderr'], $optionContractPath),
-        "$optionVerb retains its option-root refusal before target contact with the stable public reason"
+        $optionRefusal['exit'] === 0
+            && !in_array("--scope-contract=$optionContractPath", $optionObservation['args'], true)
+            && !str_contains(implode("\n", $optionObservation['args']), $optionContractPath),
+        "$optionVerb forwards an option-root contract as compact evidence for the target's record-aware plan/apply protocol"
     );
 }
+$optionPromote = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'promote', [
+    "--scope-contract=$optionContractPath", '--format=json',
+]);
+$optionPromoteEnvelope = json_decode(trim($optionPromote['stdout']), true);
+check_wire(
+    $optionPromote['exit'] !== 0
+        && is_array($optionPromoteEnvelope)
+        && ($optionPromoteEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
+        && ($optionPromoteEnvelope['reason_code'] ?? null) === 'scoped_option_mutation_unsupported'
+        && !is_file($argsPath)
+        && !str_contains($optionPromote['stdout'], $optionContractPath)
+        && !str_contains($optionPromote['stderr'], $optionContractPath),
+    'promote retains its option-root refusal before target contact with the stable public reason'
+);
 
-$evasivePlan = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'plan', [
+$evasivePlan = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'promote', [
     "--scope-contract=$evasiveOptionContractPath", '--format=json',
 ]);
 $evasiveEnvelope = json_decode(trim($evasivePlan['stdout']), true);
@@ -340,7 +350,7 @@ check_wire(
         && !is_file($argsPath)
         && !str_contains($evasivePlan['stdout'], $evasiveOptionContractPath)
         && !str_contains($evasivePlan['stderr'], $evasiveOptionContractPath),
-    'a self-hashed contract cannot hide an option selector by omitting its root proof to reach the target'
+    'a self-hashed contract cannot hide an option selector by omitting its root proof to reach scoped promotion'
 );
 
 $refreshSource = (string) file_get_contents("$root/cli/src/Refresh.php");

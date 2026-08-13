@@ -288,6 +288,30 @@ final class ConvergenceVerifier {
         $verifiedDeleted = 0;
         $skippedUserMeta = 0;
         foreach (array_keys($selected) as $identity) {
+            if (ScopedApply::has_record_scoped_options($this->scopeContract)
+                && ScopeClosure::is_option_root($identity)) {
+                $name = ScopeClosure::option_name_from_root($identity);
+                $expectedCarrier = $compiled->tree()['options/core'] ?? null;
+                $observedCarrier = $actual['options/core'] ?? null;
+                try {
+                    $expected = is_array($expectedCarrier)
+                        ? OptionState::records((array) ($expectedCarrier['data'] ?? []))[$name] ?? null
+                        : null;
+                    $observed = is_array($observedCarrier)
+                        ? OptionState::records(Canon::decode((string) ($observedCarrier['content'] ?? '')))[$name] ?? null
+                        : null;
+                } catch (\Throwable $failure) {
+                    $expected = null;
+                    $observed = null;
+                }
+                if (!is_array($expected) || !is_array($observed)
+                    || !hash_equals(OptionState::record_hash($expected), OptionState::record_hash($observed))) {
+                    $failures[] = hash('sha256', $identity) . ':mismatch';
+                } else {
+                    $verifiedLive++;
+                }
+                continue;
+            }
             $expected = $compiled->tree()[$identity] ?? null;
             if (is_array($expected)) {
                 $observed = $actual[$identity] ?? null;
