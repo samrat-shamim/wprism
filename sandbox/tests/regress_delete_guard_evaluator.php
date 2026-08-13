@@ -281,6 +281,65 @@ $check(
     'reference evaluator preserves fail-closed query errors and empty witnesses without inventing warning rows'
 );
 
+$planGuardCalls = [];
+$annotatedPlan = DeleteGuardEvaluator::annotate_plan_guard_findings(
+    [
+        'delete' => [['uuid' => 'delete-target']],
+        'delete_conflict' => [[
+            'uuid' => 'conflict-target',
+            'conflict_view' => [
+                'choices' => [
+                    ['id' => 'reconcile_in_repository'],
+                    ['id' => 'apply_repository'],
+                ],
+            ],
+        ]],
+    ],
+    [
+        'delete-target' => ['guards' => [['table' => 'wp_postmeta', 'column' => 'post_id']]],
+        'conflict-target' => ['guards' => [['table' => 'wp_options', 'column' => 'option_name']]],
+    ],
+    static function (array $guard, string $targetUuid, bool $forUpdate) use (&$planGuardCalls): array {
+        $planGuardCalls[] = [$targetUuid, $guard['table'], $forUpdate];
+        if ($targetUuid === 'delete-target') {
+            return [
+                'count' => 1,
+                'error' => null,
+                'rows' => ['wp_postmeta.post_id=7'],
+                'witness' => 'delete-witness',
+            ];
+        }
+        return [
+            'count' => 0,
+            'error' => 'simulated plan guard failure',
+            'rows' => [],
+            'witness' => 'conflict-witness',
+        ];
+    },
+    static fn(string $table): bool => $table === 'wp_postmeta',
+    'empty-witness'
+);
+$check(
+    $planGuardCalls === [
+        ['delete-target', 'wp_postmeta', false],
+        ['conflict-target', 'wp_options', false],
+    ]
+        && $annotatedPlan['delete'][0]['blocked'] === 'referenced by wp_postmeta.post_id — 1 row(s)'
+        && $annotatedPlan['delete'][0]['guard_refs'] === [[
+            'table' => 'wp_postmeta',
+            'rows' => ['wp_postmeta.post_id=7'],
+            'repairable' => true,
+            'option_name_ref' => false,
+        ]]
+        && $annotatedPlan['delete'][0]['guard_witnesses'] === ['0' => 'delete-witness']
+        && $annotatedPlan['delete_conflict'][0]['blocked'] === 'simulated plan guard failure'
+        && $annotatedPlan['delete_conflict'][0]['conflict_view']['choices'] === [
+            ['id' => 'reconcile_in_repository'],
+        ]
+        && $annotatedPlan['delete_conflict'][0]['guard_witnesses'] === ['0' => 'conflict-witness'],
+    'plan guard evaluator annotates both delete buckets and suppresses unsafe conflict choices'
+);
+
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
@@ -291,8 +350,10 @@ $check(
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_transaction_isolation'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'reference_findings'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'reference_findings'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'annotate_plan_guard_findings'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'annotate_plan_guard_findings'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index, storage-engine, isolation, and reference contracts'
+    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, and plan contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
@@ -343,11 +404,11 @@ $planGuardSection = substr(
         - strpos($applySource, '// Runtime reverse references are target facts')
 );
 $check(
-    str_contains($planGuardSection, 'DeleteGuardEvaluator::reference_findings(')
+    str_contains($planGuardSection, 'DeleteGuardEvaluator::annotate_plan_guard_findings(')
         && !str_contains($planGuardSection, 'foreach ($deletionCaps')
         && !str_contains($planGuardSection, '$blocks = [];')
         && !str_contains($planGuardSection, '$guardRefs = [];'),
-    'Apply delegates plan-time reference accumulation and retains only conflict-choice orchestration'
+    'Apply delegates plan-time guard annotation and retains only the target-fact callback boundary'
 );
 
 if ($failures) {

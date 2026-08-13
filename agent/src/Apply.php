@@ -595,55 +595,27 @@ final class Apply {
             $deleteUuids += array_fill_keys(array_column($plan['delete_conflict'], 'uuid'), true);
         }
         $guardRepairUuids = $this->guard_repair_uuids($plan);
-        foreach (['delete', 'delete_conflict'] as $bucket) {
-            foreach ($plan[$bucket] as &$row) {
-                $findings = DeleteGuardEvaluator::reference_findings(
-                    (array) ($deletionCaps[$row['uuid']]['guards'] ?? []),
-                    function (array $guard, bool $lock) use (
-                        $row,
-                        $deleteUuids,
-                        $compiled,
-                        $guardRepairUuids
-                    ): array {
-                        return $this->count_guard_refs(
-                            $guard,
-                            (string) $row['uuid'],
-                            $deleteUuids,
-                            $compiled->deletions(),
-                            $compiled->tree(),
-                            $guardRepairUuids,
-                            $lock
-                        );
-                    },
-                    fn(string $table): bool => isset($this->snapshotRowTables()[$table]),
-                    false,
-                    hash('sha256', Canon::encode([]))
+        $plan = DeleteGuardEvaluator::annotate_plan_guard_findings(
+            $plan,
+            $deletionCaps,
+            function (array $guard, string $targetUuid, bool $lock) use (
+                $deleteUuids,
+                $compiled,
+                $guardRepairUuids
+            ): array {
+                return $this->count_guard_refs(
+                    $guard,
+                    $targetUuid,
+                    $deleteUuids,
+                    $compiled->deletions(),
+                    $compiled->tree(),
+                    $guardRepairUuids,
+                    $lock
                 );
-                $blocks = $findings['blocks'];
-                $guardRefs = $findings['guard_refs'];
-                $guardWitnesses = $findings['guard_witnesses'];
-                if ($blocks) {
-                    $row['blocked'] = implode('; ', $blocks);
-                    if ($bucket === 'delete_conflict' && isset($row['conflict_view']['choices'])) {
-                        // A referential guard is a separate authorization
-                        // boundary. Do not advertise the destructive
-                        // repository-delete choice until those declared
-                        // references are repaired; --force-delete-referenced
-                        // is report-not-hide but never a "safe choice."
-                        $row['conflict_view']['choices'] = array_values(array_filter(
-                            (array) $row['conflict_view']['choices'],
-                            static fn($choice): bool => is_array($choice)
-                                && ($choice['id'] ?? null) !== 'apply_repository'
-                        ));
-                    }
-                }
-                if ($guardRefs) {
-                    $row['guard_refs'] = $guardRefs;
-                }
-                $row['guard_witnesses'] = $guardWitnesses;
-            }
-            unset($row);
-        }
+            },
+            fn(string $table): bool => isset($this->snapshotRowTables()[$table]),
+            hash('sha256', Canon::encode([]))
+        );
 
         // docs/proposals/code-half.md §3.2: the cross-partition invariant's
         // plan-time checks read BOTH live lifecycle facts (active plugins /
