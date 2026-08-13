@@ -33,6 +33,7 @@ require __DIR__ . '/src/ScopedRollbackProfile.php';
 require __DIR__ . '/src/BootstrapEligibility.php';
 require __DIR__ . '/src/Adopt.php';
 require __DIR__ . '/src/Init.php';
+require __DIR__ . '/src/InitCommand.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/DoctorCommand.php';
 require __DIR__ . '/src/CodeDeploy.php';
@@ -69,7 +70,7 @@ require_once dirname(__DIR__) . '/agent/src/CanonicalSurfaces.php';
 require_once dirname(__DIR__) . '/agent/src/Deletion.php';
 require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
-use Duo\Orchestrator\Init;
+use Duo\Orchestrator\InitCommand;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\ScopeCommand;
 use Duo\Orchestrator\DriverCapabilityReport;
@@ -940,82 +941,15 @@ function render_command_refusal_human(array $refusal): void {
 
 /** Review and confirm the target agent's content-addressed first-run plan. */
 function cmd_init(EnvironmentDriver $t, array $extra): int {
-    $yes = false;
-    foreach ($extra as $arg) {
-        if ($arg === '--yes') {
-            $yes = true;
-            continue;
-        }
-        fwrite(STDERR, "duo: init accepts only --yes; unsupported argument '$arg'\n");
-        return 1;
-    }
-
-    try {
-        $proposal = Init::proposal($t);
-    } catch (\Duo\Orchestrator\InitRefusalException $e) {
-        // DUO-3421: the target refused with the common v1 envelope. Render its
-        // public fields the way every other host refusal surface does, instead
-        // of pasting raw machine JSON at a human or, worse, the transport
-        // noise that used to win over it.
-        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
-        render_command_refusal_human($e->refusal);
-        return 1;
-    } catch (\Throwable $e) {
-        $message = $e->getMessage();
-        if (str_contains(strtolower($message), 'not a registered wp command')
-            || str_contains(strtolower($message), 'duo is not a registered')) {
-            $message .= "; install the Duo agent first (run 'duo adopt {$t->name()}' for an SSH or explicitly authorized local environment)";
-        }
-        fwrite(STDERR, "duo: $message\n");
-        return 1;
-    }
-
-    foreach (Init::render($proposal) as $line) {
-        echo $line . "\n";
-    }
-    if (empty($proposal['ready'])) {
-        return 2;
-    }
-    $digest = (string) ($proposal['digest'] ?? '');
-    if (!$yes) {
-        fwrite(STDOUT, "Initialize '{$t->name()}' from proposal $digest? [y/N] ");
-        $answer = fgets(STDIN);
-        if (!is_string($answer) || !in_array(strtolower(trim($answer)), ['y', 'yes'], true)) {
-            echo "Initialization cancelled; no configuration, state, identity, or ledger mutation was made.\n";
-            return 1;
-        }
-    }
-
-    try {
-        $result = Init::confirm($t, $digest);
-    } catch (\Duo\Orchestrator\InitRefusalException $e) {
-        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
-        render_command_refusal_human($e->refusal);
-        return 1;
-    } catch (\Throwable $e) {
-        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
-        return 1;
-    }
-    $baseline = $result['baseline'] ?? [];
-    if (($result['recovery'] ?? null) === 'committed-finalized') {
-        echo 'Verified the interrupted committed init and cleared its sealed recovery journal.' . "\n";
-        echo 'Recovered canonical state baseline ' . ($baseline['revision_hash'] ?? '(unknown)') . ".\n";
-        echo 'Recovered separate code baseline ' . ($result['code']['revision_hash'] ?? '(unknown)') . ".\n";
-    } else {
-        echo 'Initialized canonical state baseline ' . ($baseline['revision_hash'] ?? '(unknown)') . ".\n";
-        echo 'Initialized separate code baseline ' . ($result['code']['revision_hash'] ?? '(unknown)') . ".\n";
-    }
-    echo ($baseline['rollback_note'] ?? 'This is a state baseline, not a code-and-database rollback checkpoint.') . "\n";
-    echo "Verifying selected managed scope:\n";
-    $status = cmd_status($t);
-    if ($status !== 0) {
-        fwrite(STDERR, "duo: initialization captured a baseline, but the selected managed scope is not clean\n");
-        return $status;
-    }
-    foreach (Init::nextSteps($t->name(), (string) ($result['state']['repository'] ?? $t->repoPath())) as $line) {
-        echo $line . "\n";
-    }
-    return 0;
+    return InitCommand::run(
+        $t,
+        $extra,
+        static function (array $refusal): void {
+            render_command_refusal_human($refusal);
+        },
+        static fn(EnvironmentDriver $driver): int => cmd_status($driver),
+        static fn(): mixed => fgets(STDIN)
+    );
 }
 /** Render externally verified rollback authority state for SSH targets. */
 function render_rollback_authority_status(EnvironmentDriver $t): bool {

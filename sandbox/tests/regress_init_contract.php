@@ -350,10 +350,13 @@ try {
     );
 }
 $initCommandSource = (string) file_get_contents(__DIR__ . '/../../cli/duo');
+$initHandlerSource = (string) file_get_contents(__DIR__ . '/../../cli/src/InitCommand.php');
 check(
-    substr_count($initCommandSource, 'catch (\Duo\Orchestrator\InitRefusalException $e) {') === 2
-        && substr_count($initCommandSource, 'render_command_refusal_human($e->refusal);') === 2,
-    'both init phases render the refusal envelope through the shared host renderer, as status and pending do'
+    substr_count($initCommandSource, 'return InitCommand::run(') === 1
+        && substr_count($initCommandSource, 'function cmd_init(EnvironmentDriver $t, array $extra): int {') === 1
+        && substr_count($initHandlerSource, '$renderRefusal($e->refusal);') === 2
+        && substr_count($initHandlerSource, 'callable $readLine') === 1,
+    'init keeps a thin cli facade while both refusal phases use the shared host renderer'
 );
 
 foreach ([
