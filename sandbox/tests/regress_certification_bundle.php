@@ -113,8 +113,9 @@ check(
 check(
     str_contains($enumeration, 'sandbox/pair.artifacts.yml')
         && str_contains($enumeration, 'sandbox/pair.wordpress-offline.yml')
-        && str_contains($enumeration, 'sandbox/lib/certbundle_lock.sh'),
-    'artifact-cache overlays and the sourced certification lock are bundle-bound inputs'
+        && str_contains($enumeration, 'sandbox/lib/certbundle_lock.sh')
+        && str_contains($enumeration, 'sandbox/lib/certbundle_evidence.sh'),
+    'artifact-cache overlays and both sourced certification boundaries are bundle-bound inputs'
 );
 
 $certRepoRoot = dirname(__DIR__, 2);
@@ -213,10 +214,10 @@ check(
     'an opted-out run announces the missing legs and says plainly that its bundle is not complete'
 );
 check(
-    substr_count($referenceRunner, 'append_fragment "$WORK_ROOT/init-contract.fragment.json"') === 1
-        && substr_count($referenceRunner, 'append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') === 1
-        && strpos($referenceRunner, 'append_fragment "$WORK_ROOT/init-contract.fragment.json"') > $gateOpen
-        && strpos($referenceRunner, 'append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') < $gateElse,
+    substr_count($referenceRunner, 'certbundle_evidence_append_fragment "$WORK_ROOT/init-contract.fragment.json"') === 1
+        && substr_count($referenceRunner, 'certbundle_evidence_append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') === 1
+        && strpos($referenceRunner, 'certbundle_evidence_append_fragment "$WORK_ROOT/init-contract.fragment.json"') > $gateOpen
+        && strpos($referenceRunner, 'certbundle_evidence_append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json"') < $gateElse,
     'an opted-out bundle carries no init test fragment, so it claims neither leg'
 );
 // DUO-3428: the certified assertion name is unchanged and now means what it
