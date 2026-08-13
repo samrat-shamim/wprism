@@ -547,43 +547,19 @@ final class Apply {
                 continue;
             }
             if ($uuid === 'options/core' && $envE !== null) {
-                $desiredRecords = OptionState::records($e['data']);
-                $envDocument = Canon::decode($envE['content']);
-                $envRecords = OptionState::records($envDocument);
-                $pendingDeletes = [];
-                $deleteConflicts = [];
-                foreach ($desiredRecords as $name => $record) {
-                    if ($record['state'] !== 'deleted' || !isset($envRecords[$name])
-                        || $envRecords[$name]['state'] !== 'present') {
-                        continue;
-                    }
-                    $pendingDeletes[] = (string) $name;
-                    if (!hash_equals($record['expected_hash'], OptionState::record_hash($envRecords[$name]))) {
-                        $deleteConflicts[] = "$name changed after the deletion base";
-                    } elseif ($baseH !== null && hash_equals($fileH, $baseH)) {
-                        $deleteConflicts[] = "$name was recreated after its deletion intent was applied";
-                    }
-                }
-                if ($pendingDeletes) {
-                    $row['option_deletes'] = $pendingDeletes;
-                }
-                if ($deleteConflicts) {
-                    $plan['conflict'][] = $row + [
-                        'reason' => implode('; ', $deleteConflicts),
-                        'conflict_view' => self::conflict_view(
-                            'option_delete_and_target_changed_since_base',
-                            'update',
-                            $baseH === null ? 'missing' : 'present',
-                            $baseH,
-                            $fileH,
-                            $baseH,
-                            null,
-                            $comparisonEnvH,
-                            ['--with-deletes', '--force-theirs']
-                        ),
-                    ];
+                $optionDeletion = ApplyPlanner::classify_option_deletions(
+                    $row,
+                    $e['data'],
+                    $envE,
+                    $baseH,
+                    (string) $fileH,
+                    $comparisonEnvH
+                );
+                if ($optionDeletion['bucket'] === 'conflict') {
+                    $plan['conflict'][] = $optionDeletion['row'];
                     continue;
                 }
+                $row = $optionDeletion['row'];
             }
             if ($envE !== null) {
                 $comparison = $this->apply_planner()->classify_observed(
