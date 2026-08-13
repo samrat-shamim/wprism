@@ -59,6 +59,71 @@ $deleteView = ApplyPlanner::conflict_view(
 $check($deleteView['kind'] === 'tombstone_conflict', 'conflict_view: delete intent is a tombstone_conflict');
 $check($deleteView['choices'][1]['effect'] === 'delete_target_authored_state', 'conflict_view: delete intent derives delete effect');
 
+// ---------------------------------------------------------- deletion comparison
+
+$deletionExpectedHash = str_repeat('a', 64);
+$deletionReceiptHash = str_repeat('d', 64);
+$deletionRow = [
+    'uuid' => 'delete-1',
+    'type' => 'post',
+    'expected_hash' => $deletionExpectedHash,
+    'receipt_hash' => $deletionReceiptHash,
+];
+$deletedComparison = ApplyPlanner::classify_deletion($deletionRow, null, null);
+$check(
+    $deletedComparison === ['bucket' => 'deleted', 'row' => $deletionRow],
+    'deletion comparison: absent target is already deleted without inventing a conflict'
+);
+$baseFacts = ['entity_type' => 'entity', 'content_hash' => $deletionExpectedHash];
+$deleteComparison = ApplyPlanner::classify_deletion(
+    $deletionRow,
+    ['hash' => $deletionExpectedHash],
+    $baseFacts
+);
+$check(
+    $deleteComparison === ['bucket' => 'delete', 'row' => $deletionRow],
+    'deletion comparison: matching target and base hashes authorize the delete bucket'
+);
+$missingBaseComparison = ApplyPlanner::classify_deletion(
+    $deletionRow,
+    ['hash' => $deletionExpectedHash],
+    null
+);
+$check(
+    $missingBaseComparison['bucket'] === 'delete_conflict'
+        && $missingBaseComparison['row']['reason'] === 'target entity exists but has no last-synced base'
+        && $missingBaseComparison['row']['conflict_view']['reason_code'] === 'target_without_last_synced_base',
+    'deletion comparison: target without a base is a typed conflict, never deletion authority'
+);
+$recreatedBaseComparison = ApplyPlanner::classify_deletion(
+    $deletionRow,
+    ['hash' => $deletionExpectedHash],
+    ['entity_type' => 'deletion', 'content_hash' => $deletionExpectedHash]
+);
+$check(
+    $recreatedBaseComparison['row']['reason'] === 'target entity was recreated after this deletion intent was applied'
+        && $recreatedBaseComparison['row']['conflict_view']['reason_code'] === 'target_recreated_after_delete',
+    'deletion comparison: a recreated target remains a tombstone conflict'
+);
+$baseMismatchComparison = ApplyPlanner::classify_deletion(
+    $deletionRow,
+    ['hash' => $deletionExpectedHash],
+    ['entity_type' => 'entity', 'content_hash' => str_repeat('b', 64)]
+);
+$check(
+    $baseMismatchComparison['row']['conflict_view']['reason_code'] === 'repository_expected_base_mismatch',
+    'deletion comparison: repository/base mismatch refuses before target deletion'
+);
+$targetChangedComparison = ApplyPlanner::classify_deletion(
+    $deletionRow,
+    ['hash' => str_repeat('c', 64)],
+    $baseFacts
+);
+$check(
+    $targetChangedComparison['row']['conflict_view']['reason_code'] === 'target_changed_since_delete_base',
+    'deletion comparison: target drift refuses the tombstone'
+);
+
 // ---------------------------------------------------------- forced_override_evidence
 
 $row = ['uuid' => 'e1', 'conflict_view' => $view];
@@ -678,6 +743,17 @@ $check(
         && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
         && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
     'natural-key annotation: planner owns the projection while Apply keeps the plan-row compatibility facade'
+);
+$deletionSectionStart = strpos($applySource, '        // Absence is not deletion authority.');
+$deletionSectionEnd = strpos($applySource, '        // Runtime reverse references are target facts');
+$deletionSection = substr($applySource, $deletionSectionStart, $deletionSectionEnd - $deletionSectionStart);
+$check(
+    str_contains($deletionSection, '$this->apply_planner()->classify_deletion(')
+        && !str_contains($deletionSection, 'hash_equals(')
+        && !str_contains($deletionSection, 'target_without_last_synced_base')
+        && !str_contains($deletionSection, 'target_changed_since_delete_base')
+        && preg_match('/public static function classify_deletion\(/', $plannerSource) === 1,
+    'deletion comparison: Apply delegates tombstone classification while planner owns all three-way branches'
 );
 
 if ($failures) {

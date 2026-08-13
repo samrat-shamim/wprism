@@ -656,83 +656,8 @@ final class Apply {
             ];
             $this->annotate_natural_key_continuity($row, (string) $uuid, $entityType, null, $envE);
             $deletionCaps[$uuid] = Deletion::capability($this->policy, $kind, $subtype);
-
-            if ($envE === null) {
-                $plan['deleted'][] = $row;
-                continue;
-            }
-            if ($baseE === null) {
-                $plan['delete_conflict'][] = $row + [
-                    'reason' => 'target entity exists but has no last-synced base',
-                    'conflict_view' => self::conflict_view(
-                        'target_without_last_synced_base',
-                        'delete',
-                        'missing',
-                        null,
-                        null,
-                        $expected,
-                        $receipt,
-                        (string) $envE['hash'],
-                        ['--with-deletes', '--force-theirs']
-                    ),
-                ];
-                continue;
-            }
-            $baseContentHash = is_string($baseE['content_hash'] ?? null)
-                ? $baseE['content_hash']
-                : null;
-            if (($baseE['entity_type'] ?? '') === 'deletion') {
-                $plan['delete_conflict'][] = $row + [
-                    'reason' => 'target entity was recreated after this deletion intent was applied',
-                    'conflict_view' => self::conflict_view(
-                        'target_recreated_after_delete',
-                        'delete',
-                        'deleted',
-                        $baseContentHash,
-                        null,
-                        $expected,
-                        $receipt,
-                        (string) $envE['hash'],
-                        ['--with-deletes', '--force-theirs']
-                    ),
-                ];
-                continue;
-            }
-            if (!hash_equals($expected, (string) $baseContentHash)) {
-                $plan['delete_conflict'][] = $row + [
-                    'reason' => 'tombstone expected hash does not match the target last-synced base',
-                    'conflict_view' => self::conflict_view(
-                        'repository_expected_base_mismatch',
-                        'delete',
-                        'present',
-                        $baseContentHash,
-                        null,
-                        $expected,
-                        $receipt,
-                        (string) $envE['hash'],
-                        ['--with-deletes', '--force-theirs']
-                    ),
-                ];
-                continue;
-            }
-            if (!hash_equals($expected, (string) $envE['hash'])) {
-                $plan['delete_conflict'][] = $row + [
-                    'reason' => 'target entity changed locally since the tombstone base',
-                    'conflict_view' => self::conflict_view(
-                        'target_changed_since_delete_base',
-                        'delete',
-                        'present',
-                        $baseContentHash,
-                        null,
-                        $expected,
-                        $receipt,
-                        (string) $envE['hash'],
-                        ['--with-deletes', '--force-theirs']
-                    ),
-                ];
-                continue;
-            }
-            $plan['delete'][] = $row;
+            $deletion = $this->apply_planner()->classify_deletion($row, $envE, $baseE);
+            $plan[$deletion['bucket']][] = $deletion['row'];
         }
 
         // Runtime reverse references are target facts, so check them only
