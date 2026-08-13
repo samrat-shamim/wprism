@@ -29,7 +29,10 @@ final class DeleteGuardEvaluatorFakeWpdb {
         private array $indexRows,
         ?array $tableEngines = null,
         private bool $metadataProbeFails = false,
-        private bool $introspectionFails = false
+        private bool $introspectionFails = false,
+        private ?string $transactionIsolation = null,
+        private ?string $legacyIsolation = null,
+        private bool $isolationProbeFails = false
     ) {
         $this->tableEngines = $tableEngines ?? [
             'wp_options' => 'InnoDB',
@@ -44,8 +47,18 @@ final class DeleteGuardEvaluatorFakeWpdb {
         return $sql;
     }
 
-    public function get_var(string $sql): int|false {
+    public function get_var(string $sql): int|string|null|false {
         $this->queries[] = $sql;
+        if ($sql === 'SELECT @@transaction_isolation') {
+            if ($this->isolationProbeFails) {
+                $this->last_error = 'simulated modern isolation probe failure';
+                return null;
+            }
+            return $this->transactionIsolation;
+        }
+        if ($sql === 'SELECT @@tx_isolation') {
+            return $this->legacyIsolation;
+        }
         if ($this->metadataProbeFails) {
             $this->last_error = 'simulated metadata probe failure';
             return false;
@@ -177,14 +190,43 @@ try {
 }
 $check($introspectionRefused, 'information-schema failure remains a fail-closed deletion refusal');
 
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([], null, false, false, 'REPEATABLE-READ');
+DeleteGuardEvaluator::assert_transaction_isolation();
+$check(
+    $GLOBALS['wpdb']->queries === ['SELECT @@transaction_isolation'],
+    'transaction-isolation proof accepts the modern server variable when it supplies gap locks'
+);
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([], null, false, false, null, 'SERIALIZABLE');
+DeleteGuardEvaluator::assert_transaction_isolation();
+$check(
+    $GLOBALS['wpdb']->queries === ['SELECT @@transaction_isolation', 'SELECT @@tx_isolation'],
+    'transaction-isolation proof falls back to the legacy server variable without assuming a server family'
+);
+
+$GLOBALS['wpdb'] = new DeleteGuardEvaluatorFakeWpdb([], null, false, false, 'READ-COMMITTED');
+$unsafeIsolationRefused = false;
+try {
+    DeleteGuardEvaluator::assert_transaction_isolation();
+} catch (RuntimeException $e) {
+    $unsafeIsolationRefused = str_contains($e->getMessage(), 'REPEATABLE-READ or SERIALIZABLE')
+        && $GLOBALS['wpdb']->queries === ['SELECT @@transaction_isolation'];
+}
+$check(
+    $unsafeIsolationRefused,
+    'transaction-isolation proof refuses record-lock-only isolation before deletion guards run'
+);
+
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_transaction_isolation'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_transaction_isolation'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index and storage-engine lock-boundary contracts'
+    'evaluator exposes dependency-free static index, storage-engine, and isolation lock-boundary contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
@@ -204,6 +246,18 @@ $check(
 $check(
     !str_contains($applySource, 'private function guard_lock_index('),
     'Apply retains no duplicate lock-boundary evaluator'
+);
+$isolationFacade = substr(
+    $applySource,
+    strpos($applySource, 'private function assert_delete_lock_isolation('),
+    strpos($applySource, 'private function recheck_delete_guards(')
+        - strpos($applySource, 'private function assert_delete_lock_isolation(')
+);
+$check(
+    str_contains($isolationFacade, 'DeleteGuardEvaluator::assert_transaction_isolation();')
+        && !str_contains($isolationFacade, 'SELECT @@transaction_isolation')
+        && !str_contains($isolationFacade, 'SELECT @@tx_isolation'),
+    'Apply keeps a thin transaction-isolation facade and no duplicate server-variable proof'
 );
 
 if ($failures) {
