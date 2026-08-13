@@ -3087,15 +3087,23 @@ echo "\n== outstanding receipts are legible in plan and status (independent revi
 // the same pass that read them. That is the point — and it is also what makes
 // them worth surfacing: a marker can now stand between a failure and its retry,
 // and an operator deciding "is this safe to promote" must be able to see it.
-$planRows = $applyClass->getMethod('regen_context_plan_rows');
-$planApply = $applyClass->newInstanceWithoutConstructor();
-$applyPolicy->setValue($planApply, $policyFor($triggeredManifest));
-$applySelected->setValue($planApply, []);
-$applyNegotiated->setValue($planApply, ['providers' => [], 'capabilities' => []]);
+$planProjectionMethod = $applyClass->getMethod('regeneration_debt_projection');
+$drivePlanProjection = static function (\Duo\Policy $projectionPolicy, ?array $negotiated = []) use (
+    $applyClass, $applyPolicy, $applyNegotiated, $planProjectionMethod
+): array {
+    $planApply = $applyClass->newInstanceWithoutConstructor();
+    $applyPolicy->setValue($planApply, $projectionPolicy);
+    $applyNegotiated->setValue($planApply, $negotiated);
+    return (array) $planProjectionMethod->invoke($planApply);
+};
 $wpdb->kv = $sweepMarkers + [
     'regen_delete_context:malformed' => (string) json_encode(['kind' => 'delete', 'post_type' => 'probe']),
 ];
-$rows = (array) $planRows->invoke($planApply);
+$planProjection = $drivePlanProjection($policyFor($claimantManifest));
+$check($planProjection['regen_pending'] === [[
+    'uuid' => $moved, 'type' => 'post', 'post_type' => 'probe',
+]], 'the Apply boundary reads the real Ledger pending keyspace and Policy declaration before handing rows to the planner');
+$rows = $planProjection['regen_context'];
 $check($rows === [
     ['uuid' => $liveDeleted, 'type' => 'post', 'post_type' => 'probe', 'kind' => 'delete'],
     ['uuid' => $moved, 'type' => 'post', 'post_type' => 'probe', 'kind' => 'reparent'],
@@ -3103,11 +3111,14 @@ $check($rows === [
 $check(count($rows) === 2,
     'and a malformed receipt is NOT surfaced — apply sweeps that one itself, loudly, so a plan reader has '
     . 'nothing to do about it');
-$planApply = $applyClass->newInstanceWithoutConstructor();
-$applyPolicy->setValue($planApply, $policyFor($manifest));
-$applySelected->setValue($planApply, []);
-$applyNegotiated->setValue($planApply, ['providers' => [], 'capabilities' => []]);
-$check((array) $planRows->invoke($planApply) === [],
+$check($planProjection['warnings'] === [
+    "regen_pending: post $moved (type 'probe') has a regeneration retry pending from a prior failed verify",
+    "regen_context: post $liveDeleted (type 'probe') has an outstanding delete receipt awaiting a verified derived-state repair",
+    "regen_context: post $moved (type 'probe') has an outstanding reparent receipt awaiting a verified derived-state repair",
+], 'the Apply boundary preserves the planner warning projection and its pending-before-context ordering');
+$noClaimantProjection = $drivePlanProjection($policyFor($manifest));
+$check($noClaimantProjection['regen_context'] === []
+    && $noClaimantProjection['regen_pending'] === [],
     'a receipt no pinned claimant owns is not surfaced either — the projection shows outstanding DEBT, never '
     . 'orphaned bookkeeping');
 
@@ -3117,7 +3128,6 @@ $check((array) $planRows->invoke($planApply) === [],
 // plans disagree over an unmutated keyspace and wedges the apply behind a
 // "preconditions changed" refusal that repeats forever (delta review, N1 —
 // driven: a marker whose only pinned claimant negotiates scope:site).
-$wpdb->kv = $sweepMarkers;
 $projectionAcross = [];
 foreach ([
     'pre-negotiation (null map)' => null,
@@ -3126,15 +3136,12 @@ foreach ([
         'probe-cache' => ['flush' => ['scope' => 'site', 'idempotent' => true, 'args' => []]],
     ]],
 ] as $state => $negotiated) {
-    $planApply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($planApply, $policyFor($triggeredManifest));
-    $applySelected->setValue($planApply, []);
-    $applyNegotiated->setValue($planApply, $negotiated);
-    $projectionAcross[$state] = (array) $planRows->invoke($planApply);
+    $wpdb->kv = $sweepMarkers;
+    $projectionAcross[$state] = $drivePlanProjection($policyFor($triggeredManifest), $negotiated);
 }
-$check(count($projectionAcross['pre-negotiation (null map)']) === 2
+$check(count($projectionAcross['pre-negotiation (null map)']['regen_context']) === 2
     && count(array_unique(array_map('serialize', $projectionAcross))) === 1,
-    'the projection is identical before negotiation, after an empty one, and after the claimant negotiates '
+    'the planner projection is identical before negotiation, after an empty one, and after the claimant negotiates '
     . 'scope:site — plan and freshPlan can never disagree over an unmutated keyspace');
 $wpdb->kv = [];
 
@@ -3161,7 +3168,7 @@ $statusPlan['regen_context'] = [];
 $check((\Duo\Orchestrator\PlanSummary::render($statusPlan)['ok'] ?? null) === true,
     'an empty bucket is not a blocker — the row is the signal, never the key');
 // build_plan() itself is not drivable offline (it needs a compiled repository
-// and a live target), so its one edge into the projection above is asserted
+// and a live target), so its one edge into the planner projection is asserted
 // against its own source — the idiom this suite already uses for run()'s
 // threading. Without it, deleting the call site while keeping the method passes
 // every behavioural check in this section (proven: that mutation survived).
@@ -3172,14 +3179,14 @@ $buildPlanSource = implode("\n", array_slice(
     $buildPlanMethod->getEndLine() - $buildPlanMethod->getStartLine() + 1
 ));
 $check((bool) preg_match(
-    "/\\\$plan\\['regen_context'\\]\\s*=\\s*\\\$this->regen_context_plan_rows\\(\\);/",
+    "/\\\$regenDebt\\s*=\\s*\\\$this->regeneration_debt_projection\\(\\);/",
     $buildPlanSource
-), 'build_plan() actually fills the bucket from that projection — the plan a human reads is the one those '
-    . 'checks just exercised');
+), 'build_plan() actually invokes the Apply boundary facade for the shared debt projection — the plan a human reads is the one those checks '
+    . 'just exercised');
 $check((bool) preg_match(
-    "/foreach \\(\\\$plan\\['regen_context'\\] as \\\$row\\) \\{\\s*\\\$this->warnings\\[\\] =/",
+    "/foreach \\(\\\$regenDebt\\['warnings'\\] as \\\$warning\\) \\{\\s*\\\$this->warnings\\[\\] = \\\$warning;/",
     $buildPlanSource
-), 'and warns once per outstanding receipt, so a plain `duo plan` says it out loud rather than only in a '
+), 'and carries the projection warnings into Apply, so a plain `duo plan` says it out loud rather than only in a '
     . 'structured bucket a script has to look for');
 
 // Lockstep with the agent-side renderer and the precondition hash: `duo status`
