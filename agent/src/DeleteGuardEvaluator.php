@@ -156,6 +156,43 @@ final class DeleteGuardEvaluator {
     }
 
     /**
+     * Collect generic deletion-guard findings from one locked or ordinary
+     * read. Manifest capability resolution and reference decoding stay with
+     * Apply; this contract only combines each guard's count/error result into
+     * the deterministic block and warning-witness shapes used by the facade.
+     *
+     * @param list<array<string,mixed>> $guards
+     * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>} $countRefs
+     * @param callable(string):bool $isRepairable
+     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>}
+     */
+    public static function reference_findings(
+        array $guards,
+        callable $countRefs,
+        callable $isRepairable,
+        bool $forUpdate = false
+    ): array {
+        $blocks = [];
+        $guardRefs = [];
+        foreach ($guards as $guard) {
+            $result = $countRefs($guard, $forUpdate);
+            if ($result['error'] !== null) {
+                $blocks[] = $result['error'];
+            } elseif ($result['count'] > 0) {
+                $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
+                    . " — {$result['count']} row(s)";
+                $guardRefs[] = [
+                    'table' => (string) $guard['table'],
+                    'rows' => $result['rows'],
+                    'repairable' => $isRepairable((string) $guard['table']),
+                    'option_name_ref' => !empty($guard['option_name_ref']),
+                ];
+            }
+        }
+        return ['blocks' => $blocks, 'guard_refs' => $guardRefs];
+    }
+
+    /**
      * Resolve an index which covers the first equality/range column of a
      * manifest guard. A prefix index is accepted only when the declared
      * metadata key fits entirely inside that prefix; otherwise inserts with
