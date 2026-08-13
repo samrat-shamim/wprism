@@ -1366,7 +1366,12 @@ grep -q 'Managed state scope is clean' <<<"$OUT" || fail "init did not state the
 grep -q 'Coverage outside the selected adapters remains advisory' <<<"$OUT" || fail "init claimed whole-site completeness"
 grep -q 'active_theme_code_only' <<<"$OUT" || fail "init hid the active theme code-only state advisory"
 grep -q 'repository_external_writer_exclusion' <<<"$OUT" || fail "init hid the non-Duo repository-writer exclusion advisory"
-for needle in branch 'duo capture' 'duo plan' 'duo promote' rollback; do
+# The guide deliberately requires the installed, machine-local CLI path.  A
+# bare `duo capture` spelling would advertise an executable the previous step
+# never configured, and it diverges from Init::nextSteps()'s public contract.
+# Keep this public-path assertion on the exact command form so a future prose
+# edit cannot reintroduce a green unit test alongside a failing golden path.
+for needle in branch '"$DUO_CLI" capture' '"$DUO_CLI" plan' '"$DUO_CLI" promote' rollback; do
   grep -q "$needle" <<<"$OUT" || fail "workflow guide omitted $needle"
 done
 
