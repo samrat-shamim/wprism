@@ -357,6 +357,77 @@ final class ApplyPlanner {
     }
 
     /**
+     * Project the options/core deletion intents found alongside an observed
+     * target. This is deliberately narrower than option materialization:
+     * desired and target records are decoded here, while option writes,
+     * managed-option policy, and destructive authority remain in Apply.
+     *
+     * A deleted desired record only becomes pending deletion when the target
+     * still has that option as present. Its expected record hash is compared
+     * first; the existing options lifecycle recreation check is preserved
+     * second. The returned `continue` bucket lets Apply proceed to its generic
+     * observed comparison without inventing a planner bucket for this
+     * additive row annotation.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $desiredDocument
+     * @param array<string,mixed> $environment
+     * @param string|null $baseHash
+     * @param string $repositoryHash
+     * @param string|null $comparisonEnvironmentHash
+     * @return array{bucket:'continue'|'conflict',row:array<string,mixed>}
+     */
+    public static function classify_option_deletions(
+        array $row,
+        array $desiredDocument,
+        array $environment,
+        ?string $baseHash,
+        string $repositoryHash,
+        ?string $comparisonEnvironmentHash
+    ): array {
+        $desiredRecords = OptionState::records($desiredDocument);
+        $envDocument = Canon::decode((string) ($environment['content'] ?? ''));
+        $envRecords = OptionState::records($envDocument);
+        $pendingDeletes = [];
+        $deleteConflicts = [];
+        foreach ($desiredRecords as $name => $record) {
+            if ($record['state'] !== 'deleted' || !isset($envRecords[$name])
+                || $envRecords[$name]['state'] !== 'present') {
+                continue;
+            }
+            $pendingDeletes[] = (string) $name;
+            if (!hash_equals($record['expected_hash'], OptionState::record_hash($envRecords[$name]))) {
+                $deleteConflicts[] = "$name changed after the deletion base";
+            } elseif ($baseHash !== null && hash_equals($repositoryHash, $baseHash)) {
+                $deleteConflicts[] = "$name was recreated after its deletion intent was applied";
+            }
+        }
+        if ($pendingDeletes) {
+            $row['option_deletes'] = $pendingDeletes;
+        }
+        if (!$deleteConflicts) {
+            return ['bucket' => 'continue', 'row' => $row];
+        }
+        return [
+            'bucket' => 'conflict',
+            'row' => $row + [
+                'reason' => implode('; ', $deleteConflicts),
+                'conflict_view' => self::conflict_view(
+                    'option_delete_and_target_changed_since_base',
+                    'update',
+                    $baseHash === null ? 'missing' : 'present',
+                    $baseHash,
+                    $repositoryHash,
+                    $baseHash,
+                    null,
+                    $comparisonEnvironmentHash,
+                    ['--with-deletes', '--force-theirs']
+                ),
+            ],
+        ];
+    }
+
+    /**
      * Classify one observed entity's immutable repository/base/target hashes.
      * The caller has already handled entity-specific special cases and has an
      * observed target, so this projection only selects the existing plan

@@ -21,6 +21,7 @@ require_once __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\ApplyPlanner;
 use Duo\Canon;
+use Duo\OptionState;
 use Duo\Policy;
 use Duo\Snapshot;
 use Duo\Uuid;
@@ -296,6 +297,77 @@ $unchangedOptions = [
 $check(
     $optionPlanner->option_rebuild_names($desiredOptions, $unchangedOptions) === [],
     'option projection: an authored record equal to the target produces no rebuild work'
+);
+
+$optionDeletionRow = ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json'];
+$optionBeforeDelete = OptionState::present('before-delete', 'yes');
+$optionDeletionDocument = OptionState::document([
+    'remove_me' => OptionState::deleted($optionBeforeDelete),
+    'leave_alone' => OptionState::absent(),
+]);
+$optionTarget = OptionState::document(['remove_me' => $optionBeforeDelete]);
+$optionEnvironment = [
+    'content' => Canon::encode($optionTarget),
+    'hash' => 'target-options-hash',
+];
+$noOptionDeletion = ApplyPlanner::classify_option_deletions(
+    $optionDeletionRow,
+    OptionState::document(['leave_alone' => OptionState::absent()]),
+    $optionEnvironment,
+    'base-options-hash',
+    'repository-options-hash',
+    'comparison-options-hash'
+);
+$check(
+    $noOptionDeletion === ['bucket' => 'continue', 'row' => $optionDeletionRow],
+    'option deletion projection: no deleted desired record leaves the row unchanged'
+);
+$safeOptionDeletion = ApplyPlanner::classify_option_deletions(
+    $optionDeletionRow,
+    $optionDeletionDocument,
+    $optionEnvironment,
+    'base-options-hash',
+    'repository-options-hash',
+    'comparison-options-hash'
+);
+$check(
+    $safeOptionDeletion === [
+        'bucket' => 'continue',
+        'row' => $optionDeletionRow + ['option_deletes' => ['remove_me']],
+    ],
+    'option deletion projection: matching target records become exact pending delete names'
+);
+$changedOptionTarget = OptionState::document([
+    'remove_me' => OptionState::present('changed-after-delete-base', 'yes'),
+]);
+$changedOptionDeletion = ApplyPlanner::classify_option_deletions(
+    $optionDeletionRow,
+    $optionDeletionDocument,
+    ['content' => Canon::encode($changedOptionTarget), 'hash' => 'target-options-hash'],
+    'base-options-hash',
+    'repository-options-hash',
+    'comparison-options-hash'
+);
+$check(
+    $changedOptionDeletion['bucket'] === 'conflict'
+        && $changedOptionDeletion['row']['option_deletes'] === ['remove_me']
+        && $changedOptionDeletion['row']['reason'] === 'remove_me changed after the deletion base'
+        && $changedOptionDeletion['row']['conflict_view']['reason_code'] === 'option_delete_and_target_changed_since_base',
+    'option deletion projection: changed target records become typed conflicts'
+);
+$recreatedOptionDeletion = ApplyPlanner::classify_option_deletions(
+    $optionDeletionRow,
+    $optionDeletionDocument,
+    $optionEnvironment,
+    'same-options-hash',
+    'same-options-hash',
+    'comparison-options-hash'
+);
+$check(
+    $recreatedOptionDeletion['bucket'] === 'conflict'
+        && $recreatedOptionDeletion['row']['reason'] === 'remove_me was recreated after its deletion intent was applied'
+        && $recreatedOptionDeletion['row']['conflict_view']['reason_code'] === 'option_delete_and_target_changed_since_base',
+    'option deletion projection: repository recreation after deletion becomes a typed conflict'
 );
 
 // ----------------------------------------------- natural-key continuity notes
@@ -832,6 +904,17 @@ $check(
         && !str_contains($comparisonSection, 'conflict_view(')
         && preg_match('/public static function classify_observed\(/', $plannerSource) === 1,
     'observed comparison: Apply delegates four-way hash classification while planner owns its conflict evidence'
+);
+$optionSectionStart = strpos($applySource, "            if (\$uuid === 'options/core' && \$envE !== null) {");
+$optionSectionEnd = strpos($applySource, "            if (\$envE !== null) {", $optionSectionStart);
+$optionSection = substr($applySource, $optionSectionStart, $optionSectionEnd - $optionSectionStart);
+$check(
+    str_contains($optionSection, 'ApplyPlanner::classify_option_deletions(')
+        && !str_contains($optionSection, 'option_delete_and_target_changed_since_base')
+        && !str_contains($optionSection, 'changed after the deletion base')
+        && !str_contains($optionSection, 'was recreated after its deletion intent was applied')
+        && preg_match('/public static function classify_option_deletions\(/', $plannerSource) === 1,
+    'option deletion projection: Apply delegates deletion-intent comparison while the planner owns its conflict evidence'
 );
 
 if ($failures) {
