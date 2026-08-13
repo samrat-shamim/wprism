@@ -19,6 +19,7 @@ require __DIR__ . '/src/EnvironmentLifecycle.php';
 require __DIR__ . '/src/CommandOutput.php';
 require __DIR__ . '/src/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/PassthroughCommand.php';
+require __DIR__ . '/src/PromoteCommand.php';
 require __DIR__ . '/src/CaptureCommand.php';
 require __DIR__ . '/src/EnvironmentCommandOptions.php';
 require __DIR__ . '/src/DriverCapabilitiesCommand.php';
@@ -100,6 +101,7 @@ use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
+use Duo\Orchestrator\PromoteCommand;
 use Duo\Orchestrator\CaptureCommand;
 use Duo\Orchestrator\EnvironmentCommandOptions;
 use Duo\Orchestrator\EnvironmentCommand;
@@ -1082,13 +1084,12 @@ function cmd_deploy(EnvironmentDriver $t, array $extra): int {
  * operation to the artifact it already compiled.
  */
 function cmd_promote(EnvironmentDriver $t, array $extra): int {
-    foreach ($extra as $arg) {
-        if (is_string($arg) && is_scope_contract_flag($arg)) {
-            return cmd_promote_scoped($t, $extra);
-        }
-    }
-    $result = cmd_promote_internal($t, $extra, null);
-    return is_int($result) ? $result : 1;
+    return PromoteCommand::run(
+        $t,
+        $extra,
+        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote_scoped($driver, $args),
+        static fn(EnvironmentDriver $driver, array $args, ?array $frozen): array|int => cmd_promote_internal($driver, $args, $frozen)
+    );
 }
 
 /**
