@@ -93,6 +93,9 @@ require_once __DIR__ . '/PolicyLoadFinalizer.php';
 // DUO-3348 slice 37: pure dynamic-option declaration resolution is separate
 // from Policy's public compatibility/query surface and caller-owned live values.
 require_once __DIR__ . '/DynamicOptionResolver.php';
+// DUO-3348 slice 45: pure option-name reference declaration resolution is
+// separate from Policy's public compatibility/query surface and live callers.
+require_once __DIR__ . '/OptionNameReferenceResolver.php';
 // DUO-3348 slice 40: manifest-declared post-type relationship queries are
 // pure and reusable by scope/planning without broadening their authority.
 require_once __DIR__ . '/PostTypeRelationResolver.php';
@@ -1606,13 +1609,7 @@ final class Policy {
      * @return array<int, array{match:string, id_kind:string, class:string, malformed_match?:string, json_refs?:array, key_refs?:array}>
      */
     public function option_name_ref_rules(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['option_name_refs'] ?? [] as $rule) {
-                $out[] = self::with_option_autoload($rule, $m);
-            }
-        }
-        return $out;
+        return $this->option_name_reference_resolver()->rules();
     }
 
     /**
@@ -1631,79 +1628,12 @@ final class Policy {
      * @return ?array{rule:array,matches:array,source:string}
      */
     public function option_name_ref_match_details(string $realOptionName): ?array {
-        $matches = [];
-        $malformed = [];
-        foreach ($this->manifests as $manifest) {
-            foreach ($manifest['option_name_refs'] ?? [] as $index => $rule) {
-                $rule = self::with_option_autoload($rule, $manifest);
-                $pattern = '/' . (string) ($rule['match'] ?? '') . '/';
-                $captured = [];
-                if (preg_match($pattern, $realOptionName, $captured, PREG_OFFSET_CAPTURE) === 1) {
-                    if (!isset($captured['id'][0], $captured['id'][1])) {
-                        throw new \RuntimeException(
-                            "duo: option_name_refs rule for option '$realOptionName' did not expose its named id capture"
-                        );
-                    }
-                    if (self::strict_positive_local_id($captured['id'][0]) === null) {
-                        throw new \RuntimeException(
-                            "duo: option '$realOptionName' captures an invalid local id in option_name_refs; "
-                            . 'leading-zero, zero, and overflow spellings are refused'
-                        );
-                    }
-                    $matches[] = [
-                        'rule' => $rule,
-                        'matches' => $captured,
-                        'source' => (string) ($manifest['name'] ?? '?'),
-                        'index' => (int) $index,
-                    ];
-                }
-                $malformedPattern = $rule['malformed_match'] ?? null;
-                if (is_string($malformedPattern) && $malformedPattern !== ''
-                    && preg_match('/' . $malformedPattern . '/', $realOptionName) === 1) {
-                    $malformed[] = [
-                        'rule' => $rule,
-                        'source' => (string) ($manifest['name'] ?? '?'),
-                        'index' => (int) $index,
-                    ];
-                }
-            }
-        }
-        if ($malformed) {
-            $owners = array_map(
-                static fn(array $entry): string => (string) $entry['source'],
-                $malformed
-            );
-            throw new \RuntimeException(
-                "duo: option '$realOptionName' matches a malformed option_name_refs namespace "
-                . '(invalid local id; refusing capture/apply) declared by ' . implode(', ', array_unique($owners))
-            );
-        }
-        if (count($matches) > 1) {
-            $owners = array_map(
-                static fn(array $entry): string => (string) $entry['source'],
-                $matches
-            );
-            throw new \RuntimeException(
-                "duo: option '$realOptionName' matches multiple option_name_refs rules (ambiguous ownership; "
-                . 'refusing pin-order resolution): ' . implode(', ', $owners)
-            );
-        }
-        if (!$matches) {
-            return null;
-        }
-        return $matches[0];
+        return $this->option_name_reference_resolver()->match_details($realOptionName);
     }
 
     /** @return int|null only an exact positive decimal local id is accepted. */
     public static function strict_positive_local_id($value): ?int {
-        if (!is_string($value) || !preg_match('/^[1-9][0-9]*$/D', $value)) {
-            return null;
-        }
-        $digits = ltrim($value, '0');
-        $id = (int) $digits;
-        // Reject overflow rather than letting a huge decimal string saturate
-        // to PHP_INT_MAX and accidentally resolve a different row.
-        return $id > 0 && (string) $id === $digits ? $id : null;
+        return OptionNameReferenceResolver::strict_positive_local_id($value);
     }
 
     /**
@@ -1718,53 +1648,7 @@ final class Policy {
      * @return array{rule:?array, source:?string}
      */
     public function canonical_option_name_ref_details(string $name): array {
-        $tokenCount = preg_match_all(
-            '/\{\{([a-z][a-z0-9_]*):[0-9a-f-]{36}\}\}/',
-            $name,
-            $tokens,
-            PREG_SET_ORDER
-        );
-        if ($tokenCount === false || $tokenCount === 0) {
-            return ['rule' => null, 'source' => null];
-        }
-        if ($tokenCount !== 1) {
-            throw new \RuntimeException(
-                "duo: canonical option key '$name' contains multiple embedded identity tokens; refusing ambiguity"
-            );
-        }
-        $token = $tokens[0][0] ?? '';
-        $tokenKind = (string) ($tokens[0][1] ?? '');
-        $representative = str_replace($token, '1', $name);
-        $details = $this->option_name_ref_match_details($representative);
-        if ($details === null) {
-            $knownKind = false;
-            foreach ($this->option_name_ref_rules() as $rule) {
-                if ((string) ($rule['id_kind'] ?? '') === $tokenKind) {
-                    $knownKind = true;
-                    break;
-                }
-            }
-            if ($knownKind) {
-                throw new \RuntimeException(
-                    "duo: canonical option token for id_kind '$tokenKind' is not owned by exactly one authored "
-                    . 'option_name_refs rule'
-                );
-            }
-            return ['rule' => null, 'source' => null];
-        }
-        if ((string) ($details['rule']['id_kind'] ?? '') !== $tokenKind
-            || ($details['rule']['class'] ?? '') !== 'authored') {
-            throw new \RuntimeException(
-                "duo: canonical option key '$name' has an identity token whose id_kind does not match its "
-                . 'sole authored option_name_refs owner'
-            );
-        }
-        return [
-            'rule' => $details['rule'],
-            'source' => $details['source'],
-            'matches' => $details['matches'],
-            'token_kind' => $tokenKind,
-        ];
+        return $this->option_name_reference_resolver()->canonical_details($name);
     }
 
     /**
@@ -1778,8 +1662,15 @@ final class Policy {
      * disagree about which rows this mechanism owns.
      */
     public function match_option_name_ref(string $realOptionName): ?array {
-        $details = $this->option_name_ref_match_details($realOptionName);
-        return $details['rule'] ?? null;
+        return $this->option_name_reference_resolver()->match($realOptionName);
+    }
+
+    /** Keep Policy's public autoload normalizer as the resolver's sole port. */
+    private function option_name_reference_resolver(): OptionNameReferenceResolver {
+        return new OptionNameReferenceResolver(
+            $this->manifests,
+            static fn(array $rule, array $source): array => self::with_option_autoload($rule, $source)
+        );
     }
 
     /**
