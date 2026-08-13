@@ -58,7 +58,8 @@
 #   side installed?" from a single `wp core is-installed` probe against that
 #   same database. `up` then refuses loudly if a side it just bootstrapped is
 #   still not installed, instead of handing a caller a "ready" pair with no
-#   WordPress in it — DUO-3412, see needs_install_marker() below.
+#   WordPress in it — DUO-3412, see
+#   pair_bootstrap_needs_install_marker() in lib/pair_bootstrap.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."   # sandbox/bin/pair.sh -> sandbox/
 
@@ -91,6 +92,10 @@ source "lib/pair_compose.sh"
 [ -r "lib/pair_readiness.sh" ] || fail "pair readiness library is missing: lib/pair_readiness.sh (the launcher cannot safely verify pair, mount, and database readiness)"
 # shellcheck source=../lib/pair_readiness.sh
 source "lib/pair_readiness.sh"
+
+[ -r "lib/pair_bootstrap.sh" ] || fail "pair bootstrap library is missing: lib/pair_bootstrap.sh (the launcher cannot safely install or verify WordPress sides)"
+# shellcheck source=../lib/pair_bootstrap.sh
+source "lib/pair_bootstrap.sh"
 
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
@@ -566,29 +571,9 @@ repo_host() { # repo_host <name> [1|2|both]
 # a stray dot-file there is content drift in someone's evidence — and
 # cmd_reset's own clear_siterepo_root() empties them, which would delete the
 # marker in the same breath that wrote it.
-needs_install_marker() { # needs_install_marker <name> <side (1|2)> -> marker path
-  printf 'siterepo/.%s%s.needs-install\n' "$1" "$2"
-}
-
-mark_sides_need_install() { # mark_sides_need_install <name>
-  local name="$1" side
-  # siterepo/ normally already exists by now; mkdir keeps this callable from
-  # anywhere in reset's ordering without depending on that.
-  mkdir -p siterepo
-  for side in 1 2; do
-    : > "$(needs_install_marker "$name" "$side")"
-  done
-}
-
-clear_needs_install_markers() { # clear_needs_install_markers <name>
-  local name="$1" side
-  for side in 1 2; do
-    rm -f -- "$(needs_install_marker "$name" "$side")"
-  done
-}
-
 # --- compose state/discovery is in lib/pair_compose.sh; bounded readiness
-# waits are in lib/pair_readiness.sh (pair_readiness_wait_*()) ---
+# waits are in lib/pair_readiness.sh (pair_readiness_wait_*()); WordPress
+# installation and reset-to-bootstrap state are in lib/pair_bootstrap.sh ---
 
 pair_budget() {
   # Dynamic host budget instead of a hardcoded pair count: **2 RUNNING pairs
@@ -788,142 +773,6 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
   fi
 }
 
-# --- generic WordPress bootstrap (idempotent) -------------------------------
-
-write_htaccess() { # write_htaccess <side (1|2)>
-  # wp-cli can't write .htaccess without extra config; apache needs it for
-  # pretty permalinks, and the HTTP_AUTHORIZATION line is required for
-  # basic-auth REST — identical to every other script in this sandbox.
-  "${PAIR_COMPOSE[@]}" exec -T -u www-data "wp$1" tee /var/www/html/.htaccess >/dev/null <<'EOF'
-# BEGIN WordPress
-<IfModule mod_rewrite.c>
-RewriteEngine On
-RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-RewriteBase /
-RewriteRule ^index\.php$ - [L]
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /index.php [L]
-</IfModule>
-# END WordPress
-EOF
-}
-
-install_and_activate_theme() { # install_and_activate_theme <cli service> <theme slug>
-  local cli="$1" theme="$2" attempt active installed_version
-  if [ "${PAIR_BOOTSTRAP_ARTIFACTS:-0}" = 1 ]; then
-    local artifact
-    artifact=$(fetch_artifact "$theme" "$PAIR_BOOTSTRAP_THEME_VERSION" "$cli" theme) \
-      || fail "theme '$theme' exact pinned artifact is unavailable"
-    "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$artifact" --activate --force \
-      || fail "theme '$theme' exact pinned artifact could not be installed and activated"
-    active=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme list --status=active --field=name) \
-      || fail "theme '$theme' active-theme readback failed after pinned install"
-    [ "$active" = "$theme" ] \
-      || fail "theme '$theme' pinned install completed but active theme was '${active:-none}'"
-    installed_version=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme get "$theme" --field=version) \
-      || fail "theme '$theme' version readback failed after pinned install"
-    [ "$installed_version" = "$PAIR_BOOTSTRAP_THEME_VERSION" ] \
-      || fail "theme '$theme' pinned install reported version '$installed_version', expected '$PAIR_BOOTSTRAP_THEME_VERSION'"
-    return 0
-  fi
-  # A fresh pair is an evidence boundary, but WordPress.org is not: a
-  # transient theme-directory lookup must not turn an otherwise healthy
-  # conformance leg red. Keep the retry narrow and bounded, preserve every
-  # WP-CLI diagnostic, and independently prove the requested theme is active
-  # before allowing bootstrap to continue. `theme activate` makes a partial
-  # install retry-safe without forcing or overwriting theme bytes.
-  for attempt in 1 2 3; do
-    if "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme install "$theme" --activate; then
-      :
-    elif "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme activate "$theme"; then
-      printf 'Warning: theme %s was already installed after install attempt %s; activated the existing exact slug\n' \
-        "$theme" "$attempt" >&2
-    else
-      if [ "$attempt" = 3 ]; then
-        fail "theme '$theme' could not be installed and activated after 3 attempts"
-      fi
-      printf 'Warning: theme %s install/activation attempt %s/3 failed; retrying the exact slug\n' \
-        "$theme" "$attempt" >&2
-      sleep "$attempt"
-      continue
-    fi
-
-    if ! active=$("${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp theme list --status=active --field=name); then
-      active=""
-    fi
-    if [ "$active" = "$theme" ]; then
-      return 0
-    fi
-    if [ "$attempt" = 3 ]; then
-      fail "theme '$theme' install completed but active theme was '${active:-none}' after 3 attempts"
-    fi
-    printf "Warning: theme %s attempt %s/3 did not leave the exact slug active (got '%s'); retrying\n" \
-      "$theme" "$attempt" "${active:-none}" >&2
-    sleep "$attempt"
-  done
-}
-
-install_side() { # install_side <name> <side (1|2)> <url> <title>
-  local name="$1" side="$2" url="$3" title="$4" cli="cli$2" marker forced=0
-  marker="$(needs_install_marker "$name" "$side")"
-
-  # DUO-3412: the marker beats the probe, and when it is present the probe is
-  # not made at all — `reset` dropped this side's database, so `wp core
-  # install` is the definitionally correct action and a TRUE from
-  # `is-installed` here could only be wrong. With no marker this is
-  # byte-for-byte the old idempotent behavior: one probe, skip on TRUE, so a
-  # plain `up` (or an `up` after stop/start) on a healthy pair still never
-  # reinstalls.
-  if [ -e "$marker" ]; then
-    forced=1
-    echo "  side $side: $marker present — reset emptied wp_${name}${side}, so installing unconditionally (is-installed is not consulted across our own DROP)"
-  elif "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1; then
-    # The premise for THIS path is the probe that just established it. Asking
-    # the identical question again at the bottom of the function would cost
-    # another container per side per `up` and could not return new
-    # information, so the skip path returns here.
-    echo "  side $side already installed"
-    return 0
-  fi
-
-  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core install \
-    --url="$url" --title="$title" \
-    --admin_user=admin --admin_password=admin \
-    --admin_email=admin@example.test --skip-email
-  # Cleared HERE, on the success of the install itself, rather than at the end
-  # of the function: everything below is idempotent post-install configuration
-  # that the no-marker path skips wholesale on a re-run anyway. If the theme
-  # fetch (say) fails after core installed, keeping the marker would turn the
-  # obvious recovery — re-run `up` — into a guaranteed "Error: WordPress is
-  # already installed" refusal, i.e. a second, worse failure mode invented by
-  # the fix for the first one. Narrow window by construction: the marker is
-  # true exactly from reset's DROP until this line.
-  if [ "$forced" = 1 ]; then
-    rm -f -- "$marker"
-  fi
-  install_and_activate_theme "$cli" twentytwentyone
-  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp option update permalink_structure '/%postname%/'
-  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp rewrite flush
-  write_htaccess "$side"
-  echo "  side $side installed ($url)"
-
-  # DUO-3412, DUO-3381/DUO-3391's premise-before-behavior family: assert the
-  # premise the entire sweep is about to depend on, in the domain that owns
-  # it. Every path that reaches this line just ran `core install`, and wp-cli
-  # has more than one way to leave a database with no WordPress in it without
-  # ever returning non-zero. Unasserted, the next thing to notice would be the
-  # first seed's `wp_conf1` call, one manifest and several minutes later,
-  # saying only "Error: The site you have requested is not installed" — a
-  # message that names neither the pair, nor the side, nor the bootstrap.
-  # Fail-closed and deliberately unretried: a `core install` that reports
-  # success over a database that is still empty is not a flake to ride out,
-  # and install_and_activate_theme above already owns the only genuinely
-  # transient dependency in this function.
-  "${PAIR_COMPOSE[@]}" run --rm -T "$cli" wp core is-installed >/dev/null 2>&1 \
-    || fail "pair bootstrap premise failed: side $side (wp_${name}${side}) is not installed after install_side — the sweep would die at its first seed call with wp-cli's bare 'Error: The site you have requested is not installed'"
-}
-
 # --- subcommands -------------------------------------------------------------
 
 cmd_up() {
@@ -1069,8 +918,8 @@ cmd_up() {
   fi
 
   say "pair '$name': generic WordPress bootstrap (idempotent)"
-  install_side "$name" 1 "$url1" "Duo ${name}1"
-  install_side "$name" 2 "$url2" "Duo ${name}2"
+  pair_bootstrap_install_side "$name" 1 "$url1" "Duo ${name}1"
+  pair_bootstrap_install_side "$name" 2 "$url2" "Duo ${name}2"
 
   say "pair '$name' ready"
   if [ "$http_mode" = 1 ]; then
@@ -1160,10 +1009,11 @@ cmd_reset() {
   # anything else here can fail. From this line on, both sides of this pair
   # are KNOWN uninstalled, and the next install_side must not re-derive that
   # from a probe it makes against the two databases these lines just emptied
-  # (see needs_install_marker above). Written after the CREATE, never before
+  # (see pair_bootstrap_needs_install_marker() in lib/pair_bootstrap.sh).
+  # Written after the CREATE, never before
   # the DROP: a marker left behind by a reset that failed to drop anything
   # would force `wp core install` onto a site that is still installed.
-  mark_sides_need_install "$name"
+  pair_bootstrap_mark_sides_need_install "$name"
   clear_siterepo_root "siterepo/${name}1"
   clear_siterepo_root "siterepo/${name}2"
   rm -rf -- "siterepo/origin-${name}.git"
@@ -1265,7 +1115,7 @@ cmd_destroy() {
   # and probes it from a container younger than the drop. The asymmetry that
   # makes reset hazardous — live containers and surviving volumes spanning the
   # DROP — simply cannot arise here.
-  clear_needs_install_markers "$name"
+  pair_bootstrap_clear_needs_install_markers "$name"
   pass "containers + webroot volumes removed; wp_${name}1/wp_${name}2 dropped"
   echo "  siterepo/${name}{1,2} left on disk untouched — remove by hand if you want it gone too."
 }

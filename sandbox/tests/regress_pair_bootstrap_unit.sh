@@ -411,6 +411,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
+  cp "$ROOT/sandbox/lib/pair_bootstrap.sh" "$bin_dir/../lib/pair_bootstrap.sh"
 }
 
 run_case() {
@@ -1820,22 +1821,22 @@ run_reset_up_stale_probe_case() {
 }
 
 run_reset_up_stale_probe_mutation_case() {
-  local label=reset_up_stale_probe_mutation pair=staleprobemut side launcher anchor
+  local label=reset_up_stale_probe_mutation pair=staleprobemut side launcher bootstrap_lib anchor
   prepare_marker_case "$label"
   launcher="$CASE_ROOT/sandbox/bin/pair.sh"
+  bootstrap_lib="$CASE_ROOT/sandbox/lib/pair_bootstrap.sh"
   # THE MUTATION, stated exactly: remove install_side's marker consumption by
   # making its branch unreachable, which leaves the pre-DUO-3412 code path
   # verbatim — one is-installed probe, skip on TRUE. Nothing else is touched.
   # The anchor count is asserted first: a drifted anchor would silently turn
   # this proof into a second copy of the passing case.
   anchor='if [ -e "$marker" ]; then'
-  [ "$(grep -cF "$anchor" "$launcher")" = 1 ] \
+  [ "$(grep -cF "$anchor" "$bootstrap_lib")" = 1 ] \
     || fail "$label could not uniquely locate install_side's marker branch to mutate ($anchor)"
-  sed 's/if \[ -e "\$marker" \]; then/if false; then/' "$launcher" > "$launcher.mutant"
-  mv "$launcher.mutant" "$launcher"
-  chmod +x "$launcher"
-  [ "$(grep -cF "$anchor" "$launcher")" = 0 ] || fail "$label mutation did not remove the marker branch"
-  grep -qF 'if false; then' "$launcher" || fail "$label mutation did not apply"
+  sed 's/if \[ -e "\$marker" \]; then/if false; then/' "$bootstrap_lib" > "$bootstrap_lib.mutant"
+  mv "$bootstrap_lib.mutant" "$bootstrap_lib"
+  [ "$(grep -cF "$anchor" "$bootstrap_lib")" = 0 ] || fail "$label mutation did not remove the marker branch"
+  grep -qF 'if false; then' "$bootstrap_lib" || fail "$label mutation did not apply"
 
   mkdir -p "$THEME_STATE"
   : > "$THEME_STATE/core1"
@@ -1934,7 +1935,7 @@ run_destroy_clears_marker_case() {
 
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_db.sh" \
-  "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" \
+  "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" \
   "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_readiness.sh"' \
   'pair launcher no longer loads its readiness library'
@@ -1946,6 +1947,17 @@ assert_file_contains "$ROOT/sandbox/lib/pair_readiness.sh" 'pair_readiness_wait_
   'pair-readiness library no longer owns nested-MU mountpoint readiness'
 if grep -qE '^wait_(pair_visible|db_ready|web_mountpoints)\\(\\)' "$ROOT/sandbox/bin/pair.sh"; then
   fail 'pair launcher still owns a readiness wait instead of delegating to pair_readiness.sh'
+fi
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_bootstrap.sh"' \
+  'pair launcher no longer loads its WordPress bootstrap library'
+assert_file_contains "$ROOT/sandbox/lib/pair_bootstrap.sh" 'pair_bootstrap_install_side()' \
+  'pair-bootstrap library no longer owns core installation and premise verification'
+assert_file_contains "$ROOT/sandbox/lib/pair_bootstrap.sh" 'pair_bootstrap_install_and_activate_theme()' \
+  'pair-bootstrap library no longer owns bounded theme activation'
+assert_file_contains "$ROOT/sandbox/lib/pair_bootstrap.sh" 'pair_bootstrap_mark_sides_need_install()' \
+  'pair-bootstrap library no longer owns reset-to-bootstrap state'
+if grep -qE '^(write_htaccess|install_and_activate_theme|install_side|needs_install_marker|mark_sides_need_install|clear_needs_install_markers)\(\)' "$ROOT/sandbox/bin/pair.sh"; then
+  fail 'pair launcher still owns WordPress bootstrap helpers instead of delegating to pair_bootstrap.sh'
 fi
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
 grep -Fq 'GIT_CONFIG_KEY_0: safe.directory' "$ROOT/sandbox/pair.yml" \
@@ -1970,7 +1982,7 @@ assert_before "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"
   || fail "pair handback retained a sibling capability probe"
 ! grep -Fq 'chgrp -R' "$ROOT/sandbox/bin/pair.sh" \
   || fail "pair handback widened exact-root group normalization recursively"
-pass "pair launcher, readiness library, and offline regression parse cleanly"
+pass "pair launcher, readiness/bootstrap libraries, and offline regression parse cleanly"
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case default pairunit "" canonical
