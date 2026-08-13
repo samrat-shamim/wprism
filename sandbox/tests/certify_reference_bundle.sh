@@ -119,12 +119,19 @@ CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"
 CERT_BUNDLE_LOCK_FILE="$CERT_BUNDLE_LOCK_DIR/lock"
 CERT_BUNDLE_LOCK_HOLDER_FILE="$CERT_BUNDLE_LOCK_DIR/holder.json"
 CERT_BUNDLE_LOCK_BACKEND="${CERT_BUNDLE_LOCK_BACKEND:-auto}"
+# The flock helper needs `/proc`'s per-process start tick rather than the
+# coarse wall-clock text `ps -o lstart` reports. The Python fcntl helper has
+# direct parent-PID liveness and deliberately does not depend on this value,
+# which keeps the documented macOS/BSD Python fallback usable. The override
+# is an offline-fixture seam only.
+CERT_BUNDLE_LOCK_PROC_ROOT="${CERT_BUNDLE_LOCK_PROC_ROOT:-/proc}"
 CERT_BUNDLE_WAIT="${CERT_BUNDLE_WAIT:-0}"
 CERT_BUNDLE_WAIT_TIMEOUT="${CERT_BUNDLE_WAIT_TIMEOUT:-5400}"   # 90 min, > one bundle
 CERT_BUNDLE_WAIT_POLL="${CERT_BUNDLE_WAIT_POLL:-30}"
 CERT_BUNDLE_LOCK_OWNED=0
 CERT_BUNDLE_LOCK_HELPER_DIR=
 CERT_BUNDLE_LOCK_HELPER_PID=
+CERT_BUNDLE_LOCK_WATCHER_PIDS=()
 CERT_BUNDLE_LOCK_HELPER_BACKEND=
 CERT_BUNDLE_ARGV=("$0" "$@")
 LOCK_PID= LOCK_PAIR= LOCK_STARTED_AT= LOCK_STARTED_EPOCH= LOCK_CHECKOUT= LOCK_ARGV=
@@ -161,30 +168,53 @@ certbundle_lock_backend() {
     flock)  command -v flock   >/dev/null 2>&1 || fail "CERT_BUNDLE_LOCK_BACKEND=flock but flock(1) is not on PATH"; printf flock ;;
     python) command -v python3 >/dev/null 2>&1 || fail "CERT_BUNDLE_LOCK_BACKEND=python but python3 is not on PATH"; printf python ;;
     *)
-      if command -v flock >/dev/null 2>&1; then printf flock
-      elif command -v python3 >/dev/null 2>&1; then printf python
+      if command -v flock >/dev/null 2>&1 \
+          && [ -n "$(certbundle_process_identity "$$")" ]; then
+        printf flock
+      elif command -v python3 >/dev/null 2>&1; then
+        # `/proc` is unavailable on supported BSD/macOS hosts. The Python
+        # helper observes getppid() directly, so it is the safe automatic
+        # fallback when flock exists but cannot establish a start token.
+        printf python
       else
-        # pair.sh refuses on the same footing, and the bundle calls pair.sh,
-        # so this costs a host nothing it had.
-        fail "the host certification lock needs flock(1) or python3 (fcntl.flock); refusing to run a bundle without crash-safe mutual exclusion"
+        fail "the host certification lock needs Python 3 (fcntl.flock), or flock(1) with a readable Linux /proc start token; refusing to run a bundle without crash-safe mutual exclusion"
       fi
       ;;
   esac
 }
 
 certbundle_process_identity() { # certbundle_process_identity <pid>
-  # A start-time token, empty when the pid cannot be read. It changes when a
-  # PID is recycled, so a helper cannot mistake a new process for the run that
-  # spawned it. pair.sh reads /proc/<pid>/stat field 22 for the same purpose;
-  # ps -o lstart= is the portable equivalent and works where there is no /proc.
-  # Trimmed with parameter expansion rather than `| tr | sed`: this runs
-  # thousands of times over one bundle, and one fork per read instead of three
-  # is three times less of exactly the fork pressure that makes it fail.
-  local out
-  out="$(ps -o lstart= -p "$1" 2>/dev/null)" || out=
-  out="${out#"${out%%[![:space:]]*}"}"
-  out="${out%"${out##*[![:space:]]}"}"
-  printf '%s' "$out"
+  # Linux /proc/<pid>/stat field 22 is the kernel's start tick for this exact
+  # PID lifetime. Unlike ps lstart it is not coarse wall-clock text, so an
+  # immediately recycled PID cannot impersonate the killed acquirer. Read it
+  # with Bash builtins because an identity probe runs continuously under host
+  # pressure and, more importantly, absence of a safe token must refuse the
+  # acquisition rather than degrade to PID-only liveness.
+  local pid="$1" stat rest
+  local -a fields=()
+  case "$pid" in ''|*[!0-9]*) printf ''; return 0 ;; esac
+  # Offline lock tests use this optional marker to prove an identity read is
+  # actually blocked below, rather than merely sleeping near it. It has no
+  # authority over identity or liveness: production leaves all three values
+  # unset, and a set marker only records this process's exact PID.
+  if [ -n "${CERT_BUNDLE_LOCK_IDENTITY_ENTERED:-}" ] \
+      && [ -n "${CERT_BUNDLE_LOCK_IDENTITY_PID_FILE:-}" ] \
+      && [ -e "${CERT_BUNDLE_LOCK_IDENTITY_ENTERED_GATE:-}" ]; then
+    printf '%s\n' "$BASHPID" > "$CERT_BUNDLE_LOCK_IDENTITY_PID_FILE" 2>/dev/null || true
+    : > "$CERT_BUNDLE_LOCK_IDENTITY_ENTERED" 2>/dev/null || true
+  fi
+  if IFS= read -r stat < "$CERT_BUNDLE_LOCK_PROC_ROOT/$pid/stat" 2>/dev/null; then
+    # `comm` is parenthesized and may contain whitespace, so discard through
+    # its final close-paren before reading fields 3..22. Start time is index
+    # 19 after that discard (field 3 is index 0).
+    rest="${stat##*) }"
+    read -r -a fields <<< "$rest" || true
+    case "${fields[19]:-}" in
+      ''|*[!0-9]*) ;;
+      *) printf 'linux-start:%s' "${fields[19]}"; return 0 ;;
+    esac
+  fi
+  printf ''
 }
 
 certbundle_acquirer_gone() { # certbundle_acquirer_gone <pid> <recorded-identity>
@@ -193,15 +223,14 @@ certbundle_acquirer_gone() { # certbundle_acquirer_gone <pid> <recorded-identity
   # answer and an unnecessary hold is recoverable while a wrong release is
   # not.
   #
-  # An empty identity read is NOT that evidence. ps can fail transiently --
-  # fork failure under load is the ordinary case on a host running several
-  # bundles and pairs -- and an earlier revision treated empty exactly like
-  # death: the helper dropped the descriptor and exited while its acquirer
-  # ran happily on with its naming record intact, and the next invocation
-  # acquired a lock somebody else was still holding. Review reproduced that
-  # with a ps that returns empty once ("SECOND RUN ACQUIRED while the first
-  # is alive"), and it would have been silent in production.
+  # An unreadable identity is NOT death. A transient proc read under host
+  # pressure must keep the lock while kill -0 still answers; an earlier
+  # revision treated that uncertainty exactly like death, dropped the
+  # descriptor, and admitted a second live bundle.
   local pid="$1" recorded="$2" ident
+  # A confirmed missing PID is the common crash path. Check it before the
+  # proc read so the fast watcher releases promptly when its acquirer dies.
+  if ! kill -0 "$pid" 2>/dev/null; then return 0; fi
   ident="$(certbundle_process_identity "$pid")"
   # Explicit returns throughout: `set -e` is only suspended for a function
   # called in a condition, and this one must be safe to call anywhere.
@@ -286,8 +315,36 @@ certbundle_lock_refuse() { # certbundle_lock_refuse <headline>
   exit 1
 }
 
+certbundle_lock_watchers_stop() {
+  local dir="$CERT_BUNDLE_LOCK_HELPER_DIR" pid waited
+  local -a pids=("${CERT_BUNDLE_LOCK_WATCHER_PIDS[@]}")
+  CERT_BUNDLE_LOCK_WATCHER_PIDS=()
+  [ -n "$dir" ] || return 0
+  # The recorded helper directory is private to this invocation. Its marker
+  # tells both observers that an ordinary release owns their shutdown; a
+  # killed acquirer never writes it, so its watchers remain responsible for
+  # releasing the helper's descriptor.
+  [ -d "$dir" ] && { : > "$dir/watcher-stop" 2>/dev/null || true; }
+  for pid in "${pids[@]}"; do
+    waited=0
+    while kill -0 "$pid" 2>/dev/null; do
+      waited=$((waited + 1))
+      if [ "$waited" -gt 200 ]; then
+        # This PID was recorded when this shell launched the watcher. It has
+        # no lock descriptor, but keeping cleanup PID-scoped matters just as
+        # much here as it does for the bundle process itself.
+        kill -9 "$pid" 2>/dev/null || true
+        break
+      fi
+      sleep 0.05
+    done
+  done
+  return 0
+}
+
 certbundle_lock_helper_stop() {
   local dir="$CERT_BUNDLE_LOCK_HELPER_DIR" pid="$CERT_BUNDLE_LOCK_HELPER_PID" waited=0
+  certbundle_lock_watchers_stop
   CERT_BUNDLE_LOCK_HELPER_DIR=
   CERT_BUNDLE_LOCK_HELPER_PID=
   [ -n "$dir" ] || return 0
@@ -306,6 +363,87 @@ certbundle_lock_helper_stop() {
   fi
   rm -rf -- "$dir" 2>/dev/null || true
   return 0
+}
+
+certbundle_lock_cancel_orphan() { # <helper-dir>
+  # The cancellation path belongs to a watcher with no lock descriptor. It
+  # waits for the exact helper PID the acquirer forked, then asks that helper
+  # to stop through its private marker. It deliberately does not signal a
+  # PID: a recycled PID after an extraordinary helper exit must at worst
+  # leave harmless private controls, never receive a signal for an old run.
+  local dir="$1" helper_pid= waited=0
+  [ -d "$dir" ] || return 0
+  # The watcher starts before the helper so no post-acquire/pre-watcher gap
+  # exists. The helper writes its own exact PID before attempting flock(2);
+  # wait briefly for that causal handoff rather than guessing from a pattern
+  # or a process list.
+  while [ "$waited" -lt 200 ]; do
+    if [ -s "$dir/helper.pid" ]; then
+      helper_pid=$(cat "$dir/helper.pid" 2>/dev/null || true)
+      case "$helper_pid" in ''|*[!0-9]*) helper_pid= ;; *) break ;; esac
+    fi
+    waited=$((waited + 1))
+    sleep 0.05
+  done
+  # Write cancel BEFORE optional helper-PID observation. If a host under
+  # pressure cannot read the PID marker, deleting this directory would also
+  # delete the only cancellation signal and strand a live descriptor forever.
+  # Leaving the private controls is harmless; the helper sees cancel and
+  # removes them through its own EXIT trap.
+  : > "$dir/acquirer-gone" 2>/dev/null || return 0
+  : > "$dir/cancel" 2>/dev/null || true
+  [ -n "$helper_pid" ] || return 0
+  waited=0
+  while kill -0 "$helper_pid" 2>/dev/null; do
+    waited=$((waited + 1))
+    # The helper sees cancel on its next cheap 0.05s tick and clears this
+    # directory through its own EXIT trap. If a recycled PID keeps answering,
+    # retain this private marker rather than deleting it under a live helper.
+    [ "$waited" -le 200 ] || return 0
+    sleep 0.05
+  done
+  rm -rf -- "$dir" 2>/dev/null || true
+}
+
+certbundle_lock_start_watchers() { # <helper-dir> <acquirer-pid> <acquirer-identity>
+  # The shell that owns fd 9 deliberately does no liveness observation. Any
+  # external command it starts inherits that descriptor; a wedged observer used
+  # to leave exactly such a child holding the flock after its acquirer had
+  # been SIGKILLed. These observers are children of the acquirer instead, so
+  # they own no lock descriptor and can never strand one.
+  local dir="$1" parent_pid="$2" parent_ident="$3"
+  local cancel="$dir/cancel" stop="$dir/watcher-stop"
+  CERT_BUNDLE_LOCK_WATCHER_PIDS=()
+
+  (
+    trap - EXIT
+    # Fast, fork-free crash detection. A PID-reuse false positive can only
+    # hold longer, never release another process's lock; the identity watcher
+    # below resolves that uncommon shape without putting an observer in the holder.
+    while [ -d "$dir" ] && [ ! -e "$stop" ]; do
+      if ! kill -0 "$parent_pid" 2>/dev/null; then
+        certbundle_lock_cancel_orphan "$dir"
+        exit 0
+      fi
+      sleep 0.05
+    done
+  ) &
+  CERT_BUNDLE_LOCK_WATCHER_PIDS+=("$!")
+
+  (
+    trap - EXIT
+    # PID recycling is distinct from an ordinary death: identity comparison
+    # is retained as a second, fail-closed observer, but this process owns no
+    # descriptor so a stalled identity read cannot keep the flock alive.
+    while [ -d "$dir" ] && [ ! -e "$stop" ] && [ ! -e "$cancel" ]; do
+      if certbundle_acquirer_gone "$parent_pid" "$parent_ident"; then
+        certbundle_lock_cancel_orphan "$dir"
+        exit 0
+      fi
+      sleep 0.5
+    done
+  ) &
+  CERT_BUNDLE_LOCK_WATCHER_PIDS+=("$!")
 }
 
 certbundle_lock_release() {
@@ -330,6 +468,17 @@ certbundle_lock_try() { # 0 = acquired, 1 = held by someone else
     || fail "cannot create the host certification rendezvous $CERT_BUNDLE_LOCK_DIR"
   : >> "$CERT_BUNDLE_LOCK_FILE" \
     || fail "cannot create the host certification lock file $CERT_BUNDLE_LOCK_FILE"
+  parent_pid="$$"
+  # The flock watcher needs a safe start token. Its direct child can outlive
+  # a killed acquirer, so PID-only reclamation risks a recycled PID keeping a
+  # dead flock reserved indefinitely. The Python helper instead observes its
+  # direct parent through getppid(), which cannot be resurrected by PID reuse
+  # and is therefore portable without /proc.
+  parent_ident="$(certbundle_process_identity "$parent_pid")"
+  [ -n "$parent_ident" ] || parent_ident="$(certbundle_process_identity "$parent_pid")"
+  if [ "$backend" = flock ] && [ -z "$parent_ident" ]; then
+    fail "cannot establish an unambiguous Linux /proc start token for certification flock acquirer pid $parent_pid; refusing rather than rely on PID-only orphan reclamation"
+  fi
   # The helper's control files are private to this run, so they live in this
   # process's own TMPDIR -- only the flock and the naming record belong in the
   # shared rendezvous.
@@ -337,38 +486,37 @@ certbundle_lock_try() { # 0 = acquired, 1 = held by someone else
     || fail "cannot create the certification lock helper directory"
   ready="$helper_dir/ready"; busy="$helper_dir/busy"
   cancel="$helper_dir/cancel"; err="$helper_dir/stderr"
-  parent_pid="$$"
-  # Recorded once, retried once: an empty token here costs the helper its
-  # PID-reuse defence for the whole run (certbundle_acquirer_gone then falls
-  # back to kill -0 alone, which holds too long rather than releasing early).
-  parent_ident="$(certbundle_process_identity "$parent_pid")"
-  [ -n "$parent_ident" ] || parent_ident="$(certbundle_process_identity "$parent_pid")"
+  # Launch the descriptor-free observers before the helper even begins its
+  # flock attempt. Once the helper writes helper.pid, an acquirer SIGKILL at
+  # any later point has a watcher that can cancel that exact helper; there is
+  # no ready-before-watcher gap in which the descriptor could be stranded.
+  CERT_BUNDLE_LOCK_HELPER_DIR="$helper_dir"
+  CERT_BUNDLE_LOCK_HELPER_PID=
+  if [ "$backend" = flock ]; then
+    certbundle_lock_start_watchers "$helper_dir" "$parent_pid" "$parent_ident"
+  fi
 
   if [ "$backend" = flock ]; then
     (
       # Traps are not inherited into this subshell, and it must never run the
       # acquiring shell's release: state it rather than rely on it.
       trap - EXIT
+      printf '%s\n' "$BASHPID" > "$helper_dir/helper.pid"
       if flock -n 9; then
+        # A killed acquirer can also terminate this helper before it observes
+        # the watchers' cancel marker. Its private controls must never depend
+        # on that observation to be removed. Keep this trap inside the
+        # acquired branch: a busy helper must leave its marker behind long
+        # enough for the acquiring shell to classify the ordinary refusal.
+        trap 'rm -rf -- "$helper_dir" 9>&- 2>/dev/null || true' EXIT
         : > "$ready"
-        # Two exits, deliberately at different rates. The cancel marker is a
-        # file test, so an ordinary release is noticed within one 0.05s tick.
-        # Detecting a KILLED acquirer costs a ps(1), so it runs every tenth
-        # tick: a bundle holds this lock for the better part of an hour, and
-        # half a second of extra hold after a kill is not worth 20 process
-        # spawns a second for the whole run. A control FIFO would signal both
-        # instantly, but its descriptor would be inherited by the docker and
-        # conformance descendants exactly as the lock's would, which is the
-        # inheritance this helper exists to avoid.
-        checks=0
+        # This process is the sole descriptor owner. Do not run an observer, or
+        # any other potentially stalled observer, here: children inherit fd
+        # 9 and can then retain the flock after this helper exits. The two
+        # descriptor-free watchers started by the acquiring shell own the
+        # liveness proof and leave this loop a cheap cancel wait.
         while [ ! -e "$cancel" ]; do
-          checks=$((checks + 1))
-          if [ "$((checks % 10))" -eq 0 ] \
-              && certbundle_acquirer_gone "$parent_pid" "$parent_ident"; then
-            rm -rf -- "$helper_dir" 2>/dev/null || true
-            exit 0
-          fi
-          sleep 0.05
+          sleep 0.05 9>&-
         done
       else
         : > "$busy"
@@ -377,8 +525,10 @@ certbundle_lock_try() { # 0 = acquired, 1 = held by someone else
   else
     python3 -c '
 import fcntl, os, shutil, sys, time
-lock_path, ready_path, busy_path, cancel_path, helper_dir, parent_pid = sys.argv[1:]
+lock_path, ready_path, busy_path, cancel_path, helper_dir, helper_pid_path, parent_pid = sys.argv[1:]
 parent_pid = int(parent_pid)
+with open(helper_pid_path, "w") as helper_pid_file:
+    helper_pid_file.write(str(os.getpid()) + "\\n")
 lock = open(lock_path, "a+")
 try:
     fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -396,7 +546,7 @@ while not os.path.exists(cancel_path):
         shutil.rmtree(helper_dir, ignore_errors=True)
         raise SystemExit(0)
     time.sleep(0.05)
-' "$CERT_BUNDLE_LOCK_FILE" "$ready" "$busy" "$cancel" "$helper_dir" "$parent_pid" 2>"$err" &
+' "$CERT_BUNDLE_LOCK_FILE" "$ready" "$busy" "$cancel" "$helper_dir" "$helper_dir/helper.pid" "$parent_pid" 2>"$err" &
   fi
   CERT_BUNDLE_LOCK_HELPER_PID="$!"
   CERT_BUNDLE_LOCK_HELPER_DIR="$helper_dir"
@@ -418,7 +568,9 @@ while not os.path.exists(cancel_path):
   done
 
   case "$outcome" in
-    acquired) return 0 ;;
+    acquired)
+      return 0
+      ;;
     busy)
       certbundle_lock_helper_stop
       return 1
