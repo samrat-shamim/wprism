@@ -237,6 +237,7 @@ check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
 // the published sentinel vocabulary wired directly to the collaborator.
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
 $manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
+$sitePolicyValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/SitePolicyValidator.php');
 $optionGrammar = new \ReflectionClass('Duo\\OptionGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
@@ -247,10 +248,12 @@ check(
         && $optionGrammar->hasMethod('optionAutoloadSentinels')
         && !$policyReflection->hasMethod('validate_env_options')
         && !$policyReflection->hasMethod('validate_option_storage')
-        && substr_count($policySource, 'OptionGrammar::validate_env_options(') === 2
-        && substr_count($policySource, 'OptionGrammar::validate_option_storage(') === 2
+        && substr_count($policySource, 'OptionGrammar::validate_env_options(') === 0
+        && substr_count($policySource, 'OptionGrammar::validate_option_storage(') === 0
         && substr_count($manifestValidatorSource, 'OptionGrammar::validate_env_options(') === 1
         && substr_count($manifestValidatorSource, 'OptionGrammar::validate_option_storage(') === 1
+        && substr_count($sitePolicyValidatorSource, 'OptionGrammar::validate_env_options(') === 1
+        && substr_count($sitePolicyValidatorSource, 'OptionGrammar::validate_option_storage(') === 1
         && substr_count($policySource, 'OptionGrammar::optionAutoloadSentinels()') === 1
         && !str_contains($policySource, 'OPTION_AUTOLOAD_SENTINELS'),
     'option declaration/storage validation and sentinel publication live in OptionGrammar; Policy has no duplicate validators'

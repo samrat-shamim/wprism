@@ -424,6 +424,7 @@ manifest_fixture_code_cleanup($loadManifests);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
 $manifestValidatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
+$sitePolicyValidatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/SitePolicyValidator.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $grammarReflection = new ReflectionClass(ManifestGrammar::class);
 $check(
@@ -431,11 +432,12 @@ $check(
         && !$policyReflection->hasMethod('validate_widgets')
         && $grammarReflection->getMethod('validate_tables')->isPublic()
         && $grammarReflection->getMethod('validate_widgets')->isPublic()
-        && substr_count($policySource, 'ManifestGrammar::validate_tables(') === 2
+        && substr_count($policySource, 'ManifestGrammar::validate_tables(') === 0
         && substr_count($policySource, 'ManifestGrammar::validate_widgets(') === 0
         && substr_count($manifestValidatorSource, 'ManifestGrammar::validate_tables(') === 1
-        && substr_count($manifestValidatorSource, 'ManifestGrammar::validate_widgets(') === 1,
-    'Policy keeps site aggregate checks while ManifestValidator owns per-manifest aggregate validators'
+        && substr_count($manifestValidatorSource, 'ManifestGrammar::validate_widgets(') === 1
+        && substr_count($sitePolicyValidatorSource, 'ManifestGrammar::validate_tables(') === 1,
+    'SitePolicyValidator keeps site aggregate checks while ManifestValidator owns per-manifest aggregate validators'
 );
 
 // ---------------------------------------------------------------------- summary

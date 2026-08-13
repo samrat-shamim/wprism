@@ -162,14 +162,16 @@ manifest_fixture_code_cleanup($loadManifests);
 @rmdir($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$sitePolicyValidatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/SitePolicyValidator.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $grammarReflection = new ReflectionClass(CodeConfigGrammar::class);
 $check(
     !$policyReflection->hasMethod('validate_code_config')
         && $grammarReflection->hasMethod('validate_site_code')
         && $grammarReflection->getMethod('validate_site_code')->isPublic()
-        && substr_count($policySource, "CodeConfigGrammar::validate_site_code(\$p->site, '") === 2,
-    'both Policy loader paths call CodeConfigGrammar and no private duplicate remains'
+        && substr_count($policySource, 'CodeConfigGrammar::validate_site_code(') === 0
+        && substr_count($sitePolicyValidatorSource, 'CodeConfigGrammar::validate_site_code(') === 1,
+    'SitePolicyValidator owns CodeConfigGrammar site validation and Policy has no private duplicate'
 );
 
 if ($failures !== []) {
