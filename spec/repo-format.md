@@ -1,6 +1,6 @@
-# Duo Site-Repo Format — spec v1
+# Duo Site-Repo Format
 
-*Status: draft, exercised by Spike A/B. The "spec v1"/"spec v0.x" markers throughout (and in the title above) are this document's own draft-history labels — they record when a rule was introduced. They are NOT the same thing as the `spec_version` integer in `site.duo.json`, which is the wire-format grammar version a repository declares and which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below).*
+*Status: **normative** — the authoritative contract for site repositories; where narrative documents (README, DESIGN.md) and this spec disagree, this spec wins. The wire-format grammar version is the `spec_version` integer in `site.duo.json` — currently `2` — which must equal the engine's own `DUO_SPEC_VERSION` exactly (see "Adapter compatibility contract" below). The "spec v1"/"spec v0.x" markers throughout are this document's own draft-history labels — they record when a rule was introduced and are NOT the wire version.*
 
 A **site repo** is a git repository holding the branchable partition of one WordPress site: code, canonical state, media, and policy. Environments (any WP install with the Duo agent) materialize it; their runtime data never enters it.
 
