@@ -80,6 +80,10 @@ source "lib/pair_identity.sh"
 # shellcheck source=../lib/pair_budget_lock.sh
 source "lib/pair_budget_lock.sh"
 
+[ -r "lib/pair_db.sh" ] || fail "pair db library is missing: lib/pair_db.sh (the launcher cannot safely bring up or query the shared database)"
+# shellcheck source=../lib/pair_db.sh
+source "lib/pair_db.sh"
+
 
 # DUO-3277: the repo's CANONICAL checkout -- where a persistent pair's
 # bind-mounted agent/manifests sources must always live, regardless of
@@ -357,54 +361,9 @@ validate_name() { # validate_name <name>
   pair_identity_validate_name "$1"
 }
 
-# --- shared db: bring-up, readiness, admin SQL ------------------------------
-
-db_sql() { # db_sql — run SQL read from stdin as root against the shared server
-  # mariadb:11's image only ships the `mariadb` client binary (no `mysql`
-  # symlink — confirmed empirically while authoring this: MariaDB has been
-  # renaming its client tools, mysql -> mariadb, mysqldump -> mariadb-dump,
-  # etc., and this image has already dropped the old names entirely).
-  docker exec -i -e MYSQL_PWD="$DB_ROOT_PASS" "$DB_CONTAINER" mariadb -u"$DB_ROOT_USER"
-}
-
-ensure_db_up() {
-  "${DB_COMPOSE[@]}" up -d >/dev/null
-  for _ in $(seq 1 60); do
-    if [ "$(docker inspect -f '{{.State.Health.Status}}' "$DB_CONTAINER" 2>/dev/null || true)" = "healthy" ]; then
-      return 0
-    fi
-    sleep 2
-  done
-  fail "shared db ($DB_CONTAINER) never became healthy"
-}
-
-ensure_app_user() {
-  # Wildcard grant, not a per-pair user: `wp\_%` matches every wp_<name>{1,2}
-  # database this or any other pair will ever create. Quoted heredoc (no
-  # variable interpolation needed) so the backticks and backslash reach
-  # mysql literally instead of bash trying to parse them.
-  db_sql <<'SQL'
-CREATE USER IF NOT EXISTS 'wordpress'@'%' IDENTIFIED BY 'wordpress';
-GRANT ALL PRIVILEGES ON `wp\_%`.* TO 'wordpress'@'%';
-FLUSH PRIVILEGES;
-SQL
-}
-
-create_pair_dbs() { # create_pair_dbs <name>
-  local name="$1"
-  db_sql <<SQL
-CREATE DATABASE IF NOT EXISTS wp_${name}1 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS wp_${name}2 CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-SQL
-}
-
-drop_pair_dbs() { # drop_pair_dbs <name>
-  local name="$1"
-  db_sql <<SQL
-DROP DATABASE IF EXISTS wp_${name}1;
-DROP DATABASE IF EXISTS wp_${name}2;
-SQL
-}
+# --- shared db: bring-up, readiness, admin SQL, per-pair lifecycle are in
+# lib/pair_db.sh (pair_db_sql/pair_db_ensure_up/pair_db_ensure_app_user/
+# pair_db_create/pair_db_drop) --------------------------------------------
 
 # --- pair-level compose plumbing --------------------------------------------
 
@@ -1183,12 +1142,12 @@ cmd_up() {
   pair_compose "$name" "${overlays[@]}"
 
   say "shared infra: MariaDB (duo-db) + duo-shared network"
-  ensure_db_up
-  ensure_app_user
+  pair_db_ensure_up
+  pair_db_ensure_app_user
   pass "shared db up, healthy, wordpress user granted on wp\\_%"
 
   say "pair '$name': databases"
-  create_pair_dbs "$name"
+  pair_db_create "$name"
   pass "wp_${name}1, wp_${name}2 exist"
 
   say "pair '$name': site-repo directories"
@@ -1335,11 +1294,11 @@ cmd_reset() {
   # Refuse before DROP/CREATE if uid-33 descendants cannot be returned to the
   # host process that clears them. The helper preserves both bind-root inodes.
   repo_host "$name" both
-  ensure_db_up
+  pair_db_ensure_up
 
   say "pair '$name': reset"
-  drop_pair_dbs "$name"
-  create_pair_dbs "$name"
+  pair_db_drop "$name"
+  pair_db_create "$name"
   # DUO-3412: record the DROP for `up`, immediately after it and before
   # anything else here can fail. From this line on, both sides of this pair
   # are KNOWN uninstalled, and the next install_side must not re-derive that
@@ -1415,7 +1374,7 @@ cmd_start() {
   # Keep the existing resume contract: the shared MariaDB must be healthy
   # before a stopped pair is started. The reservation is already held, so a
   # concurrent up/start cannot over-commit while this prerequisite runs.
-  ensure_db_up
+  pair_db_ensure_up
   check_dead_mounts "$name"
   say "pair '$name': start (state exactly as it was at stop)"
   pair_compose "$name"
@@ -1438,8 +1397,8 @@ cmd_destroy() {
   pair_compose "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" down -v --remove-orphans
-  ensure_db_up
-  drop_pair_dbs "$name"
+  pair_db_ensure_up
+  pair_db_drop "$name"
   # DUO-3412: the needs-install markers are this pair's state, and destroy is
   # where this pair's state goes — leaving them would make the next `up` on a
   # recycled pair name act on a record about a pair that no longer exists.
