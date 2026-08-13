@@ -43,16 +43,6 @@ register_shutdown_function(function () use ($fixtureDir) {
 });
 putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-
-use Duo\Policy;
-
-if (!defined('DUO_SPEC_VERSION')) {
-    define('DUO_SPEC_VERSION', 0);
-}
-
 $failures = 0;
 function check(bool $cond, string $msg): void {
     global $failures;
@@ -62,6 +52,76 @@ function check(bool $cond, string $msg): void {
         echo "FAIL: $msg\n";
         $failures++;
     }
+}
+
+// ======================================================================
+echo "\n== direct DynamicOptionResolver boundary ==\n";
+
+require __DIR__ . '/../../agent/src/DynamicOptionResolver.php';
+
+check(
+    class_exists(\Duo\DynamicOptionResolver::class, false)
+        && !class_exists(\Duo\Policy::class, false)
+        && !class_exists(\Duo\RepositoryCompiler::class, false)
+        && !function_exists('get_option'),
+    'DynamicOptionResolver loads as a pure declaration resolver without Policy, RepositoryCompiler, or WordPress'
+);
+
+$normalizer = static function (array $rule, array $source): array {
+    if (!array_key_exists('autoload', $rule) && array_key_exists('option_autoload', $source)) {
+        $rule['autoload'] = $source['option_autoload'];
+    }
+    return $rule;
+};
+$direct = new \Duo\DynamicOptionResolver([
+    [
+        'name' => 'first',
+        'option_autoload' => 'preserve',
+        'dynamic_options' => [
+            'zeta' => ['prefix' => 'z_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['one' => ['class' => 'authored']]],
+            'shared' => ['prefix' => 'first_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['one' => ['class' => 'authored']]],
+        ],
+    ],
+    [
+        'name' => 'second',
+        'dynamic_options' => [
+            'alpha' => ['prefix' => 'a_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['two' => ['class' => 'authored']]],
+            'shared' => ['prefix' => 'second_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['two' => ['class' => 'authored']]],
+        ],
+    ],
+], $normalizer);
+$directDeclarations = $direct->dynamic_options();
+check(
+    array_keys($directDeclarations) === ['alpha', 'shared', 'zeta']
+        && ($directDeclarations['shared']['prefix'] ?? null) === 'first_'
+        && ($directDeclarations['zeta']['autoload'] ?? null) === 'preserve',
+    'direct resolver preserves first-manifest wins, lexical declaration order, and the injected Policy autoload normalizer'
+);
+check(
+    ($direct->resolve_dynamic_option('shared', 'storefront')['name'] ?? null) === 'first_storefront'
+        && $direct->dynamic_option_rule_for_name('first_storefront', ['active_stylesheet' => 'storefront']) !== null
+        && $direct->dynamic_option_rule_for_name('first_twenty', ['active_stylesheet' => 'storefront']) === null
+        && $direct->dynamic_option_rule_for_prefix('first_twenty') !== null
+        && $direct->is_dynamic_option_residue('first_twenty', ['active_stylesheet' => 'storefront']),
+    'direct resolver preserves exact mutation lookup, looser authorization lookup, and residue behavior'
+);
+$missingResolverRefused = false;
+try {
+    $direct->dynamic_option_rule_for_name('first_storefront', []);
+} catch (RuntimeException $e) {
+    $missingResolverRefused = str_contains($e->getMessage(), 'dynamic_options.shared declares resolver')
+        && str_contains($e->getMessage(), 'supplied: none');
+}
+check($missingResolverRefused, 'direct resolver refuses a missing engine resolver value rather than silently returning an unclassified row');
+
+require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy.php';
+
+use Duo\Policy;
+
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', 0);
 }
 
 function write_manifest(string $dir, string $name, array $json): void {
@@ -368,6 +428,33 @@ write_manifest($fixtureDir, 'bad_no_autoload', [
     'dynamic_options' => ['widgets' => ['prefix' => 'widgets_', 'resolver' => 'active_stylesheet', 'sub_keys' => ['x' => ['class' => 'authored']]]],
 ]);
 expect_load_failure($fixtureDir, 'bad_no_autoload', 'dynamic_options.widgets');
+
+// ======================================================================
+echo "\n== Policy compatibility facades ==\n";
+
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$resolverSource = (string) file_get_contents(__DIR__ . '/../../agent/src/DynamicOptionResolver.php');
+$facades = [
+    'dynamic_options' => 'dynamic_options()',
+    'resolve_dynamic_option' => 'resolve_dynamic_option($key, $resolvedValue)',
+    'is_dynamic_option_residue' => 'is_dynamic_option_residue($liveName, $resolvedValues)',
+    'dynamic_option_rule_for_name' => 'dynamic_option_rule_for_name($name, $resolvedValues)',
+    'dynamic_option_rule_for_prefix' => 'dynamic_option_rule_for_prefix($name)',
+];
+$thinFacades = true;
+foreach ($facades as $method => $delegate) {
+    $thinFacades = $thinFacades
+        && str_contains($policySource, "public function $method(")
+        && str_contains($policySource, "return \$this->dynamic_option_resolver()->$delegate;")
+        && str_contains($resolverSource, "public function $method(");
+}
+check(
+    $thinFacades
+        && substr_count($policySource, 'new DynamicOptionResolver(') === 1
+        && substr_count($policySource, 'private function dynamic_option_resolver(): DynamicOptionResolver') === 1
+        && substr_count($resolverSource, 'foreach ($this->manifests as $manifest)') === 1,
+    'Policy retains five public thin compatibility facades while DynamicOptionResolver owns the one manifest declaration walk'
+);
 
 // ======================================================================
 echo "\n";
