@@ -4,7 +4,8 @@
  * DUO-3260's URL-query reference codec (`?p=`/`?page_id=`/
  * `?attachment_id=`):
  *
- *  - agent/src/Tokens.php's tokenize_text()/detokenize_text(): now also
+ *  - agent/src/UrlQueryReferenceCodec.php, driven through Tokens.php's
+ *    tokenize_text()/detokenize_text() facade, now also
  *    rewrite/restore these three WordPress-core query-string parameters
  *    within {{home}}-anchored URL spans, mirroring Blocks.php's/
  *    Shortcodes.php's own dangling-vs-unscoped triage (Capture::
@@ -399,6 +400,12 @@ try {
     $q17threw = $e;
 }
 check($q17threw !== null, 'Q17: a genuinely dangling ref on an unconfigured instance ALSO throws (not just the unscoped sub-case)');
+
+$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Tokens.php');
+check(str_contains($tokenSource, 'UrlQueryReferenceCodec::capture('), 'Q18: Tokens delegates query-reference capture to the codec');
+check(str_contains($tokenSource, 'UrlQueryReferenceCodec::apply('), 'Q18: Tokens delegates query-reference apply to the codec');
+check(!str_contains($tokenSource, 'private function tokenize_url_query_refs'), 'Q18: Tokens no longer owns the query-reference capture implementation');
+check(!str_contains($tokenSource, 'private function detokenize_url_query_refs'), 'Q18: Tokens no longer owns the query-reference apply implementation');
 
 // ======================================================================
 // PART 2 — Lint.php: unrewritten_url_query_ref

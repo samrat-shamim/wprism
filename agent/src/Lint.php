@@ -97,7 +97,7 @@ require_once __DIR__ . '/StructuredReferenceScanner.php';
  *     `?attachment_id=` query-string parameter (WordPress's own internal-
  *     link id scheme; NOT `?page=`, which is WordPress's own separate
  *     pagination var) still holding a raw digit anywhere in captured
- *     state. Unlike Tokens::tokenize_url_query_refs()'s own REWRITE
+ *     state. Unlike UrlQueryReferenceCodec::capture()'s own REWRITE
  *     (deliberately {{home}}-anchored, for safety — never touch an
  *     external URL's own unrelated `?p=`), this scan is NOT anchored: a
  *     wide net with an honest caveat, this file's own established
