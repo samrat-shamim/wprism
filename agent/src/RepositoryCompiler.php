@@ -21,6 +21,7 @@ require_once __DIR__ . '/CompiledArtifactReader.php';
 require_once __DIR__ . '/RepositoryMediaCatalog.php';
 require_once __DIR__ . '/RepositoryDeletionParser.php';
 require_once __DIR__ . '/RepositoryEntityParser.php';
+require_once __DIR__ . '/RepositoryIdentityRegistry.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -32,7 +33,6 @@ require_once __DIR__ . '/RepositoryEntityParser.php';
  * DUO-3203's active-policy authorization pass.
  */
 final class RepositoryCompiler {
-    private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
     private const CONFLICT_RE = '/^(<{7}|={7}|>{7})(?: .*|)$/m';
 
     private string $repo;
@@ -75,8 +75,6 @@ final class RepositoryCompiler {
     private bool $completenessOptional;
     /** @var array<int,array<string,mixed>> */
     private array $diagnostics = [];
-    /** @var array<string,array{kind:string,path:string}> */
-    private array $identities = [];
     /** @var array<string,array<string,mixed>> */
     private array $deletions = [];
     /** Attachment/blob validation state for this compilation's resolved media root. */
@@ -85,6 +83,8 @@ final class RepositoryCompiler {
     private RepositoryDeletionParser $deletionParser;
     /** Decoded canonical entity parsing for this compiler's immutable Policy. */
     private RepositoryEntityParser $entityParser;
+    /** UUID ownership plus natural-key uniqueness for this compilation. */
+    private RepositoryIdentityRegistry $identityRegistry;
 
     private function __construct(
         string $stateDir,
@@ -116,6 +116,12 @@ final class RepositoryCompiler {
             $policy,
             $completenessOptional,
             $this->mediaCatalog,
+            function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
+                $this->add($code, $path, $locator, $message, $relatedPath);
+            }
+        );
+        $this->identityRegistry = new RepositoryIdentityRegistry(
+            $policy,
             function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
                 $this->add($code, $path, $locator, $message, $relatedPath);
             }
@@ -309,25 +315,25 @@ final class RepositoryCompiler {
                 $tree[$stateKey] = $entity;
                 foreach ((array) ($entity['data']['widgets'] ?? []) as $i => $widget) {
                     $widgetUuid = (string) ($widget['uuid'] ?? '');
-                    if (!preg_match(self::UUID_RE, $widgetUuid)) {
+                    if (!RepositoryIdentityRegistry::is_uuid($widgetUuid)) {
                         $this->add('invalid_uuid', $path, "widgets[$i].uuid", "'$widgetUuid' is not a lowercase RFC UUID");
                     } else {
-                        $this->register_identity($widgetUuid, 'widget', $path . "#widgets[$i]");
+                        $this->identityRegistry->register($widgetUuid, 'widget', $path . "#widgets[$i]");
                     }
                 }
                 continue;
             }
-            if (!$this->register_identity($uuid, $entity['type'], $path)) {
+            if (!$this->identityRegistry->register($uuid, $entity['type'], $path)) {
                 continue;
             }
             $tree[$uuid] = $entity;
             if ($entity['type'] === 'menu') {
                 foreach ((array) ($entity['data']['items'] ?? []) as $i => $item) {
                     $itemUuid = (string) ($item['uuid'] ?? '');
-                    if (!preg_match(self::UUID_RE, $itemUuid)) {
+                    if (!RepositoryIdentityRegistry::is_uuid($itemUuid)) {
                         $this->add('invalid_uuid', $path, "items[$i].uuid", "'$itemUuid' is not a lowercase RFC UUID");
                     } else {
-                        $this->register_identity($itemUuid, 'menu_item', $path . "#items[$i]");
+                        $this->identityRegistry->register($itemUuid, 'menu_item', $path . "#items[$i]");
                     }
                 }
             }
@@ -336,17 +342,17 @@ final class RepositoryCompiler {
         ksort($tree, SORT_STRING);
         ksort($this->deletions, SORT_STRING);
         foreach ($this->deletions as $uuid => $deletion) {
-            if (isset($this->identities[$uuid])) {
+            if (($identity = $this->identityRegistry->find($uuid)) !== null) {
                 $this->add(
                     'delete_live_conflict', $deletion['path'], 'uuid',
                     "uuid $uuid is both live and explicitly deleted by this revision",
-                    $this->identities[$uuid]['path']
+                    $identity['path']
                 );
             }
         }
         usort($sourceRows, static fn(array $a, array $b): int => $a['path'] <=> $b['path']);
         $this->policy->prime_interpreters_from_repository($tree);
-        $this->validate_natural_identities($tree);
+        $this->identityRegistry->validate_natural_identities($tree);
         $this->validate_menu_locations($tree);
         $this->validate_graph($tree);
         $this->validate_portable_shapes($tree);
@@ -474,58 +480,6 @@ final class RepositoryCompiler {
         }
         ksort($out, SORT_STRING);
         return $out;
-    }
-
-    private function register_identity(string $uuid, string $kind, string $path): bool {
-        if (!preg_match(self::UUID_RE, $uuid)) {
-            return false;
-        }
-        if (isset($this->identities[$uuid])) {
-            $first = $this->identities[$uuid];
-            $this->add('duplicate_uuid', $path, 'uuid', "uuid $uuid is already used by {$first['path']}", $first['path']);
-            return false;
-        }
-        $this->identities[$uuid] = ['kind' => $kind, 'path' => $path];
-        return true;
-    }
-
-    private function validate_natural_identities(array $tree): void {
-        $seen = [];
-        $rows = Snapshot::row_tables($this->policy);
-        foreach ($tree as $entity) {
-            if ($entity['type'] === 'options') {
-                continue;
-            }
-            $d = $entity['data'];
-            $key = null;
-            if ($entity['type'] === 'post') {
-                $key = 'post|' . ($d['type'] ?? '') . '|' . ($d['slug'] ?? '')
-                    . '|' . (is_scalar($d['parent'] ?? null) ? (string) $d['parent'] : '');
-            } elseif ($entity['type'] === 'term') {
-                $key = 'term|' . ($d['taxonomy'] ?? '') . '|' . ($d['slug'] ?? '');
-            } elseif ($entity['type'] === 'menu') {
-                $key = 'term|nav_menu|' . ($d['slug'] ?? '');
-            } elseif (isset($rows[$entity['type']])
-                && ($identityColumns = Policy::natural_key_columns($rows[$entity['type']])) !== []) {
-                // DUO-3318: the whole declared tuple, in declared order — a
-                // parent-scoped key is unique only WITHIN its parent, so
-                // comparing one component would report every sibling row of
-                // every other parent as a duplicate identity.
-                $components = [];
-                foreach ($identityColumns as $col) {
-                    $components[] = $d['columns'][$col] ?? null;
-                }
-                $key = 'table|' . $entity['type'] . '|' . Canon::encode($components);
-            }
-            if ($key === null) {
-                continue;
-            }
-            if (isset($seen[$key])) {
-                $this->add('duplicate_natural_identity', $entity['path'], 'slug', "natural identity collides with {$seen[$key]}", $seen[$key]);
-            } else {
-                $seen[$key] = $entity['path'];
-            }
-        }
     }
 
     /**
@@ -915,11 +869,12 @@ final class RepositoryCompiler {
     }
 
     private function validate_raw_ref(string $uuid, array $expectedTypes, string $path, string $locator): void {
-        if (!preg_match(self::UUID_RE, $uuid)) {
+        if (!RepositoryIdentityRegistry::is_uuid($uuid)) {
             $this->add('malformed_reference', $path, $locator, "reference '$uuid' is not a valid UUID");
             return;
         }
-        if (!isset($this->identities[$uuid])) {
+        $identity = $this->identityRegistry->find($uuid);
+        if ($identity === null) {
             if (isset($this->deletions[$uuid])) {
                 $this->add(
                     'semantic_delete_reference', $path, $locator,
@@ -931,7 +886,7 @@ final class RepositoryCompiler {
             }
             return;
         }
-        $actual = $this->identities[$uuid]['kind'];
+        $actual = $identity['kind'];
         if (!in_array($actual, $expectedTypes, true)) {
             $this->add('reference_kind_mismatch', $path, $locator, "reference target $uuid is $actual; expected " . implode('|', $expectedTypes));
         }
