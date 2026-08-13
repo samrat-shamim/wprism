@@ -21,7 +21,7 @@ require_once __DIR__ . '/Snapshot.php';
  * ordering and natural-key continuity annotation projections used by plan,
  * apply, and scoped recovery also live here because they read only explicit
  * immutable inputs and injected collaborators.
- * The remaining stateful `build_plan()` option/sidebar special cases,
+ * The remaining stateful `build_plan()` option/user-meta special cases,
  * collision/adoption, and guard-ref orchestration stay in `Apply` for later
  * slices, per the issue's "extract one collaborator at a time" guardrail.
  *
@@ -250,6 +250,69 @@ final class ApplyPlanner {
         }
         sort($names, SORT_STRING);
         return $names;
+    }
+
+    /**
+     * Project target-only sidebar widget deletions and identity evidence.
+     *
+     * Sidebar capture marks target defaults with `_duo_unmanaged`; when a
+     * previously managed sidebar has such a default while a desired widget
+     * has lost its durable ledger mapping, the plan must refuse rather than
+     * infer which local instance owns the canonical UUID. The ledger lookup is
+     * the planner's injected engine-identity boundary; widget materialization
+     * and option writes remain in SidebarState/Apply.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $desiredDocument
+     * @param array<string,mixed> $environment
+     * @param string|null $baseHash
+     * @return array<string,mixed>
+     */
+    public function project_sidebar_deletes(
+        array $row,
+        array $desiredDocument,
+        array $environment,
+        ?string $baseHash
+    ): array {
+        $envFront = Canon::decode((string) ($environment['content'] ?? ''));
+        $hasUnmanaged = false;
+        foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
+            $hasUnmanaged = $hasUnmanaged || !empty($widget['settings']['_duo_unmanaged']);
+        }
+        $missingDesiredMap = false;
+        foreach ((array) ($desiredDocument['widgets'] ?? []) as $widget) {
+            if (($this->ledgerIdFor)(
+                (string) ($widget['uuid'] ?? ''),
+                'widget_' . (string) ($widget['type'] ?? '')
+            ) === null) {
+                $missingDesiredMap = true;
+                break;
+            }
+        }
+        if ($hasUnmanaged && $missingDesiredMap && $baseHash !== null) {
+            throw new \RuntimeException(
+                "duo: widget identity history is missing for {$row['path']}; refusing to infer which live "
+                . 'instance owns a canonical UUID. Restore identity-export before plan/apply.'
+            );
+        }
+        $desiredWidgets = array_fill_keys(array_map(
+            static fn(array $widget): string => (string) ($widget['uuid'] ?? ''),
+            (array) ($desiredDocument['widgets'] ?? [])
+        ), true);
+        $widgetDeletes = [];
+        foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
+            if (!isset($desiredWidgets[(string) ($widget['uuid'] ?? '')])) {
+                $widgetDeletes[] = [
+                    'uuid' => (string) ($widget['uuid'] ?? ''),
+                    'type' => (string) ($widget['type'] ?? ''),
+                    'unmanaged' => !empty($widget['settings']['_duo_unmanaged']),
+                ];
+            }
+        }
+        if ($widgetDeletes) {
+            $row['widget_deletes'] = $widgetDeletes;
+        }
+        return $row;
     }
 
     /**
