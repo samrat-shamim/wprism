@@ -17,7 +17,9 @@ require_once $root . '/agent/src/Tokens.php';
 require_once $root . '/agent/src/Capture.php';
 
 use Duo\Capture;
+use Duo\Canon;
 use Duo\Ledger;
+use Duo\OptionState;
 use Duo\Policy;
 use Duo\RefreshExport;
 use Duo\Snapshot;
@@ -212,5 +214,42 @@ try {
     fail_re('unsafe export record path was accepted');
 } catch (RuntimeException $e) {
     check_re(str_contains($e->getMessage(), 'invalid'), 'unsafe path refusal was unclear');
+}
+
+// A per-option root is a virtual state identity. The real exporter helper
+// must emit a minimal options/core carrier rather than accidentally sending
+// every sibling option through the scoped-refresh wire envelope.
+$optionContent = Canon::encode(OptionState::document([
+    'blogdescription' => OptionState::present('excluded sibling', 'yes'),
+    'blogname' => OptionState::present('selected title', 'yes'),
+]));
+$scopedLive = new ReflectionMethod(RefreshExport::class, 'scoped_live_entities');
+$scopedLive->setAccessible(true);
+$projected = $scopedLive->invoke(null, [
+    ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => $optionContent],
+    ['uuid' => $uuid, 'type' => 'post', 'path' => "posts/post/$uuid--fixture.md", 'content' => "visible\n"],
+], [$uuid, 'option:blogname'], ['blogname']);
+$projectedOptions = OptionState::records(Canon::decode((string) $projected['options/core']['content']));
+$projectedKeys = array_keys($projected);
+sort($projectedKeys, SORT_STRING);
+check_re($projectedKeys === [$uuid, 'options/core']
+    && array_keys($projectedOptions) === ['blogname']
+    && ($projectedOptions['blogname']['value'] ?? null) === 'selected title'
+    && ($projected['options/core']['hash_basis'] ?? null) === (string) $projected['options/core']['content'],
+    'option-root refresh projection emits only the selected record with matching carrier hash basis');
+$wholeOptionsProjection = $scopedLive->invoke(null, [
+    ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => $optionContent],
+], ['options/core', 'option:blogname'], ['blogname']);
+check_re(($wholeOptionsProjection['options/core']['content'] ?? null) === $optionContent
+    && !array_key_exists('hash_basis', $wholeOptionsProjection['options/core']),
+    'a whole-options root remains whole when a redundant option root is also selected');
+try {
+    $scopedLive->invoke(null, [
+        ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => $optionContent],
+    ], ['option:missing'], ['missing']);
+    fail_re('option-root refresh projection accepted a missing selected record');
+} catch (RuntimeException $e) {
+    check_re(str_contains($e->getMessage(), "lost selected option 'missing'"),
+        'missing selected option did not fail closed at the export boundary');
 }
 echo "REGRESS_REFRESH_EXPORT_UNIT PASSED\n";

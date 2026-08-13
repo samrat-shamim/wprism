@@ -324,16 +324,16 @@ final class RefreshPlan {
             foreach (\Duo\ScopedStateOverlay::selected_identities($scopeContract) as $identity) {
                 $selectedScope[$identity] = true;
             }
+            foreach (\Duo\ScopeContract::option_root_names($scopeContract) as $name) {
+                $selectedScope['option:' . $name] = true;
+            }
         }
         // Per-option three-way planning applies uniformly whether or not a
         // scope contract is present: expand() always explodes options/core
-        // into one virtual identity per authored option name. A v1 scope
-        // grants authority over options/core as a whole SURFACE (no other
-        // manifest/adapter may reach into it), never as one atomic byte
-        // string -- materializeScoped() recombines in-scope per-option
-        // resolutions into the whole document, preserving every
-        // out-of-scope option's baseline bytes untouched, the same
-        // preservation discipline as every other identity.
+        // into one virtual identity per authored option name. An option-root
+        // scope grants only that record; materializeScoped() recombines the
+        // in-scope result into the carrier document while preserving every
+        // excluded option's baseline bytes untouched.
         $snapshots = [
             'base' => self::expand($base),
             'production' => self::expand($production),
@@ -882,9 +882,20 @@ final class RefreshPlan {
             throw new \RuntimeException('scoped refresh validation has no exact branch baseline');
         }
         $selected = array_fill_keys(\Duo\ScopedStateOverlay::selected_identities($scopeContract), true);
+        $selectedOptions = array_fill_keys(\Duo\ScopeContract::option_root_names($scopeContract), true);
         foreach (['records', 'deletions'] as $field) {
             foreach ((array) ($baseline[$field] ?? []) as $identity => $row) {
                 $identity = (string) $identity;
+                // options/core is a physical carrier, while an option-root
+                // scope selects its virtual option:<name> records. Compare
+                // every excluded record in that carrier individually so a
+                // permitted selected change cannot make strict validation
+                // reject the whole file (or hide a sibling change).
+                if ($field === 'records' && $identity === 'options/core'
+                    && $selectedOptions !== [] && !isset($selected[$identity])) {
+                    self::assertExcludedOptionsPreserved($row, $candidate[$field][$identity] ?? null, $selectedOptions);
+                    continue;
+                }
                 if (isset($selected[$identity])) {
                     continue;
                 }
@@ -905,6 +916,38 @@ final class RefreshPlan {
             $expected = is_array($row) ? base64_decode((string) ($row['base64'] ?? ''), true) : false;
             if ($bytes === false || $expected === false || !hash_equals($expected, $bytes)) {
                 throw new \RuntimeException("scoped refresh changed or removed excluded branch media '$name'");
+            }
+        }
+    }
+
+    /** @param array<string,true> $selectedOptions */
+    private static function assertExcludedOptionsPreserved(
+        mixed $baselineRow,
+        mixed $candidateRow,
+        array $selectedOptions
+    ): void {
+        if (!is_array($baselineRow) || !is_array($candidateRow)
+            || (string) ($candidateRow['path'] ?? '') !== (string) ($baselineRow['path'] ?? '')) {
+            throw new \RuntimeException('scoped refresh changed or removed excluded branch records identity \'options/core\'');
+        }
+        try {
+            $baselineOptions = \Duo\OptionState::records(\Duo\Canon::decode((string) ($baselineRow['content'] ?? '')));
+            $candidateOptions = \Duo\OptionState::records(\Duo\Canon::decode((string) ($candidateRow['content'] ?? '')));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('scoped refresh candidate has malformed options/core state', 0, $failure);
+        }
+        foreach ($baselineOptions as $name => $record) {
+            if (isset($selectedOptions[$name])) {
+                continue;
+            }
+            if (!array_key_exists($name, $candidateOptions)
+                || \Duo\Canon::encode($candidateOptions[$name]) !== \Duo\Canon::encode($record)) {
+                throw new \RuntimeException("scoped refresh changed or removed excluded option '$name'");
+            }
+        }
+        foreach ($candidateOptions as $name => $_record) {
+            if (!isset($selectedOptions[$name]) && !array_key_exists($name, $baselineOptions)) {
+                throw new \RuntimeException("scoped refresh introduced excluded option '$name'");
             }
         }
     }

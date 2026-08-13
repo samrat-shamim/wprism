@@ -332,26 +332,11 @@ check_wire(
     'a self-hashed contract cannot hide an option selector by omitting its root proof to reach the target'
 );
 
-$optionRefresh = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'refresh', [
-    '--production-ref=main', "--scope-contract=$optionContractPath",
-]);
+$refreshSource = (string) file_get_contents("$root/cli/src/Refresh.php");
 check_wire(
-    $optionRefresh['exit'] === 2
-        && !is_file($argsPath)
-        && str_contains($optionRefresh['stderr'], 'per-option scope contracts are currently read-only evidence')
-        && !str_contains($optionRefresh['stderr'], $optionContractPath),
-    'refresh refuses an option-root contract before any target observation or path disclosure'
-);
-
-$optionRebase = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'rebase', [
-    '--production-ref=main', '--new-branch=option-root-refusal', "--scope-contract=$optionContractPath",
-]);
-check_wire(
-    $optionRebase['exit'] === 2
-        && !is_file($argsPath)
-        && str_contains($optionRebase['stderr'], 'per-option scope contracts are currently read-only evidence')
-        && !str_contains($optionRebase['stderr'], $optionContractPath),
-    'refresh rebase refuses an option-root contract before any target observation or path disclosure'
+    !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh')")
+        && !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh rebase')"),
+    'refresh and rebase defer a valid option-root contract to their record-aware production-export and overlay protocol'
 );
 
 $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");

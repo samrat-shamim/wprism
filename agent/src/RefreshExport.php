@@ -80,6 +80,7 @@ final class RefreshExport {
             );
 
             if ($scopeContract !== null) {
+                $selectedOptionNames = ScopeContract::option_root_names($scopeContract);
                 $sourceTombstones = array_fill_keys(
                     array_map('strval', array_column((array) $scopeContract['tombstones'], 'uuid')),
                     true
@@ -126,16 +127,16 @@ final class RefreshExport {
                     }
                     ScopedStateOverlay::discard_state_view($targetProbeState);
                 }
-                $selectedSet = array_fill_keys($selected, true);
-                $live = [];
-                foreach ($candidate['entities'] as $row) {
-                    $identity = (string) ($row['uuid'] ?? '');
-                    if (isset($selectedSet[$identity])) {
-                        $live[$identity] = $row;
-                    }
-                }
+                $live = self::scoped_live_entities(
+                    $candidate['entities'],
+                    $selected,
+                    $selectedOptionNames
+                );
                 $deleted = array_fill_keys(array_map('strval', array_column($deletions, 'uuid')), true);
                 foreach ($selected as $identity) {
+                    if (ScopeClosure::is_option_root($identity)) {
+                        continue;
+                    }
                     if (isset($sourceTombstones[$identity])) {
                         if (isset($live[$identity]) || !isset($deleted[$identity])) {
                             throw new \RuntimeException(
@@ -182,6 +183,59 @@ final class RefreshExport {
                 'duo: refresh export refused — a promotion lease is present; wait for or recover that promotion before observing production'
             );
         }
+    }
+
+    /**
+     * Project a validated live observation onto the exact state identities a
+     * scoped refresh is allowed to report. Option roots are virtual records
+     * inside options/core, so their wire carrier must contain only the named
+     * records unless the same contract independently selects the whole
+     * options surface. A whole-surface selection remains authoritative; an
+     * additional record root must never accidentally narrow it.
+     *
+     * @param list<array<string,mixed>> $entities
+     * @param list<string> $selected
+     * @param list<string> $selectedOptionNames
+     * @return array<string,array<string,mixed>> keyed by actual wire identity
+     */
+    private static function scoped_live_entities(
+        array $entities,
+        array $selected,
+        array $selectedOptionNames
+    ): array {
+        $selectedSet = array_fill_keys($selected, true);
+        $live = [];
+        $optionCarrier = null;
+        foreach ($entities as $row) {
+            $identity = (string) ($row['uuid'] ?? '');
+            if (isset($selectedSet[$identity])) {
+                $live[$identity] = $row;
+            }
+            if ($identity === 'options/core') {
+                $optionCarrier = $row;
+            }
+        }
+        if ($selectedOptionNames === [] || isset($selectedSet['options/core'])) {
+            return $live;
+        }
+        if (!is_array($optionCarrier)) {
+            throw new \RuntimeException('duo: scoped refresh export lost the selected options document');
+        }
+        $records = OptionState::records(Canon::decode((string) ($optionCarrier['content'] ?? '')));
+        $selectedRecords = [];
+        foreach ($selectedOptionNames as $name) {
+            if (!array_key_exists($name, $records)) {
+                throw new \RuntimeException(
+                    "duo: scoped refresh export lost selected option '$name' without bounded option evidence"
+                );
+            }
+            $selectedRecords[$name] = $records[$name];
+        }
+        $content = Canon::encode(OptionState::document($selectedRecords));
+        $optionCarrier['content'] = $content;
+        $optionCarrier['hash_basis'] = $content;
+        $live['options/core'] = $optionCarrier;
+        return $live;
     }
 
     /**
@@ -318,7 +372,6 @@ final class RefreshExport {
         if (($request['format'] ?? null) === ScopeContract::FORMAT) {
             $contract = ScopeContract::from_array($request);
             ScopeContract::assert_associated($contract, $compiled, $policy);
-            ScopeContract::assert_mutation_supported($contract, 'scoped refresh');
             return $contract;
         }
         $keys = array_keys($request);
@@ -335,7 +388,6 @@ final class RefreshExport {
             ScopeContract::normalize_selectors($request['selectors']),
             (string) ($request['scope_hash'] ?? '')
         );
-        ScopeContract::assert_mutation_supported($contract, 'scoped refresh');
         return $contract;
     }
 

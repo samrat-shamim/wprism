@@ -6,10 +6,10 @@ require_once __DIR__ . '/OptionState.php';
 require_once __DIR__ . '/ScopeClosure.php';
 
 /**
- * A contract may bind an exact option record as read-only evidence before a
- * mutation protocol has the corresponding record-aware target authority.
- * Keep this distinct from malformed-contract errors so host boundaries can
- * emit one honest public refusal without treating valid evidence as corrupt.
+ * A mutation consumer may not infer per-option authority merely because the
+ * immutable contract can name an exact option record. Consumers without the
+ * record-aware target/overlay protocol must keep refusing this valid evidence
+ * rather than accidentally widening it to the whole options document.
  */
 final class ScopedOptionMutationUnsupported extends \RuntimeException {}
 
@@ -213,11 +213,9 @@ final class ScopeContract {
     }
 
     /**
-     * The v1 contract can now bind an exact per-option proof, but no mutation
-     * protocol has yet made its target observation, overlay, authority hash,
-     * and effect receipt name-aware.  Every consumer calls this explicit
-     * guard at its own boundary so relaxing the former mint-time refusal
-     * cannot accidentally grant the whole options/core surface.
+     * This is deliberately a per-consumer guard. Refresh has a record-aware
+     * production export and overlay, while capture/apply/promote still own
+     * whole-document mechanics and must reject an option root before contact.
      */
     public static function assert_mutation_supported(array $contract, string $operation): void {
         if (self::option_root_names($contract) !== []) {
@@ -312,6 +310,19 @@ final class ScopeContract {
                 }
                 continue;
             }
+            if (ScopeClosure::is_option_root($identity)) {
+                $name = ScopeClosure::option_name_from_root($identity);
+                $options = $tree['options/core'] ?? null;
+                $records = is_array($options)
+                    ? OptionState::records((array) ($options['data'] ?? []))
+                    : [];
+                if (!array_key_exists($name, $records)) {
+                    throw new \RuntimeException(
+                        "duo: scoped candidate lost selected option '$name' without bounded option evidence"
+                    );
+                }
+                continue;
+            }
             if (isset($tree[$identity]) && !isset($deletions[$identity])) {
                 if ((string) ($tree[$identity]['type'] ?? '') !== (string) ($expectedTypes[$identity] ?? '')) {
                     throw new \RuntimeException(
@@ -336,6 +347,10 @@ final class ScopeContract {
         // walking roots alone would silently stop checking the detached row.
         foreach (array_keys($walk) as $identity) {
             if (isset($authorizedDeletionSet[$identity])) {
+                continue;
+            }
+            if (ScopeClosure::is_option_root($identity)) {
+                $selectors[] = 'option:' . ScopeClosure::option_name_from_root($identity);
                 continue;
             }
             $selectors[] = 'path:' . (string) $tree[$identity]['path'];

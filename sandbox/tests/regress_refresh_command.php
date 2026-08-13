@@ -10,7 +10,6 @@ use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshCommand;
 use Duo\ScopeContract;
-use Duo\ScopedOptionMutationUnsupported;
 
 function fail_refresh_command(string $message): never { fwrite(STDERR, "FAIL: $message\n"); exit(1); }
 function assert_refresh_command(bool $ok, string $message): void { if (!$ok) fail_refresh_command($message); }
@@ -90,17 +89,6 @@ assert_refresh_command(is_array($payload)
     && ($payload['ok'] ?? null) === false,
     'refresh command owns the stable machine refusal envelope');
 
-$directDriver = new RefreshCommandDriver();
-try {
-    Refresh::refresh($directDriver, 'main', option_scope_contract_for_refresh_command());
-    fail_refresh_command('public Refresh::refresh accepted an option-root contract');
-} catch (ScopedOptionMutationUnsupported $failure) {
-    assert_refresh_command(
-        $directDriver->rawCalls === 0 && $directDriver->wpCalls === 0,
-        'public Refresh::refresh refuses option-root evidence before any driver contact'
-    );
-}
-
 $source = file_get_contents(__DIR__ . '/../../cli/duo');
 assert_refresh_command(is_string($source)
     && str_contains($source, 'return RefreshCommand::run($t, $extra);')
@@ -110,6 +98,10 @@ assert_refresh_command((new ReflectionMethod(RefreshCommand::class, 'run'))->isS
     'refresh handler exposes a standalone static boundary');
 assert_refresh_command(CommandOutput::wantsAgentRefusalJson('refresh', ['--format=json']),
     'refresh uses the shared host refusal-format detector');
+$refreshSource = file_get_contents(__DIR__ . '/../../cli/src/Refresh.php');
+assert_refresh_command(is_string($refreshSource)
+    && !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh')"),
+    'public refresh reaches the record-aware scoped-refresh path instead of rejecting a valid option root at its host boundary');
 
 $renderPlan = new ReflectionMethod(RefreshCommand::class, 'renderPlan');
 $postLabelContent = "---\n" . json_encode(
