@@ -11,6 +11,7 @@ require_once __DIR__ . '/Publish.php';
 require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/ScopeDiscovery.php';
 require_once __DIR__ . '/UserMetaCapture.php';
+require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /**
@@ -44,6 +45,7 @@ final class Capture {
     private string $repo;
     private ?ScopeDiscovery $scopeDiscovery = null;
     private ?UserMetaCapture $userMetaCapture = null;
+    private ?EntityMetaCapture $entityMetaCapture = null;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
@@ -142,6 +144,26 @@ final class Capture {
             );
         }
         return $this->userMetaCapture;
+    }
+
+    /** Lazily bind ordered post/term metadata reads to Capture's side channels. */
+    private function entity_meta_capture(): EntityMetaCapture {
+        if ($this->entityMetaCapture === null) {
+            $this->entityMetaCapture = new EntityMetaCapture(
+                $this->policy,
+                $this->tokens,
+                function (string $section, string $key, $value, array $rule, string $context): void {
+                    $this->guard_secret($section, $key, $value, $rule, $context);
+                },
+                function (): void {
+                    $this->checkpoint_observation_read();
+                },
+                function (string $finding): void {
+                    $this->unclassified[] = $finding;
+                }
+            );
+        }
+        return $this->entityMetaCapture;
     }
 
     /**
@@ -3183,19 +3205,7 @@ final class Capture {
     }
 
     private function post_meta_map(int $postId): array {
-        global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_id ASC",
-            $postId
-        ), ARRAY_A) ?: [];
-        $this->checkpoint_observation_read();
-        $out = [];
-        foreach ($rows as $r) {
-            if (!isset($out[$r['meta_key']])) {
-                $out[$r['meta_key']] = $r['meta_value'];
-            }
-        }
-        return $out;
+        return $this->entity_meta_capture()->postMetaMap($postId);
     }
 
     /**
@@ -3208,16 +3218,7 @@ final class Capture {
      * case rather than refuse it.
      */
     private function post_meta_by_key(int $postId): array {
-        global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->postmeta} WHERE post_id = %d ORDER BY meta_key ASC, meta_id ASC",
-            $postId
-        ), ARRAY_A) ?: [];
-        $byKey = [];
-        foreach ($rows as $r) {
-            $byKey[$r['meta_key']][] = $r['meta_value'];
-        }
-        return $byKey;
+        return $this->entity_meta_capture()->postMetaByKey($postId);
     }
 
     /**
@@ -3260,79 +3261,24 @@ final class Capture {
         string $unclassifiedPrefix,
         bool $termMeta = false
     ): array {
-        $rule = $termMeta
-            ? $this->policy->meta_rule_for_term($key, $flatMeta)
-            : $this->policy->meta_rule_for_post($key, $flatMeta);
-        if ($rule === null) {
-            $this->unclassified[] = "$unclassifiedPrefix:$key";
-            return [false, null];
-        }
-        if (($rule['class'] ?? '') !== 'authored') {
-            return [false, null];
-        }
-        if (count($values) > 1) {
-            throw new \RuntimeException("duo: multi-value authored meta '$key' on $ownerLabel unsupported in v0");
-        }
-        $v = PlainData::decode($values[0], "$ownerLabel meta $key");
-        PlainData::assert($v, "$ownerLabel meta $key");
-        // DUO-3214: unconditional, not gated on is_string($v) — an
-        // authored value that decoded to an array (a serialized settings
-        // blob) must be scanned too; guard_secret() deep-scans internally
-        // now (see its own docblock).
-        $this->guard_secret($termMeta ? 'term_meta' : 'post_meta', $key, $v, $rule, " on $ownerLabel");
-        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = StructuredValue::decode($v, $rule, "$ownerLabel meta $key");
-            $v = $this->tokens->struct_capture($decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-        } elseif (!empty($rule['ref'])) {
-            $v = $this->tokens->meta_value_to_tokens($v, $rule);
-            if ($v === null) {
-                // dangling scalar ref: key skipped (warned inside Tokens) —
-                // a raw env-local id must never reach canonical state
-                return [false, null];
-            }
-        } elseif (is_string($v)) {
-            $v = $this->tokens->tokenize_text($v);
-        }
-        // DUO-3214(b) / task #123: applied LAST, to the fully-processed
-        // value, so it composes correctly with ref/json_refs rewriting
-        // above rather than racing it — order preservation is about how
-        // Canon serializes the FINAL value, not an input-shape concern.
-        // See Canon::normalize()'s docblock for the mechanism.
-        if (!empty($rule['order_preserving'])) {
-            $v = new OrderPreserved($v);
-        }
-        return [true, $v];
+        return $this->entity_meta_capture()->classifyValue(
+            $key,
+            $values,
+            $flatMeta,
+            $ownerLabel,
+            $unclassifiedPrefix,
+            $termMeta
+        );
     }
 
     /** First-value-per-key termmeta context for static/interpreter rules. */
     private function term_meta_map(int $termId): array {
-        global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_id ASC",
-            $termId
-        ), ARRAY_A) ?: [];
-        $this->checkpoint_observation_read();
-        $out = [];
-        foreach ($rows as $r) {
-            if (!isset($out[$r['meta_key']])) {
-                $out[$r['meta_key']] = $r['meta_value'];
-            }
-        }
-        return $out;
+        return $this->entity_meta_capture()->termMetaMap($termId);
     }
 
     /** Multi-value termmeta read, preserving meta_id order per key. */
     private function term_meta_by_key(int $termId): array {
-        global $wpdb;
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT meta_key, meta_value FROM {$wpdb->termmeta} WHERE term_id = %d ORDER BY meta_key ASC, meta_id ASC",
-            $termId
-        ), ARRAY_A) ?: [];
-        $byKey = [];
-        foreach ($rows as $row) {
-            $byKey[$row['meta_key']][] = $row['meta_value'];
-        }
-        return $byKey;
+        return $this->entity_meta_capture()->termMetaByKey($termId);
     }
 
     /** Thin historical facade over the login-keyed entity capturer. */
