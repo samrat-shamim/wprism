@@ -4,6 +4,7 @@ namespace Duo;
 require_once __DIR__ . '/IdentityTokenCodec.php';
 require_once __DIR__ . '/StructuredReferenceCodec.php';
 require_once __DIR__ . '/TextTokenizer.php';
+require_once __DIR__ . '/UrlQueryReferenceCodec.php';
 
 /**
  * Environment-bound values are tokenized at capture and re-bound at apply:
@@ -15,10 +16,9 @@ require_once __DIR__ . '/TextTokenizer.php';
 final class Tokens {
     private string $home;
     private string $uploadsUrl;
-    /** The pure {{home}}/{{uploads}} URL-prefix substitution, extracted to
-     *  TextTokenizer (DUO-3354); see its own docblock for exactly which
-     *  half of tokenize_text()/detokenize_text() moved and why the
-     *  query-ref rewrite that follows did not. */
+    /** The pure {{home}}/{{uploads}} URL-prefix substitution lives in
+     *  TextTokenizer (DUO-3354); the distinct query-reference protocol is
+     *  delegated separately to UrlQueryReferenceCodec below. */
     private TextTokenizer $textTokenizer;
     /** @var string[] capture-time warnings (unmapped ids etc.) */
     public array $warnings = [];
@@ -157,80 +157,24 @@ final class Tokens {
     // ---- text (URLs) ----
 
     /**
-     * The {{home}}/{{uploads}} URL-prefix substitution itself is
-     * TextTokenizer's (see its own docblock for the plain/JSON-escaped
-     * matching and ordering rules); this facade then rewrites any
-     * `{{home}}`-anchored query-string id ref the substitution exposed.
+     * The public text facade combines TextTokenizer's environment URL-prefix
+     * substitution with UrlQueryReferenceCodec's declared post-id query-ref
+     * rewrite. Tokens supplies the Ledger lookup and its policy-aware capture
+     * observation sink; neither collaborator owns those stateful concerns.
      */
     public function tokenize_text(string $s, string $contextLabel = ''): string {
         if ($s === '') {
             return $s;
         }
-        return $this->tokenize_url_query_refs($this->textTokenizer->tokenize($s), $contextLabel);
-    }
-
-    /**
-     * DUO-3260: WordPress's own redirect_canonical() (verified by reading
-     * wp-includes/canonical.php directly, not assumed) resolves exactly
-     * three query-string parameters to a real post id, regardless of
-     * post_type (get_post() is type-agnostic): `p` (index.php?p=N,
-     * WordPress's oldest URL scheme), `page_id`, `attachment_id`.
-     * Deliberately NOT `page` (no underscore) — that is WordPress's own
-     * `<!--nextpage-->` PAGINATION query var (canonical.php's is_404()
-     * branch), never an entity reference; conflating the two would be
-     * exactly the kind of unverified assumption this project's "ground
-     * it, don't assume it" discipline exists to catch.
-     *
-     * Scoped to {{home}}-anchored spans ONLY, via an outer pass that
-     * finds each home-prefixed URL span before an inner pass rewrites
-     * the specific query params within it: an external URL that happens
-     * to carry an unrelated `?p=123` (any third-party site using the
-     * same common parameter name) must never be touched. {{home}}
-     * having already replaced this environment's own home URL literal
-     * (tokenize_text()'s own preceding lines) is the only reliable
-     * signal "this URL is one of ours" — mirroring Blocks.php's own
-     * wp-image-<id> class scoped-rewrite precedent (IMAGE_CLASS_BLOCKS)
-     * rather than a blind sweep for these parameter names anywhere in
-     * arbitrary text. A purely relative internal link (`href="/?p=123"`,
-     * no scheme/host) is NOT reachable by this mechanism, same
-     * unavoidable pre-existing limitation the plain home/uploads
-     * substitution above already has for relative permalinks.
-     *
-     * Unmapped ids: the whole `separator+param=value` span drops (never
-     * just the value, matching every other scalar ref's own whole-key
-     * drop convention in this codebase), with a warning, and is
-     * independently classified via Capture::classify_unscoped_ref() for
-     * Capture::build()'s own batched abort gate — same task #73 triage
-     * ported a third time this session. Accepts a known, minor, purely
-     * cosmetic byte artifact on drop: the query string's remaining
-     * separators are NOT re-normalized (e.g. `?p=1&foo=2` with `p`
-     * dropped becomes `?&foo=2`, not `?foo=2`) — every resulting shape
-     * is still a structurally valid query string any real parser
-     * (including PHP's own parse_str()) reads identically to the fully-
-     * normalized form, so this is deliberately not chased further.
-     */
-    private function tokenize_url_query_refs(string $s, string $contextLabel): string {
-        if (!str_contains($s, '{{home}}')) {
-            return $s;
-        }
-        $out = preg_replace_callback('/\{\{home\}\}[^\s"\'<>]*/', function (array $span) use ($contextLabel) {
-            $rewritten = preg_replace_callback(
-                '/([?&])(p|page_id|attachment_id)=(\d+)/',
-                function (array $m) use ($contextLabel) {
-                    $id = (int) $m[3];
-                    $tok = $this->id_to_token($id, 'post');
-                    if ($tok === null) {
-                        $this->warnings[] = "url query ref '{$m[2]}=$id' unmapped post id $id dropped (dangling reference)";
-                        $this->queue_unscoped_url_query_ref($contextLabel, $m[2], $id);
-                        return ''; // drop separator+param+value together
-                    }
-                    return $m[1] . $m[2] . '=' . $tok;
-                },
-                $span[0]
-            );
-            return $rewritten ?? $span[0];
-        }, $s);
-        return $out ?? $s;
+        return UrlQueryReferenceCodec::capture(
+            $this->textTokenizer->tokenize($s),
+            $contextLabel,
+            fn(int $id): ?string => $this->id_to_token($id, 'post'),
+            function (string $warning): void { $this->warnings[] = $warning; },
+            function (string $context, string $param, int $id): void {
+                $this->queue_unscoped_url_query_ref($context, $param, $id);
+            }
+        );
     }
 
     /**
@@ -238,7 +182,7 @@ final class Tokens {
      * delegates the whole three-way decision to Capture::classify_
      * unscoped_ref() directly (the extraction DUO-3259 added specifically
      * so a third caller wouldn't need a third hand-copy) rather than
-     * re-deriving it. Called from tokenize_url_query_refs() for EVERY id
+     * re-deriving it. Called by UrlQueryReferenceCodec's unresolved sink for EVERY id
      * that id_to_token() fails to resolve, before classification —
      * dangling vs. unscoped is exactly what $policy is needed to tell
      * apart, so both sub-cases hit the guard below identically when
@@ -287,48 +231,15 @@ final class Tokens {
         ];
     }
 
-    /**
-     * The plain-form restore itself is TextTokenizer's (see its own
-     * docblock for why the always-plain spelling is deliberate); this
-     * facade then restores any query-string id ref token the substitution
-     * exposed.
-     */
+    /** Restore environment URL tokens and the exact query-ref tokens capture emits. */
     public function detokenize_text(string $s): string {
         if ($s === '') {
             return $s;
         }
-        return $this->detokenize_url_query_refs($this->textTokenizer->detokenize($s));
-    }
-
-    /**
-     * Apply-direction mirror of tokenize_url_query_refs() above. Unlike
-     * that method, needs no {{home}}-anchoring: a `{{post:<uuid>}}` token
-     * immediately after `?p=`/`?page_id=`/`?attachment_id=` can only ever
-     * have been written by tokenize_url_query_refs() itself (nothing else
-     * in this engine emits that exact shape at that exact position), so
-     * the token's own presence is already an unambiguous, self-contained
-     * signal — no separate "is this one of ours" check needed the way
-     * capture direction requires. Order relative to the {{home}}/
-     * {{uploads}} restores above genuinely does not matter for
-     * correctness (this regex never references either), placed after
-     * them only to match this codebase's established "generic detokenize
-     * first, structural restore last" convention (Tokens::struct_apply()'s
-     * own ordering) for readability, not because it's load-bearing here.
-     * Unresolvable throws (Tokens::token_to_id()'s own contract) — no
-     * soft fallback for a ref that resolved fine at capture time but
-     * whose target doesn't exist on THIS environment, matching every
-     * other apply-direction ref restore in this codebase exactly.
-     */
-    private function detokenize_url_query_refs(string $s): string {
-        if (!str_contains($s, '{{post:')) {
-            return $s;
-        }
-        $out = preg_replace_callback(
-            '/([?&](?:p|page_id|attachment_id)=)\{\{post:([0-9a-f-]{36})\}\}/',
-            fn(array $m) => $m[1] . $this->token_to_id('{{post:' . $m[2] . '}}'),
-            $s
+        return UrlQueryReferenceCodec::apply(
+            $this->textTokenizer->detokenize($s),
+            fn(string $token): int => $this->token_to_id($token)
         );
-        return $out ?? $s;
     }
 
     // ---- typed id refs ----
