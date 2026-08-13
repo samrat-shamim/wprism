@@ -434,6 +434,11 @@ result is retained without promoting its still-unbound experimental claim. The
 harness owns one disposable pair at a time and destroys it after every attempted
 leg. Override its isolated resources with `CERT_BUNDLE_PAIR`,
 `CERT_BUNDLE_PORT1`, and `CERT_BUNDLE_PORT2` when the defaults are occupied.
+The wrapper sources `sandbox/lib/certbundle_evidence.sh` for the five narrow
+result, scoped-result, fragment, skipped-leg, and aggregate-fragment writers;
+scenario order, exact-source guards, pair lifecycle, and bundle publication
+remain visible in the wrapper. `make regress-certbundle-evidence` executes that
+machine-evidence contract directly with real `jq` and file I/O.
 
 Every run publishes a content-addressed directory below the ignored
 `sandbox/certification-bundles/` directory (or `CERT_BUNDLE_OUT`). Its manifest

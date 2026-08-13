@@ -69,6 +69,11 @@ source bin/fetch-artifact.sh
 # shellcheck source=../lib/certbundle_lock.sh
 source lib/certbundle_lock.sh
 
+# DUO-3355: result/diff fragments are shaped by one directly regression-tested
+# boundary; this runner retains scenario order, lifecycle, and publication.
+# shellcheck source=../lib/certbundle_evidence.sh
+source lib/certbundle_evidence.sh
+
 certbundle_lock_acquire
 validate_artifact_lock conformance/artifacts.lock.json \
   || fail "reference certification requires a closed typed artifact lock"
@@ -176,43 +181,6 @@ CONFORMANCE_MANIFESTS=(
 )
 TEST_FRAGMENTS=()
 
-write_result() { # write_result <id> <rc> <reason> <assertions-json> <path>
-  local id="$1" rc="$2" reason="$3" assertions="$4" path="$5" verdict=fail
-  [ "$rc" -eq 0 ] && verdict=pass
-  jq -n \
-    --arg test "$id" --arg verdict "$verdict" --arg reason "$reason" \
-    --argjson exit_code "$rc" --argjson assertions "$assertions" \
-    '{schema_version:1,test:$test,verdict:$verdict,exit_code:$exit_code,reason:$reason,assertions:$assertions}' > "$path"
-}
-
-write_scoped_result() { # write_scoped_result <id> <rc> <reason> <assertions-json> <scope> <exclusions-json> <path>
-  local id="$1" rc="$2" reason="$3" assertions="$4" scope="$5" exclusions="$6" path="$7" tmp
-  write_result "$id" "$rc" "$reason" "$assertions" "$path"
-  tmp="$path.tmp"
-  jq --arg scope "$scope" --argjson exclusions "$exclusions" \
-    '. + {scope:$scope,exclusions:$exclusions}' "$path" > "$tmp"
-  mv "$tmp" "$path"
-}
-
-write_fragment() { # write_fragment <id> <manifest> <result> <diff> <fragment>
-  jq -n --arg id "$1" --arg manifest "$2" --arg result "$3" --arg diff "$4" \
-    '{id:$id,manifest:$manifest,result:$result,diff:$diff}' > "$5"
-}
-
-write_skipped() { # write_skipped <id> <manifest> <log> <result> <diff> <fragment>
-  local id="$1" manifest="$2" log="$3" result="$4" diff="$5" fragment="$6"
-  printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$log"
-  write_result "$id" 99 blocked_by_prior_failure '[]' "$result"
-  jq -n --arg manifest "$manifest" \
-    '{status:"unknown",manifest:$manifest,reason:"blocked_by_prior_failure"}' > "$diff"
-  write_fragment "$id" "$manifest" "$result" "$diff" "$fragment"
-}
-
-append_fragment() { # append_fragment <fragment> <log>
-  local fragment="$1" log="$2"
-  TEST_FRAGMENTS+=("$(jq -c --arg log "$log" '. + {log:$log} | del(.manifest)' "$fragment")")
-}
-
 destroy_own_pair() {
   local rc
   set +e
@@ -303,9 +271,9 @@ echo wp_json_encode([
     if [ "$rc" -ne 0 ]; then
       overall=1
       [ "$reason" = passed ] && reason=command_failed
-      write_result "$id" "$rc" "$reason" '[]' "$result"
+      certbundle_evidence_write_result "$id" "$rc" "$reason" '[]' "$result"
       jq -n --arg manifest "$manifest" '{status:"unknown",manifest:$manifest}' > "$diff"
-      write_fragment "$id" "$manifest" "$result" "$diff" "$fragment"
+      certbundle_evidence_write_fragment "$id" "$manifest" "$result" "$diff" "$fragment"
       if [ "$manifest" = core ] && [ ! -f "$ENV_FILE" ]; then
         jq -n --arg host_php "$(php -r 'echo PHP_VERSION;')" \
           '{collection:"failed",host_php:$host_php}' > "$ENV_FILE"
@@ -320,9 +288,9 @@ echo wp_json_encode([
       pass "$manifest conformance passed; its named fragment was imported and pair destroyed"
     fi
   else
-    write_skipped "$id" "$manifest" "$log" "$result" "$diff" "$fragment"
+    certbundle_evidence_write_skipped "$id" "$manifest" "$log" "$result" "$diff" "$fragment"
   fi
-  append_fragment "$fragment" "$log"
+  certbundle_evidence_append_fragment "$fragment" "$log"
 done
 
 [ -f "$ENV_FILE" ] || jq -n --arg host_php "$(php -r 'echo PHP_VERSION;')" \
@@ -346,7 +314,7 @@ if [ "$overall" -eq 0 ]; then
     overall=1
     [ "$multisite_reason" = passed ] && multisite_reason=command_failed
   fi
-  write_result multisite-refusal "$multisite_rc" "$multisite_reason" \
+  certbundle_evidence_write_result multisite-refusal "$multisite_rc" "$multisite_reason" \
     '["wordpress_runtime_reports_multisite","capture_nonzero","actionable_single_site_boundary","no_repository_publication","authored_canary_unchanged"]' \
     "$WORK_ROOT/multisite-refusal.result.json"
   jq -n --arg status "$([ "$multisite_rc" -eq 0 ] && printf no_mutation || printf unknown)" \
@@ -354,13 +322,13 @@ if [ "$overall" -eq 0 ]; then
     > "$WORK_ROOT/multisite-refusal.diff.json"
   destroy_own_pair || overall=1
 else
-  write_skipped multisite-refusal multisite "$MULTISITE_LOG" \
+  certbundle_evidence_write_skipped multisite-refusal multisite "$MULTISITE_LOG" \
     "$WORK_ROOT/multisite-refusal.result.json" "$WORK_ROOT/multisite-refusal.diff.json" \
     "$WORK_ROOT/multisite-refusal.fragment.json"
 fi
-write_fragment multisite-refusal multisite "$WORK_ROOT/multisite-refusal.result.json" \
+certbundle_evidence_write_fragment multisite-refusal multisite "$WORK_ROOT/multisite-refusal.result.json" \
   "$WORK_ROOT/multisite-refusal.diff.json" "$WORK_ROOT/multisite-refusal.fragment.json"
-append_fragment "$WORK_ROOT/multisite-refusal.fragment.json" "$MULTISITE_LOG"
+certbundle_evidence_append_fragment "$WORK_ROOT/multisite-refusal.fragment.json" "$MULTISITE_LOG"
 
 leg=$((leg + 1))
 if [ "$overall" -eq 0 ]; then
@@ -381,7 +349,7 @@ if [ "$overall" -eq 0 ]; then
     overall=1
     [ "$matrix_reason" = passed ] && matrix_reason=command_failed
   fi
-  write_result exact-artifact-version-matrix "$matrix_rc" "$matrix_reason" \
+  certbundle_evidence_write_result exact-artifact-version-matrix "$matrix_rc" "$matrix_reason" \
     '["digest_verified_artifacts","declared_min_boundaries","max_practical_boundaries","typed_table_ninja_forms","byte_identical_recapture","below_range_loud_refusal"]' \
     "$WORK_ROOT/exact-artifact-version-matrix.result.json"
   jq -n --arg status "$([ "$matrix_rc" -eq 0 ] && printf clean || printf unknown)" \
@@ -389,14 +357,14 @@ if [ "$overall" -eq 0 ]; then
     > "$WORK_ROOT/exact-artifact-version-matrix.diff.json"
   destroy_own_pair || overall=1
 else
-  write_skipped exact-artifact-version-matrix version-matrix "$MATRIX_LOG" \
+  certbundle_evidence_write_skipped exact-artifact-version-matrix version-matrix "$MATRIX_LOG" \
     "$WORK_ROOT/exact-artifact-version-matrix.result.json" "$WORK_ROOT/exact-artifact-version-matrix.diff.json" \
     "$WORK_ROOT/exact-artifact-version-matrix.fragment.json"
 fi
-write_fragment exact-artifact-version-matrix version-matrix \
+certbundle_evidence_write_fragment exact-artifact-version-matrix version-matrix \
   "$WORK_ROOT/exact-artifact-version-matrix.result.json" "$WORK_ROOT/exact-artifact-version-matrix.diff.json" \
   "$WORK_ROOT/exact-artifact-version-matrix.fragment.json"
-append_fragment "$WORK_ROOT/exact-artifact-version-matrix.fragment.json" "$MATRIX_LOG"
+certbundle_evidence_append_fragment "$WORK_ROOT/exact-artifact-version-matrix.fragment.json" "$MATRIX_LOG"
 
 if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
   # The default (see CERT_BUNDLE_INCLUDE_INIT_LEGS at the top of this file).
@@ -424,7 +392,7 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
       init_contract_result_assertions="$init_contract_assertions"
       init_contract_status=clean
     fi
-    write_scoped_result init-contract "$init_contract_rc" "$init_contract_reason" \
+    certbundle_evidence_write_scoped_result init-contract "$init_contract_rc" "$init_contract_reason" \
       "$init_contract_result_assertions" platform-init-contract "$init_contract_exclusions" \
       "$WORK_ROOT/init-contract.result.json"
     jq -n --arg status "$init_contract_status" --arg scope platform-init-contract \
@@ -433,16 +401,16 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
       > "$WORK_ROOT/init-contract.diff.json"
   else
     printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_CONTRACT_LOG"
-    write_scoped_result init-contract 99 blocked_by_prior_failure '[]' \
+    certbundle_evidence_write_scoped_result init-contract 99 blocked_by_prior_failure '[]' \
       platform-init-contract "$init_contract_exclusions" "$WORK_ROOT/init-contract.result.json"
     jq -n --arg scope platform-init-contract --argjson exclusions "$init_contract_exclusions" \
       '{status:"unknown",scope:$scope,reason:"blocked_by_prior_failure",assertions:[],exclusions:$exclusions}' \
       > "$WORK_ROOT/init-contract.diff.json"
   fi
-  write_fragment init-contract platform-init-contract \
+  certbundle_evidence_write_fragment init-contract platform-init-contract \
     "$WORK_ROOT/init-contract.result.json" "$WORK_ROOT/init-contract.diff.json" \
     "$WORK_ROOT/init-contract.fragment.json"
-  append_fragment "$WORK_ROOT/init-contract.fragment.json" "$INIT_CONTRACT_LOG"
+  certbundle_evidence_append_fragment "$WORK_ROOT/init-contract.fragment.json" "$INIT_CONTRACT_LOG"
 
   leg=$((leg + 1))
   init_golden_assertions='["no_write_blockers_and_cancel","public_digest_confirmation","separate_code_and_state_baselines","selected_authored_product_and_taxonomy_scope","runtime_order_exclusion","clean_public_status","completed_within_fifteen_minutes"]'
@@ -473,7 +441,7 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
       init_golden_result_assertions="$init_golden_assertions"
       init_golden_status=clean
     fi
-    write_scoped_result duo-init-golden-path "$init_golden_rc" "$init_golden_reason" \
+    certbundle_evidence_write_scoped_result duo-init-golden-path "$init_golden_rc" "$init_golden_reason" \
       "$init_golden_result_assertions" existing-site-init-workflow "$init_golden_exclusions" \
       "$WORK_ROOT/duo-init-golden-path.result.json"
     jq -n --arg status "$init_golden_status" --arg scope existing-site-init-workflow \
@@ -484,7 +452,7 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
       > "$WORK_ROOT/duo-init-golden-path.diff.json"
   else
     printf 'SKIPPED: blocked by an earlier failed reference-certification leg\n' > "$INIT_GOLDEN_LOG"
-    write_scoped_result duo-init-golden-path 99 blocked_by_prior_failure '[]' \
+    certbundle_evidence_write_scoped_result duo-init-golden-path 99 blocked_by_prior_failure '[]' \
       existing-site-init-workflow "$init_golden_exclusions" \
       "$WORK_ROOT/duo-init-golden-path.result.json"
     jq -n --arg scope existing-site-init-workflow --argjson exclusions "$init_golden_exclusions" \
@@ -493,10 +461,10 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
           semantic_conformance:"not_certified_by_this_test"}}' \
       > "$WORK_ROOT/duo-init-golden-path.diff.json"
   fi
-  write_fragment duo-init-golden-path existing-site-init-workflow \
+  certbundle_evidence_write_fragment duo-init-golden-path existing-site-init-workflow \
     "$WORK_ROOT/duo-init-golden-path.result.json" "$WORK_ROOT/duo-init-golden-path.diff.json" \
     "$WORK_ROOT/duo-init-golden-path.fragment.json"
-  append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LOG"
+  certbundle_evidence_append_fragment "$WORK_ROOT/duo-init-golden-path.fragment.json" "$INIT_GOLDEN_LOG"
 else
   say "reference legs: init platform contract + public duo init golden path are OPTED OUT"
   printf '\033[1;33mSKIPPED (not certified, not claimed) by CERT_BUNDLE_INCLUDE_INIT_LEGS=%s.
@@ -570,6 +538,7 @@ say "materialize the content-addressed machine-readable bundle"
 BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   agent cli manifests sandbox/bin sandbox/conformance \
   sandbox/lib/certbundle_lock.sh \
+  sandbox/lib/certbundle_evidence.sh \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
   sandbox/tests/regress_multisite_refusal.sh \
