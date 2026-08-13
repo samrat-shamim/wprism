@@ -1649,6 +1649,7 @@ check(
 // attribute vocabularies wired directly to the extracted collaborator.
 $policySource = file_get_contents($repo . '/agent/src/Policy.php');
 $manifestValidatorSource = file_get_contents($repo . '/agent/src/ManifestValidator.php');
+$sitePolicyValidatorSource = file_get_contents($repo . '/agent/src/SitePolicyValidator.php');
 $attributeGrammar = new \ReflectionClass('Duo\\AttributeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
@@ -1675,9 +1676,10 @@ check(
     $referenceShapeGrammar->hasMethod('validate_reference_shapes')
         && $referenceShapeGrammar->getMethod('validate_reference_shapes')->isPublic()
         && !$policyReflection->hasMethod('validate_reference_shapes')
-        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 2
-        && substr_count($manifestValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1,
-    'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while Policy retains keyspace resolution'
+        && substr_count($policySource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 0
+        && substr_count($manifestValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1
+        && substr_count($sitePolicyValidatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(') === 1,
+    'reference-valued declaration shape grammar lives in ReferenceShapeGrammar while the site validator owns site loading'
 );
 
 // The post/menu field declaration grammar belongs to FieldGrammar. Policy
@@ -1709,10 +1711,11 @@ check(
         && $userMetaGrammar->getMethod('validate_user_meta_rule')->isPublic()
         && !$policyReflection->hasMethod('validate_user_meta_rules')
         && !$policyReflection->hasMethod('validate_user_meta_rule')
-        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rules(') === 2
+        && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rules(') === 0
         && substr_count($manifestValidatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
+        && substr_count($sitePolicyValidatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
         && substr_count($policySource, 'UserMetaGrammar::validate_user_meta_rule(') === 4,
-    'user-meta safety grammar lives in UserMetaGrammar for both declarations and interpreter rules'
+    'user-meta safety grammar lives in UserMetaGrammar for declarations and interpreter rules'
 );
 
 // ScopeGrammar owns the pure whole-entity scope declaration check and its
@@ -1727,10 +1730,11 @@ check(
         && $scopeGrammar->getMethod('scopeClasses')->isPublic()
         && !$policyReflection->hasMethod('validate_scope_classes')
         && !str_contains($policySource, 'SCOPE_CLASSES')
-        && substr_count($policySource, 'ScopeGrammar::validate_scope_classes(') === 2
+        && substr_count($policySource, 'ScopeGrammar::validate_scope_classes(') === 0
         && substr_count($manifestValidatorSource, 'ScopeGrammar::validate_scope_classes(') === 1
+        && substr_count($sitePolicyValidatorSource, 'ScopeGrammar::validate_scope_classes(') === 1
         && substr_count($policySource, 'ScopeGrammar::scopeClasses()') === 3,
-    'whole-entity scope declaration grammar and its vocabulary live in ScopeGrammar'
+    'whole-entity scope declaration grammar and its vocabulary live in ScopeGrammar; site loading is delegated'
 );
 
 // ======================================================================

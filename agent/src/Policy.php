@@ -83,6 +83,10 @@ require_once __DIR__ . '/PolicyWriter.php';
 // DUO-3348 slice 28: shared per-manifest validation orchestration, required
 // here so the live and frozen loaders retain one grammar pipeline.
 require_once __DIR__ . '/ManifestValidator.php';
+// DUO-3348 slice 29: the site.duo.json policy envelope has one shared
+// validation sequence for live and frozen loaders, required here so both
+// entry points retain the same standalone load graph and refusal order.
+require_once __DIR__ . '/SitePolicyValidator.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -251,14 +255,12 @@ final class Policy {
                 throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
             }
             $p->site = Canon::decode(Canon::read_file($siteFile));
-            CodeConfigGrammar::validate_site_code($p->site, 'site.duo.json');
-            ScopeGrammar::validate_scope_classes($p->site, 'site.duo.json', true);
-            OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'site.duo.json');
-            OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'site.duo.json');
-            UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
-            ManifestGrammar::validate_tables($p->site['policy'] ?? [], 'site.duo.json');
-            SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'site.duo.json');
-            ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'site.duo.json');
+            SitePolicyValidator::validate(
+                $p->site,
+                'site.duo.json',
+                self::CLASSES,
+                self::MISSING_USER_MODES
+            );
         }
         $manifestValidatorVocabulary = self::manifest_validator_vocabulary();
         $rawPins = $manifestNames ?? ($p->site['manifests'] ?? ['core']);
@@ -412,14 +414,12 @@ final class Policy {
 
         $p = new self();
         $p->site = $snapshot['site'];
-        CodeConfigGrammar::validate_site_code($p->site, 'frozen site.duo.json');
-        ScopeGrammar::validate_scope_classes($p->site, 'frozen site.duo.json', true);
-        OptionGrammar::validate_option_storage($p->site['policy'] ?? [], 'frozen site.duo.json');
-        OptionGrammar::validate_env_options($p->site['policy'] ?? [], 'frozen site.duo.json');
-        UserMetaGrammar::validate_user_meta_rules($p->site['policy'] ?? [], 'frozen site.duo.json', self::CLASSES, self::MISSING_USER_MODES);
-        ManifestGrammar::validate_tables($p->site['policy'] ?? [], 'frozen site.duo.json');
-        SubKeyGrammar::validate_sub_keys($p->site['policy'] ?? [], 'frozen site.duo.json');
-        ReferenceShapeGrammar::validate_reference_shapes($p->site['policy'] ?? [], 'frozen site.duo.json');
+        SitePolicyValidator::validate(
+            $p->site,
+            'frozen site.duo.json',
+            self::CLASSES,
+            self::MISSING_USER_MODES
+        );
         $manifestValidatorVocabulary = self::manifest_validator_vocabulary();
 
         $pins = PinResolver::normalize_manifest_pins($p->site['manifests'] ?? ['core']);
