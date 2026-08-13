@@ -299,6 +299,82 @@ $check(
     'option projection: an authored record equal to the target produces no rebuild work'
 );
 
+// --------------------------------------------------------- sidebar projection
+
+$sidebarRow = ['uuid' => 'sidebar/main', 'type' => 'sidebar', 'path' => 'sidebars/main.json'];
+$sidebarDesired = [
+    'widgets' => [
+        ['uuid' => 'widget-1', 'type' => 'text', 'settings' => []],
+    ],
+];
+$sidebarTarget = [
+    'content' => Canon::encode([
+        'widgets' => [
+            ['uuid' => 'widget-1', 'type' => 'text', 'settings' => ['text' => 'keep']],
+            ['uuid' => 'widget-target-only', 'type' => 'text', 'settings' => ['_duo_unmanaged' => true]],
+        ],
+    ]),
+];
+$sidebarPlanner = new ApplyPlanner(
+    new Policy(),
+    [],
+    static fn(string $uuid, string $kind): ?int => $uuid === 'widget-1' && $kind === 'widget_text' ? 17 : null,
+    static fn(string $uuid, string $kind): ?int => null
+);
+$sidebarProjection = $sidebarPlanner->project_sidebar_deletes(
+    $sidebarRow,
+    $sidebarDesired,
+    $sidebarTarget,
+    'sidebar-base-hash'
+);
+$check(
+    $sidebarProjection === $sidebarRow + [
+        'widget_deletes' => [[
+            'uuid' => 'widget-target-only',
+            'type' => 'text',
+            'unmanaged' => true,
+        ]],
+    ],
+    'sidebar projection: mapped desired widgets preserve exact target-only deletion evidence'
+);
+$sidebarMissingMapMessage = null;
+try {
+    $sidebarPlanner->project_sidebar_deletes(
+        $sidebarRow,
+        ['widgets' => [['uuid' => 'widget-missing', 'type' => 'text', 'settings' => []]]],
+        $sidebarTarget,
+        'sidebar-base-hash'
+    );
+} catch (RuntimeException $failure) {
+    $sidebarMissingMapMessage = $failure->getMessage();
+}
+$check(
+    $sidebarMissingMapMessage ===
+        'duo: widget identity history is missing for sidebars/main.json; refusing to infer which live '
+        . 'instance owns a canonical UUID. Restore identity-export before plan/apply.',
+    'sidebar projection: unmanaged defaults plus a missing desired map refuse identity inference'
+);
+$sidebarAcknowledgedDefaultProjection = $sidebarPlanner->project_sidebar_deletes(
+    $sidebarRow,
+    ['widgets' => [['uuid' => 'widget-missing', 'type' => 'text', 'settings' => []]]],
+    ['content' => Canon::encode([
+        'widgets' => [[
+            'uuid' => 'widget-target-only',
+            'type' => 'text',
+            'settings' => [],
+        ]],
+    ])],
+    'sidebar-base-hash'
+);
+$check(
+    $sidebarAcknowledgedDefaultProjection['widget_deletes'] === [[
+        'uuid' => 'widget-target-only',
+        'type' => 'text',
+        'unmanaged' => false,
+    ]],
+    'sidebar projection: absent unmanaged marker does not invent an identity-history refusal'
+);
+
 $optionDeletionRow = ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json'];
 $optionBeforeDelete = OptionState::present('before-delete', 'yes');
 $optionDeletionDocument = OptionState::document([
@@ -915,6 +991,16 @@ $check(
         && !str_contains($optionSection, 'was recreated after its deletion intent was applied')
         && preg_match('/public static function classify_option_deletions\(/', $plannerSource) === 1,
     'option deletion projection: Apply delegates deletion-intent comparison while the planner owns its conflict evidence'
+);
+$sidebarSectionStart = strpos($applySource, "            if (\$e['type'] === SidebarState::ENTITY_TYPE && \$envE !== null) {");
+$sidebarSectionEnd = strpos($applySource, "            if (\$e['type'] === 'user-meta' && \$envE === null) {", $sidebarSectionStart);
+$sidebarSection = substr($applySource, $sidebarSectionStart, $sidebarSectionEnd - $sidebarSectionStart);
+$check(
+    str_contains($sidebarSection, '$this->apply_planner()->project_sidebar_deletes(')
+        && !str_contains($sidebarSection, 'Ledger::id_for')
+        && !str_contains($sidebarSection, '_duo_unmanaged')
+        && preg_match('/public function project_sidebar_deletes\(/', $plannerSource) === 1,
+    'sidebar projection: Apply delegates widget-delete planning while the planner owns identity evidence and target-only classification'
 );
 
 if ($failures) {
