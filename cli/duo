@@ -26,6 +26,7 @@ require __DIR__ . '/src/Transport.php';
 require __DIR__ . '/src/LocalTransport.php';
 require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
+require __DIR__ . '/src/EnvironmentCommand.php';
 require __DIR__ . '/src/EnvironmentListCommand.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
 require __DIR__ . '/src/RollbackAuthority.php';
@@ -79,9 +80,7 @@ use Duo\Orchestrator\DeployCommand;
 use Duo\Orchestrator\ScopeCommand;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
-use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
-use Duo\Orchestrator\EnvironmentMaterializer;
 use Duo\Orchestrator\PendingCommand;
 use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\StatusCommand;
@@ -96,8 +95,6 @@ use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
-use Duo\Orchestrator\Registry;
-use Duo\Orchestrator\Transport;
 use Duo\Orchestrator\Triage;
 use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\CommandOutput;
@@ -105,6 +102,7 @@ use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
 use Duo\Orchestrator\CaptureCommand;
 use Duo\Orchestrator\EnvironmentCommandOptions;
+use Duo\Orchestrator\EnvironmentCommand;
 use Duo\Orchestrator\DriverCapabilitiesCommand;
 use Duo\Orchestrator\EnvironmentListCommand;
 use Duo\Orchestrator\DoctorCommand;
@@ -734,70 +732,11 @@ function render_driver_blockers(DriverCapabilityReport $report): void {
 
 /** Public nested environment lifecycle namespace. */
 function cmd_environment(array $args, ?string $envsFileOverride): int {
-    if (count($args) < 2) {
-        fwrite(STDERR, "duo: env requires materialize|reap and a target <env>\n");
-        return 1;
-    }
-    $action = array_shift($args);
-    $targetName = array_shift($args);
-    if (!in_array($action, ['materialize', 'reap'], true)) {
-        fwrite(STDERR, "duo: env: unknown action '$action' (expected materialize or reap)\n");
-        return 1;
-    }
-    try {
-        // Parse the complete public intent before registry/provider/journal
-        // construction. Caller mistakes never execute a privileged provider
-        // or even create operational state.
-        $options = $action === 'materialize' ? EnvironmentCommandOptions::materialize($args) : null;
-        $reapJson = $action === 'reap' ? EnvironmentCommandOptions::reap($args) : false;
-        $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
-        $targetConfig = Registry::get($envs, $targetName);
-        $targetDriver = Transport::make($targetName, $targetConfig);
-        $targetProvider = CommandEnvironmentProvider::fromEnvironment($targetName, $targetConfig);
-        $journal = environment_lifecycle_journal();
-
-        if ($action === 'reap') {
-            $sourceProvider = null;
-            $latest = $journal->latestForTarget($targetName);
-            $sourceName = $latest === null ? null : environment_reap_source_name($latest);
-            if ($sourceName !== null) {
-                $sourceConfig = Registry::get($envs, $sourceName);
-                $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
-            }
-            $receipt = EnvironmentMaterializer::reap(
-                $targetDriver,
-                $targetProvider,
-                $journal,
-                $sourceProvider
-            );
-            render_environment_receipt($receipt, $reapJson, 'reap');
-            return 0;
-        }
-
-        if (!is_array($options)) throw new \RuntimeException('materialize intent is missing');
-        $sourceName = $options['source'];
-        $sourceConfig = Registry::get($envs, $sourceName);
-        $sourceDriver = Transport::make($sourceName, $sourceConfig);
-        $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
-        $receipt = EnvironmentMaterializer::materialize(
-            $sourceDriver,
-            $targetDriver,
-            $sourceProvider,
-            $targetProvider,
-            $journal,
-            [
-                'branch' => $options['branch'],
-                'create' => $options['create'],
-                'ttl_seconds' => $options['ttl_seconds'],
-            ],
-            static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
-        );
-        render_environment_receipt($receipt, $options['json'], 'materialize');
-        return 0;
-    } catch (\Throwable $e) {
-        fwrite(STDERR, "duo: env $action: {$e->getMessage()}\n");
-        return 1;
-    }
+    return EnvironmentCommand::run(
+        $args,
+        $envsFileOverride,
+        static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
+    );
 }
 
 /** @return array{source:string,branch:string,create:bool,ttl_seconds:int,json:bool} */
@@ -813,20 +752,7 @@ function environment_materialize_flags(array $args): array {
  * @param array{run:array<string,mixed>,events:list<array<string,mixed>>} $latest
  */
 function environment_reap_source_name(array $latest): ?string {
-    $events = [];
-    foreach ($latest['events'] as $event) {
-        if (is_string($event['event'] ?? null)) $events[$event['event']] = true;
-    }
-    if (isset($events['target-acquired']) || isset($events['target-acquire-intent'])
-        || isset($events['snapshot-read']) || isset($events['snapshot-aborted'])
-        || (!isset($events['snapshot-prepared']) && !isset($events['snapshot-prepare-intent']))) {
-        return null;
-    }
-    $source = $latest['run']['source_environment'] ?? null;
-    if (!is_string($source) || $source === '') {
-        throw new \RuntimeException('unfinished source snapshot has no journaled source environment');
-    }
-    return $source;
+    return EnvironmentCommand::reapSourceName($latest);
 }
 
 function environment_reap_flags(array $args): bool {
@@ -834,50 +760,12 @@ function environment_reap_flags(array $args): bool {
 }
 
 function environment_lifecycle_journal(): EnvironmentLifecycleJournal {
-    $process = proc_open(
-        ['git', 'rev-parse', '--path-format=absolute', '--git-common-dir'],
-        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
-        $pipes,
-        getcwd() ?: null,
-        null,
-        ['bypass_shell' => true]
-    );
-    if (!is_resource($process)) {
-        throw new \RuntimeException('could not resolve Git operational directory');
-    }
-    fclose($pipes[0]);
-    $stdout = (string) stream_get_contents($pipes[1]);
-    $stderr = (string) stream_get_contents($pipes[2]);
-    fclose($pipes[1]);
-    fclose($pipes[2]);
-    if (proc_close($process) !== 0 || trim($stdout) === '') {
-        throw new \RuntimeException('env materialize/reap must run inside a Git worktree');
-    }
-    return new EnvironmentLifecycleJournal(rtrim(trim($stdout), '/') . '/duo-environments');
+    return EnvironmentCommand::journal();
 }
 
 /** @param array<string,mixed> $receipt */
 function render_environment_receipt(array $receipt, bool $json, string $action): void {
-    if ($json) {
-        echo json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
-        return;
-    }
-    echo "environment $action complete: operation=" . ($receipt['operation_id'] ?? '?')
-        . ' resource=' . ($receipt['resource_id'] ?? '?') . "\n";
-    if ($action === 'materialize') {
-        echo 'mode=' . ($receipt['mode'] ?? '?')
-            . ' branch=' . ($receipt['branch_commit'] ?? '?')
-            . ' snapshot=' . ($receipt['snapshot_set_id'] ?? '?') . "\n";
-        echo 'release code=' . ($receipt['code_revision'] ?? '?')
-            . ' state=' . ($receipt['state_revision'] ?? '?')
-            . ' outer=' . ($receipt['outer_artifact_hash'] ?? '?') . "\n";
-        echo 'url=' . ($receipt['url'] ?? '?')
-            . ' expires_at=' . ($receipt['expires_at'] ?? 'none') . "\n";
-    } else {
-        echo 'disposition=' . ($receipt['disposition'] ?? '?')
-            . ' absence_proof=' . ($receipt['absence_proof_sha256'] ?? '?') . "\n";
-    }
-    echo 'receipt=' . ($receipt['receipt_sha256'] ?? '?') . "\n";
+    EnvironmentCommand::renderReceipt($receipt, $json, $action);
 }
 
 function cmd_refresh(EnvironmentDriver $t, array $extra): int {
