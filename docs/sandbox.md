@@ -170,7 +170,9 @@ version` in a `wait_for()` loop to decide when an env is ready. That command
 reads a static PHP file — it never touches the database — so it reports
 "ready" before the database connection is actually live; this session hit
 exactly that gap. `pair.sh` delegates its bounded readiness observations to
-`sandbox/lib/pair_readiness.sh` and waits on two different things instead,
+`sandbox/lib/pair_readiness.sh`; WordPress installation, theme activation,
+permalink/.htaccess setup, and reset-to-bootstrap state live in
+`sandbox/lib/pair_bootstrap.sh`. It waits on two different things instead,
 both real: the shared server's own healthcheck (`healthcheck.sh --connect
 --innodb_initialized`, polled via `docker inspect`, since `depends_on` can't
 cross the compose-project boundary to the shared db), and then, per side,
