@@ -158,10 +158,10 @@ $check(
         && str_contains($policySource, 'return $this->taxonomy_pattern_resolver()->match($tax)[\'update_count_callback\'] ?? null;')
         && str_contains($policySource, 'return TaxonomyPatternResolver::matches($match, $tax);')
         && str_contains($policySource, 'new TaxonomyPatternResolver($this->manifests)')
-        && str_contains($policySource, '$pattern = $this->taxonomy_pattern_resolver()->match($tax);')
+        && str_contains($policySource, 'return $this->taxonomy_keyspace_resolver()->resolve($tax, $runtimeObjectTypes);')
         && !str_contains($policySource, 'private function matching_taxonomy_pattern_rule(')
         && !str_contains($policySource, 'foreach ($this->taxonomy_pattern_rules() as $pattern) {'),
-    'Policy requires the resolver once, retains explicit public facades, and leaves no duplicate concrete-pattern matcher'
+    'Policy requires the resolver once, retains explicit public facades, and leaves no duplicate concrete-pattern matcher or keyspace body'
 );
 
 if ($failures !== []) {
