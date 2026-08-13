@@ -25,39 +25,16 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 R1A1=http://localhost:8814
 R1A2=http://localhost:8815
 
-wp_env() { # wp_env <r1a1|r1a2> <wp args...>
-  local env="$1"; shift
-  $COMPOSE run --rm -T "cli-$env" wp "$@"
-}
+PROOF_LEGACY_COMPOSE="$COMPOSE"
+[ -r "lib/proof_legacy_pair.sh" ] || fail "legacy proof pair library is missing: lib/proof_legacy_pair.sh"
+# shellcheck source=../lib/proof_legacy_pair.sh
+source "lib/proof_legacy_pair.sh"
+
+wp_env() { proof_legacy_pair_wp_env "$@"; }
 wp_1() { wp_env r1a1 "$@"; }
 wp_2() { wp_env r1a2 "$@"; }
-
-wait_for() { # wait_for <r1a1|r1a2>
-  local env="$1"
-  echo "waiting for env $env..."
-  for _ in $(seq 1 90); do
-    wp_env "$env" core version >/dev/null 2>&1 && return 0
-    sleep 2
-  done
-  echo "env $env never became ready" >&2
-  exit 1
-}
-
-write_htaccess() { # write_htaccess <r1a1|r1a2>
-  $COMPOSE exec -T -u www-data "wp-$1" tee /var/www/html/.htaccess >/dev/null <<'EOF'
-# BEGIN WordPress
-<IfModule mod_rewrite.c>
-RewriteEngine On
-RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-RewriteBase /
-RewriteRule ^index\.php$ - [L]
-RewriteCond %{REQUEST_FILENAME} !-f
-RewriteCond %{REQUEST_FILENAME} !-d
-RewriteRule . /index.php [L]
-</IfModule>
-# END WordPress
-EOF
-}
+wait_for() { proof_legacy_pair_wait_for "$@"; }
+write_htaccess() { proof_legacy_pair_write_htaccess "$@"; }
 
 install_env() { # install_env <r1a1|r1a2> <port> <title>
   # Every step below is independently idempotent (its own is-installed/
