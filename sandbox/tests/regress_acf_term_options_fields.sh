@@ -47,9 +47,13 @@
 #   against that immutable-tree context, so a separately cloned repository
 #   can authorize and apply both deletes without capture history.
 #
-# Dedicated pair, destroyed unconditionally on exit. The historical default
-# remains asub3263 for CI; distributed agents must supply their own PAIR and
-# explicit ports so this regression never resets another actor's sandbox.
+# Dedicated pair, destroyed unconditionally on exit. Capture writes as
+# container uid 33, so every later host-side commit/copy/removal first uses
+# pair.sh's exact-root repo-host handback, and every refresh clears contents
+# in place so Docker's mounted root inode and mode 0777 survive. The historical
+# default remains asub3263 for CI; distributed agents must supply their own
+# PAIR and explicit ports so this regression never resets another actor's
+# sandbox.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
@@ -70,10 +74,18 @@ SITE2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
+repo_host() { bash sandbox/bin/pair.sh repo-host "$PAIR" "${1:-both}" >/dev/null; }
+clear_repo() {
+  local root="$1"
+  [ -d "$root" ] && [ ! -L "$root" ] || fail "pair repository root is not an ordinary directory: $root"
+  find "$root" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+  chmod 0777 "$root"
+}
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 cleanup() {
+  repo_host both >/dev/null 2>&1 || true
   bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
   rm -rf "$SITE1" "$SITE2"
 }
@@ -88,8 +100,9 @@ wp1 plugin install advanced-custom-fields --activate >/dev/null || fail "ACF ins
 pass "ACF active on side 1 ($(wp1 plugin get advanced-custom-fields --field=version 2>/dev/null))"
 
 say "site-repo: core + acf manifests, category taxonomy in scope"
-rm -rf "$SITE1" "$SITE2"
-mkdir -p "$SITE1"
+repo_host both
+clear_repo "$SITE1"
+clear_repo "$SITE2"
 cat > "$SITE1/site.duo.json" <<'EOF'
 {
   "manifests": ["core", "acf"],
@@ -176,10 +189,11 @@ print('img token:', img)
 pass "(A1) term file's meta carries duo3263_term_plain (plain), its shadow pointer, and duo3263_term_img resolved to a real post ref token, plus its own shadow pointer -- all 4 keys, correctly classified, zero manual policy needed"
 
 say "(A2) commit SITE1 (term arm content), clone to SITE2, apply on the second, independent environment"
+repo_host both
 git -C "$SITE1" add -A
 git -C "$SITE1" commit -qm "asub3263 ACF term-meta fixture" >/dev/null
-rm -rf "$SITE2"
-cp -R "$SITE1" "$SITE2"
+clear_repo "$SITE2"
+cp -R "$SITE1"/. "$SITE2"/
 chmod -R a+rwX "$SITE2"
 wp2 plugin install advanced-custom-fields --activate >/dev/null || fail "ACF install failed on side 2"
 wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null \
@@ -273,12 +287,13 @@ print('logo token:', v)
 pass "(B1) options.json carries options_duo3263_tagline (plain), its shadow pointer, and options_duo3263_logo resolved to a real post ref token, plus its own shadow pointer -- all 4 rows, correctly classified, zero manual policy needed"
 
 say "(B2) commit SITE1, clone to SITE2, apply on a second, independent environment"
+repo_host both
 git -C "$SITE1" add -A
 git -C "$SITE1" commit -qm "asub3263 ACF options-page fixture" >/dev/null
-# SITE2 already exists from Part A's own env2 -- rm -rf first, or cp -R would
-# nest $SITE1 AS A SUBDIRECTORY of the existing $SITE2 instead of refreshing it.
-rm -rf "$SITE2"
-cp -R "$SITE1" "$SITE2"
+# SITE2 already exists from Part A's own env2. Clear its children in place;
+# replacing the bind root would leave the running container on a stale inode.
+clear_repo "$SITE2"
+cp -R "$SITE1"/. "$SITE2"/
 chmod -R a+rwX "$SITE2"
 wp2 plugin install advanced-custom-fields --activate >/dev/null || fail "ACF install failed on side 2"
 # --force-theirs: env2 is REUSED from Part A (already applied to, then
@@ -343,9 +358,10 @@ assert len(value['expected_hash']) == 64 and len(shadow['expected_hash']) == 64
 pass "(B4) capture succeeds with two explicit tombstones; only the shadow retains the minimum field-key witness"
 
 say "(B5) commit deletion, clone the repository cold, and apply --with-deletes to independent env2"
+repo_host both
 git -C "$SITE1" add state/options/core.json
 git -C "$SITE1" commit -qm "DUO-3279 ACF options-page deletion" >/dev/null
-rm -rf "$SITE2"
+clear_repo "$SITE2"
 git clone -q --depth 1 "file://$SITE1" "$SITE2" || fail "fresh repository clone for deletion apply failed"
 chmod -R a+rwX "$SITE2"
 wp2 duo apply --repo=/siterepo --with-deletes >/dev/null \

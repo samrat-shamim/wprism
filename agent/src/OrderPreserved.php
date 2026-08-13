@@ -11,8 +11,8 @@ namespace Duo;
  * (Canon::post_file() or Canon::post_hash_basis()) — normalize() unwraps
  * it immediately, so nothing downstream of that point (JSON on disk,
  * Apply's json_decode(), any other code) ever sees or needs to know about
- * this type. Not meant to be constructed anywhere outside Capture.php's
- * meta-value capture path.
+ * this type. Not meant to be constructed anywhere outside the entity-meta
+ * capture path.
  */
 final class OrderPreserved {
     /** @var mixed */

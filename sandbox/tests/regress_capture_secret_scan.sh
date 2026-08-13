@@ -28,10 +28,11 @@
 # already resolved because the surrounding lines changed on both sides of
 # the rebase. This suite's own PHP harness did not and could not have
 # caught it (it never reads Capture.php's call sites at all). The check
-# below closes that specific gap: a plain grep-level scan of Capture.php and
-# UserMetaCapture.php, asserting each security callback's unconditional call
-# sites (post_meta, both authored-options loops, and user_meta -- DUO-3268's
-# later addition, extracted by DUO-3349) has no is_string() gate in the two
+# below closes that specific gap: a plain grep-level scan of Capture.php,
+# EntityMetaCapture.php, and UserMetaCapture.php, asserting each security
+# callback's unconditional call sites (post/term meta, both authored-options
+# loops, and user_meta -- DUO-3268's later addition, extracted by DUO-3349)
+# has no is_string() gate in the two
 # lines immediately before it, and that
 # the one DELIBERATE exception (the sub_keys loop's hand-rolled is_string/
 # hard_match_deep split, documented in its own comment) still has both
@@ -50,10 +51,10 @@
 # DUO-3285: this suite's own count assertion (3 unconditional sites) went
 # silently stale exactly the way this file's own docblock warns about --
 # DUO-3268 ("add authored user meta sidecars") legitimately added a fourth
-# unconditional call site. DUO-3349 later extracted that actual invocation
-# into UserMetaCapture, leaving an equally mandatory Capture callback binding;
-# this suite now pins both sides of that handoff instead of counting only one
-# file. Before the extraction, the added user-meta call existed for months and
+# unconditional call site. DUO-3349 later extracted those actual invocations
+# into UserMetaCapture and EntityMetaCapture, leaving equally mandatory Capture
+# callback bindings; this suite now pins both sides of each handoff instead of
+# counting only one file. Before the extraction, the added user-meta call existed for months and
 # nothing ever caught the assertion falling behind because this suite had
 # no Makefile target reachable from any bundle or CI check. First real
 # catch by DUO-3285's own regress-offline-all, discovered by running the
@@ -75,6 +76,7 @@ say "php -l syntax check"
 php -l regress_capture_secret_scan.php >/dev/null || fail "regress_capture_secret_scan.php has a syntax error"
 php -l ../../agent/src/Capture.php >/dev/null || fail "agent/src/Capture.php has a syntax error"
 php -l ../../agent/src/UserMetaCapture.php >/dev/null || fail "agent/src/UserMetaCapture.php has a syntax error"
+php -l ../../agent/src/EntityMetaCapture.php >/dev/null || fail "agent/src/EntityMetaCapture.php has a syntax error"
 php -l ../../agent/src/Secrets.php >/dev/null || fail "agent/src/Secrets.php has a syntax error"
 pass "no syntax errors"
 
@@ -95,7 +97,7 @@ for entry in "${CALL_LINES[@]}"; do
     UNCONDITIONAL+=("$lineno")
   fi
 done
-[ "${#UNCONDITIONAL[@]}" -eq 4 ] || fail "expected exactly 4 unconditional guard_secret() call sites in Capture.php (the UserMetaCapture callback binding, post_meta/term_meta, and both authored-options loops), got ${#UNCONDITIONAL[@]}: ${UNCONDITIONAL[*]:-none} — a call site was added or removed; update this check deliberately if that's intended, don't just widen the count"
+[ "${#UNCONDITIONAL[@]}" -eq 4 ] || fail "expected exactly 4 unconditional guard_secret() call sites in Capture.php (the UserMetaCapture and EntityMetaCapture callback bindings plus both authored-options loops), got ${#UNCONDITIONAL[@]}: ${UNCONDITIONAL[*]:-none} — a call site was added or removed; update this check deliberately if that's intended, don't just widen the count"
 [ "${#EXCEPTION[@]}" -eq 1 ] || fail "expected exactly 1 deliberate sub_keys-shaped exception, got ${#EXCEPTION[@]}: ${EXCEPTION[*]:-none}"
 for lineno in "${UNCONDITIONAL[@]}"; do
   start=$((lineno - 2))
@@ -105,7 +107,7 @@ for lineno in "${UNCONDITIONAL[@]}"; do
     && fail "guard_secret() call at Capture.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
 $window"
 done
-pass "the UserMetaCapture binding plus all 3 direct Capture guard_secret call sites (lines ${UNCONDITIONAL[*]}) have no nearby is_string() gate"
+pass "both extracted-capturer bindings plus both direct options guard_secret call sites (lines ${UNCONDITIONAL[*]}) have no nearby is_string() gate"
 exc_line="${EXCEPTION[0]}"
 prev_line=$(sed -n "$((exc_line - 1))p" "$CAPTURE_SRC")
 grep -q 'is_string(\$subVal)' <<<"$prev_line" \
@@ -126,5 +128,15 @@ grep -q 'is_string(' <<<"$user_window" \
 grep -q '(\$this->guardPersonalData)' "$USER_META_SRC" \
   || fail "UserMetaCapture lost the personal-data gate paired with its secret gate"
 pass "the extracted user-meta capturer keeps unconditional deep-secret and personal-data gates"
+
+ENTITY_META_SRC=../../agent/src/EntityMetaCapture.php
+ENTITY_SECRET_LINE=$(grep -n '(\$this->guardSecret)(' "$ENTITY_META_SRC" | cut -d: -f1)
+[ -n "$ENTITY_SECRET_LINE" ] || fail "EntityMetaCapture lost its authored post/term-meta secret callback"
+entity_start=$((ENTITY_SECRET_LINE - 2))
+[ "$entity_start" -lt 1 ] && entity_start=1
+entity_window=$(sed -n "${entity_start},${ENTITY_SECRET_LINE}p" "$ENTITY_META_SRC")
+grep -q 'is_string(' <<<"$entity_window" \
+  && fail "EntityMetaCapture's secret callback appears gated by a nearby is_string() check:\n$entity_window"
+pass "the extracted post/term-meta capturer keeps its unconditional deep-secret gate"
 
 printf '\n\033[1;32m✔ REGRESS_CAPTURE_SECRET_SCAN PASSED\033[0m\n'
