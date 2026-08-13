@@ -156,17 +156,20 @@ final class PassthroughCommand {
         bool &$echoMasked,
         bool &$inputActive
     ): ?callable {
-        foreach (['pcntl_async_signals', 'pcntl_signal', 'pcntl_signal_get_handler'] as $function) {
+        foreach (['pcntl_async_signals', 'pcntl_signal', 'pcntl_signal_get_handler', 'posix_kill'] as $function) {
             if (!function_exists($function)) {
                 return null;
             }
         }
         $signals = [];
-        foreach (['SIGHUP', 'SIGINT', 'SIGTERM'] as $constant) {
+        foreach (['SIGHUP', 'SIGINT', 'SIGQUIT', 'SIGTERM', 'SIGTSTP'] as $constant) {
             if (!defined($constant)) {
                 return null;
             }
             $signals[] = constant($constant);
+        }
+        if (!defined('SIGSTOP')) {
+            return null;
         }
 
         $previousAsync = pcntl_async_signals();
@@ -176,50 +179,16 @@ final class PassthroughCommand {
             foreach (array_values(array_unique($signals)) as $signal) {
                 $previous = pcntl_signal_get_handler($signal);
                 $previousHandlers[$signal] = $previous;
-                $installed = pcntl_signal(
-                    $signal,
-                    static function (int $caught) use (
-                        &$echoMasked,
-                        &$inputActive,
-                        $setTerminalEcho,
-                        $previous
-                    ): void {
-                        if ($echoMasked || $inputActive) {
-                            $restored = $setTerminalEcho(true);
-                            $echoMasked = !$restored;
-                        } else {
-                            $restored = true;
-                        }
-                        if (!$restored) {
-                            fwrite(
-                                STDERR,
-                                "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
-                            );
-                            exit(128 + $caught);
-                        }
-
-                        if ((defined('SIG_IGN') && $previous === constant('SIG_IGN')) || is_callable($previous)) {
-                            if (is_callable($previous)) {
-                                $previous($caught);
-                            }
-                            if (!$inputActive) {
-                                return;
-                            }
-                            $echoMasked = true;
-                            if ($setTerminalEcho(false)) {
-                                $echoMasked = true;
-                                return;
-                            }
-                            $echoMasked = !$setTerminalEcho(true);
-                            fwrite(
-                                STDERR,
-                                "duo: env-set: terminal echo could not be disabled again after an interrupt; "
-                                    . "secret input was stopped\n"
-                            );
-                        }
-                        exit(128 + $caught);
-                    }
+                $handler = self::terminalEchoSignalHandler(
+                    $setTerminalEcho,
+                    $echoMasked,
+                    $inputActive,
+                    $previous
                 );
+                // restart_syscalls=false is necessary but not sufficient for
+                // blocking child waits; Transport::streamWp uses a pollable
+                // proc_open loop so these async handlers are dispatched.
+                $installed = pcntl_signal($signal, $handler, false);
                 if (!$installed) {
                     throw new \RuntimeException('could not install terminal signal guard');
                 }
@@ -238,6 +207,84 @@ final class PassthroughCommand {
             }
             pcntl_async_signals($previousAsync);
         };
+    }
+
+    /**
+     * @param callable(bool):bool $setTerminalEcho
+     * @param mixed $previous
+     */
+    private static function terminalEchoSignalHandler(
+        callable $setTerminalEcho,
+        bool &$echoMasked,
+        bool &$inputActive,
+        mixed $previous
+    ): callable {
+        $handler = null;
+        $handler = static function (int $caught) use (
+            &$handler,
+            &$echoMasked,
+            &$inputActive,
+            $setTerminalEcho,
+            $previous
+        ): void {
+            if ($echoMasked || $inputActive) {
+                $restored = $setTerminalEcho(true);
+                $echoMasked = !$restored;
+            } else {
+                $restored = true;
+            }
+            if (!$restored) {
+                fwrite(
+                    STDERR,
+                    "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
+                );
+                exit(128 + $caught);
+            }
+
+            $ignored = defined('SIG_IGN') && $previous === constant('SIG_IGN');
+            if ($ignored || is_callable($previous)) {
+                if (is_callable($previous)) {
+                    $previous($caught);
+                }
+                self::resumeMaskedInput($caught, $setTerminalEcho, $echoMasked, $inputActive);
+                return;
+            }
+
+            if (defined('SIGTSTP') && $caught === constant('SIGTSTP')) {
+                // SIGTSTP can be discarded for an orphaned process group.
+                // SIGSTOP guarantees the same user-visible suspension after
+                // echo has been restored, then execution resumes after fg.
+                if (defined('SIGSTOP') && posix_kill(getmypid(), constant('SIGSTOP'))) {
+                    // Execution continues here after SIGCONT/fg.
+                    self::resumeMaskedInput($caught, $setTerminalEcho, $echoMasked, $inputActive);
+                    return;
+                }
+            }
+            exit(128 + $caught);
+        };
+        return $handler;
+    }
+
+    /** @param callable(bool):bool $setTerminalEcho */
+    private static function resumeMaskedInput(
+        int $caught,
+        callable $setTerminalEcho,
+        bool &$echoMasked,
+        bool &$inputActive
+    ): void {
+        if (!$inputActive) {
+            return;
+        }
+        $echoMasked = true;
+        if ($setTerminalEcho(false)) {
+            return;
+        }
+        $echoMasked = !$setTerminalEcho(true);
+        fwrite(
+            STDERR,
+            "duo: env-set: terminal echo could not be disabled again after an interrupt; secret input was stopped\n"
+        );
+        exit(128 + $caught);
     }
 
     public static function runScoped(EnvironmentDriver $driver, string $verb, array $extra): int {

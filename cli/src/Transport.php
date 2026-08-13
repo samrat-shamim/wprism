@@ -39,8 +39,8 @@ interface AdoptionTransport {
  * of transport.
  *
  * Command strings are assembled with escapeshellarg() on every variable
- * token, then executed either streamed (passthru — for the passthrough
- * verbs, so the user sees exactly what `wp duo …` would print locally) or
+ * token, then executed either streamed (proc_open with inherited standard
+ * streams, so the user sees exactly what `wp duo …` would print locally) or
  * captured (proc_open with separate stdout/stderr pipes — for doctor/status,
  * which parse output and must not have it corrupted by e.g. `docker compose
  * run`'s own container-lifecycle chatter, which lands on stderr).
@@ -143,8 +143,55 @@ abstract class Transport implements EnvironmentDriver {
 
     /** Stream a `wp <wpArgs...>` invocation's stdout/stderr live; return its exit code. */
     public function streamWp(array $wpArgs): int {
-        passthru($this->wpCommand($wpArgs), $exitCode);
-        return $exitCode;
+        // Replace the intermediate shell with the transport command. Besides
+        // preserving inherited stdin/stdout/stderr, this gives shutdown
+        // cleanup one process to terminate if an async host signal exits while
+        // an interactive target command is still waiting for input.
+        $proc = proc_open(
+            'exec ' . $this->wpCommand($wpArgs),
+            [0 => STDIN, 1 => STDOUT, 2 => STDERR],
+            $pipes
+        );
+        if (!is_resource($proc)) {
+            return 255;
+        }
+
+        $streamActive = true;
+        register_shutdown_function(static function () use ($proc, &$streamActive): void {
+            if (!$streamActive || !is_resource($proc)) {
+                return;
+            }
+            $status = proc_get_status($proc);
+            if (!empty($status['running'])) {
+                proc_terminate($proc, defined('SIGTERM') ? SIGTERM : 15);
+                $deadline = microtime(true) + 0.25;
+                do {
+                    usleep(10000);
+                    $status = proc_get_status($proc);
+                } while (!empty($status['running']) && microtime(true) < $deadline);
+                if (!empty($status['running'])) {
+                    proc_terminate($proc, defined('SIGKILL') ? SIGKILL : 9);
+                }
+            }
+        });
+
+        do {
+            $status = proc_get_status($proc);
+            if (!empty($status['running'])) {
+                usleep(10000);
+            }
+        } while (!empty($status['running']));
+
+        $streamActive = false;
+        $closeExit = proc_close($proc);
+        $observedExit = is_int($status['exitcode'] ?? null) ? $status['exitcode'] : -1;
+        if ($observedExit >= 0) {
+            return $observedExit;
+        }
+        if (!empty($status['signaled']) && is_int($status['termsig'] ?? null)) {
+            return 128 + $status['termsig'];
+        }
+        return $closeExit >= 0 ? $closeExit : 255;
     }
 
     /** @return array{exit:int, stdout:string, stderr:string} */

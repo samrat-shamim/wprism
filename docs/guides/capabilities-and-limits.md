@@ -141,8 +141,9 @@ duo env-set production --name=woocommerce_stripe_key --stdin
 Prefer `--stdin` for anything actually secret: interactive host use masks the
 local terminal before input crosses Docker or SSH, direct target use masks at
 the agent, and piped input never acquires a terminal echo. The host restores
-echo on normal, exceptional, HUP, INT, and TERM exits and refuses interactive
-use when PHP signal support cannot guarantee that restoration. The value is never
+echo on normal, exceptional, HUP, INT, QUIT, TERM, and TSTP exits/suspension,
+re-masks after resume, and refuses interactive use when PHP signal support
+cannot guarantee that restoration. The value is never
 logged or placed in argv, whereas `--value` lands in shell history and process
 listings like any other flag. `env-set` refuses any name the loaded
 policy did not declare `class: "env"`, refuses an option declaring `sub_keys`

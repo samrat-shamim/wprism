@@ -2,12 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../cli/src/PassthroughCommand.php';
+require_once __DIR__ . '/../../cli/src/Transport.php';
 require_once __DIR__ . '/../../agent/src/Capture.php';
 
 use Duo\Capture;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
 use Duo\Orchestrator\PassthroughCommand;
+use Duo\Orchestrator\Transport;
 
 function fail_passthrough(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -49,7 +51,36 @@ final class RecordingPassthroughDriver implements EnvironmentDriver {
     }
 }
 
+final class BlockingPassthroughTransport extends Transport {
+    public function __construct(private string $marker) {
+        parent::__construct('fixture', ['transport' => 'local', 'repo_path' => '/fixture/repo']);
+    }
+    public function describe(): string { return 'blocking fixture'; }
+    protected function wpCommand(array $wpArgs): string {
+        $script = 'file_put_contents(' . var_export($this->marker, true)
+            . ', "ready:" . getmypid() . "\\n", FILE_APPEND | LOCK_EX); sleep(30);';
+        return escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($script);
+    }
+    protected function rawCommand(string $script): string { return $script; }
+}
+
+final class ExitingPassthroughTransport extends Transport {
+    public function __construct() {
+        parent::__construct('fixture', ['transport' => 'local', 'repo_path' => '/fixture/repo']);
+    }
+    public function describe(): string { return 'exiting fixture'; }
+    protected function wpCommand(array $wpArgs): string {
+        return escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg('exit(23);');
+    }
+    protected function rawCommand(string $script): string { return $script; }
+}
+
 $driver = new RecordingPassthroughDriver();
+
+assert_passthrough(
+    (new ExitingPassthroughTransport())->streamWp(['duo', 'lint']) === 23,
+    'real streamed transport preserves the target exit code'
+);
 
 $ordinary = PassthroughCommand::run($driver, 'capabilities', ['--format=json']);
 assert_passthrough($ordinary === 23, 'ordinary passthrough preserves the transport exit code');
@@ -232,6 +263,148 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
     );
     $restoreCleanupGuard();
     pcntl_signal(SIGTERM, $previousTermHandler);
+
+    $blockingLog = tempnam(sys_get_temp_dir(), 'duo-env-set-blocking-');
+    assert_passthrough(is_string($blockingLog), 'blocking transport signal fixture is created');
+    $blockingPid = pcntl_fork();
+    assert_passthrough($blockingPid !== -1, 'blocking transport signal fixture forks');
+    if ($blockingPid === 0) {
+        $blockingExit = PassthroughCommand::runEnvSet(
+            new BlockingPassthroughTransport($blockingLog),
+            ['--name=gateway_secret', '--stdin'],
+            static fn(): bool => true,
+            static function (bool $enabled) use ($blockingLog): bool {
+                file_put_contents($blockingLog, $enabled ? "echo-on\n" : "echo-off\n", FILE_APPEND | LOCK_EX);
+                return true;
+            }
+        );
+        exit($blockingExit);
+    }
+    $blockingReady = false;
+    $targetPid = null;
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        $blockingEvidence = (string) @file_get_contents($blockingLog);
+        if (preg_match('/ready:(\d+)/', $blockingEvidence, $match) === 1) {
+            $blockingReady = true;
+            $targetPid = (int) $match[1];
+            break;
+        }
+        usleep(10000);
+    }
+    assert_passthrough($blockingReady, 'real streamed target starts after local echo is masked');
+    $blockingStarted = microtime(true);
+    assert_passthrough(posix_kill($blockingPid, SIGTERM), 'blocking stream parent receives SIGTERM');
+    $blockingStatus = 0;
+    $blockingEnded = false;
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        if (pcntl_waitpid($blockingPid, $blockingStatus, WNOHANG) === $blockingPid) {
+            $blockingEnded = true;
+            break;
+        }
+        usleep(10000);
+    }
+    $blockingElapsed = microtime(true) - $blockingStarted;
+    $blockingEvidence = (string) file_get_contents($blockingLog);
+    assert_passthrough(
+        $blockingEnded
+            && $blockingElapsed < 1.5
+            && str_contains($blockingEvidence, "echo-off\nready:")
+            && str_contains($blockingEvidence, "echo-on\n")
+            && pcntl_wifexited($blockingStatus)
+            && pcntl_wexitstatus($blockingStatus) === 128 + SIGTERM,
+        'SIGTERM interrupts a real blocking stream and restores echo with bounded latency'
+    );
+    if (is_int($targetPid)) {
+        for ($attempt = 0; $attempt < 100 && @posix_kill($targetPid, 0); $attempt++) {
+            usleep(10000);
+        }
+        assert_passthrough(!@posix_kill($targetPid, 0), 'parent interruption terminates the blocking target child');
+    }
+    @unlink($blockingLog);
+
+    $suspendLog = tempnam(sys_get_temp_dir(), 'duo-env-set-suspend-');
+    assert_passthrough(is_string($suspendLog), 'suspend signal fixture is created');
+    $suspendPid = pcntl_fork();
+    assert_passthrough($suspendPid !== -1, 'suspend signal fixture forks');
+    if ($suspendPid === 0) {
+        $suspendDriver = new RecordingPassthroughDriver();
+        $suspendDriver->blockOnStreamMarker = $suspendLog;
+        PassthroughCommand::runEnvSet(
+            $suspendDriver,
+            ['--name=gateway_secret', '--stdin'],
+            static fn(): bool => true,
+            static function (bool $enabled) use ($suspendLog): bool {
+                file_put_contents($suspendLog, $enabled ? "echo-on\n" : "echo-off\n", FILE_APPEND | LOCK_EX);
+                return true;
+            }
+        );
+        exit(0);
+    }
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        if (str_contains((string) @file_get_contents($suspendLog), "ready\n")) break;
+        usleep(10000);
+    }
+    assert_passthrough(posix_kill($suspendPid, SIGTSTP), 'interactive env-set receives SIGTSTP');
+    $suspendStatus = 0;
+    $suspended = false;
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        if (pcntl_waitpid($suspendPid, $suspendStatus, WUNTRACED | WNOHANG) === $suspendPid
+            && pcntl_wifstopped($suspendStatus)) {
+            $suspended = true;
+            break;
+        }
+        usleep(10000);
+    }
+    assert_passthrough(
+        $suspended && str_contains((string) file_get_contents($suspendLog), "echo-on\n"),
+        'SIGTSTP restores echo before preserving process suspension'
+    );
+    assert_passthrough(posix_kill($suspendPid, SIGCONT), 'suspended env-set resumes');
+    $remasked = false;
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        if (substr_count((string) @file_get_contents($suspendLog), "echo-off\n") >= 2) {
+            $remasked = true;
+            break;
+        }
+        usleep(10000);
+    }
+    assert_passthrough($remasked, 'resumed secret input re-masks echo');
+    posix_kill($suspendPid, SIGTERM);
+    pcntl_waitpid($suspendPid, $suspendStatus);
+    @unlink($suspendLog);
+
+    $quitLog = tempnam(sys_get_temp_dir(), 'duo-env-set-quit-');
+    assert_passthrough(is_string($quitLog), 'quit signal fixture is created');
+    $quitPid = pcntl_fork();
+    assert_passthrough($quitPid !== -1, 'quit signal fixture forks');
+    if ($quitPid === 0) {
+        $quitDriver = new RecordingPassthroughDriver();
+        $quitDriver->blockOnStreamMarker = $quitLog;
+        PassthroughCommand::runEnvSet(
+            $quitDriver,
+            ['--name=gateway_secret', '--stdin'],
+            static fn(): bool => true,
+            static function (bool $enabled) use ($quitLog): bool {
+                file_put_contents($quitLog, $enabled ? "echo-on\n" : "echo-off\n", FILE_APPEND | LOCK_EX);
+                return true;
+            }
+        );
+        exit(0);
+    }
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        if (str_contains((string) @file_get_contents($quitLog), "ready\n")) break;
+        usleep(10000);
+    }
+    assert_passthrough(posix_kill($quitPid, SIGQUIT), 'interactive env-set receives SIGQUIT');
+    $quitStatus = 0;
+    pcntl_waitpid($quitPid, $quitStatus);
+    assert_passthrough(
+        str_contains((string) file_get_contents($quitLog), "echo-on\n")
+            && pcntl_wifexited($quitStatus)
+            && pcntl_wexitstatus($quitStatus) === 128 + SIGQUIT,
+        'SIGQUIT restores echo before preserving the conventional quit status'
+    );
+    @unlink($quitLog);
 }
 
 $beforeBindingRefusal = count($driver->calls);

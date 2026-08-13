@@ -708,10 +708,12 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   target use retains the agent's own masking. If local masking cannot be
   enabled, interactive host use refuses before target contact. Piped input
   has no terminal echo and passes through unchanged. While echo is masked,
-  temporary HUP/INT/TERM handlers restore it before termination; interactive
-  use refuses if PHP cannot supply that signal coverage. `passthru()` (rather
-  than the captured-output `proc_open` doctor/status use) lets STDIN reach
-  the agent through all three transports without putting the value in argv.
+  temporary HUP/INT/QUIT/TERM/TSTP handlers restore it before termination or
+  suspension; a resumed prompt masks it again. Interactive use refuses if PHP
+  cannot supply that signal coverage. A `proc_open` loop with inherited
+  standard streams lets STDIN reach the agent through all three transports,
+  preserves live output/exit status, and permits bounded signal cleanup
+  without putting the value in argv.
   Named
   `--stdin`, not `--prompt` — wp-cli reserves `--prompt` globally for its
   own generic per-parameter prompting and consumes it before any command
@@ -1226,7 +1228,8 @@ override for the machine-local half of the registry.
 ## Transports
 
 All three transports build a fully `escapeshellarg()`-escaped command
-string and run it either streamed (`passthru`, exit code propagated — used
+string and run it either streamed (`proc_open` with inherited standard streams,
+exit code propagated — used
 by `capture`/`plan`/`apply`) or captured with stdout and stderr collected
 on **separate** pipes (`proc_open`, used by `doctor`/`status`, which parse
 output — `docker compose run`'s own container-lifecycle chatter lands on
@@ -1243,7 +1246,7 @@ and `.duo-env-values.json` git-tracked checks, follow the same shape but run thr
 `docker` (so shell operators like `&&`/`[ -d … ]` work — `docker compose
 run`'s trailing arguments are otherwise passed as the container's argv
 directly, not interpreted by a shell) and directly for `local`/`ssh` (PHP's
-`proc_open`/`passthru` already invoke `/bin/sh -c` for string commands, and
+`proc_open` already invokes `/bin/sh -c` for string commands, and
 `ssh` already hands its command argument to the remote login shell).
 
 ## Env-bound value provisioning
@@ -1286,8 +1289,9 @@ environment currently has *something* non-empty in each declared slot:
   immediately re-flag as still-missing). Interactive host `--stdin` masks
   the local terminal before transport; direct target use masks at the agent,
   and piped input has no terminal echo. The host restores echo before normal,
-  exceptional, HUP, INT, and TERM exits and refuses interactive use without
-  the required signal support. The value is never printed or logged
+  exceptional, HUP, INT, QUIT, TERM, and TSTP exits/suspension, re-masks after
+  resume, and refuses interactive use without the required signal support.
+  The value is never printed or logged
   (not `--prompt` — see the passthrough section above for why that name
   was unavailable); its own "value for '&lt;name&gt;': " prompt writes to
   STDERR, never STDOUT, so `--stdin --format=json` is still safe to pipe
