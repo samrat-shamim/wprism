@@ -5,7 +5,8 @@
  *
  * The broader target-path regression remains
  * regress_woocommerce_deletion_authority.php. This suite isolates the
- * schema-shape decision, including its prefix-index refusal boundary.
+ * schema-shape decision, including its prefix-index refusal boundary and the
+ * storage-engine proof that must precede a destructive locking read.
  */
 declare(strict_types=1);
 
@@ -17,11 +18,56 @@ require_once __DIR__ . '/../../agent/src/DeleteGuardEvaluator.php';
 use Duo\DeleteGuardEvaluator;
 
 final class DeleteGuardEvaluatorFakeWpdb {
+    public string $last_error = '';
+    /** @var list<string> */
+    public array $queries = [];
+    /** @var array<string,string|null> */
+    public array $tableEngines;
+
     /** @param list<array<string,mixed>> $indexRows */
-    public function __construct(private array $indexRows) {
+    public function __construct(
+        private array $indexRows,
+        ?array $tableEngines = null,
+        private bool $metadataProbeFails = false,
+        private bool $introspectionFails = false
+    ) {
+        $this->tableEngines = $tableEngines ?? [
+            'wp_options' => 'InnoDB',
+            'wp_postmeta' => 'InnoDB',
+        ];
+    }
+
+    public function prepare(string $sql, ...$args): string {
+        foreach ($args as $arg) {
+            $sql = preg_replace('/%s/', "'" . str_replace("'", "''", (string) $arg) . "'", $sql, 1);
+        }
+        return $sql;
+    }
+
+    public function get_var(string $sql): int|false {
+        $this->queries[] = $sql;
+        if ($this->metadataProbeFails) {
+            $this->last_error = 'simulated metadata probe failure';
+            return false;
+        }
+        return 1;
     }
 
     public function get_results(string $sql, $format = null): array {
+        $this->queries[] = $sql;
+        if (str_contains($sql, 'information_schema.TABLES')) {
+            if ($this->introspectionFails) {
+                $this->last_error = 'simulated information_schema failure';
+                return [];
+            }
+            $rows = [];
+            foreach ($this->tableEngines as $table => $engine) {
+                if (str_contains($sql, "'$table'")) {
+                    $rows[] = ['TABLE_NAME' => $table, 'ENGINE' => $engine];
+                }
+            }
+            return $rows;
+        }
         return $this->indexRows;
     }
 }
@@ -65,19 +111,95 @@ $check(
     'ordinary scalar guards use a sanitized first-column lock index'
 );
 
+// The lock boundary's engine proof is deliberately direct-callable. These
+// checks would fail against the pre-extraction evaluator, which had no such
+// contract, while the Woo product-path regression below keeps the complete
+// transaction ordering covered.
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], [
+    'wp_options' => 'InnoDB',
+    'wp_postmeta' => 'InnoDB',
+]);
+$GLOBALS['wpdb'] = $engineWpdb;
+DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta', 'wp_options', 'wp_postmeta']);
+$check(
+    $engineWpdb->queries === [
+        'SELECT 1 FROM `wp_options` LIMIT 1',
+        'SELECT 1 FROM `wp_postmeta` LIMIT 1',
+        "SELECT TABLE_NAME, ENGINE FROM information_schema.TABLES\n             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('wp_options','wp_postmeta')\n             ORDER BY TABLE_NAME ASC",
+    ],
+    'storage-engine proof sorts and de-duplicates the exact prefixed guard tables before locking'
+);
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => 'MyISAM']);
+$GLOBALS['wpdb'] = $engineWpdb;
+$unsupportedRefused = false;
+try {
+    DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta']);
+} catch (RuntimeException $e) {
+    $unsupportedRefused = str_contains($e->getMessage(), 'wp_postmeta (engine: MYISAM)')
+        && str_contains($e->getMessage(), 'InnoDB required');
+}
+$check(
+    $unsupportedRefused,
+    'storage-engine proof refuses a visible non-InnoDB table before a guard locking read'
+);
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => null]);
+$GLOBALS['wpdb'] = $engineWpdb;
+$unknownRefused = false;
+try {
+    DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta']);
+} catch (RuntimeException $e) {
+    $unknownRefused = str_contains($e->getMessage(), 'wp_postmeta (engine: NULL/unknown)');
+}
+$check($unknownRefused, 'storage-engine proof refuses a null/unknown engine deterministically');
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], [], true);
+$GLOBALS['wpdb'] = $engineWpdb;
+$metadataRefused = false;
+try {
+    DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta']);
+} catch (RuntimeException $e) {
+    $metadataRefused = str_contains($e->getMessage(), 'unable to acquire metadata lock')
+        && str_contains($e->getMessage(), 'simulated metadata probe failure')
+        && count($engineWpdb->queries) === 1;
+}
+$check($metadataRefused, 'metadata-lock failure refuses before information-schema introspection');
+
+$engineWpdb = new DeleteGuardEvaluatorFakeWpdb([], ['wp_postmeta' => 'InnoDB'], false, true);
+$GLOBALS['wpdb'] = $engineWpdb;
+$introspectionRefused = false;
+try {
+    DeleteGuardEvaluator::assert_innodb_tables(['wp_postmeta']);
+} catch (RuntimeException $e) {
+    $introspectionRefused = str_contains($e->getMessage(), 'storage-engine introspection failed')
+        && str_contains($e->getMessage(), 'simulated information_schema failure');
+}
+$check($introspectionRefused, 'information-schema failure remains a fail-closed deletion refusal');
+
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes a dependency-free static lock-boundary contract'
+    'evaluator exposes dependency-free static index and storage-engine lock-boundary contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$engineFacade = substr(
+    $applySource,
+    strpos($applySource, 'private function assert_delete_guard_engines('),
+    strpos($applySource, 'private function assert_delete_lock_isolation(')
+        - strpos($applySource, 'private function assert_delete_guard_engines(')
+);
 $check(
     str_contains($applySource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
-        && substr_count($applySource, 'DeleteGuardEvaluator::lock_index(') === 3,
-    'Apply delegates every deletion-guard lock-index decision to the evaluator'
+        && substr_count($applySource, 'DeleteGuardEvaluator::lock_index(') === 3
+        && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));')
+        && !str_contains($engineFacade, 'information_schema.TABLES'),
+    'Apply delegates every deletion-guard index and storage-engine decision to the evaluator'
 );
 $check(
     !str_contains($applySource, 'private function guard_lock_index('),
