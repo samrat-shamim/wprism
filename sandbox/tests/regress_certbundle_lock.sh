@@ -137,6 +137,17 @@ wait_until() { # wait_until <budget-seconds> <what> <command...>
     sleep 0.05
   done
 }
+has_linux_proc_start_tick() {
+  # The stalled-observer race specifically exercises the flock backend's
+  # Linux /proc start-token reader.  Production deliberately falls back to
+  # the Python direct-parent helper on supported macOS/BSD hosts, where this
+  # kernel interface does not exist; do not pretend that path proves a race
+  # it cannot instantiate.
+  [ -r "/proc/$$/stat" ]
+}
+flock_backend_supported() {
+  command -v flock >/dev/null 2>&1 && has_linux_proc_start_tick
+}
 holder_pid() { jq -r '.pid' "$HOLDER_FILE"; }
 case9_naming_window_ready() {
   # The lock file is persistent by contract, so its existence is not evidence
@@ -421,35 +432,6 @@ CASE7B_IDENTITY_ENTERED="$SCRATCH/identity-block.entered"
 CASE7B_IDENTITY_PID_FILE="$SCRATCH/identity-block.pid"
 CASE7B_PROC_ROOT="$SCRATCH/identity-proc"
 CASE7B_PROC_BLOCK="$SCRATCH/identity-proc-block"
-ln -s /proc "$CASE7B_PROC_ROOT"
-: > "$HOLD"
-CERT_BUNDLE_LOCK_PROC_ROOT="$CASE7B_PROC_ROOT" CERT_BUNDLE_LOCK_IDENTITY_ENTERED_GATE="$CASE7B_IDENTITY_GATE" \
-  CERT_BUNDLE_LOCK_IDENTITY_ENTERED="$CASE7B_IDENTITY_ENTERED" CERT_BUNDLE_LOCK_IDENTITY_PID_FILE="$CASE7B_IDENTITY_PID_FILE" \
-  CERT_BUNDLE_LOCK_BACKEND=flock CERT_BUNDLE_PAIR=probeholder \
-  bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.probeholder" "$HOLD" \
-  > "$SCRATCH/probeholder.log" 2>&1 &
-PROBEHOLDER_JOB=$!; SPAWNED+=("$PROBEHOLDER_JOB")
-wait_until 30 "the probe holder to acquire" test -f "$SCRATCH/ready.probeholder"
-PROBEHOLDER_PID=$(cat "$SCRATCH/ready.probeholder")
-mkdir -p "$CASE7B_PROC_BLOCK/$PROBEHOLDER_PID"
-mkfifo "$CASE7B_PROC_BLOCK/$PROBEHOLDER_PID/stat"
-rm -f "$CASE7B_PROC_ROOT"
-ln -s "$CASE7B_PROC_BLOCK" "$CASE7B_PROC_ROOT"
-: > "$CASE7B_IDENTITY_GATE"
-wait_until 15 "the descriptor-free identity observer to enter its blocked proc read" test -f "$CASE7B_IDENTITY_ENTERED"
-BLOCKED_IDENTITY_PID=$(cat "$CASE7B_IDENTITY_PID_FILE")
-case "$BLOCKED_IDENTITY_PID" in ''|*[!0-9]*) fail "the blocked identity observer did not record an exact PID" ;; esac
-sleep 0.1
-kill -0 "$BLOCKED_IDENTITY_PID" 2>/dev/null || fail "fixture lost its point: the identity observer must be blocked before the acquirer is killed"
-kill -9 "$PROBEHOLDER_PID"
-rc=0; wait_spawned "$PROBEHOLDER_JOB" || rc=$?
-[ "$rc" = "137" ] || fail "the probe holder exited $rc, not 137"
-PROBE_LATENCY=$(acquire_after_kill probeafter "$SCRATCH/probeafter.log" 5 flock)
-assert_in "$SCRATCH/probeafter.log" "host certification lock acquired" \
-  "a blocked identity observer retained the flock after its acquirer was killed"
-kill -9 "$BLOCKED_IDENTITY_PID" 2>/dev/null || true
-wait_until 15 "the blocked identity observer to leave after exact-PID cleanup" \
-  bash -c '! kill -0 "$1" 2>/dev/null' _ "$BLOCKED_IDENTITY_PID"
 TRY_BODY_7B="$SCRATCH/lock_try.case7b.body"
 awk '/^certbundle_lock_try\(\) \{/{inside=1} inside{print} inside && /^\}$/{exit}' "$SHIPPED" > "$TRY_BODY_7B"
 WATCHERS_LINE=$(grep -n '^[[:space:]]*certbundle_lock_start_watchers "\$helper_dir" "\$parent_pid" "\$parent_ident"$' "$TRY_BODY_7B" | head -1 | cut -d: -f1 || true)
@@ -459,7 +441,40 @@ FLOCK_LINE=$(grep -n '^      if flock -n 9; then$' "$TRY_BODY_7B" | head -1 | cu
   || fail "case 7b cannot locate the pre-helper watcher handoff in certbundle_lock_try()"
 [ "$WATCHERS_LINE" -lt "$HELPER_PID_LINE" ] && [ "$HELPER_PID_LINE" -lt "$FLOCK_LINE" ] \
   || fail "case 7b requires descriptor-free watchers before helper startup, and helper.pid before flock(2); otherwise a SIGKILL can strand the lock in the ready-before-watcher gap"
-pass "a blocked identity observer owned no descriptor; the kernel reclaimed the flock in ${PROBE_LATENCY}s"
+if flock_backend_supported; then
+  ln -s /proc "$CASE7B_PROC_ROOT"
+  : > "$HOLD"
+  CERT_BUNDLE_LOCK_PROC_ROOT="$CASE7B_PROC_ROOT" CERT_BUNDLE_LOCK_IDENTITY_ENTERED_GATE="$CASE7B_IDENTITY_GATE" \
+    CERT_BUNDLE_LOCK_IDENTITY_ENTERED="$CASE7B_IDENTITY_ENTERED" CERT_BUNDLE_LOCK_IDENTITY_PID_FILE="$CASE7B_IDENTITY_PID_FILE" \
+    CERT_BUNDLE_LOCK_BACKEND=flock CERT_BUNDLE_PAIR=probeholder \
+    bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.probeholder" "$HOLD" \
+    > "$SCRATCH/probeholder.log" 2>&1 &
+  PROBEHOLDER_JOB=$!; SPAWNED+=("$PROBEHOLDER_JOB")
+  wait_until 30 "the probe holder to acquire" test -f "$SCRATCH/ready.probeholder"
+  PROBEHOLDER_PID=$(cat "$SCRATCH/ready.probeholder")
+  mkdir -p "$CASE7B_PROC_BLOCK/$PROBEHOLDER_PID"
+  mkfifo "$CASE7B_PROC_BLOCK/$PROBEHOLDER_PID/stat"
+  rm -f "$CASE7B_PROC_ROOT"
+  ln -s "$CASE7B_PROC_BLOCK" "$CASE7B_PROC_ROOT"
+  : > "$CASE7B_IDENTITY_GATE"
+  wait_until 15 "the descriptor-free identity observer to enter its blocked proc read" test -f "$CASE7B_IDENTITY_ENTERED"
+  BLOCKED_IDENTITY_PID=$(cat "$CASE7B_IDENTITY_PID_FILE")
+  case "$BLOCKED_IDENTITY_PID" in ''|*[!0-9]*) fail "the blocked identity observer did not record an exact PID" ;; esac
+  sleep 0.1
+  kill -0 "$BLOCKED_IDENTITY_PID" 2>/dev/null || fail "fixture lost its point: the identity observer must be blocked before the acquirer is killed"
+  kill -9 "$PROBEHOLDER_PID"
+  rc=0; wait_spawned "$PROBEHOLDER_JOB" || rc=$?
+  [ "$rc" = "137" ] || fail "the probe holder exited $rc, not 137"
+  PROBE_LATENCY=$(acquire_after_kill probeafter "$SCRATCH/probeafter.log" 5 flock)
+  assert_in "$SCRATCH/probeafter.log" "host certification lock acquired" \
+    "a blocked identity observer retained the flock after its acquirer was killed"
+  kill -9 "$BLOCKED_IDENTITY_PID" 2>/dev/null || true
+  wait_until 15 "the blocked identity observer to leave after exact-PID cleanup" \
+    bash -c '! kill -0 "$1" 2>/dev/null' _ "$BLOCKED_IDENTITY_PID"
+  pass "a blocked identity observer owned no descriptor; the kernel reclaimed the flock in ${PROBE_LATENCY}s"
+else
+  printf 'note: case 7b runtime flock-observer probe skipped: Linux /proc start ticks are unavailable; source-order mutation pin remains active\n'
+fi
 
 say "case 8 — RACE 1 (reviewer's race_b): concurrent claimers of a dead holder's record, plus a late arrival, never produce two holders"
 rm -f "$HOLDER_FILE"
@@ -496,7 +511,7 @@ say "case 9 — RACE 2 (reviewer's race_a): a holder killed between acquiring an
 rm -f "$HOLDER_FILE"
 : >> "$LOCK_FILE"   # the inode is persistent even when no run currently holds it
 : > "$HOLD"
-# Gate the backend before it reaches the real flock(2). The lock file already
+# Gate the selected backend before it reaches the real flock(2). The lock file already
 # exists from the earlier cases and the naming record is absent, so the old
 # predicate would pass before this process can acquire anything. A fresh,
 # case-private TMPDIR keeps this holder's helper controls isolated for the
@@ -504,7 +519,7 @@ rm -f "$HOLDER_FILE"
 CASE9_TMPDIR="$SCRATCH/helpers-case9"
 mkdir -p "$CASE9_TMPDIR"
 CASE9_BACKEND= CASE9_BACKEND_BIN=
-if command -v flock >/dev/null 2>&1; then
+if flock_backend_supported; then
   CASE9_BACKEND=flock
   CASE9_BACKEND_BIN=$(command -v flock)
 else
@@ -515,7 +530,7 @@ fi
 CASE9_CONTENDER_BACKEND=auto
 if [ "$CASE9_BACKEND" = flock ] && command -v python3 >/dev/null 2>&1; then
   CASE9_CONTENDER_BACKEND=python
-elif [ "$CASE9_BACKEND" = python ] && command -v flock >/dev/null 2>&1; then
+elif [ "$CASE9_BACKEND" = python ] && flock_backend_supported; then
   CASE9_CONTENDER_BACKEND=flock
 fi
 CASE9_BACKEND_GATE="$SCRATCH/backend-go"
@@ -659,6 +674,10 @@ pass "the orphaned child survived and held nothing; the helper owns the descript
 
 say "case 12 — both lock backends serialize, and each is exercised rather than assumed"
 for backend in flock python; do
+  if [ "$backend" = flock ] && ! flock_backend_supported; then
+    printf 'note: flock backend runtime probe skipped: Linux /proc start ticks are unavailable; explicit flock refusal is covered in case 18\n'
+    continue
+  fi
   if ! CERT_BUNDLE_LOCK_BACKEND="$backend" bash -c '
       case "$1" in flock) command -v flock ;; python) command -v python3 ;; esac' _ "$backend" >/dev/null 2>&1; then
     printf 'note: %s backend unavailable on this host; skipped\n' "$backend"
@@ -816,57 +835,65 @@ if command -v python3 >/dev/null 2>&1; then
 else
   printf 'note: python3 unavailable; no-/proc Python fallback probe skipped\n'
 fi
-PROC_LIVE="$SCRATCH/proc-live"
-ln -s /proc "$PROC_LIVE"
-: > "$HOLD"
-CERT_BUNDLE_LOCK_PROC_ROOT="$PROC_LIVE" CERT_BUNDLE_LOCK_BACKEND=flock CERT_BUNDLE_PAIR=survivor \
-  bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.survivor" "$HOLD" > "$SCRATCH/survivor.log" 2>&1 &
-SURVIVOR_JOB=$!; SPAWNED+=("$SURVIVOR_JOB")
-wait_until 30 "the survivor to acquire with a readable start token" test -f "$SCRATCH/ready.survivor"
-SURVIVOR_PID=$(cat "$SCRATCH/ready.survivor")
-# Swap the test-only proc root after acquire. The watcher now receives no
-# token, but kill -0 still proves the holder is live; it must retain the lock.
-rm -f "$PROC_LIVE"
-mkdir -p "$PROC_LIVE"
-sleep 2
-kill -0 "$SURVIVOR_PID" 2>/dev/null \
-  || fail "fixture lost its point: the holder must still be alive while its start token is unreadable"
-rc=0
-CERT_BUNDLE_PAIR=intruder bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.intruder" "$SCRATCH/unused" \
-  > "$SCRATCH/intruder.log" 2>&1 || rc=$?
-[ "$rc" = "1" ] \
-  || { show "$SCRATCH/intruder.log"; fail "a second run acquired while the first was alive: unreadable identity became death and dropped the lock"; }
-assert_in "$SCRATCH/intruder.log" "refusing to start a second certification bundle" "the intruder did not refuse"
-assert_in "$SCRATCH/intruder.log" "holder pid     : $SURVIVOR_PID" "the intruder did not name the surviving holder"
-# The conservative reading must not cost the crash-safety it protects.
-kill -9 "$SURVIVOR_PID"
-rc=0; wait_spawned "$SURVIVOR_JOB" || rc=$?
-[ "$rc" = "137" ] || fail "the survivor exited $rc, not 137"
-PSLAT=$(acquire_after_kill afterps "$SCRATCH/afterps.log" 20)
-assert_in "$SCRATCH/afterps.log" "host certification lock acquired" \
-  "keeping the lock through an unreadable identity also kept it through a real death"
-rm -f "$HOLD"
-pass "an unreadable start token kept the lock (intruder refused), and a real kill still reclaimed it in ${PSLAT}s"
+if flock_backend_supported; then
+  PROC_LIVE="$SCRATCH/proc-live"
+  ln -s /proc "$PROC_LIVE"
+  : > "$HOLD"
+  CERT_BUNDLE_LOCK_PROC_ROOT="$PROC_LIVE" CERT_BUNDLE_LOCK_BACKEND=flock CERT_BUNDLE_PAIR=survivor \
+    bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.survivor" "$HOLD" > "$SCRATCH/survivor.log" 2>&1 &
+  SURVIVOR_JOB=$!; SPAWNED+=("$SURVIVOR_JOB")
+  wait_until 30 "the survivor to acquire with a readable start token" test -f "$SCRATCH/ready.survivor"
+  SURVIVOR_PID=$(cat "$SCRATCH/ready.survivor")
+  # Swap the test-only proc root after acquire. The watcher now receives no
+  # token, but kill -0 still proves the holder is live; it must retain the lock.
+  rm -f "$PROC_LIVE"
+  mkdir -p "$PROC_LIVE"
+  sleep 2
+  kill -0 "$SURVIVOR_PID" 2>/dev/null \
+    || fail "fixture lost its point: the holder must still be alive while its start token is unreadable"
+  rc=0
+  CERT_BUNDLE_PAIR=intruder bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.intruder" "$SCRATCH/unused" \
+    > "$SCRATCH/intruder.log" 2>&1 || rc=$?
+  [ "$rc" = "1" ] \
+    || { show "$SCRATCH/intruder.log"; fail "a second run acquired while the first was alive: unreadable identity became death and dropped the lock"; }
+  assert_in "$SCRATCH/intruder.log" "refusing to start a second certification bundle" "the intruder did not refuse"
+  assert_in "$SCRATCH/intruder.log" "holder pid     : $SURVIVOR_PID" "the intruder did not name the surviving holder"
+  # The conservative reading must not cost the crash-safety it protects.
+  kill -9 "$SURVIVOR_PID"
+  rc=0; wait_spawned "$SURVIVOR_JOB" || rc=$?
+  [ "$rc" = "137" ] || fail "the survivor exited $rc, not 137"
+  PSLAT=$(acquire_after_kill afterps "$SCRATCH/afterps.log" 20)
+  assert_in "$SCRATCH/afterps.log" "host certification lock acquired" \
+    "keeping the lock through an unreadable identity also kept it through a real death"
+  rm -f "$HOLD"
+  pass "an unreadable start token kept the lock (intruder refused), and a real kill still reclaimed it in ${PSLAT}s"
+else
+  printf 'note: case 18 flock-only unreadable-token continuation probe skipped: Linux /proc start ticks are unavailable; the forced refusal and Python fallback probes above remain active\n'
+fi
 
 say "case 19 — the two backends exclude each other, in both directions"
-for pairing in "flock python" "python flock"; do
-  set -- $pairing; HB="$1"; CB="$2"
-  : > "$HOLD"
-  CERT_BUNDLE_LOCK_BACKEND="$HB" CERT_BUNDLE_PAIR=xhold \
-    bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.x$HB" "$HOLD" > "$SCRATCH/x$HB.log" 2>&1 &
-  XJOB=$!; SPAWNED+=("$XJOB")
-  wait_until 30 "the $HB holder to acquire" test -f "$SCRATCH/ready.x$HB"
-  XPID=$(cat "$SCRATCH/ready.x$HB")
-  rc=0
-  CERT_BUNDLE_LOCK_BACKEND="$CB" CERT_BUNDLE_PAIR=xcontend \
-    bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.xc$CB" "$SCRATCH/unused" \
-    > "$SCRATCH/xc$CB.log" 2>&1 || rc=$?
-  [ "$rc" = "1" ] \
-    || { show "$SCRATCH/xc$CB.log"; fail "a $CB contender acquired while a $HB holder held it; the two backends must be the same flock(2) on the same file"; }
-  assert_in "$SCRATCH/xc$CB.log" "holder pid     : $XPID" "the $CB contender did not name the $HB holder"
-  rm -f "$HOLD"; rc=0; wait_spawned "$XJOB" || rc=$?
-  pass "$HB holder excluded a $CB contender, which named it correctly"
-done
+if flock_backend_supported; then
+  for pairing in "flock python" "python flock"; do
+    set -- $pairing; HB="$1"; CB="$2"
+    : > "$HOLD"
+    CERT_BUNDLE_LOCK_BACKEND="$HB" CERT_BUNDLE_PAIR=xhold \
+      bash "$SCRATCH/driver.sh" hold "$SCRATCH/ready.x$HB" "$HOLD" > "$SCRATCH/x$HB.log" 2>&1 &
+    XJOB=$!; SPAWNED+=("$XJOB")
+    wait_until 30 "the $HB holder to acquire" test -f "$SCRATCH/ready.x$HB"
+    XPID=$(cat "$SCRATCH/ready.x$HB")
+    rc=0
+    CERT_BUNDLE_LOCK_BACKEND="$CB" CERT_BUNDLE_PAIR=xcontend \
+      bash "$SCRATCH/driver.sh" acquire "$SCRATCH/ready.xc$CB" "$SCRATCH/unused" \
+      > "$SCRATCH/xc$CB.log" 2>&1 || rc=$?
+    [ "$rc" = "1" ] \
+      || { show "$SCRATCH/xc$CB.log"; fail "a $CB contender acquired while a $HB holder held it; the two backends must be the same flock(2) on the same file"; }
+    assert_in "$SCRATCH/xc$CB.log" "holder pid     : $XPID" "the $CB contender did not name the $HB holder"
+    rm -f "$HOLD"; rc=0; wait_spawned "$XJOB" || rc=$?
+    pass "$HB holder excluded a $CB contender, which named it correctly"
+  done
+else
+  printf 'note: cross-backend runtime probes skipped: flock requires Linux /proc start ticks; Python portability and explicit flock refusal remain covered\n'
+fi
 
 say "case 20 — no helper control directory started by THIS run outlives it"
 own_helper_dirs() {
