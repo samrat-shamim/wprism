@@ -8,6 +8,10 @@ require_once __DIR__ . '/ReferenceGraph.php';
 // here, not just left to duo.php's bootstrap order, so every existing caller of
 // THIS file keeps getting both classes transitively with no change on its part.
 require_once __DIR__ . '/CompiledArtifact.php';
+// DUO-3348 slice 30: policy/manifest artifact identity is independent of the
+// repository tree builder. Keep the long-lived RepositoryCompiler methods as
+// compatibility facades while the extracted collaborator owns byte projection.
+require_once __DIR__ . '/ArtifactPolicyIdentity.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -206,7 +210,7 @@ final class RepositoryCompiler {
     }
 
     public static function site_hash(Policy $policy): string {
-        return hash('sha256', Canon::encode($policy->site));
+        return ArtifactPolicyIdentity::site_hash($policy);
     }
 
     /**
@@ -219,133 +223,15 @@ final class RepositoryCompiler {
      * not a canonical database-state change.
      */
     public static function state_site_hash(Policy $policy): string {
-        $site = $policy->site;
-        unset($site['code']);
-        return hash('sha256', Canon::encode($site));
+        return ArtifactPolicyIdentity::state_site_hash($policy);
     }
 
-    /**
-     * DUO-3222: the per-manifest content row manifest_hash()/resolved_
-     * adapters() both hash — factored out so a per-manifest digest
-     * (resolved_adapters() below) and the pre-existing combined hash
-     * (manifest_hash()) are provably the SAME content, never two
-     * independently-maintained notions of "what identifies this manifest."
-     * CapabilityRegistry::adapter_digest() mirrors this row shape (it cannot
-     * call in here — the registry loads without a compiled repository), so
-     * any key added to this row must be added there in the same change.
-     * DUO-3360 made that a pin rather than only a rule: sandbox/tests/
-     * regress_actions_providers.php drives this method over every shipped
-     * adapter and requires hash('sha256', Canon::encode($row)) — the exact
-     * formula resolved_adapters() falls back to without the registry — to
-     * equal adapter_digest()'s answer, so a key added to one implementation
-     * alone fails offline instead of splitting the two digests silently.
-     *
-     * @return list<array{name:string, manifest:array, disposition:?array, interpreter?:array{name:string,sha256:?string}, providers?:list<array{id:string,sha256:?string}>, regenerators?:list<array{name:string,sha256:?string}>}>
-     */
     private static function manifest_rows(Policy $policy): array {
-        $rows = [];
-        foreach ($policy->manifests as $manifest) {
-            $name = (string) ($manifest['name'] ?? '');
-            $row = [
-                'name' => $name,
-                'manifest' => $manifest,
-                'disposition' => $policy->manifest_disposition($name),
-            ];
-            $interpreter = $manifest['interpreter'] ?? null;
-            if (is_string($interpreter) && $interpreter !== '') {
-                $file = Policy::manifests_dir() . '/interpreters/' . basename($interpreter) . '.php';
-                $row['interpreter'] = [
-                    'name' => $interpreter,
-                    'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
-                ];
-            }
-            // DUO-3338: a manifest-sourced provider is executable code whose
-            // identity the manifest asserts, so its bytes join the identity
-            // row exactly as an interpreter's do — a changed provider file is
-            // a changed adapter, not an invisible drift behind a stable
-            // manifest digest. Plugin-sourced providers are deliberately NOT
-            // file-hashed here: their trust anchor is the installed plugin
-            // itself, whose identity the code half already checks against the
-            // manifest's version_range at negotiation time. A missing file
-            // hashes as null (Policy::load() has already refused it loudly;
-            // this layer only records identity, mirroring the interpreter
-            // line above).
-            $providerHashes = [];
-            foreach ((array) ($manifest['providers'] ?? []) as $declaration) {
-                if (!is_array($declaration) || ($declaration['source'] ?? null) !== 'manifest') {
-                    continue;
-                }
-                $id = (string) ($declaration['id'] ?? '');
-                if ($id === '') {
-                    continue;
-                }
-                $file = Policy::manifests_dir() . '/providers/' . basename($id) . '.php';
-                $providerHashes[] = [
-                    'id' => $id,
-                    'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
-                ];
-            }
-            if ($providerHashes !== []) {
-                $row['providers'] = $providerHashes;
-            }
-            // DUO-3360: a manifest-shipped regenerator is the same trust
-            // boundary the two entries above bind — executable code that
-            // ships, versions, and pins with its manifest — so its bytes join
-            // the identity row for the same reason: a changed regenerator is a
-            // changed adapter, not invisible drift behind a stable manifest
-            // digest. The entry is keyed by `name` like the interpreter's,
-            // because a regen_dependency names a regenerator exactly as a
-            // manifest names an interpreter, and resolves through the same
-            // <manifests_dir>/regenerators/<name>.php path Policy::
-            // regenerators() loads (name grammar refused there and by `duo
-            // manifest-validate`; basename() here mirrors the two entries
-            // above rather than trusting that check from a distance).
-            // Several post_types{} entries may name ONE regenerator, so a
-            // name appears once — the same de-duplication Policy::
-            // regenerators() performs, so the row binds what the engine can
-            // actually load. Policy::regenerators() also de-duplicates ACROSS
-            // manifests (one instance per name, whichever manifest reaches it
-            // first); that is instance reuse, not shared identity, so every
-            // declaring manifest binds the bytes it depends on here. Entries
-            // are sorted by NAME, where providers[] keeps its authored order:
-            // that list is a JSON array, whose order is canonical content,
-            // while these names are discovered by walking a JSON OBJECT, whose
-            // key order Canon::encode() normalizes away everywhere else
-            // (`manifest` above included). Ordering the list by discovery
-            // would make a no-op post_types{} key reshuffle move a certified
-            // adapter's digest. A missing file hashes as null: the loud refusal is
-            // Policy::regenerators()' (which `duo manifest-validate` drives
-            // offline, before any apply), and this layer only records
-            // identity, so the entry stays present rather than silently
-            // vanishing from the row.
-            $regeneratorHashes = [];
-            $seenRegenerators = [];
-            foreach ((array) ($manifest['post_types'] ?? []) as $declaration) {
-                $regenerator = is_array($declaration)
-                    ? ($declaration['regen_dependency']['regenerator'] ?? null)
-                    : null;
-                if (!is_string($regenerator) || $regenerator === ''
-                    || isset($seenRegenerators[$regenerator])) {
-                    continue;
-                }
-                $seenRegenerators[$regenerator] = true;
-                $file = Policy::manifests_dir() . '/regenerators/' . basename($regenerator) . '.php';
-                $regeneratorHashes[] = [
-                    'name' => $regenerator,
-                    'sha256' => is_file($file) ? hash_file('sha256', $file) : null,
-                ];
-            }
-            usort($regeneratorHashes, static fn(array $a, array $b): int => strcmp($a['name'], $b['name']));
-            if ($regeneratorHashes !== []) {
-                $row['regenerators'] = $regeneratorHashes;
-            }
-            $rows[] = $row;
-        }
-        return $rows;
+        return ArtifactPolicyIdentity::manifest_rows($policy);
     }
 
     public static function manifest_hash(Policy $policy): string {
-        return hash('sha256', Canon::encode(self::manifest_rows($policy)));
+        return ArtifactPolicyIdentity::manifest_hash($policy);
     }
 
     /**
@@ -370,28 +256,7 @@ final class RepositoryCompiler {
      * @return list<array{name:string, digest:string, source:string, trust_tier:string, spec_version:?int, plugin:?string, version_range:?array, theme:?string, theme_version_range:?array, disposition:?array, capability:?array}>
      */
     public static function resolved_adapters(Policy $policy): array {
-        $sources = $policy->adapter_sources();
-        $out = [];
-        foreach (self::manifest_rows($policy) as $row) {
-            $manifest = $row['manifest'];
-            $out[] = [
-                'name' => $row['name'],
-                'source' => $sources->source((string) $row['name']),
-                'trust_tier' => AdapterSources::trust_tier($manifest),
-                'digest' => class_exists(CapabilityRegistry::class)
-                    ? CapabilityRegistry::adapter_digest($manifest, $row['disposition'])
-                    : hash('sha256', Canon::encode($row)),
-                'spec_version' => isset($manifest['spec_version']) ? (int) $manifest['spec_version'] : null,
-                'plugin' => isset($manifest['plugin']) ? (string) $manifest['plugin'] : null,
-                'version_range' => is_array($manifest['version_range'] ?? null) ? $manifest['version_range'] : null,
-                'theme' => isset($manifest['theme']) ? (string) $manifest['theme'] : null,
-                'theme_version_range' => is_array($manifest['theme_version_range'] ?? null)
-                    ? $manifest['theme_version_range'] : null,
-                'disposition' => $row['disposition'],
-                'capability' => $policy->capability_claim((string) $row['name']),
-            ];
-        }
-        return $out;
+        return ArtifactPolicyIdentity::resolved_adapters($policy);
     }
 
     private function run(): CompiledRepository {
