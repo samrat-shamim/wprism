@@ -9,7 +9,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 .PHONY: regress-identity-token-codec
-.PHONY: regress-pair-budget-lock regress-pair-compose-unit regress-proof-legacy-pair regress-certbundle-evidence
+.PHONY: regress-pair-budget-lock regress-pair-compose-unit regress-proof-legacy-pair regress-certbundle-source regress-certbundle-evidence
 .PHONY: regress-text-tokenizer
 .PHONY: regress-structured-reference-codec
 .PHONY: regress-url-query-reference-codec
@@ -558,6 +558,11 @@ regress-adapter-draft:
 # on both lock backends without docker or a 50-minute bundle run.
 regress-certbundle-lock:
 	bash sandbox/tests/regress_certbundle_lock.sh
+
+# DUO-3355: direct exact-source checkout/freeze boundary. Real temporary Git
+# repositories, no docker -- belongs in regress-offline-all.
+regress-certbundle-source:
+	bash sandbox/tests/regress_certbundle_source.sh
 
 # DUO-3355: direct machine-evidence writer contract for the reference bundle.
 # Real jq and file I/O, no docker -- belongs in regress-offline-all.
@@ -1776,7 +1781,7 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 217 offline suites green"
+	@echo "regress-offline-all: 218 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-capability-registry-import regress-certification-bundle regress-scoped-certification-bundle regress-adapter-certification-bundle regress-interpreter-policy regress-proof-legacy-pair \
@@ -1794,9 +1799,9 @@ regress-offline-corpus: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-budget-lock regress-pair-compose-unit regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-certbundle-evidence regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
+	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-certbundle-source regress-certbundle-evidence regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics
-	@echo "regress-offline-corpus: 217 offline suites green"
+	@echo "regress-offline-corpus: 218 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/regress_offline_diagnostics.sh

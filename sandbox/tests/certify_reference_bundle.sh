@@ -64,6 +64,12 @@ command -v git >/dev/null || fail "git required"
 # shellcheck source=../bin/fetch-artifact.sh
 source bin/fetch-artifact.sh
 
+# DUO-3355: exact standalone-checkout proof and frozen-source readback are a
+# cohesive source-only boundary; this runner retains only the orchestration
+# calls and the source SHA handoff.
+# shellcheck source=../lib/certbundle_source.sh
+source lib/certbundle_source.sh
+
 # DUO-3355: the crash-safe host lock is a cohesive sourced boundary; this
 # runner retains only orchestration and the acquire/release call sites.
 # shellcheck source=../lib/certbundle_lock.sh
@@ -78,74 +84,19 @@ certbundle_lock_acquire
 validate_artifact_lock conformance/artifacts.lock.json \
   || fail "reference certification requires a closed typed artifact lock"
 
-# pair.sh intentionally resolves agent/manifests bind mounts through Git's
-# common directory so a long-lived pair never depends on an ephemeral linked
-# worktree.  Certification has the opposite requirement: every exercised byte
-# must come from the exact clean HEAD whose hashes enter the evidence bundle.
-# Refuse before allocating a work root or starting Docker when those roots
-# would differ, or when uncommitted/stale mount bytes would make the run
-# irreproducible.
-assert_exact_certification_checkout() {
-  local checkout_root git_dir common_dir common_root env_file
-  local expected_agent expected_manifests mounted_agent mounted_manifests
-  checkout_root="$(cd "$REPO_ROOT" && pwd -P)"
-  git_dir="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-dir 2>/dev/null)" \
-    || fail "refusing certification: cannot resolve git-dir for checkout $checkout_root"
-  common_dir="$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
-    || fail "refusing certification: cannot resolve git-common-dir for checkout $checkout_root"
-  common_root="$(dirname "$common_dir")"
-  if [ ! -d "$git_dir" ] || [ "$git_dir" != "$common_dir" ] \
-      || [ "$common_root" != "$checkout_root" ] || [ -f "$REPO_ROOT/.git" ]; then
-    fail "refusing certification from a linked worktree or stale canonical mount; use a clean primary or standalone exact-HEAD clone"
-  fi
-  if [ -n "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ]; then
-    fail "refusing certification from a dirty checkout; use a clean primary or standalone exact-HEAD clone"
-  fi
-  expected_agent="$checkout_root/agent"
-  expected_manifests="$checkout_root/manifests"
-  env_file="$checkout_root/sandbox/.env"
-  if [ -e "$env_file" ]; then
-    mounted_agent="$(sed -n 's/^DUO_AGENT_SRC=//p' "$env_file" | head -1)"
-    mounted_manifests="$(sed -n 's/^DUO_MANIFESTS_SRC=//p' "$env_file" | head -1)"
-    if [ "$mounted_agent" != "$expected_agent" ] || [ "$mounted_manifests" != "$expected_manifests" ]; then
-      fail "refusing certification with stale canonical mount registry $env_file; remove it or refresh pair.sh from the clean checkout"
-    fi
-  fi
-  [ -d "$expected_agent" ] || fail "refusing certification: canonical agent mount source is absent: $expected_agent"
-  [ -d "$expected_manifests" ] || fail "refusing certification: canonical manifest mount source is absent: $expected_manifests"
-}
-assert_exact_certification_checkout
+certbundle_source_assert_exact_checkout
 
 # Freeze the commit identity before the first child process or Docker/pair
 # mutation. A clean checkout is only a point-in-time fact; without this SHA
 # handoff, a stale/moved source mount could be exercised and the bundle could
 # later label those results with a different HEAD. Respect any launcher-owned
 # expectation, then give every existing gate the same exact commit.
-SOURCE_SHA=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}') \
-  || fail "refusing certification: cannot resolve the exact source commit"
-assert_expected_source_sha() { # assert_expected_source_sha <name> <value>
-  local name="$1" value="$2"
-  [ -z "$value" ] && return 0
-  [[ "$value" =~ ^[0-9a-f]{40}$ ]] \
-    || fail "refusing certification: $name must be one full lowercase Git commit SHA"
-  [ "$value" = "$SOURCE_SHA" ] \
-    || fail "refusing certification: $name names $value but the clean checkout is $SOURCE_SHA"
-}
-assert_expected_source_sha CERT_BUNDLE_EXPECTED_SOURCE_SHA "${CERT_BUNDLE_EXPECTED_SOURCE_SHA:-}"
-assert_expected_source_sha DUO_EXPECTED_SOURCE_SHA "${DUO_EXPECTED_SOURCE_SHA:-}"
-assert_expected_source_sha CONF_EXPECTED_SOURCE_SHA "${CONF_EXPECTED_SOURCE_SHA:-}"
+SOURCE_SHA=$(certbundle_source_freeze_sha)
+certbundle_source_assert_expected_sha "$SOURCE_SHA" CERT_BUNDLE_EXPECTED_SOURCE_SHA "${CERT_BUNDLE_EXPECTED_SOURCE_SHA:-}"
+certbundle_source_assert_expected_sha "$SOURCE_SHA" DUO_EXPECTED_SOURCE_SHA "${DUO_EXPECTED_SOURCE_SHA:-}"
+certbundle_source_assert_expected_sha "$SOURCE_SHA" CONF_EXPECTED_SOURCE_SHA "${CONF_EXPECTED_SOURCE_SHA:-}"
 export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
 export CONF_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
-
-assert_exact_source_unchanged() {
-  local current
-  current=$(git -C "$REPO_ROOT" rev-parse --verify 'HEAD^{commit}' 2>/dev/null) \
-    || fail "refusing certification: source HEAD became unreadable during the run"
-  [ "$current" = "$SOURCE_SHA" ] \
-    || fail "refusing certification: source HEAD moved from $SOURCE_SHA to $current during the run"
-  [ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ] \
-    || fail "refusing certification: source checkout changed after the exact-SHA preflight"
-}
 
 WORK_ROOT=$(mktemp -d /tmp/duo-certbundle.XXXXXX)
 cleanup_run() {
@@ -476,7 +427,7 @@ bundle. Unset CERT_BUNDLE_INCLUDE_INIT_LEGS to certify them.\033[0m\n' \
     "${CERT_BUNDLE_INCLUDE_INIT_LEGS}"
 fi
 
-assert_exact_source_unchanged
+certbundle_source_assert_unchanged "$SOURCE_SHA"
 
 # DUO-3431: the immutable environment record names the exact cache entries
 # actually requested by every successful bundle leg, not merely every pin
@@ -539,6 +490,7 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   agent cli manifests sandbox/bin sandbox/conformance \
   sandbox/lib/certbundle_lock.sh \
   sandbox/lib/certbundle_evidence.sh \
+  sandbox/lib/certbundle_source.sh \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
   sandbox/tests/regress_multisite_refusal.sh \
@@ -590,7 +542,7 @@ verify_rc=$?
 set -e
 printf '%s\n' "$VERIFY_OUT" | jq .
 
-assert_exact_source_unchanged
+certbundle_source_assert_unchanged "$SOURCE_SHA"
 
 if [ "$overall" -ne 0 ] || [ "$build_rc" -ne 0 ] || [ "$verify_rc" -ne 0 ]; then
   fail "reference certification failed; immutable evidence remains at $BUNDLE"
