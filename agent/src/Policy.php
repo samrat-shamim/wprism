@@ -1080,10 +1080,11 @@ final class Policy {
      * Every declared table rule, keyed by unprefixed table name, merged
      * across manifests (last pinned manifest declaring a given table wins,
      * matching table_rule()/declared_table_details()) with site policy
-     * overrides applied last. Snapshot.php filters this by `class` itself (row-shaped
+     * overrides applied last. TableGraph filters this by `class` (row-shaped
      * "authored_snapshot" vs attached-meta "authored_snapshot_meta" vs the
      * honest-intent-only "authored_typed_snapshot_post_v1" markers that have
-     * no engine effect) — this accessor just answers "what did every pinned
+     * no engine effect) for Snapshot and the other typed-table consumers.
+     * This accessor just answers "what did every pinned
      * manifest + this site's own policy say about tables," mirroring
      * authored_options()'s shape for the tables section.
      */
