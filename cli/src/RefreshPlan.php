@@ -324,16 +324,16 @@ final class RefreshPlan {
             foreach (\Duo\ScopedStateOverlay::selected_identities($scopeContract) as $identity) {
                 $selectedScope[$identity] = true;
             }
+            foreach (\Duo\ScopeContract::option_root_names($scopeContract) as $name) {
+                $selectedScope['option:' . $name] = true;
+            }
         }
         // Per-option three-way planning applies uniformly whether or not a
         // scope contract is present: expand() always explodes options/core
-        // into one virtual identity per authored option name. A v1 scope
-        // grants authority over options/core as a whole SURFACE (no other
-        // manifest/adapter may reach into it), never as one atomic byte
-        // string -- materializeScoped() recombines in-scope per-option
-        // resolutions into the whole document, preserving every
-        // out-of-scope option's baseline bytes untouched, the same
-        // preservation discipline as every other identity.
+        // into one virtual identity per authored option name. An option-root
+        // scope grants only that record; materializeScoped() recombines the
+        // in-scope result into the carrier document while preserving every
+        // excluded option's baseline bytes untouched.
         $snapshots = [
             'base' => self::expand($base),
             'production' => self::expand($production),

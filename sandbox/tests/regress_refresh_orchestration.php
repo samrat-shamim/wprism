@@ -15,6 +15,7 @@ namespace Duo\Orchestrator {
         public static bool $interactiveCancels = true;
         public static int $validatedFieldDiffs = 0;
         public static ?array $lastInteractivePresentation = null;
+        public static ?array $lastContext = null;
         public static function normalizeProductionSnapshot(array $export): array { return $export; }
         public static function compileGitWorktree(string $path, string $commit, string $role): array {
             self::$roles[] = $role;
@@ -26,7 +27,12 @@ namespace Duo\Orchestrator {
             }
         }
         public static function plan(array $base, array $production, array $branch, array $context): array {
-            return ['context' => $context, 'format' => 'duo-refresh-plan/v1', 'plan_hash' => hash('sha256', 'test-plan')];
+            self::$lastContext = $context;
+            return [
+                'context' => $context,
+                'format' => 'duo-refresh-plan/v1',
+                'plan_hash' => hash('sha256', \Duo\Canon::encode(['context' => $context, 'test' => 'plan'])),
+            ];
         }
         public static function normalizePlan(array $plan): array { return $plan; }
         public static function materialize(array $plan, string $worktree, array $resolution): array {
@@ -218,6 +224,65 @@ try {
         && in_array('branch', \Duo\Orchestrator\RefreshPlan::$roles, true)
         && in_array('production-code', \Duo\Orchestrator\RefreshPlan::$roles, true), 'Git artifacts are compiled by role, with production code-only');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'refresh leaves source checkout/ref untouched');
+
+    // An option root is a public scoped-refresh path. The host must forward
+    // the exact immutable selector request to the agent, bind the returned
+    // scope evidence, and retain the contract through its planner boundary;
+    // it must not apply the capture/apply whole-options refusal here.
+    $optionScope = [
+        'format' => 'duo-scope-contract/v1',
+        'scope_hash' => hash('sha256', 'option-root-refresh-scope'),
+        'selectors' => ['option:blogname'],
+        'source' => ['artifact_hash' => hash('sha256', 'option-root-source')],
+    ];
+    $scopedExport = json_decode($export, true, 512, JSON_THROW_ON_ERROR);
+    $scopedExport['scope'] = [
+        'format' => 'duo-refresh-scope/v1',
+        'out_of_scope' => 'omitted_not_absent',
+        'scope_hash' => $optionScope['scope_hash'],
+        'selectors' => $optionScope['selectors'],
+        'source' => $optionScope['source'],
+    ];
+    $scopedExport['snapshot_hash'] = hash('sha256', 'option-root-production-snapshot');
+    $optionTransport = new RefreshTransport($production, json_encode($scopedExport, JSON_THROW_ON_ERROR));
+    $optionRefresh = Refresh::refresh($optionTransport, 'production', $optionScope);
+    $optionRequest = array_values(array_filter(
+        $optionTransport->wp[0] ?? [],
+        static fn(string $arg): bool => str_starts_with($arg, '--scope-request-b64=')
+    ));
+    $optionRequestPayload = $optionRequest === [] ? null : json_decode(
+        base64_decode(substr($optionRequest[0], strlen('--scope-request-b64=')), true),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    ok_refresh(
+        ($optionRefresh['context']['scope_contract'] ?? null) === $optionScope
+            && $optionRequestPayload === [
+                'format' => 'duo-scope-request/v1',
+                'scope_hash' => $optionScope['scope_hash'],
+                'selectors' => $optionScope['selectors'],
+            ]
+            && (\Duo\Orchestrator\RefreshPlan::$lastContext['scope_contract'] ?? null) === $optionScope,
+        'option-root refresh forwards and retains the exact immutable scope contract without widening it'
+    );
+    $optionRunsBefore = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    try {
+        Refresh::rebase($optionTransport, 'production', 'option-root-refresh-candidate', ['strategy' => 'manual', 'records' => []], $optionScope);
+        fail_refresh('option-root rebase unexpectedly materialized an unresolved candidate');
+    } catch (\RuntimeException $e) {
+        ok_refresh(str_contains($e->getMessage(), 'resolved'),
+            'option-root rebase reaches the scoped planner instead of the capture/apply refusal');
+    }
+    $optionRunsAfter = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
+    $optionRunPaths = array_values(array_diff($optionRunsAfter, $optionRunsBefore));
+    $optionRun = $optionRunPaths === [] ? [] : json_decode((string) file_get_contents($optionRunPaths[0]), true, 512, JSON_THROW_ON_ERROR);
+    ok_refresh(count($optionTransport->wp) === 3
+        && ($optionRun['scope_hash'] ?? null) === $optionScope['scope_hash']
+        && (\Duo\Orchestrator\RefreshPlan::$lastContext['scope_contract'] ?? null) === $optionScope,
+        'option-root rebase performs both scoped production observations and journals only its scope hash');
+    if ($optionRunPaths !== []) Refresh::abort(basename(dirname($optionRunPaths[0])));
+
     $dirty = new RefreshTransport($production, $export, "?? state/deletions/untracked.json\n");
     try {
         Refresh::refresh($dirty, 'production');
@@ -227,6 +292,7 @@ try {
             'untracked canonical target state refuses before refresh-export');
     }
 
+    $runsBeforeUnresolved = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
     try {
         Refresh::rebase($transport, 'production', 'refresh-candidate', ['strategy' => 'manual', 'records' => []]);
         fail_refresh('unresolved planner materialization created a branch');
@@ -237,8 +303,9 @@ try {
     ok_refresh($status === 1, 'unresolved rebase creates no requested ref');
     ok_refresh(run_refresh(['git', 'rev-parse', 'HEAD'], $repo) === $feature && run_refresh(['git', 'branch', '--show-current'], $repo) === 'feature', 'failed rebase preserves source branch usability');
     $runs = glob($repo . '/.git/duo-refresh/runs/*/run.json') ?: [];
-    ok_refresh(count($runs) === 1, 'failed candidate has a durable recovery run journal');
-    $runId = basename(dirname($runs[0]));
+    $newUnresolvedRuns = array_values(array_diff($runs, $runsBeforeUnresolved));
+    ok_refresh(count($newUnresolvedRuns) === 1, 'failed candidate has a durable recovery run journal');
+    $runId = basename(dirname($newUnresolvedRuns[0]));
     Refresh::abort($runId);
     ok_refresh(!is_dir($repo . '/.git/duo-refresh/worktrees/' . $runId), 'abort removes only journal-owned candidate worktree');
 

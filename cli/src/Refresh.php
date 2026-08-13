@@ -87,11 +87,6 @@ final class Refresh {
         bool $interactive = false,
         bool $legacyStrategyExplicit = false
     ): array {
-        if ($scopeContract !== null) {
-            // rebase has planner setup before its shared prepare() path, so
-            // enforce the same public programmatic boundary here too.
-            \Duo\ScopeContract::assert_mutation_supported($scopeContract, 'scoped refresh rebase');
-        }
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan', 'materialize', 'validateMaterialization']);
         $resolution = self::normalizeResolution($resolution);
         if (($fieldResolutionPath !== null || $interactive)
@@ -309,13 +304,6 @@ final class Refresh {
         ?array $scopeContract = null,
         bool $includeFieldDiff = false
     ): array {
-        if ($scopeContract !== null) {
-            // Refresh::refresh()/rebase() are public programmatic host
-            // boundaries too.  Refuse here, before the first driver
-            // preflight, so callers cannot bypass RefreshCommand and use a
-            // self-hashed option-root contract to contact a target.
-            \Duo\ScopeContract::assert_mutation_supported($scopeContract, 'scoped refresh');
-        }
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan']);
         $root = self::repositoryRoot();
         $branch = self::assertCleanAttachedBranch($root);
@@ -462,7 +450,7 @@ final class Refresh {
                 || preg_match('/^[a-f0-9]{64}$/D', $request['scope_hash']) !== 1) {
                 throw new \RuntimeException('refresh scope contract is malformed');
             }
-            $wpArgs[] = '--scope-request-b64=' . base64_encode(self::encode($request));
+            $wpArgs[] = '--scope-request-b64=' . base64_encode(\Duo\Canon::encode($request));
         }
         $result = $transport->captureWp(CodeDeploy::controlArgs($wpArgs));
         if (($result['exit'] ?? 1) !== 0) {
@@ -483,8 +471,8 @@ final class Refresh {
                 || ($scope['format'] ?? null) !== 'duo-refresh-scope/v1'
                 || ($scope['out_of_scope'] ?? null) !== 'omitted_not_absent'
                 || !hash_equals((string) $scopeContract['scope_hash'], (string) ($scope['scope_hash'] ?? ''))
-                || self::encode($scope['selectors'] ?? null) !== self::encode($scopeContract['selectors'] ?? null)
-                || self::encode($scope['source'] ?? null) !== self::encode($scopeContract['source'] ?? null)) {
+                || \Duo\Canon::encode($scope['selectors'] ?? null) !== \Duo\Canon::encode($scopeContract['selectors'] ?? null)
+                || \Duo\Canon::encode($scope['source'] ?? null) !== \Duo\Canon::encode($scopeContract['source'] ?? null)) {
                 throw new \RuntimeException('production scoped refresh export does not match its immutable contract');
             }
         } elseif (array_key_exists('scope', $production)) {

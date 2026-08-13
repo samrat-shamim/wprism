@@ -326,6 +326,56 @@ expect_throw(
     'does not support per-option scoped mutation',
     'agent scoped plan/apply refuses the valid option-root contract before target observation or projection'
 );
+$optionTargetRows = [];
+foreach ($compiled->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ($identity === 'options/core') {
+        $records = OptionState::records(Canon::decode($content));
+        $records['blogname'] = OptionState::present('Production title', 'yes');
+        $content = Canon::encode(OptionState::document($records));
+    }
+    $optionTargetRows[] = [
+        'uuid' => (string) $identity,
+        'type' => (string) $row['type'],
+        'path' => (string) $row['path'],
+        'content' => $content,
+    ];
+}
+$optionTargetView = ScopedStateOverlay::stage_state_view($optionTargetRows);
+try {
+    $optionTarget = RepositoryCompiler::compile_staged($optionTargetView, $repo, $policy);
+    ScopeContract::assert_candidate_bounded($optionContract, $optionTarget, $policy);
+    check(true, 'option-root candidate validation permits a changed selected record without granting its carrier document wholesale authority');
+} finally {
+    ScopedStateOverlay::discard_state_view($optionTargetView);
+}
+$pageOptionContract = ScopeContract::resolve($compiled, $policy, ['option:page_on_front']);
+$escapedOptionRows = [];
+foreach ($compiled->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ($identity === 'options/core') {
+        $records = OptionState::records(Canon::decode($content));
+        $records['page_on_front'] = OptionState::present('{{post:' . $ids['otherAttachment'] . '}}', 'yes');
+        $content = Canon::encode(OptionState::document($records));
+    }
+    $escapedOptionRows[] = [
+        'uuid' => (string) $identity,
+        'type' => (string) $row['type'],
+        'path' => (string) $row['path'],
+        'content' => $content,
+    ];
+}
+$escapedOptionView = ScopedStateOverlay::stage_state_view($escapedOptionRows);
+try {
+    $escapedOption = RepositoryCompiler::compile_staged($escapedOptionView, $repo, $policy);
+    expect_throw(
+        static fn() => ScopeContract::assert_candidate_bounded($pageOptionContract, $escapedOption, $policy),
+        'dependency closure escaped',
+        'option-root candidate validation re-walks selected references and refuses an excluded dependency'
+    );
+} finally {
+    ScopedStateOverlay::discard_state_view($escapedOptionView);
+}
 $malformedOptionRoot = $optionContract;
 $malformedOptionRoot['live']['roots'][0]['option'] = 'blogdescription';
 $malformedOptionRootWithoutHash = $malformedOptionRoot;
@@ -961,16 +1011,12 @@ check(Canon::read_file("$refreshTree/media/$orphanHash.txt") === $orphanBytes,
 check(!is_file("$refreshTree/media/$refreshLiteralName"),
     'scoped refresh does not materialize a media blob named only as literal selected-post text');
 
-// options/core is a whole SURFACE under a v1 scope's authority (no other
-// manifest/adapter may reach into it), but the internal merge is per-option
-// three-way planning -- the same expand()/plan() machinery legacy refresh
-// already used (DUO-3344 slice 8). Two option names that each
-// independently changed on only one side must resolve without a manual
-// decision; only a genuine same-name conflict needs one, and
-// materializeScoped() recombines the selected per-option records into one
-// options/core document rather than refusing or treating a record-level
-// option omission as entity absence.
-$optionsContract = ScopeContract::resolve($compiled, $policy, ['options']);
+// A selected option is still carried as one record inside options/core.json,
+// but scoped refresh must not silently widen that source fact to every sibling
+// record. Production exports only the selected record; the plan marks every
+// sibling omitted, and materialization overlays that one record onto W's exact
+// whole document.
+$optionsContract = $optionContract;
 $optionsBase = $snapshotOf($compiled);
 $optionsBranch = $optionsBase;
 $optionsProduction = $optionsBase;
@@ -980,11 +1026,9 @@ $branchOptionsContent = options([
     'page_on_front' => OptionState::present('{{post:' . $ids['page'] . '}}', 'yes'),
     'show_on_front' => OptionState::present('branch-genuine-conflict', 'yes'),
 ]);
-$productionOptionsContent = options([
+$productionOptionsContent = Canon::encode(OptionState::document([
     'blogname' => OptionState::present('production-only title', 'yes'),
-    'page_on_front' => OptionState::present('{{post:' . $ids['page'] . '}}', 'yes'),
-    'show_on_front' => OptionState::present('production-genuine-conflict', 'yes'),
-]);
+]));
 foreach ([
     [&$optionsBranch, $branchOptionsContent],
     [&$optionsProduction, $productionOptionsContent],
@@ -995,11 +1039,9 @@ foreach ([
 unset($snapshot);
 $optionsProduction['format'] = 'duo-refresh-production/v1';
 $optionsSelectedSet = array_fill_keys(ScopedStateOverlay::selected_identities($optionsContract), true);
-$optionsProduction['records'] = array_filter(
-    $optionsProduction['records'],
-    static fn(string $identity): bool => isset($optionsSelectedSet[$identity]),
-    ARRAY_FILTER_USE_KEY
-);
+$optionsProduction['records'] = [
+    'options/core' => $optionsProduction['records']['options/core'],
+];
 $optionsProduction['deletions'] = array_filter(
     $optionsProduction['deletions'],
     static fn(string $identity): bool => isset($optionsSelectedSet[$identity]),
@@ -1029,19 +1071,14 @@ check(!isset($optionsById['options/core'])
     'scoped options plan decomposes into per-option identities, never a bare whole-file options/core entry');
 check(($optionsById['option:blogname']['category'] ?? null) === 'production-only'
     && ($optionsById['option:blogdescription']['category'] ?? null) === 'branch-only'
-    && ($optionsById['option:page_on_front']['category'] ?? null) === 'unchanged'
-    && ($optionsById['option:active_plugins']['category'] ?? null) === 'unchanged'
-    && ($optionsById['option:show_on_front']['category'] ?? null) === 'conflicting',
-    'unrelated production-only and branch-only option changes resolve independently; only the genuinely contested show_on_front name conflicts');
-check($optionsPlan['unresolved'] === ['option:show_on_front'],
-    'the only unresolved scoped option conflict is the one genuinely contested name, not the whole options surface');
+    && ($optionsById['option:page_on_front']['in_scope'] ?? null) === false
+    && ($optionsById['option:active_plugins']['in_scope'] ?? null) === false
+    && ($optionsById['option:show_on_front']['in_scope'] ?? null) === false,
+    'one option-root makes only that record mutable while sibling option identities remain omitted production state');
+check($optionsPlan['unresolved'] === [],
+    'an excluded sibling conflict cannot force a resolution decision for the selected option root');
 
-$optionsResolved = RefreshPlan::plan(
-    $optionsBase,
-    $optionsProduction,
-    $optionsBranch,
-    $optionsContext + ['resolution' => ['strategy' => 'manual', 'records' => ['option:show_on_front' => 'theirs']]]
-);
+$optionsResolved = $optionsPlan;
 $optionsTree = "$tmp/scoped-options-worktree";
 mkdir($optionsTree, 0700, true);
 put("$optionsTree/.git", "gitdir: disposable\n");
@@ -1050,17 +1087,15 @@ RefreshPlan::materialize($optionsResolved, $optionsTree);
 $mergedOptions = OptionState::records(Canon::decode(Canon::read_file("$optionsTree/state/options/core.json")));
 check(($mergedOptions['blogname']['value'] ?? null) === 'production-only title'
     && ($mergedOptions['blogdescription']['value'] ?? null) === 'branch-only description'
-    && ($mergedOptions['show_on_front']['value'] ?? null) === 'production-genuine-conflict'
+    && ($mergedOptions['show_on_front']['value'] ?? null) === 'branch-genuine-conflict'
     && ($mergedOptions['page_on_front']['value'] ?? null) === '{{post:' . $ids['page'] . '}}'
     && ($mergedOptions['active_plugins']['state'] ?? null) === 'absent',
-    'scoped refresh recombines independently-resolved per-option choices into one document: a branch-only addition is no longer silently dropped by a whole-file resolution, an explicit conflict resolution applies to only its own name, and an untouched name stays exactly as the baseline had it');
+    'option-root refresh overlays only its production record and preserves branch bytes for every excluded sibling option');
 
 $removedOptionProduction = $optionsProduction;
-$removedOptionContent = options([
+$removedOptionContent = Canon::encode(OptionState::document([
     'blogname' => OptionState::absent(),
-    'page_on_front' => OptionState::present('{{post:' . $ids['page'] . '}}', 'yes'),
-    'show_on_front' => OptionState::present('page', 'yes'),
-]);
+]));
 $removedOptionProduction['records']['options/core']['content'] = $removedOptionContent;
 $removedOptionProduction['records']['options/core']['hash'] = hash('sha256', $removedOptionContent);
 $removedBasis = $removedOptionProduction;
@@ -1106,11 +1141,9 @@ $noOptionsProduction['records']['options/core'] = [
     'hash' => hash('sha256', $newOptionContent), 'content' => $newOptionContent,
 ];
 $noOptionsProduction['format'] = 'duo-refresh-production/v1';
-$noOptionsProduction['records'] = array_filter(
-    $noOptionsProduction['records'],
-    static fn(string $identity): bool => isset($optionsSelectedSet[$identity]),
-    ARRAY_FILTER_USE_KEY
-);
+$noOptionsProduction['records'] = [
+    'options/core' => $noOptionsProduction['records']['options/core'],
+];
 $noOptionsProduction['deletions'] = array_filter(
     $noOptionsProduction['deletions'],
     static fn(string $identity): bool => isset($optionsSelectedSet[$identity]),
@@ -1133,8 +1166,8 @@ put("$noOptionsTree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
 RefreshPlan::materialize($noOptionsPlan, $noOptionsTree);
 $noBaselineOptions = OptionState::records(Canon::decode(Canon::read_file("$noOptionsTree/state/options/core.json")));
 check(($noBaselineOptions['blogname']['value'] ?? null) === 'brand-new-title'
-    && ($noBaselineOptions['show_on_front']['state'] ?? null) === 'absent',
-    'scoped refresh synthesizes a fresh options/core document when the checkout baseline never captured one at all');
+    && !array_key_exists('show_on_front', $noBaselineOptions),
+    'option-root refresh synthesizes a fresh options/core document containing only its selected record when no baseline exists');
 
 // Selected source bytes and immutable policy/action/effect bytes each flow
 // into a new compiled binding and contract scope hash.
