@@ -12,6 +12,9 @@ require_once __DIR__ . '/CompiledArtifact.php';
 // repository tree builder. Keep the long-lived RepositoryCompiler methods as
 // compatibility facades while the extracted collaborator owns byte projection.
 require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+// DUO-3348 slice 35: persisted-artifact validation is independent of the
+// compiler builder. Keep read_artifact() below as the compatibility facade.
+require_once __DIR__ . '/CompiledArtifactReader.php';
 // DUO-3348 slice 31: repository-owned attachment/blob validation and full
 // media cataloguing are independent of tree parsing and Policy. Required
 // directly so existing RepositoryCompiler consumers keep one closed load graph.
@@ -169,69 +172,7 @@ final class RepositoryCompiler {
     }
 
     public static function read_artifact(string $path, Policy $policy): CompiledRepository {
-        try {
-            $artifact = CompiledRepository::from_array(Canon::decode(Canon::read_file($path)));
-        } catch (\Throwable $t) {
-            throw self::artifact_exception('compiled_artifact_invalid', $path, $t->getMessage());
-        }
-        if (!hash_equals(self::site_hash($policy), $artifact->site_hash())) {
-            throw self::artifact_exception(
-                'compiled_artifact_policy_mismatch', $path,
-                'compiled site policy does not match the active site.duo.json'
-            );
-        }
-        if (!hash_equals(self::manifest_hash($policy), $artifact->manifest_hash())) {
-            throw self::artifact_exception(
-                'compiled_artifact_manifest_mismatch', $path,
-                'compiled manifest/interpreter set does not match active pins'
-            );
-        }
-        if (!hash_equals(
-            Canon::encode($artifact->effects_inventory()),
-            Canon::encode($policy->effects_inventory())
-        )) {
-            throw self::artifact_exception(
-                'compiled_artifact_invalid', $path,
-                'compiled effect inventory does not match the active manifest contracts'
-            );
-        }
-        $policyHasCode = $policy->code_config() !== null;
-        $artifactHasCode = $artifact->code_descriptor() !== null;
-        if ($policyHasCode !== $artifactHasCode) {
-            throw self::artifact_exception(
-                'compiled_artifact_code_mismatch', $path,
-                $policyHasCode
-                    ? 'active site policy enables code materialization but this artifact has no code descriptor'
-                    : 'active site policy is legacy/state-only but this artifact unexpectedly contains a code descriptor'
-            );
-        }
-        if ($artifactHasCode) {
-            if (!class_exists(CodeStateContract::class)) {
-                throw self::artifact_exception(
-                    'compiled_artifact_code_state_contract_unavailable', $path,
-                    'code/state bridge support is not loaded'
-                );
-            }
-            try {
-                CodeStateContract::validate($artifact, (array) $artifact->code_descriptor());
-            } catch (\Throwable $t) {
-                throw self::artifact_exception(
-                    'compiled_artifact_code_state_mismatch', $path, $t->getMessage()
-                );
-            }
-        }
-        // Artifact consumers need the identical repository-derived schema
-        // facts compilation used; never let a loaded artifact make ACF (or
-        // a future interpreter) fall back to target-only rows during apply.
-        $policy->prime_interpreters_from_repository($artifact->tree());
-        return $artifact;
-    }
-
-    private static function artifact_exception(string $code, string $path, string $message): RepositoryCompilationException {
-        return new RepositoryCompilationException([[
-            'severity' => 'blocking', 'code' => $code, 'path' => $path,
-            'locator' => '', 'message' => $message,
-        ]]);
+        return CompiledArtifactReader::read_artifact($path, $policy);
     }
 
     public static function site_hash(Policy $policy): string {
