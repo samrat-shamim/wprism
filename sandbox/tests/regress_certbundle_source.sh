@@ -28,6 +28,12 @@ pass "the source boundary is source-only"
 
 FIXTURE="$SCRATCH/checkout"
 mkdir -p "$FIXTURE/agent" "$FIXTURE/manifests" "$FIXTURE/sandbox"
+# The source boundary deliberately compares its persisted mount registry to
+# `pwd -P`'s canonical checkout root.  macOS exposes /var through /private,
+# so make the valid fixture use that same physical spelling; the later stale
+# fixture remains a genuinely different mount source rather than a lexical
+# alias of this checkout.
+FIXTURE="$(cd "$FIXTURE" && pwd -P)"
 git -C "$FIXTURE" init -q
 git -C "$FIXTURE" config user.name certbundle-source-test
 git -C "$FIXTURE" config user.email certbundle-source-test@example.invalid
