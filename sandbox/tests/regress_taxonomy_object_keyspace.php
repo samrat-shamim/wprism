@@ -61,6 +61,7 @@ require_once $root . '/agent/src/Capture.php';
 require_once $root . '/agent/src/Lint.php';
 require_once $root . '/agent/src/SidebarState.php';
 require_once $root . '/agent/src/RepositoryCompiler.php';
+require_once $root . '/agent/src/RepositorySchemaValidator.php';
 require_once $root . '/agent/src/Apply.php';
 
 use Duo\Apply;
@@ -69,6 +70,8 @@ use Duo\Capture;
 use Duo\Lint;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
+use Duo\RepositorySchemaValidator;
+use Duo\SidebarState;
 use Duo\Tokens;
 
 $tmp = sys_get_temp_dir() . '/duo_regress_taxonomy_object_keyspace_' . bin2hex(random_bytes(6));
@@ -427,26 +430,24 @@ tok_check(!$koScreenClean("duo: taxonomy '/home/deploy/site' matches ambiguous o
 tok_check(!$koScreenClean("duo: taxonomy 'x' owner exposed sk_live_0123456789abcdef in its declaration"),
     'DUO-3403 self-test: a credential-shaped keyspace message would be caught by this pin');
 
-$compilerReflection = new ReflectionClass(RepositoryCompiler::class);
-$compiler = $compilerReflection->newInstanceWithoutConstructor();
-$compilerPolicy = $compilerReflection->getProperty('policy');
-$compilerPolicy->setAccessible(true);
-$compilerPolicy->setValue($compiler, $policy);
-$validateSchema = $compilerReflection->getMethod('validate_schema');
-$validateSchema->setAccessible(true);
-$validateSchema->invoke($compiler, 'post', 'posts/fixture.md', [
+$schemaDiagnostics = [];
+$schemaValidator = new RepositorySchemaValidator(
+    $policy,
+    SidebarState::ENTITY_TYPE,
+    static function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null) use (&$schemaDiagnostics): void {
+        $schemaDiagnostics[] = compact('code', 'path', 'locator', 'message', 'relatedPath');
+    }
+);
+$schemaValidator->validate('post', 'posts/fixture.md', [
     'meta' => [], 'terms' => ['duo_keyspace_term_links' => []],
 ], '');
-$diagnostics = $compilerReflection->getProperty('diagnostics');
-$diagnostics->setAccessible(true);
-tok_check(tok_has_code($diagnostics->getValue($compiler), 'taxonomy_object_keyspace_mismatch'), 'RepositoryCompiler blocks a term-keyspace taxonomy in a post file');
+tok_check(tok_has_code($schemaDiagnostics, 'taxonomy_object_keyspace_mismatch'), 'RepositorySchemaValidator blocks a term-keyspace taxonomy in a post file');
 
-$termCompiler = $compilerReflection->newInstanceWithoutConstructor();
-$compilerPolicy->setValue($termCompiler, $policy);
-$validateSchema->invoke($termCompiler, 'term', 'terms/fixture.json', [
+$schemaDiagnostics = [];
+$schemaValidator->validate('term', 'terms/fixture.json', [
     'meta' => [], 'relationships' => ['duo_keyspace_post_links' => []],
 ], null);
-tok_check(tok_has_code($diagnostics->getValue($termCompiler), 'taxonomy_object_keyspace_mismatch'), 'RepositoryCompiler blocks a post-keyspace taxonomy in a term file');
+tok_check(tok_has_code($schemaDiagnostics, 'taxonomy_object_keyspace_mismatch'), 'RepositorySchemaValidator blocks a post-keyspace taxonomy in a term file');
 
 echo "\n== Apply defends the same boundary before database access ==\n";
 // DUO-3347 slice 8: reconcile_relationships() moved from Apply onto
