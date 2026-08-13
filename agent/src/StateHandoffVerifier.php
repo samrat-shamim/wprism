@@ -14,12 +14,14 @@ namespace Duo;
  *
  * All three methods here are read-only: no activate_plugin()/
  * deactivate_plugins()/switch_theme() call, no promotion-lock/canary call,
- * no WordPress hook fire. That machinery stays entirely in Deploy::run()
- * itself (the still-unextracted "LifecycleExecutor" half of a different
- * target seam), which calls into this collaborator at specific points in
- * its own required sequence -- before the mutations (captures the "before"
- * snapshot) and after (captures "after" and runs the comparison) -- rather
- * than this collaborator owning any part of that sequencing itself.
+ * no WordPress hook fire. That machinery lives in LifecycleExecutor::execute()
+ * (DUO-3350 slice 8, the "LifecycleExecutor" half of a different target
+ * seam, extracted from Deploy::run()), which Deploy::run() calls into at
+ * specific points in its own required sequence -- before the mutations
+ * (captures the "before" snapshot, via this collaborator) and after
+ * (captures "after" and runs the comparison, also via this collaborator)
+ * -- rather than this collaborator owning any part of that sequencing
+ * itself.
  *
  * Deploy keeps thin private facades over all three entry points, matching
  * every prior slice in this issue -- including for options_snapshot()/

@@ -1048,6 +1048,31 @@ regress-lifecycle-planner:
 regress-state-handoff-verifier:
 	php sandbox/tests/regress_state_handoff_verifier.php
 
+# DUO-3350 slice 8: the WP-mutation body of Deploy::run() -- deactivate,
+# dependency-ordered activate, active_plugins order correction, and
+# switch_theme() -- moved into a new LifecycleExecutor.php, the execution
+# half of the "LifecyclePlanner / LifecycleExecutor" target seam slice 6's
+# LifecyclePlanner.php already named as its still-unextracted counterpart.
+# run() itself keeps the PromotionLock/Canary sequencing around the call and
+# the catch-block failure augmentation -- both its own orchestration, not
+# lifecycle mutation -- and now makes one delegating call instead of
+# inlining the ~80-line block. The plugin dependency-ordering cluster
+# deliberately stays on Deploy (a stateless, WordPress-header-reading
+# concern, not lifecycle mutation): dependency_ordered_activations()/
+# dependency_ordered_deactivations() widen from private to public so
+# LifecycleExecutor, their only production caller now, can reach them
+# directly; their own private helpers (plugin_dependency_requirements()/
+# plugin_dependency_slug()/order_deactivations()/order_activations()) stay
+# untouched, exactly as regress_deploy_planner.php's own source-text
+# assertions and regress_plugin_dependency_order.php's ReflectionMethod
+# calls against Deploy::class both require. Deliberately a wiring/shape
+# proof only -- full behavioral coverage already exists across the 14
+# end-to-end suites this class's mutation logic feeds (regress_promotion_
+# lock.sh, spike_g_code.sh, regress_code_drift.sh, certify_version_matrix.sh,
+# the grind_r*.sh scripts, etc.), unchanged by this extraction.
+regress-lifecycle-executor:
+	php sandbox/tests/regress_lifecycle_executor.php
+
 # DUO-3345 (structured-refusal slice): the real agent command handlers emit
 # one versioned, actionable, credential-redacted JSON refusal for every
 # primary compile/capture/plan/apply/deploy failure while human mode and the
@@ -1621,10 +1646,10 @@ regress-offline-all: code-half-unit \
 	regress-woocommerce-product-lookups-fake regress-woocommerce-deletion-authority \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-budget-lock regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
-	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
+	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar
-	@echo "regress-offline-all: 183 offline suites green"
+	@echo "regress-offline-all: 184 offline suites green"
 
 # DUO-3285: NOT auto-bundled (docker/pair.sh budget -- this project runs many
 # agents concurrently against a shared docker host, see sandbox/bin/pair.sh's
