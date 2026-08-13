@@ -172,8 +172,10 @@ reads a static PHP file — it never touches the database — so it reports
 exactly that gap. `pair.sh` delegates its bounded readiness observations to
 `sandbox/lib/pair_readiness.sh`; WordPress installation, theme activation,
 permalink/.htaccess setup, and reset-to-bootstrap state live in
-`sandbox/lib/pair_bootstrap.sh`. It waits on two different things instead,
-both real: the shared server's own healthcheck (`healthcheck.sh --connect
+`sandbox/lib/pair_bootstrap.sh`; exact pair-owned site-repository preparation,
+uid-33 handback, inode-safe clearing, and codebind reset refusal live in
+`sandbox/lib/pair_siterepo.sh`. It waits on two different things instead, both
+real: the shared server's own healthcheck (`healthcheck.sh --connect
 --innodb_initialized`, polled via `docker inspect`, since `depends_on` can't
 cross the compose-project boundary to the shared db), and then, per side,
 `wp db query "SELECT 1"` run through that side's own `cli` container. The

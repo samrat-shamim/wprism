@@ -12,7 +12,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-pair-bootstrap.XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
 # DUO-3438: resolve to the physical path once, up front, the same way
-# DUO-3420's repo_host_one() resolves its own bind-mount source
+# DUO-3420's pair_siterepo_host_one() resolves its own bind-mount source
 # (`cd "$(dirname "$root")" && pwd -P`) -- two independent mismatches this
 # collapses into one no-op comparison: macOS's $TMPDIR sits under
 # /var/folders, and /var -> /private/var is an OS-provided symlink (the same
@@ -412,6 +412,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
   cp "$ROOT/sandbox/lib/pair_bootstrap.sh" "$bin_dir/../lib/pair_bootstrap.sh"
+  cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"
 }
 
 run_case() {
@@ -1763,7 +1764,7 @@ run_reset_marks_needs_install_case() {
   # The marker belongs beside pair.sh's other dot-file state, never inside a
   # site-repo root: those are bind-mounted into the containers as /siterepo and
   # are the repository the agent captures and commits, and reset's own
-  # clear_siterepo_root() empties them. Both roots must be completely empty
+  # pair_siterepo_clear_root() empties them. Both roots must be completely empty
   # after reset — which proves the clearing contract and the location at once.
   stray="$(find "$CASE_ROOT/sandbox/siterepo/${pair}1" "$CASE_ROOT/sandbox/siterepo/${pair}2" -mindepth 1)"
   [ -z "$stray" ] || fail "$label left content inside a site-repo root after reset: $stray"
@@ -1936,6 +1937,7 @@ run_destroy_clears_marker_case() {
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_db.sh" \
   "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" \
+  "$ROOT/sandbox/lib/pair_siterepo.sh" \
   "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_readiness.sh"' \
   'pair launcher no longer loads its readiness library'
@@ -1959,6 +1961,17 @@ assert_file_contains "$ROOT/sandbox/lib/pair_bootstrap.sh" 'pair_bootstrap_mark_
 if grep -qE '^(write_htaccess|install_and_activate_theme|install_side|needs_install_marker|mark_sides_need_install|clear_needs_install_markers)\(\)' "$ROOT/sandbox/bin/pair.sh"; then
   fail 'pair launcher still owns WordPress bootstrap helpers instead of delegating to pair_bootstrap.sh'
 fi
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_siterepo.sh"' \
+  'pair launcher no longer loads its exact site-repository library'
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'pair_siterepo_host()' \
+  'pair-siterepo library no longer owns exact uid-33 handback'
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'pair_siterepo_clear_root()' \
+  'pair-siterepo library no longer owns inode-preserving root clearing'
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'pair_siterepo_refuse_codebind_reset()' \
+  'pair-siterepo library no longer owns the nested-codebind reset refusal'
+if grep -qE '^(prepare_siterepo_roots|repo_host(_stat_owner|_stat_inode|_revalidate_root|_one)?|clear_siterepo_root|refuse_codebind_reset)\(\)' "$ROOT/sandbox/bin/pair.sh"; then
+  fail 'pair launcher still owns site-repository cleanup helpers instead of delegating to pair_siterepo.sh'
+fi
 command -v stat >/dev/null 2>&1 || fail "stat is required for inode-preservation regression"
 grep -Fq 'GIT_CONFIG_KEY_0: safe.directory' "$ROOT/sandbox/pair.yml" \
   || fail "pair CLI services do not declare the exact Git trust key"
@@ -1966,23 +1979,23 @@ grep -Fq 'GIT_CONFIG_VALUE_0: /siterepo' "$ROOT/sandbox/pair.yml" \
   || fail "pair CLI services do not scope Git trust to exact /siterepo"
 ! grep -Fq 'safe.directory=*' "$ROOT/sandbox/pair.yml" \
   || fail "pair Git trust widened to a wildcard"
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"; then' \
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'if ! chgrp -h "$host_gid" "$root_abs"; then' \
   'pair handback does not narrowly normalize the exact physical root after Docker'
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if [ -L "$root" ] || [ ! -d "$root" ]; then' \
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'if [ -L "$root" ] || [ ! -d "$root" ]; then' \
   'pair handback does not revalidate the root as an ordinary directory after Docker returns'
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'if [ -L "$root_abs" ] || [ ! -d "$root_abs" ]; then' \
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'if [ -L "$root_abs" ] || [ ! -d "$root_abs" ]; then' \
   'pair handback does not check the resolved physical root before Docker owns it'
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'repo_host_revalidate_root "$root_abs" "$root_inode_before"' \
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'pair_siterepo_revalidate_root "$root_abs" "$root_inode_before"' \
   'pair handback does not revalidate the physical root shape and inode after Docker returns'
-assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'owner_uid="${owner%%:*}"' \
+assert_file_contains "$ROOT/sandbox/lib/pair_siterepo.sh" 'owner_uid="${owner%%:*}"' \
   'pair handback does not isolate and check the returned root uid before chgrp'
-assert_before "$ROOT/sandbox/bin/pair.sh" 'owner_uid="${owner%%:*}"' 'if ! chgrp -h "$host_gid" "$root_abs"; then'
-assert_before "$ROOT/sandbox/bin/pair.sh" 'if ! chgrp -h "$host_gid" "$root_abs"; then' '[ "$owner" = "${host_uid}:${host_gid}" ]'
-! grep -Fq 'owner-probe' "$ROOT/sandbox/bin/pair.sh" \
+assert_before "$ROOT/sandbox/lib/pair_siterepo.sh" 'owner_uid="${owner%%:*}"' 'if ! chgrp -h "$host_gid" "$root_abs"; then'
+assert_before "$ROOT/sandbox/lib/pair_siterepo.sh" 'if ! chgrp -h "$host_gid" "$root_abs"; then' '[ "$owner" = "${host_uid}:${host_gid}" ]'
+! grep -Fq 'owner-probe' "$ROOT/sandbox/lib/pair_siterepo.sh" \
   || fail "pair handback retained a sibling capability probe"
-! grep -Fq 'chgrp -R' "$ROOT/sandbox/bin/pair.sh" \
+! grep -Fq 'chgrp -R' "$ROOT/sandbox/lib/pair_siterepo.sh" \
   || fail "pair handback widened exact-root group normalization recursively"
-pass "pair launcher, readiness/bootstrap libraries, and offline regression parse cleanly"
+pass "pair launcher, readiness/bootstrap/site-repository libraries, and offline regression parse cleanly"
 
 say "default pair.sh bootstrap (fake compose; no Docker/DB)"
 run_case default pairunit "" canonical
