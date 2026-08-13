@@ -124,6 +124,73 @@ $check(
     'deletion comparison: target drift refuses the tombstone'
 );
 
+// --------------------------------------------------------- observed comparison
+
+$comparisonRow = ['uuid' => 'observed-1', 'type' => 'post', 'path' => 'posts/observed-1.md'];
+$unchangedComparison = ApplyPlanner::classify_observed(
+    $comparisonRow,
+    'repo-hash',
+    ['hash' => 'repo-hash'],
+    'base-hash',
+    'target-hash'
+);
+$check(
+    $unchangedComparison === ['bucket' => 'unchanged', 'row' => $comparisonRow],
+    'observed comparison: matching repository and target hashes are unchanged'
+);
+$firstSyncComparison = ApplyPlanner::classify_observed(
+    $comparisonRow,
+    'repo-hash',
+    ['hash' => 'target-hash'],
+    null,
+    'target-hash'
+);
+$check(
+    $firstSyncComparison === [
+        'bucket' => 'update',
+        'row' => $comparisonRow + ['first_sync' => true],
+    ],
+    'observed comparison: a target without a base is a first-sync update'
+);
+$lifecycleUpdateComparison = ApplyPlanner::classify_observed(
+    $comparisonRow,
+    'repo-hash',
+    ['hash' => 'target-hash'],
+    'base-hash',
+    'base-hash'
+);
+$check(
+    $lifecycleUpdateComparison === [
+        'bucket' => 'update',
+        'row' => $comparisonRow + ['first_sync' => false],
+    ],
+    'observed comparison: lifecycle-adjusted target matching the base is an update'
+);
+$driftComparison = ApplyPlanner::classify_observed(
+    $comparisonRow,
+    'base-hash',
+    ['hash' => 'target-hash'],
+    'base-hash',
+    'target-hash'
+);
+$check(
+    $driftComparison === ['bucket' => 'drift', 'row' => $comparisonRow],
+    'observed comparison: repository matching the base while target differs is drift'
+);
+$conflictComparison = ApplyPlanner::classify_observed(
+    $comparisonRow,
+    'repo-hash',
+    ['hash' => 'target-hash'],
+    'base-hash',
+    'target-hash'
+);
+$check(
+    $conflictComparison['bucket'] === 'conflict'
+        && $conflictComparison['row']['conflict_view']['reason_code'] === 'repository_and_target_changed_since_base'
+        && $conflictComparison['row']['conflict_view']['choices'][1]['requires'] === ['--force-theirs'],
+    'observed comparison: repository and target changes become a typed conflict'
+);
+
 // ---------------------------------------------------------- forced_override_evidence
 
 $row = ['uuid' => 'e1', 'conflict_view' => $view];
@@ -754,6 +821,17 @@ $check(
         && !str_contains($deletionSection, 'target_changed_since_delete_base')
         && preg_match('/public static function classify_deletion\(/', $plannerSource) === 1,
     'deletion comparison: Apply delegates tombstone classification while planner owns all three-way branches'
+);
+$comparisonSectionStart = strpos($applySource, "            if (\$envE !== null) {\n                \$comparison =");
+$comparisonSectionEnd = strpos($applySource, '            $coll = $this->apply_planner()->find_collision(', $comparisonSectionStart);
+$comparisonSection = substr($applySource, $comparisonSectionStart, $comparisonSectionEnd - $comparisonSectionStart);
+$check(
+    str_contains($comparisonSection, '$this->apply_planner()->classify_observed(')
+        && !str_contains($comparisonSection, 'repository_and_target_changed_since_base')
+        && !str_contains($comparisonSection, "['first_sync']")
+        && !str_contains($comparisonSection, 'conflict_view(')
+        && preg_match('/public static function classify_observed\(/', $plannerSource) === 1,
+    'observed comparison: Apply delegates four-way hash classification while planner owns its conflict evidence'
 );
 
 if ($failures) {

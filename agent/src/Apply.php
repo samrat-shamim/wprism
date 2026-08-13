@@ -586,27 +586,14 @@ final class Apply {
                 }
             }
             if ($envE !== null) {
-                if ($fileH === $envE['hash']) {
-                    $plan['unchanged'][] = $row;
-                } elseif ($baseH === null || $comparisonEnvH === $baseH) {
-                    $plan['update'][] = $row + ['first_sync' => $baseH === null];
-                } elseif ($fileH === $baseH) {
-                    $plan['drift'][] = $row;
-                } else {
-                    $plan['conflict'][] = $row + [
-                        'conflict_view' => self::conflict_view(
-                            'repository_and_target_changed_since_base',
-                            'update',
-                            'present',
-                            $baseH,
-                            $fileH,
-                            $baseH,
-                            null,
-                            $comparisonEnvH,
-                            ['--force-theirs']
-                        ),
-                    ];
-                }
+                $comparison = $this->apply_planner()->classify_observed(
+                    $row,
+                    (string) $fileH,
+                    $envE,
+                    $baseH,
+                    $comparisonEnvH
+                );
+                $plan[$comparison['bucket']][] = $comparison['row'];
                 continue;
             }
             $coll = $this->apply_planner()->find_collision($e, $tree, $collisionCache);

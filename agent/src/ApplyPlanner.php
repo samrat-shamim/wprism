@@ -21,9 +21,9 @@ require_once __DIR__ . '/Snapshot.php';
  * ordering and natural-key continuity annotation projections used by plan,
  * apply, and scoped recovery also live here because they read only explicit
  * immutable inputs and injected collaborators.
- * The remaining stateful `build_plan()` comparison/guard-ref orchestration
- * stays in `Apply` for later slices, per the issue's "extract one collaborator
- * at a time" guardrail.
+ * The remaining stateful `build_plan()` option/sidebar special cases,
+ * collision/adoption, and guard-ref orchestration stay in `Apply` for later
+ * slices, per the issue's "extract one collaborator at a time" guardrail.
  *
  * `Apply` keeps `conflict_view()`, `forced_override_evidence()`,
  * `incomplete_override_refusal()`, `entity_display_title()`,
@@ -354,6 +354,57 @@ final class ApplyPlanner {
             ];
         }
         return ['bucket' => 'delete', 'row' => $row];
+    }
+
+    /**
+     * Classify one observed entity's immutable repository/base/target hashes.
+     * The caller has already handled entity-specific special cases and has an
+     * observed target, so this projection only selects the existing plan
+     * bucket and preserves first-sync/conflict evidence. Collision/adoption
+     * lookup for a fresh target remains in Apply after this returns.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed> $environment
+     * @param string|null $baseHash
+     * @param string|null $comparisonEnvironmentHash
+     * @return array{bucket:'unchanged'|'update'|'drift'|'conflict',row:array<string,mixed>}
+     */
+    public static function classify_observed(
+        array $row,
+        string $repositoryHash,
+        array $environment,
+        ?string $baseHash,
+        ?string $comparisonEnvironmentHash
+    ): array {
+        $environmentHash = (string) ($environment['hash'] ?? '');
+        if ($repositoryHash === $environmentHash) {
+            return ['bucket' => 'unchanged', 'row' => $row];
+        }
+        if ($baseHash === null || $comparisonEnvironmentHash === $baseHash) {
+            return [
+                'bucket' => 'update',
+                'row' => $row + ['first_sync' => $baseHash === null],
+            ];
+        }
+        if ($repositoryHash === $baseHash) {
+            return ['bucket' => 'drift', 'row' => $row];
+        }
+        return [
+            'bucket' => 'conflict',
+            'row' => $row + [
+                'conflict_view' => self::conflict_view(
+                    'repository_and_target_changed_since_base',
+                    'update',
+                    'present',
+                    $baseHash,
+                    $repositoryHash,
+                    $baseHash,
+                    null,
+                    $comparisonEnvironmentHash,
+                    ['--force-theirs']
+                ),
+            ],
+        ];
     }
 
     /**
