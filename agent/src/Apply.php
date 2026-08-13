@@ -4040,21 +4040,7 @@ final class Apply {
      * insert could then pass the locked read and become a dangling reference.
      */
     private function assert_delete_lock_isolation(): void {
-        global $wpdb;
-        $level = $wpdb->get_var('SELECT @@transaction_isolation');
-        if ($level === null || !empty($wpdb->last_error)) {
-            // MariaDB and older MySQL expose the same session setting under
-            // the historical tx_isolation name; MySQL 8 keeps the modern
-            // transaction_isolation spelling. Probe both without assuming a
-            // particular server family.
-            $wpdb->last_error = '';
-            $level = $wpdb->get_var('SELECT @@tx_isolation');
-        }
-        if ($level === null || !in_array(strtoupper((string) $level), ['REPEATABLE-READ', 'SERIALIZABLE'], true)) {
-            throw new \RuntimeException(
-                'duo: deletion guard locking requires REPEATABLE-READ or SERIALIZABLE transaction isolation; refusing unsafe target'
-            );
-        }
+        DeleteGuardEvaluator::assert_transaction_isolation();
     }
 
     private function recheck_delete_guards(

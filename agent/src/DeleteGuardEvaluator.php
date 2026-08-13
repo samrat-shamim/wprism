@@ -130,6 +130,32 @@ final class DeleteGuardEvaluator {
     }
 
     /**
+     * Prove that the current transaction supplies gap locks for the guard
+     * boundary. Record locks alone leave a concurrent insert able to pass a
+     * checked reference range and become dangling after the target delete.
+     * The server-family fallback is kept here with the storage proof so every
+     * caller receives the same fail-closed isolation contract.
+     */
+    public static function assert_transaction_isolation(): void {
+        global $wpdb;
+
+        $level = $wpdb->get_var('SELECT @@transaction_isolation');
+        if ($level === null || !empty($wpdb->last_error)) {
+            // MariaDB and older MySQL expose the same session setting under
+            // the historical tx_isolation name; MySQL 8 keeps the modern
+            // transaction_isolation spelling. Probe both without assuming a
+            // particular server family.
+            $wpdb->last_error = '';
+            $level = $wpdb->get_var('SELECT @@tx_isolation');
+        }
+        if ($level === null || !in_array(strtoupper((string) $level), ['REPEATABLE-READ', 'SERIALIZABLE'], true)) {
+            throw new \RuntimeException(
+                'duo: deletion guard locking requires REPEATABLE-READ or SERIALIZABLE transaction isolation; refusing unsafe target'
+            );
+        }
+    }
+
+    /**
      * Resolve an index which covers the first equality/range column of a
      * manifest guard. A prefix index is accepted only when the declared
      * metadata key fits entirely inside that prefix; otherwise inserts with
