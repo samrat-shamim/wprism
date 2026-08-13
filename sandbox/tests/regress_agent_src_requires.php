@@ -469,7 +469,7 @@ $knownGapsByFile = [
     'Snapshot' => ['Canon', 'Db', 'IdentityNotes', 'Ledger', 'OptionState', 'Policy', 'Secrets', 'Tokens', 'Uuid'],
     'StateHandoffVerifier' => ['Canon', 'Capture', 'CompiledRepository', 'OptionState', 'Policy'],
     'TermMaterializer' => ['Db', 'Ledger'],
-    'Tokens' => ['Capture', 'JsonRefs', 'Ledger', 'Policy'],
+    'Tokens' => ['Capture', 'Ledger', 'Policy'],
     'UserMetaMaterializer' => ['Db'],
 ];
 $knownGaps = [];
