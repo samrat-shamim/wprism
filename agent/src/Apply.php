@@ -3773,37 +3773,33 @@ final class Apply {
         // tables actually exercised by this delete work; unrelated manifest
         // tables must not make a deletion fail closed.
         $this->assert_delete_guard_engines($deleteWork);
-        foreach ($deleteWork as $row) {
-            $capability = Deletion::capability(
-                $this->policy,
-                (string) $row['deletion_kind'],
-                (string) $row['deletion_type']
-            );
-            foreach ($capability['guards'] ?? [] as $guardIndex => $guard) {
-                $result = $this->count_guard_refs(
+        DeleteGuardEvaluator::assert_revalidated_witnesses(
+            $deleteWork,
+            function (array $row): array {
+                $capability = Deletion::capability(
+                    $this->policy,
+                    (string) $row['deletion_kind'],
+                    (string) $row['deletion_type']
+                );
+                return (array) ($capability['guards'] ?? []);
+            },
+            function (array $guard, string $targetUuid, bool $lock) use (
+                $deleteUuids,
+                $deletions,
+                $tree,
+                $guardRepairUuids
+            ): array {
+                return $this->count_guard_refs(
                     $guard,
-                    (string) $row['uuid'],
+                    $targetUuid,
                     $deleteUuids,
                     $deletions,
                     $tree,
                     $guardRepairUuids,
-                    true
+                    $lock
                 );
-                if ($result['error'] !== null) {
-                    throw new \RuntimeException(
-                        "duo: deletion guard lock refused for {$row['type']} {$row['uuid']}: {$result['error']}"
-                    );
-                }
-                $expected = (string) (($row['guard_witnesses'] ?? [])[(string) $guardIndex] ?? '');
-                $actual = (string) ($result['witness'] ?? '');
-                if ($expected === '' || $actual === '' || !hash_equals($expected, $actual)) {
-                    throw new \RuntimeException(
-                        "duo: deletion guard witness changed after planning for {$row['type']} {$row['uuid']}; "
-                        . 'no mutation attempted — recompile and retry (force flags cannot bypass this race boundary)'
-                    );
-                }
             }
-        }
+        );
     }
 
     /**
