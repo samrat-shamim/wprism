@@ -80,6 +80,11 @@ source lib/certbundle_lock.sh
 # shellcheck source=../lib/certbundle_evidence.sh
 source lib/certbundle_evidence.sh
 
+# DUO-3355: work-root cleanup and owned-pair teardown are source-only
+# lifecycle helpers; this runner retains their orchestration call sites.
+# shellcheck source=../lib/certbundle_cleanup.sh
+source lib/certbundle_cleanup.sh
+
 certbundle_lock_acquire
 validate_artifact_lock conformance/artifacts.lock.json \
   || fail "reference certification requires a closed typed artifact lock"
@@ -99,24 +104,7 @@ export DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
 export CONF_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
 
 WORK_ROOT=$(mktemp -d /tmp/duo-certbundle.XXXXXX)
-cleanup_run() {
-  case "$WORK_ROOT" in
-    # DUO-3382: the removal is allowed to fail without taking the rest of the
-    # trap down with it. Under `set -e` a bare `rm -rf` that hit a busy or
-    # read-only path would abort the trap -- skipping the release below, and
-    # exiting a GREEN bundle 1 over a cleanup failure that changed nothing.
-    /tmp/duo-certbundle.*)
-      rm -rf -- "$WORK_ROOT" \
-        || printf 'WARNING: could not remove the work root %s; remove it by hand\n' "$WORK_ROOT" >&2
-      ;;
-    *) printf 'refusing unsafe work cleanup path: %s\n' "$WORK_ROOT" >&2 ;;
-  esac
-  # The lock is released LAST, and from the same trap that clears the work
-  # root -- the next invocation must never win the lock while this run's work
-  # root is still on disk.
-  certbundle_lock_release
-}
-trap cleanup_run EXIT   # replaces the release-only trap armed by certbundle_lock_acquire
+trap certbundle_cleanup_run EXIT   # replaces the release-only trap armed by certbundle_lock_acquire
 
 ENV_FILE="$WORK_ROOT/environment.json"
 ARTIFACT_USAGE_LOG="$WORK_ROOT/artifact-cache-usage.ndjson"
@@ -131,15 +119,6 @@ CONFORMANCE_MANIFESTS=(
   polylang woocommerce yoast paid-memberships-pro
 )
 TEST_FRAGMENTS=()
-
-destroy_own_pair() {
-  local rc
-  set +e
-  bash bin/pair.sh destroy "$PAIR"
-  rc=$?
-  set -e
-  return "$rc"
-}
 
 say "source/static preflight"
 php -l bin/certification-bundle.php >/dev/null
@@ -232,7 +211,7 @@ echo wp_json_encode([
     fi
 
     tail -30 "$log"
-    if ! destroy_own_pair; then
+    if ! certbundle_destroy_own_pair; then
       overall=1
       printf 'FAIL: own pair %s could not be destroyed after %s\n' "$PAIR" "$manifest" >&2
     elif [ "$rc" -eq 0 ]; then
@@ -271,7 +250,7 @@ if [ "$overall" -eq 0 ]; then
   jq -n --arg status "$([ "$multisite_rc" -eq 0 ] && printf no_mutation || printf unknown)" \
     '{status:$status,checked:["site.duo.json","state","capture-staging","capture-backup","wordpress-option-canary"]}' \
     > "$WORK_ROOT/multisite-refusal.diff.json"
-  destroy_own_pair || overall=1
+  certbundle_destroy_own_pair || overall=1
 else
   certbundle_evidence_write_skipped multisite-refusal multisite "$MULTISITE_LOG" \
     "$WORK_ROOT/multisite-refusal.result.json" "$WORK_ROOT/multisite-refusal.diff.json" \
@@ -306,7 +285,7 @@ if [ "$overall" -eq 0 ]; then
   jq -n --arg status "$([ "$matrix_rc" -eq 0 ] && printf clean || printf unknown)" \
     '{status:$status,diffs:["all-in-range-boundary-recaptures"],negative_controls:"all-below-range-releases-refused"}' \
     > "$WORK_ROOT/exact-artifact-version-matrix.diff.json"
-  destroy_own_pair || overall=1
+  certbundle_destroy_own_pair || overall=1
 else
   certbundle_evidence_write_skipped exact-artifact-version-matrix version-matrix "$MATRIX_LOG" \
     "$WORK_ROOT/exact-artifact-version-matrix.result.json" "$WORK_ROOT/exact-artifact-version-matrix.diff.json" \
@@ -379,7 +358,7 @@ if [ "$INCLUDE_INIT_LEGS" = 1 ]; then
       init_golden_rc=70
       init_golden_reason=invalid_checker_output
     fi
-    if ! destroy_own_pair; then
+    if ! certbundle_destroy_own_pair; then
       init_golden_rc=72
       init_golden_reason=cleanup_failed
     fi
@@ -491,6 +470,7 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   sandbox/lib/certbundle_lock.sh \
   sandbox/lib/certbundle_evidence.sh \
   sandbox/lib/certbundle_source.sh \
+  sandbox/lib/certbundle_cleanup.sh \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
   sandbox/tests/regress_multisite_refusal.sh \
