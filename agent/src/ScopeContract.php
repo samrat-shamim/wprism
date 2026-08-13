@@ -213,13 +213,21 @@ final class ScopeContract {
     }
 
     /**
-     * This is deliberately a per-consumer guard. Capture, refresh, and the
-     * scoped plan/apply protocol own record-aware carrier overlays. Consumers
-     * that still require a whole-document lifecycle/rollback authority (for
-     * example scoped promotion) must reject an option root before contact.
+     * Validate the mutation capabilities of one consumer. Capture, refresh,
+     * scoped plan/apply, and scoped promotion all carry record-aware option
+     * overlays now. Promotion's selection gate limits the writable set to
+     * checkpoint-safe database state, while its rollback profile restores the
+     * encrypted pre-window database under the writer exclusion; it therefore
+     * must not be rejected merely because the contract names option roots.
+     *
+     * Keep the conservative refusal for any future consumer that has not yet
+     * declared a record-aware protocol.
      */
     public static function assert_mutation_supported(array $contract, string $operation): void {
         $contract = self::from_array($contract);
+        if ($operation === 'scoped promote') {
+            return;
+        }
         // `options` subsumes a redundant `option:<name>` selector.  Keep the
         // host-side guard conservative for a compact/self-hashed request (it
         // must inspect selectors before the target can re-associate it), while

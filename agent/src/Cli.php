@@ -2040,7 +2040,8 @@ final class Cli {
      *   accumulating (see `classify`'s docblock for the same quirk). Forms:
      *   post:<uuid>, term:<uuid>, table:<table>:<uuid>, menu:<slug>,
      *   sidebar:<id>, user-meta:<login>, options, option:<name> (one
-     *   authored option; preview-only — see DUO-3344),
+     *   authored option record; record-aware consumers preserve its carrier
+     *   siblings),
      *   path:<state-relative-path>, or `all` for the whole revision — a
      *   full-site operation is this same model with a wider root set, not a
      *   separate code path.

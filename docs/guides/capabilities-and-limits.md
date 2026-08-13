@@ -493,9 +493,12 @@ rather than working around it.
   the checkpoint; after that forward-only seal the host may only finish the
   exact signed commit, target handoff, and exclusion release—there is no later
   scoped rollback.
-  Per-option capture, code dependency movement, scoped code lifecycle, and
+  Per-option capture, refresh, plan/apply, and SSH promotion now preserve the
+  selected virtual option record while keeping carrier siblings out of the
+  write set (DUO-3465). Code dependency movement, scoped code lifecycle, and
   user-invoked or post-seal scoped rollback remain planned rather than
-  inferred.
+  inferred; the shipped promotion profile still restores only before its
+  durable fresh-world seal, while later retries finish forward.
 - Redacted field-level refresh diff and interactive conflict resolver —
   **Bounded slice shipped (DUO-3345)**. `duo refresh --field-diff` emits a
   separate immutable, display-only/value-free `duo-refresh-field-diff/v1`

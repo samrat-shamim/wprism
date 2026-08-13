@@ -512,9 +512,9 @@ try {
 }
 
 // A contract can bind the exact option record as immutable evidence. Capture,
-// refresh, and scoped plan/apply own record-aware carrier overlays; the
-// generic guard remains mandatory for consumers that still require a
-// whole-document lifecycle/rollback authority.
+// refresh, scoped plan/apply, and scoped promotion own record-aware carrier
+// overlays; promotion's checkpoint profile keeps rollback bounded by its
+// exclusive writer window.
 $defaultCategoryContract = ScopeContract::resolve($compiled, $policy, ['option:default_category']);
 $defaultCategoryRoot = $defaultCategoryContract['live']['roots'][0] ?? null;
 check(
@@ -529,10 +529,9 @@ check(
 ScopeContract::assert_associated($defaultCategoryContract, $compiled, $policy);
 try {
     ScopeContract::assert_mutation_supported($defaultCategoryContract, 'scoped promote');
-    check(false, 'the option contract is refused before scoped mutation work');
+    check(true, 'the option contract is accepted before record-aware scoped promotion work');
 } catch (RuntimeException $e) {
-    check(str_contains($e->getMessage(), 'does not support per-option scoped mutation'),
-        'the option contract remains explicitly refused for a whole-document mutation consumer');
+    check(false, 'the option contract is accepted before record-aware scoped promotion work (' . $e->getMessage() . ')');
 }
 check(
     ScopeContract::resolve($compiled, $policy, ['options'])['format'] === ScopeContract::FORMAT,

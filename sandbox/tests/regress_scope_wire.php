@@ -332,11 +332,13 @@ check_wire(
     $optionPromote['exit'] !== 0
         && is_array($optionPromoteEnvelope)
         && ($optionPromoteEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
-        && ($optionPromoteEnvelope['reason_code'] ?? null) === 'scoped_option_mutation_unsupported'
+        && ($optionPromoteEnvelope['reason_code'] ?? null) === 'scoped_promotion_unavailable'
+        && ($optionPromoteEnvelope['remediation'] ?? null)
+            === 'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
         && !is_file($argsPath)
         && !str_contains($optionPromote['stdout'], $optionContractPath)
         && !str_contains($optionPromote['stderr'], $optionContractPath),
-    'promote retains its option-root refusal before target contact with the stable public reason'
+    'promote accepts an option-root contract through host validation before the non-SSH transport refusal'
 );
 
 $evasivePlan = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'promote', [
@@ -346,11 +348,11 @@ $evasiveEnvelope = json_decode(trim($evasivePlan['stdout']), true);
 check_wire(
     $evasivePlan['exit'] !== 0
         && is_array($evasiveEnvelope)
-        && ($evasiveEnvelope['reason_code'] ?? null) === 'scoped_option_mutation_unsupported'
+        && ($evasiveEnvelope['reason_code'] ?? null) === 'scoped_promotion_unavailable'
         && !is_file($argsPath)
         && !str_contains($evasivePlan['stdout'], $evasiveOptionContractPath)
         && !str_contains($evasivePlan['stderr'], $evasiveOptionContractPath),
-    'a self-hashed contract cannot hide an option selector by omitting its root proof to reach scoped promotion'
+    'a self-hashed option-selector contract reaches the same transport boundary without leaking its path'
 );
 
 $refreshSource = (string) file_get_contents("$root/cli/src/Refresh.php");
