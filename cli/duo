@@ -38,6 +38,7 @@ require __DIR__ . '/src/InitCommand.php';
 require __DIR__ . '/src/Doctor.php';
 require __DIR__ . '/src/DoctorCommand.php';
 require __DIR__ . '/src/CodeDeploy.php';
+require __DIR__ . '/src/DeployCommand.php';
 require __DIR__ . '/src/AdoptCommand.php';
 require __DIR__ . '/src/ScopeCommand.php';
 require __DIR__ . '/src/PlanContract.php';
@@ -74,6 +75,7 @@ require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
 use Duo\Orchestrator\InitCommand;
 use Duo\Orchestrator\CodeDeploy;
+use Duo\Orchestrator\DeployCommand;
 use Duo\Orchestrator\ScopeCommand;
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
@@ -1148,28 +1150,6 @@ function print_transport_detail(array $result): void {
     CommandOutput::renderTransportDetail($result);
 }
 
-/** @return list<string> force flags that may also be passed to both lifecycle phases. */
-function deploy_force_flags(array $extra, string $verb): array {
-    $allowed = [];
-    foreach ($extra as $arg) {
-        if (is_orchestrator_internal_flag($arg)) {
-            throw new \RuntimeException(
-                "$verb owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'"
-            );
-        }
-        if ($arg === '--force-code-mismatch' || $arg === '--force-code-drift'
-            || str_starts_with($arg, '--force-code-mismatch=')
-            || str_starts_with($arg, '--force-code-drift=')) {
-            $allowed[] = $arg;
-            continue;
-        }
-        throw new \RuntimeException(
-            "duo $verb: unsupported deploy flag '$arg' (only --force-code-mismatch and --force-code-drift are accepted)"
-        );
-    }
-    return $allowed;
-}
-
 /**
  * Acquire ephemeral target PHP/WordPress evidence for the exact frozen code
  * revision. This is read-only and must complete before promotion-begin; a
@@ -1183,26 +1163,7 @@ function code_runtime_preflight(
     string $artifactHash,
     array $compiledSummary
 ): ?int {
-    $codeRevision = $compiledSummary['code']['code_revision'] ?? null;
-    if (!is_string($codeRevision) || preg_match('/^[0-9a-f]{64}$/', $codeRevision) !== 1) {
-        fwrite(STDERR, "duo: $verb: compiled code descriptor has no valid revision; refusing before promotion-begin\n");
-        return 1;
-    }
-    echo "$verb phase: code-preflight\n";
-    $preflight = CodeDeploy::preflight($t, $repo, $artifact, $artifactHash, $codeRevision);
-    if ($preflight['exit'] !== 0) {
-        $boundary = $verb === 'promote' ? 'promotion-begin/checkpoint' : 'promotion-begin';
-        fwrite(STDERR, "duo: $verb: code runtime preflight failed; refusing before $boundary\n");
-        print_transport_detail($preflight);
-        return $preflight['exit'] !== 0 ? $preflight['exit'] : 1;
-    }
-    if ($preflight['summary'] === null) {
-        $boundary = $verb === 'promote' ? 'promotion-begin/checkpoint' : 'promotion-begin';
-        fwrite(STDERR, "duo: $verb: code runtime preflight returned no valid target evidence; refusing before $boundary\n");
-        print_transport_detail($preflight);
-        return 1;
-    }
-    return null;
+    return DeployCommand::runtimePreflight($t, $verb, $repo, $artifact, $artifactHash, $compiledSummary);
 }
 
 /**
@@ -1212,118 +1173,17 @@ function code_runtime_preflight(
  * checkpoint use `duo promote`.
  */
 function cmd_deploy(EnvironmentDriver $t, array $extra): int {
-    $scopeRefusal = reject_unsupported_scope_contract('deploy', $extra);
-    if ($scopeRefusal !== null) {
-        return $scopeRefusal;
-    }
-    try {
-        $deployExtra = deploy_force_flags($extra, 'deploy');
-    } catch (\Throwable $e) {
-        fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
-        return 1;
-    }
-    if (!rollback_authority_fence($t, 'deploy')) {
-        return 1;
-    }
-
-    $repo = rtrim($t->repoPath(), '/');
-    $runId = orchestrator_run_id();
-    $artifact = "$repo/.duo/artifacts/deploy-$runId.json";
-    $mkdir = $t->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)));
-    if ($mkdir['exit'] !== 0) {
-        fwrite(STDERR, "duo: deploy: could not create target artifact directory\n");
-        print_transport_detail($mkdir);
-        return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
-    }
-
-    echo "deploy phase: compile\n";
-    $compile = CodeDeploy::compile($t, $repo, $artifact);
-    if ($compile['exit'] !== 0) {
-        fwrite(STDERR, "duo: deploy: compile failed; no lifecycle or code materialization occurred\n");
-        print_transport_detail($compile);
-        return $compile['exit'] !== 0 ? $compile['exit'] : 1;
-    }
-    if ($compile['summary'] === null) {
-        fwrite(STDERR, "duo: deploy: compile returned no valid artifact hash; no lifecycle or code materialization occurred\n");
-        return 1;
-    }
-    $dispositionBlockers = CodeDeploy::dispositionBlockers($compile['summary']);
-    if ($dispositionBlockers) {
-        foreach ($dispositionBlockers as $row) {
-            fwrite(STDERR, "duo: deploy: adapter {$row['name']} is {$row['status']}: {$row['reason']}\n");
-        }
-        fwrite(STDERR, "duo: deploy: refusing before promotion-begin; only certified adapters may enter deployment\n");
-        return 1;
-    }
-
-    $artifactHash = (string) $compile['summary']['artifact_hash'];
-    $codeEnabled = CodeDeploy::enabled($compile['summary']);
-    if ($codeEnabled) {
-        $preflightExit = code_runtime_preflight(
-            $t,
-            'deploy',
-            $repo,
-            $artifact,
-            $artifactHash,
-            $compile['summary']
-        );
-        if ($preflightExit !== null) {
-            return $preflightExit;
-        }
-    }
-    echo "deploy phase: promotion-begin\n";
-    $begin = $t->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
-    if ($begin['exit'] !== 0) {
-        fwrite(STDERR, "duo: deploy: promotion-begin failed; lifecycle and code materialization were not started\n");
-        print_transport_detail($begin);
-        compensate_uncertain_begin($t, $begin, $runId, $artifactHash, 'deploy');
-        return $begin['exit'] !== 0 ? $begin['exit'] : 1;
-    }
-
-    if ($codeEnabled) {
-        echo "deploy phase: code-stage\n";
-        $stage = $t->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
-        if ($stage !== 0) {
-            fwrite(STDERR, "duo: deploy: code-stage failed (exit $stage); lifecycle phases and code-finalize were not run\n");
-            promotion_abort($t, $runId, $artifactHash);
-            return $stage;
-        }
-    }
-
-    echo "deploy phase: lifecycle-retire\n";
-    $retire = $t->streamWp(CodeDeploy::lifecycleArgs(
-        $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, false, 'retire', $deployExtra
-    ));
-    if ($retire !== 0) {
-        fwrite(STDERR, "duo: deploy: lifecycle retirement failed (exit $retire); later phases were not run\n");
-        promotion_abort($t, $runId, $artifactHash);
-        return $retire;
-    }
-
-    echo "deploy phase: lifecycle-activate\n";
-    $activate = $t->streamWp(CodeDeploy::lifecycleArgs(
-        $repo, $artifact, $runId, $artifactHash, $codeEnabled, $codeEnabled, false, 'activate', $deployExtra
-    ));
-    if ($activate !== 0) {
-        fwrite(STDERR, "duo: deploy: lifecycle activation failed (exit $activate); later phases were not run\n");
-        promotion_abort($t, $runId, $artifactHash);
-        return $activate;
-    }
-
-    if ($codeEnabled) {
-        echo "deploy phase: code-finalize\n";
-        $finalize = $t->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
-        if ($finalize !== 0) {
-            fwrite(STDERR, "duo: deploy: code-finalize failed (exit $finalize); later phases were not run\n");
-            promotion_abort($t, $runId, $artifactHash);
-            return $finalize;
-        }
-        echo "deploy complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize\n";
-        return 0;
-    }
-
-    echo "deploy complete: lifecycle-retire -> lifecycle-activate (no code descriptor)\n";
-    return 0;
+    return DeployCommand::run(
+        $t,
+        $extra,
+        static fn(array $args): ?int => reject_unsupported_scope_contract('deploy', $args),
+        static fn(EnvironmentDriver $driver): bool => rollback_authority_fence($driver, 'deploy'),
+        static fn(): string => orchestrator_run_id(),
+        static function (EnvironmentDriver $driver, array $begin, string $owner, string $artifactHash): void {
+            compensate_uncertain_begin($driver, $begin, $owner, $artifactHash, 'deploy');
+        },
+        static fn(EnvironmentDriver $driver, string $owner, string $artifactHash): bool => promotion_abort($driver, $owner, $artifactHash)
+    );
 }
 
 /**
