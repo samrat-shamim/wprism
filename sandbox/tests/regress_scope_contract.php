@@ -19,7 +19,7 @@ foreach ([
     'JsonRefs', 'PlainData', 'StructuredValue', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'CodeCompatibility', 'Code', 'CodeStateContract',
     'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'CanonicalSurfaces', 'ScopeContract',
-    'ScopedStateOverlay',
+    'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply',
 ] as $file) {
     require_once "$root/agent/src/$file.php";
 }
@@ -295,6 +295,62 @@ check(Canon::encode($contract) === Canon::encode($reordered),
 check(ScopeContract::from_array($contract) === $contract, 'strict schema and intrinsic scope_hash verify the emitted contract');
 ScopeContract::assert_associated($contract, $compiled, $policy);
 check(true, 'association verifier recomputes the complete contract for the exact compiled artifact/policy');
+
+$optionContract = ScopeContract::resolve($compiled, $policy, ['option:blogname']);
+$optionRoot = $optionContract['live']['roots'][0] ?? null;
+$compiledOptionRecords = OptionState::records((array) $compiled->tree()['options/core']['data']);
+check(
+    $optionContract['selectors'] === ['option:blogname']
+        && $optionContract['resolution']['live_root_entities'] === ['options/core#blogname']
+        && is_array($optionRoot)
+        && ($optionRoot['entity'] ?? null) === 'options/core#blogname'
+        && ($optionRoot['type'] ?? null) === 'option'
+        && ($optionRoot['option'] ?? null) === 'blogname'
+        && ($optionRoot['path'] ?? null) === 'options/core.json'
+        && ($optionRoot['entity_hash'] ?? null) === OptionState::record_hash($compiledOptionRecords['blogname'])
+        && ($optionRoot['source_hash'] ?? null) === $compiled->tree()['options/core']['source_hash']
+        && $optionContract['eligible_surfaces'] === ['option:blogname']
+        && !in_array('options/core', array_column($optionContract['live']['excluded'], 'entity'), true),
+    'option-root contract binds the exact record plus owning source file without publishing whole-options authority'
+);
+ScopeContract::assert_associated($optionContract, $compiled, $policy);
+check(ScopeContract::option_root_names($optionContract) === ['blogname'],
+    'option-root discovery exposes only the exact selected option name');
+expect_throw(
+    static fn() => ScopeContract::assert_mutation_supported($optionContract, 'scoped plan/apply'),
+    'does not support per-option scoped mutation',
+    'valid option-root evidence is refused before a mutation consumer can project target work'
+);
+expect_throw(
+    static fn() => \Duo\ScopedApply::resolve_contract($optionContract, $compiled, $policy),
+    'does not support per-option scoped mutation',
+    'agent scoped plan/apply refuses the valid option-root contract before target observation or projection'
+);
+$malformedOptionRoot = $optionContract;
+$malformedOptionRoot['live']['roots'][0]['option'] = 'blogdescription';
+$malformedOptionRootWithoutHash = $malformedOptionRoot;
+unset($malformedOptionRootWithoutHash['scope_hash']);
+$malformedOptionRoot['scope_hash'] = hash('sha256', Canon::encode($malformedOptionRootWithoutHash));
+expect_throw(
+    static fn() => ScopeContract::from_array($malformedOptionRoot),
+    'option root is malformed',
+    'strict contract parser rejects a synthetic option identity whose named record does not agree'
+);
+$optionInClosure = $optionContract;
+$optionInClosure['live']['closure'] = $optionInClosure['live']['roots'];
+$optionInClosure['live']['closure'][0]['provenance'] = [
+    'kind' => 'closure', 'from' => 'options/core#blogname', 'from_path' => 'options/core.json',
+    'locator' => 'records.blogname', 'reason' => 'ref',
+];
+$optionInClosure['live']['roots'] = [];
+$optionInClosureWithoutHash = $optionInClosure;
+unset($optionInClosureWithoutHash['scope_hash']);
+$optionInClosure['scope_hash'] = hash('sha256', Canon::encode($optionInClosureWithoutHash));
+expect_throw(
+    static fn() => ScopeContract::from_array($optionInClosure),
+    'option evidence must be a root',
+    'strict contract parser refuses a synthetic option proof placed outside the root boundary'
+);
 
 $contractPath = "$tmp/selected.scope.json";
 put($contractPath, Canon::encode($contract));

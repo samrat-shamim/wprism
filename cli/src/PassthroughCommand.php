@@ -95,7 +95,16 @@ final class PassthroughCommand {
         if ($contractPath !== null) {
             try {
                 $input = self::readScopeContractInput($contractPath);
+                \Duo\ScopeContract::assert_mutation_supported($input['contract'], 'scoped ' . $verb);
                 $forward[] = '--scope-request-b64=' . $input['request_b64'];
+            } catch (\Duo\ScopedOptionMutationUnsupported $_failure) {
+                return self::scopeWireRefusal(
+                    $verb,
+                    $extra,
+                    'scoped_option_mutation_unsupported',
+                    'per-option scope contracts are currently read-only evidence',
+                    "select the whole 'options' surface for the existing scoped mutation protocol"
+                );
             } catch (\Throwable $_failure) {
                 return self::scopeWireRefusal(
                     $verb,

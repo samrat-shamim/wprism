@@ -85,6 +85,7 @@ final class ScopedApply {
         if (($request['format'] ?? null) === ScopeContract::FORMAT) {
             $contract = ScopeContract::from_array($request);
             ScopeContract::assert_associated($contract, $compiled, $policy);
+            ScopeContract::assert_mutation_supported($contract, 'scoped plan/apply');
             return $contract;
         }
         $keys = array_keys($request);
@@ -95,12 +96,14 @@ final class ScopedApply {
             || !array_is_list($request['selectors'])) {
             throw new \RuntimeException('duo: scoped plan/apply request has an unexpected schema');
         }
-        return ScopedStateOverlay::resolve_request(
+        $contract = ScopedStateOverlay::resolve_request(
             $compiled,
             $policy,
             ScopeContract::normalize_selectors($request['selectors']),
             (string) ($request['scope_hash'] ?? '')
         );
+        ScopeContract::assert_mutation_supported($contract, 'scoped plan/apply');
+        return $contract;
     }
 
     /** @return array<string,true> */

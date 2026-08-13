@@ -36,6 +36,9 @@ final class RefreshCommand {
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
+            if ($scope !== null) {
+                \Duo\ScopeContract::assert_mutation_supported($scope, 'scoped refresh');
+            }
             $result = Refresh::refresh($driver, $flags['--production-ref'], $scope, $fieldDiff);
             if ($fieldDiff) {
                 if (!is_array($result['field_diff'] ?? null)) {
@@ -51,6 +54,15 @@ final class RefreshCommand {
             self::renderPlan($result);
             return 0;
         } catch (\Throwable $e) {
+            if ($e instanceof \Duo\ScopedOptionMutationUnsupported) {
+                $refusal = self::refusal('scoped_option_mutation_unsupported');
+                if ($json) {
+                    return CommandOutput::renderRefusalJson('refresh', $refusal['reason'], $refusal['message'], $refusal['remediation']);
+                }
+                fwrite(STDERR, 'duo: refresh: ' . $refusal['message'] . "\n");
+                fwrite(STDERR, 'duo: refresh: remedy: ' . $refusal['remediation'] . "\n");
+                return 2;
+            }
             if ($json) {
                 return CommandOutput::renderRefusalJson('refresh', $refusal['reason'], $refusal['message'], $refusal['remediation']);
             }
@@ -120,6 +132,11 @@ final class RefreshCommand {
     /** @return array{reason:string,message:string,remediation:string} */
     private static function refusal(string $reason): array {
         return match ($reason) {
+            'scoped_option_mutation_unsupported' => [
+                'reason' => 'scoped_option_mutation_unsupported',
+                'message' => 'per-option scope contracts are currently read-only evidence',
+                'remediation' => "select the whole 'options' surface for the existing scoped mutation protocol",
+            ],
             'scoped_unsupported' => [
                 'reason' => 'scoped_unsupported',
                 'message' => 'the redacted field-level change diff is unavailable for scoped refresh',

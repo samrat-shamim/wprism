@@ -2,6 +2,16 @@
 namespace Duo;
 
 require_once __DIR__ . '/CanonicalSurfaces.php';
+require_once __DIR__ . '/OptionState.php';
+require_once __DIR__ . '/ScopeClosure.php';
+
+/**
+ * A contract may bind an exact option record as read-only evidence before a
+ * mutation protocol has the corresponding record-aware target authority.
+ * Keep this distinct from malformed-contract errors so host boundaries can
+ * emit one honest public refusal without treating valid evidence as corrupt.
+ */
+final class ScopedOptionMutationUnsupported extends \RuntimeException {}
 
 /**
  * Immutable, target-independent evidence for one resolved scope.
@@ -40,28 +50,21 @@ final class ScopeContract {
         $closure = $liveSelectors === []
             ? ['roots' => [], 'included' => []]
             : ScopeClosure::resolve($compiled, $policy, $liveSelectors);
-        // DUO-3344: option:<name> is preview-only (see ScopeClosure's own
-        // docblock) -- no mutation consumer (scoped capture/refresh/apply/
-        // promote) has an option-granular overlay yet, so a contract must
-        // never carry one. live_rows() below would already refuse this
-        // (an option's synthetic key has no compiled tree entry, tripping
-        // its "disappeared from compiled tree" guard), but that message is
-        // written for an entity that genuinely vanished, not one that was
-        // never eligible for contract evidence -- this refuses the same
-        // input earlier, with the accurate reason.
-        foreach ($closure['roots'] as $closureRoot) {
-            if (ScopeClosure::is_option_root((string) $closureRoot['entity'])) {
-                throw new \RuntimeException(
-                    "duo: scope contracts do not yet support per-option roots ('"
-                    . $closureRoot['selector'] . "'); select the whole 'options' surface instead"
-                );
-            }
-        }
         $live = self::live_rows($closure, $tree);
         $tombstones = self::tombstone_rows($compiled, $policy, $all, $tombstoneSelectors);
 
         $entities = [];
+        $optionRecords = [];
         foreach (array_merge($live['roots'], $live['closure']) as $row) {
+            if (ScopeClosure::is_option_root((string) $row['entity'])) {
+                $records = OptionState::records((array) (($tree['options/core'] ?? [])['data'] ?? []));
+                $name = (string) $row['option'];
+                if (!isset($records[$name])) {
+                    throw new \RuntimeException('duo: scope option root disappeared from compiled options/core');
+                }
+                $optionRecords[$name] = $records[$name];
+                continue;
+            }
             $entity = $tree[(string) $row['entity']] ?? null;
             if (is_array($entity)) {
                 $entities[] = $entity;
@@ -69,6 +72,12 @@ final class ScopeContract {
         }
         $tombstoneData = array_map(static fn(array $row): array => $row['deletion'], $tombstones);
         $eligibleSurfaces = CanonicalSurfaces::for_scope($entities, $tombstoneData, $policy);
+        foreach ($optionRecords as $name => $record) {
+            foreach (CanonicalSurfaces::for_option_scope($name, $record, $policy) as $surface) {
+                $eligibleSurfaces[] = $surface;
+            }
+        }
+        $eligibleSurfaces = self::sorted_strings($eligibleSurfaces);
         $potentialActions = self::potential_actions($policy, $eligibleSurfaces);
         $potentialProviders = self::potential_providers($policy, $potentialActions);
         $potentialEffects = self::potential_effects(
@@ -178,6 +187,44 @@ final class ScopeContract {
     /** Alias for callers that prefer an assertion-style API. */
     public static function assert_valid(array $contract): void {
         self::from_array($contract);
+    }
+
+    /** @return list<string> option names named by the request or its exact root proofs */
+    public static function option_root_names(array $contract): array {
+        $contract = self::from_array($contract);
+        $names = [];
+        // Host boundaries have only a serialized contract, not the compiled
+        // source needed for assert_associated().  Honor a selector here too:
+        // a self-hashed but semantically unassociated object must not omit
+        // its synthetic live root to reach a target before that target can
+        // re-resolve and refuse it.
+        foreach ((array) ($contract['selectors'] ?? []) as $selector) {
+            if (is_string($selector) && str_starts_with($selector, 'option:')) {
+                $names[] = substr($selector, strlen('option:'));
+            }
+        }
+        foreach ((array) ($contract['live']['roots'] ?? []) as $row) {
+            $entity = (string) ($row['entity'] ?? '');
+            if (ScopeClosure::is_option_root($entity)) {
+                $names[] = ScopeClosure::option_name_from_root($entity);
+            }
+        }
+        return self::sorted_strings($names);
+    }
+
+    /**
+     * The v1 contract can now bind an exact per-option proof, but no mutation
+     * protocol has yet made its target observation, overlay, authority hash,
+     * and effect receipt name-aware.  Every consumer calls this explicit
+     * guard at its own boundary so relaxing the former mint-time refusal
+     * cannot accidentally grant the whole options/core surface.
+     */
+    public static function assert_mutation_supported(array $contract, string $operation): void {
+        if (self::option_root_names($contract) !== []) {
+            throw new ScopedOptionMutationUnsupported(
+                "duo: $operation does not support per-option scoped mutation; select the whole 'options' surface instead"
+            );
+        }
     }
 
     /**
@@ -378,11 +425,19 @@ final class ScopeContract {
     private static function live_rows(array $closure, array $tree): array {
         $roots = [];
         foreach ((array) ($closure['roots'] ?? []) as $row) {
-            $entity = $tree[(string) ($row['entity'] ?? '')] ?? null;
+            $identity = (string) ($row['entity'] ?? '');
+            if (ScopeClosure::is_option_root($identity)) {
+                $roots[] = self::option_live_row($tree, $identity, [
+                    'kind' => 'root',
+                    'selector' => (string) ($row['selector'] ?? ''),
+                ]);
+                continue;
+            }
+            $entity = $tree[$identity] ?? null;
             if (!is_array($entity)) {
                 throw new \RuntimeException('duo: scope closure root disappeared from compiled tree');
             }
-            $roots[] = self::live_row($entity, (string) $row['entity'], [
+            $roots[] = self::live_row($entity, $identity, [
                 'kind' => 'root',
                 'selector' => (string) ($row['selector'] ?? ''),
             ]);
@@ -410,9 +465,10 @@ final class ScopeContract {
         foreach (array_merge($roots, $closed) as $row) {
             $included[(string) $row['entity']] = true;
         }
+        $hasOptionRoot = self::option_root_names_from_live_rows($roots) !== [];
         $excluded = [];
         foreach ($tree as $entityId => $entity) {
-            if (isset($included[(string) $entityId])) {
+            if (isset($included[(string) $entityId]) || ($entityId === 'options/core' && $hasOptionRoot)) {
                 continue;
             }
             $excluded[] = self::live_row($entity, (string) $entityId, [
@@ -462,6 +518,43 @@ final class ScopeContract {
             'source_hash' => (string) ($entity['source_hash'] ?? ''),
             'provenance' => $provenance,
         ];
+    }
+
+    /** @param array<string,array<string,mixed>> $tree @param array<string,mixed> $provenance */
+    private static function option_live_row(array $tree, string $identity, array $provenance): array {
+        $options = $tree['options/core'] ?? null;
+        if (!is_array($options)) {
+            throw new \RuntimeException('duo: scope option root disappeared from compiled options/core');
+        }
+        $name = ScopeClosure::option_name_from_root($identity);
+        $records = OptionState::records((array) ($options['data'] ?? []));
+        if (!array_key_exists($name, $records)) {
+            throw new \RuntimeException('duo: scope option root disappeared from compiled options/core');
+        }
+        return [
+            'entity' => $identity,
+            'type' => 'option',
+            'option' => $name,
+            'path' => (string) ($options['path'] ?? ''),
+            // The record hash is the selected logical identity; source_hash
+            // still binds the complete owning document until an option-aware
+            // mutation overlay replaces the whole-file model.
+            'entity_hash' => OptionState::record_hash($records[$name]),
+            'source_hash' => (string) ($options['source_hash'] ?? ''),
+            'provenance' => $provenance,
+        ];
+    }
+
+    /** @param list<array<string,mixed>> $rows @return list<string> */
+    private static function option_root_names_from_live_rows(array $rows): array {
+        $names = [];
+        foreach ($rows as $row) {
+            $entity = (string) ($row['entity'] ?? '');
+            if (ScopeClosure::is_option_root($entity)) {
+                $names[] = ScopeClosure::option_name_from_root($entity);
+            }
+        }
+        return self::sorted_strings($names);
     }
 
     /** @param list<string> $tombstoneSelectors @return list<array<string,mixed>> */
@@ -744,11 +837,34 @@ final class ScopeContract {
                 throw new \RuntimeException("duo: scope contract live.$field must be a list");
             }
             foreach ($live[$field] as $row) {
-                self::assert_keys($row, ['entity', 'entity_hash', 'path', 'provenance', 'source_hash', 'type'], "scope contract live.$field row");
+                $isOption = ($row['type'] ?? null) === 'option';
+                self::assert_keys(
+                    $row,
+                    $isOption
+                        ? ['entity', 'entity_hash', 'option', 'path', 'provenance', 'source_hash', 'type']
+                        : ['entity', 'entity_hash', 'path', 'provenance', 'source_hash', 'type'],
+                    "scope contract live.$field row"
+                );
                 foreach (['entity', 'path', 'type'] as $key) {
                     if (!is_string($row[$key]) || $row[$key] === '') {
                         throw new \RuntimeException("duo: scope contract live.$field row.$key must be a non-empty string");
                     }
+                }
+                if ($isOption) {
+                    if ($kind !== 'root') {
+                        throw new \RuntimeException("duo: scope contract live.$field option evidence must be a root");
+                    }
+                    if (!ScopeClosure::is_option_root((string) $row['entity'])
+                        || !is_string($row['option'] ?? null)
+                        || $row['option'] === ''
+                        || !hash_equals(
+                            ScopeClosure::option_name_from_root((string) $row['entity']),
+                            (string) $row['option']
+                        )) {
+                        throw new \RuntimeException("duo: scope contract live.$field option root is malformed");
+                    }
+                } elseif (ScopeClosure::is_option_root((string) $row['entity'])) {
+                    throw new \RuntimeException("duo: scope contract live.$field synthetic option root has an invalid type");
                 }
                 foreach (['entity_hash', 'source_hash'] as $key) {
                     if (!is_string($row[$key]) || !self::is_hash($row[$key])) {

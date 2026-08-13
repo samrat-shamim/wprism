@@ -511,18 +511,27 @@ try {
     check(false, 'a colliding pair of option names elsewhere in the SAME document does not block an unrelated option\'s own resolution (' . $e->getMessage() . ')');
 }
 
-// ScopeContract binds mutation-authorizing evidence and must never carry an
-// option root: no scoped capture/refresh/apply/promote consumer has an
-// option-granular overlay yet (ScopeContract::resolve()'s own guard).
+// A contract can now bind the exact option record as immutable evidence, but
+// it remains explicitly unusable by every existing mutation consumer until a
+// record-aware target authority protocol exists.
+$defaultCategoryContract = ScopeContract::resolve($compiled, $policy, ['option:default_category']);
+$defaultCategoryRoot = $defaultCategoryContract['live']['roots'][0] ?? null;
+check(
+    is_array($defaultCategoryRoot)
+        && ($defaultCategoryRoot['entity'] ?? null) === 'options/core#default_category'
+        && ($defaultCategoryRoot['type'] ?? null) === 'option'
+        && ($defaultCategoryRoot['option'] ?? null) === 'default_category'
+        && in_array('option:default_category', (array) ($defaultCategoryContract['eligible_surfaces'] ?? []), true)
+        && !in_array('option:page_on_front', (array) ($defaultCategoryContract['eligible_surfaces'] ?? []), true),
+    'a scope contract binds one exact option record without publishing unrelated option authority'
+);
+ScopeContract::assert_associated($defaultCategoryContract, $compiled, $policy);
 try {
-    ScopeContract::resolve($compiled, $policy, ['option:default_category']);
-    check(false, 'a scope CONTRACT refuses a per-option root rather than silently minting mutation evidence for it');
+    ScopeContract::assert_mutation_supported($defaultCategoryContract, 'scoped capture');
+    check(false, 'the option contract is refused before scoped mutation work');
 } catch (RuntimeException $e) {
-    check(
-        str_contains($e->getMessage(), 'per-option') && !str_contains($e->getMessage(), 'disappeared'),
-        'the contract refusal names the real reason (not yet supported), not the generic "disappeared from tree" guard ('
-            . $e->getMessage() . ')'
-    );
+    check(str_contains($e->getMessage(), 'does not support per-option scoped mutation'),
+        'the option contract remains explicitly refused before scoped mutation work');
 }
 check(
     ScopeContract::resolve($compiled, $policy, ['options'])['format'] === ScopeContract::FORMAT,

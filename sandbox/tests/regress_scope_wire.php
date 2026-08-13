@@ -87,6 +87,33 @@ $contract['scope_hash'] = hash('sha256', Canon::encode($contract));
 check_wire(ScopeContract::from_array($contract) === $contract, 'fixture is a real canonical ScopeContract');
 $contractPath = "$tmp/selected.scope.json";
 put_wire($contractPath, Canon::encode($contract));
+$optionContract = $contract;
+$optionContract['eligible_surfaces'] = ['option:blogname'];
+$optionContract['live']['roots'] = [[
+    'entity' => 'options/core#blogname',
+    'entity_hash' => $hash,
+    'option' => 'blogname',
+    'path' => 'options/core.json',
+    'provenance' => ['kind' => 'root', 'selector' => 'option:blogname'],
+    'source_hash' => $hash,
+    'type' => 'option',
+]];
+$optionContract['resolution'] = ['live_root_entities' => ['options/core#blogname'], 'tombstone_uuids' => []];
+$optionContract['selectors'] = ['option:blogname'];
+unset($optionContract['scope_hash']);
+$optionContract['scope_hash'] = hash('sha256', Canon::encode($optionContract));
+check_wire(ScopeContract::from_array($optionContract) === $optionContract,
+    'option-root fixture is a real canonical read-only ScopeContract');
+$optionContractPath = "$tmp/option.scope.json";
+put_wire($optionContractPath, Canon::encode($optionContract));
+$evasiveOptionContract = $optionContract;
+$evasiveOptionContract['live']['roots'] = [];
+unset($evasiveOptionContract['scope_hash']);
+$evasiveOptionContract['scope_hash'] = hash('sha256', Canon::encode($evasiveOptionContract));
+check_wire(ScopeContract::from_array($evasiveOptionContract) === $evasiveOptionContract,
+    'evasive option-selector fixture is structurally valid but intentionally not source-associated');
+$evasiveOptionContractPath = "$tmp/evasive-option.scope.json";
+put_wire($evasiveOptionContractPath, Canon::encode($evasiveOptionContract));
 
 $argsPath = "$tmp/target-args.json";
 $fakeBin = "$tmp/bin";
@@ -272,6 +299,59 @@ check_wire(
         && !str_contains($promote['stdout'], $contractPath)
         && !str_contains($promote['stderr'], $contractPath),
     'scoped promote refuses non-SSH targets before contact without leaking its local contract path'
+);
+
+foreach (['capture', 'plan', 'apply', 'promote'] as $optionVerb) {
+    $optionRefusal = invoke_wire($root, $envsPath, $fakeBin, $argsPath, $optionVerb, [
+        "--scope-contract=$optionContractPath", '--format=json',
+    ]);
+    $optionEnvelope = json_decode(trim($optionRefusal['stdout']), true);
+    check_wire(
+        $optionRefusal['exit'] !== 0
+            && is_array($optionEnvelope)
+            && ($optionEnvelope['format'] ?? null) === 'duo-command-refusal/v1'
+            && ($optionEnvelope['reason_code'] ?? null) === 'scoped_option_mutation_unsupported'
+            && !is_file($argsPath)
+            && !str_contains($optionRefusal['stdout'], $optionContractPath)
+            && !str_contains($optionRefusal['stderr'], $optionContractPath),
+        "$optionVerb refuses an option-root contract before target contact with the stable public reason"
+    );
+}
+
+$evasivePlan = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'plan', [
+    "--scope-contract=$evasiveOptionContractPath", '--format=json',
+]);
+$evasiveEnvelope = json_decode(trim($evasivePlan['stdout']), true);
+check_wire(
+    $evasivePlan['exit'] !== 0
+        && is_array($evasiveEnvelope)
+        && ($evasiveEnvelope['reason_code'] ?? null) === 'scoped_option_mutation_unsupported'
+        && !is_file($argsPath)
+        && !str_contains($evasivePlan['stdout'], $evasiveOptionContractPath)
+        && !str_contains($evasivePlan['stderr'], $evasiveOptionContractPath),
+    'a self-hashed contract cannot hide an option selector by omitting its root proof to reach the target'
+);
+
+$optionRefresh = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'refresh', [
+    '--production-ref=main', "--scope-contract=$optionContractPath",
+]);
+check_wire(
+    $optionRefresh['exit'] === 2
+        && !is_file($argsPath)
+        && str_contains($optionRefresh['stderr'], 'per-option scope contracts are currently read-only evidence')
+        && !str_contains($optionRefresh['stderr'], $optionContractPath),
+    'refresh refuses an option-root contract before any target observation or path disclosure'
+);
+
+$optionRebase = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'rebase', [
+    '--production-ref=main', '--new-branch=option-root-refusal', "--scope-contract=$optionContractPath",
+]);
+check_wire(
+    $optionRebase['exit'] === 2
+        && !is_file($argsPath)
+        && str_contains($optionRebase['stderr'], 'per-option scope contracts are currently read-only evidence')
+        && !str_contains($optionRebase['stderr'], $optionContractPath),
+    'refresh rebase refuses an option-root contract before any target observation or path disclosure'
 );
 
 $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");

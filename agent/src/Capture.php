@@ -1033,6 +1033,7 @@ final class Capture {
         if (($request['format'] ?? null) === ScopeContract::FORMAT) {
             $contract = ScopeContract::from_array($request);
             ScopeContract::assert_associated($contract, $compiled, $policy);
+            ScopeContract::assert_mutation_supported($contract, 'scoped capture');
             return $contract;
         }
         $keys = array_keys($request);
@@ -1044,12 +1045,14 @@ final class Capture {
             throw new \RuntimeException('duo: scoped capture request has an unexpected schema');
         }
         $selectors = ScopeContract::normalize_selectors($request['selectors']);
-        return ScopedStateOverlay::resolve_request(
+        $contract = ScopedStateOverlay::resolve_request(
             $compiled,
             $policy,
             $selectors,
             (string) ($request['scope_hash'] ?? '')
         );
+        ScopeContract::assert_mutation_supported($contract, 'scoped capture');
+        return $contract;
     }
 
     /**

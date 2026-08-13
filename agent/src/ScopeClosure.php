@@ -46,11 +46,11 @@ require_once __DIR__ . '/OptionState.php';
  * (option_key()) carrying its own report row and its own attributed
  * outbound edges (attribute_option_edges(), matched against the option's
  * OWN declared references only, never another option's). This is
- * deliberately preview-only: ScopeContract::resolve() refuses a contract
- * containing one (see its own docblock) because no mutation consumer
- * (capture, refresh, apply, promote) has an option-granular overlay yet --
- * exactly the boundary slice 1 drew for the original whole-entity closure
- * before any command accepted a scope at all.
+ * contractable as immutable evidence, but it is not yet mutation-capable:
+ * each mutation consumer rejects the contract explicitly before target work.
+ * Keeping the proof format available lets a later option-aware consumer use
+ * the same exact root, record hash, and closure facts without smuggling an
+ * authority grant through this read-only resolver.
  */
 final class ScopeClosure {
     public const FORMAT = 'duo-scope/v1';
@@ -327,15 +327,21 @@ final class ScopeClosure {
         return substr($key, strlen(self::OPTION_KEY_PREFIX));
     }
 
-    /**
-     * True for any entity key ScopeClosure minted rather than a real
-     * compiled tree key. ScopeContract uses this to refuse contract/
-     * mutation evidence for a per-option root explicitly (see its own
-     * docblock) instead of relying only on the generic "disappeared from
-     * the compiled tree" guard every tree-key lookup already has.
-     */
+    /** True for the synthetic per-option key that is not a tree entry. */
     public static function is_option_root(string $key): bool {
         return self::is_option_key($key);
+    }
+
+    /** Recover the exact option name from a validated synthetic root key. */
+    public static function option_name_from_root(string $key): string {
+        if (!self::is_option_key($key)) {
+            throw new \InvalidArgumentException('scope root is not a per-option synthetic identity');
+        }
+        $name = self::option_name_from_key($key);
+        if ($name === '') {
+            throw new \InvalidArgumentException('scope option root has no option name');
+        }
+        return $name;
     }
 
     /**

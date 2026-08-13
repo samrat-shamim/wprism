@@ -74,6 +74,9 @@ final class RebaseCommand {
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
+            if ($scope !== null) {
+                \Duo\ScopeContract::assert_mutation_supported($scope, 'scoped refresh rebase');
+            }
             $result = Refresh::rebase($driver, $flags['--production-ref'], $flags['--new-branch'], $parsed['resolution'], $scope, $fieldPath, $parsed['interactive'], $parsed['strategy_seen']);
             echo 'refresh rebase complete: ' . $result['new_branch'] . ' at ' . $result['head'] . "\n";
             echo 'plan: ' . $result['plan_path'] . ' run: ' . $result['run_id'] . "\n";
@@ -86,6 +89,10 @@ final class RebaseCommand {
             fwrite(STDERR, 'duo: rebase: redacted field-level resolution stopped after candidate setup; run_id=' . $runId . "\n");
             fwrite(STDERR, 'duo: rebase: remedy: inspect private local run evidence and the requested ref; duo rebase <env> --abort=' . $runId . " removes only the journal-owned worktree\n");
             return 1;
+        } catch (\Duo\ScopedOptionMutationUnsupported) {
+            fwrite(STDERR, "duo: rebase: per-option scope contracts are currently read-only evidence\n");
+            fwrite(STDERR, "duo: rebase: remedy: select the whole 'options' surface for the existing scoped mutation protocol\n");
+            return 2;
         } catch (\Throwable $e) {
             if ($fieldMode) {
                 fwrite(STDERR, 'duo: rebase: ' . $fieldFailure['message'] . "\n");

@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once dirname(__DIR__, 2) . '/agent/src/ScopeContract.php';
+
 /** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
 final class RefreshFieldResolutionCancelled extends \RuntimeException {}
 
@@ -85,6 +87,11 @@ final class Refresh {
         bool $interactive = false,
         bool $legacyStrategyExplicit = false
     ): array {
+        if ($scopeContract !== null) {
+            // rebase has planner setup before its shared prepare() path, so
+            // enforce the same public programmatic boundary here too.
+            \Duo\ScopeContract::assert_mutation_supported($scopeContract, 'scoped refresh rebase');
+        }
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan', 'materialize', 'validateMaterialization']);
         $resolution = self::normalizeResolution($resolution);
         if (($fieldResolutionPath !== null || $interactive)
@@ -302,6 +309,13 @@ final class Refresh {
         ?array $scopeContract = null,
         bool $includeFieldDiff = false
     ): array {
+        if ($scopeContract !== null) {
+            // Refresh::refresh()/rebase() are public programmatic host
+            // boundaries too.  Refuse here, before the first driver
+            // preflight, so callers cannot bypass RefreshCommand and use a
+            // self-hashed option-root contract to contact a target.
+            \Duo\ScopeContract::assert_mutation_supported($scopeContract, 'scoped refresh');
+        }
         self::requirePlanner(['normalizeProductionSnapshot', 'compileGitWorktree', 'assertProductionCodeMatches', 'plan', 'normalizePlan']);
         $root = self::repositoryRoot();
         $branch = self::assertCleanAttachedBranch($root);
