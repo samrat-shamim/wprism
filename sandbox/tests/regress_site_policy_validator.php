@@ -91,6 +91,16 @@ $assertThrows(
     'site validation preserves frozen refusal labels/order'
 );
 
+$badSubKeys = $baseSite;
+$badSubKeys['policy']['options'] = [
+    'acme_runtime' => ['class' => 'runtime', 'sub_keys' => []],
+];
+$assertThrows(
+    fn() => SitePolicyValidator::validate($badSubKeys, 'frozen site.duo.json', Policy::CLASSES, ['block', 'warn']),
+    'declares options.acme_runtime.sub_keys but it is not a non-empty object',
+    'site validation reaches the SubKeyGrammar site-policy gate'
+);
+
 $badPolicyType = $baseSite;
 $badPolicyType['policy'] = 'not-an-object';
 try {
@@ -111,9 +121,22 @@ $check(
     'both Policy loaders delegate the site sequence instead of retaining duplicate grammar calls'
 );
 $check(
-    str_contains($validatorSource, 'CodeConfigGrammar::validate_site_code($site, $label)')
-        && str_contains($validatorSource, "ReferenceShapeGrammar::validate_reference_shapes(\$site['policy'] ?? [], \$label)"),
-    'SitePolicyValidator owns the complete ordered site grammar sequence'
+    substr_count($validatorSource, 'CodeConfigGrammar::validate_site_code($site, $label)') === 1
+        && substr_count($validatorSource, 'ScopeGrammar::validate_scope_classes($site, $label, true)') === 1
+        && substr_count($validatorSource, "OptionGrammar::validate_option_storage(\$site['policy'] ?? [], \$label)") === 1
+        && substr_count($validatorSource, "OptionGrammar::validate_env_options(\$site['policy'] ?? [], \$label)") === 1
+        && substr_count($validatorSource, 'UserMetaGrammar::validate_user_meta_rules(') === 1
+        && substr_count($validatorSource, "ManifestGrammar::validate_tables(\$site['policy'] ?? [], \$label)") === 1
+        && substr_count($validatorSource, "SubKeyGrammar::validate_sub_keys(\$site['policy'] ?? [], \$label)") === 1
+        && substr_count($validatorSource, "ReferenceShapeGrammar::validate_reference_shapes(\$site['policy'] ?? [], \$label)") === 1
+        && (strpos($validatorSource, 'CodeConfigGrammar::validate_site_code(') < strpos($validatorSource, 'ScopeGrammar::validate_scope_classes('))
+        && (strpos($validatorSource, 'ScopeGrammar::validate_scope_classes(') < strpos($validatorSource, 'OptionGrammar::validate_option_storage('))
+        && (strpos($validatorSource, 'OptionGrammar::validate_option_storage(') < strpos($validatorSource, 'OptionGrammar::validate_env_options('))
+        && (strpos($validatorSource, 'OptionGrammar::validate_env_options(') < strpos($validatorSource, 'UserMetaGrammar::validate_user_meta_rules('))
+        && (strpos($validatorSource, 'UserMetaGrammar::validate_user_meta_rules(') < strpos($validatorSource, 'ManifestGrammar::validate_tables('))
+        && (strpos($validatorSource, 'ManifestGrammar::validate_tables(') < strpos($validatorSource, 'SubKeyGrammar::validate_sub_keys('))
+        && (strpos($validatorSource, 'SubKeyGrammar::validate_sub_keys(') < strpos($validatorSource, 'ReferenceShapeGrammar::validate_reference_shapes(')),
+    'SitePolicyValidator owns all eight ordered site grammar calls'
 );
 
 $snapshot = [
