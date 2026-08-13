@@ -95,19 +95,19 @@ function remove_tree(string $root): void {
     rmdir($root);
 }
 /** @return array{exit:int,stdout:string,stderr:string} */
-function runtime_registry_load(string $runtimeRoot, string $scratch): array {
+function runtime_registry_load(string $agentDir, string $manifestDir, string $scratch): array {
     $runner = $scratch . '/runtime-registry-loader.php';
     $program = <<<'PHP'
 <?php
 declare(strict_types=1);
 
-$root = $argv[1];
-require $root . '/agent/src/Canon.php';
-require $root . '/agent/src/ManifestDispositions.php';
-require $root . '/agent/src/CapabilityRegistry.php';
+$agentDir = $argv[1];
+$dir = $argv[2];
+require $agentDir . '/src/Canon.php';
+require $agentDir . '/src/ManifestDispositions.php';
+require $agentDir . '/src/CapabilityRegistry.php';
 
 try {
-    $dir = $root . '/manifests';
     $dispositions = Duo\ManifestDispositions::load($dir);
     $manifests = [];
     foreach (glob($dir . '/*.json') ?: [] as $file) {
@@ -130,7 +130,7 @@ PHP;
         throw new RuntimeException('could not create deployed-runtime loader');
     }
     $pipes = [];
-    $process = proc_open([PHP_BINARY, $runner, $runtimeRoot], [
+    $process = proc_open([PHP_BINARY, $runner, $agentDir, $manifestDir], [
         0 => ['pipe', 'r'],
         1 => ['pipe', 'w'],
         2 => ['pipe', 'w'],
@@ -217,37 +217,94 @@ $scratch = sys_get_temp_dir() . '/duo-scoped-runtime-' . bin2hex(random_bytes(8)
 try {
     $sealedManifests = duo_cert_seal_library($repo, $scratch . '/source');
     $runtimeRoot = $scratch . '/runtime';
-    duo_cert_copy_tree($scratch . '/source/agent', $runtimeRoot . '/agent');
-    duo_cert_copy_tree($sealedManifests, $runtimeRoot . '/manifests');
+    $runtimeAgent = $runtimeRoot . '/mu-plugins/duo';
+    $runtimeLoader = $runtimeRoot . '/mu-plugins/duo-loader.php';
+    $runtimeManifests = $runtimeRoot . '/mounted-manifests';
+    duo_cert_copy_tree($scratch . '/source/agent', $runtimeAgent);
+    if (!is_dir(dirname($runtimeLoader)) && !mkdir(dirname($runtimeLoader), 0777, true) && !is_dir(dirname($runtimeLoader))) {
+        throw new RuntimeException('could not create deployed loader directory');
+    }
+    if (!copy($scratch . '/source/agent/duo-loader.php', $runtimeLoader)) {
+        throw new RuntimeException('could not copy deployed loader');
+    }
+    duo_cert_copy_tree($sealedManifests, $runtimeManifests);
     check(
         !file_exists($runtimeRoot . '/Makefile')
         && !file_exists($runtimeRoot . '/cli')
         && !file_exists($runtimeRoot . '/sandbox'),
-        'runtime fixture contains only deployed agent and manifests trees, not host certification inputs'
+        'runtime fixture contains split deployed agent, loader, and manifests mounts without host certification inputs'
     );
-    $runtimeLoad = runtime_registry_load($runtimeRoot, $scratch);
+    $runtimeLoad = runtime_registry_load($runtimeAgent, $runtimeManifests, $scratch);
     check(
         $runtimeLoad['exit'] === 0 && trim($runtimeLoad['stdout']) === 'current',
-        'the copied deployed agent loads a current scoped record without host-only certification files'
+        'the real split deployed layout loads a current scoped record without host-only certification files'
     );
-    $runtimeEvidence = Canon::decode(Canon::read_file($runtimeRoot . '/manifests/capabilities/evidence.json'));
+    $runtimeEvidence = Canon::decode(Canon::read_file($runtimeManifests . '/capabilities/evidence.json'));
     $runtimeInputs = $runtimeEvidence['scoped']['woocommerce']['bundle']['closure']['inputs'] ?? [];
+    $loaderInput = null;
     $agentInput = null;
+    $manifestInput = null;
     foreach ($runtimeInputs as $input) {
-        if (is_array($input) && str_starts_with((string) ($input['path'] ?? ''), 'agent/')) {
-            $agentInput = $input['path'];
-            break;
+        $path = is_array($input) ? ($input['path'] ?? null) : null;
+        if (!is_string($path)) {
+            continue;
+        }
+        if ($path === 'agent/duo-loader.php') {
+            $loaderInput = $path;
+        } elseif ($agentInput === null && str_starts_with($path, 'agent/')) {
+            $agentInput = $path;
+        } elseif ($manifestInput === null && str_starts_with($path, 'manifests/') && $path !== 'manifests/dispositions.json') {
+            $manifestInput = $path;
         }
     }
-    check(is_string($agentInput), 'sealed Woo closure contains an installed agent input');
-    if (is_string($agentInput)) {
-        file_put_contents($runtimeRoot . '/' . $agentInput, "\n// runtime drift\n", FILE_APPEND);
-        $runtimeDrift = runtime_registry_load($runtimeRoot, $scratch);
+    check(
+        is_string($loaderInput) && is_string($agentInput) && is_string($manifestInput),
+        'sealed Woo closure contains installed loader, agent, and manifest inputs'
+    );
+    $runtimePath = static function (string $input) use ($runtimeAgent, $runtimeLoader, $runtimeManifests): string {
+        if ($input === 'agent/duo-loader.php') {
+            return $runtimeLoader;
+        }
+        if (str_starts_with($input, 'agent/')) {
+            return $runtimeAgent . '/' . substr($input, strlen('agent/'));
+        }
+        if (str_starts_with($input, 'manifests/')) {
+            return $runtimeManifests . '/' . substr($input, strlen('manifests/'));
+        }
+        throw new RuntimeException("unmapped runtime input: $input");
+    };
+    foreach ([$loaderInput, $agentInput, $manifestInput] as $input) {
+        if (!is_string($input)) {
+            continue;
+        }
+        $path = $runtimePath($input);
+        $original = file_get_contents($path);
+        if (!is_string($original) || file_put_contents($path, $original . "\n// runtime drift\n") === false) {
+            throw new RuntimeException("could not mutate deployed runtime input: $input");
+        }
+        clearstatcache(true, $path);
+        $runtimeRejected = false;
+        $runtimeRefusal = '';
+        try {
+            ScopedCertificationBundle::assertRuntimeInputsCurrent($runtimeAgent, $runtimeManifests, $runtimeInputs);
+        } catch (Throwable $e) {
+            $runtimeRefusal = $e->getMessage();
+            $runtimeRejected = str_contains(
+                $runtimeRefusal,
+                'scoped certification runtime input is not current: ' . $input
+            );
+        }
+        $runtimeDrift = runtime_registry_load($runtimeAgent, $runtimeManifests, $scratch);
+        $driftRejected = $runtimeRejected && $runtimeDrift['exit'] !== 0;
         check(
-            $runtimeDrift['exit'] !== 0
-            && str_contains($runtimeDrift['stderr'], 'scoped certification runtime input is not current: ' . $agentInput),
-            'a changed deployed agent input expires the scoped record without host source access'
+            $driftRejected,
+            "a changed deployed $input fails closed in both runtime-input and registry validation"
+                . ($driftRejected ? '' : " (runtime: $runtimeRefusal; registry: " . trim($runtimeDrift['stderr']) . ')')
         );
+        if (file_put_contents($path, $original) === false) {
+            throw new RuntimeException("could not restore deployed runtime input: $input");
+        }
+        clearstatcache(true, $path);
     }
 } finally {
     remove_tree($scratch);
