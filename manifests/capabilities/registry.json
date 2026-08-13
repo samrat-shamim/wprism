@@ -1,8 +1,8 @@
 {
     "evidence": {
-        "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+        "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
         "bundle_schema": "duo-certification-bundle/v1",
-        "created_at": "2026-08-12T09:34:43Z",
+        "created_at": "2026-08-13T22:09:17Z",
         "environment_summary": {
             "active_plugins": [],
             "artifact_cache": {
@@ -293,12 +293,12 @@
         },
         "force_hatches": [],
         "format": "duo-capability-evidence/v1",
-        "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
+        "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
         "harness": {
             "name": "duo-reference-certification",
             "version": 4
         },
-        "status": "candidate",
+        "status": "current",
         "tests": [
             {
                 "id": "conformance-core",
@@ -362,7 +362,7 @@
     "generated_from": {
         "compatibility_sha256": "4a6726dd5feaf47fe0c6f7e2c1b27711d22d4c44609c34d0f13c227b6025e5c8",
         "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
-        "evidence_sha256": "aa08ee051f436c9742d074cdb368aa0216ab42055996de764d77a75633e7b20c"
+        "evidence_sha256": "71e97f3ba1107958d777efa32a03f4686eb792f2d2ff8fece761938c96cff8ea"
     },
     "manifests": {
         "acf": {
@@ -396,11 +396,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-acf",
                     "exact-artifact-version-matrix"
@@ -484,11 +484,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-contact-form-7",
                     "exact-artifact-version-matrix"
@@ -584,11 +584,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -747,11 +747,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -817,11 +817,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -882,11 +882,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -957,11 +957,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1026,11 +1026,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1092,11 +1092,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
@@ -1189,11 +1189,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-ninja-forms",
                     "exact-artifact-version-matrix"
@@ -1299,11 +1299,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-paid-memberships-pro"
                 ]
@@ -1446,11 +1446,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1538,11 +1538,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1921,11 +1921,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -2032,11 +2032,11 @@
         "fse": {
             "adapter_digest": "2ce6183fdd3cdeb73ae70758787625ea6bbc54ae2fe64592724ed5cfd9278a23",
             "evidence": {
-                "bundle_digest": "0defd038c00ccf81720c9c6c9481af5719ea2d7948a274cbb808ec7ffd6a6e5c",
+                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
                 "bundle_schema": "duo-certification-bundle/v1",
                 "force_hatches": [],
-                "git_revision": "3c46ae5003eb049eaf68dd8f27bd286c5e9340fd",
-                "status": "candidate",
+                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
+                "status": "current",
                 "tests": [
                     "conformance-fse"
                 ]
