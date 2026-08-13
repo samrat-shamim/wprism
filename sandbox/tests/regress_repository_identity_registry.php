@@ -122,15 +122,17 @@ namespace {
 
     $compiler = (string) file_get_contents("$root/agent/src/RepositoryCompiler.php");
     $registrySource = (string) file_get_contents($registryPath);
+    $graphValidatorSource = (string) file_get_contents("$root/agent/src/RepositoryReferenceGraphValidator.php");
     $check(
         substr_count($compiler, 'new RepositoryIdentityRegistry(') === 1
         && substr_count($compiler, '->identityRegistry->register(') === 3
         && substr_count($compiler, '->identityRegistry->validate_natural_identities($tree)') === 1
-        && substr_count($compiler, '->identityRegistry->find(') === 2
+        && substr_count($compiler, '->identityRegistry->find(') === 1
+        && substr_count($graphValidatorSource, '->identities->find(') === 1
         && !str_contains($compiler, 'private function register_identity(')
         && !str_contains($compiler, 'private function validate_natural_identities(')
         && str_contains($registrySource, 'private function add('),
-        'RepositoryCompiler delegates identity collection and natural-key validation without retaining duplicate bodies'
+        'RepositoryCompiler and its graph validator share one identity registry without retaining duplicate bodies'
     );
 
     if ($failures !== []) {
