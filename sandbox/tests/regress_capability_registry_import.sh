@@ -47,13 +47,18 @@ new_case() {
 }
 
 MATCH=$(new_case matching)
+SCOPED_BEFORE=$(jq -cS '.scoped' "$MATCH/manifests/capabilities/evidence.json")
 php "$MATCH/scripts/capability-registry.php" import-bundle "$BUNDLE" >/dev/null \
   || fail "clean matching HEAD refused a valid bundle"
 jq -e --arg revision "$SOURCE_SHA" \
   '.status == "current" and .bundle.git_revision == $revision' \
   "$MATCH/manifests/capabilities/evidence.json" >/dev/null \
   || fail "matching import did not write source-bound current evidence"
+SCOPED_AFTER=$(jq -cS '.scoped' "$MATCH/manifests/capabilities/evidence.json")
+[[ "$SCOPED_AFTER" == "$SCOPED_BEFORE" ]] \
+  || fail "matching import discarded or changed durable scoped evidence"
 pass "clean matching HEAD imports current evidence"
+pass "global import retains durable scoped evidence"
 
 assert_refuses_unchanged() {
   local repo=$1 label=$2 bundle=${3:-$BUNDLE}

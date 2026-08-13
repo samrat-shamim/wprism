@@ -1686,56 +1686,17 @@ final class Apply {
     }
 
     /**
-     * Active-theme-mismatch guard (docs/frontier/fse.md: "there is no
-     * active-theme-mismatch guard — if the target environment's active
-     * theme differs from the captured wp_theme term's slug, the applied
-     * template silently becomes inert ... with zero warning anywhere in
-     * the plan or apply output"). Verified empirically on the fse
-     * conformance fixture: wp_theme is an ordinary POST-object taxonomy
-     * (registered object_type wp_template/wp_template_part/
-     * wp_global_styles) whose term identity IS the theme's own stylesheet
-     * slug, so a captured wp_template/wp_template_part carries it in the
-     * ordinary `terms.wp_theme` field — wp_navigation/wp_block carry no
-     * wp_theme term at all (confirmed: their captured `terms` is always
-     * `{}`), so this needs no post-type allowlist; it falls out for free
-     * from whichever entities actually have a wp_theme relationship.
-     * WordPress's template resolver only ever matches a row tagged for
-     * get_option('stylesheet') — a row tagged for any OTHER theme applies
-     * (the row lands, byte-identical) but never renders. Warning, never a
-     * block: the data is correct: rendering is the only casualty.
+     * Thin compatibility facade over ApplyPlanner::theme_mismatch_warnings().
+     * The active stylesheet is the only WordPress-facing input; warning
+     * projection stays on the planner so its exact grouping and text are
+     * directly characterizable without a live target.
      */
     private function check_theme_mismatch(array $tree): void {
-        $themeSlugByUuid = [];
-        foreach ($tree as $uuid => $e) {
-            if ($e['type'] === 'term') {
-                $front = $e['data'];
-                if (($front['taxonomy'] ?? '') === 'wp_theme') {
-                    $themeSlugByUuid[$uuid] = $front['slug'];
-                }
-            }
+        if (!ApplyPlanner::theme_mismatch_has_theme_terms($tree)) {
+            return;
         }
-        if (!$themeSlugByUuid) {
-            return; // no wp_theme terms anywhere in this tree — not an FSE site, nothing to check
-        }
-        $active = (string) get_option('stylesheet');
-        $affected = []; // captured theme slug => affected entity path list
-        foreach ($tree as $e) {
-            if ($e['type'] !== 'post') {
-                continue;
-            }
-            $front = $e['data'];
-            foreach ((array) ($front['terms']['wp_theme'] ?? []) as $themeUuid) {
-                $slug = $themeSlugByUuid[$themeUuid] ?? null;
-                if ($slug !== null && $slug !== $active) {
-                    $affected[$slug][] = $e['path'];
-                }
-            }
-        }
-        foreach ($affected as $capturedTheme => $paths) {
-            $verb = count($paths) === 1 ? 'is tagged for' : 'are tagged for';
-            $this->warnings[] = "active-theme mismatch: this environment's active theme is '$active' but "
-                . implode(', ', $paths) . " $verb theme '$capturedTheme'"
-                . " — will apply but will NOT render until '$capturedTheme' is active here";
+        foreach (ApplyPlanner::theme_mismatch_warnings($tree, (string) get_option('stylesheet')) as $warning) {
+            $this->warnings[] = $warning;
         }
     }
 
