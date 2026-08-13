@@ -113,18 +113,17 @@ jq -e '.evidence.status == "candidate"' "$CANDIDATE/manifests/capabilities/regis
   || fail "candidate generation did not stay non-current"
 pass "candidate generation accepts an older canonical revision without granting current status"
 
-# DUO-3406: the reference-bundle builder must record DUO_PAIR_BUDGET_OVERRIDE as
-# a force hatch (not hardcode force_hatches:[]), and cap_import_bundle must
+# DUO-3406 made forced reference evidence non-current. DUO-3479 makes the
+# wrapper project the pair launcher's validated ACTUAL-use ledger rather than
+# treating environment-variable presence as use. cap_import_bundle must still
 # refuse a reference bundle that carries a non-empty force_hatches list.
 grep -qE 'force_hatches:\$force_hatches' sandbox/tests/certify_reference_bundle.sh \
   || fail "certify_reference_bundle.sh no longer records a computed force_hatches (hardcoded []?)"
-HATCH_SET=$(DUO_PAIR_BUDGET_OVERRIDE=1 jq -cn '[ "DUO_PAIR_BUDGET_OVERRIDE" ] | map(select($ENV[.] // "" | . != "" and . != "0"))')
-[ "$HATCH_SET" = '["DUO_PAIR_BUDGET_OVERRIDE"]' ] \
-  || fail "the force-hatch computation did not record DUO_PAIR_BUDGET_OVERRIDE when set (got: $HATCH_SET)"
-HATCH_UNSET=$(env -u DUO_PAIR_BUDGET_OVERRIDE jq -cn '[ "DUO_PAIR_BUDGET_OVERRIDE" ] | map(select($ENV[.] // "" | . != "" and . != "0"))')
-[ "$HATCH_UNSET" = '[]' ] \
-  || fail "the force-hatch computation recorded a hatch when the override was unset (got: $HATCH_UNSET)"
-pass "reference-bundle builder records DUO_PAIR_BUDGET_OVERRIDE as a force hatch when set, [] when unset"
+grep -qF 'FORCE_HATCHES=$(pair_force_hatch_json)' sandbox/tests/certify_reference_bundle.sh \
+  || fail "reference wrapper no longer projects validated actual force-hatch use"
+grep -qF 'pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE' sandbox/bin/pair.sh \
+  || fail "pair launcher no longer records the actual pair-budget override branch"
+pass "reference-bundle builder projects actual pair-budget override use instead of environment presence"
 
 # Build a bundle that recorded the hatch (same clean revision + passing test as
 # the accepted MATCH bundle, differing only in force_hatches) and prove import
