@@ -14,6 +14,7 @@ require_once __DIR__ . '/Canon.php';
  */
 final class ScopedCertificationBundle {
     public const FORMAT = 'duo-adapter-certification-bundle/v1';
+    public const PAIR_BUDGET_OVERRIDE_HATCH = 'DUO_PAIR_BUDGET_OVERRIDE';
 
     /** @return array<string,mixed> */
     public static function validate(array $bundle, string $label = 'scoped certification bundle'): array {
@@ -319,8 +320,13 @@ final class ScopedCertificationBundle {
     }
 
     private static function validateHatches($hatches, string $label): void {
-        if (!is_array($hatches) || !array_is_list($hatches) || $hatches !== []) {
-            throw new \RuntimeException("duo: $label must be an empty list");
+        // A forced run remains sealed as evidence, but callers that publish a
+        // current capability claim must reject it. Keeping this narrow list
+        // makes the accepted override explicit rather than an open-ended
+        // force-flag approval channel.
+        if (!is_array($hatches) || !array_is_list($hatches)
+            || ($hatches !== [] && $hatches !== [self::PAIR_BUDGET_OVERRIDE_HATCH])) {
+            throw new \RuntimeException("duo: $label must be empty or exactly [\"" . self::PAIR_BUDGET_OVERRIDE_HATCH . "\"]");
         }
     }
 

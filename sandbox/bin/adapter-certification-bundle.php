@@ -250,8 +250,9 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
             throw new RuntimeException('created_at or git_revision is malformed');
         }
         $hatches = $spec['force_hatches'] ?? [];
-        if (!is_array($hatches) || !array_is_list($hatches) || $hatches !== []) {
-            throw new RuntimeException('adapter certification must run without force hatches');
+        if (!is_array($hatches) || !array_is_list($hatches)
+            || ($hatches !== [] && $hatches !== [ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH])) {
+            throw new RuntimeException('force_hatches must be empty or exactly ["DUO_PAIR_BUDGET_OVERRIDE"]');
         }
         $outputRoot = rtrim($outputRoot, '/');
         if ($outputRoot === '' || (!is_dir($outputRoot) && !mkdir($outputRoot, 0777, true) && !is_dir($outputRoot))) {
@@ -271,7 +272,7 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
             'claims' => ['manifests.' . $manifestName => array_column($tests, 'id')],
             'closure' => ['digest' => ScopedCertificationBundle::closureDigest($inputs), 'inputs' => $inputs],
             'created_at' => $createdAt,
-            'force_hatches' => [],
+            'force_hatches' => $hatches,
             'format' => ScopedCertificationBundle::FORMAT,
             'git_revision' => $revision,
             'platform' => adapter_bundle_platform($root),

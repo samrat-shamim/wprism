@@ -24,8 +24,9 @@ OUT_ROOT="${CERT_ADAPTER_OUT:-/tmp/duo-adapter-certification-bundles}"
   || fail "CERT_ADAPTER_PORT1 must be an even port >= 8900 and PORT2 must immediately follow"
 (( PORT1 % 2 == 0 )) || fail "CERT_ADAPTER_PORT1 must be even"
 case "${DUO_PAIR_BUDGET_OVERRIDE:-}" in
-  '') ;;
-  *) fail "DUO_PAIR_BUDGET_OVERRIDE is a force hatch; scoped certification refuses it" ;;
+  ''|0) FORCE_HATCHES='[]' ;;
+  1) FORCE_HATCHES='["DUO_PAIR_BUDGET_OVERRIDE"]' ;;
+  *) fail "DUO_PAIR_BUDGET_OVERRIDE must be unset, 0, or 1 for scoped certification" ;;
 esac
 command -v jq >/dev/null || fail "jq required"
 command -v php >/dev/null || fail "php required"
@@ -54,6 +55,9 @@ bash -n conformance/run.sh tests/certify_version_matrix.sh
 bash bin/pair.sh list
 mkdir -p -- "$OUT_ROOT"
 pass "builder, exact-source checkout, and shared-pair inventory are ready"
+if [ "$FORCE_HATCHES" != '[]' ]; then
+  printf 'note: budget override is active and will be sealed in force_hatches; this bundle cannot be published as a current capability claim\n'
+fi
 
 CONFORMANCE_LOG="$WORK_ROOT/conformance-$MANIFEST.log"
 say "scoped leg: $MANIFEST conformance"
@@ -139,8 +143,8 @@ jq -n \
   --arg conformance_result "$WORK_ROOT/conformance-$MANIFEST.result.json" \
   --arg conformance_diff "$WORK_ROOT/conformance-$MANIFEST.diff.json" --arg conformance_log "$CONFORMANCE_LOG" \
   --arg matrix_result "$MATRIX_RESULT" --arg matrix_diff "$MATRIX_DIFF" --arg matrix_log "$MATRIX_LOG" \
-  --argjson bound_inputs "$BOUND_INPUTS" \
-  '{repo_root:$repo_root,manifest:$manifest,created_at:$created_at,git_revision:$git_revision,force_hatches:[],bound_inputs:$bound_inputs,
+  --argjson bound_inputs "$BOUND_INPUTS" --argjson force_hatches "$FORCE_HATCHES" \
+  '{repo_root:$repo_root,manifest:$manifest,created_at:$created_at,git_revision:$git_revision,force_hatches:$force_hatches,bound_inputs:$bound_inputs,
     tests:[
       {id:"conformance-woocommerce",result:$conformance_result,diff:$conformance_diff,log:$conformance_log},
       {id:"exact-artifact-version-matrix",result:$matrix_result,diff:$matrix_diff,log:$matrix_log}
@@ -154,4 +158,8 @@ php bin/adapter-certification-bundle.php verify "$BUNDLE" "$REPO_ROOT" >/dev/nul
   || fail "new scoped adapter bundle did not verify against current bytes"
 printf '%s\n' "$BUILD"
 pass "scoped $MANIFEST certificate is verified: $BUNDLE"
-printf 'To publish only this claim: php scripts/capability-registry.php import-adapter-bundle %q\n' "$BUNDLE"
+if [ "$FORCE_HATCHES" = '[]' ]; then
+  printf 'To publish only this claim: php scripts/capability-registry.php import-adapter-bundle %q\n' "$BUNDLE"
+else
+  printf 'Forced scoped evidence is verified but intentionally not publishable as a current capability claim.\n'
+fi

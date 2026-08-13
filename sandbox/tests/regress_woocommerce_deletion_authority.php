@@ -48,9 +48,11 @@ require $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Code.php';
 require $root . '/agent/src/CodeStateContract.php';
 require $root . '/agent/src/RepositoryCompiler.php';
+require $root . '/agent/src/DeleteGuardValueCodec.php';
 require $root . '/agent/src/Apply.php';
 
 use Duo\Deletion;
+use Duo\DeleteGuardValueCodec;
 use Duo\OptionState;
 use Duo\Policy;
 use Duo\Snapshot;
@@ -922,8 +924,6 @@ check($scanFailedClosed,
 // value may be a scalar or a flat list of exact positive ids, never a loose
 // PHP cast. The canonical side is tri-state so malformed desired state can
 // never be mistaken for explicit removal.
-$metaValueIds = new ReflectionMethod(\Duo\Apply::class, 'meta_guard_value_ids');
-$metaValueIds->setAccessible(true);
 $shapeCases = [
     [serialize([42]), $metaGuard, [42], 'serialized positive integer list'],
     [serialize(['42']), $metaGuard, [42], 'serialized decimal-string list'],
@@ -945,25 +945,23 @@ $shapeCases = [
     ['42', ['ref' => 'post'], [42], 'exact scalar decimal string'],
 ];
 foreach ($shapeCases as [$raw, $guard, $expected, $label]) {
-    $actual = $metaValueIds->invoke($apply, $raw, $guard);
+    $actual = DeleteGuardValueCodec::meta_value_ids($raw, $guard);
     check($actual === $expected, "metadata guard rejects unsafe shape: $label");
 }
-$canonicalContains = new ReflectionMethod(\Duo\Apply::class, 'canonical_meta_ref_contains_uuid');
-$canonicalContains->setAccessible(true);
 $childToken = "{{post:$childUuid}}";
-check($canonicalContains->invoke($apply, [$childToken], 'post[]', $childUuid) === true,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid([$childToken], 'post[]', $childUuid) === true,
     'canonical metadata list recognizes an exact target token');
-check($canonicalContains->invoke($apply, [['42']], 'post[]', $childUuid) === null,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid([['42']], 'post[]', $childUuid) === null,
     'canonical metadata nested list is unsafe rather than an explicit removal');
-check($canonicalContains->invoke($apply, [$childToken, 42], 'post[]', $childUuid) === null,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid([$childToken, 42], 'post[]', $childUuid) === null,
     'canonical metadata mixed malformed list is unsafe rather than a partial match');
-check($canonicalContains->invoke($apply, ['{{post:ffffffff-ffff-ffff-ffff-ffffffffffff}}'], 'post[]', $childUuid) === null,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid(['{{post:ffffffff-ffff-ffff-ffff-ffffffffffff}}'], 'post[]', $childUuid) === null,
     'canonical metadata malformed UUID token is unsafe rather than a nonmatching removal');
-check($canonicalContains->invoke($apply, 42, 'post', $childUuid) === null,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid(42, 'post', $childUuid) === null,
     'canonical metadata scalar integer is unsafe rather than an explicit removal');
-check($canonicalContains->invoke($apply, null, 'post[]', $childUuid, false) === false,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid(null, 'post[]', $childUuid, false) === false,
     'missing canonical metadata key remains an explicit removal');
-check($canonicalContains->invoke($apply, null, 'post[]', $childUuid, true) === null,
+check(DeleteGuardValueCodec::canonical_meta_ref_contains_uuid(null, 'post[]', $childUuid, true) === null,
     'explicit null canonical metadata value is unsafe rather than an explicit removal');
 
 // Adversarial seams for the authored transaction boundary. The first

@@ -827,10 +827,9 @@ pass "every helper this suite started cleaned up its own control directory"
 # On 2026-08-09 five legs ran green, other agents filled the host's 4-pair
 # budget in between, leg 6's `up` refused over budget ("5 > 4"), and the bundle
 # recorded an immutable FAIL after ~25 minutes of earned evidence.
-# DUO_PAIR_BUDGET_OVERRIDE=1 is not available to a certification: nothing in
-# the bundle detects the override today, so its manifest would affirmatively
-# claim force_hatches:[] for a run whose budget WAS forced -- silently wrong
-# evidence (DUO-3406 tracks making the bundle detect and record it).
+# DUO_PAIR_BUDGET_OVERRIDE=1 is recorded by certification bundles, so a forced
+# run cannot falsely claim force_hatches:[]. It remains auditable but is not
+# eligible to become a current capability claim.
 #
 # So while this lock is HELD, pair.sh treats the exact pair name its record
 # carries as already budgeted. The cases below drive the SHIPPED pair.sh

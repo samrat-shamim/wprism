@@ -376,6 +376,13 @@ function cap_import_adapter_bundle(string $repo, string $input): void {
     if (!$resolved['current']) {
         throw new RuntimeException("scoped bundle for '$name' is stale against the current adapter, closure, platform, artifacts, or citations");
     }
+    // A forced scoped run can be verified as bounded evidence, but it must
+    // never promote a manifest to a current capability claim. Validation above
+    // has already restricted the accepted list to the one named hatch.
+    if (($bundle['force_hatches'] ?? null) !== []) {
+        $shown = implode(', ', array_map('strval', $bundle['force_hatches']));
+        throw new RuntimeException("scoped bundle used force hatches ($shown); a current capability claim must be produced without overrides");
+    }
     $evidencePath = $repo . EVIDENCE_FILE;
     $evidence = cap_read_json($evidencePath);
     if (($evidence['format'] ?? null) !== CapabilityRegistry::EVIDENCE_FORMAT
