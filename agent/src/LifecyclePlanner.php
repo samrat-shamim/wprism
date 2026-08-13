@@ -22,15 +22,16 @@ require_once __DIR__ . '/Deploy.php';
  * baseline (record_code_versions). Every method here only DETECTS and
  * REPORTS findings or reads/writes the drift baseline -- none calls
  * activate_plugin()/deactivate_plugins()/switch_theme() or otherwise fires a
- * WordPress lifecycle hook. That remains Deploy::run()'s own territory (the
- * declared, not-yet-extracted "LifecycleExecutor" half of this same seam) --
- * unlike every other cluster this issue has cut so far, run() is a single
+ * WordPress lifecycle hook. That is LifecycleExecutor::execute()'s territory
+ * (DUO-3350 slice 8, the "LifecycleExecutor" half of this same seam,
+ * extracted from Deploy::run() afterward): at the time this class was cut,
+ * unlike every other cluster this issue had cut so far, run() was a single
  * ~500-line method with promotion-lock/canary/state-handoff/hook-firing
  * concerns tightly interleaved in a very specific required order, and this
  * issue's own guardrail ("preserve ... lifecycle order, failure recovery")
- * makes splitting it apart a materially larger, riskier undertaking than
+ * made splitting it apart a materially larger, riskier undertaking than
  * this narrower, purely-detective cut -- deliberately deferred rather than
- * rushed.
+ * rushed at the time, later cut on its own in slice 8.
  *
  * This cluster is a genuinely shared, externally-consumed API, not just
  * Deploy::run()'s own internal orchestration: Apply::build_plan() calls
