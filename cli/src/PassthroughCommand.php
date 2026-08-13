@@ -43,12 +43,14 @@ final class PassthroughCommand {
      *
      * @param null|callable():bool $stdinIsTty
      * @param null|callable(bool):bool $setTerminalEcho
+     * @param null|callable():string|false $readStdin
      */
     public static function runEnvSet(
         EnvironmentDriver $driver,
         array $extra,
         ?callable $stdinIsTty = null,
-        ?callable $setTerminalEcho = null
+        ?callable $setTerminalEcho = null,
+        ?callable $readStdin = null
     ): int {
         $hasStdin = false;
         foreach ($extra as $arg) {
@@ -67,11 +69,43 @@ final class PassthroughCommand {
             if (function_exists('stream_isatty')) {
                 return @stream_isatty(STDIN);
             }
-            return function_exists('posix_isatty') && @posix_isatty(STDIN);
+            if (function_exists('posix_isatty')) {
+                return @posix_isatty(STDIN);
+            }
+            $stat = @fstat(STDIN);
+            if (is_array($stat)) {
+                // POSIX S_IFMT/S_IFCHR: unlike a pipe or regular redirect, a
+                // terminal is a character device. This keeps secret input
+                // fail-closed when both PHP convenience APIs are disabled.
+                return self::streamStatIsCharacterDevice($stat);
+            }
+            // Unknown is not evidence of a safe non-interactive pipe.
+            return true;
         };
         if (!$stdinIsTty()) {
             return self::run($driver, 'env-set', $extra);
         }
+        if (!function_exists('proc_open')
+            || !function_exists('proc_get_status')
+            || !function_exists('proc_close')
+            || !function_exists('stream_set_blocking')) {
+            return self::scopeWireRefusal(
+                'env-set',
+                $extra,
+                'stdin_isolation_unavailable',
+                'this PHP host cannot isolate interactive secret input from the terminal',
+                'enable PHP process/stream functions or pipe the value from a trusted non-interactive source, then retry'
+            );
+        }
+        $readStdin ??= static function (): string|false {
+            fwrite(STDERR, 'value: ');
+            try {
+                return fgets(STDIN);
+            } finally {
+                // Enter was not visible while echo was disabled.
+                fwrite(STDERR, "\n");
+            }
+        };
 
         $setTerminalEcho ??= static function (bool $enabled): bool {
             if (PHP_OS_FAMILY === 'Windows' || !function_exists('exec')) {
@@ -84,10 +118,14 @@ final class PassthroughCommand {
         };
         $echoMasked = false;
         $inputActive = false;
+        $handoffActive = false;
+        $deferredSignal = null;
         $restoreSignalHandlers = self::installTerminalEchoSignalGuards(
             $setTerminalEcho,
             $echoMasked,
-            $inputActive
+            $inputActive,
+            $handoffActive,
+            $deferredSignal
         );
         if ($restoreSignalHandlers === null) {
             return self::scopeWireRefusal(
@@ -121,17 +159,22 @@ final class PassthroughCommand {
                 $setTerminalEcho(true);
             }
         });
-        $exitCode = 1;
         $restored = false;
+        $line = false;
+        $readCompleted = false;
         try {
-            $exitCode = self::run($driver, 'env-set', $extra);
+            // Read before resolving or starting the target. An unavailable
+            // Docker/SSH/WP target can therefore never strand the operator in
+            // a local, echo-masked prompt after it has already failed.
+            $line = $readStdin();
+            $readCompleted = true;
         } finally {
-            // A signal after this point may restore echo but must never mask it
-            // again on behalf of an inherited ignore/callable handler.
             $inputActive = false;
             $restored = $setTerminalEcho(true);
             $echoMasked = !$restored;
-            $restoreSignalHandlers();
+            if (!$readCompleted) {
+                $restoreSignalHandlers();
+            }
             if (!$restored) {
                 fwrite(
                     STDERR,
@@ -139,7 +182,132 @@ final class PassthroughCommand {
                 );
             }
         }
-        return $restored ? $exitCode : 2;
+        if (!$restored) {
+            $restoreSignalHandlers();
+            return 2;
+        }
+        if (!is_string($line) || !str_ends_with($line, "\n")) {
+            $restoreSignalHandlers();
+            return self::scopeWireRefusal(
+                'env-set',
+                $extra,
+                'invalid_arguments',
+                'env-set did not receive one complete line from stdin',
+                'provide one newline-terminated value and rerun env-set'
+            );
+        }
+        try {
+            $exitCode = self::streamWpInput(
+                $driver,
+                array_merge(['duo', 'env-set', '--repo=' . $driver->repoPath()], $extra),
+                $line,
+                $handoffActive
+            );
+        } finally {
+            $handoffActive = false;
+            $restoreSignalHandlers();
+        }
+        if (is_int($deferredSignal)) {
+            fwrite(
+                STDERR,
+                "duo: env-set: target completed with exit $exitCode after deferred signal $deferredSignal\n"
+            );
+        }
+        return $exitCode;
+    }
+
+    /** @param array<string,mixed> $stat */
+    private static function streamStatIsCharacterDevice(array $stat): bool {
+        return isset($stat['mode'])
+            && ((((int) $stat['mode']) & 0170000) === 0020000);
+    }
+
+    /**
+     * Start the target only after the host has completed its masked read and
+     * restored the terminal. The target receives a pipe—never the operator's
+     * terminal—as stdin.
+     */
+    private static function streamWpInput(
+        EnvironmentDriver $driver,
+        array $wpArgs,
+        string $input,
+        bool &$handoffActive
+    ): int {
+        // Resolve the target instruction while ordinary cancellation remains
+        // available. The commit boundary begins immediately before spawn,
+        // closing the async orphan window around proc_open itself.
+        $instruction = $driver->wpInstruction($wpArgs);
+        $handoffActive = true;
+        $proc = proc_open(
+            $instruction,
+            [0 => ['pipe', 'r'], 1 => STDOUT, 2 => STDERR],
+            $pipes
+        );
+        if (!is_resource($proc)) {
+            return 255;
+        }
+
+        $complete = false;
+        $observedExit = null;
+        try {
+            // A blocking pipe write can hide PHP's async signal handlers while
+            // Docker/SSH/WP is slow or never reads. Nonblocking writes keep
+            // local TERM/TSTP handling live throughout the handoff.
+            $writeReady = @stream_set_blocking($pipes[0], false);
+            $offset = 0;
+            $length = strlen($input);
+            while ($writeReady && $offset < $length) {
+                $written = @fwrite($pipes[0], substr($input, $offset));
+                if ($written === false) {
+                    break;
+                }
+                if ($written > 0) {
+                    $offset += $written;
+                    continue;
+                }
+                $status = proc_get_status($proc);
+                if (($status['running'] ?? false) !== true) {
+                    $observedExit = self::processExitCode($status);
+                    break;
+                }
+                usleep(10000);
+            }
+            $complete = $offset === $length;
+        } finally {
+            fclose($pipes[0]);
+            // Do not disappear into a blocking proc_close(): PHP async signal
+            // handlers are not guaranteed to run while that syscall waits.
+            // Polling keeps Ctrl-Z/termination handling live after handoff.
+            while ($observedExit === null) {
+                $status = proc_get_status($proc);
+                if (($status['running'] ?? false) !== true) {
+                    $observedExit = self::processExitCode($status);
+                    break;
+                }
+                usleep(10000);
+            }
+            $closedExit = proc_close($proc);
+            $exitCode = $observedExit ?? $closedExit;
+        }
+        // If the target has already failed, preserve its actionable exit code
+        // even when its closed pipe prevented the whole value from being
+        // written. Exit 255 is reserved for a short write whose target
+        // otherwise claimed success.
+        return !$complete && $exitCode === 0 ? 255 : $exitCode;
+    }
+
+    /** @param array<string,mixed> $status */
+    private static function processExitCode(array $status): ?int {
+        $candidate = $status['exitcode'] ?? -1;
+        if (is_int($candidate) && $candidate >= 0) {
+            return $candidate;
+        }
+        if (($status['signaled'] ?? false) === true
+            && is_int($status['termsig'] ?? null)
+            && $status['termsig'] > 0) {
+            return 128 + $status['termsig'];
+        }
+        return null;
     }
 
     /**
@@ -154,7 +322,9 @@ final class PassthroughCommand {
     private static function installTerminalEchoSignalGuards(
         callable $setTerminalEcho,
         bool &$echoMasked,
-        bool &$inputActive
+        bool &$inputActive,
+        bool &$handoffActive = false,
+        ?int &$deferredSignal = null
     ): ?callable {
         foreach (['pcntl_async_signals', 'pcntl_signal', 'pcntl_signal_get_handler', 'posix_kill'] as $function) {
             if (!function_exists($function)) {
@@ -183,11 +353,12 @@ final class PassthroughCommand {
                     $setTerminalEcho,
                     $echoMasked,
                     $inputActive,
+                    $handoffActive,
+                    $deferredSignal,
                     $previous
                 );
-                // restart_syscalls=false is necessary but not sufficient for
-                // blocking child waits; Transport::streamWp uses a pollable
-                // proc_open loop so these async handlers are dispatched.
+                // The guarded interval covers the host read and the target
+                // outcome; its behavior changes at the explicit handoff.
                 $installed = pcntl_signal($signal, $handler, false);
                 if (!$installed) {
                     throw new \RuntimeException('could not install terminal signal guard');
@@ -217,6 +388,8 @@ final class PassthroughCommand {
         callable $setTerminalEcho,
         bool &$echoMasked,
         bool &$inputActive,
+        bool &$handoffActive,
+        ?int &$deferredSignal,
         mixed $previous
     ): callable {
         $handler = null;
@@ -224,6 +397,8 @@ final class PassthroughCommand {
             &$handler,
             &$echoMasked,
             &$inputActive,
+            &$handoffActive,
+            &$deferredSignal,
             $setTerminalEcho,
             $previous
         ): void {
@@ -239,6 +414,36 @@ final class PassthroughCommand {
                     "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
                 );
                 exit(128 + $caught);
+            }
+
+            if ($handoffActive && defined('SIGTSTP') && $caught === constant('SIGTSTP')) {
+                fwrite(
+                    STDERR,
+                    "duo: env-set: suspension received after secret handoff; suspending the local wait; the target may continue\n"
+                );
+                // Foreground Ctrl-Z stops the local child/transport too. Stop
+                // the wrapper so shell job control owns one coherent local
+                // job. A non-PTY Docker/SSH target may continue remotely; fg
+                // resumes the local outcome wait without claiming otherwise.
+                if (posix_kill(getmypid(), constant('SIGSTOP'))) {
+                    return;
+                }
+                fwrite(
+                    STDERR,
+                    "duo: env-set: could not preserve suspension after secret handoff; waiting for the target outcome\n"
+                );
+                return;
+            }
+
+            if ($handoffActive) {
+                if ($deferredSignal === null) {
+                    $deferredSignal = $caught;
+                    fwrite(
+                        STDERR,
+                        "duo: env-set: signal $caught received after secret handoff; waiting for the target outcome\n"
+                    );
+                }
+                return;
             }
 
             $ignored = defined('SIG_IGN') && $previous === constant('SIG_IGN');

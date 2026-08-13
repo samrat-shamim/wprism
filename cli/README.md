@@ -703,17 +703,30 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   passthrough to `wp duo env-set --repo=<repo_path> --name=<name> …`, same
   live-streaming/exit-code contract as capture/plan/apply above. This is
   the one passthrough verb where that matters for more than consistency:
-  `--stdin` disables echo on the local terminal before inherited input
-  reaches Docker/SSH, whose target process intentionally has no PTY; direct
-  target use retains the agent's own masking. If local masking cannot be
-  enabled, interactive host use refuses before target contact. Piped input
-  has no terminal echo and passes through unchanged. While echo is masked,
+  interactive `--stdin` disables echo while the host reads exactly one
+  newline-terminated line from the local terminal, restores the terminal, and
+  only then starts the target with detached, piped stdin. Docker/SSH therefore
+  cannot strand the operator in a hidden prompt if startup fails, and their
+  target process intentionally has no PTY; direct target use retains the
+  agent's own masking. If local masking or stdin isolation cannot be enabled,
+  interactive host use refuses. Piped input has no terminal echo and passes
+  through unchanged. While echo is masked,
   temporary HUP/INT/QUIT/TERM/TSTP handlers restore it before termination or
   suspension; a resumed prompt masks it again. Interactive use refuses if PHP
-  cannot supply that signal coverage. A `proc_open` loop with inherited
-  standard streams lets STDIN reach the agent through all three transports,
-  preserves live output/exit status, and permits bounded signal cleanup
-  without putting the value in argv.
+  cannot supply that signal coverage. Once the complete value is handed off,
+  termination signals are reported and deferred until the target returns;
+  Duo therefore reports the target's real outcome instead of claiming a
+  cancellation while a remote mutation may still be running. This wait has no
+  safe local timeout: after handoff, Ctrl-C/TERM cannot prove a remote write
+  stopped; use a separate session to diagnose a stuck target. Ctrl-Z suspends
+  the local wrapper and foreground child/transport; a non-PTY Docker/SSH target
+  may continue remotely. `fg` resumes the local outcome wait so Duo can still
+  report what happened. Nonblocking pipe handoff keeps those local signal
+  handlers responsive even when the target is slow to read. The detached
+  pipe ensures the target does not inherit the terminal as stdin. An
+  incomplete pipe write is rejected by the
+  agent instead of being stored as a truncated value. The value never enters
+  argv.
   Named
   `--stdin`, not `--prompt` — wp-cli reserves `--prompt` globally for its
   own generic per-parameter prompting and consumes it before any command
@@ -1228,8 +1241,7 @@ override for the machine-local half of the registry.
 ## Transports
 
 All three transports build a fully `escapeshellarg()`-escaped command
-string and run it either streamed (`proc_open` with inherited standard streams,
-exit code propagated — used
+string and run it either streamed (`passthru`, exit code propagated — used
 by `capture`/`plan`/`apply`) or captured with stdout and stderr collected
 on **separate** pipes (`proc_open`, used by `doctor`/`status`, which parse
 output — `docker compose run`'s own container-lifecycle chatter lands on
@@ -1237,16 +1249,17 @@ stderr, and merging the streams would corrupt the JSON `duo status` parses).
 
 - **`local`**: `wp --path=<wp_path> duo <verb> --repo=<repo_path> …`
 - **`docker`**: `docker compose -f <compose_file> [--profile <profile>] run --rm -T <service> wp duo <verb> --repo=<repo_path> …`
-- **`ssh`**: `ssh <host> 'cd <wp_path> && wp duo <verb> --repo=<repo_path> …'`
+- **`ssh`**: `ssh -T <host> 'cd <wp_path> && wp duo <verb> --repo=<repo_path> …'`
   (the remote command is assembled with each part escaped, then the whole
-  thing is escaped again as the single argument to `ssh`)
+  thing is escaped again as the single argument to `ssh`; `-T` defeats a user
+  `RequestTTY=force` setting)
 
 Raw (non-`wp`) commands, used only by `doctor`'s reachability, repo-path,
 and `.duo-env-values.json` git-tracked checks, follow the same shape but run through `bash -c '<script>'` for
 `docker` (so shell operators like `&&`/`[ -d … ]` work — `docker compose
 run`'s trailing arguments are otherwise passed as the container's argv
 directly, not interpreted by a shell) and directly for `local`/`ssh` (PHP's
-`proc_open` already invokes `/bin/sh -c` for string commands, and
+`proc_open`/`passthru` already invoke `/bin/sh -c` for string commands, and
 `ssh` already hands its command argument to the remote login shell).
 
 ## Env-bound value provisioning
@@ -1286,11 +1299,20 @@ environment currently has *something* non-empty in each declared slot:
   Polylang's `polylang` — that a bare string write would corrupt; every
   such option shipped today is `required: false` for exactly this
   reason), and refuses an empty value (which `env_missing` would
-  immediately re-flag as still-missing). Interactive host `--stdin` masks
-  the local terminal before transport; direct target use masks at the agent,
-  and piped input has no terminal echo. The host restores echo before normal,
+  immediately re-flag as still-missing). Interactive host `--stdin` masks the
+  local terminal for one host-side read, restores it, then starts the target
+  with detached piped stdin and sends only that line; direct target use masks at the
+  agent, and piped input has no terminal echo. The host restores echo before normal,
   exceptional, HUP, INT, QUIT, TERM, and TSTP exits/suspension, re-masks after
   resume, and refuses interactive use without the required signal support.
+  After handoff, termination waits for the target's real outcome rather than
+  falsely claiming cancellation of an in-flight remote write. That wait is
+  intentionally unbounded because a local timeout cannot prove a remote write
+  stopped; diagnose a stuck target from a separate session. Ctrl-Z suspends
+  the local wrapper and foreground child/transport together, but a non-PTY
+  Docker/SSH target may continue; `fg` resumes the local outcome wait.
+  The pipe handoff itself is nonblocking so local signal handling remains live
+  while a slow target applies backpressure.
   The value is never printed or logged
   (not `--prompt` — see the passthrough section above for why that name
   was unavailable); its own "value for '&lt;name&gt;': " prompt writes to

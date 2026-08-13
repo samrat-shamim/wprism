@@ -230,8 +230,8 @@ final class LocalTransport extends Transport implements AdoptionTransport {
     }
 
     protected function rawCommand(string $script): string {
-        // proc_open() runs string commands via the system shell, so a raw
-        // snippet needs no extra wrapping here.
+        // proc_open()/passthru() already run string commands via the system
+        // shell, so a raw snippet needs no extra wrapping here.
         return $script;
     }
 

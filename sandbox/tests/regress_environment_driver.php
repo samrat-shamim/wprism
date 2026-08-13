@@ -93,6 +93,10 @@ $ssh = new SshTransport('ssh-proof', [
     'transport' => 'ssh', 'host' => 'fixture.invalid',
     'wp_path' => '/wordpress', 'repo_path' => '/repo',
 ]);
+assert_true(
+    str_starts_with($ssh->wpInstruction(['duo', 'status']), 'ssh -T '),
+    'SSH transport does not explicitly defeat a RequestTTY=force user configuration'
+);
 
 $expectedVocabulary = [
     'environment.attach', 'environment.bootstrap', 'environment.create', 'environment.destroy',
@@ -295,8 +299,13 @@ assert_true(
     is_array($captureArgs)
         && in_array('capture', $captureArgs, true)
         && in_array('--repo=' . $tmp . '/repo', $captureArgs, true)
-        && in_array('--orchestrator-environment=local-proof', $captureArgs, true),
-    'public capture forwards its exact environment context for copy-ready lint remediation'
+        && !in_array('--orchestrator-environment=local-proof', $captureArgs, true)
+        && !array_filter(
+            $captureArgs,
+            static fn(string $arg): bool => str_starts_with($arg, '--orchestrator-envs-file=')
+        )
+        && $captureForward['stderr'] === '',
+    'public capture keeps the registry path host-local and does not guess an unobserved lint warning'
 );
 $lintForward = invoke_cli([
     '--envs-file=' . $envsFile, 'lint', 'local-proof', '--format=json',

@@ -695,7 +695,7 @@ function main(array $argv): int {
         'adapter-observe' => cmd_adapter_observe($transport, $extra),
         'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'env-set' => PassthroughCommand::runEnvSet($transport, $extra),
-        'capture' => cmd_capture($transport, $extra),
+        'capture' => cmd_capture($transport, $extra, $envsFileOverride),
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
@@ -1102,8 +1102,8 @@ function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra
 }
 
 /** Validate a host-local scope contract, then forward only its compact proof. */
-function cmd_capture(EnvironmentDriver $t, array $extra): int {
-    return CaptureCommand::run($t, $extra);
+function cmd_capture(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {
+    return CaptureCommand::run($t, $extra, $envsFileOverride);
 }
 
 /**
