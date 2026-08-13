@@ -668,7 +668,7 @@ removes both handoff files after the child exits.
 
 A root selector is one of `post:<uuid>`, `term:<uuid>`, `table:<table>:<uuid>`, `menu:<slug>`, `sidebar:<id>`, `user-meta:<login>`, `options`, `option:<name>`, `path:<state-relative-path>`, or `all`. Multiple roots are comma-separated. `all` is the whole revision, so a full-site operation is this same model with a wider root set rather than a second code path. A selector that resolves to nothing, resolves to an entity of a different type than it names, or cannot be parsed is **refused** — a silently empty scope is indistinguishable from a correctly small one. A menu item or widget uuid is refused by naming its owning menu/sidebar, because an item is not a file and cannot be scoped away from its owner.
 
-`option:<name>` names one authored `wp_options` row rather than the whole `options/core` surface `options` names, refusing a name that is not currently authored the same way a uuid selector refuses one that does not resolve. Its closure is attributed to that option's own declared references only — a token in a *different* option's value never joins another option's scope — computed against `ReferenceGraph`'s existing per-entity edge enumeration rather than a second walker. This is preview-only (DUO-3344): `--contract` refuses a request containing one, because no mutation consumer (scoped capture, refresh, apply, or promote) has an option-granular overlay yet. Per-option *capture* remains future work, unchanged from the "Per-option capture... require later contracts" line under "Immutable scope evidence" below.
+`option:<name>` names one authored `wp_options` row rather than the whole `options/core` surface `options` names, refusing a name that is not currently authored the same way a uuid selector refuses one that does not resolve. Its closure is attributed to that option's own declared references only — a token in a *different* option's value never joins another option's scope — computed against `ReferenceGraph`'s existing per-entity edge enumeration rather than a second walker. The immutable contract carries this virtual record identity into the record-aware capture, refresh/rebase, scoped plan/apply, and SSH checkpoint-promotion protocols. Each consumer overlays or mutates only the named option record while preserving excluded siblings in the physical `options/core` carrier. The SSH profile's encrypted whole-database checkpoint is safe for rollback only inside its all-database-writer exclusion window; it does not widen the option's forward write set.
 
 Closure follows declared edges in exactly one direction: **outbound**. If the scope holds X and X references Y, then Y is a dependency (X is incoherent without it) and joins the scope, recording the referring entity and the exact locator that pulled it in. Edges are the ones the compiler already validates — every `{{kind:uuid}}` token in any entity's data (including option *names*, which is where `option_name_refs` puts them) or post body, `terms` assignments, and term `parent` and `relationships` — plus declared parent → child post-type descent via `post_types.<t>.children` (DUO-3315). Menu-item hierarchy is enumerated too, but moves no scope and is deliberately dropped during resolution: a menu owns its items, so an item's parent is an intra-entry edge whose target is already whatever the menu carries. The engine learns every one of these from pinned declarations; an adapter that declares a new reference shape gets closure for free, and an engine branch naming a specific plugin is a defect.
 
@@ -734,8 +734,10 @@ association.
 ### Scoped capture and refresh overlays (v1)
 
 `duo capture <env> --scope-contract=<local-path>` and `duo refresh`/`duo
-rebase ... --scope-contract=<local-path>` are the only mutation/planning
-consumers in v1. The host parses the local file with the engine's real
+rebase ... --scope-contract=<local-path>` are record-aware mutation/planning
+consumers in v1. Scoped plan/apply and the SSH checkpoint-promotion profile
+consume the same evidence through their separate target-bound protocols. The
+host parses the local file with the engine's real
 `ScopeContract::from_array()` implementation. It never sends that machine-local
 path to a target: it sends only canonical selectors and the claimed
 `scope_hash`. The target recompiles its own checked-out repository, resolves
@@ -775,17 +777,21 @@ state/media only and marks every other production row
 `omitted_not_absent`; omission is never interpreted as deletion. The B/P/W
 planner records the contract and scope hash, reports conflicts only inside the
 scope, and materializes a complete candidate by starting from exact W bytes
-and replacing selected whole records only. `options/core` remains one atomic
-record, not a field-level partial file. All unrelated W state, tombstones, and
+and replacing selected whole records only. An `option:<name>` root is a virtual
+record: materialization recombines its selected record with the exact W
+carrier, so excluded option siblings remain byte-for-byte preserved rather
+than becoming mutation authority. All unrelated W state, tombstones, and
 media are verified byte-for-byte, and candidate closure may not escape the
 contract. The second production export must reproduce the same scoped
 snapshot before the new ref is created. Because the contract excludes code and
 lifecycle effects, scoped rebase preserves W's code and ancestry and changes
 state/media only.
 
-Per-option capture, code dependency movement, and user-invoked post-commit
-scoped rollback require later contracts. Scoped apply does not infer authority
-from this state-only overlay; it uses the separate target-bound protocol below.
+Code dependency movement and user-invoked post-commit scoped rollback require
+later contracts. Record-scoped capture/refresh and scoped plan/apply do not
+infer mutation authority from the state-only overlay; they use their separate
+target-bound protocols below, as does SSH scoped promotion and its
+checkpoint-only pre-fresh-verification rollback.
 
 ### Scoped plan, apply, and verification
 
@@ -882,11 +888,11 @@ the sealed external-generation digest. A new signed generation for the same
 scope/artifact cannot discover or replay an older terminal. Exact committed
 response-loss recovery may recreate the short target `ps-*` handoff, but only
 the same signed external tuple and delete capability can reopen the archived
-terminal. Ordinary promotion, code materialization, lifecycle, user-invoked rollback, attachment
-derivative generation, legacy `regen_dependency`, triggerless actions, and
-per-option mutation remain explicitly outside this version. The one
-scoped-promotion exception is the externally checkpointed SSH profile below;
-it consumes this same apply protocol without widening it.
+terminal. Ordinary promotion, code materialization, lifecycle, user-invoked
+rollback, attachment derivative generation, legacy `regen_dependency`, and
+triggerless actions remain explicitly outside this version. The externally
+checkpointed SSH profile below is the scoped-promotion exception; it consumes
+this same apply protocol without widening its selected record set.
 
 ### SSH scoped promotion checkpoint profile (v1)
 

@@ -336,11 +336,12 @@ check(
         && ($captureCompactContract['scope_hash'] ?? null) === $optionContract['scope_hash'],
     'capture target accepts direct and host-compact option-root evidence before its record-aware overlay'
 );
-expect_throw(
-    static fn() => ScopeContract::assert_mutation_supported($optionContract, 'scoped promote'),
-    'does not support per-option scoped mutation',
-    'valid option-root evidence remains refused for a whole-document promotion consumer'
-);
+try {
+    ScopeContract::assert_mutation_supported($optionContract, 'scoped promote');
+    check(true, 'record-aware scoped promotion accepts valid option-root evidence');
+} catch (Throwable $failure) {
+    check(false, 'record-aware scoped promotion accepts valid option-root evidence (' . $failure->getMessage() . ')');
+}
 $resolvedOptionApplyContract = \Duo\ScopedApply::resolve_contract($optionContract, $compiled, $policy);
 check(
     ($resolvedOptionApplyContract['scope_hash'] ?? null) === $optionContract['scope_hash']

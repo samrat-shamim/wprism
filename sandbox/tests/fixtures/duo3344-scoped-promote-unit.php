@@ -800,7 +800,10 @@ PHP
     $hash = static fn(string $value): string => hash('sha256', $value);
     $contract = [
         'code_diagnostic' => null,
-        'eligible_surfaces' => [],
+        // DUO-3465: exercise the public SSH promotion/rollback path with a
+        // genuine per-option contract, not merely a whole-options carrier
+        // whose target plan happens to name an option surface.
+        'eligible_surfaces' => ['option:fixture'],
         'exclusions' => [
             'code' => 'excluded from scoped state evidence',
             'lifecycle' => 'excluded from scoped state evidence',
@@ -808,7 +811,20 @@ PHP
             'target_guard_witnesses' => 'excluded from local evidence',
         ],
         'format' => 'duo-scope-contract/v1',
-        'live' => ['closure' => [], 'excluded' => [], 'inbound' => [], 'roots' => []],
+        'live' => [
+            'closure' => [],
+            'excluded' => [],
+            'inbound' => [],
+            'roots' => [[
+                'entity' => 'options/core#fixture',
+                'entity_hash' => $hash('fixture-option-record'),
+                'option' => 'fixture',
+                'path' => 'options/core.json',
+                'provenance' => ['kind' => 'root', 'selector' => 'option:fixture'],
+                'source_hash' => $hash('fixture-options-source'),
+                'type' => 'option',
+            ]],
+        ],
         'media' => [],
         'mutation_authority' => false,
         'potential_actions' => [],
@@ -816,8 +832,11 @@ PHP
         'potential_providers' => [],
         'purpose' => 'read-only scope evidence; never mutation authority',
         'read_only_evidence' => true,
-        'resolution' => ['live_root_entities' => [], 'tombstone_uuids' => []],
-        'selectors' => ['options'],
+        'resolution' => [
+            'live_root_entities' => ['options/core#fixture'],
+            'tombstone_uuids' => [],
+        ],
+        'selectors' => ['option:fixture'],
         'source' => [
             'artifact_hash' => $artifactHash,
             'manifest_hash' => $hash('fixture-manifest'),
