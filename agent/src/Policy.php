@@ -87,6 +87,9 @@ require_once __DIR__ . '/ManifestValidator.php';
 // validation sequence for live and frozen loaders, required here so both
 // entry points retain the same standalone load graph and refusal order.
 require_once __DIR__ . '/SitePolicyValidator.php';
+// DUO-3348 slice 36: live and frozen loads share one post-local-load
+// validation/pin-binding sequence, so keep its refusal order in one place.
+require_once __DIR__ . '/PolicyLoadFinalizer.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -327,26 +330,7 @@ final class Policy {
             );
             $p->manifests[] = $manifest;
         }
-        CrossManifestGuards::validate_no_conflicting_option_rules(
-            $p->manifests,
-            $p->site['policy']['options'] ?? []
-        );
-        OptionReferenceGrammar::validate_no_overlapping_option_name_refs($p->manifests);
-        AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests);
-        ActionProviderGrammar::validate_no_conflicting_provider_ids($p->manifests);
-        CrossManifestGuards::validate_no_conflicting_post_type_contracts($p->manifests);
-        CrossManifestGuards::validate_one_owner_per_declared_name($p->manifests);
-        ReferenceKindGrammar::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
-        CrossManifestGuards::validate_unique_table_id_kinds($p->declared_tables());
-        CrossManifestGuards::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
-        CrossManifestGuards::validate_no_conflicting_description_reference_rules($p->manifests);
-        ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(
-            $p->site['policy'] ?? [],
-            $p->manifests,
-            $p->declared_tables()
-        );
-        PinResolver::validate_manifest_pins($pins, $p);
-        $p->adapterSources->bind_explicit_pins($pins);
+        PolicyLoadFinalizer::finalize($p, $pins);
         if ($p->manifestDispositions !== null && class_exists(CapabilityRegistry::class)) {
             // Only the shipped subset is a registry claim. Handing an
             // out-of-tree manifest to registry validation would demand a claim
@@ -468,26 +452,7 @@ final class Policy {
         } elseif ($p->manifestDispositions !== null) {
             throw new \RuntimeException('duo: frozen policy snapshot has dispositions but no capability registry');
         }
-        CrossManifestGuards::validate_no_conflicting_option_rules(
-            $p->manifests,
-            $p->site['policy']['options'] ?? []
-        );
-        OptionReferenceGrammar::validate_no_overlapping_option_name_refs($p->manifests);
-        AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests);
-        ActionProviderGrammar::validate_no_conflicting_provider_ids($p->manifests);
-        CrossManifestGuards::validate_no_conflicting_post_type_contracts($p->manifests);
-        CrossManifestGuards::validate_one_owner_per_declared_name($p->manifests);
-        ReferenceKindGrammar::validate_ref_kinds($p->manifests, $p->site['policy'] ?? []);
-        CrossManifestGuards::validate_unique_table_id_kinds($p->declared_tables());
-        CrossManifestGuards::validate_no_conflicting_taxonomy_object_keyspaces($p->manifests);
-        CrossManifestGuards::validate_no_conflicting_description_reference_rules($p->manifests);
-        ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(
-            $p->site['policy'] ?? [],
-            $p->manifests,
-            $p->declared_tables()
-        );
-        PinResolver::validate_manifest_pins($pins, $p);
-        $p->adapterSources->bind_explicit_pins($pins);
+        PolicyLoadFinalizer::finalize($p, $pins);
         return $p;
     }
 

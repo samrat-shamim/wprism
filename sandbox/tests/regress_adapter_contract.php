@@ -391,6 +391,7 @@ check($inRange->invoke(null, '2.0.1', '1.0.0', '2.0.0') === false, 'installed ab
 $adapterContractGrammar = new \ReflectionClass('Duo\\AdapterContractGrammar');
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
 $manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
+$finalizerSource = file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $adapterContractGrammar->hasMethod('validate_adapter_contract')
@@ -401,8 +402,10 @@ check(
         && !$policyReflection->hasMethod('validate_no_conflicting_adapter_claims')
         && substr_count($policySource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 0
         && substr_count($manifestValidatorSource, 'AdapterContractGrammar::validate_adapter_contract($manifest)') === 1
-        && substr_count($policySource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests)') === 2,
-    'adapter compatibility grammar lives in ManifestValidator while its cross-manifest guard remains in Policy'
+        && substr_count($policySource, 'PolicyLoadFinalizer::finalize(') === 2
+        && substr_count($policySource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($p->manifests)') === 0
+        && substr_count($finalizerSource, 'AdapterContractGrammar::validate_no_conflicting_adapter_claims($policy->manifests)') === 1,
+    'adapter compatibility grammar lives in ManifestValidator while PolicyLoadFinalizer owns its cross-manifest guard'
 );
 
 // ======================================================================
