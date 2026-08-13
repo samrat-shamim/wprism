@@ -10,6 +10,7 @@ require_once __DIR__ . '/TableGraph.php';
 require_once __DIR__ . '/TableSchema.php';
 require_once __DIR__ . '/SnapshotIdentity.php';
 require_once __DIR__ . '/SnapshotPruner.php';
+require_once __DIR__ . '/TypedTableCapture.php';
 
 /**
  * Typed snapshot: capture/apply for authored custom tables (DESIGN.md §3.3's
@@ -897,219 +898,37 @@ final class Snapshot {
         bool $mint,
         bool $strictReadOnly = false
     ): array {
-        if (self::is_composite_ref($decl)) {
-            // $mint/$metaDecls are unused here on purpose: composite_ref rows
-            // are never "minted" (see identify_composite_row()'s docblock)
-            // and can never own an attached-meta sidecar (meta_tables_by_
-            // owner() already refuses that combination before capture()
-            // ever reaches this call).
-            return self::capture_composite_table($table, $decl, $tokens, $strictReadOnly);
-        }
-        global $wpdb;
-        $pk = $decl['pk'];
-        $prefixed = $wpdb->prefix . $table;
-        $rows = $wpdb->get_results("SELECT * FROM `$prefixed` ORDER BY `$pk` ASC", ARRAY_A) ?: [];
-
-        $entities = [];
-        foreach ($rows as $row) {
-            $localId = (int) $row[$pk];
-            $uuid = self::identify_row($table, $decl, $row, $localId, $tokens, $mint, $strictReadOnly);
-
-            $columns = [];
-            foreach ($decl['columns'] ?? [] as $col => $rule) {
-                if (($rule['class'] ?? '') !== 'authored') {
-                    continue; // runtime/derived/env: excluded from canonical state entirely
-                }
-                $v = $row[$col] ?? null;
-                self::guard_secret($v, !empty($rule['allow_secret']), "table '$table' column '$col' (row $localId)");
-                $columns[$col] = is_string($v) ? $tokens->tokenize_text($v) : $v;
-            }
-            foreach ($decl['refs'] ?? [] as $ref) {
-                $col = $ref['column'];
-                $raw = (int) ($row[$col] ?? 0);
-                if ($raw <= 0) {
-                    $columns[$col] = null; // WordPress's own "unset" convention for an id column, e.g. post_parent=0
-                    continue;
-                }
-                $tok = $tokens->id_to_token($raw, $ref['kind']);
-                if ($tok === null) {
-                    // STRUCTURAL ref: same posture as Capture::build_post()'s
-                    // unmanaged post_parent — throw, don't drop-with-warning
-                    // (see this file's docblock, "Refs: required vs optional").
-                    throw new \RuntimeException(
-                        "duo: $table row $localId has unmanaged {$ref['kind']} ref $raw in column '$col' — "
-                        . 'capture scope must include the referenced row'
-                    );
-                }
-                $columns[$col] = $tok;
-            }
-
-            $meta = [];
-            foreach ($metaDecls as $metaName => $metaDecl) {
-                $meta = array_merge($meta, self::capture_meta_rows($metaName, $metaDecl, $localId, $tokens));
-            }
-
-            $front = [
-                'columns' => (object) $columns,
-                'meta' => (object) $meta,
-                'table' => $table,
-                'uuid' => $uuid,
-            ];
-            $identityNote = IdentityNotes::natural_key_continuity($uuid, $table, $decl, $columns);
-            if ($identityNote !== null && !in_array($identityNote, $tokens->notes, true)) {
-                $tokens->notes[] = $identityNote;
-            }
-            $slug = self::slug_for($decl, $row);
-            $entities[] = [
-                'uuid' => $uuid,
-                'type' => $table,
-                'path' => "tables/$table/$uuid--$slug.json",
-                'content' => Canon::encode($front),
-            ];
-        }
-        return $entities;
+        return self::typed_table_capture()->capture_table(
+            $table,
+            $decl,
+            $metaDecls,
+            $tokens,
+            $mint,
+            $strictReadOnly
+        );
     }
 
-    /**
-     * Capture for identity.mode=composite_ref tables (DUO-3235, task #125).
-     * No $mint parameter (unlike capture_table()): a composite_ref row's
-     * uuid is a pure function of its two resolved refs, recomputed fresh
-     * every call — there is no un-minted state to gate visibility behind
-     * (see this file's docblock, "Identity: three modes"). Every row whose
-     * refs currently resolve is captured, on BOTH Capture::run() and
-     * Capture::snapshot() alike.
-     */
-    private static function capture_composite_table(
-        string $table,
-        array $decl,
-        Tokens $tokens,
-        bool $strictReadOnly = false
-    ): array {
-        global $wpdb;
-        $idKind = $decl['id_kind'];
-        $cols = $decl['identity']['columns'];
-        $prefixed = $wpdb->prefix . $table;
-        $orderBy = implode(', ', array_map(fn($c) => "`$c`", $cols));
-        $rows = $wpdb->get_results("SELECT * FROM `$prefixed` ORDER BY $orderBy ASC", ARRAY_A) ?: [];
-
-        $entities = [];
-        foreach ($rows as $row) {
-            [$uuid, $tokensByCol, $localByCol] = self::identify_composite_row($table, $decl, $row, $tokens);
-
-            $columns = $tokensByCol; // identity/ref columns, tokenized — same flat "columns" shape regular rows use
-            foreach ($decl['columns'] ?? [] as $col => $rule) {
-                if (($rule['class'] ?? '') !== 'authored') {
-                    continue; // runtime/derived/env: excluded — e.g. PMPro's own `modified` auto-timestamp column
+    /** Bind Snapshot's runtime collaborators to the extracted capture seam. */
+    private static function typed_table_capture(): TypedTableCapture {
+        return new TypedTableCapture(
+            self::snapshot_identity(),
+            static function (
+                string $uuid,
+                string $table,
+                string $idKind,
+                int $packed,
+                bool $strictReadOnly,
+                string $context
+            ): void {
+                if ($strictReadOnly) {
+                    Ledger::require_read_only_mapping($uuid, $table, $idKind, $packed, $context);
+                } else {
+                    Ledger::set($uuid, $table, $idKind, $packed);
                 }
-                $v = $row[$col] ?? null;
-                self::guard_secret($v, !empty($rule['allow_secret']), "table '$table' column '$col' (composite row $uuid)");
-                $columns[$col] = is_string($v) ? $tokens->tokenize_text($v) : $v;
-            }
-
-            $packed = self::pack_composite_id($table, $localByCol);
-            if ($strictReadOnly) {
-                Ledger::require_read_only_mapping(
-                    $uuid,
-                    $table,
-                    $idKind,
-                    $packed,
-                    "composite table '$table' row $packed"
-                );
-            } else {
-                Ledger::set($uuid, $table, $idKind, $packed);
-            }
-
-            $front = [
-                'columns' => (object) $columns,
-                'meta' => (object) [], // composite_ref tables can never own an attached-meta sidecar — see meta_tables_by_owner()
-                'table' => $table,
-                'uuid' => $uuid,
-            ];
-            // "--slug" suffix (DUO-3239 finding, overriding a previous
-            // deliberate choice; also required unconditionally by
-            // RepositoryCompiler's own filename validator — every non-menu
-            // entity's basename must start with "<uuid>--", so this can't
-            // simply be dropped): built from the TWO REFERENCED ENTITIES'
-            // OWN uuids (short prefixes, via uuid_from_token() — already
-            // resolved above by identify_composite_row(), not a second
-            // lookup), never this environment's local ids. Still lets two
-            // different rows of the same table look different in a
-            // directory listing (unlike a single static per-table fallback,
-            // e.g. id_kind, would), while staying fully portable.
-            //
-            // This used to join THIS environment's own local ids
-            // ("<local-id-1>-<local-id-2>"), defended as "cosmetic only ...
-            // the same as every other slug's 'renames change the filename's
-            // slug half' convention already tolerates looking different
-            // across environments." That analogy doesn't actually hold: a
-            // post/term slug is AUTHORED content that transfers verbatim
-            // across environments via apply, so it stays identical under an
-            // ordinary cross-environment round-trip — it only changes when
-            // the content genuinely changes. A local id is NEVER transferred
-            // (Apply.php always mints a fresh one on the target) and differs
-            // by construction, so the old local-id slug produced a spurious
-            // filename difference on EVERY cross-environment
-            // capture-apply-recapture, not just on an actual rename.
-            // Confirmed live during DUO-3239: a directory-tree round-trip
-            // diff (conformance/run.sh's `diff -r`) caught it;
-            // regress_pmpro_composite_ref.sh's own file-content-only diff
-            // (explicit `diff -u $file_a $file_b`, never a directory
-            // listing) structurally could never have exercised this, so it
-            // went uncaught since DUO-3235.
-            $slug = implode('-', array_map(
-                fn($c) => substr(self::uuid_from_token($tokensByCol[$c]), 0, 8),
-                $cols
-            ));
-            $entities[] = [
-                'uuid' => $uuid,
-                'type' => $table,
-                'path' => "tables/$table/$uuid--$slug.json",
-                'content' => Canon::encode($front),
-            ];
-        }
-        return $entities;
-    }
-
-    /**
-     * Secret guard for typed-snapshot capture (DUO-3214 — this mechanism
-     * had NONE before this: Capture.php's guard_secret() has gated
-     * authored options/post_meta since the beginning, but never ran here,
-     * even though a table column or attached-meta value is exactly as
-     * capable of holding a stray API key as a post_meta value is). Same
-     * posture as Capture's guard, mirrored rather than shared (Capture.php
-     * is a held file, and its guard_secret() is an instance method bound to
-     * an option/post_meta $section/$key shape that doesn't fit a table's
-     * column/key naming anyway): a hard-pattern match on an AUTHORED
-     * value aborts capture loudly, naming exactly where it was found. A
-     * column or attached-meta `keys{}` entry may declare `"allow_secret":
-     * true` — the SAME escape hatch option/post_meta rules already use,
-     * settable in a manifest or (since Policy::declared_tables() merges
-     * site.duo.json's policy.tables last) a site policy override — for a
-     * confirmed false positive.
-     *
-     * hard_match_deep(), not hard_match(): every value this file captures
-     * today is a flat string (a raw column read, or an attached-meta value
-     * this file deliberately never unserializes — see capture_meta_rows()'s
-     * docblock), so a plain hard_match() would suffice for the CURRENT
-     * fixtures, but this mechanism makes no promise that stays true for a
-     * table declared later, and the deep scan costs nothing extra on a
-     * value that is already flat (hard_match_deep() on a string is exactly
-     * one hard_match() call, no recursion entered).
-     */
-    private static function guard_secret($v, bool $allowSecret, string $where): void {
-        if ($allowSecret) {
-            return;
-        }
-        $label = Secrets::hard_match_deep($v);
-        if ($label === null) {
-            return;
-        }
-        throw new \RuntimeException(
-            "duo: secret guard tripped — $where looks like a $label but is classified authored; "
-            . "refusing to capture it into state/.\n"
-            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-            . 'If this is a false positive, declare "allow_secret": true on its rule '
-            . '(the manifest, or a site.duo.json policy.tables override).'
+            },
+            static fn(string $uuid, string $table, array $decl, array $columns): ?string =>
+                IdentityNotes::natural_key_continuity($uuid, $table, $decl, $columns),
+            static fn(string $raw): string => sanitize_title($raw)
         );
     }
 
@@ -1230,22 +1049,6 @@ final class Snapshot {
     }
 
     /**
-     * Human-readable path suffix for an ordinary typed-snapshot row.
-     *
-     * A declared slug column is authored data and therefore portable. A
-     * table without one used to fall back to its auto-increment primary key,
-     * making an otherwise identical capture/apply/recapture rename files on
-     * every environment whose local ids differed. The UUID already provides
-     * per-row uniqueness, so a static suffix is the only honest fallback.
-     */
-    private static function slug_for(array $decl, array $row): string {
-        $col = $decl['slug_column'] ?? null;
-        $raw = $col !== null ? (string) ($row[$col] ?? '') : '';
-        $slug = $raw !== '' ? sanitize_title($raw) : '';
-        return $slug !== '' ? $slug : 'record';
-    }
-
-    /**
      * Identity for one composite_ref row: NEVER a ledger lookup (contrast
      * identify_row() above, which tries Ledger::uuid_for() first) — always
      * recomputed from the row's two CURRENTLY-resolved refs, because that is
@@ -1324,114 +1127,6 @@ final class Snapshot {
     private static function unpack_composite_id(int $packed): array {
         return self::snapshot_identity()->unpackCompositeId($packed);
     }
-
-
-    /**
-     * An attached-meta key's classification RULE: the `keys{}`-declared
-     * entry, or a synthetic {"class": default_class} when the key is
-     * undeclared — the exact two-step lookup (declared entry, else the
-     * table's own default_class) both capture and apply must agree on.
-     * Extracted as the SINGLE source of truth for capture_meta_rows() below
-     * (which key is excluded from canonical state entirely) and
-     * reconcile_meta()'s delete loop (which live key an apply may remove),
-     * specifically so the two can never independently drift on which keys
-     * are owned (DUO-3204 — see reconcile_meta()'s docblock: before this
-     * existed, its delete loop had no classification check at all).
-     *
-     * @param array<string,array> $keyRules decl['keys'] ?? []
-     */
-    /**
-     * One attached-meta table's rows for a single owner, as a flat
-     * key=>value map. Throws on a genuine SQL-level duplicate key for the
-     * same owner (mirrors Capture::build_post()'s identical multi-value
-     * guard for authored post_meta — an unexpected shape, not something to
-     * silently pick a winner for). Ref-declared keys drop-with-warning on
-     * an unmapped id (the OPTIONAL-value convention — see this file's
-     * docblock); everything else is opaque text, tokenize_text()'d for
-     * URL safety only — deliberately never unserialize()'d/re-encoded even
-     * when the value LOOKS like PHP-serialized data (Ninja Forms'
-     * `formContentData`/`calculations`/choice-field `options` values all
-     * do), because nothing observed inside them is ever a numeric ref
-     * (confirmed empirically — see the manifest's own notes) and byte-
-     * verbatim passthrough is strictly safer than a decode/re-encode round
-     * trip this mechanism doesn't need to attempt. Keys that explicitly
-     * declare json_refs/key_refs take the shared structured codec path.
-     */
-    private static function capture_meta_rows(string $metaTable, array $decl, int $ownerLocalId, Tokens $tokens): array {
-        global $wpdb;
-        $prefixed = $wpdb->prefix . $metaTable;
-        $attachCol = $decl['attached_to']['column'];
-        $idCol = $decl['id_column'] ?? 'id';
-        $keyCol = $decl['key_column'] ?? 'meta_key';
-        $valCol = $decl['value_column'] ?? 'meta_value';
-        $rows = $wpdb->get_results($wpdb->prepare(
-            "SELECT `$keyCol` AS k, `$valCol` AS v FROM `$prefixed` WHERE `$attachCol` = %d ORDER BY `$idCol` ASC",
-            $ownerLocalId
-        ), ARRAY_A) ?: [];
-
-        $byKey = [];
-        foreach ($rows as $r) {
-            $byKey[(string) $r['k']][] = $r['v'];
-        }
-
-        $default = $decl['default_class'] ?? 'authored';
-        $out = [];
-        foreach ($byKey as $key => $values) {
-            if (count($values) > 1) {
-                throw new \RuntimeException(
-                    "duo: multi-value meta key '$key' in $metaTable for parent $ownerLocalId "
-                    . '(found ' . count($values) . ' rows) — unsupported'
-                );
-            }
-            $rule = ReferenceRules::attached_meta_key($decl, $key);
-            $class = $rule['class'] ?? $default;
-            if ($class !== 'authored') {
-                continue; // runtime/derived/env sidecar key — excluded, mirrors post_meta
-            }
-            $v = $values[0];
-            $context = "table '$metaTable' key '$key' (parent $ownerLocalId)";
-            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                $plain = PlainData::decode($v, $context);
-                PlainData::assert($plain, $context);
-                $decoded = StructuredValue::decode($plain, $rule, $context);
-                self::guard_secret($decoded, !empty($rule['allow_secret']), $context);
-                $captured = $tokens->struct_capture(
-                    $decoded,
-                    $rule['json_refs'] ?? [],
-                    $rule['key_refs'] ?? null
-                );
-                $out[$key] = !empty($rule['order_preserving'])
-                    ? new OrderPreserved($captured)
-                    : $captured;
-            } elseif (!empty($rule['ref'])) {
-                self::guard_secret($v, !empty($rule['allow_secret']), $context);
-                $n = (int) $v;
-                if ($n <= 0) {
-                    $out[$key] = null;
-                    continue;
-                }
-                $tok = $tokens->id_to_token($n, $rule['ref']);
-                if ($tok === null) {
-                    // DUO-3212: id_to_token() no longer warns internally (see
-                    // its own docblock) -- this was this call site's ONLY
-                    // warning coverage, so it's now explicit here.
-                    // OPTIONAL value ref: drop-with-warning, not a row-level throw.
-                    $tokens->warnings[] = "table '$metaTable' key '$key' (parent $ownerLocalId): unmapped "
-                        . "{$rule['ref']} id $n dropped (dangling reference)";
-                    continue;
-                }
-                $out[$key] = $tok;
-            } elseif (is_string($v)) {
-                self::guard_secret($v, !empty($rule['allow_secret']), $context);
-                $out[$key] = $tokens->tokenize_text($v);
-            } else {
-                self::guard_secret($v, !empty($rule['allow_secret']), $context);
-                $out[$key] = $v;
-            }
-        }
-        return $out;
-    }
-
     // --------------------------------------------------------------- apply
 
     /**
