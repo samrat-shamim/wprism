@@ -1,7 +1,7 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/Shortcodes.php';
+require_once __DIR__ . '/ShortcodeReferenceScanner.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
 require_once __DIR__ . '/LintFinding.php';
 require_once __DIR__ . '/StateTreeWalker.php';
@@ -525,101 +525,8 @@ final class Lint {
         array &$findings,
         string $locatorPrefix = ''
     ): void {
-        if ($shortcodeRules === [] || !str_contains($body, '[')) {
-            return;
-        }
-        $pattern = '/' . get_shortcode_regex(array_keys($shortcodeRules)) . '/';
-        $matched = preg_match_all($pattern, $body, $matches, PREG_SET_ORDER);
-        if ($matched === false) {
-            throw new \RuntimeException('duo: shortcode lint regex failed; refusing unproven content');
-        }
-        if ($matched === 0) {
-            return;
-        }
-        foreach ($matches as $m) {
-            if ($m[1] === '[' && $m[6] === ']') {
-                continue; // escaped [[tag]] — literal text, never executes, nothing to check
-            }
-            $tag = $m[2];
-            $rules = $shortcodeRules[$tag] ?? null;
-            if ($rules === null) {
-                continue;
-            }
-            $rulesByAttr = [];
-            foreach ($rules as $r) {
-                if (!array_key_exists('position', $r)) {
-                    $rulesByAttr[$r['path']] = $r;
-                }
-            }
-            foreach ($rules as $r) {
-                if (!array_key_exists('position', $r)) {
-                    continue;
-                }
-                $position = (int) $r['position'];
-                $positional = Shortcodes::positional_spans($m[3]);
-                if (!isset($positional[$position])) {
-                    continue;
-                }
-                $value = trim((string) $positional[$position][0], "\\\"'");
-                if (preg_match('/^[0-9]+$/D', $value) !== 1) {
-                    continue;
-                }
-                $findings[] = LintFinding::make(
-                    'unrewritten_registered_shortcode_ref',
-                    $rel,
-                    ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.positional[$position]",
-                    (int) $value,
-                    null,
-                    "shortcode '$tag' positional[$position] has a numeric alternate id still present in captured state; "
-                    . 'the declared alternate post-meta locator did not produce a canonical token'
-                );
-            }
-            $atts = shortcode_parse_atts($m[3]);
-            foreach ($atts as $attrKey => $attrVal) {
-                if (!is_string($attrKey)) {
-                    continue; // positional/bare value — no name to match a rule or heuristic against
-                }
-                $rule = $rulesByAttr[$attrKey] ?? null;
-                if ($rule === null) {
-                    // looks_like_id_KEY(), not looks_like_id_ATTR(): shortcode_
-                    // parse_atts() strtolower()s every attribute name (confirmed
-                    // by reading it directly), so a source-text camelCase name
-                    // like "userId" is ALREADY "userid" by the time it reaches
-                    // here -- looks_like_id_attr()'s /(Id|ID)s?$/ branch is tuned
-                    // for block attrs' case-PRESERVED JSON keys and can never
-                    // fire on already-lowercased text (its bare id/ids/ref checks
-                    // still would, but the suffix branch is dead code at this call
-                    // site). looks_like_id_key()'s [-_][iI][dD]s? branch is the
-                    // one actually built for a lowercased/snake_case/kebab-case
-                    // naming world (Yoast's wpseo_opengraph-image-id was its own
-                    // grounding case) -- the correct heuristic to reuse here.
-                    if (self::looks_like_id_key($attrKey)) {
-                        foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
-                            $hit = Pending::resolve_id($id);
-                            $findings[] = LintFinding::make(
-                                'unregistered_shortcode_attr', $rel,
-                                ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
-                                "shortcode '$tag' has no shortcode_attrs registry rule for attribute '$attrKey'; "
-                                . "this numeric value passes through capture/apply untouched and will point at "
-                                . "the wrong entity (or nothing) once ids diverge on another environment."
-                            );
-                        }
-                    }
-                    continue;
-                }
-                foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
-                    $hit = Pending::resolve_id($id);
-                    $findings[] = LintFinding::make(
-                        'unrewritten_registered_shortcode_ref', $rel,
-                        ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
-                        "shortcode '$tag' attribute '$attrKey' has a shortcode_attrs registry rule declaring it a "
-                        . "reference, but this value is still numeric in captured state — the declared rewrite to "
-                        . "a {{...}} token never ran (an unmapped/dangling id). This id is silently environment-"
-                        . "bound and will point at the wrong entity (or nothing) once ids diverge on another "
-                        . "environment."
-                    );
-                }
-            }
+        foreach (ShortcodeReferenceScanner::scan($body, $shortcodeRules, $rel, $locatorPrefix) as $finding) {
+            $findings[] = $finding;
         }
     }
 
@@ -634,31 +541,6 @@ final class Lint {
      */
     private static function looks_like_id_attr(string $key): bool {
         return $key === 'id' || $key === 'ids' || $key === 'ref' || (bool) preg_match('/(Id|ID)s?$/', $key);
-    }
-
-    /**
-     * Deliberately SEPARATE from looks_like_id_attr() above, not a reuse:
-     * that one is tuned for block-attribute naming (camelCase JS/React
-     * convention — mediaId, termIds), and a first attempt at reusing it
-     * verbatim for scan_structured_bare_ids() silently missed Yoast's OWN
-     * key-naming convention — `wpseo_opengraph-image-id` ends in lowercase
-     * "-id", which `/(Id|Ids)$/` (case-sensitive) does not match — caught
-     * only by testing against the real captured wpseo_taxonomy_meta state,
-     * not by inspection. Widening the shared block-attr function instead
-     * risked an untested behavior change to the already-passing FSE
-     * conformance suite for zero benefit; a second, purpose-built
-     * heuristic for the naming conventions THESE (PHP-array / JSON-plugin)
-     * structures actually use is the safer fix. id / ids / ref (exact,
-     * matching the block-attr heuristic's own exact cases) or a `_id`/
-     * `-id`/`_ids`/`-ids`/`Id`/`Ids` suffix — covers Yoast's kebab-case,
-     * Elementor's snake_case controls, and the camelCase case too.
-     */
-    private static function looks_like_id_key(string $key): bool {
-        // [-_]ids? is safe lowercase (separator boundary); the suffix variants
-        // widen to the all-caps convention per task #76, same as the attr
-        // heuristic above — never a bare /i (would match "grid", "valid").
-        return $key === 'id' || $key === 'ids' || $key === 'ref'
-            || (bool) preg_match('/([-_][iI][dD]s?|(Id|ID)s?)$/', $key);
     }
 
     // ------------------------------------------------------------ terms
