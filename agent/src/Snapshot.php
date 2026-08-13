@@ -8,6 +8,7 @@ require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/TableGraph.php';
 require_once __DIR__ . '/TableSchema.php';
+require_once __DIR__ . '/SnapshotIdentity.php';
 require_once __DIR__ . '/SnapshotPruner.php';
 
 /**
@@ -314,7 +315,8 @@ require_once __DIR__ . '/SnapshotPruner.php';
  *
  * ---- Engine boundary ----
  *
- * This file depends only on Policy/Ledger/Tokens/Canon/Uuid — never on
+ * This file depends only on Policy/Ledger/Tokens/Canon/Uuid and the extracted
+ * SnapshotIdentity boundary — never on
  * Capture/Apply/Pending/Lint/Cli, so it composes into their capture/apply/
  * lint loops via a few call sites there (see the wiring task) without this
  * file itself needing any of their in-flight changes.
@@ -1111,6 +1113,34 @@ final class Snapshot {
         );
     }
 
+    /** Bind Snapshot's runtime collaborators to the extracted identity seam. */
+    private static function snapshot_identity(?Policy $policy = null): SnapshotIdentity {
+        return new SnapshotIdentity(
+            static fn(array $decl): array => Policy::natural_key_columns($decl),
+            static fn(): array => $policy === null ? [] : self::row_tables($policy),
+            static fn(int $localId, string $kind): ?string => Ledger::uuid_for($localId, $kind),
+            static fn(string $uuid, string $kind): ?int => Ledger::id_for($uuid, Tokens::ledger_kind($kind)),
+            static function (string $uuid, string $table, string $kind, int $localId): void {
+                Ledger::set($uuid, $table, $kind, $localId);
+            },
+            static function (string $uuid, string $table, string $kind, int $localId, string $context): void {
+                Ledger::require_read_only_mapping($uuid, $table, $kind, $localId, $context);
+            },
+            static fn(string $name): string => Uuid::v5(Uuid::NAMESPACE_DUO, $name),
+            static fn(): string => Uuid::v7(),
+            static fn(string $content): array => Canon::decode($content),
+            static function (string $table, string $pk, array $predicates, array $args): ?int {
+                global $wpdb;
+                $prefixed = $wpdb->prefix . $table;
+                $id = $wpdb->get_var($wpdb->prepare(
+                    "SELECT `$pk` FROM `$prefixed` WHERE " . implode(' AND ', $predicates) . ' LIMIT 1',
+                    $args
+                ));
+                return $id !== null ? (int) $id : null;
+            }
+        );
+    }
+
     /**
      * The exact UUIDv5 name a natural_key row derives its identity from
      * (DUO-3318) — one function, so capture, the continuity note, the
@@ -1137,15 +1167,7 @@ final class Snapshot {
      * @param array<string,string> $components identity column => component value
      */
     public static function natural_key_name(string $table, array $decl, array $components): string {
-        $columns = Policy::natural_key_columns($decl);
-        if (count($columns) === 1) {
-            return $table . ':' . $components[$columns[0]];
-        }
-        $parts = [$table];
-        foreach ($columns as $column) {
-            $parts[] = $column . '=' . $components[$column];
-        }
-        return implode(':', $parts);
+        return self::snapshot_identity()->naturalKeyName($table, $decl, $components);
     }
 
     /**
@@ -1166,38 +1188,14 @@ final class Snapshot {
      * one corrupt byte in one repository file abort a whole `duo plan` from an
      * annotation nobody asked for. The fail-closed reading of the same token
      * still exists where it belongs — capture's own live derivation
-     * (live_natural_key_components()) and apply's adoption lookup
+     * (SnapshotIdentity's live component reader) and apply's adoption lookup
      * (find_collision()) both refuse a malformed token outright.
      *
      * @param array<string,mixed> $columns the file's own flat columns map
      * @return array<string,string>|null identity column => component value
      */
     public static function natural_key_components_from_front(array $decl, array $columns): ?array {
-        $wanted = Policy::natural_key_columns($decl);
-        if ($wanted === []) {
-            return null;
-        }
-        $refKinds = [];
-        foreach ($decl['refs'] ?? [] as $ref) {
-            $refKinds[(string) $ref['column']] = (string) $ref['kind'];
-        }
-        $out = [];
-        foreach ($wanted as $column) {
-            $raw = $columns[$column] ?? null;
-            if (!is_scalar($raw) || (string) $raw === '') {
-                return null;
-            }
-            if (!isset($refKinds[$column])) {
-                $out[$column] = (string) $raw;
-                continue;
-            }
-            $uuid = self::uuid_in_token((string) $raw);
-            if ($uuid === null) {
-                return null;
-            }
-            $out[$column] = $uuid;
-        }
-        return $out;
+        return self::snapshot_identity()->naturalKeyComponentsFromFront($decl, $columns);
     }
 
     /**
@@ -1220,99 +1218,15 @@ final class Snapshot {
         bool $mint,
         bool $strictReadOnly = false
     ): string {
-        $idKind = $decl['id_kind'];
-        $uuid = Ledger::uuid_for($localId, $idKind);
-        if ($strictReadOnly) {
-            if ($uuid === null) {
-                throw new \RuntimeException(
-                    "duo: refresh export refused — mapped identity missing for populated table '$table' row $localId ($idKind); "
-                    . 'run the existing capture/identity recovery gate before exporting production'
-                );
-            }
-            // natural_key UUIDv5 is bootstrap identity only. Once a map row
-            // exists it is continuity identity, and a later authored key
-            // rename intentionally keeps that UUID (repo-format.md). The
-            // bidirectional durable mapping below is therefore the complete
-            // strict read-only witness; re-deriving here would reject every
-            // legitimate renamed row.
-            Ledger::require_read_only_mapping($uuid, $table, $idKind, $localId, "table '$table' row $localId");
-            return $uuid;
-        }
-        if ($uuid === null) {
-            $mode = $decl['identity']['mode'] ?? 'mapped';
-            if ($mode === 'natural_key') {
-                $uuid = Uuid::v5(
-                    Uuid::NAMESPACE_DUO,
-                    self::natural_key_name($table, $decl, self::live_natural_key_components($table, $decl, $row, $localId, $tokens))
-                );
-            } else {
-                if (!$mint) {
-                    throw new \RuntimeException(
-                        "duo: mapped identity missing for populated table '$table' row $localId ($idKind); "
-                        . 'refusing to create or rebind it. Restore a verified identity sidecar with '
-                        . '`wp duo identity-import --repo=<repo> --in=<file>` before plan/apply'
-                    );
-                }
-                $uuid = Uuid::v7();
-            }
-        }
-        Ledger::set($uuid, $table, $idKind, $localId);
-        return $uuid;
-    }
-
-    /**
-     * A natural_key row's identity components read off the LIVE row
-     * (DUO-3318) — the capture direction, the mirror of
-     * natural_key_components_from_front().
-     *
-     * Every component throws rather than degrading, because a natural key IS
-     * the row's identity: unlike an ordinary column, there is no partial
-     * version of it to capture. A ref component is structural for the same
-     * reason capture_table()'s own refs[] loop and identify_composite_row()
-     * are (see this file's docblock, "Refs: required vs optional") — a slot
-     * whose room is outside capture scope has no portable identity to derive,
-     * so the honest answer is the scope refusal, not a locally-unique id
-     * smuggled into a uuid.
-     *
-     * @return array<string,string>
-     */
-    private static function live_natural_key_components(
-        string $table,
-        array $decl,
-        array $row,
-        int $localId,
-        Tokens $tokens
-    ): array {
-        $refKinds = [];
-        foreach ($decl['refs'] ?? [] as $ref) {
-            $refKinds[(string) $ref['column']] = (string) $ref['kind'];
-        }
-        $out = [];
-        foreach (Policy::natural_key_columns($decl) as $column) {
-            if (isset($refKinds[$column])) {
-                $raw = (int) ($row[$column] ?? 0);
-                $token = $raw > 0 ? $tokens->id_to_token($raw, $refKinds[$column]) : null;
-                if ($token === null) {
-                    throw new \RuntimeException(
-                        "duo: table '$table' row $localId: identity.mode=natural_key column '$column' holds "
-                        . ($raw > 0 ? "unmanaged {$refKinds[$column]} ref $raw" : 'no reference')
-                        . ' — a parent-scoped natural key derives from the REFERENCED row\'s own uuid, so capture '
-                        . 'scope must include that row'
-                    );
-                }
-                $out[$column] = self::uuid_from_token($token);
-                continue;
-            }
-            $value = (string) ($row[$column] ?? '');
-            if ($value === '') {
-                throw new \RuntimeException(
-                    "duo: table '$table' row $localId: identity.mode=natural_key column '$column' is empty — "
-                    . 'cannot mint a stable identity for this row'
-                );
-            }
-            $out[$column] = $value;
-        }
-        return $out;
+        return self::snapshot_identity()->identifyRow(
+            $table,
+            $decl,
+            $row,
+            $localId,
+            $tokens,
+            $mint,
+            $strictReadOnly
+        );
     }
 
     /**
@@ -1352,56 +1266,11 @@ final class Snapshot {
      * @return array{0:string, 1:array<string,string>, 2:array<string,int>}
      */
     private static function identify_composite_row(string $table, array $decl, array $row, Tokens $tokens): array {
-        $cols = $decl['identity']['columns'];
-        $kindByCol = [];
-        foreach ($decl['refs'] as $ref) {
-            $kindByCol[$ref['column']] = $ref['kind'];
-        }
-
-        $uuidParts = [$table];
-        $tokensByCol = [];
-        $localByCol = [];
-        foreach ($cols as $col) {
-            $raw = (int) ($row[$col] ?? 0);
-            if ($raw <= 0) {
-                throw new \RuntimeException(
-                    "duo: $table row has empty identity column '$col' — every composite_ref identity "
-                    . 'column is structural, never optional (there is no partial version of a join fact)'
-                );
-            }
-            $tok = $tokens->id_to_token($raw, $kindByCol[$col]);
-            if ($tok === null) {
-                // STRUCTURAL ref, same posture as capture_table()'s own
-                // refs[] loop — see this file's docblock, "Refs: required
-                // vs optional".
-                throw new \RuntimeException(
-                    "duo: $table row has unmanaged {$kindByCol[$col]} ref $raw in identity column '$col' — "
-                    . 'capture scope must include the referenced row'
-                );
-            }
-            $uuidParts[] = "$col=" . self::uuid_from_token($tok);
-            $tokensByCol[$col] = $tok;
-            $localByCol[$col] = $raw;
-        }
-
-        $uuid = Uuid::v5(Uuid::NAMESPACE_DUO, implode(':', $uuidParts));
-        return [$uuid, $tokensByCol, $localByCol];
-    }
-
-    /** Extracts the bare uuid out of a "{{kind:uuid}}" token — the SAME
-     *  shape Tokens::id_to_token() always produces, matched with the exact
-     *  uuid pattern Tokens::token_to_id() itself validates against, so this
-     *  never silently disagrees with what the rest of the engine considers
-     *  a well-formed token. Returns null instead of throwing: the two
-     *  directions that read a ref token for identity have opposite dispositions
-     *  for a malformed one (see the two callers below), so the decision belongs
-     *  to them rather than here. */
-    private static function uuid_in_token(string $token): ?string {
-        return preg_match('/^\{\{[a-z][a-z0-9_]*:([0-9a-f-]{36})\}\}$/', $token, $m) ? $m[1] : null;
+        return self::snapshot_identity()->identifyCompositeRow($table, $decl, $row, $tokens);
     }
 
     /**
-     * uuid_in_token()'s fail-closed spelling, for the CAPTURE direction and
+     * SnapshotIdentity's fail-closed token spelling, for the CAPTURE direction and
      * for apply-time resolution — every caller here holds a token this same
      * process just produced through Tokens (identify_composite_row()) or a
      * token an already-validated repository file carries as structural
@@ -1414,13 +1283,7 @@ final class Snapshot {
      * reaches it too.
      */
     private static function uuid_from_token(string $token): string {
-        $uuid = self::uuid_in_token($token);
-        if ($uuid === null) {
-            throw new \RuntimeException(
-                "duo: malformed ref token '$token' (composite_ref/natural_key identity derivation)"
-            );
-        }
-        return $uuid;
+        return self::snapshot_identity()->uuidFromToken($token);
     }
 
     /**
@@ -1443,9 +1306,6 @@ final class Snapshot {
      * in practice. Components exceeding the budget throw rather than
      * silently truncate or wrap.
      */
-    private const COMPOSITE_COMPONENT_BITS = 31;
-    private const COMPOSITE_COMPONENT_MAX = (1 << self::COMPOSITE_COMPONENT_BITS) - 1;
-
     /**
      * @param array<string,int> $colVals identity column name => this
      *   environment's current local id, in identity.columns order (exactly
@@ -1457,28 +1317,12 @@ final class Snapshot {
      *   is unrepresentable and why, not decode a bare number.
      */
     private static function pack_composite_id(string $table, array $colVals): int {
-        $pairs = [];
-        $overflow = [];
-        foreach ($colVals as $col => $v) {
-            $pairs[] = "$col=$v";
-            if ($v < 0 || $v > self::COMPOSITE_COMPONENT_MAX) {
-                $overflow[] = "$col=$v";
-            }
-        }
-        if ($overflow) {
-            throw new \RuntimeException(
-                "duo: table '$table' composite identity (" . implode(', ', $pairs) . ') has out-of-budget component(s) ('
-                . implode(', ', $overflow) . ') — each component must be 0..' . self::COMPOSITE_COMPONENT_MAX
-                . " for this engine's packed local_id (see pack_composite_id()'s docblock)"
-            );
-        }
-        $vals = array_values($colVals);
-        return ($vals[0] << self::COMPOSITE_COMPONENT_BITS) | $vals[1];
+        return self::snapshot_identity()->packCompositeId($table, $colVals);
     }
 
     /** @return array{0:int, 1:int} */
     private static function unpack_composite_id(int $packed): array {
-        return [$packed >> self::COMPOSITE_COMPONENT_BITS, $packed & self::COMPOSITE_COMPONENT_MAX];
+        return self::snapshot_identity()->unpackCompositeId($packed);
     }
 
 
@@ -1649,130 +1493,14 @@ final class Snapshot {
         array $seen = [],
         ?\Closure $ledgerIdFor = null
     ): ?int {
-        global $wpdb;
-        $decl = self::row_tables($policy)[$entity['type']] ?? null;
-        if ($decl === null) {
-            return null;
-        }
-        $columns = Policy::natural_key_columns($decl);
-        if ($columns === []) {
-            return null; // mapped/composite_ref: no natural collision key at all
-        }
-        $front = $entity['data'] ?? Canon::decode($entity['content']);
-        $captured = is_array($front['columns'] ?? null) ? $front['columns'] : [];
-        $refKinds = [];
-        foreach ($decl['refs'] ?? [] as $ref) {
-            $refKinds[(string) $ref['column']] = (string) $ref['kind'];
-        }
-        $predicates = [];
-        $args = [];
-        foreach ($columns as $column) {
-            $value = $captured[$column] ?? null;
-            if (!is_string($value) || $value === '') {
-                return null;
-            }
-            if (isset($refKinds[$column])) {
-                // DUO-3318: a parent-scoped key's ref component is matched by
-                // THIS environment's own local id for the referenced entity —
-                // resolved from the uuid the token already carries, never by
-                // the source's id. An unresolvable parent means the row this
-                // key is scoped WITHIN does not exist here yet, so there is
-                // nothing for an unmanaged row to collide with; ordinary
-                // create is the correct outcome.
-                $parentId = self::collision_ref_id(
-                    $policy,
-                    self::uuid_from_token($value),
-                    $refKinds[$column],
-                    $tree,
-                    $cache,
-                    $seen + [(string) ($front['uuid'] ?? '') => true],
-                    $ledgerIdFor
-                );
-                if ($parentId === null) {
-                    return null;
-                }
-                $predicates[] = "`$column` = %d";
-                $args[] = $parentId;
-                continue;
-            }
-            $predicates[] = "`$column` = %s";
-            $args[] = $value;
-        }
-        $prefixed = $wpdb->prefix . $entity['type'];
-        $pk = $decl['pk'];
-        $id = $wpdb->get_var($wpdb->prepare(
-            "SELECT `$pk` FROM `$prefixed` WHERE " . implode(' AND ', $predicates) . ' LIMIT 1',
-            $args
-        ));
-        return $id !== null ? (int) $id : null;
-    }
-
-    /**
-     * This environment's own local id for one ref component of a parent-scoped
-     * natural key (DUO-3318 review, S2) — the exact shape of
-     * Apply::collision_parent_id(), for the same reason: the ledger is asked
-     * first, and a MISS is not the end of the question.
-     *
-     * A whole plugin arriving on a fresh target for the first time has no
-     * ledger rows at all, so an unmapped parent is the ordinary state, not an
-     * error. If the parent is itself an adoptable row of a declared table —
-     * pre-provisioned by hand on the target, the exact case this whole
-     * adoption path exists for — its own natural key finds it, and the child
-     * can then be matched WITHIN it. Without this, a target where every row
-     * was pre-provisioned adopted the parents and duplicated every child.
-     *
-     * Boundaries, both deliberate:
-     *   - a post/term parent falls through to null. Resolving one means
-     *     slug/parent adoption, which is Apply's own find_collision(); this
-     *     file depends only on Policy/Ledger/Tokens/Canon/Uuid (see the file
-     *     docblock, "Engine boundary") and will not reach across for it.
-     *   - the referenced entity must be a declared row table whose id_kind IS
-     *     the kind the ref names; anything else is a repository that disagrees
-     *     with the manifest, which the compiler refuses on its own terms.
-     *
-     * @param array<string,array> $tree
-     * @param array<string,?int> $cache
-     * @param array<string,bool> $seen recursion path — see find_collision()
-     * @param \Closure(string,string):?int|null $ledgerIdFor optional resolver
-     */
-    private static function collision_ref_id(
-        Policy $policy,
-        string $uuid,
-        string $kind,
-        array $tree,
-        array &$cache,
-        array $seen,
-        ?\Closure $ledgerIdFor = null
-    ): ?int {
-        // Tokens' rename table, not the manifest's spelling: a `tt` ref is
-        // stored in duo_map as `term_taxonomy`, and looking it up raw finds a
-        // keyspace with no rows (DUO-3318 review, N2).
-        $mapped = $ledgerIdFor !== null
-            ? $ledgerIdFor($uuid, $kind)
-            : Ledger::id_for($uuid, Tokens::ledger_kind($kind));
-        if ($mapped !== null) {
-            return $mapped;
-        }
-        if (array_key_exists($uuid, $cache)) {
-            return $cache[$uuid];
-        }
-        $parent = $tree[$uuid] ?? null;
-        if ($parent === null || isset($seen[$uuid])) {
-            return null;
-        }
-        $decl = self::row_tables($policy)[$parent['type'] ?? ''] ?? null;
-        if ($decl === null || (string) ($decl['id_kind'] ?? '') !== $kind) {
-            return null;
-        }
-        return $cache[$uuid] = self::find_collision($policy, $parent, $tree, $cache, $seen, $ledgerIdFor);
+        return self::snapshot_identity($policy)->findCollision($entity, $tree, $cache, $seen, $ledgerIdFor);
     }
 
     /** Claim an unmanaged env row by writing identity only — table rows have
      *  no meta-column identity marker to also write, unlike adopt() for
      *  posts/terms in Apply.php. */
     public static function adopt(Policy $policy, string $uuid, string $table, int $envId): void {
-        $decl = self::row_tables($policy)[$table];
-        Ledger::set($uuid, $table, $decl['id_kind'], $envId);
+        self::snapshot_identity($policy)->adopt($uuid, $table, $envId);
     }
 
     /**

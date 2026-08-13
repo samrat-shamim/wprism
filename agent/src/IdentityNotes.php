@@ -13,12 +13,12 @@ final class IdentityNotes {
      * different from UUIDv5(current key). Name that ordinary state without
      * treating it as a warning or requesting re-derivation.
      *
-     * DUO-3318: the derivation itself is Snapshot's, for every reader — a
-     * second copy of "what is this row's natural-key name" here would be free
-     * to disagree with the one capture actually used, and this note's entire
-     * job is to compare the two. That also carries the parent-scoped
-     * multi-column form for free: a renamed slot under an unchanged room
-     * reports exactly like a renamed single-column row does.
+     * DUO-3318/DUO-3349: derivation has one owner in SnapshotIdentity. This
+     * observer reaches it through Snapshot's compatibility facade, so a
+     * second copy of "what is this row's natural-key name" cannot disagree
+     * with capture. That also carries the parent-scoped multi-column form for
+     * free: a renamed slot under an unchanged room reports exactly like a
+     * renamed single-column row does.
      */
     public static function natural_key_continuity(
         string $uuid,
