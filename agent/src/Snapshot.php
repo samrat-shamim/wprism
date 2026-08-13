@@ -7,6 +7,7 @@ require_once __DIR__ . '/OrderPreserved.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/ReferenceRules.php';
 require_once __DIR__ . '/TableGraph.php';
+require_once __DIR__ . '/TableSchema.php';
 
 /**
  * Typed snapshot: capture/apply for authored custom tables (DESIGN.md §3.3's
@@ -321,24 +322,6 @@ final class Snapshot {
     public const CLASS_ROW = TableGraph::CLASS_ROW;
     public const CLASS_META = TableGraph::CLASS_META;
 
-    /** duo_map.id_kind width — shared with Ledger's schema/migration. */
-    private const MAX_ID_KIND_LEN = Ledger::ID_KIND_WIDTH;
-
-    /**
-     * DUO-3246: duo_map.entity_type/duo_state.entity_type are VARCHAR(64)
-     * (Ledger::ensure() — manually synced with this constant, same
-     * precedent as MAX_ID_KIND_LEN above). Unlike id_kind (a short,
-     * freely-chosen abbreviation this project budgets DOWN to fit),
-     * entity_type for a table row IS the table name itself — a plugin's
-     * own naming choice, not ours to shorten — so this asserts against the
-     * WIDENED ceiling rather than the original, narrower one: two shipped
-     * tables (woocommerce_shipping_zone_locations, woocommerce_shipping_
-     * zone_methods) already exceed 32 chars, silently truncated by MySQL
-     * before this fix. See repair_truncated_entity_types() for rows
-     * already corrupted under the old width.
-     */
-    private const MAX_ENTITY_TYPE_LEN = 64;
-
     /** Single source of truth for "is this authored_snapshot declaration a
      *  composite_ref (pure join table) identity" — every dispatch site below
      *  (schema assertion, capture, ensure/finalize, delete, ledger hygiene)
@@ -584,24 +567,12 @@ final class Snapshot {
      *   why BIT columns specifically need it.
      */
     private static function live_column_types(string $table): ?array {
-        global $wpdb;
-        $t = preg_replace('/[^A-Za-z0-9_]/', '', $table);
-        $prefixed = $wpdb->prefix . $t;
-        if (!$wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
-            return null;
-        }
-        $rows = $wpdb->get_results("SHOW COLUMNS FROM `$prefixed`", ARRAY_A) ?: [];
-        $out = [];
-        foreach ($rows as $r) {
-            $out[$r['Field']] = $r['Type'];
-        }
-        return $out;
+        return TableSchema::live_column_types($table);
     }
 
     /** @return ?string[] live column names, or null if the table doesn't exist on this environment */
     private static function live_columns(string $table): ?array {
-        $types = self::live_column_types($table);
-        return $types === null ? null : array_keys($types);
+        return TableSchema::live_columns($table);
     }
 
     /**
@@ -630,7 +601,7 @@ final class Snapshot {
      * handled correctly without anyone having to rediscover this.
      */
     private static function is_bit_column(string $liveType): bool {
-        return (bool) preg_match('/^bit\(/i', $liveType);
+        return TableSchema::is_bit_column($liveType);
     }
 
     /**
@@ -653,16 +624,7 @@ final class Snapshot {
      * @return array{0: array, 1: string[]} [$data with bit values cast to int, $format]
      */
     private static function write_format(array $data, array $colTypes): array {
-        $format = [];
-        foreach ($data as $col => $v) {
-            if (self::is_bit_column($colTypes[$col] ?? '')) {
-                $data[$col] = $v === null ? null : (int) $v;
-                $format[] = '%d';
-            } else {
-                $format[] = '%s';
-            }
-        }
-        return [$data, $format];
+        return TableSchema::write_format($data, $colTypes);
     }
 
     /**
@@ -674,24 +636,12 @@ final class Snapshot {
      * class present, and naming Ledger there would end that.
      */
     private static function assert_entity_type_width(string $table): void {
-        if (strlen($table) > self::MAX_ENTITY_TYPE_LEN) {
-            throw new \RuntimeException(
-                "duo: table '$table' name is " . strlen($table) . ' chars — a table row entity_type IS the table '
-                . 'name itself, which must be 1-' . self::MAX_ENTITY_TYPE_LEN
-                . ' chars (duo_map.entity_type/duo_state.entity_type are VARCHAR(' . self::MAX_ENTITY_TYPE_LEN . '))'
-            );
-        }
+        TableSchema::assert_entity_type_width($table);
     }
 
     /** duo_map.id_kind's own width. @see assert_entity_type_width() */
     private static function assert_id_kind_width(string $table, array $decl): void {
-        $idKind = (string) ($decl['id_kind'] ?? '');
-        if ($idKind === '' || strlen($idKind) > self::MAX_ID_KIND_LEN) {
-            throw new \RuntimeException(
-                "duo: table '$table' declares id_kind '$idKind' — must be 1-" . self::MAX_ID_KIND_LEN
-                . ' chars (duo_map.id_kind is VARCHAR(' . self::MAX_ID_KIND_LEN . '))'
-            );
-        }
+        TableSchema::assert_id_kind_width($table, $decl, Ledger::ID_KIND_WIDTH);
     }
 
     /**
@@ -714,42 +664,12 @@ final class Snapshot {
      * ledger column widths above.
      */
     public static function assert_row_schema(string $table, array $decl): void {
-        self::assert_entity_type_width($table);
-        Policy::assert_table_grammar($table, $decl);
-        if (self::is_composite_ref($decl)) {
-            self::assert_composite_row_schema($table, $decl);
-            return;
-        }
-        self::assert_id_kind_width($table, $decl);
-        $pk = (string) ($decl['pk'] ?? '');
-        $colKeys = array_keys($decl['columns'] ?? []);
-        $refCols = array_column($decl['refs'] ?? [], 'column');
-
-        $live = self::live_columns($table);
-        if ($live === null) {
-            throw new \RuntimeException(
-                "duo: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
-            );
-        }
-        $accounted = array_merge([$pk], $colKeys, $refCols);
-        $undeclared = array_diff($live, $accounted);
-        if ($undeclared) {
-            sort($undeclared);
-            throw new \RuntimeException(
-                "duo: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
-                . " — every real column must be classified in the manifest (as the pk, a ref, or a columns entry"
-                . ' with class authored/runtime/derived/env) before this table can be captured; an FK-shaped or'
-                . ' otherwise unclassified column must never silently reach canonical state'
-            );
-        }
-        $missing = array_diff($accounted, $live);
-        if ($missing) {
-            sort($missing);
-            throw new \RuntimeException(
-                "duo: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
-                . ' (plugin schema changed? manifest may be pinned to the wrong version range)'
-            );
-        }
+        TableSchema::assert_row_schema(
+            $table,
+            $decl,
+            Ledger::ID_KIND_WIDTH,
+            static fn(string $name, array $rule): mixed => Policy::assert_table_grammar($name, $rule)
+        );
     }
 
     /**
@@ -776,36 +696,12 @@ final class Snapshot {
      * re-checking a pure function of already-loaded bytes costs nothing.
      */
     public static function assert_composite_row_schema(string $table, array $decl): void {
-        self::assert_entity_type_width($table);
-        Policy::assert_table_grammar($table, $decl);
-        self::assert_id_kind_width($table, $decl);
-        $refCols = array_column($decl['refs'] ?? [], 'column');
-        $colKeys = array_keys($decl['columns'] ?? []);
-
-        $live = self::live_columns($table);
-        if ($live === null) {
-            throw new \RuntimeException(
-                "duo: declared table '$table' does not exist on this environment (plugin inactive, or manifest stale?)"
-            );
-        }
-        $accounted = array_merge($refCols, $colKeys);
-        $undeclared = array_diff($live, $accounted);
-        if ($undeclared) {
-            sort($undeclared);
-            throw new \RuntimeException(
-                "duo: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
-                . ' — every real column must be classified (as a composite_ref identity/ref column, or a columns'
-                . ' entry with class authored/runtime/derived/env) before this table can be captured'
-            );
-        }
-        $missing = array_diff($accounted, $live);
-        if ($missing) {
-            sort($missing);
-            throw new \RuntimeException(
-                "duo: table '$table' declares column(s) absent from this environment: " . implode(', ', $missing)
-                . ' (plugin schema changed? manifest may be pinned to the wrong version range)'
-            );
-        }
+        TableSchema::assert_composite_row_schema(
+            $table,
+            $decl,
+            Ledger::ID_KIND_WIDTH,
+            static fn(string $name, array $rule): mixed => Policy::assert_table_grammar($name, $rule)
+        );
     }
 
     /**
@@ -835,32 +731,11 @@ final class Snapshot {
      * live on this round's own sandbox pair — see manifests/paid-memberships-pro.json).
      */
     public static function assert_meta_schema(string $table, array $decl): void {
-        // DUO-3318: the attached_to declaration check is the pure half and
-        // now lives in Policy::assert_table_grammar(), reachable offline (see
-        // assert_row_schema()'s docblock for the split rule); re-run here for
-        // the same reason its row-table sibling re-runs it.
-        Policy::assert_table_grammar($table, $decl);
-        $attachCol = (string) ($decl['attached_to']['column'] ?? '');
-        $idCol = (string) ($decl['id_column'] ?? 'id');
-        $keyCol = (string) ($decl['key_column'] ?? 'meta_key');
-        $valCol = (string) ($decl['value_column'] ?? 'meta_value');
-        $expected = array_unique(array_filter([
-            $idCol, $attachCol, $keyCol, $valCol,
-            $decl['legacy_key_column'] ?? null, $decl['legacy_value_column'] ?? null,
-        ]));
-        sort($expected);
-
-        $live = self::live_columns($table);
-        if ($live === null) {
-            throw new \RuntimeException("duo: declared attached-meta table '$table' does not exist on this environment");
-        }
-        sort($live);
-        if ($expected !== $live) {
-            throw new \RuntimeException(
-                "duo: attached-meta table '$table' schema mismatch — expected columns [" . implode(', ', $expected)
-                . '], found [' . implode(', ', $live) . '] (plugin schema changed? manifest declaration is stale)'
-            );
-        }
+        TableSchema::assert_meta_schema(
+            $table,
+            $decl,
+            static fn(string $name, array $rule): mixed => Policy::assert_table_grammar($name, $rule)
+        );
     }
 
     // ------------------------------------------------------------- capture
