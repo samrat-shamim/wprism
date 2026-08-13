@@ -4057,31 +4057,30 @@ final class Apply {
             (string) $row['deletion_kind'],
             (string) $row['deletion_type']
         );
-        $blocks = [];
-        $guardRefs = [];
-        foreach ($capability['guards'] ?? [] as $guard) {
-            $result = $this->count_guard_refs(
-                $guard,
-                (string) $row['uuid'],
+        $findings = DeleteGuardEvaluator::reference_findings(
+            (array) ($capability['guards'] ?? []),
+            function (array $guard, bool $lock) use (
+                $row,
                 $deleteUuids,
                 $deletions,
                 $tree,
-                $guardRepairUuids,
-                $forUpdate
-            );
-            if ($result['error'] !== null) {
-                $blocks[] = $result['error'];
-            } elseif ($result['count'] > 0) {
-                $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
-                    . " — {$result['count']} row(s)";
-                $guardRefs[] = [
-                    'table' => (string) $guard['table'],
-                    'rows' => $result['rows'],
-                    'repairable' => isset($this->snapshotRowTables()[(string) $guard['table']]),
-                    'option_name_ref' => !empty($guard['option_name_ref']),
-                ];
-            }
-        }
+                $guardRepairUuids
+            ): array {
+                return $this->count_guard_refs(
+                    $guard,
+                    (string) $row['uuid'],
+                    $deleteUuids,
+                    $deletions,
+                    $tree,
+                    $guardRepairUuids,
+                    $lock
+                );
+            },
+            fn(string $table): bool => isset($this->snapshotRowTables()[$table]),
+            $forUpdate
+        );
+        $blocks = $findings['blocks'];
+        $guardRefs = $findings['guard_refs'];
         if (!$blocks) {
             return;
         }

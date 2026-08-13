@@ -217,6 +217,60 @@ $check(
     'transaction-isolation proof refuses record-lock-only isolation before deletion guards run'
 );
 
+$referenceCalls = [];
+$findings = DeleteGuardEvaluator::reference_findings(
+    [
+        [
+            'table' => 'wp_postmeta',
+            'column' => 'post_id',
+            'reason' => 'declared post reference',
+            'option_name_ref' => false,
+        ],
+        [
+            'table' => 'wp_options',
+            'column' => 'option_name',
+            'option_name_ref' => true,
+        ],
+    ],
+    static function (array $guard, bool $forUpdate) use (&$referenceCalls): array {
+        $referenceCalls[] = [(string) $guard['table'], $forUpdate];
+        if ($guard['table'] === 'wp_postmeta') {
+            return ['count' => 2, 'error' => null, 'rows' => ['wp_postmeta.post_id=7', 'wp_postmeta.post_id=8']];
+        }
+        return ['count' => 0, 'error' => null, 'rows' => []];
+    },
+    static fn(string $table): bool => $table === 'wp_postmeta',
+    true
+);
+$check(
+    $referenceCalls === [['wp_postmeta', true], ['wp_options', true]]
+        && $findings['blocks'] === ['declared post reference — 2 row(s)']
+        && $findings['guard_refs'] === [[
+            'table' => 'wp_postmeta',
+            'rows' => ['wp_postmeta.post_id=7', 'wp_postmeta.post_id=8'],
+            'repairable' => true,
+            'option_name_ref' => false,
+        ]],
+    'reference evaluator collects deterministic blocks and repair witnesses through narrow callbacks'
+);
+
+$errorFindings = DeleteGuardEvaluator::reference_findings(
+    [['table' => 'wp_postmeta', 'column' => 'post_id']],
+    static fn(array $guard, bool $forUpdate): array => [
+        'count' => 0,
+        'error' => 'simulated reference query failure',
+        'rows' => [],
+    ],
+    static fn(string $table): bool => true
+);
+$check(
+    $errorFindings === [
+        'blocks' => ['simulated reference query failure'],
+        'guard_refs' => [],
+    ],
+    'reference evaluator preserves fail-closed query errors without inventing warning rows'
+);
+
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
@@ -225,8 +279,10 @@ $check(
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_innodb_tables'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_transaction_isolation'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_transaction_isolation'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'reference_findings'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'reference_findings'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index, storage-engine, and isolation lock-boundary contracts'
+    'evaluator exposes dependency-free static index, storage-engine, isolation, and reference contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
@@ -258,6 +314,17 @@ $check(
         && !str_contains($isolationFacade, 'SELECT @@transaction_isolation')
         && !str_contains($isolationFacade, 'SELECT @@tx_isolation'),
     'Apply keeps a thin transaction-isolation facade and no duplicate server-variable proof'
+);
+$recheckFacade = substr(
+    $applySource,
+    strpos($applySource, 'private function recheck_delete_guards('),
+    strpos($applySource, 'private function verify_convergence(')
+        - strpos($applySource, 'private function recheck_delete_guards(')
+);
+$check(
+    str_contains($recheckFacade, 'DeleteGuardEvaluator::reference_findings(')
+        && !str_contains($recheckFacade, 'foreach ($capability[\'guards\']'),
+    'Apply delegates generic reference accumulation and retains only policy, SQL, and forced-warning orchestration'
 );
 
 if ($failures) {
