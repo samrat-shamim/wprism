@@ -98,8 +98,9 @@ touch).
 
 **mariadb:11 image note**: this image ships only the `mariadb` client
 binary — no `mysql` symlink (confirmed while authoring this; MariaDB has
-been renaming its client tools). `pair.sh`'s `db_sql()` uses `mariadb`, not
-`mysql`, and passes the password via `MYSQL_PWD` (still honored) rather
+been renaming its client tools). `sandbox/lib/pair_db.sh`'s `pair_db_sql()`
+uses `mariadb`, not `mysql`, and passes the password via `MYSQL_PWD` (still
+honored) rather
 than `-p`, avoiding the "insecure password on command line" warning.
 
 ## `pair.sh`

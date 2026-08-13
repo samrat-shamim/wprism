@@ -845,6 +845,9 @@ PAIR_IDENTITY_SH="$(dirname "$PAIR_SH")/../lib/pair_identity.sh"
 PAIR_BUDGET_LOCK_SH="$(dirname "$PAIR_SH")/../lib/pair_budget_lock.sh"
 [ -f "$PAIR_BUDGET_LOCK_SH" ] \
   || fail "cannot find the pair-budget lock library required by the pair tool: $PAIR_BUDGET_LOCK_SH"
+PAIR_DB_SH="$(dirname "$PAIR_SH")/../lib/pair_db.sh"
+[ -f "$PAIR_DB_SH" ] \
+  || fail "cannot find the pair-db library required by the pair tool: $PAIR_DB_SH"
 # Empty on a host with no util-linux flock(1) (an ordinary macOS/BSD box):
 # the probe cases that need a REAL flock to shim say so and skip.
 REAL_FLOCK="$(command -v flock 2>/dev/null || true)"
@@ -936,6 +939,7 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
   cp "$PAIR_SH" "$root/sandbox/bin/pair.sh"
   cp "$PAIR_IDENTITY_SH" "$root/sandbox/lib/pair_identity.sh"
   cp "$PAIR_BUDGET_LOCK_SH" "$root/sandbox/lib/pair_budget_lock.sh"
+  cp "$PAIR_DB_SH" "$root/sandbox/lib/pair_db.sh"
   chmod +x "$root/sandbox/bin/pair.sh"
   write_pair_fakes "$root/bin"
   path_value="$root/bin:$PATH"
