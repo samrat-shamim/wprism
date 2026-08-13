@@ -5,9 +5,9 @@
 # preamble killed three unrelated runs' parent+wrapper, orphaning their
 # conformance children and losing their work roots (~40 min each).
 #
-# The lock in certify_reference_bundle.sh is flock(2) held by a helper process
-# that owns the descriptor, the same crash-safe primitive sandbox/bin/pair.sh
-# uses for the pair budget. The kernel releases it when its holder stops
+# The lock sourced by certify_reference_bundle.sh is flock(2) held by a helper
+# process that owns the descriptor, the same crash-safe primitive
+# sandbox/lib/pair_budget_lock.sh uses for the pair budget. The kernel releases it when its holder stops
 # existing, so there is no corpse to detect, no age or liveness heuristic, and
 # no takeover or rename path. Cases 8 and 9 below are the two races review
 # REPRODUCED against the earlier mkdir-gated revision of this section; they
@@ -17,9 +17,8 @@
 # `ps` as death and drop the lock while its acquirer was still running.
 #
 # Offline, no docker, no pair, no bundle: every case drives the SHIPPED
-# functions by sourcing certify_reference_bundle.sh with
-# CERT_BUNDLE_LOCK_LIB_ONLY=1 (the source-only hook that returns before the
-# preflight), redirected onto a private rendezvous via CERT_BUNDLE_LOCK_DIR.
+# functions by sourcing sandbox/lib/certbundle_lock.sh directly, redirected
+# onto a private rendezvous via CERT_BUNDLE_LOCK_DIR.
 # Concurrency is real — contenders are separate processes released by a
 # barrier — because the property under test is a race, and a single-process
 # simulation of the lock would prove nothing about it.
@@ -31,6 +30,8 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
 SHIPPED="$PWD/certify_reference_bundle.sh"
 [ -f "$SHIPPED" ] || fail "cannot find the script under test: $SHIPPED"
+LOCK_LIB="$PWD/../lib/certbundle_lock.sh"
+[ -f "$LOCK_LIB" ] || fail "cannot find the lock library under test: $LOCK_LIB"
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/duo-3382.XXXXXX")
 LOCK_DIR="$SCRATCH/rendezvous.lock"
@@ -103,6 +104,8 @@ wait_spawned() {
 }
 export CERT_BUNDLE_LOCK_DIR="$LOCK_DIR"
 export CERTBUNDLE_SCRIPT="$SHIPPED"
+export CERTBUNDLE_LOCK_LIB="$LOCK_LIB"
+export CERTBUNDLE_REPO_ROOT="$(cd ../.. && pwd)"
 # The shipped lock puts each helper's control directory under TMPDIR, because
 # those files are private to one run — unlike the rendezvous, which must be
 # shared and is therefore a fixed literal. Pointing TMPDIR into this suite's
@@ -225,15 +228,20 @@ forge_record() { # forge_record <pid> <pair> <started-epoch> — a NAMING record
 }
 
 # The driver is the only new code that runs the lock: it sources the shipped
-# script and calls its functions, so a drifted or deleted implementation fails
+# library and calls its functions, so a drifted or deleted implementation fails
 # these cases instead of leaving a transcription behind to rot.
 cat > "$SCRATCH/driver.sh" <<'DRIVER'
 #!/usr/bin/env bash
 set -euo pipefail
 MODE="$1"; READY="$2"; BARRIER="$3"
-export CERT_BUNDLE_LOCK_LIB_ONLY=1
+PAIR="${CERT_BUNDLE_PAIR:-certbundle}"
+PORT1="${CERT_BUNDLE_PORT1:-8880}"
+PORT2="${CERT_BUNDLE_PORT2:-8881}"
+REPO_ROOT="$CERTBUNDLE_REPO_ROOT"
+pass() { printf 'ok: %s\n' "$*"; }
+fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 # shellcheck source=/dev/null
-. "$CERTBUNDLE_SCRIPT"
+. "$CERTBUNDLE_LOCK_LIB"
 case "$MODE" in
   race)               while [ ! -f "$BARRIER" ]; do sleep 0.02; done ;;
   hold|acquire|child) : ;;
@@ -301,7 +309,15 @@ for i in 1 2 3 4; do
   RACERS+=("$!"); SPAWNED+=("$!")
 done
 : > "$BARRIER"
-count_ready() { ls "$SCRATCH"/ready.* >/dev/null 2>&1; }
+count_ready() {
+  local pid log
+  ls "$SCRATCH"/ready.* >/dev/null 2>&1 && return 0
+  for pid in "${RACERS[@]}"; do
+    kill -0 "$pid" 2>/dev/null && return 1
+  done
+  for log in "$SCRATCH"/racer.*.log; do show "$log"; done
+  fail "all four racers exited before one acquired the lock"
+}
 wait_until 30 "a racer to win the lock" count_ready
 three_losers_exited() {
   local live=0 p
@@ -433,7 +449,7 @@ CASE7B_IDENTITY_PID_FILE="$SCRATCH/identity-block.pid"
 CASE7B_PROC_ROOT="$SCRATCH/identity-proc"
 CASE7B_PROC_BLOCK="$SCRATCH/identity-proc-block"
 TRY_BODY_7B="$SCRATCH/lock_try.case7b.body"
-awk '/^certbundle_lock_try\(\) \{/{inside=1} inside{print} inside && /^\}$/{exit}' "$SHIPPED" > "$TRY_BODY_7B"
+awk '/^certbundle_lock_try\(\) \{/{inside=1} inside{print} inside && /^\}$/{exit}' "$LOCK_LIB" > "$TRY_BODY_7B"
 WATCHERS_LINE=$(grep -n '^[[:space:]]*certbundle_lock_start_watchers "\$helper_dir" "\$parent_pid" "\$parent_ident"$' "$TRY_BODY_7B" | head -1 | cut -d: -f1 || true)
 HELPER_PID_LINE=$(grep -n '^      printf '\''%s\\n'\'' "\$BASHPID" > "\$helper_dir/helper.pid"$' "$TRY_BODY_7B" | head -1 | cut -d: -f1 || true)
 FLOCK_LINE=$(grep -n '^      if flock -n 9; then$' "$TRY_BODY_7B" | head -1 | cut -d: -f1 || true)
@@ -725,8 +741,8 @@ assert_in "$SCRATCH/badbackend.log" "must be auto, flock, or python" "the backen
 # unreproducible window is exactly the kind a behavioural test stops covering
 # without anyone noticing.
 TRY_BODY="$SCRATCH/lock_try.body"
-awk '/^certbundle_lock_try\(\) \{/{inside=1} inside{print} inside && /^\}$/{exit}' "$SHIPPED" > "$TRY_BODY"
-[ -s "$TRY_BODY" ] || fail "cannot extract certbundle_lock_try() from certify_reference_bundle.sh"
+awk '/^certbundle_lock_try\(\) \{/{inside=1} inside{print} inside && /^\}$/{exit}' "$LOCK_LIB" > "$TRY_BODY"
+[ -s "$TRY_BODY" ] || fail "cannot extract certbundle_lock_try() from certbundle_lock.sh"
 DIED_LINE=$(grep -n 'outcome=died' "$TRY_BODY" | head -1 | cut -d: -f1)
 KILL_LINE=$(grep -n 'kill -0 "\$CERT_BUNDLE_LOCK_HELPER_PID"' "$TRY_BODY" | head -1 | cut -d: -f1)
 [ -n "$DIED_LINE" ] && [ -n "$KILL_LINE" ] || fail "cannot locate the helper-death branch in certbundle_lock_try()"
@@ -740,11 +756,15 @@ pass "an uncreatable rendezvous and an unknown backend both refuse by name; the 
 # that quietly stopped covering them would be worse than no coverage.
 say "case 14 — shipped ordering: the lock is acquired before any preflight or mutation"
 line_of() { grep -n -x -- "$2" "$1" | head -1 | cut -d: -f1; }
+SOURCE_LIB_LINE=$(line_of "$SHIPPED" "source lib/certbundle_lock.sh")
 ACQUIRE_LINE=$(line_of "$SHIPPED" "certbundle_lock_acquire")
 PREFLIGHT_LINE=$(line_of "$SHIPPED" "assert_exact_certification_checkout")
 WORKROOT_LINE=$(grep -n 'WORK_ROOT=$(mktemp -d ' "$SHIPPED" | head -1 | cut -d: -f1)
+[ -n "$SOURCE_LIB_LINE" ] || fail "certify_reference_bundle.sh no longer sources certbundle_lock.sh"
 [ -n "$ACQUIRE_LINE" ] || fail "certify_reference_bundle.sh no longer calls certbundle_lock_acquire at top level"
 [ -n "$PREFLIGHT_LINE" ] && [ -n "$WORKROOT_LINE" ] || fail "cannot locate the preflight call or the work-root allocation"
+[ "$SOURCE_LIB_LINE" -lt "$ACQUIRE_LINE" ] \
+  || fail "the lock library is sourced at line $SOURCE_LIB_LINE, after its acquire call at $ACQUIRE_LINE"
 [ "$ACQUIRE_LINE" -lt "$PREFLIGHT_LINE" ] \
   || fail "the lock is acquired at line $ACQUIRE_LINE, after the preflight at $PREFLIGHT_LINE"
 [ "$ACQUIRE_LINE" -lt "$WORKROOT_LINE" ] \
@@ -783,28 +803,32 @@ REL_LINE=$(grep -n '^  certbundle_lock_release$' "$CLEANUP_BODY" | head -1 | cut
 grep -q 'WARNING: could not remove the work root' "$CLEANUP_BODY" \
   || fail "cleanup_run()'s removal is unguarded: under set -e a failed rm aborts the trap, skipping the release and failing a green bundle over a cleanup error"
 grep -q '^trap cleanup_run EXIT' "$SHIPPED" || fail "cleanup_run is defined but never installed as the EXIT trap"
-grep -q '^      trap certbundle_lock_release EXIT$' "$SHIPPED" \
+grep -q '^      trap certbundle_lock_release EXIT$' "$LOCK_LIB" \
   || fail "certbundle_lock_acquire must arm its own release trap before writing anything"
 pass "cleanup_run clears the work root (body line $RM_LINE), tolerates a failed removal, then releases (body line $REL_LINE)"
 
 say "case 16 — the mechanisms review raced are absent by construction, not merely fixed"
-grep -q 'take_over_stale' "$SHIPPED" \
-  && fail "a takeover path is back in certify_reference_bundle.sh; the kernel already reclaims an flock, and every reproduced race lived in that path"
-grep -q '\.stale\.' "$SHIPPED" \
-  && fail "a rename-the-corpse path is back in certify_reference_bundle.sh"
-grep -q 'certbundle_pid_alive' "$SHIPPED" \
-  && fail "a holder-liveness heuristic is back in certify_reference_bundle.sh; flock(2) is the liveness authority"
-assert_in "$SHIPPED" "flock" "the mutual exclusion no longer names flock"
-assert_in "$SHIPPED" "pair.sh:569-740" "the section no longer cites the pair-budget lock it is modelled on"
+grep -q 'take_over_stale' "$LOCK_LIB" \
+  && fail "a takeover path is back in certbundle_lock.sh; the kernel already reclaims an flock, and every reproduced race lived in that path"
+grep -q '\.stale\.' "$LOCK_LIB" \
+  && fail "a rename-the-corpse path is back in certbundle_lock.sh"
+grep -q 'certbundle_pid_alive' "$LOCK_LIB" \
+  && fail "a holder-liveness heuristic is back in certbundle_lock.sh; flock(2) is the liveness authority"
+assert_in "$LOCK_LIB" "flock" "the mutual exclusion no longer names flock"
+assert_in "$LOCK_LIB" "sandbox/lib/pair_budget_lock.sh" "the boundary no longer cites the pair-budget lock it is modelled on"
 pass "no takeover, no rename, no liveness heuristic: the raced mechanisms cannot be reintroduced silently"
 
-say "case 17 — the source-only hook cannot be used to run a certification"
+say "case 17 — the wrapper is thin and the source-only library refuses direct execution"
 rc=0
-CERT_BUNDLE_LOCK_LIB_ONLY=1 bash "$SHIPPED" > "$SCRATCH/hook.log" 2>&1 || rc=$?
-[ "$rc" = "1" ] || fail "executing the shipped script with CERT_BUNDLE_LOCK_LIB_ONLY exited $rc, expected a refusal (1)"
-assert_in "$SCRATCH/hook.log" "source-only hook" "the hook refusal does not explain itself"
+WRAPPER_FUNCTIONS=$(grep -cE '^certbundle_[a-z0-9_]+\(\)' "$SHIPPED" || true)
+LIB_FUNCTIONS=$(grep -cE '^certbundle_[a-z0-9_]+\(\)' "$LOCK_LIB" || true)
+[ "$WRAPPER_FUNCTIONS" = 0 ] || fail "$WRAPPER_FUNCTIONS certification lock functions leaked back into the wrapper"
+[ "$LIB_FUNCTIONS" -ge 10 ] || fail "certbundle_lock.sh does not own the extracted lock boundary"
+bash "$LOCK_LIB" > "$SCRATCH/hook.log" 2>&1 || rc=$?
+[ "$rc" = "1" ] || fail "executing the source-only lock library exited $rc, expected a refusal (1)"
+assert_in "$SCRATCH/hook.log" "source-only library" "the direct-execution refusal does not explain itself"
 [ ! -f "$HOLDER_FILE" ] || fail "the refused hook invocation left a naming record behind"
-pass "the test seam refuses to run a bundle instead of silently skipping the lock"
+pass "the wrapper owns no lock implementation, and the extracted boundary refuses direct execution"
 
 say "case 18 — an unreadable start-token source never becomes PID-only liveness"
 # The flock helper refuses if it cannot establish the Linux /proc start tick
@@ -1118,27 +1142,25 @@ assert_pair_admitted() { # assert_pair_admitted <label> <pair> <why>
 }
 
 say "case 21 — shipped ordering: the pair is recorded before the bundle's first pair.sh call, and both sides name one rendezvous"
-RECORD_LINE=$(grep -n 'CERT_BUNDLE_LOCK_HOLDER_FILE\.\$\$' "$SHIPPED" | head -1 | cut -d: -f1)
+RECORD_LINE=$(grep -n 'CERT_BUNDLE_LOCK_HOLDER_FILE\.\$\$' "$LOCK_LIB" | head -1 | cut -d: -f1)
 FIRST_PAIR_LINE=$(grep -n 'bin/pair\.sh' "$SHIPPED" | grep -v '^[0-9]*:#' | head -1 | cut -d: -f1)
-[ -n "$RECORD_LINE" ] || fail "certify_reference_bundle.sh no longer writes a naming record"
+[ -n "$RECORD_LINE" ] || fail "certbundle_lock.sh no longer writes a naming record"
 [ -n "$FIRST_PAIR_LINE" ] || fail "cannot locate the bundle's first pair.sh invocation"
 [ "$ACQUIRE_LINE" -lt "$FIRST_PAIR_LINE" ] \
   || fail "the lock is acquired at line $ACQUIRE_LINE, after the first pair.sh call at $FIRST_PAIR_LINE"
-[ "$RECORD_LINE" -lt "$ACQUIRE_LINE" ] \
-  || fail "the naming record is written at line $RECORD_LINE, outside the acquire called at $ACQUIRE_LINE -- every leg after the first would find no record to be exempt by"
-assert_in "$SHIPPED" '--argjson pid "$$" --arg pair "$PAIR"' "the record no longer carries the pair name the exemption is keyed on"
+assert_in "$LOCK_LIB" '--argjson pid "$$" --arg pair "$PAIR"' "the record no longer carries the pair name the exemption is keyed on"
 assert_in "$SHIPPED" 'CONF_PAIR="$PAIR"' "the legs no longer bring up the pair the lock records; the recorded name would be exempting nothing"
 # One rendezvous or there is nothing to be exempt from: the same default
 # literal, the same record filename, on both sides.
-assert_in "$SHIPPED" 'CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"' \
+assert_in "$LOCK_LIB" 'CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"' \
   "the bundle's rendezvous default changed"
 assert_in "$PAIR_SH" 'CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"' \
   "pair.sh does not name the same rendezvous default as the bundle"
-assert_in "$SHIPPED" 'CERT_BUNDLE_LOCK_HOLDER_FILE="$CERT_BUNDLE_LOCK_DIR/holder.json"' \
+assert_in "$LOCK_LIB" 'CERT_BUNDLE_LOCK_HOLDER_FILE="$CERT_BUNDLE_LOCK_DIR/holder.json"' \
   "the bundle's record filename changed"
 assert_in "$PAIR_SH" 'holder_file="$CERT_BUNDLE_LOCK_DIR/holder.json"' \
   "pair.sh does not read the same record file the bundle writes"
-pass "record written at line $RECORD_LINE inside the acquire (line $ACQUIRE_LINE), both before the first pair.sh call at line $FIRST_PAIR_LINE; one rendezvous, one record filename"
+pass "the lock boundary writes the record before returning; wrapper acquire line $ACQUIRE_LINE precedes first pair.sh call $FIRST_PAIR_LINE; one rendezvous, one record filename"
 
 say "case 22 — at the cap, a foreign pair name still refuses while the lock is held (the budget is not weakened)"
 : > "$HOLD"

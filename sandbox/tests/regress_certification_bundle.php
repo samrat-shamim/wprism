@@ -112,8 +112,9 @@ check(
 );
 check(
     str_contains($enumeration, 'sandbox/pair.artifacts.yml')
-        && str_contains($enumeration, 'sandbox/pair.wordpress-offline.yml'),
-    'artifact-cache mount and WordPress.org-offline overlay are bundle-bound inputs'
+        && str_contains($enumeration, 'sandbox/pair.wordpress-offline.yml')
+        && str_contains($enumeration, 'sandbox/lib/certbundle_lock.sh'),
+    'artifact-cache overlays and the sourced certification lock are bundle-bound inputs'
 );
 
 $certRepoRoot = dirname(__DIR__, 2);

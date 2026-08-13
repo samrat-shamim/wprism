@@ -320,7 +320,8 @@ never removed, so a later owner cannot delete another process's reservation.
 `list` uses the same serialized strict query and surfaces the budget warning.
 
 One pair name is exempt, and only while a lock says so.
-`certify_reference_bundle.sh` holds the per-host certification lock
+`certify_reference_bundle.sh` sources the lock protocol from
+`sandbox/lib/certbundle_lock.sh` and holds that per-host certification lock
 (`/tmp/duo-certbundle.lock`, DUO-3382) for a whole ~50-minute run while
 destroying and recreating ONE pair per leg, so every leg re-enters this gate;
 a leg that lands after other agents
