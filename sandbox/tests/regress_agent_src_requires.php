@@ -430,7 +430,7 @@ $knownGapsByFile = [
     'CodeConfigGrammar' => ['Code'],
     'CodeStateContract' => ['CompiledRepository', 'OptionState'],
     'CompiledArtifact' => ['Canon', 'Code'],
-    'ConvergenceVerifier' => ['Capture', 'CompiledRepository', 'LedgerScopedApplySessionStorage', 'Policy', 'ScopedApply', 'ScopedApplySession'],
+    'ConvergenceVerifier' => ['Capture', 'CompiledRepository', 'Policy'],
     'Coverage' => ['Policy'],
     'Db' => ['TransientDbException'],
     'DeleteExecutor' => ['Db', 'Ledger'],
@@ -466,7 +466,7 @@ $knownGapsByFile = [
     'RepositoryCompiler' => ['Canon', 'Code', 'CodeCompilationException', 'CodeStateContract', 'JsonRefs', 'OptionState', 'Policy', 'ReferenceRules', 'RepositoryAuthorization', 'SidebarState', 'Snapshot', 'UserMetaState'],
     'ScopeClosure' => ['CompiledRepository', 'Policy', 'SidebarState', 'UserMetaState'],
     'ScopeContract' => ['Canon', 'CompiledRepository', 'Deletion', 'Policy', 'ReferenceGraph'],
-    'ScopedApply' => ['Canon', 'CompiledRepository', 'Db', 'Ledger', 'Policy', 'ReferenceGraph', 'RepositoryCompiler', 'ScopeContract', 'ScopedApplySession', 'ScopedApplySessionStorage', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Uuid'],
+    'ScopedApply' => ['Canon', 'CompiledRepository', 'Db', 'Ledger', 'Policy', 'ReferenceGraph', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Uuid'],
     'ScopedStateOverlay' => ['Canon', 'CompiledRepository', 'Policy', 'ScopeClosure', 'ScopeContract'],
     'Shortcodes' => ['Capture', 'Policy', 'Tokens'],
     'SidebarState' => ['Blocks', 'Canon', 'Db', 'Ledger', 'Policy', 'Secrets', 'Snapshot', 'Tokens', 'Uuid'],
@@ -500,6 +500,13 @@ foreach ([
     ['Apply', 'ConvergenceVerifier'],
     ['ConvergenceVerifier', 'Canon'],
     ['Capture', 'Canary'],
+    ['Capture', 'ScopedApply'],
+    ['ConvergenceVerifier', 'OptionState'],
+    ['ConvergenceVerifier', 'ScopeClosure'],
+    ['ConvergenceVerifier', 'ScopedApply'],
+    ['ConvergenceVerifier', 'ScopedApplySession'],
+    ['ScopedApply', 'ScopeClosure'],
+    ['ScopedApply', 'ScopedApplySession'],
 ] as [$file, $dependency]) {
     $pattern = "~^require_once __DIR__ \\. '/" . preg_quote($dependency, '~') . "\\.php';\\R~m";
     $changed = preg_replace($pattern, '', $mutated[$file], 1, $count);
