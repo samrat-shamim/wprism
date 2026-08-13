@@ -6,8 +6,9 @@ namespace Duo;
  *
  * A deletion guard's final `SELECT ... FOR UPDATE` is only authoritative
  * when its first equality/range column is covered by an index. This small
- * evaluator owns that schema proof; Apply keeps the transaction lifecycle,
- * query construction, witness capture, and forced-warning orchestration.
+ * evaluator owns that schema proof, generic findings, plan annotation, and
+ * the locked witness comparison; Apply keeps the transaction lifecycle,
+ * query construction, target-reference decoding, and forced-warning policy.
  *
  * The class deliberately has no constructor and no dependency on Apply or
  * Policy. It evaluates only the manifest guard plus the target's inspected
@@ -257,6 +258,48 @@ final class DeleteGuardEvaluator {
             unset($row);
         }
         return $plan;
+    }
+
+    /**
+     * Re-read every guard for the delete work under the transaction's locking
+     * boundary and compare it with the witness captured by the completed
+     * plan. The evaluator owns only this deterministic race decision: Apply
+     * still establishes the transaction/isolation/storage prerequisites and
+     * supplies the target-specific reference-count callback.
+     *
+     * A missing/error witness is fail-closed and never forceable. The caller's
+     * callback receives the same `forUpdate=true` contract used by the
+     * ordinary guard reader, so the re-read remains the authoritative locked
+     * boundary rather than a second consistent snapshot.
+     *
+     * @param list<array<string,mixed>> $deleteWork
+     * @param callable(array<string,mixed>):list<array<string,mixed>> $guardsForRow
+     * @param callable(array<string,mixed>,string,bool):array{error:?string,witness?:string} $countRefs
+     */
+    public static function assert_revalidated_witnesses(
+        array $deleteWork,
+        callable $guardsForRow,
+        callable $countRefs
+    ): void {
+        foreach ($deleteWork as $row) {
+            $uuid = (string) $row['uuid'];
+            foreach ((array) $guardsForRow($row) as $guardIndex => $guard) {
+                $result = $countRefs($guard, $uuid, true);
+                if ($result['error'] !== null) {
+                    throw new \RuntimeException(
+                        "duo: deletion guard lock refused for {$row['type']} {$row['uuid']}: {$result['error']}"
+                    );
+                }
+                $expected = (string) (($row['guard_witnesses'] ?? [])[(string) $guardIndex] ?? '');
+                $actual = (string) ($result['witness'] ?? '');
+                if ($expected === '' || $actual === '' || !hash_equals($expected, $actual)) {
+                    throw new \RuntimeException(
+                        "duo: deletion guard witness changed after planning for {$row['type']} {$row['uuid']}; "
+                        . 'no mutation attempted — recompile and retry (force flags cannot bypass this race boundary)'
+                    );
+                }
+            }
+        }
     }
 
     /**

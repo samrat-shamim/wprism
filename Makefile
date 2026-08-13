@@ -912,11 +912,11 @@ regress-delete-executor:
 regress-delete-guard-value-codec:
 	php sandbox/tests/regress_delete_guard_value_codec.php
 
-# DUO-3347 slice 19 + next guard seam: DeleteGuardEvaluator owns the
-# index-prefix proof that makes a guard's locking read a real gap boundary,
-# the generic per-guard findings contract, and plan-time delete-bucket
-# annotation. The broader manifest, witness, and transaction product path
-# remains in the Woo deletion suite; Apply retains the target-fact callback
+# DUO-3347 guard seams: DeleteGuardEvaluator owns the index-prefix proof that
+# makes a guard's locking read a real gap boundary, the generic per-guard
+# findings contract, plan-time delete-bucket annotation, and locked witness
+# revalidation. The broader manifest/reference product path remains in the Woo
+# deletion suite; Apply retains transaction lifecycle, target-fact callbacks,
 # and mutation authority.
 regress-delete-guard-evaluator:
 	php sandbox/tests/regress_delete_guard_evaluator.php

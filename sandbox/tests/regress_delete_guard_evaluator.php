@@ -340,6 +340,56 @@ $check(
     'plan guard evaluator annotates both delete buckets and suppresses unsafe conflict choices'
 );
 
+$revalidationCalls = [];
+DeleteGuardEvaluator::assert_revalidated_witnesses(
+    [[
+        'type' => 'post',
+        'uuid' => 'locked-target',
+        'guard_witnesses' => ['0' => 'locked-witness'],
+    ]],
+    static fn(array $row): array => [['table' => 'wp_postmeta', 'column' => 'post_id']],
+    static function (array $guard, string $targetUuid, bool $forUpdate) use (&$revalidationCalls): array {
+        $revalidationCalls[] = [$targetUuid, $guard['table'], $forUpdate];
+        return ['error' => null, 'witness' => 'locked-witness'];
+    }
+);
+$check(
+    $revalidationCalls === [['locked-target', 'wp_postmeta', true]],
+    'locked witness evaluator re-reads every guard with the FOR UPDATE callback contract'
+);
+
+$lockFailureRefused = false;
+try {
+    DeleteGuardEvaluator::assert_revalidated_witnesses(
+        [['type' => 'post', 'uuid' => 'locked-target', 'guard_witnesses' => ['0' => 'locked-witness']]],
+        static fn(array $row): array => [['table' => 'wp_postmeta', 'column' => 'post_id']],
+        static fn(array $guard, string $targetUuid, bool $forUpdate): array => [
+            'error' => 'simulated lock query failure',
+            'witness' => '',
+        ]
+    );
+} catch (RuntimeException $e) {
+    $lockFailureRefused = str_contains($e->getMessage(), 'deletion guard lock refused for post locked-target')
+        && str_contains($e->getMessage(), 'simulated lock query failure');
+}
+$check($lockFailureRefused, 'locked witness evaluator fails closed on a reference query error');
+
+$changedWitnessRefused = false;
+try {
+    DeleteGuardEvaluator::assert_revalidated_witnesses(
+        [['type' => 'post', 'uuid' => 'locked-target', 'guard_witnesses' => ['0' => 'locked-witness']]],
+        static fn(array $row): array => [['table' => 'wp_postmeta', 'column' => 'post_id']],
+        static fn(array $guard, string $targetUuid, bool $forUpdate): array => [
+            'error' => null,
+            'witness' => 'changed-witness',
+        ]
+    );
+} catch (RuntimeException $e) {
+    $changedWitnessRefused = str_contains($e->getMessage(), 'witness changed after planning')
+        && str_contains($e->getMessage(), 'no mutation attempted');
+}
+$check($changedWitnessRefused, 'locked witness evaluator refuses a changed or stale witness before mutation');
+
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
@@ -352,8 +402,10 @@ $check(
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'reference_findings'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'annotate_plan_guard_findings'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'annotate_plan_guard_findings'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_revalidated_witnesses'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_revalidated_witnesses'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, and plan contracts'
+    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, and witness contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
@@ -396,6 +448,17 @@ $check(
     str_contains($recheckFacade, 'DeleteGuardEvaluator::reference_findings(')
         && !str_contains($recheckFacade, 'foreach ($capability[\'guards\']'),
     'Apply delegates generic reference accumulation and retains only policy, SQL, and forced-warning orchestration'
+);
+$lockFacade = substr(
+    $applySource,
+    strpos($applySource, 'private function lock_and_revalidate_delete_guards('),
+    strpos($applySource, 'private function assert_delete_guard_engines(')
+        - strpos($applySource, 'private function lock_and_revalidate_delete_guards(')
+);
+$check(
+    str_contains($lockFacade, 'DeleteGuardEvaluator::assert_revalidated_witnesses(')
+        && !str_contains($lockFacade, 'foreach ($deleteWork'),
+    'Apply keeps lock/isolation and target-fact callbacks while the evaluator owns witness revalidation'
 );
 $planGuardSection = substr(
     $applySource,
