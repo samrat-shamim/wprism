@@ -362,8 +362,18 @@ pid_running() {
   kill -0 "$pid" 2>/dev/null || return 1
   if [ -r "/proc/$pid/stat" ]; then
     state="$(awk '{print $3}' "/proc/$pid/stat" 2>/dev/null || true)"
-    [ "$state" != Z ] || return 1
+  else
+    # macOS has no procfs. Its `kill -0` still succeeds for an unreaped
+    # zombie, which made the SIGKILL contender check wait for its full
+    # deadline even though the contender had exited. `ps` is available on
+    # both host families this offline harness supports; only an explicit
+    # zombie state means "not running", while an unavailable observation
+    # conservatively leaves the process live for the caller's deadline.
+    state="$(ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
   fi
+  case "$state" in
+    Z*) return 1 ;;
+  esac
   return 0
 }
 
@@ -374,6 +384,31 @@ wait_pid_exit() {
     sleep 0.01
   done
   return 1
+}
+
+run_pid_running_zombie_case() {
+  local label=pid_running_zombie parent_pid zombie_pid="" i
+  # Keep a child zombie beneath a deliberately non-reaping Python parent.
+  # This deterministically exposes macOS's `kill -0` behaviour without
+  # touching a real pair: the former helper called it live and therefore
+  # made the Python contender SIGKILL assertion timing-dependent.
+  python3 -c 'import os, time; child = os.fork(); os._exit(0) if child == 0 else time.sleep(5)' &
+  parent_pid=$!
+  for i in $(seq 1 100); do
+    zombie_pid="$(ps -Ao pid=,ppid=,stat= | awk -v parent="$parent_pid" '$2 == parent && $3 ~ /^Z/ { print $1; exit }')"
+    [ -n "$zombie_pid" ] && break
+    sleep 0.01
+  done
+  [ -n "$zombie_pid" ] \
+    || { wait "$parent_pid" 2>/dev/null || true; fail "$label could not create its controlled zombie probe"; }
+  kill -0 "$zombie_pid" 2>/dev/null \
+    || { wait "$parent_pid" 2>/dev/null || true; fail "$label probe was not retained as a kill-0-visible zombie"; }
+  if ! wait_pid_exit "$zombie_pid" 1; then
+    wait "$parent_pid" 2>/dev/null || true
+    fail "$label treated a kill-0-visible zombie as a live contender past its exit deadline"
+  fi
+  wait "$parent_pid" 2>/dev/null || true
+  pass "$label: kill-0-visible zombies count as exited on hosts without procfs"
 }
 
 flock_waiter_for_path() {
@@ -2035,6 +2070,9 @@ run_live_query_failure_case
 
 say "concurrent pair budget reservation (fake compose; no Docker/DB)"
 run_concurrent_budget_race_case
+
+say "portable zombie detection for SIGKILL cancellation (no Docker/DB)"
+run_pid_running_zombie_case
 
 say "concurrent Python fcntl budget reservation (fake compose; no Docker/DB)"
 run_python_lock_concurrent_case
