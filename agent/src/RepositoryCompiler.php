@@ -25,6 +25,7 @@ require_once __DIR__ . '/RepositoryIdentityRegistry.php';
 require_once __DIR__ . '/RepositoryReferenceGraphValidator.php';
 require_once __DIR__ . '/RepositoryPortableShapeValidator.php';
 require_once __DIR__ . '/RepositoryMenuLocationValidator.php';
+require_once __DIR__ . '/RepositoryStateFileCatalog.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -94,6 +95,8 @@ final class RepositoryCompiler {
     private RepositoryPortableShapeValidator $portableShapeValidator;
     /** Validates authored menu-location uniqueness through this compiler's aggregate sink. */
     private RepositoryMenuLocationValidator $menuLocationValidator;
+    /** Enumerates this compilation's arbitrary staged state root through the aggregate sink. */
+    private RepositoryStateFileCatalog $stateFileCatalog;
 
     private function __construct(
         string $stateDir,
@@ -150,6 +153,12 @@ final class RepositoryCompiler {
         );
         $this->menuLocationValidator = new RepositoryMenuLocationValidator(
             $policy,
+            function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
+                $this->add($code, $path, $locator, $message, $relatedPath);
+            }
+        );
+        $this->stateFileCatalog = new RepositoryStateFileCatalog(
+            $this->stateDir,
             function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
                 $this->add($code, $path, $locator, $message, $relatedPath);
             }
@@ -292,7 +301,7 @@ final class RepositoryCompiler {
 
         $tree = [];
         $sourceRows = [];
-        foreach ($this->state_files() as $path => $absolute) {
+        foreach ($this->stateFileCatalog->files() as $path => $absolute) {
             $content = Canon::read_file($absolute);
             $sourceRows[] = ['path' => $path, 'sha256' => hash('sha256', $content)];
             if (preg_match(self::CONFLICT_RE, $content, $m, PREG_OFFSET_CAPTURE)) {
@@ -487,27 +496,6 @@ final class RepositoryCompiler {
             $payload['code'] = $codeDescriptor;
         }
         return CompiledRepository::create($payload);
-    }
-
-    /** @return array<string,string> state-relative path => absolute path */
-    private function state_files(): array {
-        $out = [];
-        $it = new \RecursiveIteratorIterator(
-            new \RecursiveDirectoryIterator($this->stateDir, \FilesystemIterator::SKIP_DOTS)
-        );
-        foreach ($it as $file) {
-            if (!$file->isFile() || $file->isLink()) {
-                if ($file->isLink()) {
-                    $rel = substr($file->getPathname(), strlen($this->stateDir) + 1);
-                    $this->add('unsafe_repository_path', $rel, '', 'symbolic links are not valid canonical entities');
-                }
-                continue;
-            }
-            $rel = str_replace('\\', '/', substr($file->getPathname(), strlen($this->stateDir) + 1));
-            $out[$rel] = $file->getPathname();
-        }
-        ksort($out, SORT_STRING);
-        return $out;
     }
 
     private function add(string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
