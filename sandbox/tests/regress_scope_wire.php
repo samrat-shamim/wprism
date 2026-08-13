@@ -3,7 +3,7 @@
  * Offline host/agent scope wire regression for DUO-3344.
  *
  * The fake local wp transport records every target argument. A valid
- * read-only contract proves the host emits only the compact request, while
+ * immutable contract proves the host emits only the compact request, while
  * malformed, duplicate, reserved, and unsupported inputs prove refusal
  * before the target process starts. No WordPress target is required.
  */
@@ -301,7 +301,18 @@ check_wire(
     'scoped promote refuses non-SSH targets before contact without leaking its local contract path'
 );
 
-foreach (['capture', 'plan', 'apply', 'promote'] as $optionVerb) {
+$optionCapture = invoke_wire($root, $envsPath, $fakeBin, $argsPath, 'capture', [
+    "--scope-contract=$optionContractPath", '--format=json',
+]);
+$optionCaptureObservation = scope_wire_observation($optionCapture, $optionContract);
+check_wire(
+    $optionCapture['exit'] === 0
+        && !in_array("--scope-contract=$optionContractPath", $optionCaptureObservation['args'], true)
+        && !str_contains(implode("\n", $optionCaptureObservation['args']), $optionContractPath),
+    'capture forwards an option-root contract as compact evidence for its record-aware target overlay'
+);
+
+foreach (['plan', 'apply', 'promote'] as $optionVerb) {
     $optionRefusal = invoke_wire($root, $envsPath, $fakeBin, $argsPath, $optionVerb, [
         "--scope-contract=$optionContractPath", '--format=json',
     ]);
@@ -314,7 +325,7 @@ foreach (['capture', 'plan', 'apply', 'promote'] as $optionVerb) {
             && !is_file($argsPath)
             && !str_contains($optionRefusal['stdout'], $optionContractPath)
             && !str_contains($optionRefusal['stderr'], $optionContractPath),
-        "$optionVerb refuses an option-root contract before target contact with the stable public reason"
+        "$optionVerb retains its option-root refusal before target contact with the stable public reason"
     );
 }
 
@@ -337,6 +348,11 @@ check_wire(
     !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh')")
         && !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh rebase')"),
     'refresh and rebase defer a valid option-root contract to their record-aware production-export and overlay protocol'
+);
+$captureSource = (string) file_get_contents("$root/agent/src/Capture.php");
+check_wire(
+    !str_contains($captureSource, "assert_mutation_supported(\$contract, 'scoped capture')"),
+    'capture associates option-root evidence and defers it to its record-aware production overlay'
 );
 
 $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");

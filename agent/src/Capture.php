@@ -1002,7 +1002,12 @@ final class Capture {
         $counts = ['post' => 0, 'term' => 0, 'menu' => 0, 'sidebar' => 0, 'options' => 0, 'deletion' => 0];
         $countedEntities = $scoped
             ? array_values(array_filter($build['entities'], static function (array $row) use ($scopeContract): bool {
-                return in_array((string) ($row['uuid'] ?? ''), ScopedStateOverlay::selected_identities($scopeContract), true);
+                $identity = (string) ($row['uuid'] ?? '');
+                return in_array($identity, ScopedStateOverlay::selected_identities($scopeContract), true)
+                    // Exact option roots are virtual identities inside the
+                    // physical options/core carrier. Count its selected
+                    // capture once, without implying whole-carrier authority.
+                    || ($identity === 'options/core' && ScopeContract::option_root_names($scopeContract) !== []);
             }))
             : $build['entities'];
         foreach ($countedEntities as $e) {
@@ -1040,7 +1045,6 @@ final class Capture {
         if (($request['format'] ?? null) === ScopeContract::FORMAT) {
             $contract = ScopeContract::from_array($request);
             ScopeContract::assert_associated($contract, $compiled, $policy);
-            ScopeContract::assert_mutation_supported($contract, 'scoped capture');
             return $contract;
         }
         $keys = array_keys($request);
@@ -1058,7 +1062,6 @@ final class Capture {
             $selectors,
             (string) ($request['scope_hash'] ?? '')
         );
-        ScopeContract::assert_mutation_supported($contract, 'scoped capture');
         return $contract;
     }
 

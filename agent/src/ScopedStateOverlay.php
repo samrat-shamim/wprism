@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/OptionState.php';
+
 /**
  * Contract-bound state projection shared by scoped capture and refresh.
  *
@@ -91,6 +93,7 @@ final class ScopedStateOverlay {
     ): array {
         ScopeContract::from_array($contract);
         $selected = array_fill_keys(self::selected_identities($contract), true);
+        $selectedOptions = array_fill_keys(ScopeContract::option_root_names($contract), true);
         $live = self::index_rows($observedEntities, 'observed live');
         $deleted = self::index_rows($selectedDeletions, 'selected deletion');
         $entities = [];
@@ -98,6 +101,15 @@ final class ScopedStateOverlay {
 
         foreach ($previous->tree() as $identity => $row) {
             $identity = (string) $identity;
+            // An exact option root is a virtual selected identity while
+            // options/core remains one physical canonical carrier. Preserve
+            // the associated carrier, replacing only the record evidence the
+            // contract selected. A whole-options root remains authoritative
+            // for the carrier and follows the ordinary selected-row path.
+            if ($identity === 'options/core' && $selectedOptions !== [] && !isset($selected[$identity])) {
+                $entities[] = self::project_selected_option_records($row, $live[$identity] ?? null, $selectedOptions);
+                continue;
+            }
             if (!isset($selected[$identity])) {
                 $entities[] = self::compiled_row($identity, $row);
                 continue;
@@ -362,9 +374,18 @@ final class ScopedStateOverlay {
         array $contract
     ): void {
         $selected = array_fill_keys(self::selected_identities($contract), true);
+        $selectedOptions = array_fill_keys(ScopeContract::option_root_names($contract), true);
         $before = self::compiled_index($source);
         $after = self::compiled_index($candidate);
         foreach ($before as $identity => $row) {
+            // options/core is a physical carrier, whereas an option-root
+            // contract grants authority to one virtual record. Compare every
+            // excluded record independently so a selected record can change
+            // without blessing the carrier or hiding a sibling mutation.
+            if ($identity === 'options/core' && $selectedOptions !== [] && !isset($selected[$identity])) {
+                self::assert_excluded_option_records_preserved($row, $after[$identity] ?? null, $selectedOptions);
+                continue;
+            }
             if (isset($selected[$identity])) {
                 continue;
             }
@@ -382,6 +403,88 @@ final class ScopedStateOverlay {
                 throw new \RuntimeException(
                     "duo: scoped overlay introduced out-of-contract identity '$identity'"
                 );
+            }
+        }
+    }
+
+    /**
+     * Recombine an observed options carrier with the immutable source
+     * carrier. `option:<name>` roots never authorize adding, dropping, or
+     * changing a sibling record; an absent source row is represented by the
+     * option record state, not by omitting it from this document.
+     *
+     * @param array<string,mixed> $sourceRow
+     * @param ?array<string,mixed> $observedRow
+     * @param array<string,true> $selectedOptions
+     * @return array<string,mixed>
+     */
+    private static function project_selected_option_records(
+        array $sourceRow,
+        ?array $observedRow,
+        array $selectedOptions
+    ): array {
+        if ($observedRow === null) {
+            throw new \RuntimeException('duo: selected option capture could not observe options/core');
+        }
+        try {
+            $sourceRecords = OptionState::records(Canon::decode((string) ($sourceRow['content'] ?? '')));
+            $observedRecords = OptionState::records(Canon::decode((string) ($observedRow['content'] ?? '')));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: selected option capture has malformed options/core state', 0, $failure);
+        }
+        foreach ($selectedOptions as $name => $_selected) {
+            if (!array_key_exists($name, $sourceRecords)) {
+                throw new \RuntimeException("duo: selected option '$name' disappeared from the associated source carrier");
+            }
+            if (!array_key_exists($name, $observedRecords)) {
+                throw new \RuntimeException("duo: selected option '$name' disappeared from the capture observation");
+            }
+            $sourceRecords[$name] = $observedRecords[$name];
+        }
+        $projected = self::compiled_row('options/core', $sourceRow);
+        $projected['content'] = Canon::encode(OptionState::document($sourceRecords));
+        return $projected;
+    }
+
+    /**
+     * The carrier document is allowed to differ only at selected option
+     * records. Compare canonical record bytes rather than the enclosing JSON
+     * document so selected values can change without weakening the exclusion
+     * boundary for every other authored option.
+     *
+     * @param array<string,mixed> $sourceRow
+     * @param ?array<string,mixed> $candidateRow
+     * @param array<string,true> $selectedOptions
+     */
+    private static function assert_excluded_option_records_preserved(
+        array $sourceRow,
+        ?array $candidateRow,
+        array $selectedOptions
+    ): void {
+        if ($candidateRow === null
+            || (string) ($sourceRow['kind'] ?? '') !== 'live'
+            || (string) ($candidateRow['kind'] ?? '') !== 'live'
+            || (string) ($candidateRow['path'] ?? '') !== (string) ($sourceRow['path'] ?? '')) {
+            throw new \RuntimeException("duo: scoped overlay changed or removed excluded canonical row 'options/core'");
+        }
+        try {
+            $sourceRecords = OptionState::records(Canon::decode((string) ($sourceRow['content'] ?? '')));
+            $candidateRecords = OptionState::records(Canon::decode((string) ($candidateRow['content'] ?? '')));
+        } catch (\Throwable $failure) {
+            throw new \RuntimeException('duo: scoped overlay has malformed options/core state', 0, $failure);
+        }
+        foreach ($sourceRecords as $name => $record) {
+            if (isset($selectedOptions[$name])) {
+                continue;
+            }
+            if (!array_key_exists($name, $candidateRecords)
+                || Canon::encode($candidateRecords[$name]) !== Canon::encode($record)) {
+                throw new \RuntimeException("duo: scoped overlay changed or removed excluded option '$name'");
+            }
+        }
+        foreach ($candidateRecords as $name => $_record) {
+            if (!isset($selectedOptions[$name]) && !array_key_exists($name, $sourceRecords)) {
+                throw new \RuntimeException("duo: scoped overlay introduced excluded option '$name'");
             }
         }
     }

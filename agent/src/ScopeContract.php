@@ -213,8 +213,8 @@ final class ScopeContract {
     }
 
     /**
-     * This is deliberately a per-consumer guard. Refresh has a record-aware
-     * production export and overlay, while capture/apply/promote still own
+     * This is deliberately a per-consumer guard. Refresh and capture have
+     * record-aware carrier overlays, while plan/apply/promote still own
      * whole-document mechanics and must reject an option root before contact.
      */
     public static function assert_mutation_supported(array $contract, string $operation): void {
