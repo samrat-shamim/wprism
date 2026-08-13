@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/JsonRefs.php';
 require_once __DIR__ . '/Pending.php';
+require_once __DIR__ . '/LintFinding.php';
 
 /**
  * Pure traversal for the structured-reference half of the suspicious-ref
@@ -46,7 +47,7 @@ final class StructuredReferenceScanner {
                         }
                         $hit = $resolveId($id);
                         $kind = (string) ($rule['kind'] ?? 'entity');
-                        $findings[] = self::finding(
+                        $findings[] = LintFinding::make(
                             'unrewritten_registered_ref',
                             $rel,
                             $matchedLocator . $locSuffix,
@@ -79,7 +80,7 @@ final class StructuredReferenceScanner {
                     $rawLocator = "$mapLocator KEY $key";
                     $declaredKeyLocators[$rawLocator] = true;
                     $kind = (string) $keyRefs['kind'];
-                    $findings[] = self::finding(
+                    $findings[] = LintFinding::make(
                         'unrewritten_registered_ref',
                         $rel,
                         $rawLocator,
@@ -136,7 +137,7 @@ final class StructuredReferenceScanner {
             if (is_int($key) && !$isList && !isset($declaredKeyLocators["$locator KEY $key"])) {
                 $hit = $resolveId($key);
                 if ($hit !== null) {
-                    $findings[] = self::finding('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
+                    $findings[] = LintFinding::make('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
                         "this structured value has an integer ARRAY KEY that matches an existing %s id "
                         . "(#%d \"%s\", %s), with no declared key_refs path covering it — an id-keyed map "
                         . "(an associative array whose integer KEYS are themselves entity ids) is exactly the "
@@ -154,7 +155,7 @@ final class StructuredReferenceScanner {
                     if ($hit === null) {
                         continue;
                     }
-                    $findings[] = self::finding('bare_id', $rel, $childLocator . $locSuffix, $id, $hit, sprintf(
+                    $findings[] = LintFinding::make('bare_id', $rel, $childLocator . $locSuffix, $id, $hit, sprintf(
                         "key '%s' inside a json_refs/key_refs-declared structure looks like an id (matches the "
                         . "id/ids/ref/*Id/*Ids naming heuristic) and its value coincides with an existing %s id "
                         . "(#%d \"%s\", %s), but no declared json_refs path covers this exact position — a "
@@ -179,11 +180,4 @@ final class StructuredReferenceScanner {
             || (bool) preg_match('/([-_][iI][dD]s?|(Id|ID)s?)$/', $key);
     }
 
-    private static function finding(string $class, string $path, string $locator, $value, ?array $matches, string $note): array {
-        $finding = ['class' => $class, 'path' => $path, 'locator' => $locator, 'value' => $value, 'note' => $note];
-        if ($matches !== null) {
-            $finding['matches'] = $matches;
-        }
-        return $finding;
-    }
 }
