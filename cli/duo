@@ -690,8 +690,8 @@ function main(array $argv): int {
     return match ($verb) {
         'doctor' => cmd_doctor($transport),
         'adopt' => cmd_adopt($transport, $extra),
-        'init' => cmd_init($transport, $extra),
-        'status' => cmd_status($transport, $extra),
+        'init' => cmd_init($transport, $extra, $envsFileOverride),
+        'status' => cmd_status($transport, $extra, $envsFileOverride),
         'adapter-observe' => cmd_adapter_observe($transport, $extra),
         'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'env-set' => PassthroughCommand::runEnvSet($transport, $extra),
@@ -899,7 +899,7 @@ function cmd_adopt(EnvironmentDriver $t, array $extra): int {
 }
 
 /** @param list<string> $extra */
-function cmd_status(EnvironmentDriver $t, array $extra = []): int {
+function cmd_status(EnvironmentDriver $t, array $extra = [], ?string $envsFileOverride = null): int {
     return StatusCommand::run(
         $t,
         $extra,
@@ -911,7 +911,8 @@ function cmd_status(EnvironmentDriver $t, array $extra = []): int {
         },
         static function (EnvironmentDriver $driver): bool {
             return render_rollback_authority_status($driver);
-        }
+        },
+        $envsFileOverride
     );
 }
 
@@ -955,14 +956,14 @@ function render_command_refusal_human(array $refusal): void {
 }
 
 /** Review and confirm the target agent's content-addressed first-run plan. */
-function cmd_init(EnvironmentDriver $t, array $extra): int {
+function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {
     return InitCommand::run(
         $t,
         $extra,
         static function (array $refusal): void {
             render_command_refusal_human($refusal);
         },
-        static fn(EnvironmentDriver $driver): int => cmd_status($driver),
+        static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride),
         static fn(): mixed => fgets(STDIN)
     );
 }

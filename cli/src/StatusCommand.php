@@ -20,7 +20,8 @@ final class StatusCommand {
         array $extra,
         callable $renderPlanRefusal,
         callable $renderCommandRefusal,
-        callable $renderAuthority
+        callable $renderAuthority,
+        ?string $envsFileOverride = null
     ): int {
         try {
             $viewRequest = PlanView::requestFromArgs($extra);
@@ -77,7 +78,8 @@ final class StatusCommand {
         $summary = PlanSummary::render(
             $plan,
             $viewRequest === null ? [] : $viewRequest['category'],
-            $driver->name()
+            $driver->name(),
+            $envsFileOverride
         );
         if ($viewRequest !== null) {
             /** @var array<string,mixed> $view */

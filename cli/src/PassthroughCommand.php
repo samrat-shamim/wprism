@@ -82,7 +82,19 @@ final class PassthroughCommand {
             exec($enabled ? 'stty echo 2>/dev/null' : 'stty -echo 2>/dev/null', $output, $exitCode);
             return $exitCode === 0;
         };
+        $echoMasked = false;
+        $restoreSignalHandlers = self::installTerminalEchoSignalGuards($setTerminalEcho, $echoMasked);
+        if ($restoreSignalHandlers === null) {
+            return self::scopeWireRefusal(
+                'env-set',
+                $extra,
+                'stdin_signal_guard_unavailable',
+                'the local terminal cannot guarantee echo restoration after an interrupt',
+                'enable PHP pcntl signal support or pipe the value from a trusted non-interactive source, then retry'
+            );
+        }
         if (!$setTerminalEcho(false)) {
+            $restoreSignalHandlers();
             return self::scopeWireRefusal(
                 'env-set',
                 $extra,
@@ -105,6 +117,7 @@ final class PassthroughCommand {
         } finally {
             $restored = $setTerminalEcho(true);
             $echoMasked = !$restored;
+            $restoreSignalHandlers();
             if (!$restored) {
                 fwrite(
                     STDERR,
@@ -113,6 +126,89 @@ final class PassthroughCommand {
             }
         }
         return $restored ? $exitCode : 2;
+    }
+
+    /**
+     * Install temporary async handlers while local terminal echo is masked.
+     * Normal/default termination exits with the conventional 128+signal code
+     * only after echo restoration. A pre-existing ignore/callable handler is
+     * allowed to continue only when the terminal can be masked again.
+     *
+     * @param callable(bool):bool $setTerminalEcho
+     * @return null|callable():void Null means safe signal coverage is absent.
+     */
+    private static function installTerminalEchoSignalGuards(
+        callable $setTerminalEcho,
+        bool &$echoMasked
+    ): ?callable {
+        foreach (['pcntl_async_signals', 'pcntl_signal', 'pcntl_signal_get_handler'] as $function) {
+            if (!function_exists($function)) {
+                return null;
+            }
+        }
+        $signals = [];
+        foreach (['SIGHUP', 'SIGINT', 'SIGTERM'] as $constant) {
+            if (!defined($constant)) {
+                return null;
+            }
+            $signals[] = constant($constant);
+        }
+
+        $previousAsync = pcntl_async_signals();
+        $previousHandlers = [];
+        try {
+            pcntl_async_signals(true);
+            foreach (array_values(array_unique($signals)) as $signal) {
+                $previous = pcntl_signal_get_handler($signal);
+                $previousHandlers[$signal] = $previous;
+                $installed = pcntl_signal(
+                    $signal,
+                    static function (int $caught) use (&$echoMasked, $setTerminalEcho, $previous): void {
+                        $restored = $setTerminalEcho(true);
+                        $echoMasked = !$restored;
+                        if (!$restored) {
+                            fwrite(
+                                STDERR,
+                                "duo: env-set: terminal echo could not be restored; run `stty echo` now\n"
+                            );
+                            exit(128 + $caught);
+                        }
+
+                        if ((defined('SIG_IGN') && $previous === constant('SIG_IGN')) || is_callable($previous)) {
+                            if (is_callable($previous)) {
+                                $previous($caught);
+                            }
+                            if ($setTerminalEcho(false)) {
+                                $echoMasked = true;
+                                return;
+                            }
+                            fwrite(
+                                STDERR,
+                                "duo: env-set: terminal echo could not be disabled again after an interrupt; "
+                                    . "secret input was stopped\n"
+                            );
+                        }
+                        exit(128 + $caught);
+                    }
+                );
+                if (!$installed) {
+                    throw new \RuntimeException('could not install terminal signal guard');
+                }
+            }
+        } catch (\Throwable $_failure) {
+            foreach ($previousHandlers as $signal => $handler) {
+                @pcntl_signal($signal, $handler);
+            }
+            pcntl_async_signals($previousAsync);
+            return null;
+        }
+
+        return static function () use ($previousHandlers, $previousAsync): void {
+            foreach ($previousHandlers as $signal => $handler) {
+                pcntl_signal($signal, $handler);
+            }
+            pcntl_async_signals($previousAsync);
+        };
     }
 
     public static function runScoped(EnvironmentDriver $driver, string $verb, array $extra): int {

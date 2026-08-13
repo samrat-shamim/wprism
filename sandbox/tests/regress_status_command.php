@@ -89,6 +89,53 @@ assert_status_command(
     'host status suppresses only the exact duplicate target warning'
 );
 
+$customRegistryMissing = new StatusCommandDriver('env-missing');
+ob_start();
+$customRegistryExit = StatusCommand::run(
+    $customRegistryMissing,
+    [],
+    static function (string $c, string $m, string $r): void {},
+    static function (array $r): void {},
+    static fn(EnvironmentDriver $d): bool => true,
+    '/tmp/custom registry.json'
+);
+$customRegistryOutput = (string) ob_get_clean();
+assert_status_command($customRegistryExit === 1, 'custom-registry env value keeps status non-ready');
+assert_status_command(
+    str_contains(
+        $customRegistryOutput,
+        "run: `duo '--envs-file=/tmp/custom registry.json' env-set status-fixture "
+            . '--name=outfitters_catalog_gateway_secret --stdin`'
+    ),
+    'status remediation preserves the exact operator-selected registry binding'
+);
+
+$unsafeRegistryMissing = new StatusCommandDriver('env-missing');
+ob_start();
+$unsafeRegistryExit = StatusCommand::run(
+    $unsafeRegistryMissing,
+    [],
+    static function (string $c, string $m, string $r): void {},
+    static function (array $r): void {},
+    static fn(EnvironmentDriver $d): bool => true,
+    "/tmp/registry\nINJECT"
+);
+$unsafeRegistryOutput = (string) ob_get_clean();
+assert_status_command(
+    $unsafeRegistryExit === 1
+        && str_contains($unsafeRegistryOutput, 'correct the selected environment registry path')
+        && !str_contains($unsafeRegistryOutput, 'INJECT')
+        && !str_contains($unsafeRegistryOutput, "\x1b"),
+    'unsafe selected registry produces bounded one-line remediation without reproducing it'
+);
+
+$hostSource = (string) file_get_contents(__DIR__ . '/../../cli/duo');
+assert_status_command(
+    str_contains($hostSource, "'status' => cmd_status(\$transport, \$extra, \$envsFileOverride)")
+        && str_contains($hostSource, 'cmd_status($driver, [], $envsFileOverride)'),
+    'public status and init follow-up both preserve the selected registry through the thin facade'
+);
+
 $unsafeEnvMissing = new StatusCommandDriver('unsafe-env-missing');
 ob_start();
 $unsafeEnvMissingExit = StatusCommand::run(

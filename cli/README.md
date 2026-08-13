@@ -323,7 +323,8 @@ are rejected when the registry is loaded.
   any plan-level warnings.
 
   Each required env entry includes its exact host-side
-  `duo env-set <this-env> --name=<this-name> --stdin` command. Target-form
+  `duo env-set <this-env> --name=<this-name> --stdin` command, including the
+  operator-selected `--envs-file` binding when one was supplied. Target-form
   `wp duo env-set` advice from the agent is suppressed on this host-rendered
   surface so one diagnosis never asks the operator to choose a transport.
 
@@ -706,7 +707,9 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   reaches Docker/SSH, whose target process intentionally has no PTY; direct
   target use retains the agent's own masking. If local masking cannot be
   enabled, interactive host use refuses before target contact. Piped input
-  has no terminal echo and passes through unchanged. `passthru()` (rather
+  has no terminal echo and passes through unchanged. While echo is masked,
+  temporary HUP/INT/TERM handlers restore it before termination; interactive
+  use refuses if PHP cannot supply that signal coverage. `passthru()` (rather
   than the captured-output `proc_open` doctor/status use) lets STDIN reach
   the agent through all three transports without putting the value in argv.
   Named
@@ -1282,7 +1285,9 @@ environment currently has *something* non-empty in each declared slot:
   reason), and refuses an empty value (which `env_missing` would
   immediately re-flag as still-missing). Interactive host `--stdin` masks
   the local terminal before transport; direct target use masks at the agent,
-  and piped input has no terminal echo. The value is never printed or logged
+  and piped input has no terminal echo. The host restores echo before normal,
+  exceptional, HUP, INT, and TERM exits and refuses interactive use without
+  the required signal support. The value is never printed or logged
   (not `--prompt` — see the passthrough section above for why that name
   was unavailable); its own "value for '&lt;name&gt;': " prompt writes to
   STDERR, never STDOUT, so `--stdin --format=json` is still safe to pipe

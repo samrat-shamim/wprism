@@ -99,9 +99,17 @@ final class PlanSummary {
      * @param ?string $environment When status supplies its environment name,
      *   render host-side remediation. Null preserves target-side advice for
      *   callers that do not own an environment registry.
+     * @param ?string $envsFileOverride Preserve the operator-selected registry
+     *   in copy-ready remediation so a same-named environment cannot resolve
+     *   through a different auto-discovered registry.
      * @return array{lines: list<string>, ok: bool}
      */
-    public static function render(array $plan, array $viewCategories = [], ?string $environment = null): array {
+    public static function render(
+        array $plan,
+        array $viewCategories = [],
+        ?string $environment = null,
+        ?string $envsFileOverride = null
+    ): array {
         $lines = [];
         $counts = [];
         foreach (self::BUCKETS as $k) {
@@ -335,9 +343,17 @@ final class PlanSummary {
                 if ($environment !== null && !empty($r['required']) && is_string($r['name'] ?? null)) {
                     $environmentArg = self::environmentArg($environment);
                     $nameArg = self::shellArg($r['name']);
-                    $line .= $environmentArg !== null && $nameArg !== null
-                        ? '; run: `duo env-set ' . $environmentArg . ' --name=' . $nameArg . ' --stdin`'
-                        : '; cannot render a safe command — correct the environment/manifest name';
+                    $registryArg = $envsFileOverride === null
+                        ? ''
+                        : self::shellArg('--envs-file=' . $envsFileOverride);
+                    if ($environmentArg === null || $nameArg === null) {
+                        $line .= '; cannot render a safe command — correct the environment/manifest name';
+                    } elseif ($registryArg === null) {
+                        $line .= '; cannot render a safe command — correct the selected environment registry path';
+                    } else {
+                        $line .= '; run: `duo' . ($registryArg === '' ? '' : ' ' . $registryArg)
+                            . ' env-set ' . $environmentArg . ' --name=' . $nameArg . ' --stdin`';
+                    }
                 }
                 $lines[] = $line;
             }
@@ -546,7 +562,7 @@ final class PlanSummary {
 
     /** A readable shell token when safe; POSIX quoting otherwise. */
     private static function shellArg(string $value): ?string {
-        if (preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+        if (strlen($value) > 4096 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
             return null;
         }
         return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1

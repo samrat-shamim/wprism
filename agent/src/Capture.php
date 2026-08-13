@@ -576,7 +576,12 @@ final class Capture {
                 }
                 $lint = Lint::scan_tree($staging, $c->policy);
                 if ($lint) {
-                    $candidate['warnings'][] = self::lint_warning(count($lint), $c->repo, $hostEnvironment);
+                    $candidate['warnings'][] = self::lint_warning(
+                        count($lint),
+                        $c->repo,
+                        $hostEnvironment,
+                        $intoRepo
+                    );
                 }
                 $compiledCandidate = null;
                 if ($scopeContract !== null) {
@@ -1087,8 +1092,18 @@ final class Capture {
         }
     }
 
-    private static function lint_warning(int $count, string $repo, ?string $hostEnvironment): string {
+    private static function lint_warning(
+        int $count,
+        string $repo,
+        ?string $hostEnvironment,
+        bool $intoRepo = true
+    ): string {
         $warning = $count . ' suspicious unrewritten ref(s) in captured state — ';
+        if (!$intoRepo) {
+            return $warning . 'the output-only candidate was scanned before publication; '
+                . '`duo lint` scans repository state, so no mismatched rescan command is shown. '
+                . 'Rerun capture without `--out` before following its lint remediation';
+        }
         if ($hostEnvironment !== null) {
             $environmentArg = self::shell_arg($hostEnvironment);
             if ($environmentArg !== null) {

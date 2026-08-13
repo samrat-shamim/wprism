@@ -22,6 +22,7 @@ final class RecordingPassthroughDriver implements EnvironmentDriver {
     /** @var list<list<string>> */
     public array $calls = [];
     public bool $throwOnStream = false;
+    public ?string $blockOnStreamMarker = null;
 
     public function name(): string { return 'fixture'; }
     public function driverId(): string { return 'fixture'; }
@@ -33,6 +34,12 @@ final class RecordingPassthroughDriver implements EnvironmentDriver {
         $this->calls[] = array_values(array_map('strval', $wpArgs));
         if ($this->throwOnStream) {
             throw new RuntimeException('fixture transport failure');
+        }
+        if ($this->blockOnStreamMarker !== null) {
+            file_put_contents($this->blockOnStreamMarker, "ready\n", FILE_APPEND | LOCK_EX);
+            while (true) {
+                usleep(10000);
+            }
         }
         return 23;
     }
@@ -149,6 +156,60 @@ try {
     );
 }
 
+if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && function_exists('posix_kill')) {
+    $signalLog = tempnam(sys_get_temp_dir(), 'duo-env-set-signal-');
+    assert_passthrough(is_string($signalLog), 'env-set signal fixture is created');
+    $signalPid = pcntl_fork();
+    assert_passthrough($signalPid !== -1, 'env-set signal fixture forks');
+    if ($signalPid === 0) {
+        $signalDriver = new RecordingPassthroughDriver();
+        $signalDriver->blockOnStreamMarker = $signalLog;
+        $signalExit = PassthroughCommand::runEnvSet(
+            $signalDriver,
+            ['--name=gateway_secret', '--stdin'],
+            static fn(): bool => true,
+            static function (bool $enabled) use ($signalLog): bool {
+                file_put_contents($signalLog, $enabled ? "echo-on\n" : "echo-off\n", FILE_APPEND | LOCK_EX);
+                return true;
+            }
+        );
+        exit($signalExit);
+    }
+    $signalReady = false;
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        $signalEvidence = (string) @file_get_contents($signalLog);
+        if (str_contains($signalEvidence, "echo-off\n") && str_contains($signalEvidence, "ready\n")) {
+            $signalReady = true;
+            break;
+        }
+        usleep(10000);
+    }
+    assert_passthrough($signalReady, 'interactive env-set reaches target only after signal guards and masking');
+    assert_passthrough(posix_kill($signalPid, SIGTERM), 'env-set signal fixture receives SIGTERM');
+    $signalStatus = 0;
+    $signalEnded = false;
+    for ($attempt = 0; $attempt < 200; $attempt++) {
+        if (pcntl_waitpid($signalPid, $signalStatus, WNOHANG) === $signalPid) {
+            $signalEnded = true;
+            break;
+        }
+        usleep(10000);
+    }
+    if (!$signalEnded) {
+        posix_kill($signalPid, SIGKILL);
+        pcntl_waitpid($signalPid, $signalStatus);
+    }
+    $signalEvidence = (string) file_get_contents($signalLog);
+    @unlink($signalLog);
+    assert_passthrough(
+        $signalEnded
+            && str_contains($signalEvidence, "echo-off\nready\necho-on\n")
+            && pcntl_wifexited($signalStatus)
+            && pcntl_wexitstatus($signalStatus) === 128 + SIGTERM,
+        'SIGTERM restores terminal echo before interactive env-set terminates'
+    );
+}
+
 $beforeBindingRefusal = count($driver->calls);
 ob_start();
 $bindingRefusal = PassthroughCommand::run(
@@ -203,6 +264,15 @@ assert_passthrough(
         && strlen($oversizedCaptureWarning) < 256
         && str_contains($oversizedCaptureWarning, 'configured repository path is unsafe to render'),
     'capture lint warning does not print an unbounded repository path'
+);
+$outputOnlyCaptureWarning = $warningMethod->invoke(null, 1, '/srv/repo', 'preview', false);
+assert_passthrough(
+    is_string($outputOnlyCaptureWarning)
+        && str_contains($outputOnlyCaptureWarning, 'output-only candidate was scanned before publication')
+        && str_contains($outputOnlyCaptureWarning, 'Rerun capture without `--out`')
+        && !str_contains($outputOnlyCaptureWarning, '`duo lint preview`')
+        && !str_contains($outputOnlyCaptureWarning, '`wp duo lint'),
+    'output-only capture never suggests a lint command that scans different repository state'
 );
 
 $agentCliSource = file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
