@@ -93,6 +93,10 @@ require_once __DIR__ . '/PolicyLoadFinalizer.php';
 // DUO-3348 slice 37: pure dynamic-option declaration resolution is separate
 // from Policy's public compatibility/query surface and caller-owned live values.
 require_once __DIR__ . '/DynamicOptionResolver.php';
+// DUO-3348 slice 47: taxonomy-pattern declaration normalization and concrete
+// matching are pure manifest work; Policy retains the live taxonomy discovery
+// query and the public compatibility facades below.
+require_once __DIR__ . '/TaxonomyPatternResolver.php';
 // DUO-3348 slice 45: pure option-name reference declaration resolution is
 // separate from Policy's public compatibility/query surface and live callers.
 require_once __DIR__ . '/OptionNameReferenceResolver.php';
@@ -1244,7 +1248,7 @@ final class Policy {
                 }
             }
         }
-        $pattern = $this->matching_taxonomy_pattern_rule($tax);
+        $pattern = $this->taxonomy_pattern_resolver()->match($tax);
         if ($pattern !== null) {
             $declared[$pattern['object_keyspace']][] = $pattern['source'] . '.object_keyspace';
         }
@@ -1421,28 +1425,7 @@ final class Policy {
      * @return array<int, array{match:string, object_type:string[], update_count_callback:?string, object_keyspace:string, source:string}>
      */
     public function taxonomy_pattern_rules(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['taxonomy_patterns'] ?? [] as $i => $pat) {
-                $objectTypes = array_values(array_unique(array_map(
-                    'strval',
-                    (array) ($pat['object_type'] ?? [])
-                )));
-                sort($objectTypes, SORT_STRING);
-                $out[] = [
-                    'match' => (string) $pat['match'],
-                    'object_type' => $objectTypes,
-                    'update_count_callback' => isset($pat['update_count_callback'])
-                        ? (string) $pat['update_count_callback']
-                        : null,
-                    'object_keyspace' => array_key_exists('object_keyspace', $pat)
-                        ? (string) $pat['object_keyspace']
-                        : 'post',
-                    'source' => "manifest '" . (string) ($m['name'] ?? '?') . "' taxonomy_patterns[$i]",
-                ];
-            }
-        }
-        return $out;
+        return $this->taxonomy_pattern_resolver()->rules();
     }
 
     /**
@@ -1462,7 +1445,7 @@ final class Policy {
      * general override.
      */
     public function pattern_object_type(string $tax): ?array {
-        return $this->matching_taxonomy_pattern_rule($tax)['object_type'] ?? null;
+        return $this->taxonomy_pattern_resolver()->match($tax)['object_type'] ?? null;
     }
 
     /**
@@ -1472,47 +1455,17 @@ final class Policy {
      * contract during that one timing window instead of guessing a COUNT.
      */
     public function pattern_update_count_callback(string $tax): ?string {
-        return $this->matching_taxonomy_pattern_rule($tax)['update_count_callback'] ?? null;
-    }
-
-    /**
-     * Resolve every pattern matching one concrete taxonomy as a single
-     * structural contract. Arbitrary PCRE intersection is not decidable at
-     * load time, so differently-spelled overlapping patterns are checked at
-     * the first concrete name; identical regex conflicts are also rejected
-     * eagerly by validate_no_conflicting_taxonomy_object_keyspaces().
-     *
-     * @return ?array{match:string,object_type:string[],update_count_callback:?string,object_keyspace:string,source:string}
-     */
-    private function matching_taxonomy_pattern_rule(string $tax): ?array {
-        $effective = null;
-        foreach ($this->taxonomy_pattern_rules() as $pattern) {
-            if (!self::taxonomy_pattern_matches($pattern['match'], $tax)) {
-                continue;
-            }
-            if ($effective === null) {
-                $effective = $pattern;
-                continue;
-            }
-            foreach (['object_type', 'update_count_callback', 'object_keyspace'] as $field) {
-                if ($effective[$field] != $pattern[$field]) {
-                    $ambiguity = $field === 'object_keyspace'
-                        ? 'ambiguous object_keyspace declarations'
-                        : 'ambiguous taxonomy_patterns contracts';
-                    throw new \RuntimeException(
-                        "duo: taxonomy '$tax' matches $ambiguity: "
-                        . "{$effective['source']} and {$pattern['source']} disagree on $field; "
-                        . 'pin order may not choose runtime relationship behavior'
-                    );
-                }
-            }
-        }
-        return $effective;
+        return $this->taxonomy_pattern_resolver()->match($tax)['update_count_callback'] ?? null;
     }
 
     /** taxonomy_patterns stores an undelimited PCRE fragment by contract. */
     public static function taxonomy_pattern_matches(string $match, string $tax): bool {
-        return @preg_match('/' . $match . '/', $tax) === 1;
+        return TaxonomyPatternResolver::matches($match, $tax);
+    }
+
+    /** Fresh because manifests stay publicly mutable in offline fixtures. */
+    private function taxonomy_pattern_resolver(): TaxonomyPatternResolver {
+        return new TaxonomyPatternResolver($this->manifests);
     }
 
     /**
@@ -1575,7 +1528,7 @@ final class Policy {
                 continue;
             }
             foreach ($patterns as $pat) {
-                if (preg_match('/' . $pat['match'] . '/', $tax)) {
+                if (self::taxonomy_pattern_matches($pat['match'], $tax)) {
                     $matched[] = $tax;
                     break;
                 }
