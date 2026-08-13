@@ -6,9 +6,10 @@ namespace Duo;
  *
  * A deletion guard's final `SELECT ... FOR UPDATE` is only authoritative
  * when its first equality/range column is covered by an index. This small
- * evaluator owns that schema proof, generic findings, plan annotation, and
- * the locked witness comparison; Apply keeps the transaction lifecycle,
- * query construction, target-reference decoding, and forced-warning policy.
+ * evaluator owns that schema proof, generic findings, plan annotation, the
+ * final recheck decision, and the locked witness comparison; Apply keeps the
+ * transaction lifecycle, query construction, target-reference decoding, and
+ * forced-warning formatting.
  *
  * The class deliberately has no constructor and no dependency on Apply or
  * Policy. It evaluates only the manifest guard plus the target's inspected
@@ -300,6 +301,43 @@ final class DeleteGuardEvaluator {
                 }
             }
         }
+    }
+
+    /**
+     * Evaluate the last guard read immediately before an explicit tombstone
+     * delete. The generic findings evaluator supplies the deterministic
+     * blocks and enumerable repair witnesses; this method owns the one
+     * fail-closed decision which cannot be bypassed by a force flag. Apply
+     * still resolves the capability, supplies target-specific SQL facts, and
+     * formats any authorized forced warning from the returned findings.
+     *
+     * @param array<string,mixed> $row
+     * @param list<array<string,mixed>> $guards
+     * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
+     * @param callable(string):bool $isRepairable
+     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
+     */
+    public static function final_recheck_findings(
+        array $row,
+        array $guards,
+        callable $countRefs,
+        callable $isRepairable,
+        bool $forced,
+        bool $forUpdate = false
+    ): array {
+        $findings = self::reference_findings(
+            $guards,
+            $countRefs,
+            $isRepairable,
+            $forUpdate
+        );
+        if ($findings['blocks'] && !$forced) {
+            $reason = implode('; ', $findings['blocks']);
+            throw new \RuntimeException(
+                "duo: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
+            );
+        }
+        return $findings;
     }
 
     /**

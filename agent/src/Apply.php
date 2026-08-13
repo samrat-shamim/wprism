@@ -3875,7 +3875,8 @@ final class Apply {
             (string) $row['deletion_kind'],
             (string) $row['deletion_type']
         );
-        $findings = DeleteGuardEvaluator::reference_findings(
+        $findings = DeleteGuardEvaluator::final_recheck_findings(
+            $row,
             (array) ($capability['guards'] ?? []),
             function (array $guard, bool $lock) use (
                 $row,
@@ -3895,6 +3896,7 @@ final class Apply {
                 );
             },
             fn(string $table): bool => isset($this->snapshotRowTables()[$table]),
+            $forced,
             $forUpdate
         );
         $blocks = $findings['blocks'];
@@ -3902,12 +3904,7 @@ final class Apply {
         if (!$blocks) {
             return;
         }
-        $reason = implode('; ', $blocks);
-        if (!$forced) {
-            throw new \RuntimeException(
-                "duo: delete guard changed before mutation for {$row['type']} {$row['uuid']}: $reason"
-            );
-        }
+        $row['blocked'] = implode('; ', $blocks);
         $row['guard_refs'] = $guardRefs;
         $this->warn_forced_guard_refs($row, 'FORCED delete after final guard recheck');
     }

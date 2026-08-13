@@ -390,6 +390,72 @@ try {
 }
 $check($changedWitnessRefused, 'locked witness evaluator refuses a changed or stale witness before mutation');
 
+$finalRecheckCalls = [];
+$finalRecheckFindings = DeleteGuardEvaluator::final_recheck_findings(
+    ['type' => 'post', 'uuid' => 'final-target'],
+    [['table' => 'wp_postmeta', 'column' => 'post_id', 'reason' => 'grouped child reference']],
+    static function (array $guard, bool $forUpdate) use (&$finalRecheckCalls): array {
+        $finalRecheckCalls[] = $forUpdate;
+        return [
+            'count' => 1,
+            'error' => null,
+            'rows' => ['wp_postmeta.meta_id=7'],
+            'witness' => 'final-witness',
+        ];
+    },
+    static fn(string $table): bool => $table === 'wp_postmeta',
+    true,
+    true
+);
+$check(
+    $finalRecheckCalls === [true]
+        && $finalRecheckFindings['blocks'] === ['grouped child reference — 1 row(s)']
+        && $finalRecheckFindings['guard_refs'] === [[
+            'table' => 'wp_postmeta',
+            'rows' => ['wp_postmeta.meta_id=7'],
+            'repairable' => true,
+            'option_name_ref' => false,
+        ]],
+    'final recheck evaluator preserves locked callback mode, block reason, and forced-warning witnesses'
+);
+
+$finalRecheckRefused = false;
+try {
+    DeleteGuardEvaluator::final_recheck_findings(
+        ['type' => 'post', 'uuid' => 'final-target'],
+        [['table' => 'wp_postmeta', 'column' => 'post_id']],
+        static fn(array $guard, bool $forUpdate): array => [
+            'count' => 1,
+            'error' => null,
+            'rows' => ['wp_postmeta.meta_id=7'],
+        ],
+        static fn(string $table): bool => false,
+        false,
+        true
+    );
+} catch (RuntimeException $e) {
+    $finalRecheckRefused = str_contains($e->getMessage(), 'delete guard changed before mutation for post final-target')
+        && str_contains($e->getMessage(), '1 row(s)');
+}
+$check($finalRecheckRefused, 'final recheck evaluator refuses an unforced changed guard before mutation');
+
+$cleanFinalRecheck = DeleteGuardEvaluator::final_recheck_findings(
+    ['type' => 'post', 'uuid' => 'clean-target'],
+    [['table' => 'wp_postmeta', 'column' => 'post_id']],
+    static fn(array $guard, bool $forUpdate): array => [
+        'count' => 0,
+        'error' => null,
+        'rows' => [],
+    ],
+    static fn(string $table): bool => true,
+    false,
+    true
+);
+$check(
+    $cleanFinalRecheck['blocks'] === [] && $cleanFinalRecheck['guard_refs'] === [],
+    'final recheck evaluator leaves a clean locked guard unblocked'
+);
+
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
 $check(
     (new ReflectionMethod(DeleteGuardEvaluator::class, 'lock_index'))->isPublic()
@@ -404,8 +470,10 @@ $check(
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'annotate_plan_guard_findings'))->isStatic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_revalidated_witnesses'))->isPublic()
         && (new ReflectionMethod(DeleteGuardEvaluator::class, 'assert_revalidated_witnesses'))->isStatic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'final_recheck_findings'))->isPublic()
+        && (new ReflectionMethod(DeleteGuardEvaluator::class, 'final_recheck_findings'))->isStatic()
         && $evaluator->getConstructor() === null,
-    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, and witness contracts'
+    'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
@@ -445,9 +513,11 @@ $recheckFacade = substr(
         - strpos($applySource, 'private function recheck_delete_guards(')
 );
 $check(
-    str_contains($recheckFacade, 'DeleteGuardEvaluator::reference_findings(')
+    str_contains($recheckFacade, 'DeleteGuardEvaluator::final_recheck_findings(')
+        && str_contains($recheckFacade, 'warn_forced_guard_refs(')
+        && !str_contains($recheckFacade, 'DeleteGuardEvaluator::reference_findings(')
         && !str_contains($recheckFacade, 'foreach ($capability[\'guards\']'),
-    'Apply delegates generic reference accumulation and retains only policy, SQL, and forced-warning orchestration'
+    'Apply delegates final guard refusal/findings and retains only policy, SQL, and forced-warning orchestration'
 );
 $lockFacade = substr(
     $applySource,
