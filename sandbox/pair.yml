@@ -47,7 +47,7 @@ name: duo-${DUO_PAIR}
 #                    unaffected by any of this.)
 #
 # DUO_AGENT_SRC/DUO_MANIFESTS_SRC reach compose two ways at once, deliberately:
-# pair.sh's own subcommands get them via plain `export` (pair_compose()),
+# pair.sh's own subcommands get them via plain `export` (pair_compose_configure()),
 # but any OTHER script that invokes `pair.sh up` as a subprocess and then
 # makes its own separate `docker compose -f pair.yml ...` calls afterward
 # (sandbox/conformance/run.sh, every regress_*.sh/grind_*.sh — this is most
@@ -56,7 +56,7 @@ name: duo-${DUO_PAIR}
 # every time it runs, which compose auto-loads from the CWD with no export
 # needed by the caller — every script here already `cd`s into sandbox/
 # before touching compose, so this covers all of them for free. See
-# pair_compose()'s own comment for the live verification.
+# pair_compose_configure()'s own comment for the live verification.
 #
 # Optional overrides, layered with additional -f flags (never edited into
 # this file):

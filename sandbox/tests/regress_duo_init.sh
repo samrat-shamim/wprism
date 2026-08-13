@@ -288,7 +288,7 @@ diff -r -x capabilities "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null 
 pass "hermetic certified library sealed at $HERMETIC_MANIFESTS (shipped bytes unchanged)"
 
 # pair.sh deliberately binds durable pairs to the primary checkout, and
-# pair_compose() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
+# pair_compose_configure() re-resolves DUO_AGENT_SRC/DUO_MANIFESTS_SRC from the canonical
 # root inside its own process for exactly that reason — so the long-lived wp1/
 # wp2 web containers it creates below mount the canonical agent and library no
 # matter what this suite exports, and nothing here tries to change that. This
