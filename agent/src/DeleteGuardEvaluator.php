@@ -162,20 +162,23 @@ final class DeleteGuardEvaluator {
      * the deterministic block and warning-witness shapes used by the facade.
      *
      * @param list<array<string,mixed>> $guards
-     * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>} $countRefs
+     * @param callable(array<string,mixed>,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
      * @param callable(string):bool $isRepairable
-     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>}
+     * @return array{blocks:list<string>,guard_refs:list<array{table:string,rows:list<string>,repairable:bool,option_name_ref:bool}>,guard_witnesses:array<string,string>}
      */
     public static function reference_findings(
         array $guards,
         callable $countRefs,
         callable $isRepairable,
-        bool $forUpdate = false
+        bool $forUpdate = false,
+        string $emptyWitness = ''
     ): array {
         $blocks = [];
         $guardRefs = [];
-        foreach ($guards as $guard) {
+        $guardWitnesses = [];
+        foreach ($guards as $guardIndex => $guard) {
             $result = $countRefs($guard, $forUpdate);
+            $guardWitnesses[(string) $guardIndex] = (string) ($result['witness'] ?? $emptyWitness);
             if ($result['error'] !== null) {
                 $blocks[] = $result['error'];
             } elseif ($result['count'] > 0) {
@@ -189,7 +192,11 @@ final class DeleteGuardEvaluator {
                 ];
             }
         }
-        return ['blocks' => $blocks, 'guard_refs' => $guardRefs];
+        return [
+            'blocks' => $blocks,
+            'guard_refs' => $guardRefs,
+            'guard_witnesses' => $guardWitnesses,
+        ];
     }
 
     /**

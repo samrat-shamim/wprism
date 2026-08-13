@@ -746,32 +746,31 @@ final class Apply {
         $guardRepairUuids = $this->guard_repair_uuids($plan);
         foreach (['delete', 'delete_conflict'] as $bucket) {
             foreach ($plan[$bucket] as &$row) {
-                $blocks = [];
-                $guardRefs = [];
-                $guardWitnesses = [];
-                foreach ($deletionCaps[$row['uuid']]['guards'] ?? [] as $guardIndex => $guard) {
-                    $result = $this->count_guard_refs(
-                        $guard,
-                        $row['uuid'],
+                $findings = DeleteGuardEvaluator::reference_findings(
+                    (array) ($deletionCaps[$row['uuid']]['guards'] ?? []),
+                    function (array $guard, bool $lock) use (
+                        $row,
                         $deleteUuids,
-                        $compiled->deletions(),
-                        $compiled->tree(),
+                        $compiled,
                         $guardRepairUuids
-                    );
-                    $guardWitnesses[(string) $guardIndex] = (string) ($result['witness'] ?? hash('sha256', Canon::encode([])));
-                    if ($result['error'] !== null) {
-                        $blocks[] = $result['error'];
-                    } elseif ($result['count'] > 0) {
-                        $blocks[] = ($guard['reason'] ?? "referenced by {$guard['table']}.{$guard['column']}")
-                            . " — {$result['count']} row(s)";
-                        $guardRefs[] = [
-                            'table' => (string) $guard['table'],
-                            'rows' => $result['rows'],
-                            'repairable' => isset($this->snapshotRowTables()[(string) $guard['table']]),
-                            'option_name_ref' => !empty($guard['option_name_ref']),
-                        ];
-                    }
-                }
+                    ): array {
+                        return $this->count_guard_refs(
+                            $guard,
+                            (string) $row['uuid'],
+                            $deleteUuids,
+                            $compiled->deletions(),
+                            $compiled->tree(),
+                            $guardRepairUuids,
+                            $lock
+                        );
+                    },
+                    fn(string $table): bool => isset($this->snapshotRowTables()[$table]),
+                    false,
+                    hash('sha256', Canon::encode([]))
+                );
+                $blocks = $findings['blocks'];
+                $guardRefs = $findings['guard_refs'];
+                $guardWitnesses = $findings['guard_witnesses'];
                 if ($blocks) {
                     $row['blocked'] = implode('; ', $blocks);
                     if ($bucket === 'delete_conflict' && isset($row['conflict_view']['choices'])) {

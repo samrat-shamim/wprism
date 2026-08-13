@@ -235,9 +235,14 @@ $findings = DeleteGuardEvaluator::reference_findings(
     static function (array $guard, bool $forUpdate) use (&$referenceCalls): array {
         $referenceCalls[] = [(string) $guard['table'], $forUpdate];
         if ($guard['table'] === 'wp_postmeta') {
-            return ['count' => 2, 'error' => null, 'rows' => ['wp_postmeta.post_id=7', 'wp_postmeta.post_id=8']];
+            return [
+                'count' => 2,
+                'error' => null,
+                'rows' => ['wp_postmeta.post_id=7', 'wp_postmeta.post_id=8'],
+                'witness' => 'postmeta-witness',
+            ];
         }
-        return ['count' => 0, 'error' => null, 'rows' => []];
+        return ['count' => 0, 'error' => null, 'rows' => [], 'witness' => 'options-witness'];
     },
     static fn(string $table): bool => $table === 'wp_postmeta',
     true
@@ -250,7 +255,11 @@ $check(
             'rows' => ['wp_postmeta.post_id=7', 'wp_postmeta.post_id=8'],
             'repairable' => true,
             'option_name_ref' => false,
-        ]],
+        ]]
+        && $findings['guard_witnesses'] === [
+            '0' => 'postmeta-witness',
+            '1' => 'options-witness',
+        ],
     'reference evaluator collects deterministic blocks and repair witnesses through narrow callbacks'
 );
 
@@ -267,8 +276,9 @@ $check(
     $errorFindings === [
         'blocks' => ['simulated reference query failure'],
         'guard_refs' => [],
+        'guard_witnesses' => ['0' => ''],
     ],
-    'reference evaluator preserves fail-closed query errors without inventing warning rows'
+    'reference evaluator preserves fail-closed query errors and empty witnesses without inventing warning rows'
 );
 
 $evaluator = new ReflectionClass(DeleteGuardEvaluator::class);
@@ -325,6 +335,19 @@ $check(
     str_contains($recheckFacade, 'DeleteGuardEvaluator::reference_findings(')
         && !str_contains($recheckFacade, 'foreach ($capability[\'guards\']'),
     'Apply delegates generic reference accumulation and retains only policy, SQL, and forced-warning orchestration'
+);
+$planGuardSection = substr(
+    $applySource,
+    strpos($applySource, '// Runtime reverse references are target facts'),
+    strpos($applySource, '// docs/proposals/code-half.md')
+        - strpos($applySource, '// Runtime reverse references are target facts')
+);
+$check(
+    str_contains($planGuardSection, 'DeleteGuardEvaluator::reference_findings(')
+        && !str_contains($planGuardSection, 'foreach ($deletionCaps')
+        && !str_contains($planGuardSection, '$blocks = [];')
+        && !str_contains($planGuardSection, '$guardRefs = [];'),
+    'Apply delegates plan-time reference accumulation and retains only conflict-choice orchestration'
 );
 
 if ($failures) {
