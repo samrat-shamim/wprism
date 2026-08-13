@@ -3,6 +3,8 @@ namespace Duo;
 
 require_once __DIR__ . '/Shortcodes.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
+require_once __DIR__ . '/LintFinding.php';
+require_once __DIR__ . '/StateTreeWalker.php';
 
 /**
  * The generalized suspicious-ref linter (task #11's linter half; docs/
@@ -132,28 +134,33 @@ final class Lint {
         $shortcodeRules = $policy->shortcode_attr_rules();
 
         $findings = [];
-        foreach (self::glob_rel($stateDir, 'posts/*/*.md') as $rel) {
-            self::scan_post_file($stateDir, $rel, $policy, $blockRules, $shortcodeRules, $home, $homeEscaped, $findings);
-        }
-        foreach (self::glob_rel($stateDir, 'terms/*/*.json') as $rel) {
-            self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
-        }
-        foreach (self::glob_rel($stateDir, 'menus/*.json') as $rel) {
-            self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
-        }
-        foreach (self::glob_rel($stateDir, 'sidebars/*.json') as $rel) {
-            self::scan_sidebar_file(
-                $stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $findings
-            );
-        }
-        if (is_file($stateDir . '/options/core.json')) {
-            self::scan_options_file($stateDir, 'options/core.json', $policy, $home, $homeEscaped, $findings);
-        }
-        foreach (self::glob_rel($stateDir, 'user-meta/*.json') as $rel) {
-            self::scan_user_meta_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
-        }
-        foreach (self::glob_rel($stateDir, 'tables/*/*.json') as $rel) {
-            self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+        foreach (StateTreeWalker::files($stateDir) as $file) {
+            $rel = $file['path'];
+            switch ($file['surface']) {
+                case 'post':
+                    self::scan_post_file($stateDir, $rel, $policy, $blockRules, $shortcodeRules, $home, $homeEscaped, $findings);
+                    break;
+                case 'term':
+                    self::scan_term_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    break;
+                case 'menu':
+                    self::scan_menu_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    break;
+                case 'sidebar':
+                    self::scan_sidebar_file($stateDir, $rel, $policy, $blockRules, $home, $homeEscaped, $findings);
+                    break;
+                case 'options':
+                    self::scan_options_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    break;
+                case 'user_meta':
+                    self::scan_user_meta_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    break;
+                case 'table':
+                    self::scan_table_file($stateDir, $rel, $policy, $home, $homeEscaped, $findings);
+                    break;
+                default:
+                    throw new \LogicException('duo: unknown canonical lint surface ' . $file['surface']);
+            }
         }
         return $findings;
     }
@@ -187,13 +194,13 @@ final class Lint {
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
                 $hit = Pending::resolve_id($id);
                 if ($hit !== null) {
-                    $findings[] = self::finding(
+                    $findings[] = LintFinding::make(
                         'bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit)
                     );
                 }
             }
         }
-        self::walk_strings($meta, 'meta', function (string $path, string $value) use (
+        StateTreeWalker::strings($meta, 'meta', function (string $path, string $value) use (
             &$findings, $rel, $home, $homeEscaped
         ): void {
             self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
@@ -223,14 +230,14 @@ final class Lint {
                     self::scan_blocks(parse_blocks($value), $blockRules, $rel, $home, $findings);
                 } elseif (($rule['ref'] ?? '') === 'term') {
                     foreach (Pending::numeric_candidates($value) as [$id, $suffix]) {
-                        $findings[] = self::finding(
+                        $findings[] = LintFinding::make(
                             'unrewritten_registered_ref', $rel, $locator . $suffix, $id,
                             Pending::resolve_id($id),
                             "widget '$type' setting '$key' is a declared term ref but remains numeric"
                         );
                     }
                 }
-                self::walk_strings($value, $locator, function (string $path, string $text) use (
+                StateTreeWalker::strings($value, $locator, function (string $path, string $text) use (
                     &$findings, $rel, $home, $homeEscaped
                 ): void {
                     self::flag_escaped_home($findings, $rel, $path, $text, $home, $homeEscaped);
@@ -268,7 +275,7 @@ final class Lint {
                 foreach (Pending::numeric_candidates($ref) as [$id, $locSuffix]) {
                     $hit = Pending::resolve_id($id);
                     $kind = $type === 'post_type' ? 'post' : 'term';
-                    $findings[] = self::finding(
+                    $findings[] = LintFinding::make(
                         'unrewritten_registered_ref',
                         $rel,
                         $prefix . '.ref' . $locSuffix,
@@ -305,13 +312,13 @@ final class Lint {
                 foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
                     $hit = Pending::resolve_id($id);
                     if ($hit !== null) {
-                        $findings[] = self::finding(
+                        $findings[] = LintFinding::make(
                             'bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit)
                         );
                     }
                 }
             }
-            self::walk_strings($meta, $prefix . '.meta', function (
+            StateTreeWalker::strings($meta, $prefix . '.meta', function (
                 string $path,
                 string $value
             ) use (&$findings, $rel, $home, $homeEscaped): void {
@@ -360,13 +367,13 @@ final class Lint {
                 if ($hit === null) {
                     continue;
                 }
-                $findings[] = self::finding('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
+                $findings[] = LintFinding::make('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
             }
         }
 
         // (b) escaped_home / unrewritten_url_query_ref — recursively
         // through meta values, and the raw body as one unit.
-        self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $shortcodeRules) {
+        StateTreeWalker::strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped, $shortcodeRules) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
             self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
             self::scan_shortcodes($s, $shortcodeRules, $rel, $findings, $path);
@@ -427,7 +434,7 @@ final class Lint {
                         if (self::looks_like_id_attr($attrKey)) {
                             foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
                                 $hit = Pending::resolve_id($id);
-                                $findings[] = self::finding(
+                                $findings[] = LintFinding::make(
                                     'unregistered_block_attr', $rel,
                                     'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $hit,
                                     "block '$name' has no block_attrs registry rule for attribute '$attrKey'; this "
@@ -455,7 +462,7 @@ final class Lint {
                         // optional), same posture as unregistered_block_attr.
                         foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
                             $hit = Pending::resolve_id($id);
-                            $findings[] = self::finding(
+                            $findings[] = LintFinding::make(
                                 'unrewritten_registered_ref', $rel,
                                 'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $hit,
                                 "block '$name' attribute '$attrKey' has a block_attrs registry rule declaring it a "
@@ -468,7 +475,7 @@ final class Lint {
                         }
                     }
                     if (is_string($attrVal) && $attrVal !== '' && str_contains($attrVal, $home)) {
-                        $findings[] = self::finding(
+                        $findings[] = LintFinding::make(
                             'unregistered_block_attr', $rel,
                             'blocks.' . $name . '.attrs.' . $attrKey, self::truncate($attrVal), null,
                             "block '$name' attribute '$attrKey' contains this environment's home URL in plain "
@@ -557,7 +564,7 @@ final class Lint {
                 if (preg_match('/^[0-9]+$/D', $value) !== 1) {
                     continue;
                 }
-                $findings[] = self::finding(
+                $findings[] = LintFinding::make(
                     'unrewritten_registered_shortcode_ref',
                     $rel,
                     ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.positional[$position]",
@@ -589,7 +596,7 @@ final class Lint {
                     if (self::looks_like_id_key($attrKey)) {
                         foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
                             $hit = Pending::resolve_id($id);
-                            $findings[] = self::finding(
+                            $findings[] = LintFinding::make(
                                 'unregistered_shortcode_attr', $rel,
                                 ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
                                 "shortcode '$tag' has no shortcode_attrs registry rule for attribute '$attrKey'; "
@@ -602,7 +609,7 @@ final class Lint {
                 }
                 foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
                     $hit = Pending::resolve_id($id);
-                    $findings[] = self::finding(
+                    $findings[] = LintFinding::make(
                         'unrewritten_registered_shortcode_ref', $rel,
                         ($locatorPrefix !== '' ? $locatorPrefix . '.' : '') . "shortcode.$tag.attrs.$attrKey" . $locSuffix, $id, $hit,
                         "shortcode '$tag' attribute '$attrKey' has a shortcode_attrs registry rule declaring it a "
@@ -685,11 +692,11 @@ final class Lint {
             foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
                 $hit = Pending::resolve_id($id);
                 if ($hit !== null) {
-                    $findings[] = self::finding('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
+                    $findings[] = LintFinding::make('bare_id', $rel, 'meta.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
                 }
             }
         }
-        self::walk_strings($meta, 'meta', function (string $path, string $value) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($meta, 'meta', function (string $path, string $value) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
         });
 
@@ -744,7 +751,7 @@ final class Lint {
                 continue;
             }
             $locator = is_array($data) ? ('description[' . $k . ']') : 'description';
-            $findings[] = self::finding('serialized_desc_ids', $rel, $locator, $id, $hit, sprintf(
+            $findings[] = LintFinding::make('serialized_desc_ids', $rel, $locator, $id, $hit, sprintf(
                 "this term's description unserializes to PHP data containing an integer that matches an "
                 . "existing %s id (#%d \"%s\", %s); taxonomy '%s' has no 'description_refs' declaration, so "
                 . "nothing rewrites this term's description (Capture tokenize_text()'s it as an opaque string) "
@@ -778,7 +785,7 @@ final class Lint {
             try {
                 $actual = $policy->taxonomy_object_keyspace($taxonomy);
             } catch (\Throwable $t) {
-                $findings[] = self::finding(
+                $findings[] = LintFinding::make(
                     'taxonomy_object_keyspace_invalid',
                     $rel,
                     $locator,
@@ -789,7 +796,7 @@ final class Lint {
                 continue;
             }
             if ($actual !== $expected) {
-                $findings[] = self::finding(
+                $findings[] = LintFinding::make(
                     'taxonomy_object_keyspace_mismatch',
                     $rel,
                     $locator,
@@ -842,12 +849,12 @@ final class Lint {
                 if ($hit === null) {
                     continue;
                 }
-                $findings[] = self::finding('bare_id', $rel, 'options.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
+                $findings[] = LintFinding::make('bare_id', $rel, 'options.' . $key . $locSuffix, $id, $hit, self::bare_id_note($hit));
             }
         }
 
         // (b) escaped_home / unrewritten_url_query_ref
-        self::walk_strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($options, 'options', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
             self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
@@ -880,7 +887,7 @@ final class Lint {
                 if ($hit === null) {
                     continue;
                 }
-                $findings[] = self::finding('bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit));
+                $findings[] = LintFinding::make('bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit));
             }
         }
     }
@@ -932,7 +939,7 @@ final class Lint {
                 if ($hit === null) {
                     continue;
                 }
-                $findings[] = self::finding('bare_id', $rel, "columns.$col" . $locSuffix, $id, $hit, sprintf(
+                $findings[] = LintFinding::make('bare_id', $rel, "columns.$col" . $locSuffix, $id, $hit, sprintf(
                     "table '%s' column '%s' has no ref declared; the number coincides with an existing %s id "
                     . '(#%d "%s", %s) on this environment — could be a genuine unrewritten reference, or an '
                     . 'unrelated small number (a count, a version, an ordering index...). Small ids coincide; '
@@ -944,11 +951,11 @@ final class Lint {
 
         // (b) escaped_home / unrewritten_url_query_ref — columns and the attached-meta sidecar
         $meta = (array) ($front['meta'] ?? []);
-        self::walk_strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($columns, 'columns', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
             self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
-        self::walk_strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
+        StateTreeWalker::strings($meta, 'meta', function (string $path, string $s) use (&$findings, $rel, $home, $homeEscaped) {
             self::flag_escaped_home($findings, $rel, $path, $s, $home, $homeEscaped);
             self::flag_unrewritten_url_query_ref($findings, $rel, $path, $s);
         });
@@ -979,7 +986,7 @@ final class Lint {
                     if ($id <= 0) {
                         continue;
                     }
-                    $findings[] = self::finding(
+                    $findings[] = LintFinding::make(
                         'unrewritten_registered_ref',
                         $rel,
                         'meta.' . $key . $locSuffix,
@@ -1002,7 +1009,7 @@ final class Lint {
         if ($s === '' || !str_contains($s, $homeEscaped)) {
             return;
         }
-        $findings[] = self::finding('escaped_home', $rel, $locator, self::truncate($s), null, sprintf(
+        $findings[] = LintFinding::make('escaped_home', $rel, $locator, self::truncate($s), null, sprintf(
             "this environment's home URL (%s) appears in JSON-escaped form (\\/ instead of /); "
             . "Tokens::tokenize_text() only matches the plain, unescaped form (a literal str_replace()), so this "
             . "will NOT be rewritten on apply and will leak this environment's host into the target — "
@@ -1041,7 +1048,7 @@ final class Lint {
         foreach ($matches as $i => $m) {
             $id = (int) $m[2];
             $hit = Pending::resolve_id($id);
-            $findings[] = self::finding('unrewritten_url_query_ref', $rel, $locator . "[url_query:$i]", $id, $hit, sprintf(
+            $findings[] = LintFinding::make('unrewritten_url_query_ref', $rel, $locator . "[url_query:$i]", $id, $hit, sprintf(
                 "a '%s=%d' query-string parameter is still a raw numeric id in captured state — WordPress's own "
                 . 'redirect_canonical() resolves this parameter to a real post regardless of post_type. This is '
                 . 'either a genuinely external URL that happens to share this common parameter name (small ids '
@@ -1052,42 +1059,6 @@ final class Lint {
                 $m[1], $id
             ));
         }
-    }
-
-    /**
-     * Recursively visits every string leaf in an array/scalar, building a
-     * dotted/bracketed "JSON-ish" locator path as it goes (object keys:
-     * ".key", list indexes: "[i]"). Unlike bare_id's deliberately-shallow
-     * numeric_candidates(), escaped_home needs to reach into nested
-     * structure: a JSON blob opaque to Duo (Elementor's shape) is itself
-     * one string leaf, found without parsing its internal schema; a plain
-     * nested array of strings is walked correctly too.
-     */
-    private static function walk_strings($value, string $path, callable $visit): void {
-        if (is_string($value)) {
-            $visit($path, $value);
-            return;
-        }
-        if (is_array($value)) {
-            $isList = array_is_list($value);
-            foreach ($value as $k => $v) {
-                self::walk_strings($v, $isList ? ($path . '[' . $k . ']') : ($path . '.' . $k), $visit);
-            }
-        }
-    }
-
-    private static function finding(string $class, string $path, string $locator, $value, ?array $matches, string $note): array {
-        $f = ['class' => $class, 'path' => $path, 'locator' => $locator, 'value' => $value, 'note' => $note];
-        if ($matches !== null) {
-            $f['matches'] = $matches;
-        }
-        return $f;
-    }
-
-    private static function glob_rel(string $stateDir, string $pattern): array {
-        $matches = glob($stateDir . '/' . $pattern) ?: [];
-        sort($matches, SORT_STRING);
-        return array_map(fn($p) => substr($p, strlen($stateDir) + 1), $matches);
     }
 
     private static function truncate($s): string {
