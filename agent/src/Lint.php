@@ -1,6 +1,7 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/BlockReferenceScanner.php';
 require_once __DIR__ . '/ShortcodeReferenceScanner.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
 require_once __DIR__ . '/LintFinding.php';
@@ -420,75 +421,8 @@ final class Lint {
     // ------------------------------------------------------------ blocks
 
     private static function scan_blocks(array $blocks, array $blockRules, string $rel, string $home, array &$findings): void {
-        foreach ($blocks as $block) {
-            $name = $block['blockName'] ?? null;
-            if ($name !== null) {
-                $rulesByPath = [];
-                foreach ($blockRules[$name] ?? [] as $r) {
-                    $rulesByPath[$r['path']] = $r;
-                }
-                foreach ((array) ($block['attrs'] ?? []) as $attrKey => $attrVal) {
-                    $attrKey = (string) $attrKey;
-                    $rule = $rulesByPath[$attrKey] ?? null;
-                    if ($rule === null) {
-                        if (self::looks_like_id_attr($attrKey)) {
-                            foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
-                                $hit = Pending::resolve_id($id);
-                                $findings[] = LintFinding::make(
-                                    'unregistered_block_attr', $rel,
-                                    'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $hit,
-                                    "block '$name' has no block_attrs registry rule for attribute '$attrKey'; this "
-                                    . "numeric value passes through capture/apply untouched and will point at the "
-                                    . "wrong entity (or nothing) once ids diverge on another environment — the same "
-                                    . "shape as core/navigation-link's id/kind pair before it had a registry rule."
-                                );
-                            }
-                        }
-                    } elseif (empty($rule['lint_ok']) && ($rule['tokenize'] ?? null) !== 'text') {
-                        // DUO-3212: a registered path is a REF rule by
-                        // Blocks::resolve_kind()'s own contract (it throws
-                        // unless a rule declares 'kind' or 'kind_from' once
-                        // lint_ok/tokenize have been ruled out) — so a value
-                        // still numeric here means the declared rewrite to a
-                        // "{{...}}" token never ran (unmapped/dangling id, or
-                        // a kind_from dispatch that resolved to no kind and
-                        // was deliberately left untouched). The OLD guard
-                        // below (`!in_array($attrKey, $rulePaths, true)`)
-                        // exempted every registered path unconditionally,
-                        // regardless of whether its value actually got
-                        // rewritten — invisible exactly where this linter is
-                        // supposed to look. Fires regardless of whether the
-                        // number resolves to a live entity (matches?
-                        // optional), same posture as unregistered_block_attr.
-                        foreach (Pending::numeric_candidates($attrVal) as [$id, $locSuffix]) {
-                            $hit = Pending::resolve_id($id);
-                            $findings[] = LintFinding::make(
-                                'unrewritten_registered_ref', $rel,
-                                'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $hit,
-                                "block '$name' attribute '$attrKey' has a block_attrs registry rule declaring it a "
-                                . "reference, but this value is still numeric in captured state — the declared "
-                                . "rewrite to a {{...}} token never ran (an unmapped/dangling id, or — for a "
-                                . "kind_from-dispatched rule — a sibling value that resolved to no kind). This id "
-                                . "is silently environment-bound and will point at the wrong entity (or nothing) "
-                                . "once ids diverge on another environment."
-                            );
-                        }
-                    }
-                    if (is_string($attrVal) && $attrVal !== '' && str_contains($attrVal, $home)) {
-                        $findings[] = LintFinding::make(
-                            'unregistered_block_attr', $rel,
-                            'blocks.' . $name . '.attrs.' . $attrKey, self::truncate($attrVal), null,
-                            "block '$name' attribute '$attrKey' contains this environment's home URL in plain "
-                            . "form; block attributes are parsed JSON values, never routed through "
-                            . "tokenize_text()/detokenize_text() (only innerHTML/innerContent are today), so it "
-                            . "will leak this environment's host into the target regardless of any registry rule."
-                        );
-                    }
-                }
-            }
-            if (!empty($block['innerBlocks'])) {
-                self::scan_blocks($block['innerBlocks'], $blockRules, $rel, $home, $findings);
-            }
+        foreach (BlockReferenceScanner::scan($blocks, $blockRules, $rel, $home) as $finding) {
+            $findings[] = $finding;
         }
     }
 
@@ -528,19 +462,6 @@ final class Lint {
         foreach (ShortcodeReferenceScanner::scan($body, $shortcodeRules, $rel, $locatorPrefix) as $finding) {
             $findings[] = $finding;
         }
-    }
-
-    /**
-     * id / ids / ref, or a suffixed *Id / *Ids / *ID / *IDs (task #76:
-     * Ninja Forms' Gutenberg block declares "formID"; the old /(Id|Ids)$/
-     * missed the all-caps convention, letting a dangling formID pass both
-     * the lint gate and byte-diff round-trip, then fatal on the target when
-     * NF resolved the missing form). NOT a bare /i flag — that would match
-     * innocent lowercase suffixes ("grid", "valid"); the camel/caps boundary
-     * is what makes the heuristic safe, so only the cased variants widen.
-     */
-    private static function looks_like_id_attr(string $key): bool {
-        return $key === 'id' || $key === 'ids' || $key === 'ref' || (bool) preg_match('/(Id|ID)s?$/', $key);
     }
 
     // ------------------------------------------------------------ terms
