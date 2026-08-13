@@ -254,6 +254,7 @@ manifest_fixture_code_cleanup($loadManifests);
 @rmdir($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$finalizerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $grammarReflection = new ReflectionClass(ReferenceKeyspaceGrammar::class);
 $check(
@@ -261,8 +262,10 @@ $check(
         && !$policyReflection->hasMethod('assert_reference_rule_keyspaces')
         && $grammarReflection->hasMethod('validate_reference_keyspaces_and_sidecars')
         && $grammarReflection->getMethod('validate_reference_keyspaces_and_sidecars')->isPublic()
-        && substr_count($policySource, 'ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(') === 2,
-    'both Policy loader paths call ReferenceKeyspaceGrammar and no private duplicate remains'
+        && substr_count($policySource, 'PolicyLoadFinalizer::finalize(') === 2
+        && substr_count($policySource, 'ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(') === 0
+        && substr_count($finalizerSource, 'ReferenceKeyspaceGrammar::validate_reference_keyspaces_and_sidecars(') === 1,
+    'Policy delegates both loader paths to PolicyLoadFinalizer, which owns the cross-source keyspace call'
 );
 
 if ($failures !== []) {

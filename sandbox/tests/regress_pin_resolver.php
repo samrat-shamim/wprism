@@ -192,6 +192,7 @@ try {
 // === Prove the extraction itself: Policy.php no longer inlines these bodies,
 // and its call sites now reach PinResolver.
 $policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$finalizerSource = file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
 $check(
     !str_contains($policySource, "private static function normalize_manifest_pins("),
     'Policy.php no longer defines normalize_manifest_pins() itself (moved to PinResolver.php)'
@@ -207,8 +208,10 @@ $check(
 $check(
     substr_count($policySource, 'PinResolver::normalize_manifest_pins(') === 2
         && substr_count($policySource, 'PinResolver::validate_manifest_sources(') === 2
-        && substr_count($policySource, 'PinResolver::validate_manifest_pins(') === 2,
-    'Policy.php calls all three PinResolver methods exactly twice each (once from load(), once from from_snapshot())'
+        && substr_count($policySource, 'PolicyLoadFinalizer::finalize(') === 2
+        && substr_count($policySource, 'PinResolver::validate_manifest_pins(') === 0
+        && substr_count($finalizerSource, 'PinResolver::validate_manifest_pins(') === 1,
+    'Policy keeps pin normalization/source checks at each loader while PolicyLoadFinalizer owns shared pin validation'
 );
 
 // === Corroborates, rather than independently proves, that the process

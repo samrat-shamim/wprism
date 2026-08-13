@@ -257,6 +257,7 @@ manifest_fixture_code_cleanup($loadManifests);
 @rmdir($loadRoot);
 
 $policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$finalizerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $grammarReflection = new ReflectionClass(ReferenceKindGrammar::class);
 $check(
@@ -269,8 +270,10 @@ $check(
         && $grammarReflection->getMethod('engineRefKinds')->isPublic()
         && $grammarReflection->getMethod('engineTokenKinds')->isPublic()
         && $grammarReflection->getMethod('engineLedgerKinds')->isPublic()
-        && substr_count($policySource, "ReferenceKindGrammar::validate_ref_kinds(\$p->manifests, \$p->site['policy'] ?? [])") === 2,
-    'both Policy loader paths call ReferenceKindGrammar and no private duplicate remains'
+        && substr_count($policySource, 'PolicyLoadFinalizer::finalize(') === 2
+        && substr_count($policySource, "ReferenceKindGrammar::validate_ref_kinds(\$p->manifests, \$p->site['policy'] ?? [])") === 0
+        && substr_count($finalizerSource, "ReferenceKindGrammar::validate_ref_kinds(\$policy->manifests, \$policy->site['policy'] ?? [])") === 1,
+    'Policy delegates both loader paths to PolicyLoadFinalizer, which owns the ref-kind closure'
 );
 
 if ($failures !== []) {
