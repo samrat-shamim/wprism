@@ -310,7 +310,6 @@ assert_capture_atomicity(
 );
 
 $consistentSnapshot = new ReflectionMethod(Capture::class, 'run_in_consistent_snapshot');
-$consistentSnapshot->setAccessible(true);
 $captureLines = file("$root/agent/src/Capture.php");
 $facadeSource = implode('', array_slice(
     $captureLines === false ? [] : $captureLines,
@@ -485,11 +484,8 @@ assert_capture_atomicity($wpdb->commits === 1 && $wpdb->rollbacks === 0, 'an amb
 // Exercise that exact ordering with the real private wrapper + real Publish
 // implementation instead of source-text assertions.
 $publicationKey = new ReflectionMethod(Capture::class, 'publication_marker_key');
-$publicationKey->setAccessible(true);
 $publicationMarker = new ReflectionMethod(Capture::class, 'publication_marker');
-$publicationMarker->setAccessible(true);
 $publicationStatus = new ReflectionMethod(Capture::class, 'publication_commit_status');
-$publicationStatus->setAccessible(true);
 $protocolRoot = sys_get_temp_dir() . '/duo_capture_atomicity_protocol_' . bin2hex(random_bytes(4));
 $protocolState = $protocolRoot . '/state';
 register_shutdown_function(static function () use ($protocolRoot): void {

@@ -73,6 +73,7 @@ require __DIR__ . '/support/wp-block-parser-stub.php';
  */
 final class FakeWpdb {
     public $prefix = 'wp_';
+    public $last_error = '';
     public $posts = 'wp_posts';
     public $terms = 'wp_terms';
     public $term_taxonomy = 'wp_term_taxonomy';

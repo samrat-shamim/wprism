@@ -1026,11 +1026,8 @@ foreach ($legacyRules as $legacyRule) {
 }
 $recoveryReason = (new ReflectionClass(\Duo\Init::class))
     ->getMethod('interrupted_attempt_manual_recovery_reason');
-$recoveryReason->setAccessible(true);
 $directoryIdentity = (new ReflectionClass(\Duo\Init::class))->getMethod('directory_identity');
-$directoryIdentity->setAccessible(true);
 $removeOwnedTree = (new ReflectionClass(\Duo\Init::class))->getMethod('remove_owned_tree');
-$removeOwnedTree->setAccessible(true);
 $treeCleanupFixture = sys_get_temp_dir() . '/duo-init-tree-cleanup-' . bin2hex(random_bytes(6));
 if (!mkdir($treeCleanupFixture, 0777, true)) fail('could not create the exact-owned tree cleanup fixture');
 register_shutdown_function(static function () use ($treeCleanupFixture): void {
@@ -1386,7 +1383,6 @@ check(
 // clean rollback.
 $alreadyCompensated = (new ReflectionClass(\Duo\Init::class))
     ->getMethod('owned_file_already_compensated');
-$alreadyCompensated->setAccessible(true);
 $compensatedFixture = sys_get_temp_dir() . '/duo-init-compensated-' . bin2hex(random_bytes(6));
 if (!mkdir($compensatedFixture, 0777, true)) fail('could not create the compensation fixture');
 register_shutdown_function(static function () use ($compensatedFixture): void {
@@ -1500,11 +1496,8 @@ check(
 // paths for the rest of their lifecycle (Code::safe_relative()).
 require_once __DIR__ . '/../../agent/src/Code.php';
 $stageComponent = (new ReflectionClass(\Duo\Init::class))->getMethod('safe_stage_component');
-$stageComponent->setAccessible(true);
 $codeComponent = (new ReflectionClass(\Duo\Code::class))->getMethod('safe_component');
-$codeComponent->setAccessible(true);
 $identifierComponent = (new ReflectionClass(\Duo\Init::class))->getMethod('safe_component');
-$identifierComponent->setAccessible(true);
 $ecosystemNames = [
     '@woocommerce' => true,
     'Inter-VariableFont_slnt,wght.woff2' => true,

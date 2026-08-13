@@ -86,15 +86,38 @@ offline_all_line = target_prereq_line("regress-offline-all")
 if offline_all_line is None:
     sys.exit("regress-offline-all target not found in Makefile")
 offline_all_direct = [t for t in re.split(r'\s+', offline_all_line.strip()) if t]
+# regress-offline-all is a guarded wrapper: its recipe invokes the corpus
+# target under offline_diagnostics_guard.sh, so running the corpus as a
+# prerequisite would bypass the very diagnostic gate this issue adds.
+if not offline_all_direct:
+    if target_prereq_line("regress-offline-corpus") is None:
+        sys.exit("regress-offline-all has no prerequisites and no corpus target")
+    offline_all_direct = ["regress-offline-corpus"]
 code_half_line = target_prereq_line("code-half-unit") or ""
 code_half_direct = [t for t in re.split(r'\s+', code_half_line.strip()) if t]
-offline_all_transitive = (set(offline_all_direct) | set(code_half_direct)) - {"code-half-unit"}
 
-# Keep the human-facing close-gate status truthful.  The bundle is a plain
-# prerequisite list, with code-half-unit's prerequisites folded in once; the
-# exact same set is what `make -n regress-offline-all` executes.  A stale echo
-# is operationally misleading even when every recipe still runs, so treat it
-# as a coverage failure and exercise that failure in the self-test below.
+def expand_offline_targets(initial):
+    expanded = set()
+    pending = list(initial)
+    while pending:
+        target = pending.pop()
+        if target in expanded:
+            continue
+        expanded.add(target)
+        if target in {"code-half-unit", "regress-offline-corpus"}:
+            prereqs = target_prereq_line(target) or ""
+            pending.extend(t for t in re.split(r'\s+', prereqs.strip()) if t)
+    return expanded
+
+offline_all_transitive = (
+    expand_offline_targets(offline_all_direct) | expand_offline_targets(code_half_direct)
+) - {"code-half-unit", "regress-offline-corpus"}
+
+# Keep the human-facing close-gate status truthful.  The guarded wrapper runs
+# regress-offline-corpus, with code-half-unit's prerequisites folded in once;
+# the exact same set is what the wrapper executes. A stale echo is
+# operationally misleading even when every recipe still runs, so treat it as
+# a coverage failure and exercise that failure in the self-test below.
 count_matches = re.findall(
     r'regress-offline-all:\s+(\d+)\s+offline suites green',
     open(makefile, encoding='utf-8').read(),

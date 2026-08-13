@@ -517,7 +517,6 @@ check($position['woocommerce_tax_rates'] < $position['woocommerce_tax_rate_locat
     'tax-rate parent is ordered before location child for phase-2 creation');
 
 $deletionRank = new ReflectionMethod(\Duo\Apply::class, 'deletion_rank');
-$deletionRank->setAccessible(true);
 $rankApply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
 $rankPolicy = new ReflectionProperty(\Duo\Apply::class, 'policy');
 $rankPolicy->setValue($rankApply, $policy);
@@ -696,7 +695,6 @@ $apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor
 $policyProperty = new ReflectionProperty(\Duo\Apply::class, 'policy');
 $policyProperty->setValue($apply, $policy);
 $countGuard = new ReflectionMethod(\Duo\Apply::class, 'count_guard_refs');
-$countGuard->setAccessible(true);
 $metaGuard = $variationMetaGuard;
 $treeWithRef = [$groupedUuid => ['data' => ['meta' => ['_children' => ["{{post:$childUuid}}"]]]]];
 $treeWithoutRef = [$groupedUuid => ['data' => ['meta' => ['_children' => []]]]];
@@ -814,10 +812,8 @@ check($optionMalformedGuard['count'] === 0
 $optionsMaterializerReflection = new ReflectionClass(\Duo\OptionsMaterializer::class);
 $optionsMaterializer = $optionsMaterializerReflection->newInstanceWithoutConstructor();
 $optionsMaterializerPolicy = $optionsMaterializerReflection->getProperty('policy');
-$optionsMaterializerPolicy->setAccessible(true);
 $optionsMaterializerPolicy->setValue($optionsMaterializer, $policy);
 $optionTarget = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'option_apply_target');
-$optionTarget->setAccessible(true);
 $optionTargetRejected = false;
 try {
     $optionTarget->invoke($optionsMaterializer, 'woocommerce_flat_rate_0003_settings', []);
@@ -976,9 +972,7 @@ $metaRacePolicy->manifests = [$metaRaceManifest];
 $metaRaceApply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
 $policyProperty->setValue($metaRaceApply, $metaRacePolicy);
 $lockAndRevalidate = new ReflectionMethod(\Duo\Apply::class, 'lock_and_revalidate_delete_guards');
-$lockAndRevalidate->setAccessible(true);
 $deleteGuardEngines = new ReflectionMethod(\Duo\Apply::class, 'assert_delete_guard_engines');
-$deleteGuardEngines->setAccessible(true);
 $fakeWpdb->metaRows = [[
     'guard_id' => 200,
     'source_id' => 7,
@@ -1357,7 +1351,6 @@ try {
 check($optionInsertRefused,
     'shipping-method settings option inserted after the plan is refused by the locked range');
 $planHash = new ReflectionMethod(\Duo\Apply::class, 'plan_precondition_hash');
-$planHash->setAccessible(true);
 $hashInputs = [
     'delete' => [['uuid' => $childUuid, 'guard_witnesses' => ['0' => str_repeat('a', 64)]]],
 ];

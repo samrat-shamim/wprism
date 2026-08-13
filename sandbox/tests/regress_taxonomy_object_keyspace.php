@@ -299,11 +299,9 @@ $capture = $captureReflection->newInstanceWithoutConstructor();
 $tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
 foreach (['policy' => $policy, 'tokens' => $tokens] as $property => $value) {
     $slot = $captureReflection->getProperty($property);
-    $slot->setAccessible(true);
     $slot->setValue($capture, $value);
 }
 $captureTaxonomies = $captureReflection->getMethod('taxes_by_object_type');
-$captureTaxonomies->setAccessible(true);
 $captured = $captureTaxonomies->invoke($capture, [
     'duo_keyspace_post_links',
     'duo_keyspace_legacy_post_links',
@@ -459,10 +457,8 @@ echo "\n== Apply defends the same boundary before database access ==\n";
 $relationshipMaterializerReflection = new ReflectionClass(\Duo\RelationshipMaterializer::class);
 $relationshipMaterializer = $relationshipMaterializerReflection->newInstanceWithoutConstructor();
 $relationshipMaterializerPolicy = $relationshipMaterializerReflection->getProperty('policy');
-$relationshipMaterializerPolicy->setAccessible(true);
 $relationshipMaterializerPolicy->setValue($relationshipMaterializer, $policy);
 $postReconcile = $relationshipMaterializerReflection->getMethod('reconcile_relationships');
-$postReconcile->setAccessible(true);
 tok_expect_failure(
     fn() => $postReconcile->invoke($relationshipMaterializer, 17, 'duo_keyspace_post', ['duo_keyspace_term_links' => []], [], []),
     'object_keyspace',
@@ -476,10 +472,8 @@ tok_expect_failure(
 $termMaterializerReflection = new ReflectionClass(\Duo\TermMaterializer::class);
 $termMaterializer = $termMaterializerReflection->newInstanceWithoutConstructor();
 $termMaterializerPolicy = $termMaterializerReflection->getProperty('policy');
-$termMaterializerPolicy->setAccessible(true);
 $termMaterializerPolicy->setValue($termMaterializer, $policy);
 $termReconcile = $termMaterializerReflection->getMethod('reconcile_term_relationships');
-$termReconcile->setAccessible(true);
 tok_expect_failure(
     fn() => $termReconcile->invoke($termMaterializer, 23, 'duo_keyspace_term_links', ['duo_keyspace_post_links' => []], []),
     'object_keyspace',

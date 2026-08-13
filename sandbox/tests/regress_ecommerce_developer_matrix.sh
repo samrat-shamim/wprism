@@ -190,7 +190,7 @@ check_public_entrypoint() {
   grep -Fq 'ECOMMERCE_PORT2="$(PORT2)"' <<<"$target" || return 1
   grep -Fq 'sandbox/tests/grind_ecommerce_developer.sh' <<<"$target" || return 1
   grep -Fq 'regress-ecommerce-developer-matrix' Makefile || return 1
-  grep -Fq 'regress-ecommerce-developer-matrix' <(sed -n '/^regress-offline-all:/,/^[[:space:]]*@echo/p' Makefile) || return 1
+  grep -Fq 'regress-ecommerce-developer-matrix' <(sed -n '/^regress-offline-corpus:/,/^[[:space:]]*@echo/p' Makefile) || return 1
   return 0
 }
 

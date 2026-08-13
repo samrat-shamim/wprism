@@ -89,7 +89,6 @@ $check(($stale[0]['completed_revision'] ?? null) === $old, 'mismatched completed
 // completed marker. Keeping this pure/offline makes the safety contract cheap
 // to run while still testing the method Apply::run() calls before mutations.
 $applyGate = new \ReflectionMethod(Apply::class, 'enforce_code_mismatch_gate');
-$applyGate->setAccessible(true);
 $staleRow = Deploy::code_revision_mismatch($compiled)[0];
 foreach ([
     ['opts' => [], 'label' => 'without force flags'],
@@ -133,7 +132,6 @@ $check(
 // alongside an explicit host continuation; PromotionLock then proves that
 // continuation against the durable begun session and live row.
 $materializingGate = new \ReflectionMethod(Deploy::class, 'assert_materializing_continuation');
-$materializingGate->setAccessible(true);
 $blocked = false;
 try {
     $materializingGate->invoke(null, ['materializing_code' => true], false);

@@ -164,7 +164,6 @@ $stageKeys = [
     Code::CODE_STAGE_REVISION_KEY,
 ];
 $storedStage = new \ReflectionMethod(Code::class, 'stored_stage_descriptor');
-$storedStage->setAccessible(true);
 
 $reset = static function () use ($target): void {
     remove_stage_transaction($target);

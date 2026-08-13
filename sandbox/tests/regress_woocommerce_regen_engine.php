@@ -436,14 +436,10 @@ $policy = \Duo\Policy::load(null, ['batch', 'legacy']);
 $applyReflection = new \ReflectionClass(\Duo\Apply::class);
 $apply = $applyReflection->newInstanceWithoutConstructor();
 $policyProperty = $applyReflection->getProperty('policy');
-$policyProperty->setAccessible(true);
 $policyProperty->setValue($apply, $policy);
 $regen = $applyReflection->getMethod('regen_dependencies');
-$regen->setAccessible(true);
 $captureReparent = $applyReflection->getMethod('capture_regen_reparent_context');
-$captureReparent->setAccessible(true);
 $captureDelete = $applyReflection->getMethod('capture_regen_delete_context');
-$captureDelete->setAccessible(true);
 $captureDeleteSource = implode("\n", array_slice(
     (array) file($captureDelete->getFileName(), FILE_IGNORE_NEW_LINES),
     $captureDelete->getStartLine() - 1,

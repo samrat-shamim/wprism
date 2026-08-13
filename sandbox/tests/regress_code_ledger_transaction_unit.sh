@@ -63,7 +63,6 @@ $staged = [
     Code::CODE_REVISION_KEY => str_repeat('c', 64),
 ];
 $publish = new \ReflectionMethod(Code::class, 'publish_completed_descriptor');
-$publish->setAccessible(true);
 
 $reset = static function () use ($staged): void {
     Ledger::$rows = $staged;

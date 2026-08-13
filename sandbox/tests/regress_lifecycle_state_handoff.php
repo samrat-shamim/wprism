@@ -25,7 +25,6 @@ $check = static function (bool $ok, string $message): void {
 };
 
 $method = new ReflectionMethod(Apply::class, 'lifecycle_comparison_hash');
-$method->setAccessible(true);
 $before = str_repeat('a', 64);
 $after = str_repeat('b', 64);
 $changedAfter = str_repeat('c', 64);
@@ -57,9 +56,7 @@ $check(
 );
 
 $recordGate = new ReflectionMethod(Deploy::class, 'unexpected_lifecycle_state_changes');
-$recordGate->setAccessible(true);
 $missingBinder = new ReflectionMethod(Deploy::class, 'bind_lifecycle_missing_options');
-$missingBinder->setAccessible(true);
 $present = static fn($value): array => OptionState::present($value, 'no');
 $beforeDocument = OptionState::document([
     'active_plugins' => $present(['old/old.php']),

@@ -105,7 +105,6 @@ if (file_get_contents($target . '/plugins/new/new.php') !== $directExisting) {
 }
 
 $method = new ReflectionMethod(Code::class, 'remove_old_owned_files');
-$method->setAccessible(true);
 $removed = $method->invoke(null, null, $current, [$legacyPrior], $current);
 
 foreach (['plugins/old/old.php', 'plugins/old/orphan.php', 'plugins/new/orphan.php'] as $path) {
@@ -171,7 +170,6 @@ $oldPayload = file_get_contents($payloadPriorSource . '/plugins/payload/payload.
 put_materializer($target . '/plugins/payload/payload.php', $oldPayload);
 put_materializer($target . '/plugins/payload/zz-conflict.php/keep.txt', 'operator directory');
 $materialize = new ReflectionMethod(Code::class, 'materialize_payload');
-$materialize->setAccessible(true);
 try {
     $materialize->invoke(null, $payloadRepo, $payloadCurrent, $payloadPrior, null, [], []);
     fail_materializer('late payload type conflict was accepted');
@@ -245,7 +243,6 @@ foreach ($recoveryStaged['files'] as $row) {
     );
 }
 $recoverAbandoned = new ReflectionMethod(Code::class, 'remove_abandoned_staged_mu_files');
-$recoverAbandoned->setAccessible(true);
 $unproven = $recoverAbandoned->invoke(
     null,
     $recoveryPrevious,
@@ -297,7 +294,6 @@ if (file_get_contents($target . '/mu-plugins/fatal-user.php') !== "<?php\n// ope
 // Custom WP_PLUGIN_DIR would make the standard payload inert; fail before a
 // stage can mutate anything.
 $layout = new ReflectionMethod(Code::class, 'assert_target_layout');
-$layout->setAccessible(true);
 try {
     $layout->invoke(null);
     fail_materializer('custom WP_PLUGIN_DIR was accepted');

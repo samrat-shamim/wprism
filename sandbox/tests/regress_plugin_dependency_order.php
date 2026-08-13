@@ -22,7 +22,6 @@ $throws = static function (callable $operation, string $needle, string $message)
 };
 
 $order = new ReflectionMethod(Deploy::class, 'order_deactivations');
-$order->setAccessible(true);
 
 // Deliberately put the provider after its dependent in active_plugins. A
 // simple array_reverse() would retire the provider first; the graph must win.
@@ -98,7 +97,6 @@ if (!function_exists('get_plugin_data')) {
     }
 }
 $retire = new ReflectionMethod(Deploy::class, 'dependency_ordered_deactivations');
-$retire->setAccessible(true);
 $retired = $retire->invoke(null, [
     'dependent/dependent.php',
     'provider/provider.php',
@@ -119,7 +117,6 @@ $check(
     'lowercase dependency token did not order the provider after its dependent'
 );
 $activate = new ReflectionMethod(Deploy::class, 'dependency_ordered_activations');
-$activate->setAccessible(true);
 $GLOBALS['duo_dependency_headers'][WP_PLUGIN_DIR . '/dependent/dependent.php'] = [
     'RequiresPlugins' => 'provider',
 ];
