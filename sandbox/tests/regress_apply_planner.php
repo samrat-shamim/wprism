@@ -308,6 +308,66 @@ $check(
     'theme mismatch: an unknown relationship without a wp_theme term keeps the old short-circuit'
 );
 
+// ----------------------------------------------- regeneration debt visibility
+
+$regenPendingMarkers = [
+    'regen_pending:pending-live' => 'probe',
+    'regen_pending:pending-orphan' => 'probe',
+    'regen_pending:pending-unclaimed' => 'other',
+];
+$regenDeleteMarkers = [
+    'regen_delete_context:delete-live' => json_encode([
+        'uuid' => 'delete-live', 'id' => 41, 'post_type' => 'probe',
+    ]),
+    'regen_delete_context:malformed' => json_encode([
+        'post_type' => 'probe',
+    ]),
+];
+$regenReparentMarkers = [
+    'regen_reparent_context:reparent-z' => json_encode([
+        'uuid' => 'reparent-z', 'id' => 204, 'post_type' => 'probe',
+    ]),
+    'regen_reparent_context:reparent-a' => json_encode([
+        'id' => 205, 'post_type' => 'probe',
+    ]),
+];
+$regenProjection = ApplyPlanner::regeneration_debt_projection(
+    $regenPendingMarkers,
+    $regenDeleteMarkers,
+    $regenReparentMarkers,
+    static fn(mixed $postType): bool => $postType === 'probe',
+    static fn(string $uuid): bool => $uuid === 'pending-live',
+    static fn(string $postType): bool => $postType === 'probe'
+);
+$check(
+    $regenProjection['regen_pending'] === [[
+        'uuid' => 'pending-live', 'type' => 'post', 'post_type' => 'probe',
+    ]],
+    'regeneration debt: pending projection keeps declared, resolvable rows and drops orphaned rows'
+);
+$check(
+    $regenProjection['regen_context'] === [
+        ['uuid' => 'delete-live', 'type' => 'post', 'post_type' => 'probe', 'kind' => 'delete'],
+        ['uuid' => 'reparent-a', 'type' => 'post', 'post_type' => 'probe', 'kind' => 'reparent'],
+        ['uuid' => 'reparent-z', 'type' => 'post', 'post_type' => 'probe', 'kind' => 'reparent'],
+    ],
+    'regeneration debt: context receipts parse both keyspaces, fall back to key UUIDs, and sort by kind/UUID'
+);
+$check(
+    $regenProjection['warnings'] === [
+        "regen_pending: post pending-live (type 'probe') has a regeneration retry pending from a prior failed verify",
+        "regen_context: post delete-live (type 'probe') has an outstanding delete receipt awaiting a verified derived-state repair",
+        "regen_context: post reparent-a (type 'probe') has an outstanding reparent receipt awaiting a verified derived-state repair",
+        "regen_context: post reparent-z (type 'probe') has an outstanding reparent receipt awaiting a verified derived-state repair",
+    ],
+    'regeneration debt: warning text and ordering remain the shared plan/status contract'
+);
+$check(
+    $regenPendingMarkers['regen_pending:pending-orphan'] === 'probe'
+        && isset($regenDeleteMarkers['regen_delete_context:malformed']),
+    'regeneration debt: projection is read-only and does not mutate the supplied marker snapshots'
+);
+
 // ---------------------------------------------------------- lifecycle_comparison_hash
 
 $transition = ['entity' => 'options/core', 'before_hash' => 'before123', 'after_hash' => 'after456'];
@@ -1036,6 +1096,13 @@ $check(
         && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
         && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
     'natural-key annotation: planner owns the projection while Apply keeps the plan-row compatibility facade'
+);
+$check(
+    preg_match('/public static function regeneration_debt_projection\(/', $plannerSource) === 1
+        && preg_match('/private function regeneration_debt_projection\([^}]*?return ApplyPlanner::regeneration_debt_projection\(/s', $applySource) === 1
+        && str_contains($applySource, '$this->regeneration_debt_projection()')
+        && !str_contains($applySource, 'regen_context_plan_rows('),
+    'regeneration debt: planner owns the complete read-only projection while Apply supplies Ledger/Policy boundaries'
 );
 $themeSectionStart = strpos($applySource, '    private function check_theme_mismatch(');
 $themeSectionEnd = strpos($applySource, "\n    // ----------------------------------------------------------------- apply", $themeSectionStart);

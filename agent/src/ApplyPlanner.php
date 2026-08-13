@@ -1123,6 +1123,91 @@ final class ApplyPlanner {
     }
 
     /**
+     * Project durable derived-state debt for a read-only plan.
+     *
+     * Apply owns the engine boundaries that read Ledger and Policy. It passes
+     * those observations and claimant/identity predicates here so this
+     * projection owns the shared row shape, malformed-marker handling,
+     * deterministic ordering, and operator warning text for all three retry
+     * keyspaces. The callbacks are deliberately read-only: this method never
+     * mutates a marker, resolves a target on its own, or authorizes a retry.
+     *
+     * A pending marker is visible only when its post type is declared and its
+     * UUID still resolves. A context receipt is visible only when it is a
+     * well-formed receipt with a claimant. Those are the same orphan rules the
+     * old Apply projection used, kept together so the two dispatchers share
+     * one plan/status vocabulary.
+     *
+     * @param array<string,mixed> $pendingMarkers
+     * @param array<string,mixed> $deleteContextMarkers
+     * @param array<string,mixed> $reparentContextMarkers
+     * @param \Closure(mixed):bool $pendingTypeClaimed
+     * @param \Closure(string):bool $pendingUuidExists
+     * @param \Closure(string):bool $contextClaimed
+     * @return array{
+     *   regen_pending:list<array{uuid:string,type:string,post_type:mixed}>,
+     *   regen_context:list<array{uuid:string,type:string,post_type:string,kind:string}>,
+     *   warnings:list<string>
+     * }
+     */
+    public static function regeneration_debt_projection(
+        array $pendingMarkers,
+        array $deleteContextMarkers,
+        array $reparentContextMarkers,
+        \Closure $pendingTypeClaimed,
+        \Closure $pendingUuidExists,
+        \Closure $contextClaimed
+    ): array {
+        $pending = [];
+        $context = [];
+        $warnings = [];
+
+        foreach ($pendingMarkers as $key => $postType) {
+            $uuid = substr((string) $key, strlen('regen_pending:'));
+            if (!$pendingTypeClaimed($postType) || !$pendingUuidExists($uuid)) {
+                continue;
+            }
+            $pending[] = ['uuid' => $uuid, 'type' => 'post', 'post_type' => $postType];
+            $warnings[] = "regen_pending: post $uuid (type '$postType') has a regeneration "
+                . 'retry pending from a prior failed verify';
+        }
+
+        foreach ([
+            [$deleteContextMarkers, 'delete'],
+            [$reparentContextMarkers, 'reparent'],
+        ] as [$markers, $kind]) {
+            foreach ($markers as $key => $encoded) {
+                $decoded = is_string($encoded) ? json_decode($encoded, true) : null;
+                $postType = is_array($decoded) ? (string) ($decoded['post_type'] ?? '') : '';
+                $id = is_array($decoded) ? (int) ($decoded['id'] ?? 0) : 0;
+                if ($postType === '' || $id <= 0 || !$contextClaimed($postType)) {
+                    continue;
+                }
+                $context[] = [
+                    'uuid' => is_array($decoded) && (string) ($decoded['uuid'] ?? '') !== ''
+                        ? (string) $decoded['uuid']
+                        : substr((string) $key, strlen('regen_' . $kind . '_context:')),
+                    'type' => 'post',
+                    'post_type' => $postType,
+                    'kind' => $kind,
+                ];
+            }
+        }
+        usort($context, static fn(array $a, array $b): int =>
+            strcmp($a['kind'], $b['kind']) ?: strcmp($a['uuid'], $b['uuid']));
+        foreach ($context as $row) {
+            $warnings[] = "regen_context: post {$row['uuid']} (type '{$row['post_type']}') has an "
+                . "outstanding {$row['kind']} receipt awaiting a verified derived-state repair";
+        }
+
+        return [
+            'regen_pending' => $pending,
+            'regen_context' => $context,
+            'warnings' => $warnings,
+        ];
+    }
+
+    /**
      * Project the warning emitted when an FSE entity is tagged for a captured
      * theme other than the target's active stylesheet. The active stylesheet
      * is supplied by Apply at its WordPress boundary; this projection itself

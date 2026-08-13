@@ -671,50 +671,15 @@ final class Apply {
             }
         }
 
-        // DUO-3234 design review, addition 1: surface any still-outstanding
-        // regen_pending:<uuid> marker so a plain `duo plan` — run between a
-        // failed apply and its retry, with zero pending content changes —
-        // does not silently say "nothing to do" while a regeneration retry
-        // is armed underneath it. Read-only, like the rest of build_plan():
-        // no kv mutation here. A marker whose post type is no longer
-        // declared or whose uuid no longer resolves is deliberately NOT
-        // surfaced — that is harmless orphaned bookkeeping the next apply's
-        // regen_dependencies() sweeps on its own (with its own loud
-        // warning, at the point it actually mutates), not something a
-        // plan reader needs to act on.
-        $plan['regen_pending'] = [];
-        foreach (Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) as $k => $postType) {
-            $uuid = substr($k, strlen(self::REGEN_PENDING_PREFIX));
-            if ($this->policy->regen_dependency($postType) === null) {
-                continue; // orphaned — apply's own sweep handles this, not plan
-            }
-            if (Ledger::id_for($uuid, Ledger::KIND_POST) === null) {
-                continue; // orphaned — apply's own sweep handles this, not plan
-            }
-            $plan['regen_pending'][] = ['uuid' => $uuid, 'type' => 'post', 'post_type' => $postType];
-            $this->warnings[] = "regen_pending: post $uuid (type '$postType') has a regeneration "
-                . 'retry pending from a prior failed verify';
-        }
-
-        // DUO-3342 / independent review F3: the same visibility, for the other
-        // two durable keyspaces. `regen_delete_context:`/`regen_reparent_context:`
-        // markers are outstanding derived-state DEBT in exactly the sense
-        // regen_pending is — an apply captured a pre-delete inventory or a
-        // pre-move receipt and has not yet had a consumer verify the repair —
-        // and DUO-3342 made them survive a failed run instead of being swept,
-        // which is precisely what turns "transient bookkeeping" into "a fact an
-        // operator deciding on a promotion needs". Same read-only posture
-        // (build_plan() never mutates kv), same orphan rule: a marker no
-        // consumer of either kind claims is NOT surfaced, because apply's own
-        // sweep removes it, loudly, at the point it actually mutates.
-        //
-        // Deliberately ONE bucket rather than two: the two prefixes differ in
-        // what the receipt records, not in what a plan reader must do about it,
-        // and `kind` carries the distinction for anyone who cares.
-        $plan['regen_context'] = $this->regen_context_plan_rows();
-        foreach ($plan['regen_context'] as $row) {
-            $this->warnings[] = "regen_context: post {$row['uuid']} (type '{$row['post_type']}') has an "
-                . "outstanding {$row['kind']} receipt awaiting a verified derived-state repair";
+        // DUO-3234 / DUO-3342: expose all durable derived-state retry debt
+        // through one read-only planner projection. Ledger and Policy remain
+        // Apply's engine boundaries; the planner owns the shared rows,
+        // orphan rules, ordering, and warning vocabulary.
+        $regenDebt = $this->regeneration_debt_projection();
+        $plan['regen_pending'] = $regenDebt['regen_pending'];
+        $plan['regen_context'] = $regenDebt['regen_context'];
+        foreach ($regenDebt['warnings'] as $warning) {
+            $this->warnings[] = $warning;
         }
 
         // DUO-3232: env-bound value provisioning checklist. Read-only, like
@@ -4573,6 +4538,45 @@ final class Apply {
     }
 
     /**
+     * Does ANY pinned provider action trigger on $surface — by policy bytes
+     * alone, no negotiation state? This is the plan projection's claimant
+     * test: stable across the pre- and post-negotiation plans by
+     * construction, exactly as regen_pending's projection is.
+     */
+    private function pinned_provider_action_triggers(string $surface): bool {
+        foreach ($this->policy->actions() as $action) {
+            if (($action['kind'] ?? '') === 'provider'
+                && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Thin engine-boundary facade over
+     * ApplyPlanner::regeneration_debt_projection(). Ledger keyspaces and
+     * Policy claimant/identity checks stay here; the planner owns the shared
+     * read-only rows, ordering, and warning vocabulary. Keeping this boundary
+     * named and independently drivable also proves the product path without
+     * making a full compiled/live build_plan() fixture part of the offline
+     * contract suite.
+     *
+     * @return array{regen_pending:list<array>,regen_context:list<array>,warnings:list<string>}
+     */
+    private function regeneration_debt_projection(): array {
+        return ApplyPlanner::regeneration_debt_projection(
+            Ledger::kv_prefix(self::REGEN_PENDING_PREFIX),
+            Ledger::kv_prefix(self::REGEN_DELETE_CONTEXT_PREFIX),
+            Ledger::kv_prefix(self::REGEN_REPARENT_CONTEXT_PREFIX),
+            fn(mixed $postType): bool => $this->policy->regen_dependency($postType) !== null,
+            fn(string $uuid): bool => Ledger::id_for($uuid, Ledger::KIND_POST) !== null,
+            fn(string $postType): bool => $this->policy->regen_batch($postType) !== null
+                || $this->pinned_provider_action_triggers('post:' . $postType),
+        );
+    }
+
+    /**
      * Is $surface claimed by a PINNED provider action, independently of what
      * this run happened to select?
      *
@@ -4596,81 +4600,6 @@ final class Apply {
      * keeping is a marker that stays VISIBLE in plan/status
      * (build_plan()'s regen_context bucket) rather than one that vanishes.
      */
-    /**
-     * The plan projection of the two durable derived-state keyspaces
-     * (DUO-3342 / independent review F3), factored out of build_plan() so it is
-     * drivable on its own against a marker keyspace.
-     *
-     * Read-only, and the orphan rule matches regen_pending's exactly: a marker
-     * that is malformed, or that no consumer of either kind claims, is NOT
-     * surfaced — the next apply's own sweep removes it, loudly, at the point it
-     * actually mutates, and a plan reader has nothing to do about it. What IS
-     * surfaced is a receipt with a real claimant and no verified repair yet,
-     * which is a promotion-relevant gap in exactly the sense regen_pending is.
-     *
-     * The claimant test is the pinned one rather than this run's selection for
-     * the reason build_plan() has no selection at all: plan is read-only and
-     * runs before any negotiation.
-     *
-     * @return list<array{uuid:string, type:string, post_type:string, kind:string}>
-     */
-    private function regen_context_plan_rows(): array {
-        $rows = [];
-        foreach ([
-            self::REGEN_DELETE_CONTEXT_PREFIX => 'delete',
-            self::REGEN_REPARENT_CONTEXT_PREFIX => 'reparent',
-        ] as $contextPrefix => $contextKind) {
-            foreach (Ledger::kv_prefix($contextPrefix) as $k => $encoded) {
-                $context = is_string($encoded) ? json_decode($encoded, true) : null;
-                $postType = is_array($context) ? (string) ($context['post_type'] ?? '') : '';
-                $id = is_array($context) ? (int) ($context['id'] ?? 0) : 0;
-                if ($postType === '' || $id <= 0) {
-                    continue; // malformed — apply's own sweep handles this, not plan
-                }
-                // Policy-only claimant test, deliberately NOT the sweep's
-                // negotiation-aware pinned_provider_action_owns(): run() hashes
-                // this projection into the promotion precondition both BEFORE
-                // negotiation and after it, so a negotiation-dependent answer
-                // would make plan and freshPlan disagree over an unmutated
-                // keyspace and wedge the apply behind a refusal that repeats
-                // forever. Over-surfacing a row a scope-aware test would drop
-                // is harmless in a read-only projection; guessing is only a
-                // hazard where it authorizes a delete, which is the sweep.
-                if ($this->policy->regen_batch($postType) === null
-                    && !$this->pinned_provider_action_triggers('post:' . $postType)) {
-                    continue; // orphaned — apply's own sweep handles this, not plan
-                }
-                $rows[] = [
-                    'uuid' => is_array($context) && (string) ($context['uuid'] ?? '') !== ''
-                        ? (string) $context['uuid']
-                        : substr((string) $k, strlen($contextPrefix)),
-                    'type' => 'post',
-                    'post_type' => $postType,
-                    'kind' => $contextKind,
-                ];
-            }
-        }
-        usort($rows, static fn(array $a, array $b): int =>
-            strcmp($a['kind'], $b['kind']) ?: strcmp($a['uuid'], $b['uuid']));
-        return $rows;
-    }
-
-    /**
-     * Does ANY pinned provider action trigger on $surface — by policy bytes
-     * alone, no negotiation state? This is the plan projection's claimant
-     * test: stable across the pre- and post-negotiation plans by
-     * construction, exactly as regen_pending's projection is.
-     */
-    private function pinned_provider_action_triggers(string $surface): bool {
-        foreach ($this->policy->actions() as $action) {
-            if (($action['kind'] ?? '') === 'provider'
-                && in_array($surface, (array) ($action['triggers'] ?? []), true)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private function pinned_provider_action_owns(string $surface): bool {
         foreach ($this->policy->actions() as $action) {
             if (($action['kind'] ?? '') !== 'provider'
