@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/BlockReferenceScanner.php';
+require_once __DIR__ . '/MenuReferenceScanner.php';
 require_once __DIR__ . '/SerializedTermDescriptionScanner.php';
 require_once __DIR__ . '/ShortcodeReferenceScanner.php';
 require_once __DIR__ . '/StructuredReferenceScanner.php';
@@ -266,66 +267,14 @@ final class Lint {
         array &$findings
     ): void {
         $front = Canon::decode(Canon::read_file($stateDir . '/' . $rel));
-        foreach ((array) ($front['items'] ?? []) as $index => $item) {
-            if (!is_array($item)) {
-                continue; // RepositoryCompiler owns malformed item shapes.
-            }
-            $type = (string) ($item['type'] ?? '');
-            $ref = $item['ref'] ?? '';
-            $prefix = "items[$index]";
-            if ($type === 'post_type' || $type === 'taxonomy') {
-                foreach (Pending::numeric_candidates($ref) as [$id, $locSuffix]) {
-                    $hit = Pending::resolve_id($id);
-                    $kind = $type === 'post_type' ? 'post' : 'term';
-                    $findings[] = LintFinding::make(
-                        'unrewritten_registered_ref',
-                        $rel,
-                        $prefix . '.ref' . $locSuffix,
-                        $id,
-                        $hit,
-                        "menu item type '$type' declares its ref as a canonical $kind token, but this value is "
-                            . 'still numeric in captured state — the schema-owned rewrite never ran and the id '
-                            . 'is silently environment-bound.'
-                    );
-                }
-            } elseif ($type === 'custom' && is_string($ref)) {
-                // A numeric-looking custom URL is not an entity reference.
-                self::flag_escaped_home($findings, $rel, $prefix . '.ref', $ref, $home, $homeEscaped);
-            }
-
-            $meta = (array) ($item['meta'] ?? []);
-            foreach ($meta as $key => $value) {
-                $rule = $policy->meta_rule_for_post((string) $key, $meta) ?? [];
-                if (isset($rule['ref']) || !empty($rule['lint_ok'])) {
-                    continue;
-                }
-                $locator = $prefix . '.meta.' . $key;
-                if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-                    self::scan_structured_bare_ids(
-                        $value,
-                        $rel,
-                        $locator,
-                        $findings,
-                        (array) ($rule['json_refs'] ?? []),
-                        isset($rule['key_refs']) ? (array) $rule['key_refs'] : null
-                    );
-                    continue;
-                }
-                foreach (Pending::numeric_candidates($value) as [$id, $locSuffix]) {
-                    $hit = Pending::resolve_id($id);
-                    if ($hit !== null) {
-                        $findings[] = LintFinding::make(
-                            'bare_id', $rel, $locator . $locSuffix, $id, $hit, self::bare_id_note($hit)
-                        );
-                    }
-                }
-            }
-            StateTreeWalker::strings($meta, $prefix . '.meta', function (
-                string $path,
-                string $value
-            ) use (&$findings, $rel, $home, $homeEscaped): void {
-                self::flag_escaped_home($findings, $rel, $path, $value, $home, $homeEscaped);
-            });
+        foreach (MenuReferenceScanner::scan(
+            (array) ($front['items'] ?? []),
+            $rel,
+            [$policy, 'meta_rule_for_post'],
+            $home,
+            $homeEscaped
+        ) as $finding) {
+            $findings[] = $finding;
         }
     }
 
