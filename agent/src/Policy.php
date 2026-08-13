@@ -106,6 +106,9 @@ require_once __DIR__ . '/TaxonomyKeyspaceResolver.php';
 // DUO-3348 slice 49: description-reference lookup is pure manifest grammar;
 // Policy retains public facades so every current runtime caller stays stable.
 require_once __DIR__ . '/TaxonomyDescriptionReferenceResolver.php';
+// DUO-3348 slice 51: option-derived taxonomy object-type declarations are
+// pure manifest lookups; Apply retains the compiled-tree timing behavior.
+require_once __DIR__ . '/TaxonomyObjectTypeOptionResolver.php';
 // DUO-3348 slice 45: pure option-name reference declaration resolution is
 // separate from Policy's public compatibility/query surface and live callers.
 require_once __DIR__ . '/OptionNameReferenceResolver.php';
@@ -1274,13 +1277,12 @@ final class Policy {
      * @return ?array{option:string, sub_key:string}
      */
     public function object_type_option_ref(string $tax): ?array {
-        foreach ($this->manifests as $m) {
-            $decl = $m['taxonomies'][$tax]['object_type_from_option'] ?? null;
-            if ($decl !== null) {
-                return ['option' => (string) $decl['option'], 'sub_key' => (string) $decl['sub_key']];
-            }
-        }
-        return null;
+        return $this->taxonomy_object_type_option_resolver()->resolve($tax);
+    }
+
+    /** Fresh because manifests stay publicly mutable in offline fixtures. */
+    private function taxonomy_object_type_option_resolver(): TaxonomyObjectTypeOptionResolver {
+        return new TaxonomyObjectTypeOptionResolver($this->manifests);
     }
 
     public function post_types(): array {
