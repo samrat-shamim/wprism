@@ -165,12 +165,35 @@ function cap_import_bundle(string $repo, string $input): void {
             ? implode(', ', array_map('strval', $forceHatches)) : 'malformed';
         throw new RuntimeException("bundle used force hatches ($shown); a reference certification bundle must be produced without overrides");
     }
+    $path = $repo . EVIDENCE_FILE;
+    $previous = cap_read_json($path);
+    if (($previous['format'] ?? null) !== CapabilityRegistry::EVIDENCE_FORMAT
+        || !in_array($previous['status'] ?? null, ['candidate', 'current'], true)
+        || !is_array($previous['bundle'] ?? null)) {
+        throw new RuntimeException('existing capability evidence attestation is malformed');
+    }
+    // Global and scoped certifications have independent provenance.  Importing
+    // a new global bundle must therefore retain every existing durable scoped
+    // record rather than silently dropping a still-current adapter claim.
+    $hasScoped = array_key_exists('scoped', $previous);
+    $scoped = $previous['scoped'] ?? [];
+    if (!is_array($scoped) || (array_is_list($scoped) && $scoped !== [])) {
+        throw new RuntimeException('existing capability evidence scoped records are malformed');
+    }
+    foreach ($scoped as $name => $entry) {
+        if (!is_string($name) || $name === '') {
+            throw new RuntimeException('existing capability evidence has a malformed scoped record name');
+        }
+        cap_scoped_entry($repo, $name, $entry);
+    }
     $evidence = [
         'format' => CapabilityRegistry::EVIDENCE_FORMAT,
         'status' => 'current',
         'bundle' => $bundle,
     ];
-    $path = $repo . EVIDENCE_FILE;
+    if ($hasScoped) {
+        $evidence['scoped'] = $scoped;
+    }
     if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0777, true) && !is_dir(dirname($path))) {
         throw new RuntimeException('could not create capability registry directory');
     }
