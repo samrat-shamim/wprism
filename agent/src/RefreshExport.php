@@ -189,7 +189,9 @@ final class RefreshExport {
      * Project a validated live observation onto the exact state identities a
      * scoped refresh is allowed to report. Option roots are virtual records
      * inside options/core, so their wire carrier must contain only the named
-     * records; including siblings would silently grant whole-document state.
+     * records unless the same contract independently selects the whole
+     * options surface. A whole-surface selection remains authoritative; an
+     * additional record root must never accidentally narrow it.
      *
      * @param list<array<string,mixed>> $entities
      * @param list<string> $selected
@@ -213,7 +215,7 @@ final class RefreshExport {
                 $optionCarrier = $row;
             }
         }
-        if ($selectedOptionNames === []) {
+        if ($selectedOptionNames === [] || isset($selectedSet['options/core'])) {
             return $live;
         }
         if (!is_array($optionCarrier)) {

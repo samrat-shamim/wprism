@@ -1092,6 +1092,51 @@ check(($mergedOptions['blogname']['value'] ?? null) === 'production-only title'
     && ($mergedOptions['active_plugins']['state'] ?? null) === 'absent',
     'option-root refresh overlays only its production record and preserves branch bytes for every excluded sibling option');
 
+// validateMaterialization() recompiles an actual linked Git worktree and
+// then compares its bytes to the exact branch baseline. This must allow the
+// selected option to alter the physical options/core carrier while still
+// retaining every excluded sibling record. A fake planner cannot cover this
+// strict candidate-validation boundary.
+$strictGitSource = "$tmp/scoped-options-strict-source";
+$strictGitWorktree = "$tmp/scoped-options-strict-worktree";
+mkdir($strictGitSource, 0700, true);
+put("$strictGitSource/.keep", "scope contract strict validation fixture\n");
+$runGit = static function (array $command): void {
+    $process = proc_open($command, [
+        0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('could not start Git fixture command');
+    }
+    fclose($pipes[0]);
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    if (proc_close($process) !== 0) {
+        throw new RuntimeException('Git fixture command failed: ' . implode(' ', $command) . "\n$stdout$stderr");
+    }
+};
+$runGit(['git', 'init', $strictGitSource]);
+$runGit(['git', '-C', $strictGitSource, 'config', 'user.email', 'scope-contract@example.test']);
+$runGit(['git', '-C', $strictGitSource, 'config', 'user.name', 'Scope Contract']);
+$runGit(['git', '-C', $strictGitSource, 'add', '.keep']);
+$runGit(['git', '-C', $strictGitSource, 'commit', '-m', 'fixture source']);
+$runGit(['git', '-C', $strictGitSource, 'worktree', 'add', '--detach', $strictGitWorktree, 'HEAD']);
+put("$strictGitWorktree/site.duo.json", Canon::read_file("$repo/site.duo.json"));
+if (!is_dir("$strictGitWorktree/manifests")) mkdir("$strictGitWorktree/manifests", 0700, true);
+copy("$manifestDir/core.json", "$strictGitWorktree/manifests/core.json");
+copy("$manifestDir/scope-contract-fixture.json", "$strictGitWorktree/manifests/scope-contract-fixture.json");
+$strictReceipt = RefreshPlan::materialize($optionsPlan, $strictGitWorktree);
+$runGit(['git', '-C', $strictGitWorktree, 'add', '--all']);
+$runGit(['git', '-C', $strictGitWorktree, 'commit', '-m', 'materialized option root']);
+try {
+    RefreshPlan::validateMaterialization($strictReceipt, $optionsPlan, $strictGitWorktree);
+    check(true, 'strict candidate validation permits a selected option-root materialization and preserves excluded siblings');
+} catch (Throwable $failure) {
+    check(false, 'strict candidate validation accepts the valid option-root carrier change (' . $failure->getMessage() . ')');
+}
+
 $removedOptionProduction = $optionsProduction;
 $removedOptionContent = Canon::encode(OptionState::document([
     'blogname' => OptionState::absent(),

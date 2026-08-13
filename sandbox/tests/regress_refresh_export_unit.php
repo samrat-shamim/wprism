@@ -237,6 +237,12 @@ check_re($projectedKeys === [$uuid, 'options/core']
     && ($projectedOptions['blogname']['value'] ?? null) === 'selected title'
     && ($projected['options/core']['hash_basis'] ?? null) === (string) $projected['options/core']['content'],
     'option-root refresh projection emits only the selected record with matching carrier hash basis');
+$wholeOptionsProjection = $scopedLive->invoke(null, [
+    ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => $optionContent],
+], ['options/core', 'option:blogname'], ['blogname']);
+check_re(($wholeOptionsProjection['options/core']['content'] ?? null) === $optionContent
+    && !array_key_exists('hash_basis', $wholeOptionsProjection['options/core']),
+    'a whole-options root remains whole when a redundant option root is also selected');
 try {
     $scopedLive->invoke(null, [
         ['uuid' => 'options/core', 'type' => 'options', 'path' => 'options/core.json', 'content' => $optionContent],
