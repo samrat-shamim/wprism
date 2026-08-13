@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/CodeCompatibility.php';
 require_once __DIR__ . '/DeployPlanner.php';
+require_once __DIR__ . '/LifecycleExecutor.php';
 require_once __DIR__ . '/LifecyclePlanner.php';
 require_once __DIR__ . '/StateHandoffVerifier.php';
 
@@ -357,86 +358,31 @@ final class Deploy {
 
         Canary::begin_external_observation();
         try {
-            if ($lifecyclePhase !== 'activate' && $toDeactivate) {
-                PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-retire');
-                // WordPress's Requires Plugins header is a dependency graph,
-                // not a promise that active_plugins happens to be ordered.
-                // Retire dependents before their providers even when an
-                // operator or old WordPress version stored a different list
-                // order. Independent plugins retain the historical reverse-
-                // load-order behavior.
-                $deactivated = self::dependency_ordered_deactivations($toDeactivate);
-                deactivate_plugins($deactivated);
-                $afterRetire = self::current_active_plugins();
-                foreach ($deactivated as $plugin) {
-                    if (in_array($plugin, $afterRetire, true)) {
-                        throw new \RuntimeException("duo: plugin deactivation did not persist for '$plugin'");
-                    }
-                }
-            }
-
-            if ($lifecyclePhase !== 'retire') {
-                // WordPress's Requires Plugins header is a dependency graph,
-                // not a promise that active_plugins happens to be ordered.
-                // Activate providers first so a clean target can satisfy the
-                // native requirement check even when the desired state is the
-                // alphabetical/native order produced by activate_plugin().
-                // The exact authored order is restored below after all
-                // membership changes have succeeded.
-                $activationOrder = self::dependency_ordered_activations($toActivate);
-                foreach ($activationOrder as $plugin) {
-                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-activate');
-                    if (in_array($plugin, $missingPlugins, true)) {
-                        $warnings[] = "skipped activating '$plugin' (missing_in_code, --force-code-mismatch was set)";
-                        continue;
-                    }
-                    $result = activate_plugin($plugin); // hooks fire deliberately — this is the point of this class
-                    if (is_wp_error($result)) {
-                        throw new \RuntimeException("duo: required plugin activation failed for '$plugin'");
-                    }
-                    $activated[] = $plugin;
-                }
-                $after = self::current_active_plugins();
-                foreach ($toActivate as $plugin) {
-                    if (!in_array($plugin, $missingPlugins, true) && !in_array($plugin, $after, true)) {
-                        throw new \RuntimeException("duo: plugin activation did not persist for '$plugin'");
-                    }
-                }
-                if ($desiredActive !== null && !$missingPlugins && $after !== $desiredActive) {
-                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-plugin-order');
-                    // WordPress exposes no lifecycle API for load-order changes.
-                    // Membership has already been reconciled through activate/
-                    // deactivate above; this managed option write changes order
-                    // only and is verified immediately.
-                    update_option('active_plugins', $desiredActive);
-                    $after = self::current_active_plugins();
-                    if ($after !== $desiredActive) {
-                        throw new \RuntimeException('duo: exact active plugin order did not persist');
-                    }
-                    $orderCorrected = true;
-                }
-
-                if ($desiredStylesheet !== null && ($stylesheetMismatch || $templateMismatch)) {
-                    PromotionLock::heartbeat($promotionOwner, $promotionArtifact, 'deploy-theme');
-                    if ($themeMissing) {
-                        $warnings[] = "skipped theme switch to '$desiredStylesheet' (missing_in_code, --force-code-mismatch was set)";
-                    } else {
-                        switch_theme($desiredStylesheet); // hooks fire deliberately (switch_theme/after_switch_theme)
-                        $themeSwitched = $desiredStylesheet;
-                        if (get_option('stylesheet') !== $desiredStylesheet) {
-                            throw new \RuntimeException("duo: theme switch did not persist for '$desiredStylesheet'");
-                        }
-                        if ($desiredTemplate !== null && get_option('template') !== $desiredTemplate) {
-                            $actualTemplate = (string) get_option('template');
-                            throw new \RuntimeException(
-                                "duo: canonical template '$desiredTemplate' cannot be realized by stylesheet "
-                                . "'$desiredStylesheet': WordPress resolved '$actualTemplate'. Check this theme's Template "
-                                . 'header and state/options/core.json; refusing to write template directly because that would '
-                                . 'bypass WordPress theme lifecycle.'
-                            );
-                        }
-                    }
-                }
+            // DUO-3350 slice 8: the real WordPress lifecycle mutation for this
+            // phase now lives in LifecycleExecutor::execute(). Kept here: the
+            // PromotionLock/Canary sequencing around the call and the failure
+            // augmentation below, both run()'s own orchestration rather than
+            // lifecycle mutation.
+            $mutation = LifecycleExecutor::execute(
+                $lifecyclePhase,
+                $toDeactivate,
+                $toActivate,
+                $missingPlugins,
+                $desiredActive,
+                $desiredStylesheet,
+                $desiredTemplate,
+                $themeMissing,
+                $stylesheetMismatch,
+                $templateMismatch,
+                $promotionOwner,
+                $promotionArtifact
+            );
+            $activated = $mutation['activated'];
+            $deactivated = $mutation['deactivated'];
+            $themeSwitched = $mutation['theme_switched'];
+            $orderCorrected = $mutation['order_corrected'];
+            foreach ($mutation['warnings'] as $w) {
+                $warnings[] = $w;
             }
         } catch (\Throwable $t) {
             $externalSideEffects = Canary::end_external_observation();
@@ -709,6 +655,45 @@ final class Deploy {
     }
 
     /**
+     * Read Requires Plugins and produce a provider-first order for additions.
+     * WordPress validates a plugin's requirements at activation time, so this
+     * order is independent of the desired active_plugins storage order.
+     *
+     * Public (DUO-3350 slice 8, was private): LifecycleExecutor::execute()
+     * -- the extracted lifecycle-mutation pass, its only production caller
+     * now -- calls this directly. The rest of this dependency-ordering
+     * cluster (plugin_dependency_requirements()/plugin_dependency_slug()/
+     * order_deactivations()/order_activations(), below) deliberately stays
+     * on Deploy, unmoved: they are stateless graph/header-reading primitives
+     * with no lifecycle-mutation concern of their own, and
+     * sandbox/tests/regress_deploy_planner.php's own source-text assertions
+     * require order_deactivations()/order_activations() to remain private
+     * facades calling DeployPlanner:: directly from Deploy.php specifically.
+     * sandbox/tests/regress_plugin_dependency_order.php reaches all four via
+     * ReflectionMethod(Deploy::class, ...), unaffected by this widening.
+     *
+     * @param list<string> $plugins active plugin basenames being activated
+     * @return list<string>
+     */
+    public static function dependency_ordered_activations(array $plugins): array {
+        return self::order_activations($plugins, self::plugin_dependency_requirements($plugins));
+    }
+
+    /**
+     * Read WordPress's bounded Requires Plugins headers and produce a reverse
+     * dependency order for the exact removal set.
+     *
+     * Public (DUO-3350 slice 8, was private) -- see
+     * dependency_ordered_activations()'s docblock immediately above.
+     *
+     * @param list<string> $plugins active plugin basenames being retired
+     * @return list<string>
+     */
+    public static function dependency_ordered_deactivations(array $plugins): array {
+        return self::order_deactivations($plugins, self::plugin_dependency_requirements($plugins));
+    }
+
+    /**
      * Read WordPress's bounded Requires Plugins headers for an exact lifecycle
      * set. A provider outside the set is already active (or otherwise not part
      * of this transition), so it does not need a lifecycle edge here.
@@ -752,29 +737,6 @@ final class Deploy {
             $requirements[$plugin] = array_values(array_unique($requirements[$plugin]));
         }
         return $requirements;
-    }
-
-    /**
-     * Read Requires Plugins and produce a provider-first order for additions.
-     * WordPress validates a plugin's requirements at activation time, so this
-     * order is independent of the desired active_plugins storage order.
-     *
-     * @param list<string> $plugins active plugin basenames being activated
-     * @return list<string>
-     */
-    private static function dependency_ordered_activations(array $plugins): array {
-        return self::order_activations($plugins, self::plugin_dependency_requirements($plugins));
-    }
-
-    /**
-     * Read WordPress's bounded Requires Plugins headers and produce a reverse
-     * dependency order for the exact removal set.
-     *
-     * @param list<string> $plugins active plugin basenames being retired
-     * @return list<string>
-     */
-    private static function dependency_ordered_deactivations(array $plugins): array {
-        return self::order_deactivations($plugins, self::plugin_dependency_requirements($plugins));
     }
 
     /** WordPress core's plugin-file -> dependency-slug mapping. */

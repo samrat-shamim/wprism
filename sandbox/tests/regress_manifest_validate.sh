@@ -136,7 +136,14 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # "file.php:function_name" pairs, so those four entries move filenames too.
 # current_active_plugins/plugin_runtime_state/run stay on Deploy.php
 # unchanged.
-wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
+#
+# DUO-3350 slice 8 moved the WP-mutation body of Deploy::run() (activate/
+# deactivate/order-correct/switch_theme) into LifecycleExecutor::execute();
+# its is_wp_error()/get_option() calls move with it. Deploy.php:run keeps its
+# own entry unchanged -- it still calls get_option('stylesheet'/'template')
+# directly, earlier in the method, to compute $stylesheetMismatch/
+# $templateMismatch before the moved call.
+wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
 wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
 
 scan_wp() {
