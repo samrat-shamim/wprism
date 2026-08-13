@@ -208,6 +208,30 @@ if (function_exists('pcntl_fork') && function_exists('pcntl_waitpid') && functio
             && pcntl_wexitstatus($signalStatus) === 128 + SIGTERM,
         'SIGTERM restores terminal echo before interactive env-set terminates'
     );
+
+    $signalGuardMethod = new ReflectionMethod(PassthroughCommand::class, 'installTerminalEchoSignalGuards');
+    $previousTermHandler = pcntl_signal_get_handler(SIGTERM);
+    pcntl_signal(SIGTERM, SIG_IGN);
+    $cleanupTransitions = [];
+    $cleanupEchoMasked = true;
+    $cleanupInputActive = false;
+    $cleanupGuardArgs = [
+        static function (bool $enabled) use (&$cleanupTransitions): bool {
+            $cleanupTransitions[] = $enabled;
+            return true;
+        },
+        &$cleanupEchoMasked,
+        &$cleanupInputActive,
+    ];
+    $restoreCleanupGuard = $signalGuardMethod->invokeArgs(null, $cleanupGuardArgs);
+    assert_passthrough(is_callable($restoreCleanupGuard), 'cleanup lifecycle signal guard installs');
+    posix_kill(getmypid(), SIGTERM);
+    assert_passthrough(
+        $cleanupTransitions === [true] && !$cleanupEchoMasked,
+        'an inherited ignored signal during cleanup restores echo without re-masking it'
+    );
+    $restoreCleanupGuard();
+    pcntl_signal(SIGTERM, $previousTermHandler);
 }
 
 $beforeBindingRefusal = count($driver->calls);

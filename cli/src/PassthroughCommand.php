@@ -83,7 +83,12 @@ final class PassthroughCommand {
             return $exitCode === 0;
         };
         $echoMasked = false;
-        $restoreSignalHandlers = self::installTerminalEchoSignalGuards($setTerminalEcho, $echoMasked);
+        $inputActive = false;
+        $restoreSignalHandlers = self::installTerminalEchoSignalGuards(
+            $setTerminalEcho,
+            $echoMasked,
+            $inputActive
+        );
         if ($restoreSignalHandlers === null) {
             return self::scopeWireRefusal(
                 'env-set',
@@ -93,7 +98,14 @@ final class PassthroughCommand {
                 'enable PHP pcntl signal support or pipe the value from a trusted non-interactive source, then retry'
             );
         }
+        // Mark the intended state before touching the terminal. An async
+        // signal can then restore safely even in the narrow interval between
+        // stty changing the device and this call returning to PHP.
+        $inputActive = true;
+        $echoMasked = true;
         if (!$setTerminalEcho(false)) {
+            $inputActive = false;
+            $echoMasked = !$setTerminalEcho(true);
             $restoreSignalHandlers();
             return self::scopeWireRefusal(
                 'env-set',
@@ -104,7 +116,6 @@ final class PassthroughCommand {
             );
         }
 
-        $echoMasked = true;
         register_shutdown_function(static function () use (&$echoMasked, $setTerminalEcho): void {
             if ($echoMasked) {
                 $setTerminalEcho(true);
@@ -115,6 +126,9 @@ final class PassthroughCommand {
         try {
             $exitCode = self::run($driver, 'env-set', $extra);
         } finally {
+            // A signal after this point may restore echo but must never mask it
+            // again on behalf of an inherited ignore/callable handler.
+            $inputActive = false;
             $restored = $setTerminalEcho(true);
             $echoMasked = !$restored;
             $restoreSignalHandlers();
@@ -139,7 +153,8 @@ final class PassthroughCommand {
      */
     private static function installTerminalEchoSignalGuards(
         callable $setTerminalEcho,
-        bool &$echoMasked
+        bool &$echoMasked,
+        bool &$inputActive
     ): ?callable {
         foreach (['pcntl_async_signals', 'pcntl_signal', 'pcntl_signal_get_handler'] as $function) {
             if (!function_exists($function)) {
@@ -163,9 +178,18 @@ final class PassthroughCommand {
                 $previousHandlers[$signal] = $previous;
                 $installed = pcntl_signal(
                     $signal,
-                    static function (int $caught) use (&$echoMasked, $setTerminalEcho, $previous): void {
-                        $restored = $setTerminalEcho(true);
-                        $echoMasked = !$restored;
+                    static function (int $caught) use (
+                        &$echoMasked,
+                        &$inputActive,
+                        $setTerminalEcho,
+                        $previous
+                    ): void {
+                        if ($echoMasked || $inputActive) {
+                            $restored = $setTerminalEcho(true);
+                            $echoMasked = !$restored;
+                        } else {
+                            $restored = true;
+                        }
                         if (!$restored) {
                             fwrite(
                                 STDERR,
@@ -178,10 +202,15 @@ final class PassthroughCommand {
                             if (is_callable($previous)) {
                                 $previous($caught);
                             }
+                            if (!$inputActive) {
+                                return;
+                            }
+                            $echoMasked = true;
                             if ($setTerminalEcho(false)) {
                                 $echoMasked = true;
                                 return;
                             }
+                            $echoMasked = !$setTerminalEcho(true);
                             fwrite(
                                 STDERR,
                                 "duo: env-set: terminal echo could not be disabled again after an interrupt; "
