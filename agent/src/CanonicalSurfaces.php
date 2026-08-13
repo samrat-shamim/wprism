@@ -83,6 +83,25 @@ final class CanonicalSurfaces {
     }
 
     /**
+     * Static trigger projection for one synthetic option root.  The whole
+     * options document is deliberately not passed through for_entity(): that
+     * would publish actions for unrelated option names and turn read-only
+     * evidence into a broader promise than the root selected.
+     *
+     * @return list<string>
+     */
+    public static function for_option_scope(string $name, array $record, Policy $policy): array {
+        if ($name === '' || ($record['state'] ?? null) === 'absent') {
+            return [];
+        }
+        if (($record['state'] ?? null) === 'present'
+            && (($policy->option_rule($name)['class'] ?? null) === 'managed')) {
+            return [];
+        }
+        return ['option:' . $name];
+    }
+
+    /**
      * @param array<string,mixed> $entity
      * @param array<string,mixed> $entry
      * @return list<string>

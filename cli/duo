@@ -1407,6 +1407,13 @@ function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
     }
     try {
         $scopeInput = read_scope_contract_input($contractPath);
+        \Duo\ScopeContract::assert_mutation_supported($scopeInput['contract'], 'scoped promote');
+    } catch (\Duo\ScopedOptionMutationUnsupported $_failure) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scoped_option_mutation_unsupported',
+            'per-option scope contracts are currently read-only evidence',
+            "select the whole 'options' surface for the existing scoped mutation protocol"
+        );
     } catch (\Throwable $_failure) {
         return scope_wire_refusal(
             'promote', $extra, 'scope_contract_invalid',
