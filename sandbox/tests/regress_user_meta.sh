@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Regression — DUO-3268: login-keyed authored user-meta sidecars.
-# Owns only pair umeta3268 and deliberately leaves it running for inspection.
+# Defaults to historical pair umeta3268; shared-host agents provide their own
+# exact pair/ports through USER_META_PAIR/PORT1/PORT2. The caller owns teardown
+# so failed evidence remains inspectable until it has been read.
 set -euo pipefail
 cd "$(dirname "$0")/.." # -> sandbox/
 
-PAIR=umeta3268
-export DUO_PAIR=$PAIR DUO_PORT1=9301 DUO_PORT2=9302
+PAIR=${USER_META_PAIR:-umeta3268}
+PORT1=${USER_META_PORT1:-9301}
+PORT2=${USER_META_PORT2:-9302}
+export DUO_PAIR=$PAIR DUO_PORT1=$PORT1 DUO_PORT2=$PORT2
 COMPOSE=(docker compose -p "duo-$PAIR" -f pair.yml)
 SITE1="siterepo/${PAIR}1"
 SITE2="siterepo/${PAIR}2"
@@ -86,7 +90,7 @@ command -v jq >/dev/null || fail "jq required"
 
 say "reset and converge this test's own pair"
 bash bin/pair.sh reset "$PAIR"
-bash bin/pair.sh up "$PAIR" 9301 9302 --headless
+bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless
 
 say "create exact-login users with deliberately divergent numeric ids"
 SOURCE_EDITOR=$(wp1 user create agency-editor agency-editor-source@example.test --role=editor --user_pass=test --porcelain)
@@ -201,7 +205,8 @@ pass "last-key removal is explicit and ownership-exact"
 
 say "removing the sidecar file itself is not deletion authority"
 wp2 user meta update "$TARGET_EDITOR" agency_color target-only >/dev/null
-rm "$EDITOR_FILE"
+"${COMPOSE[@]}" run --rm -T --entrypoint sh cli1 \
+  -c 'rm -- "$1"' sh "/siterepo/${EDITOR_FILE#"$SITE1/"}"
 sync_repo
 wp2 duo apply --repo=/siterepo --format=json >/tmp/duo-umeta-apply-file-absence.json
 [ "$(wp2 user meta get "$TARGET_EDITOR" agency_color)" = "target-only" ] \
@@ -228,6 +233,7 @@ PII_FAIL_JSON=$(tail -n 1 <<<"$PII_FAIL")
 
 tmp_policy=$(mktemp)
 jq '.policy.user_meta.contact_email.allow_pii = true' "$SITE1/site.duo.json" > "$tmp_policy"
+chmod 0644 "$tmp_policy"
 mv "$tmp_policy" "$SITE1/site.duo.json"
 wp1 user meta update "$SOURCE_PII" api_token ghp_abcdefghijklmnopqrstuvwxyz123456 >/dev/null
 if SECRET_FAIL=$(wp1 duo capture --repo=/siterepo --format=json 2>&1); then

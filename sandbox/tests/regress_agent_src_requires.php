@@ -421,7 +421,7 @@ $knownGapsByFile = [
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
     'CapabilityRegistry' => ['Canon', 'ManifestDispositions', 'Policy'],
-    'Capture' => ['Blocks', 'Code', 'CompiledRepository', 'Db', 'Deletion', 'Deploy', 'Identity', 'Ledger', 'Lint', 'OptionState', 'OrderPreserved', 'PersonalData', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'Secrets', 'SidebarState', 'Snapshot', 'Tokens', 'UserMetaState', 'Uuid'],
+    'Capture' => ['Blocks', 'Code', 'CompiledRepository', 'Db', 'Deletion', 'Deploy', 'Identity', 'Ledger', 'Lint', 'OptionState', 'OrderPreserved', 'PersonalData', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'Secrets', 'SidebarState', 'Snapshot', 'Tokens', 'Uuid'],
     'Cli' => ['AdapterObservation', 'AdapterSources', 'Apply', 'Canon', 'CapabilityRegistry', 'Capture', 'Code', 'CodeCompilationException', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
