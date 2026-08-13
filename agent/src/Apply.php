@@ -17,6 +17,7 @@ require_once __DIR__ . '/AttachmentMaterializer.php';
 require_once __DIR__ . '/PostMaterializer.php';
 require_once __DIR__ . '/DeleteExecutor.php';
 require_once __DIR__ . '/DeleteGuardValueCodec.php';
+require_once __DIR__ . '/DeleteGuardEvaluator.php';
 require_once __DIR__ . '/ConvergenceVerifier.php';
 require_once __DIR__ . '/PlanExplanation.php';
 require_once __DIR__ . '/PlanCategorySummary.php';
@@ -1438,7 +1439,7 @@ final class Apply {
         }
         $lockIndex = null;
         if ($forUpdate) {
-            $lockIndex = $this->guard_lock_index($guard, $table);
+            $lockIndex = DeleteGuardEvaluator::lock_index($guard, $table);
             if ($lockIndex === null) {
                 return [
                     'count' => 0,
@@ -1532,7 +1533,7 @@ final class Apply {
         );
         $lockIndex = null;
         if ($forUpdate) {
-            $lockIndex = $this->guard_lock_index($guard, $table);
+            $lockIndex = DeleteGuardEvaluator::lock_index($guard, $table);
             if ($lockIndex === null) {
                 return [
                     'count' => 0,
@@ -1692,7 +1693,7 @@ final class Apply {
         }
         $lockIndex = null;
         if ($forUpdate) {
-            $lockIndex = $this->guard_lock_index($guard, $table);
+            $lockIndex = DeleteGuardEvaluator::lock_index($guard, $table);
             if ($lockIndex === null) {
                 return [
                     'count' => 0,
@@ -4097,48 +4098,6 @@ final class Apply {
                 'duo: deletion guard locking requires REPEATABLE-READ or SERIALIZABLE transaction isolation; refusing unsafe target'
             );
         }
-    }
-
-    /**
-     * Resolve an index which covers the first equality/range column of a
-     * manifest guard. A prefix index is accepted only when the declared
-     * metadata key fits entirely inside that prefix; otherwise inserts with
-     * the same visible prefix could still evade the gap lock.
-     */
-    private function guard_lock_index(array $guard, string $table): ?string {
-        global $wpdb;
-        $lockColumn = array_key_exists('meta_key', $guard) || array_key_exists('ref', $guard)
-            ? 'meta_key'
-            : (!empty($guard['option_name_ref']) ? 'option_name' : (string) ($guard['column'] ?? ''));
-        $rows = $wpdb->get_results("SHOW INDEX FROM `$table`", ARRAY_A) ?: [];
-        $indexes = [];
-        foreach ($rows as $row) {
-            $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) ($row['Key_name'] ?? ''));
-            $seq = (int) ($row['Seq_in_index'] ?? 0);
-            if ($name === '' || $seq <= 0) {
-                continue;
-            }
-            $indexes[$name][$seq] = [
-                'column' => preg_replace('/[^A-Za-z0-9_]/', '', (string) ($row['Column_name'] ?? '')),
-                'prefix' => isset($row['Sub_part']) && $row['Sub_part'] !== null
-                    ? (int) $row['Sub_part']
-                    : null,
-            ];
-        }
-        foreach ($indexes as $name => $parts) {
-            ksort($parts, SORT_NUMERIC);
-            $first = reset($parts);
-            if (($first['column'] ?? '') !== $lockColumn) {
-                continue;
-            }
-            $prefix = $first['prefix'] ?? null;
-            if ($prefix !== null && array_key_exists('meta_key', $guard)
-                && strlen((string) $guard['meta_key']) > $prefix) {
-                continue;
-            }
-            return $name;
-        }
-        return null;
     }
 
     private function recheck_delete_guards(
