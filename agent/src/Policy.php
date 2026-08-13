@@ -100,6 +100,9 @@ require_once __DIR__ . '/TaxonomyPatternResolver.php';
 // DUO-3348 slice 48: taxonomy relationship-keyspace resolution consumes only
 // exact declarations and the pure taxonomy-pattern contract, never live DB state.
 require_once __DIR__ . '/TaxonomyKeyspaceResolver.php';
+// DUO-3348 slice 49: description-reference lookup is pure manifest grammar;
+// Policy retains public facades so every current runtime caller stays stable.
+require_once __DIR__ . '/TaxonomyDescriptionReferenceResolver.php';
 // DUO-3348 slice 45: pure option-name reference declaration resolution is
 // separate from Policy's public compatibility/query surface and live callers.
 require_once __DIR__ . '/OptionNameReferenceResolver.php';
@@ -1190,15 +1193,12 @@ final class Policy {
      * @return ?array{json_refs:array,key_refs:?array,legacy_flat_map:bool}
      */
     public function description_reference_rule(string $tax): ?array {
-        foreach ($this->manifests as $m) {
-            if (isset($m['taxonomies'][$tax]['description_refs'])) {
-                return ReferenceRules::description(
-                    $m['taxonomies'][$tax]['description_refs'],
-                    "manifest '" . ($m['name'] ?? '?') . "'.taxonomies.$tax.description_refs"
-                );
-            }
-        }
-        return null;
+        return $this->taxonomy_description_reference_resolver()->resolve($tax);
+    }
+
+    /** Fresh because manifests stay publicly mutable in offline fixtures. */
+    private function taxonomy_description_reference_resolver(): TaxonomyDescriptionReferenceResolver {
+        return new TaxonomyDescriptionReferenceResolver($this->manifests);
     }
 
     /** @deprecated Use description_reference_rule(); retained for extensions. */
