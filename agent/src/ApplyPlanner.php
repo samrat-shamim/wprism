@@ -27,7 +27,8 @@ require_once __DIR__ . '/Snapshot.php';
  *
  * `Apply` keeps `conflict_view()`, `forced_override_evidence()`,
  * `incomplete_override_refusal()`, `entity_display_title()`,
- * `lifecycle_comparison_hash()`, and `nested_delete_candidate_counts()` as
+ * `lifecycle_comparison_hash()`, `theme_mismatch_warnings()`, and
+ * `nested_delete_candidate_counts()` as
  * thin compatibility facades delegating here, so its own internal callers
  * need no behavior change.
  */
@@ -1119,6 +1120,55 @@ final class ApplyPlanner {
             }
         }
         return null;
+    }
+
+    /**
+     * Project the warning emitted when an FSE entity is tagged for a captured
+     * theme other than the target's active stylesheet. The active stylesheet
+     * is supplied by Apply at its WordPress boundary; this projection itself
+     * reads only the immutable compiled tree and that already-observed value.
+     * It deliberately warns rather than blocks: the authored rows remain
+     * byte-correct, but WordPress will not render them until the captured
+     * theme is active on the target.
+     *
+     * @param array<string,array<string,mixed>> $tree
+     * @return list<string>
+     */
+    public static function theme_mismatch_warnings(array $tree, string $activeTheme): array {
+        $themeSlugByUuid = [];
+        foreach ($tree as $uuid => $e) {
+            if (($e['type'] ?? '') !== 'term') {
+                continue;
+            }
+            $front = (array) ($e['data'] ?? []);
+            if (($front['taxonomy'] ?? '') === 'wp_theme') {
+                $themeSlugByUuid[$uuid] = (string) ($front['slug'] ?? '');
+            }
+        }
+        if (!$themeSlugByUuid) {
+            return [];
+        }
+        $affected = [];
+        foreach ($tree as $e) {
+            if (($e['type'] ?? '') !== 'post') {
+                continue;
+            }
+            $front = (array) ($e['data'] ?? []);
+            foreach ((array) ($front['terms']['wp_theme'] ?? []) as $themeUuid) {
+                $slug = $themeSlugByUuid[$themeUuid] ?? null;
+                if ($slug !== null && $slug !== $activeTheme) {
+                    $affected[$slug][] = (string) ($e['path'] ?? '');
+                }
+            }
+        }
+        $warnings = [];
+        foreach ($affected as $capturedTheme => $paths) {
+            $verb = count($paths) === 1 ? 'is tagged for' : 'are tagged for';
+            $warnings[] = "active-theme mismatch: this environment's active theme is '$activeTheme' but "
+                . implode(', ', $paths) . " $verb theme '$capturedTheme'"
+                . " — will apply but will NOT render until '$capturedTheme' is active here";
+        }
+        return $warnings;
     }
 
     /**

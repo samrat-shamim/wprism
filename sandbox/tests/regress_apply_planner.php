@@ -230,6 +230,50 @@ $check(ApplyPlanner::entity_display_title([]) === null,
 $check(ApplyPlanner::entity_display_title('not-an-array') === null,
     'entity_display_title: non-array data returns null rather than a TypeError');
 
+// -------------------------------------------------------- theme mismatch
+
+$themeTree = [
+    'theme-old' => [
+        'type' => 'term',
+        'data' => ['taxonomy' => 'wp_theme', 'slug' => 'old-theme'],
+    ],
+    'theme-active' => [
+        'type' => 'term',
+        'data' => ['taxonomy' => 'wp_theme', 'slug' => 'active-theme'],
+    ],
+    'template-one' => [
+        'type' => 'post',
+        'path' => 'posts/template-one.json',
+        'data' => ['terms' => ['wp_theme' => ['theme-old']]],
+    ],
+    'template-two' => [
+        'type' => 'post',
+        'path' => 'posts/template-two.json',
+        'data' => ['terms' => ['wp_theme' => ['theme-old', 'theme-active']]],
+    ],
+];
+$themeWarning = "active-theme mismatch: this environment's active theme is 'active-theme' but "
+    . "posts/template-one.json, posts/template-two.json are tagged for theme 'old-theme'"
+    . " — will apply but will NOT render until 'old-theme' is active here";
+$check(
+    ApplyPlanner::theme_mismatch_warnings($themeTree, 'active-theme') === [$themeWarning],
+    'theme mismatch: captured non-active theme groups all affected paths into one exact warning'
+);
+$check(
+    ApplyPlanner::theme_mismatch_warnings($themeTree, 'old-theme') === [
+        "active-theme mismatch: this environment's active theme is 'old-theme' but "
+            . "posts/template-two.json is tagged for theme 'active-theme'"
+            . " — will apply but will NOT render until 'active-theme' is active here",
+    ],
+    'theme mismatch: active captured theme is ignored while another captured theme remains observable'
+);
+$check(
+    ApplyPlanner::theme_mismatch_warnings([
+        'post' => ['type' => 'post', 'data' => ['terms' => ['wp_theme' => ['missing']]]],
+    ], 'active-theme') === [],
+    'theme mismatch: non-FSE trees and unknown theme identities produce no warning'
+);
+
 // ---------------------------------------------------------- lifecycle_comparison_hash
 
 $transition = ['entity' => 'options/core', 'before_hash' => 'before123', 'after_hash' => 'after456'];
@@ -958,6 +1002,16 @@ $check(
         && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
         && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
     'natural-key annotation: planner owns the projection while Apply keeps the plan-row compatibility facade'
+);
+$themeSectionStart = strpos($applySource, '    private function check_theme_mismatch(');
+$themeSectionEnd = strpos($applySource, "\n    // ----------------------------------------------------------------- apply", $themeSectionStart);
+$themeSection = substr($applySource, $themeSectionStart, $themeSectionEnd - $themeSectionStart);
+$check(
+    str_contains($themeSection, 'ApplyPlanner::theme_mismatch_warnings(')
+        && !str_contains($themeSection, '$themeSlugByUuid')
+        && !str_contains($themeSection, '$affected')
+        && preg_match('/public static function theme_mismatch_warnings\(/', $plannerSource) === 1,
+    'theme mismatch: Apply keeps the WordPress input/facade while planner owns warning projection'
 );
 $deletionSectionStart = strpos($applySource, '        // Absence is not deletion authority.');
 $deletionSectionEnd = strpos($applySource, '        // Runtime reverse references are target facts');
