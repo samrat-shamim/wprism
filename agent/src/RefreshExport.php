@@ -1,6 +1,9 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/OptionState.php';
+require_once __DIR__ . '/ScopeClosure.php';
+
 /**
  * Strict production observation boundary for host-side refresh/rebase work.
  *

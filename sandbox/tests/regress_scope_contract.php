@@ -19,7 +19,7 @@ foreach ([
     'JsonRefs', 'PlainData', 'StructuredValue', 'SidebarState', 'Snapshot',
     'RepositoryAuthorization', 'CodeCompatibility', 'Code', 'CodeStateContract',
     'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'CanonicalSurfaces', 'ScopeContract',
-    'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply',
+    'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply', 'Capture',
 ] as $file) {
     require_once "$root/agent/src/$file.php";
 }
@@ -316,6 +316,18 @@ check(
 ScopeContract::assert_associated($optionContract, $compiled, $policy);
 check(ScopeContract::option_root_names($optionContract) === ['blogname'],
     'option-root discovery exposes only the exact selected option name');
+$captureScopeContract = new ReflectionMethod(\Duo\Capture::class, 'scope_contract_for_request');
+$captureDirectContract = $captureScopeContract->invoke(null, $optionContract, $compiled, $policy);
+$captureCompactContract = $captureScopeContract->invoke(null, [
+    'format' => 'duo-scope-request/v1',
+    'scope_hash' => $optionContract['scope_hash'],
+    'selectors' => $optionContract['selectors'],
+], $compiled, $policy);
+check(
+    ($captureDirectContract['scope_hash'] ?? null) === $optionContract['scope_hash']
+        && ($captureCompactContract['scope_hash'] ?? null) === $optionContract['scope_hash'],
+    'capture target accepts direct and host-compact option-root evidence before its record-aware overlay'
+);
 expect_throw(
     static fn() => ScopeContract::assert_mutation_supported($optionContract, 'scoped plan/apply'),
     'does not support per-option scoped mutation',
@@ -609,6 +621,72 @@ check((string) $overlayCompiled->tree()[$ids['page']]['content'] !== (string) $c
     && (string) $overlayCompiled->deletions()[$ids['otherTombstone']]['content']
         === (string) $compiled->deletions()[$ids['otherTombstone']]['content'],
     'scoped overlay updates selected bytes while preserving excluded attachment/options/tombstone bytes exactly');
+
+// Exact option roots are virtual identities in a shared physical carrier.
+// Capture must retain every source sibling while it accepts the observed
+// selected record; copying the carrier as an excluded whole silently drops
+// the selected change, while copying it whole would grant sibling authority.
+$optionObserved = [];
+foreach ($compiled->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ($identity === 'options/core') {
+        $records = OptionState::records(Canon::decode($content));
+        $records['blogname'] = OptionState::present('Captured title', 'yes');
+        $records['blogdescription'] = OptionState::present('unselected target drift', 'yes');
+        $content = Canon::encode(OptionState::document($records));
+    }
+    $optionObserved[] = [
+        'uuid' => (string) $identity,
+        'type' => (string) $row['type'],
+        'path' => (string) $row['path'],
+        'content' => $content,
+    ];
+}
+$optionOverlay = ScopedStateOverlay::project_capture_associated(
+    $compiled, $optionContract, $optionObserved, []
+);
+$optionOverlayState = "$tmp/option-overlay-state";
+foreach (array_merge($optionOverlay['entities'], $optionOverlay['deletions']) as $row) {
+    put($optionOverlayState . '/' . $row['path'], $row['content']);
+}
+$optionOverlayCompiled = RepositoryCompiler::compile_staged($optionOverlayState, $repo, $policy);
+ScopedStateOverlay::assert_excluded_preserved($compiled, $optionOverlayCompiled, $optionContract);
+ScopeContract::assert_candidate_bounded($optionContract, $optionOverlayCompiled, $policy);
+$optionOverlayRecords = OptionState::records((array) $optionOverlayCompiled->tree()['options/core']['data']);
+check(
+    Canon::encode($optionOverlayRecords['blogname'] ?? null)
+        === Canon::encode(OptionState::present('Captured title', 'yes'))
+        && Canon::encode($optionOverlayRecords['blogdescription'] ?? null)
+            === Canon::encode($compiledOptionRecords['blogdescription']),
+    'record-aware scoped capture writes only the selected option while preserving an observed sibling drift byte-for-byte from source'
+);
+
+$badOptionOverlayRows = [];
+foreach ($optionOverlayCompiled->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ($identity === 'options/core') {
+        $records = OptionState::records(Canon::decode($content));
+        $records['blogdescription'] = OptionState::present('forged sibling change', 'yes');
+        $content = Canon::encode(OptionState::document($records));
+    }
+    $badOptionOverlayRows[] = [
+        'uuid' => (string) $identity,
+        'type' => (string) $row['type'],
+        'path' => (string) $row['path'],
+        'content' => $content,
+    ];
+}
+$badOptionOverlayState = ScopedStateOverlay::stage_state_view($badOptionOverlayRows);
+try {
+    $badOptionOverlay = RepositoryCompiler::compile_staged($badOptionOverlayState, $repo, $policy);
+    expect_throw(
+        static fn() => ScopedStateOverlay::assert_excluded_preserved($compiled, $badOptionOverlay, $optionContract),
+        "excluded option 'blogdescription'",
+        'record-aware scoped capture rejects a changed excluded option sibling'
+    );
+} finally {
+    ScopedStateOverlay::discard_state_view($badOptionOverlayState);
+}
 
 $captureSource = Canon::read_file("$root/agent/src/Capture.php");
 $finalAssociation = strpos($captureSource, 'ScopeContract::assert_associated($scopeContract, $currentSource, $currentPolicy);');

@@ -511,9 +511,9 @@ try {
     check(false, 'a colliding pair of option names elsewhere in the SAME document does not block an unrelated option\'s own resolution (' . $e->getMessage() . ')');
 }
 
-// A contract can now bind the exact option record as immutable evidence, but
-// it remains explicitly unusable by every existing mutation consumer until a
-// record-aware target authority protocol exists.
+// A contract can bind the exact option record as immutable evidence. Capture
+// and refresh own record-aware carrier overlays, but the generic guard remains
+// mandatory for consumers that still own whole-document mutation mechanics.
 $defaultCategoryContract = ScopeContract::resolve($compiled, $policy, ['option:default_category']);
 $defaultCategoryRoot = $defaultCategoryContract['live']['roots'][0] ?? null;
 check(
@@ -527,11 +527,11 @@ check(
 );
 ScopeContract::assert_associated($defaultCategoryContract, $compiled, $policy);
 try {
-    ScopeContract::assert_mutation_supported($defaultCategoryContract, 'scoped capture');
+    ScopeContract::assert_mutation_supported($defaultCategoryContract, 'scoped plan/apply');
     check(false, 'the option contract is refused before scoped mutation work');
 } catch (RuntimeException $e) {
     check(str_contains($e->getMessage(), 'does not support per-option scoped mutation'),
-        'the option contract remains explicitly refused before scoped mutation work');
+        'the option contract remains explicitly refused for a whole-document mutation consumer');
 }
 check(
     ScopeContract::resolve($compiled, $policy, ['options'])['format'] === ScopeContract::FORMAT,

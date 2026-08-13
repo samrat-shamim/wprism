@@ -76,15 +76,7 @@ final class CaptureCommand {
         if ($contractPath !== null) {
             try {
                 $input = PassthroughCommand::readScopeContractInput($contractPath);
-                \Duo\ScopeContract::assert_mutation_supported($input['contract'], 'scoped capture');
                 $forward[] = '--scope-request-b64=' . $input['request_b64'];
-            } catch (\Duo\ScopedOptionMutationUnsupported $_failure) {
-                return self::scopeRefusal(
-                    $extra,
-                    'scoped_option_mutation_unsupported',
-                    'per-option scope contracts are currently read-only evidence',
-                    "select the whole 'options' surface for the existing scoped mutation protocol"
-                );
             } catch (\Throwable $e) {
                 return self::scopeRefusal(
                     $extra,
