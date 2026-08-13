@@ -9,10 +9,31 @@ require_once __DIR__ . '/PassthroughCommand.php';
 
 /** Host command handler for capture's local --scope-contract flag handling. */
 final class CaptureCommand {
-    public static function run(EnvironmentDriver $driver, array $extra): int {
+    public static function run(
+        EnvironmentDriver $driver,
+        array $extra,
+        ?string $envsFileOverride = null
+    ): int {
         $forward = [];
         $contractPath = null;
         foreach ($extra as $arg) {
+            if (!is_string($arg) || PassthroughCommand::isHostOwnedTargetFlag($arg)) {
+                return self::scopeRefusal(
+                    $extra,
+                    'invalid_arguments',
+                    'capture received a host-owned target binding argument',
+                    'remove --repo/--path; the selected environment supplies both bindings'
+                );
+            }
+            if ($arg === '--orchestrator-environment'
+                || str_starts_with($arg, '--orchestrator-environment=')) {
+                return self::scopeRefusal(
+                    $extra,
+                    'invalid_arguments',
+                    'capture received an orchestrator-reserved presentation argument',
+                    'remove --orchestrator-environment and retry capture'
+                );
+            }
             if (str_starts_with($arg, '--scope-request-b64')) {
                 return self::scopeRefusal(
                     $extra,
@@ -73,7 +94,14 @@ final class CaptureCommand {
                 );
             }
         }
-        return $driver->streamWp(array_merge(['duo', 'capture', '--repo=' . $driver->repoPath()], $forward));
+        // An explicit registry path is private host state. Keep it out of the
+        // target command and render the exact follow-up on the host instead.
+        if ($envsFileOverride === null) {
+            $forward[] = '--orchestrator-environment=' . $driver->name();
+        }
+        return $driver->streamWp(
+            array_merge(['duo', 'capture', '--repo=' . $driver->repoPath()], $forward)
+        );
     }
 
     private static function scopeRefusal(

@@ -74,20 +74,35 @@ final class Registry {
         if ($raw === false) {
             throw new \RuntimeException("could not read $path");
         }
-        $data = json_decode($raw, true);
+        // Keep an object-aware view alongside the associative runtime view.
+        // PHP arrays cannot distinguish a JSON object with numeric keys from
+        // a JSON list after decoding, but the registry contract must.
+        $shape = json_decode($raw);
         if (json_last_error() !== JSON_ERROR_NONE) {
             throw new \RuntimeException("$path: invalid JSON: " . json_last_error_msg());
         }
-        if (!is_array($data)) {
+        if (!is_object($shape)) {
             throw new \RuntimeException("$path: expected a JSON object at the top level");
         }
-        $envs = $data['envs'] ?? [];
-        if (!is_array($envs)) {
-            throw new \RuntimeException("$path: 'envs' must be an object");
+        if (property_exists($shape, 'envs')
+            && !is_object($shape->envs)
+            && !(is_array($shape->envs) && $shape->envs === [])) {
+            throw new \RuntimeException("$path: 'envs' must be an object (or an empty list)");
         }
+        $data = json_decode($raw, true);
+        $envs = $data['envs'] ?? [];
         foreach ($envs as $name => $cfg) {
+            // PHP coerces a JSON object key such as "123" to an integer array
+            // key. Numeric-only names are part of the public grammar, so
+            // normalize the decoded key for validation and diagnostics.
+            $environment = (string) $name;
+            if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $environment) !== 1) {
+                throw new \RuntimeException(
+                    "$path: environment names must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+                );
+            }
             if (!is_array($cfg)) {
-                throw new \RuntimeException("$path: envs.$name must be an object");
+                throw new \RuntimeException("$path: envs.$environment must be an object");
             }
         }
         return $envs;

@@ -45,7 +45,10 @@ $plainExit = CaptureCommand::run($plain, ['--set=options:foo=runtime', '--dry-ru
 assert_capture_command($plainExit === 0, 'plain capture with no scope contract streams and returns the agent exit');
 assert_capture_command($plain->streamCalls === 1, 'plain capture streams exactly once');
 assert_capture_command(
-    $plain->streamedArgs[0] === ['duo', 'capture', '--repo=/fixture/repo', '--set=options:foo=runtime', '--dry-run'],
+    $plain->streamedArgs[0] === [
+        'duo', 'capture', '--repo=/fixture/repo', '--set=options:foo=runtime', '--dry-run',
+        '--orchestrator-environment=capture-fixture',
+    ],
     'every other flag forwards through unchanged, in order, after the repo argument'
 );
 
@@ -59,6 +62,37 @@ $reserved = new CaptureCommandDriver();
 $reservedExit = CaptureCommand::run($reserved, ['--scope-request-b64=abc']);
 assert_capture_command($reservedExit === 2, 'an orchestrator-reserved --scope-request-b64 argument refuses (exit 2)');
 assert_capture_command($reserved->streamCalls === 0, 'a reserved-argument refusal never streams a capture call');
+
+$bindingOverride = new CaptureCommandDriver();
+assert_capture_command(
+    CaptureCommand::run($bindingOverride, ['--repo=/other']) === 2
+        && $bindingOverride->streamCalls === 0,
+    'a caller-supplied target binding refuses before target contact'
+);
+
+$presentationOverride = new CaptureCommandDriver();
+assert_capture_command(
+    CaptureCommand::run($presentationOverride, ['--orchestrator-environment=other']) === 2
+        && $presentationOverride->streamCalls === 0,
+    'a caller-supplied host presentation context refuses before target contact'
+);
+
+$customRegistry = new CaptureCommandDriver();
+$registryExit = CaptureCommand::run($customRegistry, [], '/tmp/custom registry.json');
+assert_capture_command(
+    $registryExit === 0
+        && $customRegistry->streamedArgs[0] === ['duo', 'capture', '--repo=/fixture/repo'],
+    'an explicit registry remains host-local and does not alter target argv'
+);
+
+$customRegistryOut = new CaptureCommandDriver();
+assert_capture_command(
+    CaptureCommand::run($customRegistryOut, ['--out=/tmp/candidate'], '/tmp/custom.json') === 0
+        && $customRegistryOut->streamedArgs[0] === [
+            'duo', 'capture', '--repo=/fixture/repo', '--out=/tmp/candidate',
+        ],
+    'output-only capture with a custom registry adds no mismatched repository-lint presentation context'
+);
 
 // -- malformed --scope-contract flag shapes -----------------------------------
 

@@ -725,6 +725,8 @@ final class Cli {
      *   excluded live row/media blob/tombstone byte-for-byte. Version 1 can delete only a selected live
      *   identity with reviewed deletion capability and no excluded inbound referrer; it cannot resurrect
      *   a selected tombstone or mint a new identity.
+     * [--scope-request-b64=<request>] : Orchestrator-reserved compact scope request.
+     * [--orchestrator-environment=<name>] : Orchestrator-reserved host presentation context.
      * [--json]           : JSON summary (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -747,11 +749,18 @@ final class Cli {
                 }
                 $scopeRequest = $decoded;
             }
+            $hostEnvironment = $assoc['orchestrator-environment'] ?? null;
+            if ($hostEnvironment !== null
+                && (!is_string($hostEnvironment)
+                    || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $hostEnvironment) !== 1)) {
+                throw new \RuntimeException('duo: capture received an invalid orchestrator environment context');
+            }
             $summary = Capture::run(
                 $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('capture', '--repo'),
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs']),
-                $scopeRequest
+                $scopeRequest,
+                $hostEnvironment
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');
@@ -1447,7 +1456,8 @@ final class Cli {
      * that case, and env-set has no way to distinguish "a human is
      * watching" from "a script is feeding stdin" other than this.
      *
-     * The prompt and the trailing newline both go straight to STDERR
+     * For an interactive terminal, the prompt and trailing newline both go
+     * straight to STDERR
      * (fwrite, deliberately bypassing WP_CLI::out()/::line(), which write
      * STDOUT) — found live, not assumed: with WP_CLI::out() here,
      * `--stdin --format=json` interleaved the prompt text ahead of the
@@ -1458,8 +1468,13 @@ final class Cli {
      * curl/ssh use for their own interactive password prompts.
      */
     private static function read_masked_value(string $prompt): string {
-        fwrite(STDERR, $prompt);
-        $isPosix = stripos(PHP_OS, 'WIN') === false && function_exists('shell_exec');
+        $isTty = function_exists('stream_isatty')
+            ? @stream_isatty(STDIN)
+            : (function_exists('posix_isatty') ? @posix_isatty(STDIN) : true);
+        if ($isTty) {
+            fwrite(STDERR, $prompt);
+        }
+        $isPosix = $isTty && stripos(PHP_OS, 'WIN') === false && function_exists('shell_exec');
         if ($isPosix) {
             shell_exec('stty -echo 2>/dev/null');
         }
@@ -1470,8 +1485,19 @@ final class Cli {
                 shell_exec('stty echo 2>/dev/null');
             }
         }
-        fwrite(STDERR, "\n"); // the operator's Enter produced no visible newline while echo was off
-        return $line === false ? '' : trim($line);
+        if ($isTty) {
+            fwrite(STDERR, "\n"); // the operator's Enter produced no visible newline while echo was off
+        }
+        if ($line === false || !str_ends_with($line, "\n")) {
+            throw new CommandRefusalException(
+                'invalid_arguments',
+                'env-set did not receive one complete line from stdin',
+                'provide one newline-terminated value and rerun env-set',
+                [],
+                'stdin ended before a complete value was received'
+            );
+        }
+        return trim($line);
     }
 
     /**

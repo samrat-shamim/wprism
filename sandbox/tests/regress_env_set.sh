@@ -156,6 +156,19 @@ rm -f /tmp/duo_env_set_stdin_result.json
 [ "$(wp1 option get admin_email 2>/dev/null)" = "from-stdin@example.test" ] || fail "admin_email did not match the piped --stdin value"
 pass "env-set --stdin correctly read and wrote the piped value"
 
+BEFORE_TRUNCATED=$(wp1 option get admin_email 2>/dev/null)
+if printf %s 'truncated@example.test' \
+  | wp1 duo env-set --repo=/siterepo --name=admin_email --stdin --format=json \
+    >/tmp/duo_env_set_truncated_result.json 2>/dev/null; then
+  fail "env-set --stdin should refuse an unterminated value"
+fi
+jq -e '.error == "invalid_arguments"' /tmp/duo_env_set_truncated_result.json >/dev/null \
+  || fail "unterminated stdin did not return a structured refusal: $(cat /tmp/duo_env_set_truncated_result.json)"
+rm -f /tmp/duo_env_set_truncated_result.json
+[ "$(wp1 option get admin_email 2>/dev/null)" = "$BEFORE_TRUNCATED" ] \
+  || fail "admin_email changed after an unterminated stdin value"
+pass "env-set --stdin refuses an incomplete pipe write without changing the option"
+
 say "(5) refusal paths — each must refuse BEFORE writing anything"
 
 BEFORE=$(wp1 option get admin_email 2>/dev/null)

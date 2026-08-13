@@ -40,6 +40,11 @@ file_put_contents($envs, json_encode([
             'transport' => 'invalid',
             'repo_path' => '/repo',
         ],
+        '123' => [
+            'transport' => 'local',
+            'wp_path' => '/numeric/wp',
+            'repo_path' => '/numeric/repo',
+        ],
     ],
 ], JSON_UNESCAPED_SLASHES) . "\n");
 
@@ -51,6 +56,7 @@ assert_environment_list(str_contains($output, 'local   local  wp_path=/var/www/h
 assert_environment_list(str_contains($output, 'docker  docker compose_file=/tmp/compose.yml service=cli repo_path=/repo'), 'docker transport renders without target contact');
 assert_environment_list(str_contains($output, 'ssh     ssh    host=fixture.example wp_path=/srv/wp repo_path=/srv/repo'), 'ssh transport renders without target contact');
 assert_environment_list(str_contains($output, 'broken  ERROR: env \'broken\': unknown transport'), 'invalid transport is rendered as an entry error');
+assert_environment_list(str_contains($output, '123     local  wp_path=/numeric/wp repo_path=/numeric/repo'), 'numeric-only environment name renders normally');
 
 $empty = $tmp . '/empty.json';
 file_put_contents($empty, json_encode(['envs' => []]) . "\n");

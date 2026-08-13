@@ -119,11 +119,12 @@ final class Capture {
         string $repo,
         ?string $outDir = null,
         bool $forceUnresolvedRefs = false,
-        ?array $scopeRequest = null
+        ?array $scopeRequest = null,
+        ?string $hostEnvironment = null
     ): array {
         return self::run_internal(
             $repo, $outDir, $forceUnresolvedRefs, null, false,
-            null, null, null, null, $scopeRequest
+            null, null, null, null, $scopeRequest, $hostEnvironment
         );
     }
 
@@ -181,7 +182,8 @@ final class Capture {
         ?string $initialMediaIdentity = null,
         ?string $initialConfigIdentity = null,
         ?callable $onInitialPayloadReady = null,
-        ?array $scopeRequest = null
+        ?array $scopeRequest = null,
+        ?string $hostEnvironment = null
     ): array {
         Canary::suppress_cron_spawn();
         // Policy's v1 single-site boundary must run before any destination
@@ -439,6 +441,7 @@ final class Capture {
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
                 $lock, $initialBaseline, $scoped, $scopeContract,
                 $scopeSourceTreeSha256, $repoPath, $onInitialPayloadReady,
+                $hostEnvironment,
                 &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
@@ -573,8 +576,12 @@ final class Capture {
                 }
                 $lint = Lint::scan_tree($staging, $c->policy);
                 if ($lint) {
-                    $candidate['warnings'][] = count($lint)
-                        . ' suspicious unrewritten ref(s) in captured state — run: wp duo lint --repo=' . $c->repo;
+                    $candidate['warnings'][] = self::lint_warning(
+                        count($lint),
+                        $c->repo,
+                        $hostEnvironment,
+                        $intoRepo
+                    );
                 }
                 $compiledCandidate = null;
                 if ($scopeContract !== null) {
@@ -1083,6 +1090,42 @@ final class Capture {
                 );
             }
         }
+    }
+
+    private static function lint_warning(
+        int $count,
+        string $repo,
+        ?string $hostEnvironment,
+        bool $intoRepo = true
+    ): string {
+        $warning = $count . ' suspicious unrewritten ref(s) in captured state — ';
+        if (!$intoRepo) {
+            return $warning . 'the output-only candidate was scanned before publication; '
+                . '`duo lint` scans repository state, so no mismatched rescan command is shown. '
+                . 'Rerun capture without `--out` before following its lint remediation';
+        }
+        if ($hostEnvironment !== null) {
+            $environmentArg = self::shell_arg($hostEnvironment);
+            if ($environmentArg !== null) {
+                $warning .= 'run on the host: `duo lint ' . $environmentArg . '`; or ';
+            }
+        }
+        $repoArg = self::shell_arg($repo);
+        if ($repoArg === null) {
+            return $warning . 'run directly on the target with a control-free `--repo` path; '
+                . 'the configured repository path is unsafe to render';
+        }
+        return $warning . 'run directly on the target: `wp duo lint --repo=' . $repoArg . '`';
+    }
+
+    /** Keep a copy-ready argument bounded and on one terminal line. */
+    private static function shell_arg(string $value): ?string {
+        if (strlen($value) > 4096 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return null;
+        }
+        return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1
+            ? $value
+            : escapeshellarg($value);
     }
 
     /**

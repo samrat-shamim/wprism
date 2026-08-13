@@ -96,9 +96,20 @@ final class PlanSummary {
      * @param list<string> $viewCategories empty preserves the legacy full
      *   category summary; an explicit filtered status supplies its canonical
      *   requested subset while all readiness/global evidence remains full.
+     * @param ?string $environment When status supplies its environment name,
+     *   render host-side remediation. Null preserves target-side advice for
+     *   callers that do not own an environment registry.
+     * @param ?string $envsFileOverride Preserve the operator-selected registry
+     *   in copy-ready remediation so a same-named environment cannot resolve
+     *   through a different auto-discovered registry.
      * @return array{lines: list<string>, ok: bool}
      */
-    public static function render(array $plan, array $viewCategories = []): array {
+    public static function render(
+        array $plan,
+        array $viewCategories = [],
+        ?string $environment = null,
+        ?string $envsFileOverride = null
+    ): array {
         $lines = [];
         $counts = [];
         foreach (self::BUCKETS as $k) {
@@ -279,6 +290,13 @@ final class PlanSummary {
         }
 
         foreach ($plan['warnings'] ?? [] as $w) {
+            // Apply attaches one target-form warning for each required row.
+            // Host status owns the environment name and renders the exact
+            // host command below, so repeating this warning would mix two
+            // execution surfaces in one first-time-user diagnosis.
+            if ($environment !== null && self::isRequiredEnvMissingWarning((string) $w, $envMissing)) {
+                continue;
+            }
             $lines[] = 'WARNING: ' . $w;
         }
 
@@ -320,11 +338,32 @@ final class PlanSummary {
             $lines[] = 'ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):';
             foreach ($envMissing as $r) {
                 $flag = !empty($r['required']) ? 'required' : 'optional';
-                $lines[] = '  - ' . ($r['name'] ?? '?') . " ($flag)";
+                $name = is_string($r['name'] ?? null) ? $r['name'] : null;
+                $line = '  - ' . self::displayToken($name) . " ($flag)";
+                if ($environment !== null && !empty($r['required']) && is_string($r['name'] ?? null)) {
+                    $environmentArg = self::environmentArg($environment);
+                    $nameArg = self::shellArg($r['name']);
+                    $registryArg = $envsFileOverride === null
+                        ? ''
+                        : self::shellArg('--envs-file=' . $envsFileOverride);
+                    if ($environmentArg === null || $nameArg === null) {
+                        $line .= '; cannot render a safe command — correct the environment/manifest name';
+                    } elseif ($registryArg === null) {
+                        $line .= '; cannot render a safe command — correct the selected environment registry path';
+                    } else {
+                        $line .= '; run: `duo' . ($registryArg === '' ? '' : ' ' . $registryArg)
+                            . ' env-set ' . $environmentArg . ' --name=' . $nameArg . ' --stdin`';
+                    }
+                }
+                $lines[] = $line;
             }
-            $lines[] = $envMissingRequired
-                ? 'required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting'
-                : 'only optional env value(s) missing — safe to promote, listed for visibility';
+            if ($envMissingRequired) {
+                $lines[] = $environment !== null
+                    ? 'required env value(s) missing — run each required item command above before promoting'
+                    : 'required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting';
+            } else {
+                $lines[] = 'only optional env value(s) missing — safe to promote, listed for visibility';
+            }
         }
 
         if ($missingUser) {
@@ -503,6 +542,47 @@ final class PlanSummary {
             && $counts['drift'] === 0;
 
         return ['lines' => $lines, 'ok' => $ok];
+    }
+
+    /** @param list<array<string,mixed>> $envMissing */
+    private static function isRequiredEnvMissingWarning(string $warning, array $envMissing): bool {
+        foreach ($envMissing as $row) {
+            if (empty($row['required']) || !is_string($row['name'] ?? null)) {
+                continue;
+            }
+            $name = $row['name'];
+            $expected = "env_missing: option '$name' is required and not yet provisioned on "
+                . "this environment — see 'wp duo env-set --name=$name --stdin'";
+            if ($warning === $expected) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A readable shell token when safe; POSIX quoting otherwise. */
+    private static function shellArg(string $value): ?string {
+        if (strlen($value) > 4096 || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return null;
+        }
+        return preg_match('/^[A-Za-z0-9._:\/-]+$/D', $value) === 1
+            ? $value
+            : escapeshellarg($value);
+    }
+
+    /** Environment is a positional token, so option-looking names never render. */
+    private static function environmentArg(string $value): ?string {
+        return preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $value) === 1
+            ? $value
+            : null;
+    }
+
+    /** Keep untrusted plan names on one terminal line. */
+    private static function displayToken(?string $value): string {
+        if ($value === null || preg_match('/[\x00-\x1F\x7F]/', $value) === 1) {
+            return '<invalid-name>';
+        }
+        return $value;
     }
 
     private static function label(array $r): string {

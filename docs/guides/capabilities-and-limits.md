@@ -138,9 +138,28 @@ to write one:
 duo env-set production --name=woocommerce_stripe_key --stdin
 ```
 
-Prefer `--stdin` for anything actually secret: it reads with terminal echo
-disabled and is never logged, whereas `--value` lands in shell history and
-process listings like any other flag. `env-set` refuses any name the loaded
+Prefer `--stdin` for anything actually secret: interactive host use masks the
+local terminal for one newline-terminated host-side read, restores it, then
+starts the target and sends only that line through detached Docker or SSH
+stdin. A target startup failure therefore happens with visible terminal state,
+and an incomplete pipe write is refused rather than stored. Direct
+target use masks at the agent, and piped input never acquires a terminal echo.
+The host restores
+echo on normal, exceptional, HUP, INT, QUIT, TERM, and TSTP exits/suspension,
+re-masks after resume, and refuses interactive use when PHP signal support
+cannot guarantee that restoration. After the complete value is handed off,
+termination signals are deferred until the target returns so Duo reports the
+real mutation outcome rather than a false cancellation. The post-handoff wait
+has no local timeout because timeout cannot prove a remote write stopped;
+diagnose a stuck target from another session. Ctrl-Z suspends the wrapper and
+foreground child/transport together, but a non-PTY Docker/SSH target may
+continue remotely; `fg` resumes the local outcome wait. Nonblocking pipe
+handoff keeps local signal handling responsive while a slow target applies
+backpressure.
+SSH explicitly uses
+`-T`, overriding any `RequestTTY=force` user configuration. The value is never
+logged or placed in argv, whereas `--value` lands in shell history and process
+listings like any other flag. `env-set` refuses any name the loaded
 policy did not declare `class: "env"`, refuses an option declaring `sub_keys`
 (a structured plugin-managed blob a bare string write would corrupt), and
 refuses an empty value.

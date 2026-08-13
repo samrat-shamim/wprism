@@ -1,7 +1,7 @@
 <?php
 namespace Duo\Orchestrator;
 
-/** Runs wp-cli over ssh: `ssh <host> 'cd <wp_path> && wp …'`. */
+/** Runs wp-cli over ssh: `ssh -T <host> 'cd <wp_path> && wp …'`. */
 final class SshTransport extends Transport implements AdoptionTransport {
     private string $host;
     private string $wpPath;
@@ -168,7 +168,10 @@ final class SshTransport extends Transport implements AdoptionTransport {
     }
 
     private function sshPrefix(): string {
-        return 'ssh' . ($this->configFile !== null ? ' -F ' . self::esc($this->configFile) : '');
+        // Duo commands are non-interactive protocol calls. Explicitly disable
+        // PTY allocation so a user's RequestTTY=force SSH configuration
+        // cannot turn piped env-set input back into terminal-visible bytes.
+        return 'ssh -T' . ($this->configFile !== null ? ' -F ' . self::esc($this->configFile) : '');
     }
 
     /** @param array<string,mixed> $config @return array<string,mixed> */
