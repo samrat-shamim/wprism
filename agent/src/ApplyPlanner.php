@@ -21,9 +21,9 @@ require_once __DIR__ . '/Snapshot.php';
  * ordering and natural-key continuity annotation projections used by plan,
  * apply, and scoped recovery also live here because they read only explicit
  * immutable inputs and injected collaborators.
- * The remaining `build_plan()` comparison/guard-ref orchestration stays in
- * `Apply` for a later slice, per the issue's "extract one collaborator at a
- * time" guardrail.
+ * The remaining stateful `build_plan()` comparison/guard-ref orchestration
+ * stays in `Apply` for later slices, per the issue's "extract one collaborator
+ * at a time" guardrail.
  *
  * `Apply` keeps `conflict_view()`, `forced_override_evidence()`,
  * `incomplete_override_refusal()`, `entity_display_title()`,
@@ -250,6 +250,110 @@ final class ApplyPlanner {
         }
         sort($names, SORT_STRING);
         return $names;
+    }
+
+    /**
+     * Classify one compiled deletion tombstone against the target observation
+     * and last-synced base. The caller has already established that this row
+     * is explicit deletion authority and has resolved its adapter capability;
+     * this pure projection only preserves the three-way comparison and the
+     * conflict evidence shape. Guard evaluation and destructive choice policy
+     * remain in Apply after every tombstone has been classified.
+     *
+     * @param array<string,mixed> $row
+     * @param array<string,mixed>|null $env
+     * @param array<string,mixed>|null $base
+     * @return array{bucket:'delete'|'delete_conflict'|'deleted',row:array<string,mixed>}
+     */
+    public static function classify_deletion(array $row, ?array $env, ?array $base): array {
+        $expected = (string) ($row['expected_hash'] ?? '');
+        $receipt = (string) ($row['receipt_hash'] ?? '');
+        if ($env === null) {
+            return ['bucket' => 'deleted', 'row' => $row];
+        }
+
+        $envHash = (string) ($env['hash'] ?? '');
+        if ($base === null) {
+            return [
+                'bucket' => 'delete_conflict',
+                'row' => $row + [
+                    'reason' => 'target entity exists but has no last-synced base',
+                    'conflict_view' => self::conflict_view(
+                        'target_without_last_synced_base',
+                        'delete',
+                        'missing',
+                        null,
+                        null,
+                        $expected,
+                        $receipt,
+                        $envHash,
+                        ['--with-deletes', '--force-theirs']
+                    ),
+                ],
+            ];
+        }
+
+        $baseContentHash = is_string($base['content_hash'] ?? null)
+            ? $base['content_hash']
+            : null;
+        if (($base['entity_type'] ?? '') === 'deletion') {
+            return [
+                'bucket' => 'delete_conflict',
+                'row' => $row + [
+                    'reason' => 'target entity was recreated after this deletion intent was applied',
+                    'conflict_view' => self::conflict_view(
+                        'target_recreated_after_delete',
+                        'delete',
+                        'deleted',
+                        $baseContentHash,
+                        null,
+                        $expected,
+                        $receipt,
+                        $envHash,
+                        ['--with-deletes', '--force-theirs']
+                    ),
+                ],
+            ];
+        }
+        if (!hash_equals($expected, (string) $baseContentHash)) {
+            return [
+                'bucket' => 'delete_conflict',
+                'row' => $row + [
+                    'reason' => 'tombstone expected hash does not match the target last-synced base',
+                    'conflict_view' => self::conflict_view(
+                        'repository_expected_base_mismatch',
+                        'delete',
+                        'present',
+                        $baseContentHash,
+                        null,
+                        $expected,
+                        $receipt,
+                        $envHash,
+                        ['--with-deletes', '--force-theirs']
+                    ),
+                ],
+            ];
+        }
+        if (!hash_equals($expected, $envHash)) {
+            return [
+                'bucket' => 'delete_conflict',
+                'row' => $row + [
+                    'reason' => 'target entity changed locally since the tombstone base',
+                    'conflict_view' => self::conflict_view(
+                        'target_changed_since_delete_base',
+                        'delete',
+                        'present',
+                        $baseContentHash,
+                        null,
+                        $expected,
+                        $receipt,
+                        $envHash,
+                        ['--with-deletes', '--force-theirs']
+                    ),
+                ],
+            ];
+        }
+        return ['bucket' => 'delete', 'row' => $row];
     }
 
     /**
