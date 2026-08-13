@@ -10,8 +10,8 @@
  * crash recovery — is provable here, on real files, with no live database
  * or WordPress install involved. Runs the REAL, unmodified
  * agent/src/{Canon,Publish}.php, plus a Reflection-based check of Capture's
- * private check_transient_db_error() string matching (its only piece that
- * needs zero DB fixture at all).
+ * private check_transient_db_error() compatibility facade, backed by the
+ * extracted CaptureTransaction service (its only piece needing a DB stub).
  *
  * The DB-side half of DUO-3213 (the consistent-snapshot transaction, the
  * InnoDB engine check, and the deadlock/lock-wait-timeout retry actually
@@ -84,8 +84,10 @@ require __DIR__ . '/../../agent/src/Capture.php';
 // by sandbox/tests/regress_repository_compiler.sh, whose dependency list
 // this mirrors exactly.
 require __DIR__ . '/../../agent/src/Uuid.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+// CaptureTransaction now self-loads Db as its direct transaction dependency.
+// Keep this legacy fixture load idempotent for both dependency layouts.
+require_once __DIR__ . '/../../agent/src/Db.php';
+require_once __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Snapshot.php';
 require __DIR__ . '/../../agent/src/Deletion.php';

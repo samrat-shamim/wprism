@@ -10,7 +10,7 @@
 # ZERO WordPress/$wpdb dependency specifically so all of this is provable
 # offline, on real files, including a REAL SIGKILL of a real child process
 # mid-publish (P6) -- no docker, no WordPress bootstrap needed for any of
-# it. Capture.php's own DB-side half (consistent-snapshot transaction,
+# it. CaptureTransaction.php's DB-side half (consistent-snapshot transaction,
 # InnoDB engine check, deadlock retry) needs a live MySQL and is covered
 # separately by the sandbox pair evidence in the DUO-3213 PR body.
 #

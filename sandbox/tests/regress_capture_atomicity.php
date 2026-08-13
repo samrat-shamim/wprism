@@ -20,8 +20,12 @@ final class CaptureAtomicityFakeWpdb {
     public string $posts = 'wp_posts';
     public string $terms = 'wp_terms';
     public string $term_taxonomy = 'wp_term_taxonomy';
+    public string $term_relationships = 'wp_term_relationships';
     public string $postmeta = 'wp_postmeta';
     public string $termmeta = 'wp_termmeta';
+    public string $options = 'wp_options';
+    public string $users = 'wp_users';
+    public string $usermeta = 'wp_usermeta';
     public string $last_error = '';
     public int $insert_id = 0;
 
@@ -38,11 +42,17 @@ final class CaptureAtomicityFakeWpdb {
     public int $ddlQueries = 0;
     public bool $failStartBeforeOpen = false;
     public bool $failStartAfterOpen = false;
+    public ?string $engineAfterStartFailure = null;
     public ?string $commitCheckpointError = null;
+    /** @var array<string,string> table name -> storage engine */
+    public array $tableEngines = [];
     /** @var ?array{map:array,state:array,kv:array} */
     private ?array $transactionSnapshot = null;
 
     public function prepare(string $query, ...$args): string {
+        if (count($args) === 1 && is_array($args[0])) {
+            $args = $args[0];
+        }
         foreach ($args as $arg) {
             $s = strpos($query, '%s');
             $d = strpos($query, '%d');
@@ -76,6 +86,10 @@ final class CaptureAtomicityFakeWpdb {
             if ($this->failStartBeforeOpen) {
                 $this->failStartBeforeOpen = false;
                 $this->last_error = 'Deadlock found when trying to get lock';
+                if ($this->engineAfterStartFailure !== null) {
+                    $this->tableEngines[$this->posts] = $this->engineAfterStartFailure;
+                    $this->engineAfterStartFailure = null;
+                }
                 return false;
             }
             $this->transactionSnapshot = $this->snapshot();
@@ -204,6 +218,15 @@ final class CaptureAtomicityFakeWpdb {
 
     public function get_results(string $sql, $output = null): array {
         $this->last_error = '';
+        if (stripos($sql, 'information_schema.TABLES') !== false) {
+            $rows = [];
+            foreach ($this->tableEngines as $table => $engine) {
+                if (str_contains($sql, "'" . $table . "'")) {
+                    $rows[] = ['TABLE_NAME' => $table, 'ENGINE' => $engine];
+                }
+            }
+            return $rows;
+        }
         throw new RuntimeException("fixture does not understand get_results SQL: $sql");
     }
 
@@ -241,11 +264,13 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 
 use Duo\Capture;
+use Duo\CaptureTransaction;
 use Duo\CommandRefusalException;
 use Duo\CompiledRepository;
 use Duo\Db;
 use Duo\Deletion;
 use Duo\Ledger;
+use Duo\Policy;
 use Duo\Snapshot;
 
 $wpdb = new CaptureAtomicityFakeWpdb();
@@ -257,14 +282,138 @@ function assert_capture_atomicity(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
+$captureSource = (string) file_get_contents("$root/agent/src/Capture.php");
+$transactionSource = (string) file_get_contents("$root/agent/src/CaptureTransaction.php");
+assert_capture_atomicity(
+    str_contains($captureSource, "require_once __DIR__ . '/CaptureTransaction.php';"),
+    'Capture directly loads its transaction collaborator without bootstrap-order coupling'
+);
+assert_capture_atomicity(
+    str_contains($transactionSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'")
+        && !str_contains($captureSource, "Db::query('START TRANSACTION WITH CONSISTENT SNAPSHOT'"),
+    'the consistent-read protocol has one implementation owner outside Capture'
+);
+$transactionRun = new ReflectionMethod(CaptureTransaction::class, 'run');
+assert_capture_atomicity(
+    $transactionRun->isPublic() && $transactionRun->isStatic(),
+    'CaptureTransaction exposes one focused static transaction entry point'
+);
+$transactionRunParameters = $transactionRun->getParameters();
+assert_capture_atomicity(
+    count($transactionRunParameters) === 4
+        && ($transactionRunParameters[0]->getType()?->getName() ?? null) === Policy::class
+        && $transactionRunParameters[2]->isPassedByReference()
+        && $transactionRunParameters[2]->isDefaultValueAvailable()
+        && $transactionRunParameters[2]->getDefaultValue() === null
+        && $transactionRunParameters[3]->getDefaultValue() === false,
+    'CaptureTransaction requires a path policy and preserves the optional by-reference publication phase contract'
+);
+
 $consistentSnapshot = new ReflectionMethod(Capture::class, 'run_in_consistent_snapshot');
 $consistentSnapshot->setAccessible(true);
+$captureLines = file("$root/agent/src/Capture.php");
+$facadeSource = implode('', array_slice(
+    $captureLines === false ? [] : $captureLines,
+    $consistentSnapshot->getStartLine() - 1,
+    $consistentSnapshot->getEndLine() - $consistentSnapshot->getStartLine() + 1
+));
+assert_capture_atomicity(
+    str_contains($facadeSource, 'CaptureTransaction::run($policy, $fn, $phase, $optionsOnly)')
+        && !str_contains($facadeSource, 'while (true)'),
+    'Capture retains a thin historical facade without duplicating transaction policy'
+);
+
+$transactionPolicy = Policy::load(null, ['core']);
+$invokeConsistentSnapshot = static function (
+    callable $fn,
+    ?array &$phase = null,
+    bool $optionsOnly = false
+) use ($consistentSnapshot, $transactionPolicy) {
+    return $consistentSnapshot->invokeArgs(null, [
+        $fn,
+        &$phase,
+        $transactionPolicy,
+        $optionsOnly,
+    ]);
+};
+
+// Keep the historical private facade callable with only its original callback
+// argument. Production paths pass their exact policy; reflection probes fall
+// back to core and still receive engine validation before START.
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$legacyCallbackRuns = 0;
+$legacyResult = $consistentSnapshot->invoke(null, static function () use (&$legacyCallbackRuns): array {
+    $legacyCallbackRuns++;
+    return ['legacy' => true];
+});
+assert_capture_atomicity(
+    $legacyResult === ['legacy' => true] && $legacyCallbackRuns === 1,
+    'the callback-only historical reflection facade remains invocation-compatible'
+);
+assert_capture_atomicity(
+    $wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0,
+    'the callback-only facade still runs one validated transaction'
+);
+
+// The extracted public seam must enforce the same storage-engine precondition
+// as Capture's higher-level entry points rather than trusting callers to have
+// performed an earlier private preflight.
+$wpdb->tableEngines = [$wpdb->posts => 'MyISAM'];
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$callbackRuns = 0;
+$unsupportedEngine = null;
+try {
+    CaptureTransaction::run($transactionPolicy, static function () use (&$callbackRuns): array {
+        $callbackRuns++;
+        return [];
+    });
+} catch (Throwable $failure) {
+    $unsupportedEngine = $failure;
+}
+assert_capture_atomicity(
+    $unsupportedEngine instanceof CommandRefusalException
+        && $unsupportedEngine->reasonCode === 'capture_snapshot_unsupported',
+    'the direct transaction seam refuses a non-InnoDB read set with the existing reason code'
+);
+assert_capture_atomicity(
+    $wpdb->starts === 0 && $callbackRuns === 0,
+    'storage-engine refusal happens before START and before candidate execution'
+);
+$wpdb->tableEngines = [];
+
+// A retry opens a new snapshot against database state that may have changed
+// since the first attempt. Revalidate engines on every attempt rather than
+// allowing the first check to authorize all later STARTs.
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
+$wpdb->failStartBeforeOpen = true;
+$wpdb->engineAfterStartFailure = 'MyISAM';
+$callbackRuns = 0;
+$retryEngineFailure = null;
+try {
+    $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
+        $callbackRuns++;
+        return [];
+    });
+} catch (Throwable $failure) {
+    $retryEngineFailure = $failure;
+}
+assert_capture_atomicity(
+    $retryEngineFailure instanceof CommandRefusalException
+        && $retryEngineFailure->reasonCode === 'capture_snapshot_unsupported',
+    'a retry refuses when its fresh read set no longer uses InnoDB'
+);
+assert_capture_atomicity(
+    $wpdb->starts === 1 && $wpdb->commits === 0 && $callbackRuns === 0,
+    'retry engine validation runs before the second START and callback'
+);
+$wpdb->tableEngines = [];
+$wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 
 // A START failure is retryable even though no transaction was opened by the
 // driver. The callback must run exactly once, only after the fresh start.
 $wpdb->failStartBeforeOpen = true;
 $callbackRuns = 0;
-$result = $consistentSnapshot->invoke(null, static function () use (&$callbackRuns): array {
+$result = $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
     $callbackRuns++;
     return ['captured' => true];
 });
@@ -285,7 +434,7 @@ $wpdb->map = ['stable|post' => [
 $wpdb->state = ['stable' => ['uuid' => 'stable', 'entity_type' => 'post', 'content_hash' => 'base']];
 $wpdb->kv = ['stable' => 'base'];
 $beforeRetry = ['map' => $wpdb->map, 'state' => $wpdb->state, 'kv' => $wpdb->kv];
-$result = $consistentSnapshot->invoke(null, static function () use (&$wpdb): array {
+$result = $invokeConsistentSnapshot(static function () use (&$wpdb): array {
     $wpdb->kv['stable'] = 'candidate';
     return ['retried' => true];
 });
@@ -299,7 +448,7 @@ assert_capture_atomicity($beforeRetry['map'] === $wpdb->map && $beforeRetry['sta
 // rollback is attempted after the driver has accepted COMMIT.
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $callbackRuns = 0;
-$result = $consistentSnapshot->invoke(null, static function () use (&$callbackRuns): array {
+$result = $invokeConsistentSnapshot(static function () use (&$callbackRuns): array {
     $callbackRuns++;
     return ['committed' => true];
 });
@@ -315,7 +464,7 @@ $wpdb->commitCheckpointError = 'Deadlock found when trying to get lock';
 $callbackRuns = 0;
 $ambiguousCommit = null;
 try {
-    $consistentSnapshot->invoke(null, static function () use (&$callbackRuns, &$wpdb): array {
+    $invokeConsistentSnapshot(static function () use (&$callbackRuns, &$wpdb): array {
         $callbackRuns++;
         $wpdb->kv['ambiguous_candidate'] = 'may-be-durable';
         return ['ambiguous' => true];
@@ -353,7 +502,7 @@ Duo\Canon::write_file(Duo\Publish::stage_dir($protocolState) . '/revision.txt', 
 $wpdb->starts = $wpdb->commits = $wpdb->rollbacks = 0;
 $wpdb->kv = ['prior' => 'keep'];
 $phase = [];
-$result = $consistentSnapshot->invokeArgs(null, [
+$result = $invokeConsistentSnapshot(
     static function () use (
         $protocolState, $publicationKey, $publicationMarker, &$phase
     ): array {
@@ -369,8 +518,8 @@ $result = $consistentSnapshot->invokeArgs(null, [
         $phase['intent'] = $intent;
         return $intent;
     },
-    &$phase,
-]);
+    $phase
+);
 $diskIntent = Duo\Canon::decode((string) file_get_contents(Duo\Publish::intent_path($protocolState)));
 assert_capture_atomicity($wpdb->starts === 1 && $wpdb->commits === 1 && $wpdb->rollbacks === 0, 'filesystem publication and commit marker share one committed snapshot');
 assert_capture_atomicity(($diskIntent['phase'] ?? null) === 'committing', 'durable intent advances immediately before database COMMIT');
@@ -418,7 +567,7 @@ $preCommitFailure = null;
 putenv('DUO_TEST_MODE=1');
 putenv('DUO_TEST_PUBLISH_FAIL_PHASE=commit-attempt');
 try {
-    $consistentSnapshot->invokeArgs(null, [
+    $invokeConsistentSnapshot(
         static function () use (
             $protocolState, $publicationKey, $publicationMarker, &$phase
         ): array {
@@ -435,8 +584,8 @@ try {
             $phase['intent'] = $intent;
             return $intent;
         },
-        &$phase,
-    ]);
+        $phase
+    );
 } catch (ReflectionException $e) {
     throw $e;
 } catch (Throwable $e) {
@@ -483,7 +632,7 @@ $previous = CompiledRepository::create([
 $policy = Duo\Policy::load(null, ['core']);
 $refused = null;
 try {
-    $consistentSnapshot->invoke(null, static function () use ($uuid, $previous, $policy): array {
+    $invokeConsistentSnapshot(static function () use ($uuid, $previous, $policy): array {
         global $wpdb;
         Db::query(
             $wpdb->prepare(
