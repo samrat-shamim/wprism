@@ -32,6 +32,8 @@ SHIPPED="$PWD/certify_reference_bundle.sh"
 [ -f "$SHIPPED" ] || fail "cannot find the script under test: $SHIPPED"
 LOCK_LIB="$PWD/../lib/certbundle_lock.sh"
 [ -f "$LOCK_LIB" ] || fail "cannot find the lock library under test: $LOCK_LIB"
+CLEANUP_LIB="$PWD/../lib/certbundle_cleanup.sh"
+[ -f "$CLEANUP_LIB" ] || fail "cannot find the cleanup library under test: $CLEANUP_LIB"
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/duo-3382.XXXXXX")
 LOCK_DIR="$SCRATCH/rendezvous.lock"
@@ -791,21 +793,21 @@ assert_in "$SHIPPED" 'GIT_REVISION="$SOURCE_SHA"' \
 pass "one reviewed SHA is enforced for callers, pair/conformance children, materialization, and final readback"
 
 say "case 15 — shipped ordering: one EXIT trap clears the work root, then releases, and a failed removal cannot skip the release"
-CLEANUP_BODY="$SCRATCH/cleanup_run.body"
-awk '/^cleanup_run\(\) \{$/{inside=1} inside{print} inside && /^\}$/{exit}' "$SHIPPED" > "$CLEANUP_BODY"
-[ -s "$CLEANUP_BODY" ] || fail "cannot extract cleanup_run() from certify_reference_bundle.sh"
+CLEANUP_BODY="$SCRATCH/certbundle_cleanup_run.body"
+awk '/^certbundle_cleanup_run\(\) \{$/{inside=1} inside{print} inside && /^\}$/{exit}' "$CLEANUP_LIB" > "$CLEANUP_BODY"
+[ -s "$CLEANUP_BODY" ] || fail "cannot extract certbundle_cleanup_run() from certbundle_cleanup.sh"
 RM_LINE=$(grep -n 'rm -rf -- "\$WORK_ROOT"' "$CLEANUP_BODY" | head -1 | cut -d: -f1)
 REL_LINE=$(grep -n '^  certbundle_lock_release$' "$CLEANUP_BODY" | head -1 | cut -d: -f1)
 [ -n "$RM_LINE" ] && [ -n "$REL_LINE" ] \
-  || fail "cleanup_run() must both clear the work root and release the lock (rm:'$RM_LINE' release:'$REL_LINE')"
+  || fail "certbundle_cleanup_run() must both clear the work root and release the lock (rm:'$RM_LINE' release:'$REL_LINE')"
 [ "$RM_LINE" -lt "$REL_LINE" ] \
-  || fail "cleanup_run() releases the lock before clearing the work root; the next run must never start while this one's work root is still on disk"
+  || fail "certbundle_cleanup_run() releases the lock before clearing the work root; the next run must never start while this one's work root is still on disk"
 grep -q 'WARNING: could not remove the work root' "$CLEANUP_BODY" \
-  || fail "cleanup_run()'s removal is unguarded: under set -e a failed rm aborts the trap, skipping the release and failing a green bundle over a cleanup error"
-grep -q '^trap cleanup_run EXIT' "$SHIPPED" || fail "cleanup_run is defined but never installed as the EXIT trap"
+  || fail "certbundle_cleanup_run()'s removal is unguarded: under set -e a failed rm aborts the trap, skipping the release and failing a green bundle over a cleanup error"
+grep -q '^trap certbundle_cleanup_run EXIT' "$SHIPPED" || fail "certbundle_cleanup_run is defined but never installed as the EXIT trap"
 grep -q '^      trap certbundle_lock_release EXIT$' "$LOCK_LIB" \
   || fail "certbundle_lock_acquire must arm its own release trap before writing anything"
-pass "cleanup_run clears the work root (body line $RM_LINE), tolerates a failed removal, then releases (body line $REL_LINE)"
+pass "certbundle_cleanup_run clears the work root (body line $RM_LINE), tolerates a failed removal, then releases (body line $REL_LINE)"
 
 say "case 16 — the mechanisms review raced are absent by construction, not merely fixed"
 grep -q 'take_over_stale' "$LOCK_LIB" \
