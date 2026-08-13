@@ -10,6 +10,7 @@ require_once __DIR__ . '/Canon.php';
 require_once __DIR__ . '/Publish.php';
 require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/ScopeDiscovery.php';
+require_once __DIR__ . '/UserMetaCapture.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /**
@@ -42,6 +43,7 @@ final class Capture {
     private Tokens $tokens;
     private string $repo;
     private ?ScopeDiscovery $scopeDiscovery = null;
+    private ?UserMetaCapture $userMetaCapture = null;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
@@ -120,6 +122,26 @@ final class Capture {
             );
         }
         return $this->scopeDiscovery;
+    }
+
+    /** Lazily bind login-keyed user-meta reads to Capture's security gates. */
+    private function user_meta_capture(): UserMetaCapture {
+        if ($this->userMetaCapture === null) {
+            $this->userMetaCapture = new UserMetaCapture(
+                $this->policy,
+                $this->tokens,
+                function (string $section, string $key, $value, array $rule, string $context): void {
+                    $this->guard_secret($section, $key, $value, $rule, $context);
+                },
+                function (string $key, $value, array $rule, string $login): void {
+                    $this->guard_personal_data($key, $value, $rule, $login);
+                },
+                static function (string $where): void {
+                    self::check_transient_db_error($where);
+                }
+            );
+        }
+        return $this->userMetaCapture;
     }
 
     /**
@@ -3313,117 +3335,9 @@ final class Capture {
         return $byKey;
     }
 
-    /**
-     * Whole-user meta context for the optional interpreter hook. Users stay
-     * environment-local: this read neither mints identity nor emits an
-     * entity. The join deliberately excludes orphaned usermeta rows, which
-     * have no owning user/login and therefore cannot be a user-attached
-     * authored surface under DUO-3268's login-keyed design.
-     *
-     * @return array<int, array{login:string,meta:array<string,mixed>,values:array<string,string[]>}>
-     */
-    private function user_meta_maps(): array {
-        global $wpdb;
-        $rows = $wpdb->get_results(
-            "SELECT u.ID AS user_id, u.user_login, um.meta_key, um.meta_value
-             FROM {$wpdb->users} u
-             LEFT JOIN {$wpdb->usermeta} um ON um.user_id = u.ID
-             ORDER BY u.ID ASC, um.umeta_id ASC",
-            ARRAY_A
-        ) ?: [];
-        self::check_transient_db_error('Capture::user_meta_maps()');
-        $out = [];
-        foreach ($rows as $row) {
-            $userId = (int) $row['user_id'];
-            $out[$userId]['login'] = (string) $row['user_login'];
-            $out[$userId]['meta'] ??= [];
-            $out[$userId]['values'] ??= [];
-            if ($row['meta_key'] === null) {
-                continue;
-            }
-            $key = (string) $row['meta_key'];
-            $out[$userId]['values'][$key][] = (string) $row['meta_value'];
-            if (!array_key_exists($key, $out[$userId]['meta'])) {
-                $out[$userId]['meta'][$key] = (string) $row['meta_value'];
-            }
-        }
-        return $out;
-    }
-
-    /** @return array<int,array{uuid:string,type:string,path:string,content:string}> */
+    /** Thin historical facade over the login-keyed entity capturer. */
     private function build_user_meta_entities(array $carriedLogins): array {
-        $carry = array_fill_keys(array_filter(array_map('strval', $carriedLogins)), true);
-        $users = [];
-        foreach ($this->user_meta_maps() as $user) {
-            UserMetaState::assert_login($user['login']);
-            $users[$user['login']] = $user;
-        }
-        ksort($users, SORT_STRING);
-
-        $out = [];
-        foreach ($users as $login => $user) {
-            $authored = [];
-            foreach ($user['values'] as $key => $values) {
-                [$store, $value] = $this->classify_user_meta_value(
-                    (string) $key,
-                    $values,
-                    $user['meta'],
-                    $login
-                );
-                if ($store) {
-                    $authored[(string) $key] = $value;
-                }
-            }
-            if (!$authored && !isset($carry[$login])) {
-                continue;
-            }
-            $document = UserMetaState::document($login, $authored);
-            $out[] = [
-                // Canonical-state key only: not a UUID, never duo_map.
-                'uuid' => UserMetaState::key($login),
-                'type' => 'user-meta',
-                'path' => UserMetaState::path($login),
-                'content' => Canon::encode($document),
-            ];
-        }
-        return $out;
-    }
-
-    /** @return array{0:bool,1:mixed} */
-    private function classify_user_meta_value(string $key, array $values, array $flatMeta, string $login): array {
-        $rule = $this->policy->meta_rule_for_user($key, $flatMeta);
-        if (($rule['class'] ?? '') !== 'authored') {
-            return [false, null];
-        }
-        if (count($values) !== 1) {
-            throw new \RuntimeException(
-                "duo: multi-value authored user meta '$key' on exact login '$login' is unsupported; "
-                . 'refusing to choose one row'
-            );
-        }
-        $value = PlainData::decode($values[0], "user '$login' meta $key");
-        PlainData::assert($value, "user '$login' meta $key");
-        $this->guard_secret('user_meta', $key, $value, $rule, " on exact login '$login'");
-        $this->guard_personal_data($key, $value, $rule, $login);
-        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = StructuredValue::decode($value, $rule, "user '$login' meta $key");
-            $value = $this->tokens->struct_capture(
-                $decoded,
-                $rule['json_refs'] ?? [],
-                $rule['key_refs'] ?? null
-            );
-        } elseif (!empty($rule['ref'])) {
-            $value = $this->tokens->meta_value_to_tokens($value, $rule);
-            if ($value === null) {
-                return [false, null];
-            }
-        } elseif (is_string($value)) {
-            $value = $this->tokens->tokenize_text($value);
-        }
-        if (!empty($rule['order_preserving'])) {
-            $value = new OrderPreserved($value);
-        }
-        return [true, $value];
+        return $this->user_meta_capture()->capture($carriedLogins);
     }
 
     /**
