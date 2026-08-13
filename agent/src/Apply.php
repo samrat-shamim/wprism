@@ -1692,6 +1692,9 @@ final class Apply {
      * directly characterizable without a live target.
      */
     private function check_theme_mismatch(array $tree): void {
+        if (!ApplyPlanner::theme_mismatch_has_theme_terms($tree)) {
+            return;
+        }
         foreach (ApplyPlanner::theme_mismatch_warnings($tree, (string) get_option('stylesheet')) as $warning) {
             $this->warnings[] = $warning;
         }

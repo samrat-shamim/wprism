@@ -1142,7 +1142,13 @@ final class ApplyPlanner {
             }
             $front = (array) ($e['data'] ?? []);
             if (($front['taxonomy'] ?? '') === 'wp_theme') {
-                $themeSlugByUuid[$uuid] = (string) ($front['slug'] ?? '');
+                // Preserve the old null/absent-slug behavior: a term without
+                // a usable identity cannot establish an active-theme
+                // mismatch. In particular, do not manufacture the empty
+                // string as a captured theme name.
+                if (array_key_exists('slug', $front)) {
+                    $themeSlugByUuid[$uuid] = $front['slug'];
+                }
             }
         }
         if (!$themeSlugByUuid) {
@@ -1169,6 +1175,27 @@ final class ApplyPlanner {
                 . " — will apply but will NOT render until '$capturedTheme' is active here";
         }
         return $warnings;
+    }
+
+    /**
+     * Preserve Apply's old short-circuit before it observes the target's
+     * active stylesheet. A wp_theme term is enough to make that observation
+     * relevant, even if its slug is malformed and therefore cannot produce a
+     * warning.
+     *
+     * @param array<string,array<string,mixed>> $tree
+     */
+    public static function theme_mismatch_has_theme_terms(array $tree): bool {
+        foreach ($tree as $e) {
+            if (($e['type'] ?? '') !== 'term') {
+                continue;
+            }
+            $front = (array) ($e['data'] ?? []);
+            if (($front['taxonomy'] ?? '') === 'wp_theme') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

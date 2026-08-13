@@ -269,9 +269,43 @@ $check(
 );
 $check(
     ApplyPlanner::theme_mismatch_warnings([
-        'post' => ['type' => 'post', 'data' => ['terms' => ['wp_theme' => ['missing']]]],
+        'known-theme' => [
+            'type' => 'term',
+            'data' => ['taxonomy' => 'wp_theme', 'slug' => 'known-theme'],
+        ],
+        'post' => [
+            'type' => 'post',
+            'path' => 'posts/unknown-theme.json',
+            'data' => ['terms' => ['wp_theme' => ['missing']]],
+        ],
     ], 'active-theme') === [],
-    'theme mismatch: non-FSE trees and unknown theme identities produce no warning'
+    'theme mismatch: unknown theme identities produce no warning even when wp_theme terms exist'
+);
+$check(
+    ApplyPlanner::theme_mismatch_warnings([
+        'theme-missing-slug' => [
+            'type' => 'term',
+            'data' => ['taxonomy' => 'wp_theme'],
+        ],
+        'template' => [
+            'type' => 'post',
+            'path' => 'posts/template.json',
+            'data' => ['terms' => ['wp_theme' => ['theme-missing-slug']]],
+        ],
+    ], 'active-theme') === [],
+    'theme mismatch: missing captured slugs do not become a false empty-theme warning'
+);
+$check(
+    ApplyPlanner::theme_mismatch_has_theme_terms([
+        'theme' => ['type' => 'term', 'data' => ['taxonomy' => 'wp_theme']],
+    ]),
+    'theme mismatch: a wp_theme term still requires the active-stylesheet observation even with malformed identity'
+);
+$check(
+    !ApplyPlanner::theme_mismatch_has_theme_terms([
+        'post' => ['type' => 'post', 'data' => ['terms' => ['wp_theme' => ['missing']]]],
+    ]),
+    'theme mismatch: an unknown relationship without a wp_theme term keeps the old short-circuit'
 );
 
 // ---------------------------------------------------------- lifecycle_comparison_hash
@@ -1008,8 +1042,11 @@ $themeSectionEnd = strpos($applySource, "\n    // ------------------------------
 $themeSection = substr($applySource, $themeSectionStart, $themeSectionEnd - $themeSectionStart);
 $check(
     str_contains($themeSection, 'ApplyPlanner::theme_mismatch_warnings(')
+        && str_contains($themeSection, 'ApplyPlanner::theme_mismatch_has_theme_terms(')
         && !str_contains($themeSection, '$themeSlugByUuid')
         && !str_contains($themeSection, '$affected')
+        && strpos($themeSection, 'ApplyPlanner::theme_mismatch_has_theme_terms(')
+            < strpos($themeSection, 'get_option(\'stylesheet\')')
         && preg_match('/public static function theme_mismatch_warnings\(/', $plannerSource) === 1,
     'theme mismatch: Apply keeps the WordPress input/facade while planner owns warning projection'
 );
