@@ -178,18 +178,31 @@ final class ScopedCertificationBundle {
      *
      * @param list<array{path:string,sha256:string,size:int}> $recorded
      */
-    public static function assertRuntimeInputsCurrent(string $root, array $recorded): void {
+    public static function assertRuntimeInputsCurrent(string $agentDir, string $manifestDir, array $recorded): void {
         $inputs = self::normalizeInputs($recorded, 'scoped certification closure');
         $checked = 0;
         foreach ($inputs as $input) {
-            if (!str_starts_with($input['path'], 'agent/')
-                && !str_starts_with($input['path'], 'manifests/')) {
+            $path = $input['path'];
+            if ($path === 'agent/duo-loader.php') {
+                // The loader is deliberately a sibling of the installed
+                // agent directory: WordPress discovers only top-level
+                // mu-plugin files. It is nevertheless sealed under the
+                // source-tree agent/ namespace with the rest of the drop-in.
+                $actual = self::fileAsset(dirname(rtrim($agentDir, '/')), 'duo-loader.php');
+            } elseif (str_starts_with($path, 'agent/')) {
+                $actual = self::fileAsset(rtrim($agentDir, '/'), substr($path, strlen('agent/')));
+            } elseif (str_starts_with($path, 'manifests/')) {
+                $actual = self::fileAsset(rtrim($manifestDir, '/'), substr($path, strlen('manifests/')));
+            } else {
                 continue;
             }
-            $actual = self::fileAsset($root, $input['path']);
+            // fileAsset() reports paths relative to its physical mount; the
+            // certificate binds source-tree names, so restore that sealed
+            // identity before comparing the complete descriptor.
+            $actual['path'] = $path;
             if (Canon::encode($actual) !== Canon::encode($input)) {
                 throw new \RuntimeException(
-                    "duo: scoped certification runtime input is not current: {$input['path']}"
+                    "duo: scoped certification runtime input is not current: $path"
                 );
             }
             $checked++;

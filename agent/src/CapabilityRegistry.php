@@ -873,9 +873,13 @@ final class CapabilityRegistry {
             || ($claimEvidence['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
             throw new \RuntimeException("duo: scoped evidence for '$name' disagrees with its generated claim");
         }
-        // evidence.json lives at <repo>/manifests/capabilities/evidence.json.
+        // evidence.json lives at <manifests>/capabilities/evidence.json. In
+        // a deployed mu-plugin, the agent tree and this manifest mount are
+        // deliberately separate, so do not infer either from a common root.
+        $manifestDir = dirname(dirname($evidenceFile));
         $root = dirname(dirname(dirname($evidenceFile)));
-        $fullSource = is_file($root . '/Makefile') && !is_link($root . '/Makefile');
+        $fullSource = is_file($root . '/Makefile') && !is_link($root . '/Makefile')
+            && is_dir($root . '/agent') && !is_link($root . '/agent');
         if ($fullSource) {
             $boundInputs = ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']);
             $artifacts = self::scopedArtifacts($root, $manifest);
@@ -884,14 +888,14 @@ final class CapabilityRegistry {
             // host-only Makefile, CLI, or conformance-harness inputs. The
             // importer validates that full closure before publishing this
             // current record; runtime still rechecks every installed member.
-            ScopedCertificationBundle::assertRuntimeInputsCurrent($root, $record['closure']['inputs']);
+            ScopedCertificationBundle::assertRuntimeInputsCurrent(dirname(__DIR__), $manifestDir, $record['closure']['inputs']);
             $boundInputs = $record['closure']['inputs'];
             $artifacts = $record['artifacts'];
         }
         ScopedCertificationBundle::assertCurrent(
             $record,
             $name,
-            self::adapter_digest($manifest, $disposition, $root . '/manifests'),
+            self::adapter_digest($manifest, $disposition, $manifestDir),
             $platform,
             $boundInputs,
             $disposition['evidence']['tests'] ?? [],
