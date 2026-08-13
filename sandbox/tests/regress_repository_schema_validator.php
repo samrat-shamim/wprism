@@ -76,7 +76,16 @@ namespace {
     $check(in_array('taxonomy_object_keyspace_invalid', $codes(), true), 'a policy keyspace resolver refusal remains a structured schema diagnostic');
 
     $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
-    $check(substr_count($compiler, '->schemaValidator->validate(') === 3 && !str_contains($compiler, 'private function validate_schema(') && !str_contains($compiler, 'private function validate_taxonomy_relationship_keyspace('), 'RepositoryCompiler delegates every moved schema call without retaining duplicate private bodies');
+    $entityParser = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryEntityParser.php');
+    $check(
+        substr_count($compiler, 'new RepositoryEntityParser(') === 1
+        && substr_count($compiler, '->entityParser->parse(') === 1
+        && !str_contains($compiler, 'private function parse_entity(')
+        && substr_count($entityParser, '->schemaValidator->validate(') === 3
+        && !str_contains($entityParser, 'private function validate_schema(')
+        && !str_contains($entityParser, 'private function validate_taxonomy_relationship_keyspace('),
+        'RepositoryEntityParser owns every moved schema call while RepositoryCompiler retains only its one-file delegate'
+    );
     if ($failures !== []) { fwrite(STDERR, "FAILED\n"); exit(1); }
     echo "ALL PASSED\n";
 }

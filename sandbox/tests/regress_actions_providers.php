@@ -61,7 +61,7 @@ require $root . '/agent/src/Policy.php';
 require $root . '/agent/src/Providers.php';
 require $root . '/agent/src/Ledger.php';
 require $root . '/agent/src/RepositoryCompiler.php';
-require $root . '/agent/src/SidebarState.php';
+require_once $root . '/agent/src/SidebarState.php';
 require $root . '/agent/src/RepositoryAuthorization.php';
 require $root . '/agent/src/Deploy.php';
 require $root . '/agent/src/ManifestDispositions.php';

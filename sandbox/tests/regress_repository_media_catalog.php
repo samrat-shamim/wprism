@@ -152,13 +152,14 @@ $check(
 );
 
 $compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
+$entityParserSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryEntityParser.php');
 $check(
     substr_count($compilerSource, 'new RepositoryMediaCatalog(') === 1
-        && substr_count($compilerSource, '->validate_attachment($path, $data)') === 1
         && substr_count($compilerSource, '->catalog_directory()') === 1
+        && substr_count($entityParserSource, '->mediaCatalog->validate_attachment($path, $data)') === 1
         && !str_contains($compilerSource, 'private function validate_attachment(')
         && !str_contains($compilerSource, 'private function catalog_media_directory('),
-    'RepositoryCompiler delegates the complete moved media boundary without retaining duplicate private implementations'
+    'RepositoryEntityParser owns attachment references while RepositoryCompiler retains complete media cataloguing without duplicate private implementations'
 );
 
 if ($failures !== []) {

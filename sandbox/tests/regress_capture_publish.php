@@ -91,7 +91,10 @@ require __DIR__ . '/../../agent/src/Snapshot.php';
 require __DIR__ . '/../../agent/src/Deletion.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require __DIR__ . '/../../agent/src/SidebarState.php';
+// RepositoryEntityParser closes the compiler's sidebar dependency. Keep this
+// support load idempotent so the capture/publish harness remains valid both
+// before and after the compiler parser boundary is loaded transitively.
+require_once __DIR__ . '/../../agent/src/SidebarState.php';
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
 }
