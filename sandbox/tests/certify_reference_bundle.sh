@@ -23,6 +23,10 @@ case "${DUO_WORDPRESS_ORG_OFFLINE:-0}" in
   1) export DUO_ARTIFACT_OFFLINE=1 ;;
   *) fail "DUO_WORDPRESS_ORG_OFFLINE must be 0 or 1" ;;
 esac
+case "${DUO_PAIR_BUDGET_OVERRIDE:-}" in
+  ''|0|1) ;;
+  *) fail "DUO_PAIR_BUDGET_OVERRIDE must be unset, 0, or 1 for reference certification" ;;
+esac
 
 # DUO-3427/DUO-3428: the two init legs -- the platform init contract and the
 # public existing-site `duo init` golden path -- are back IN the certified set
@@ -85,6 +89,12 @@ source lib/certbundle_evidence.sh
 # shellcheck source=../lib/certbundle_cleanup.sh
 source lib/certbundle_cleanup.sh
 
+# DUO-3479: the environment only makes a pair-budget hatch available.  The
+# pair launcher records whether it actually had to use that hatch; the bundle
+# seals the validated actual-use ledger after all live legs finish.
+# shellcheck source=../lib/pair_force_hatch.sh
+source lib/pair_force_hatch.sh
+
 certbundle_lock_acquire
 validate_artifact_lock conformance/artifacts.lock.json \
   || fail "reference certification requires a closed typed artifact lock"
@@ -105,6 +115,8 @@ export CONF_EXPECTED_SOURCE_SHA="$SOURCE_SHA"
 
 WORK_ROOT=$(mktemp -d /tmp/duo-certbundle.XXXXXX)
 trap certbundle_cleanup_run EXIT   # replaces the release-only trap armed by certbundle_lock_acquire
+pair_force_hatch_init "$WORK_ROOT/pair-force-hatches.log" \
+  || fail "could not initialize the reference certification force-hatch ledger"
 
 ENV_FILE="$WORK_ROOT/environment.json"
 ARTIFACT_USAGE_LOG="$WORK_ROOT/artifact-cache-usage.ndjson"
@@ -471,6 +483,7 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   sandbox/lib/certbundle_evidence.sh \
   sandbox/lib/certbundle_source.sh \
   sandbox/lib/certbundle_cleanup.sh \
+  sandbox/lib/pair_force_hatch.sh \
   sandbox/tests/certify_reference_bundle.sh \
   sandbox/tests/certify_version_matrix.sh \
   sandbox/tests/regress_multisite_refusal.sh \
@@ -489,13 +502,14 @@ ARTIFACTS=$(jq '[.plugins | to_entries[] as $slug | $slug.value | to_entries[]
 TESTS=$(printf '%s\n' "${TEST_FRAGMENTS[@]}" | jq -s .)
 CREATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 GIT_REVISION="$SOURCE_SHA"
-# DUO-3406: record any force/override env the sweeps honor (currently only
-# DUO_PAIR_BUDGET_OVERRIDE) as a force hatch, so a bundle built under an override
-# never affirmatively claims force_hatches:[] — silently-wrong evidence, worse
-# than recorded-as-forced. cap_import_bundle refuses a reference bundle with a
-# non-empty list, so a forced build fails loudly at import instead of forging a
-# clean certification. To add a sibling override, extend the name list below.
-FORCE_HATCHES=$(jq -n '[ "DUO_PAIR_BUDGET_OVERRIDE" ] | map(select($ENV[.] // "" | . != "" and . != "0"))')
+# DUO-3406 made forced evidence loud; DUO-3479 distinguishes permission from
+# use.  A held certification reservation answers before the override, so an
+# exported variable alone must not poison a clean bundle.  pair.sh appends only
+# from the actual over-budget override branch.  Unknown/tampered ledger bytes
+# refuse here, while a genuinely forced run remains sealed and therefore
+# unpublishable by cap_import_bundle's existing non-empty-list refusal.
+FORCE_HATCHES=$(pair_force_hatch_json) \
+  || fail "reference certification force-hatch ledger is missing, malformed, or contains an unreviewed hatch"
 jq -n \
   --arg repo_root "$REPO_ROOT" --arg created_at "$CREATED_AT" --arg git_revision "$GIT_REVISION" \
   --arg environment "$ENV_FILE" --argjson bound_inputs "$BOUND_INPUTS" --argjson artifacts "$ARTIFACTS" \

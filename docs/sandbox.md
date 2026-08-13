@@ -318,6 +318,13 @@ capacity or creating pair state. The
 kernel releases the descriptor after a crash/signal; the lock file itself is
 never removed, so a later owner cannot delete another process's reservation.
 `list` uses the same serialized strict query and surfaces the budget warning.
+For certification, variable presence is only permission: both certification
+wrappers initialize a private ledger through
+`sandbox/lib/pair_force_hatch.sh`, and `pair.sh` appends to it only when the
+unreserved over-budget branch actually consumes the override. An in-budget or
+held-reservation admission with the variable present therefore remains
+unforced. If actual use cannot be recorded, pair admission refuses before its
+first post-budget mutation.
 
 One pair name is exempt, and only while a lock says so.
 `certify_reference_bundle.sh` sources the lock protocol from
@@ -335,10 +342,11 @@ probe on a read-only descriptor, dropped the instant it is taken) and any doubt
 at all — no record, an unreadable one, a different name, a lock nobody holds,
 no way to probe — falls through to the ordinary refusal. This side only READS
 that rendezvous; it never creates, writes, or removes anything in it.
-`DUO_PAIR_BUDGET_OVERRIDE=1` is deliberately not the mechanism: the bundle does
-not detect the override today, so its manifest would affirmatively claim
-`force_hatches:[]` for a run whose budget was forced — silently wrong evidence
-(DUO-3406 tracks detecting and recording it).
+`DUO_PAIR_BUDGET_OVERRIDE=1` remains a distinct, lower-priority mechanism: if
+the reservation answers, the actual-use ledger stays empty; if an unreserved
+pair really consumes the override, the bundle records
+`force_hatches:["DUO_PAIR_BUDGET_OVERRIDE"]` and remains verifiable but cannot
+be imported as a current capability claim.
 
 ## The destroy-when-green convention
 
@@ -436,9 +444,12 @@ leg. Override its isolated resources with `CERT_BUNDLE_PAIR`,
 `CERT_BUNDLE_PORT1`, and `CERT_BUNDLE_PORT2` when the defaults are occupied.
 The wrapper sources `sandbox/lib/certbundle_evidence.sh` for the five narrow
 result, scoped-result, fragment, skipped-leg, and aggregate-fragment writers;
+the reference and scoped adapter wrappers both source
+`sandbox/lib/pair_force_hatch.sh` to initialize and project the pair launcher's
+validated actual-use ledger;
 scenario order, exact-source guards, pair lifecycle, and bundle publication
 remain visible in the wrapper. `make regress-certbundle-evidence` executes that
-machine-evidence contract directly with real `jq` and file I/O.
+machine-evidence and force-hatch contract directly with real `jq` and file I/O.
 
 Every run publishes a content-addressed directory below the ignored
 `sandbox/certification-bundles/` directory (or `CERT_BUNDLE_OUT`). Its manifest

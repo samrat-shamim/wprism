@@ -954,9 +954,10 @@ pass "every helper this suite started cleaned up its own control directory"
 # On 2026-08-09 five legs ran green, other agents filled the host's 4-pair
 # budget in between, leg 6's `up` refused over budget ("5 > 4"), and the bundle
 # recorded an immutable FAIL after ~25 minutes of earned evidence.
-# DUO_PAIR_BUDGET_OVERRIDE=1 is recorded by certification bundles, so a forced
-# run cannot falsely claim force_hatches:[]. It remains auditable but is not
-# eligible to become a current capability claim.
+# Actual DUO_PAIR_BUDGET_OVERRIDE use is recorded by certification bundles, so
+# a forced run cannot falsely claim force_hatches:[]. Availability alone is
+# not use. Forced evidence remains auditable but is not eligible to become a
+# current capability claim.
 #
 # So while this lock is HELD, pair.sh treats the exact pair name its record
 # carries as already budgeted. The cases below drive the SHIPPED pair.sh
@@ -971,6 +972,11 @@ PAIR_IDENTITY_SH="$(dirname "$PAIR_SH")/../lib/pair_identity.sh"
 PAIR_BUDGET_LOCK_SH="$(dirname "$PAIR_SH")/../lib/pair_budget_lock.sh"
 [ -f "$PAIR_BUDGET_LOCK_SH" ] \
   || fail "cannot find the pair-budget lock library required by the pair tool: $PAIR_BUDGET_LOCK_SH"
+PAIR_FORCE_HATCH_SH="$(dirname "$PAIR_SH")/../lib/pair_force_hatch.sh"
+[ -f "$PAIR_FORCE_HATCH_SH" ] \
+  || fail "cannot find the pair force-hatch library required by the pair tool: $PAIR_FORCE_HATCH_SH"
+# shellcheck source=../lib/pair_force_hatch.sh
+source "$PAIR_FORCE_HATCH_SH"
 PAIR_DB_SH="$(dirname "$PAIR_SH")/../lib/pair_db.sh"
 [ -f "$PAIR_DB_SH" ] \
   || fail "cannot find the pair-db library required by the pair tool: $PAIR_DB_SH"
@@ -1058,7 +1064,7 @@ SHIM
 
 PAIR_UP_STATUS=0
 PAIR_UP_SKIPPED=
-pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshared] [override: 0|1]
+pair_up() { # pair_up <label> <pair> <rendezvous> [probe] [override] [ledger: file|directory] [capacity: atcap|roomy]
   # One private copy of the shipped pair.sh per case, under this run's scratch:
   # pair.sh writes sandbox/.env and sandbox/siterepo/ relative to its own
   # location, and no regression may write those into the checkout it is testing.
@@ -1070,13 +1076,16 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
   # evidence and call it a pass. PAIR_UP_STATUS is reset here either way, so a
   # caller that forgets fails loudly instead of inheriting one.
   local label="$1" pair="$2" rendezvous="$3" probe="${4:-auto}" override="${5:-0}"
-  local root="$SCRATCH/pair.$label" path_value
+  local ledger_mode="${6:-file}" capacity="${7:-atcap}"
+  local root="$SCRATCH/pair.$label" path_value ledger="$SCRATCH/$label.force-hatches"
+  local cpu=3 memory=4294967296
   PAIR_UP_STATUS=0
   PAIR_UP_SKIPPED=
   mkdir -p "$root/sandbox/bin" "$root/sandbox/lib" "$root/bin"
   cp "$PAIR_SH" "$root/sandbox/bin/pair.sh"
   cp "$PAIR_IDENTITY_SH" "$root/sandbox/lib/pair_identity.sh"
   cp "$PAIR_BUDGET_LOCK_SH" "$root/sandbox/lib/pair_budget_lock.sh"
+  cp "$PAIR_FORCE_HATCH_SH" "$root/sandbox/lib/pair_force_hatch.sh"
   cp "$PAIR_DB_SH" "$root/sandbox/lib/pair_db.sh"
   cp "$PAIR_COMPOSE_SH" "$root/sandbox/lib/pair_compose.sh"
   cp "$PAIR_READINESS_SH" "$root/sandbox/lib/pair_readiness.sh"
@@ -1084,6 +1093,16 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
   cp "$PAIR_SITEREPO_SH" "$root/sandbox/lib/pair_siterepo.sh"
   chmod +x "$root/sandbox/bin/pair.sh"
   write_pair_fakes "$root/bin"
+  case "$ledger_mode" in
+    file) : > "$ledger" ;;
+    directory) mkdir -p "$ledger" ;;
+    *) fail "unknown pair force-hatch ledger fixture mode: $ledger_mode" ;;
+  esac
+  case "$capacity" in
+    atcap) ;;
+    roomy) cpu=4; memory=8589934592 ;;
+    *) fail "unknown pair capacity fixture: $capacity" ;;
+  esac
   path_value="$root/bin:$PATH"
   case "$probe" in
     python)
@@ -1114,13 +1133,22 @@ pair_up() { # pair_up <label> <pair> <rendezvous> [probe: auto|python|brokenshar
   # cases that are supposed to be deciding on the reservation.
   env PATH="$path_value" \
     DUO_PAIR_BUDGET_OVERRIDE="$override" \
+    DUO_PAIR_FORCE_HATCH_LOG="$ledger" \
     CERT_BUNDLE_LOCK_DIR="$rendezvous" \
-    DUO_PAIR_TEST_CPU=3 DUO_PAIR_TEST_MEM=4294967296 \
+    DUO_PAIR_TEST_CPU="$cpu" DUO_PAIR_TEST_MEM="$memory" \
     DUO_PAIR_TEST_LIVE_PAIRS='[{"ConfigFiles":"/fake/pair.yml","Name":"duo-existing"}]' \
     DUO_PAIR_TEST_CANONICAL_ROOT="$root/canonical" \
     bash "$root/sandbox/bin/pair.sh" up "$pair" 9911 9912 --headless \
     > "$SCRATCH/$label.log" 2>&1 || PAIR_UP_STATUS=$?
   return 0
+}
+
+assert_force_hatches() { # <label> <expected-json> <why>
+  local actual
+  actual=$(pair_force_hatch_json "$SCRATCH/$1.force-hatches") \
+    || fail "$3: force-hatch ledger could not be validated/projected"
+  [ "$actual" = "$2" ] \
+    || fail "$3: force-hatch ledger projected $actual, expected $2"
 }
 
 assert_pair_refused() { # assert_pair_refused <label> <pair> <why>
@@ -1141,6 +1169,26 @@ assert_pair_admitted() { # assert_pair_admitted <label> <pair> <why>
   assert_in "$log" "FAKE-DOCKER-SENTINEL" "$3: nothing beyond the budget gate was reached"
   [ "$PAIR_UP_STATUS" = "42" ] \
     || { show "$log"; fail "$3: pair.sh exited $PAIR_UP_STATUS, expected the fake docker sentinel (42) that follows the gate"; }
+}
+
+assert_pair_override_admitted() { # assert_pair_override_admitted <label> <pair> <why>
+  local log="$SCRATCH/$1.log"
+  assert_not_in "$log" "refusing to bring up new pair '$2' over budget" "$3"
+  assert_not_in "$log" "already budgeted for that run" "$3: a foreign pair borrowed the held reservation"
+  assert_in "$log" "DUO_PAIR_BUDGET_OVERRIDE=1 set" "$3: actual override admission was not loud"
+  assert_in "$log" "FAKE-DOCKER-SENTINEL" "$3: nothing beyond the admitted budget gate was reached"
+  [ "$PAIR_UP_STATUS" = "42" ] \
+    || { show "$log"; fail "$3: pair.sh exited $PAIR_UP_STATUS, expected the fake docker sentinel (42) that follows the gate"; }
+}
+
+assert_pair_in_budget() { # assert_pair_in_budget <label> <why>
+  local log="$SCRATCH/$1.log"
+  assert_not_in "$log" 'refusing to bring up new pair' "$2"
+  assert_not_in "$log" 'already budgeted for that run' "$2: in-budget admission consulted a reservation"
+  assert_not_in "$log" 'DUO_PAIR_BUDGET_OVERRIDE=1 set' "$2: in-budget admission claimed the hatch"
+  assert_in "$log" 'FAKE-DOCKER-SENTINEL' "$2: nothing beyond the admitted budget gate was reached"
+  [ "$PAIR_UP_STATUS" = "42" ] \
+    || { show "$log"; fail "$2: pair.sh exited $PAIR_UP_STATUS, expected the fake docker sentinel (42) that follows the gate"; }
 }
 
 say "case 21 — shipped ordering: the pair is recorded before the bundle's first pair.sh call, and both sides name one rendezvous"
@@ -1210,7 +1258,31 @@ say "case 24 — a reservation is answered as a reservation even when the overri
 # evidence say the host budget was overridden to get it.
 pair_up recordedoverride certbundle "$LOCK_DIR" auto 1
 assert_pair_admitted recordedoverride certbundle "the reservation did not answer first while DUO_PAIR_BUDGET_OVERRIDE=1 was also set"
-pass "with both the reservation and DUO_PAIR_BUDGET_OVERRIDE=1 in play, the reservation answers and the hatch is never mentioned"
+assert_force_hatches recordedoverride '[]' "a reserved admission with the variable present was recorded as forced"
+pass "with both the reservation and DUO_PAIR_BUDGET_OVERRIDE=1 in play, the reservation answers and the actual-use ledger stays empty"
+
+say "case 24a — an in-budget pair with the override available does not record hatch use"
+pair_up inbudget otherpair "$LOCK_DIR" auto 1 file roomy
+assert_pair_in_budget inbudget "an in-budget pair was treated as forced merely because the override was present"
+assert_force_hatches inbudget '[]' "in-budget admission recorded a hatch it never used"
+pass "in-budget admission ignores override availability and leaves force_hatches empty"
+
+say "case 24b — an unreserved over-budget pair records actual override use"
+pair_up actualoverride otherpair "$LOCK_DIR" auto 1
+assert_pair_override_admitted actualoverride otherpair "an unreserved over-budget override was not the admission authority"
+assert_force_hatches actualoverride '["DUO_PAIR_BUDGET_OVERRIDE"]' "actual override admission was omitted from evidence"
+pass "the actual over-budget override branch is loud and projects the reviewed force hatch"
+
+say "case 24c — actual override use refuses before pair mutation when its evidence ledger is unwritable"
+pair_up overrideledgerfailure otherpair "$LOCK_DIR" auto 1 directory
+[ "$PAIR_UP_STATUS" = 1 ] \
+  || { show "$SCRATCH/overrideledgerfailure.log"; fail "unrecordable override use exited $PAIR_UP_STATUS, expected refusal (1)"; }
+assert_in "$SCRATCH/overrideledgerfailure.log" \
+  'could not record actual DUO_PAIR_BUDGET_OVERRIDE use in the certification force-hatch ledger' \
+  "unrecordable override use did not name the evidence failure"
+assert_not_in "$SCRATCH/overrideledgerfailure.log" 'FAKE-DOCKER-SENTINEL' \
+  "unrecordable override use reached pair mutation"
+pass "an unrecordable actual override refuses before the first post-budget Docker action"
 
 say "case 25 — the reservation dies with its holder: a SIGKILLed bundle's surviving record grants nothing"
 CERTBUNDLE_PID=$(cat "$SCRATCH/ready.certbundle")

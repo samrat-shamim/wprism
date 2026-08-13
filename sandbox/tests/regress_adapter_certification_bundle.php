@@ -84,10 +84,12 @@ check(
 );
 $scopedHarness = (string) file_get_contents($source . '/sandbox/tests/certify_adapter_bundle.sh');
 check(
-    str_contains($scopedHarness, "FORCE_HATCHES='[\"DUO_PAIR_BUDGET_OVERRIDE\"]'")
+    str_contains($scopedHarness, 'source lib/pair_force_hatch.sh')
+    && str_contains($scopedHarness, 'pair_force_hatch_init "$WORK_ROOT/pair-force-hatches.log"')
+    && str_contains($scopedHarness, 'FORCE_HATCHES=$(pair_force_hatch_json)')
     && str_contains($scopedHarness, '--argjson force_hatches "$FORCE_HATCHES"')
     && str_contains($scopedHarness, 'force_hatches:$force_hatches'),
-    'scoped wrapper seals the explicit pair-budget override into its build spec'
+    'scoped wrapper seals validated actual pair-budget override use into its build spec'
 );
 $root = sys_get_temp_dir() . '/duo-adapter-bundle-' . bin2hex(random_bytes(6));
 register_shutdown_function(fn() => remove_tree($root));

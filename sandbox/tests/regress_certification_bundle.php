@@ -115,8 +115,10 @@ check(
     str_contains($enumeration, 'sandbox/pair.artifacts.yml')
         && str_contains($enumeration, 'sandbox/pair.wordpress-offline.yml')
         && str_contains($enumeration, 'sandbox/lib/certbundle_lock.sh')
-        && str_contains($enumeration, 'sandbox/lib/certbundle_evidence.sh'),
-    'artifact-cache overlays and both sourced certification boundaries are bundle-bound inputs'
+        && str_contains($enumeration, 'sandbox/lib/certbundle_evidence.sh')
+        && str_contains($enumeration, 'sandbox/lib/certbundle_source.sh')
+        && str_contains($enumeration, 'sandbox/lib/pair_force_hatch.sh'),
+    'artifact-cache overlays and all sourced certification boundaries are bundle-bound inputs'
 );
 
 $certRepoRoot = dirname(__DIR__, 2);

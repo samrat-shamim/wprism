@@ -88,6 +88,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/bin/pair.sh" "$bin_dir/pair.sh"
   cp "$ROOT/sandbox/lib/pair_identity.sh" "$bin_dir/../lib/pair_identity.sh"
   cp "$ROOT/sandbox/lib/pair_budget_lock.sh" "$bin_dir/../lib/pair_budget_lock.sh"
+  cp "$ROOT/sandbox/lib/pair_force_hatch.sh" "$bin_dir/../lib/pair_force_hatch.sh"
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
@@ -624,7 +625,7 @@ run_conformance_passthrough_case() {
 }
 
 say "bash syntax checks"
-bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" \
+bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_budget_lock.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/conformance/run.sh" \
   "$ROOT/sandbox/tests/regress_pair_candidate_source.sh"
 command -v git >/dev/null 2>&1 || fail "git is required for the linked-worktree fixture"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"' \

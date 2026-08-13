@@ -81,6 +81,10 @@ source "lib/pair_identity.sh"
 # shellcheck source=../lib/pair_budget_lock.sh
 source "lib/pair_budget_lock.sh"
 
+[ -r "lib/pair_force_hatch.sh" ] || fail "pair force-hatch library is missing: lib/pair_force_hatch.sh (the launcher cannot truthfully record forced certification admission)"
+# shellcheck source=../lib/pair_force_hatch.sh
+source "lib/pair_force_hatch.sh"
+
 [ -r "lib/pair_db.sh" ] || fail "pair db library is missing: lib/pair_db.sh (the launcher cannot safely bring up or query the shared database)"
 # shellcheck source=../lib/pair_db.sh
 source "lib/pair_db.sh"
@@ -473,10 +477,11 @@ pair_budget() {
 # budget in between is refused ("refusing to bring up new pair ... over
 # budget"), which ends the bundle in an immutable FAIL verdict after the legs
 # it had already earned (observed live: leg 6, ~25 minutes of green burned).
-# DUO_PAIR_BUDGET_OVERRIDE=1 is recorded by the scoped and reference
-# certifiers, so a forced run never falsely claims force_hatches:[]. Such a
-# bundle remains auditable but cannot be published as a current capability
-# claim; the reservation below is still preferred for an unforced certifier.
+# Actual DUO_PAIR_BUDGET_OVERRIDE use is recorded through the scoped and
+# reference certifiers' private ledger, so a forced run never falsely claims
+# force_hatches:[]. Availability alone records nothing. Such a bundle remains
+# auditable but cannot be published as a current capability claim; the
+# reservation below is still preferred for an unforced certifier.
 #
 # The slot was committed when the bundle started and the lock is the thing that
 # says it still is, so while that lock is held the recorded pair counts as
@@ -611,6 +616,14 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
       if certbundle_reserved_pair "$candidate"; then
         warn "!! '$candidate' is the pair recorded by the HELD host certification lock ($CERT_BUNDLE_LOCK_DIR) — already budgeted for that run (DUO-3396), bringing it up at ${total}/${budget}"
       elif [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
+        # Presence is permission, not evidence of use.  Record only here,
+        # after both the in-budget and held-reservation paths have failed to
+        # admit the candidate.  A configured certification ledger that cannot
+        # be written is a fail-closed evidence error, before pair mutation.
+        if ! pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE; then
+          budget_lock_release
+          fail "could not record actual DUO_PAIR_BUDGET_OVERRIDE use in the certification force-hatch ledger; refusing before pair mutation"
+        fi
         warn "!! DUO_PAIR_BUDGET_OVERRIDE=1 set — bringing up '$candidate' ANYWAY, ${total}/${budget} over budget"
       else
         budget_lock_release

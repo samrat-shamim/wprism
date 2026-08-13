@@ -10,7 +10,9 @@ pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 
 command -v jq >/dev/null || fail "jq required"
-bash -n ../lib/certbundle_evidence.sh certify_reference_bundle.sh
+FORCE_HATCH_LIB=../lib/pair_force_hatch.sh
+SCOPED_WRAPPER=certify_adapter_bundle.sh
+bash -n ../lib/certbundle_evidence.sh "$FORCE_HATCH_LIB" certify_reference_bundle.sh "$SCOPED_WRAPPER"
 
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
@@ -21,6 +23,50 @@ fi
 grep -qF 'certbundle_evidence.sh is a source-only library' "$TMP/direct.log" \
   || fail "direct-execution refusal did not name the source-only contract"
 pass "the evidence boundary is source-only"
+
+if bash "$FORCE_HATCH_LIB" 2>"$TMP/force-hatch-direct.log"; then
+  fail "source-only pair force-hatch library executed directly"
+fi
+grep -qF 'pair_force_hatch.sh is a source-only library' "$TMP/force-hatch-direct.log" \
+  || fail "force-hatch direct-execution refusal did not name the source-only contract"
+# shellcheck source=../lib/pair_force_hatch.sh
+source "$FORCE_HATCH_LIB"
+
+say "actual-use force-hatch ledger"
+unset DUO_PAIR_FORCE_HATCH_LOG
+pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE \
+  || fail "ordinary non-certification pair use unexpectedly required an evidence ledger"
+LEDGER="$TMP/pair-force-hatches.log"
+if pair_force_hatch_init relative-ledger; then
+  fail "force-hatch ledger accepted a relative path"
+fi
+pair_force_hatch_init "$LEDGER" || fail "could not initialize the private force-hatch ledger"
+DUO_PAIR_BUDGET_OVERRIDE=1
+export DUO_PAIR_BUDGET_OVERRIDE
+[ "$(pair_force_hatch_json)" = '[]' ] \
+  || fail "environment-variable presence was mistaken for actual force-hatch use"
+pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE \
+  || fail "reviewed force-hatch use could not be recorded"
+pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE \
+  || fail "repeated force-hatch use could not be recorded"
+[ "$(pair_force_hatch_json)" = '["DUO_PAIR_BUDGET_OVERRIDE"]' ] \
+  || fail "actual repeated use did not project to one stable reviewed hatch"
+if pair_force_hatch_record UNREVIEWED_HATCH; then
+  fail "unreviewed force-hatch name was accepted"
+fi
+printf '%s\n' UNREVIEWED_HATCH >> "$LEDGER"
+if pair_force_hatch_json >"$TMP/unreviewed-force-hatch.json"; then
+  fail "tampered force-hatch ledger projected an unreviewed hatch"
+fi
+rm -f -- "$LEDGER"
+if pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE; then
+  fail "actual hatch use succeeded after the wrapper-owned ledger disappeared"
+fi
+if pair_force_hatch_json >"$TMP/missing-force-hatch.json"; then
+  fail "missing wrapper-owned ledger projected clean evidence"
+fi
+unset DUO_PAIR_BUDGET_OVERRIDE DUO_PAIR_FORCE_HATCH_LOG
+pass "presence stays unforced, actual use deduplicates, and missing/tampered ledgers refuse"
 
 # shellcheck source=../lib/certbundle_evidence.sh
 source ../lib/certbundle_evidence.sh
@@ -93,5 +139,22 @@ for helper in write_result write_scoped_result write_fragment write_skipped appe
     || fail "reference wrapper no longer calls certbundle_evidence_${helper}"
 done
 pass "the wrapper delegates all five evidence helpers and retains no legacy definitions or calls"
+
+say "thin actual-use handoff"
+for wrapper in certify_reference_bundle.sh "$SCOPED_WRAPPER"; do
+  grep -qF 'source lib/pair_force_hatch.sh' "$wrapper" \
+    || fail "$wrapper no longer sources the actual-use ledger"
+  grep -qF 'pair_force_hatch_init "$WORK_ROOT/pair-force-hatches.log"' "$wrapper" \
+    || fail "$wrapper no longer initializes a private actual-use ledger"
+  grep -qF 'FORCE_HATCHES=$(pair_force_hatch_json)' "$wrapper" \
+    || fail "$wrapper no longer projects actual hatch use into its build spec"
+  grep -qF 'sandbox/lib/pair_force_hatch.sh' "$wrapper" \
+    || fail "$wrapper does not bind the actual-use ledger library into certification evidence"
+done
+grep -qF 'source "lib/pair_force_hatch.sh"' ../bin/pair.sh \
+  || fail "pair launcher no longer loads the actual-use ledger"
+grep -qF 'pair_force_hatch_record DUO_PAIR_BUDGET_OVERRIDE' ../bin/pair.sh \
+  || fail "pair launcher no longer records the actual override admission branch"
+pass "both wrappers initialize/project the ledger and pair.sh owns the actual-use write"
 
 printf '\n\033[1;32m✔ REGRESS_CERTBUNDLE_EVIDENCE PASSED\033[0m\n'

@@ -24,12 +24,13 @@ OUT_ROOT="${CERT_ADAPTER_OUT:-/tmp/duo-adapter-certification-bundles}"
   || fail "CERT_ADAPTER_PORT1 must be an even port >= 8900 and PORT2 must immediately follow"
 (( PORT1 % 2 == 0 )) || fail "CERT_ADAPTER_PORT1 must be even"
 case "${DUO_PAIR_BUDGET_OVERRIDE:-}" in
-  ''|0) FORCE_HATCHES='[]' ;;
-  1) FORCE_HATCHES='["DUO_PAIR_BUDGET_OVERRIDE"]' ;;
+  ''|0|1) ;;
   *) fail "DUO_PAIR_BUDGET_OVERRIDE must be unset, 0, or 1 for scoped certification" ;;
 esac
 command -v jq >/dev/null || fail "jq required"
 command -v php >/dev/null || fail "php required"
+# shellcheck source=../lib/pair_force_hatch.sh
+source lib/pair_force_hatch.sh
 
 REPO_ROOT=$(cd .. && pwd -P)
 SOURCE_SHA=$(git -C "$REPO_ROOT" rev-parse --verify HEAD^{commit}) \
@@ -48,6 +49,8 @@ cleanup() {
   esac
 }
 trap cleanup EXIT
+pair_force_hatch_init "$WORK_ROOT/pair-force-hatches.log" \
+  || fail "could not initialize the scoped certification force-hatch ledger"
 
 say "scoped adapter certification preflight: $MANIFEST @ $SOURCE_SHA"
 php -l bin/adapter-certification-bundle.php >/dev/null
@@ -55,8 +58,8 @@ bash -n conformance/run.sh tests/certify_version_matrix.sh
 bash bin/pair.sh list
 mkdir -p -- "$OUT_ROOT"
 pass "builder, exact-source checkout, and shared-pair inventory are ready"
-if [ "$FORCE_HATCHES" != '[]' ]; then
-  printf 'note: budget override is active and will be sealed in force_hatches; this bundle cannot be published as a current capability claim\n'
+if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = 1 ]; then
+  printf 'note: budget override is available; only actual over-budget use will be sealed in force_hatches and make this bundle non-publishable\n'
 fi
 
 CONFORMANCE_LOG="$WORK_ROOT/conformance-$MANIFEST.log"
@@ -130,12 +133,15 @@ BOUND_INPUTS=$({ git -C "$REPO_ROOT" ls-files \
   sandbox/conformance/entries/woocommerce.json \
   sandbox/conformance/seeds/woocommerce.sh sandbox/conformance/postdeploy/woocommerce.sh sandbox/conformance/checks/woocommerce.sh \
   sandbox/conformance/artifacts.lock.json \
+  sandbox/lib/pair_force_hatch.sh \
   sandbox/tests/certify_adapter_bundle.sh sandbox/tests/certify_version_matrix.sh \
   sandbox/pair.yml sandbox/pair.artifacts.yml sandbox/pair.wordpress-offline.yml sandbox/db.yml sandbox/init-cli.Dockerfile \
   scripts/capability-registry.php docs/compatibility-baseline.json Makefile; \
   printf '%s\n' manifests/dispositions.json manifests/woocommerce.json \
     manifests/providers/woocommerce-cache.php manifests/providers/woocommerce-product-lookups.php; } \
   | LC_ALL=C sort -u | jq -R . | jq -s .)
+FORCE_HATCHES=$(pair_force_hatch_json) \
+  || fail "scoped certification force-hatch ledger is missing, malformed, or contains an unreviewed hatch"
 SPEC="$WORK_ROOT/$MANIFEST.spec.json"
 jq -n \
   --arg repo_root "$REPO_ROOT" --arg manifest "$MANIFEST" \
