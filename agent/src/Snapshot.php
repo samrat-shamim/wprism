@@ -6,6 +6,7 @@ require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/OrderPreserved.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/ReferenceRules.php';
+require_once __DIR__ . '/TableGraph.php';
 
 /**
  * Typed snapshot: capture/apply for authored custom tables (DESIGN.md §3.3's
@@ -317,8 +318,8 @@ require_once __DIR__ . '/ReferenceRules.php';
  * file itself needing any of their in-flight changes.
  */
 final class Snapshot {
-    public const CLASS_ROW = 'authored_snapshot';
-    public const CLASS_META = 'authored_snapshot_meta';
+    public const CLASS_ROW = TableGraph::CLASS_ROW;
+    public const CLASS_META = TableGraph::CLASS_META;
 
     /** duo_map.id_kind width — shared with Ledger's schema/migration. */
     private const MAX_ID_KIND_LEN = Ledger::ID_KIND_WIDTH;
@@ -345,15 +346,10 @@ final class Snapshot {
      *  composite_ref in one place and fall through to mapped/natural_key
      *  logic in another. See this file's docblock, "Identity: three modes." */
     private static function is_composite_ref(array $decl): bool {
-        return ($decl['identity']['mode'] ?? 'mapped') === 'composite_ref';
+        return TableGraph::is_composite_ref($decl);
     }
 
     // ------------------------------------------------------------- manifest
-
-    /** Entity 'type' values already spoken for by posts/terms/menus/options
-     *  (Apply's own dispatch discriminant) — see row_tables()'s reserved-
-     *  name guard for why a declared table can never legally reuse one. */
-    private const RESERVED_TYPES = ['post', 'term', 'menu', 'options'];
 
     /**
      * Declared ROW tables (class === authored_snapshot), keyed by table
@@ -370,28 +366,7 @@ final class Snapshot {
      * collide with the four names posts/terms/menus/options already own.
      */
     public static function row_tables(Policy $policy): array {
-        $out = [];
-        $seenKind = [];
-        foreach ($policy->declared_tables() as $name => $decl) {
-            if (($decl['class'] ?? '') !== self::CLASS_ROW) {
-                continue;
-            }
-            if (in_array($name, self::RESERVED_TYPES, true)) {
-                throw new \RuntimeException(
-                    "duo: table '$name' collides with a reserved entity type name (" . implode('/', self::RESERVED_TYPES) . ')'
-                );
-            }
-            $kind = (string) ($decl['id_kind'] ?? '');
-            if (isset($seenKind[$kind])) {
-                throw new \RuntimeException(
-                    "duo: id_kind '$kind' is declared by both '{$seenKind[$kind]}' and '$name' — "
-                    . 'each authored_snapshot table needs its own unique id_kind'
-                );
-            }
-            $seenKind[$kind] = $name;
-            $out[$name] = $decl;
-        }
-        return $out;
+        return TableGraph::row_tables($policy->declared_tables());
     }
 
     /**
@@ -475,13 +450,7 @@ final class Snapshot {
 
     /** Declared ATTACHED-META tables (class === authored_snapshot_meta), keyed by table name. */
     public static function meta_tables(Policy $policy): array {
-        $out = [];
-        foreach ($policy->declared_tables() as $name => $decl) {
-            if (($decl['class'] ?? '') === self::CLASS_META) {
-                $out[$name] = $decl;
-            }
-        }
-        return $out;
+        return TableGraph::meta_tables($policy->declared_tables());
     }
 
     /**
@@ -581,30 +550,7 @@ final class Snapshot {
 
     /** meta table name => decl, grouped by owning row table name. */
     private static function meta_tables_by_owner(array $rowTables, array $metaTables): array {
-        $out = [];
-        foreach ($metaTables as $metaName => $metaDecl) {
-            $owner = $metaDecl['attached_to']['table'] ?? null;
-            if ($owner === null || !isset($rowTables[$owner])) {
-                throw new \RuntimeException(
-                    "duo: table '$metaName' declares class " . self::CLASS_META . ' with attached_to.table='
-                    . var_export($owner, true) . ', which is not itself a declared ' . self::CLASS_ROW . ' table'
-                );
-            }
-            if (self::is_composite_ref($rowTables[$owner])) {
-                // A composite_ref row has no scalar local identity of its own
-                // (see this file's docblock) for a sidecar's attached_to.column
-                // to key on — nothing PMPro's own composite-PK tables need
-                // (neither pmpro_memberships_pages nor pmpro_memberships_
-                // categories has an attached-meta table), so this stays an
-                // explicit refusal rather than a half-built mechanism.
-                throw new \RuntimeException(
-                    "duo: table '$metaName' declares attached_to.table='$owner', which is identity.mode=composite_ref — "
-                    . 'a pure join table has no scalar row identity for an attached-meta sidecar to key on'
-                );
-            }
-            $out[$owner][$metaName] = $metaDecl;
-        }
-        return $out;
+        return TableGraph::meta_tables_by_owner($rowTables, $metaTables);
     }
 
     /**
@@ -618,55 +564,13 @@ final class Snapshot {
      * both be worse than a loud, immediate failure.
      */
     public static function topo_order(array $rowTables): array {
-        $idKindToTable = [];
-        foreach ($rowTables as $name => $decl) {
-            $idKindToTable[$decl['id_kind']] = $name;
-        }
-        $deps = [];
-        foreach ($rowTables as $name => $decl) {
-            $deps[$name] = [];
-            foreach ($decl['refs'] ?? [] as $ref) {
-                $target = $idKindToTable[$ref['kind']] ?? null;
-                if ($target !== null && $target !== $name) {
-                    $deps[$name][$target] = true;
-                }
-            }
-        }
-        $order = [];
-        $placed = [];
-        $remaining = array_keys($rowTables);
-        while ($remaining) {
-            $progressed = false;
-            foreach ($remaining as $i => $name) {
-                $ready = true;
-                foreach (array_keys($deps[$name]) as $dep) {
-                    if (!isset($placed[$dep])) {
-                        $ready = false;
-                        break;
-                    }
-                }
-                if ($ready) {
-                    $order[] = $name;
-                    $placed[$name] = true;
-                    unset($remaining[$i]);
-                    $progressed = true;
-                }
-            }
-            if (!$progressed) {
-                throw new \RuntimeException(
-                    'duo: cyclic ref dependency among declared tables: ' . implode(', ', $remaining)
-                );
-            }
-        }
-        return $order;
+        return TableGraph::topo_order($rowTables);
     }
 
     /** Rank of $table in topo order (0 = no unresolved deps). Used by the
      *  apply-phase2 ordering wiring, offset past posts/terms' own ranks. */
     public static function phase2_rank(Policy $policy, string $table): int {
-        $order = self::topo_order(self::row_tables($policy));
-        $idx = array_search($table, $order, true);
-        return $idx === false ? 0 : $idx;
+        return TableGraph::phase2_rank(self::row_tables($policy), $table);
     }
 
     // -------------------------------------------------------------- schema
