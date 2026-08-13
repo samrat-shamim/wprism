@@ -16,15 +16,17 @@ require_once __DIR__ . '/ArtifactPolicyIdentity.php';
 // media cataloguing are independent of tree parsing and Policy. Required
 // directly so existing RepositoryCompiler consumers keep one closed load graph.
 require_once __DIR__ . '/RepositoryMediaCatalog.php';
-require_once __DIR__ . '/RepositorySchemaValidator.php';
 require_once __DIR__ . '/RepositoryDeletionParser.php';
+require_once __DIR__ . '/RepositoryEntityParser.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
  * become one validated IR before Tokens, Ledger, Capture, or a target query
- * can be constructed. It owns parsing, schema validation, identity/natural-
- * key uniqueness, graph closure, media safety, conflict markers, adapter
- * constraints, and DUO-3203's active-policy authorization pass.
+ * can be constructed. Its entity-parser collaborator owns one-file routing,
+ * decoding, schema validation, and attachment reference checks; this compiler
+ * retains tree traversal, identity/natural-key uniqueness, graph closure,
+ * full media cataloguing, conflict markers, adapter constraints, and
+ * DUO-3203's active-policy authorization pass.
  */
 final class RepositoryCompiler {
     private const UUID_RE = '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/';
@@ -60,7 +62,7 @@ final class RepositoryCompiler {
     //
     // $completenessOptional therefore narrows historical comparison mode to
     // two current-action checks: the "every required name needs some record"
-    // gate in parse_entity()'s options branch, and the CodeStateContract
+    // gate in RepositoryEntityParser's options branch, and the CodeStateContract
     // lifecycle bridge below. It does NOT skip Code::compile() itself, so
     // current code config/source/descriptor validation, malformed JSON,
     // invalid record shapes, illegitimate tombstones, conflict markers,
@@ -76,10 +78,10 @@ final class RepositoryCompiler {
     private array $deletions = [];
     /** Attachment/blob validation state for this compilation's resolved media root. */
     private RepositoryMediaCatalog $mediaCatalog;
-    /** Decoded entity shape validation for this compiler's immutable Policy. */
-    private RepositorySchemaValidator $schemaValidator;
     /** Decoded deletion-intent validation for this compiler's immutable Policy. */
     private RepositoryDeletionParser $deletionParser;
+    /** Decoded canonical entity parsing for this compiler's immutable Policy. */
+    private RepositoryEntityParser $entityParser;
 
     private function __construct(
         string $stateDir,
@@ -101,15 +103,16 @@ final class RepositoryCompiler {
                 $this->add($code, $path, $locator, $message, $relatedPath);
             }
         );
-        $this->schemaValidator = new RepositorySchemaValidator(
+        $this->deletionParser = new RepositoryDeletionParser(
             $policy,
-            SidebarState::ENTITY_TYPE,
             function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
                 $this->add($code, $path, $locator, $message, $relatedPath);
             }
         );
-        $this->deletionParser = new RepositoryDeletionParser(
+        $this->entityParser = new RepositoryEntityParser(
             $policy,
+            $completenessOptional,
+            $this->mediaCatalog,
             function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
                 $this->add($code, $path, $locator, $message, $relatedPath);
             }
@@ -337,7 +340,7 @@ final class RepositoryCompiler {
                 }
                 continue;
             }
-            $entity = $this->parse_entity($path, $content);
+            $entity = $this->entityParser->parse($path, $content);
             if ($entity === null) {
                 continue;
             }
@@ -530,164 +533,6 @@ final class RepositoryCompiler {
         }
         ksort($out, SORT_STRING);
         return $out;
-    }
-
-    /** @return ?array typed IR entry */
-    private function parse_entity(string $path, string $content): ?array {
-        $kind = null;
-        if (preg_match('#^posts/([^/]+)/([^/]+)\.md$#', $path, $m)) {
-            $kind = 'post';
-        } elseif (preg_match('#^terms/([^/]+)/([^/]+)\.json$#', $path, $m)) {
-            $kind = 'term';
-        } elseif (preg_match('#^menus/([^/]+)\.json$#', $path, $m)) {
-            $kind = 'menu';
-        } elseif (preg_match('#^sidebars/([^/]+)\.json$#', $path, $m)) {
-            $kind = SidebarState::ENTITY_TYPE;
-        } elseif ($path === 'options/core.json') {
-            $kind = 'options';
-        } elseif (preg_match('#^user-meta/([0-9a-f]{64})\.json$#', $path, $m)) {
-            $kind = 'user-meta';
-        } elseif (preg_match('#^tables/([^/]+)/([^/]+)\.json$#', $path, $m)) {
-            $kind = 'table';
-        }
-        if ($kind === null) {
-            $this->add(
-                'invalid_entity_kind', $path, '',
-                'path does not name a supported post/term/menu/sidebar/options/user-meta/table entity'
-            );
-            return null;
-        }
-
-        try {
-            if ($kind === 'post') {
-                [$data, $body] = Canon::parse_post_file($content);
-            } else {
-                $data = Canon::decode($content);
-                $body = null;
-            }
-        } catch (\Throwable $t) {
-            $this->add('malformed_entity', $path, '', $t->getMessage());
-            return null;
-        }
-        if (!is_array($data)) {
-            $this->add('schema_content_mismatch', $path, '', 'entity metadata must decode to an object');
-            return null;
-        }
-        if ($kind === 'options') {
-            try {
-                $records = OptionState::records($data);
-            } catch (\Throwable $t) {
-                $this->add('schema_content_mismatch', $path, '', $t->getMessage());
-                return null;
-            }
-            if (!$this->completenessOptional) {
-                $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
-                $required += array_fill_keys(array_keys($this->policy->sub_keyed_options()), true);
-                foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
-                    if (($this->policy->option_rule($managedOption)['class'] ?? null) === 'managed') {
-                        $required[$managedOption] = true;
-                    }
-                }
-                foreach (array_diff_key($required, $records) as $name => $_) {
-                    $this->add(
-                        'schema_content_mismatch', $path, 'records.' . $name,
-                        "authored exact option '$name' needs an explicit absent, present, or deleted record; "
-                        . 'removing a record is not deletion intent'
-                    );
-                }
-            }
-            return [
-                'type' => 'options', 'path' => $path,
-                'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
-                'content' => $content,
-                'data' => $data,
-            ];
-        }
-
-        if ($kind === 'user-meta') {
-            $this->schemaValidator->validate($kind, $path, $data, null);
-            $login = (string) ($data['login'] ?? '');
-            try {
-                UserMetaState::assert_login($login);
-            } catch (\Throwable $t) {
-                $this->add('schema_content_mismatch', $path, 'login', $t->getMessage());
-            }
-            if ($path !== UserMetaState::path($login)) {
-                $this->add(
-                    'schema_content_mismatch', $path, 'login',
-                    'user-meta filename must be the SHA-256 canonical key of the exact login'
-                );
-            }
-            return [
-                'type' => 'user-meta', 'path' => $path,
-                'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
-                'content' => $content,
-                'data' => $data,
-            ];
-        }
-
-        if ($kind === SidebarState::ENTITY_TYPE) {
-            $this->schemaValidator->validate($kind, $path, $data, null);
-            return [
-                'type' => SidebarState::ENTITY_TYPE, 'path' => $path,
-                'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
-                'content' => $content,
-                'data' => $data,
-            ];
-        }
-
-        $this->schemaValidator->validate($kind, $path, $data, $body);
-        $uuid = (string) ($data['uuid'] ?? '');
-        if (!preg_match(self::UUID_RE, $uuid)) {
-            $this->add('invalid_uuid', $path, 'uuid', "'$uuid' is not a lowercase RFC UUID");
-        }
-        if (!str_starts_with(basename($path), $uuid . '--') && $kind !== 'menu') {
-            $this->add('schema_content_mismatch', $path, 'uuid', 'filename identity does not match entity uuid');
-        }
-
-        $type = $kind;
-        if ($kind === 'post') {
-            $dir = explode('/', $path)[1];
-            if (($data['type'] ?? null) !== $dir) {
-                $this->add('schema_content_mismatch', $path, 'type', 'post type disagrees with its directory');
-            }
-            if (basename($path) !== $uuid . '--' . (string) ($data['slug'] ?? '') . '.md') {
-                $this->add('schema_content_mismatch', $path, 'slug', 'post filename does not match uuid and slug');
-            }
-            $entry = [
-                'type' => 'post', 'post_type' => (string) ($data['type'] ?? ''), 'path' => $path,
-                'hash' => hash('sha256', Canon::post_hash_basis($data, (string) $body, $this->policy)),
-                'source_hash' => hash('sha256', $content), 'content' => $content,
-                'data' => $data, 'body' => (string) $body,
-            ];
-            $this->mediaCatalog->validate_attachment($path, $data);
-            return $entry;
-        }
-        if ($kind === 'term') {
-            $dir = explode('/', $path)[1];
-            if (($data['taxonomy'] ?? null) !== $dir) {
-                $this->add('schema_content_mismatch', $path, 'taxonomy', 'term taxonomy disagrees with its directory');
-            }
-            if (basename($path) !== $uuid . '--' . (string) ($data['slug'] ?? '') . '.json') {
-                $this->add('schema_content_mismatch', $path, 'slug', 'term filename does not match uuid and slug');
-            }
-        } elseif ($kind === 'menu') {
-            if (basename($path) !== (string) ($data['slug'] ?? '') . '.json') {
-                $this->add('schema_content_mismatch', $path, 'slug', 'menu filename does not match slug');
-            }
-        } elseif ($kind === 'table') {
-            $dir = explode('/', $path)[1];
-            if (($data['table'] ?? null) !== $dir) {
-                $this->add('schema_content_mismatch', $path, 'table', 'table name disagrees with its directory');
-            }
-            $type = (string) ($data['table'] ?? '');
-        }
-        return [
-            'type' => $type, 'path' => $path,
-            'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
-            'content' => $content,
-            'data' => $data,
-        ];
     }
 
     private function register_identity(string $uuid, string $kind, string $path): bool {

@@ -52,7 +52,7 @@ require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require __DIR__ . '/../../agent/src/SidebarState.php';
+require_once __DIR__ . '/../../agent/src/SidebarState.php';
 require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
 require __DIR__ . '/../../agent/src/Deploy.php';
 require __DIR__ . '/../../cli/src/PlanSummary.php';
