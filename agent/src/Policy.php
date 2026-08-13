@@ -90,6 +90,9 @@ require_once __DIR__ . '/SitePolicyValidator.php';
 // DUO-3348 slice 36: live and frozen loads share one post-local-load
 // validation/pin-binding sequence, so keep its refusal order in one place.
 require_once __DIR__ . '/PolicyLoadFinalizer.php';
+// DUO-3348 slice 37: pure dynamic-option declaration resolution is separate
+// from Policy's public compatibility/query surface and caller-owned live values.
+require_once __DIR__ . '/DynamicOptionResolver.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -917,17 +920,7 @@ final class Policy {
      * @return array<string, array{prefix:string, resolver:string, sub_keys:array<string,array>, autoload:?string}>
      */
     public function dynamic_options(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['dynamic_options'] ?? [] as $key => $r) {
-                if (isset($out[$key])) {
-                    continue; // first-declaring-manifest wins
-                }
-                $out[$key] = self::with_option_autoload($r, $m);
-            }
-        }
-        ksort($out, SORT_STRING);
-        return $out;
+        return $this->dynamic_option_resolver()->dynamic_options();
     }
 
     /**
@@ -945,16 +938,7 @@ final class Policy {
      * @return ?array{name:string, class:string, sub_keys:array<string,array>, autoload:?string}
      */
     public function resolve_dynamic_option(string $key, string $resolvedValue): ?array {
-        $decl = $this->dynamic_options()[$key] ?? null;
-        if ($decl === null) {
-            return null;
-        }
-        return [
-            'name' => $decl['prefix'] . $resolvedValue,
-            'class' => 'env',
-            'sub_keys' => $decl['sub_keys'],
-            'autoload' => $decl['autoload'] ?? null,
-        ];
+        return $this->dynamic_option_resolver()->resolve_dynamic_option($key, $resolvedValue);
     }
 
     /**
@@ -974,18 +958,7 @@ final class Policy {
      * @param array<string,string> $resolvedValues
      */
     public function is_dynamic_option_residue(string $liveName, array $resolvedValues): bool {
-        foreach ($this->dynamic_options() as $decl) {
-            $prefix = $decl['prefix'];
-            if (!str_starts_with($liveName, $prefix)) {
-                continue;
-            }
-            $resolvedValue = $resolvedValues[$decl['resolver']] ?? null;
-            if ($resolvedValue === null) {
-                continue; // this environment supplied no live value for the declared resolver -- not this method's call to guess
-            }
-            return $liveName !== ($prefix . $resolvedValue);
-        }
-        return false;
+        return $this->dynamic_option_resolver()->is_dynamic_option_residue($liveName, $resolvedValues);
     }
 
     /**
@@ -1009,39 +982,7 @@ final class Policy {
      * @return ?array{class:string, sub_keys:array<string,array>, autoload:?string}
      */
     public function dynamic_option_rule_for_name(string $name, array $resolvedValues): ?array {
-        foreach ($this->dynamic_options() as $key => $decl) {
-            if (!str_starts_with($name, $decl['prefix'])) {
-                continue;
-            }
-            $resolvedValue = $resolvedValues[$decl['resolver']] ?? null;
-            if ($resolvedValue === null) {
-                // DUO-3318: a silent `continue` here used to turn an ENGINE
-                // wiring gap into an unclassified option. $resolvedValues is
-                // assembled by the caller from the resolver names this policy
-                // itself declares (Apply::dynamic_option_resolver_values()),
-                // so a missing entry can only mean the caller's own resolver
-                // map fell behind SubKeyGrammar::DYNAMIC_OPTION_RESOLVERS —
-                // never a data state a target can be in. Continuing produced a null return
-                // indistinguishable from "no declaration matches", which
-                // capture/apply then reports as an unclassified row: a
-                // confusing symptom arbitrarily far from the missing map
-                // entry that caused it. is_dynamic_option_residue() keeps its
-                // own `continue` deliberately — that method answers a
-                // yes/no question ABOUT a live environment and is documented
-                // as refusing to guess when the environment supplied nothing.
-                throw new \RuntimeException(
-                    "duo: dynamic_options.$key declares resolver '{$decl['resolver']}' but this caller supplied no "
-                    . 'value for it (supplied: ' . (($resolvedValues === []) ? 'none' : implode(', ', array_keys($resolvedValues)))
-                    . ") — the resolver vocabulary is engine-owned and every declared resolver must be resolved by the "
-                    . 'engine call site, not skipped'
-                );
-            }
-            $resolved = $this->resolve_dynamic_option($key, $resolvedValue);
-            if ($resolved !== null && $resolved['name'] === $name) {
-                return ['class' => $resolved['class'], 'sub_keys' => $resolved['sub_keys'], 'autoload' => $resolved['autoload']];
-            }
-        }
-        return null;
+        return $this->dynamic_option_resolver()->dynamic_option_rule_for_name($name, $resolvedValues);
     }
 
     /**
@@ -1068,12 +1009,19 @@ final class Policy {
      * @return ?array{class:string, sub_keys:array<string,array>, autoload:?string}
      */
     public function dynamic_option_rule_for_prefix(string $name): ?array {
-        foreach ($this->dynamic_options() as $decl) {
-            if (str_starts_with($name, $decl['prefix'])) {
-                return ['class' => 'env', 'sub_keys' => $decl['sub_keys'], 'autoload' => $decl['autoload'] ?? null];
-            }
-        }
-        return null;
+        return $this->dynamic_option_resolver()->dynamic_option_rule_for_prefix($name);
+    }
+
+    /**
+     * Keep Policy::with_option_autoload() on Policy: cross-manifest grammar
+     * validators also use that public compatibility primitive.  The resolver
+     * receives only this narrow normalizer, never a Policy/service locator.
+     */
+    private function dynamic_option_resolver(): DynamicOptionResolver {
+        return new DynamicOptionResolver(
+            $this->manifests,
+            static fn(array $rule, array $source): array => self::with_option_autoload($rule, $source)
+        );
     }
 
     /**
