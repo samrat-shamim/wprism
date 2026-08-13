@@ -200,6 +200,66 @@ final class DeleteGuardEvaluator {
     }
 
     /**
+     * Attach the per-tombstone guard findings to a completed plan. The
+     * evaluator owns the shared delete/delete-conflict bucket walk, witness
+     * attachment, and the rule that a blocked conflict may not advertise its
+     * destructive repository choice. Apply still owns capability resolution,
+     * target SQL/reference decoding, and the callbacks which supply those
+     * facts; this boundary therefore changes no deletion authority.
+     *
+     * @param array<string,mixed> $plan
+     * @param array<string,array<string,mixed>> $deletionCapabilities
+     * @param callable(array<string,mixed>,string,bool):array{count:int,error:?string,rows:list<string>,witness?:string} $countRefs
+     * @param callable(string):bool $isRepairable
+     * @return array<string,mixed>
+     */
+    public static function annotate_plan_guard_findings(
+        array $plan,
+        array $deletionCapabilities,
+        callable $countRefs,
+        callable $isRepairable,
+        string $emptyWitness
+    ): array {
+        foreach (['delete', 'delete_conflict'] as $bucket) {
+            foreach ($plan[$bucket] as &$row) {
+                $uuid = (string) $row['uuid'];
+                $findings = self::reference_findings(
+                    (array) ($deletionCapabilities[$uuid]['guards'] ?? []),
+                    static function (array $guard, bool $forUpdate) use ($countRefs, $uuid): array {
+                        return $countRefs($guard, $uuid, $forUpdate);
+                    },
+                    $isRepairable,
+                    false,
+                    $emptyWitness
+                );
+                $blocks = $findings['blocks'];
+                $guardRefs = $findings['guard_refs'];
+                if ($blocks) {
+                    $row['blocked'] = implode('; ', $blocks);
+                    if ($bucket === 'delete_conflict' && isset($row['conflict_view']['choices'])) {
+                        // A referential guard is a separate authorization
+                        // boundary. Do not advertise the destructive
+                        // repository-delete choice until those declared
+                        // references are repaired; --force-delete-referenced
+                        // is report-not-hide but never a "safe choice."
+                        $row['conflict_view']['choices'] = array_values(array_filter(
+                            (array) $row['conflict_view']['choices'],
+                            static fn($choice): bool => is_array($choice)
+                                && ($choice['id'] ?? null) !== 'apply_repository'
+                        ));
+                    }
+                }
+                if ($guardRefs) {
+                    $row['guard_refs'] = $guardRefs;
+                }
+                $row['guard_witnesses'] = $findings['guard_witnesses'];
+            }
+            unset($row);
+        }
+        return $plan;
+    }
+
+    /**
      * Resolve an index which covers the first equality/range column of a
      * manifest guard. A prefix index is accepted only when the declared
      * metadata key fits entirely inside that prefix; otherwise inserts with
