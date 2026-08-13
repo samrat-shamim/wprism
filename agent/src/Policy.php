@@ -93,6 +93,9 @@ require_once __DIR__ . '/PolicyLoadFinalizer.php';
 // DUO-3348 slice 37: pure dynamic-option declaration resolution is separate
 // from Policy's public compatibility/query surface and caller-owned live values.
 require_once __DIR__ . '/DynamicOptionResolver.php';
+// DUO-3348 slice 40: manifest-declared post-type relationship queries are
+// pure and reusable by scope/planning without broadening their authority.
+require_once __DIR__ . '/PostTypeRelationResolver.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -1357,21 +1360,7 @@ final class Policy {
      * @return string[]
      */
     public function child_post_types(string $postType): array {
-        $out = [];
-        foreach ($this->manifests as $manifest) {
-            $decl = $manifest['post_types'][$postType] ?? null;
-            if (!is_array($decl)) {
-                continue;
-            }
-            foreach ((array) ($decl['children'] ?? []) as $childPostType) {
-                if (is_string($childPostType) && $childPostType !== '') {
-                    $out[$childPostType] = true;
-                }
-            }
-        }
-        $types = array_keys($out);
-        sort($types, SORT_STRING);
-        return $types;
+        return (new PostTypeRelationResolver($this->manifests))->children($postType);
     }
 
     /**
@@ -1384,19 +1373,7 @@ final class Policy {
      * @return string[]
      */
     public function parent_post_types(string $postType): array {
-        $out = [];
-        foreach ($this->manifests as $manifest) {
-            foreach ((array) ($manifest['post_types'] ?? []) as $parentPostType => $decl) {
-                if (!is_array($decl)
-                    || !in_array($postType, (array) ($decl['children'] ?? []), true)) {
-                    continue;
-                }
-                $out[(string) $parentPostType] = true;
-            }
-        }
-        $types = array_keys($out);
-        sort($types, SORT_STRING);
-        return $types;
+        return (new PostTypeRelationResolver($this->manifests))->parents($postType);
     }
 
     /**
@@ -1411,35 +1388,7 @@ final class Policy {
      * @return string[] lexical, duplicate-free order
      */
     public function post_type_relation_closure(array $postTypes): array {
-        $pending = [];
-        foreach ($postTypes as $postType) {
-            if (is_string($postType) && $postType !== '') {
-                $pending[$postType] = true;
-            }
-        }
-
-        $seen = [];
-        while ($pending) {
-            ksort($pending, SORT_STRING);
-            $postType = (string) array_key_first($pending);
-            unset($pending[$postType]);
-            if (isset($seen[$postType])) {
-                continue;
-            }
-            $seen[$postType] = true;
-            foreach (array_merge(
-                $this->child_post_types($postType),
-                $this->parent_post_types($postType)
-            ) as $relatedPostType) {
-                if (!isset($seen[$relatedPostType])) {
-                    $pending[$relatedPostType] = true;
-                }
-            }
-        }
-
-        $types = array_keys($seen);
-        sort($types, SORT_STRING);
-        return $types;
+        return (new PostTypeRelationResolver($this->manifests))->closure($postTypes);
     }
 
     /** @return string[] taxonomies for which a pinned manifest declares a structural contract. */
