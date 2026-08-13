@@ -950,8 +950,9 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   joined `--set` value (`--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`),
   never as repeated `--set=<spec>` flags — wp-cli's assoc-arg parser keeps
   only the *last* occurrence of a repeated flag, confirmed against
-  `agent/src/Cli.php`'s `classify()` docblock. `cli/duo`'s
-  `CLASSIFY_SET_MODE` constant is the one place that decision lives.</sub>
+  `agent/src/Cli.php`'s `classify()` docblock. `ClassifyCommand`'s
+  `SET_MODE` constant (`cli/src/ClassifyCommand.php`) is the one place that
+  decision lives.</sub>
 
 ## The environment registry
 

@@ -47,6 +47,7 @@ require __DIR__ . '/src/PendingCommand.php';
 require __DIR__ . '/src/StatusCommand.php';
 require __DIR__ . '/src/Triage.php';
 require __DIR__ . '/src/ClassificationBatch.php';
+require __DIR__ . '/src/ClassifyCommand.php';
 require __DIR__ . '/src/ManifestValidate.php';
 require __DIR__ . '/src/AdapterDraft.php';
 require __DIR__ . '/src/AdapterCatalog.php';
@@ -79,6 +80,7 @@ use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\EnvironmentMaterializer;
 use Duo\Orchestrator\PendingCommand;
+use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
@@ -2974,235 +2976,16 @@ function promote_failed(
     return $exit !== 0 ? $exit : 1;
 }
 
-/**
- * Shared fetch+decode for `wp duo pending --format=json`, used by both
- * `duo pending` and `duo classify` (which triages the same queue). Mirrors
- * cmd_status()'s captureWp()-then-decode shape so a transport/parse failure
- * reports the same way `duo status` does, with the agent's own exit code
- * propagated rather than a generic 1.
- *
- * @return array{ok:bool, exit:int, items:list<array<string,mixed>>}
- */
-function fetch_pending(EnvironmentDriver $t): array {
-    return PendingCommand::fetch($t, static function (array $refusal): void {
-        render_command_refusal_human($refusal);
-    });
-}
-
 function cmd_pending(EnvironmentDriver $t, array $extra): int {
     return PendingCommand::run($t, $extra, static function (array $refusal): void {
         render_command_refusal_human($refusal);
     });
 }
 
-/**
- * Batches triage decisions into the `--set` args for `wp duo classify`.
- *
- * CONFIRMED against the landed agent/src/Cli.php::classify() docblock
- * (task #12): wp-cli's assoc-arg parser keeps only the *last* occurrence of
- * a repeated `--set=<spec>` flag, so every decision must travel in ONE
- * semicolon-joined --set value — `--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`
- * is the agent's own documented example. Left as a mode switch (rather than
- * hardcoding the join) purely so a future wp-cli/agent change is still a
- * one-line fix here.
- */
-const CLASSIFY_SET_MODE = 'joined';
-
-/** @param list<array{section:string,key:string,class:string,ref?:string,cast?:string}> $decisions */
-function build_classify_args(array $decisions, bool $needAllowSecret): array {
-    $specs = array_map(function (array $d): string {
-        $spec = "{$d['section']}:{$d['key']}={$d['class']}";
-        if (isset($d['ref'])) {
-            $spec .= ",ref={$d['ref']}";
-        }
-        if (isset($d['cast'])) {
-            $spec .= ",cast={$d['cast']}";
-        }
-        return $spec;
-    }, $decisions);
-
-    $args = CLASSIFY_SET_MODE === 'joined'
-        ? ['--set=' . implode(';', $specs)]
-        : array_map(fn(string $s) => '--set=' . $s, $specs);
-
-    if ($needAllowSecret) {
-        $args[] = '--allow-secret';
-    }
-    return $args;
-}
-
 function cmd_classify(EnvironmentDriver $t, array $extra): int {
-    $acceptProposals = in_array('--accept-proposals', $extra, true);
-    $exportBatch = null;
-    $applyBatch = null;
-    $unknown = [];
-    foreach ($extra as $arg) {
-        if ($arg === '--accept-proposals') {
-            continue;
-        }
-        if (str_starts_with($arg, '--export-batch=')) {
-            if ($exportBatch !== null) {
-                fwrite(STDERR, "duo: classify: --export-batch may be provided only once\n");
-                return 1;
-            }
-            $exportBatch = substr($arg, strlen('--export-batch='));
-            continue;
-        }
-        if (str_starts_with($arg, '--apply-batch=')) {
-            if ($applyBatch !== null) {
-                fwrite(STDERR, "duo: classify: --apply-batch may be provided only once\n");
-                return 1;
-            }
-            $applyBatch = substr($arg, strlen('--apply-batch='));
-            continue;
-        }
-        $unknown[] = $arg;
-    }
-    if ($unknown) {
-        fwrite(STDERR, 'duo: classify: unknown flag(s): ' . implode(' ', $unknown) . "\n");
-        return 1;
-    }
-    $modes = (int) $acceptProposals + (int) ($exportBatch !== null) + (int) ($applyBatch !== null);
-    if ($modes > 1) {
-        fwrite(STDERR, "duo: classify: choose exactly one of --accept-proposals, --export-batch, or --apply-batch\n");
-        return 1;
-    }
-
-    $res = fetch_pending($t);
-    if (!$res['ok']) {
-        return $res['exit'];
-    }
-    // Applying a previously-exported artifact must validate even when the
-    // live queue is now empty: "someone else cleared it" is still a queue
-    // change, not permission to silently report this stale batch as applied.
-    if ($applyBatch !== null) {
-        return cmd_classify_apply_batch($t, $res['items'], $applyBatch);
-    }
-    if (!$res['items']) {
-        echo "review queue is empty\n";
-        return 0;
-    }
-
-    if ($exportBatch !== null) {
-        return cmd_classify_export_batch($t, $res['items'], $exportBatch);
-    }
-    return $acceptProposals
-        ? cmd_classify_accept_proposals($t, $res['items'])
-        : cmd_classify_interactive($t, $res['items']);
-}
-
-/** @param list<array<string,mixed>> $items */
-function cmd_classify_export_batch(EnvironmentDriver $t, array $items, string $path): int {
-    if ($path === '') {
-        fwrite(STDERR, "duo: classify: --export-batch requires a path\n");
-        return 1;
-    }
-    try {
-        $encoded = ClassificationBatch::encode(ClassificationBatch::template($t->name(), $items));
-        if ($path === '-') {
-            echo $encoded;
-            return 0;
-        }
-        if (file_exists($path) || is_link($path)) {
-            throw new \RuntimeException("duo: refusing to overwrite existing classification batch: $path");
-        }
-        $parent = dirname($path);
-        if (!is_dir($parent)) {
-            throw new \RuntimeException("duo: classification batch directory does not exist: $parent");
-        }
-        if (file_put_contents($path, $encoded, LOCK_EX) === false) {
-            throw new \RuntimeException("duo: could not write classification batch: $path");
-        }
-        echo "classification batch exported: $path\n";
-        echo "queue sha256: " . ClassificationBatch::queueHash($items) . "\n";
-        echo "review every decisions[].class, then run: duo classify {$t->name()} --apply-batch=$path\n";
-        return 0;
-    } catch (\Throwable $e) {
-        fwrite(STDERR, $e->getMessage() . "\n");
-        return 1;
-    }
-}
-
-/** @param list<array<string,mixed>> $items */
-function cmd_classify_apply_batch(EnvironmentDriver $t, array $items, string $path): int {
-    if ($path === '') {
-        fwrite(STDERR, "duo: classify: --apply-batch requires a path\n");
-        return 1;
-    }
-    try {
-        $validated = ClassificationBatch::validate(
-            ClassificationBatch::load($path),
-            $t->name(),
-            $items
-        );
-    } catch (\Throwable $e) {
-        fwrite(STDERR, $e->getMessage() . "\n");
-        return 1;
-    }
-    $args = build_classify_args($validated['decisions'], $validated['needAllowSecret']);
-    $exit = $t->streamWp(array_merge(['duo', 'classify', '--repo=' . $t->repoPath()], $args));
-    if ($exit !== 0) {
-        return $exit;
-    }
-    printf("%d reviewed classification(s) applied from %s.\n", count($validated['decisions']), $path);
-    $remaining = fetch_pending($t);
-    if (!$remaining['ok']) {
-        return $remaining['exit'];
-    }
-    if ($remaining['items']) {
-        fwrite(STDERR, 'duo: classification exposed or retained ' . count($remaining['items'])
-            . " pending item(s); export and review the next queue before capture.\n");
-        return 2;
-    }
-    echo "review queue is empty\n";
-    return 0;
-}
-
-function cmd_classify_interactive(EnvironmentDriver $t, array $items): int {
-    $result = Triage::run($items, STDIN, STDOUT);
-
-    $exit = 0;
-    if ($result['decisions']) {
-        $args = build_classify_args($result['decisions'], $result['needAllowSecret']);
-        $exit = $t->streamWp(array_merge(['duo', 'classify', '--repo=' . $t->repoPath()], $args));
-    }
-    printf("\n%d classified, %d skipped.\n", $result['classified'], $result['skipped']);
-    return $exit;
-}
-
-/**
- * Non-interactive acceptance for CI/scripting. Triage::acceptProposals()
- * does the actual filtering (pure, unit-testable without a transport); this
- * just batches the result into one `wp duo classify` call, streams it, and
- * turns a non-empty secretSkipped into a non-zero exit so a CI pipeline can
- * tell "nothing to do" apart from "a human needs to look at this."
- */
-function cmd_classify_accept_proposals(EnvironmentDriver $t, array $items): int {
-    $result = Triage::acceptProposals($items);
-    $decisions = $result['decisions'];
-    $secretSkipped = $result['secretSkipped'];
-
-    $exit = 0;
-    if ($decisions) {
-        $args = build_classify_args($decisions, false);
-        $exit = $t->streamWp(array_merge(['duo', 'classify', '--repo=' . $t->repoPath()], $args));
-    } else {
-        echo "no proposals to accept\n";
-    }
-
-    if ($secretSkipped) {
-        fwrite(STDERR, 'duo: classify --accept-proposals: skipped ' . count($secretSkipped)
-            . " secret-flagged item(s) proposed authored -- these need a human (\`duo classify {$t->name()}\`):\n");
-        foreach ($secretSkipped as $s) {
-            fwrite(STDERR, "  - $s\n");
-        }
-        return $exit !== 0 ? $exit : 2;
-    }
-
-    if ($decisions) {
-        printf("%d accepted.\n", count($decisions));
-    }
-    return $exit;
+    return ClassifyCommand::run($t, $extra, static function (array $refusal): void {
+        render_command_refusal_human($refusal);
+    });
 }
 
 try {
