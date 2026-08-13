@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/IdentityTokenCodec.php';
+require_once __DIR__ . '/StructuredReferenceCodec.php';
 require_once __DIR__ . '/TextTokenizer.php';
 
 /**
@@ -600,30 +601,13 @@ final class Tokens {
      * gives whole-option id 0.
      */
     public function struct_capture($value, array $jsonRefs, ?array $keyRefs) {
-        foreach ($jsonRefs as $rule) {
-            $segments = JsonRefs::parse_path($rule['path']);
-            JsonRefs::walk($value, $segments, function (&$container, $key, string $locator) use ($rule) {
-                $v = $container[$key];
-                if (is_array($v)) {
-                    return; // path resolved to a container, not a scalar id — not a valid match
-                }
-                $n = (int) $v;
-                if ($n <= 0) {
-                    return; // unset convention: leave 0/''/absent-ish values alone
-                }
-                $tok = $this->id_to_token($n, $rule['kind']);
-                if ($tok === null) {
-                    // DUO-3212: id_to_token() no longer warns internally (see
-                    // its own docblock) -- this was this call site's ONLY
-                    // warning coverage, so it's now explicit here.
-                    $this->warnings[] = "json_refs path '$locator': unmapped {$rule['kind']} id $n dropped (dangling reference)";
-                }
-                $container[$key] = $tok; // token string, or null (dropped) if unmapped
-            }, '');
-        }
-        if ($keyRefs !== null) {
-            $this->rewrite_keys($value, $keyRefs, true);
-        }
+        $value = StructuredReferenceCodec::capture(
+            $value,
+            $jsonRefs,
+            $keyRefs,
+            fn(int $id, string $kind): ?string => $this->id_to_token($id, $kind),
+            function (string $warning): void { $this->warnings[] = $warning; }
+        );
         $this->tokenize_leaves($value, true);
         return $value;
     }
@@ -637,65 +621,12 @@ final class Tokens {
      */
     public function struct_apply($value, array $jsonRefs, ?array $keyRefs) {
         $this->tokenize_leaves($value, false);
-        foreach ($jsonRefs as $rule) {
-            $segments = JsonRefs::parse_path($rule['path']);
-            JsonRefs::walk($value, $segments, function (&$container, $key) use ($rule) {
-                $v = $container[$key];
-                if ($v === null || $v === '' || is_array($v)) {
-                    return;
-                }
-                $id = (is_string($v) && str_starts_with($v, '{{')) ? $this->token_to_id($v) : (int) $v;
-                $container[$key] = (($rule['cast'] ?? null) === 'string') ? (string) $id : $id;
-            }, '');
-        }
-        if ($keyRefs !== null) {
-            $this->rewrite_keys($value, $keyRefs, false);
-        }
-        return $value;
-    }
-
-    /**
-     * Shared by struct_capture()/struct_apply(): rewrite the KEYS of the
-     * map found at $keyRefs['path'] (or, when no path is declared, of
-     * $value itself — the "top level" case the mission's grammar allows).
-     * PHP coerces any canonical-decimal-integer array key to int
-     * automatically regardless of how the array was built, so no
-     * int/string key-type bookkeeping is needed here — serialize() (on
-     * apply's way back through maybe_serialize()) emits `i:N;` for an int
-     * key the same way the original PHP-serialized option/meta value did.
-     */
-    private function rewrite_keys(&$value, array $keyRefs, bool $capture): void {
-        $kind = $keyRefs['kind'];
-        $rewrite = function (&$container, $key, string $locator) use ($kind, $capture) {
-            $map = $container[$key];
-            if (!is_array($map)) {
-                return;
-            }
-            $out = [];
-            foreach ($map as $k => $sub) {
-                if ($capture) {
-                    $tok = is_numeric($k) ? $this->id_to_token((int) $k, $kind) : null;
-                    if ($tok === null) {
-                        $this->warnings[] = "key_refs: unmapped $kind id '$k' at $locator dropped (dangling reference)";
-                        continue;
-                    }
-                    $out[$tok] = $sub;
-                } else {
-                    $id = (is_string($k) && str_starts_with($k, '{{')) ? $this->token_to_id($k) : (int) $k;
-                    $out[$id] = $sub;
-                }
-            }
-            $container[$key] = $out;
-        };
-        if (isset($keyRefs['path'])) {
-            JsonRefs::walk($value, JsonRefs::parse_path($keyRefs['path']), $rewrite, '');
-            return;
-        }
-        // No path declared: $value's OWN keys are the ids. Wrap it so the
-        // SAME closure (which expects container[$key]) applies unmodified.
-        $wrapper = ['root' => $value];
-        $rewrite($wrapper, 'root', '');
-        $value = $wrapper['root'];
+        return StructuredReferenceCodec::apply(
+            $value,
+            $jsonRefs,
+            $keyRefs,
+            fn(string $token): int => $this->token_to_id($token)
+        );
     }
 
     /** Recursively tokenize_text()/detokenize_text() every string leaf of
