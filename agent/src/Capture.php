@@ -9,6 +9,7 @@ require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/Canon.php';
 require_once __DIR__ . '/Publish.php';
 require_once __DIR__ . '/CaptureTransaction.php';
+require_once __DIR__ . '/ScopeDiscovery.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /**
@@ -40,6 +41,7 @@ final class Capture {
     private Policy $policy;
     private Tokens $tokens;
     private string $repo;
+    private ?ScopeDiscovery $scopeDiscovery = null;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
@@ -102,6 +104,22 @@ final class Capture {
         if ($this->observationReadCheckpoint !== null) {
             ($this->observationReadCheckpoint)();
         }
+    }
+
+    /** Lazily bind live scope reads to this Capture instance's side channels. */
+    private function scope_discovery(): ScopeDiscovery {
+        if ($this->scopeDiscovery === null) {
+            $this->scopeDiscovery = new ScopeDiscovery(
+                $this->policy,
+                function (): void {
+                    $this->checkpoint_observation_read();
+                },
+                function (string $warning): void {
+                    $this->tokens->warnings[] = $warning;
+                }
+            );
+        }
+        return $this->scopeDiscovery;
     }
 
     /**
@@ -2238,16 +2256,16 @@ final class Capture {
         $media = [];
 
         // ---- scope ----
-        $this->assert_scope_gaps($this->scope_gaps());
-        $posts = $this->scope_posts();
-        $terms = $this->scope_terms();
-        $taxesByObjectType = $this->taxes_by_object_type(
-            $this->policy->taxonomies(),
-            $this->policy->post_types(),
-            $strictReadOnly
+        $scope = $this->scope_discovery()->discover(
+            $strictReadOnly,
+            function (array $gaps): void {
+                $this->assert_scope_gaps($gaps);
+            }
         );
-        $this->taxesForPostType = $taxesByObjectType['by_post_type'];
-        $this->termObjectTaxes = $taxesByObjectType['term_object'];
+        $posts = $scope['posts'];
+        $terms = $scope['terms'];
+        $this->taxesForPostType = $scope['by_post_type'];
+        $this->termObjectTaxes = $scope['term_object'];
 
         // ---- identity ----
         $postUuids = [];
@@ -2440,26 +2458,7 @@ final class Capture {
     }
 
     private function scope_posts(): array {
-        global $wpdb;
-        $types = $this->policy->post_types();
-        $nonAttach = array_values(array_diff($types, ['attachment']));
-        $statuses = ['publish', 'draft', 'pending', 'private', 'future'];
-        $conds = [];
-        if ($nonAttach) {
-            $conds[] = "(post_type IN ('" . implode("','", array_map('esc_sql', $nonAttach)) . "')"
-                . " AND post_status IN ('" . implode("','", $statuses) . "'))";
-        }
-        if (in_array('attachment', $types, true)) {
-            $conds[] = "(post_type = 'attachment' AND post_status = 'inherit')";
-        }
-        if (!$conds) {
-            return [];
-        }
-        $rows = $wpdb->get_results(
-            "SELECT * FROM {$wpdb->posts} WHERE " . implode(' OR ', $conds) . " ORDER BY ID ASC"
-        ) ?: [];
-        $this->checkpoint_observation_read();
-        return $rows;
+        return $this->scope_discovery()->posts();
     }
 
     /**
@@ -2472,75 +2471,11 @@ final class Capture {
      * @return array<string,array{entities:int}> keyed post_type:<name> or taxonomy:<name>
      */
     private function scope_gaps(): array {
-        global $wpdb;
-
-        $publicPostTypes = array_values(get_post_types(['public' => true], 'names'));
-        $postCandidates = array_fill_keys(array_unique(array_merge(
-            $publicPostTypes, $this->policy->declared_post_types()
-        )), true);
-        $scopedPostTypes = array_fill_keys($this->policy->post_types(), true);
-        $postCounts = $wpdb->get_results(
-            "SELECT post_type, COUNT(*) AS entities FROM {$wpdb->posts}
-             WHERE (post_status IN ('publish','draft','pending','private','future')
-                    OR (post_type = 'attachment' AND post_status = 'inherit'))
-             GROUP BY post_type",
-            ARRAY_A
-        ) ?: [];
-        $this->checkpoint_observation_read();
-
-        $out = [];
-        foreach ($postCounts as $row) {
-            $name = (string) $row['post_type'];
-            if (!isset($postCandidates[$name]) || isset($scopedPostTypes[$name])) {
-                continue;
-            }
-            $class = $this->policy->post_type_rule_details($name)['rule']['class'] ?? null;
-            if ($class !== null && $class !== 'authored') {
-                continue; // explicit manifest/site runtime|derived|env exclusion
-            }
-            $out["post_type:$name"] = ['entities' => (int) $row['entities']];
-        }
-
-        $publicTaxonomies = array_values(get_taxonomies(['public' => true], 'names'));
-        $taxCandidates = array_fill_keys(array_unique(array_merge(
-            $publicTaxonomies, $this->policy->declared_taxonomies()
-        )), true);
-        $scopedTaxonomies = array_fill_keys($this->policy->taxonomies(), true);
-        $taxCounts = $wpdb->get_results(
-            "SELECT taxonomy, COUNT(*) AS entities FROM {$wpdb->term_taxonomy} GROUP BY taxonomy",
-            ARRAY_A
-        ) ?: [];
-        $this->checkpoint_observation_read();
-        foreach ($taxCounts as $row) {
-            $name = (string) $row['taxonomy'];
-            if (!isset($taxCandidates[$name]) || isset($scopedTaxonomies[$name])) {
-                continue;
-            }
-            $class = $this->policy->taxonomy_rule_details($name)['rule']['class'] ?? null;
-            if ($class !== null && $class !== 'authored') {
-                continue;
-            }
-            $out["taxonomy:$name"] = ['entities' => (int) $row['entities']];
-        }
-
-        ksort($out, SORT_STRING);
-        return $out;
+        return $this->scope_discovery()->gaps();
     }
 
     private function scope_terms(): array {
-        global $wpdb;
-        $taxes = $this->policy->taxonomies();
-        if (!$taxes) {
-            return [];
-        }
-        $in = "'" . implode("','", array_map('esc_sql', $taxes)) . "'";
-        $rows = $wpdb->get_results(
-            "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent
-             FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-             WHERE tt.taxonomy IN ($in) ORDER BY t.term_id ASC"
-        ) ?: [];
-        $this->checkpoint_observation_read();
-        return $rows;
+        return $this->scope_discovery()->terms();
     }
 
     /**
@@ -2584,75 +2519,7 @@ final class Capture {
         array $postTypes,
         bool $strictReadOnly = false
     ): array {
-        $byPostType = array_fill_keys($postTypes, []);
-        $termObject = [];
-        foreach ($taxes as $tax) {
-            $taxObj = get_taxonomy($tax);
-            // task #92: a taxonomy_patterns-matched name (e.g. pa_size) can
-            // be in scope (Policy::taxonomies() found its term_taxonomy
-            // rows live) without being REGISTERED yet this same request —
-            // WooCommerce reads its defining table on `init`, which already
-            // ran before Snapshot's own phase-1 write of that table's row.
-            // A manifest-declared object_type (Policy::pattern_object_type())
-            // is a fact about the PLUGIN's own registration code, sidestepping
-            // the need for get_taxonomy() to have caught up. get_taxonomy()
-            // stays authoritative whenever it succeeds; this is a narrow
-            // fallback for the one specific timing gap, not a general
-            // override — an exact-list taxonomy with no declared pattern
-            // still warns+skips exactly as before if unregistered.
-            $objectTypes = $taxObj !== false ? (array) $taxObj->object_type : $this->policy->pattern_object_type($tax);
-            if ($objectTypes === null) {
-                if ($strictReadOnly) {
-                    throw new \RuntimeException(
-                        "duo: refresh export refused — taxonomy '$tax' is in policy scope but is not registered "
-                        . 'under the isolated control bootstrap, and no plugin-owned taxonomy_patterns '
-                        . 'object_type declaration can prove which post or term relationships belong to it; '
-                        . 'add that manifest/provider contract before refreshing production'
-                    );
-                }
-                $this->tokens->warnings[] =
-                    "taxonomy '$tax' is in policy scope but not registered on this environment"
-                    . " (plugin inactive?) — cannot determine which object type its relationships"
-                    . " belong to, so its relationships are skipped for every post and term";
-                continue;
-            }
-            // Resolve the row's object_id keyspace before using runtime
-            // object_type to map a post relationship. The resolver rejects
-            // an undeclared runtime term/mixed taxonomy instead of treating
-            // literal `term` as an engine-owned plugin sentinel.
-            $keyspace = $this->policy->taxonomy_object_keyspace($tax, $objectTypes);
-            if ($keyspace === 'term') {
-                $termObject[] = $tax;
-                continue;
-            }
-            // DUO-3280: deliberately NOT extended with Apply's own
-            // object_type_from_option supplement (Policy::
-            // object_type_option_ref()). That fix reads Apply's compiled
-            // TREE (the apply's own not-yet-committed desired state,
-            // safe only because run() wraps it all in one transaction —
-            // see Apply::option_driven_object_type()'s own comment for
-            // why a live DB read is UNSAFE there: phase-2's stable sort
-            // can finalize a brand-new post before the declaring option's
-            // own sub_keys merge in the SAME apply). Capture has no
-            // compiled tree at all — it only ever reads the LIVE
-            // environment, and only ever runs as its OWN fresh process
-            // (an ordinary `wp duo capture`, or the always-spawned `wp
-            // duo verify-canonical` subprocess — Apply::
-            // verify_convergence()'s one call site) — so get_taxonomy()
-            // here has already re-booted against whatever the option's
-            // committed value was at THAT process's own `init`, by the
-            // time this ever runs. A same-request race with a sub_keys
-            // option write is structurally impossible here; adding a
-            // live-DB version of the supplement would not fix anything
-            // real and would falsely suggest this method has the same
-            // hazard Apply's does.
-            foreach ($objectTypes as $objectType) {
-                if (isset($byPostType[$objectType])) {
-                    $byPostType[$objectType][] = $tax;
-                }
-            }
-        }
-        return ['by_post_type' => $byPostType, 'term_object' => $termObject];
+        return $this->scope_discovery()->taxonomyOwnership($taxes, $postTypes, $strictReadOnly);
     }
 
     private function ensure_post_uuid(int $id, string $entityType, bool $mint, bool $strictReadOnly = false): ?string {
