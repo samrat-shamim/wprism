@@ -1,0 +1,519 @@
+<?php
+namespace Duo;
+
+// Production closes every direct dependency here. Some regressions preload
+// narrow doubles before Snapshot reaches this boundary; preserve those test
+// seams instead of redeclaring the doubles.
+if (!class_exists(Canon::class, false)) {
+    require_once __DIR__ . '/Canon.php';
+}
+if (!class_exists(Db::class, false)) {
+    require_once __DIR__ . '/Db.php';
+}
+if (!class_exists(ReferenceRules::class, false)) {
+    require_once __DIR__ . '/ReferenceRules.php';
+}
+if (!class_exists(StructuredValue::class, false)) {
+    require_once __DIR__ . '/StructuredValue.php';
+}
+if (!class_exists(TableGraph::class, false)) {
+    require_once __DIR__ . '/TableGraph.php';
+}
+if (!class_exists(TableSchema::class, false)) {
+    require_once __DIR__ . '/TableSchema.php';
+}
+
+/**
+ * Write-side materialization boundary for authored typed tables (DUO-3349).
+ *
+ * This class owns the complete canonical-entity-to-live-row pipeline:
+ * phase-1 placeholder creation, phase-2 reference and attached-meta
+ * reconciliation, composite-reference upserts, declared invalidation,
+ * deletion/cascade verification, and operator-authorized reparenting.
+ * Declaration discovery, graph ordering, identity policy, and transaction
+ * ownership stay with their existing callers and are injected explicitly.
+ *
+ * The boundary has no dependency on Snapshot, Policy, Ledger, Tokens, or a
+ * WordPress bootstrap. Direct regressions can supply the same narrow runtime
+ * capabilities that Snapshot binds in production.
+ */
+final class TypedTableMaterializer {
+    private \Closure $rowTables;
+    private \Closure $metaTables;
+    private \Closure $ledgerIdFor;
+    private \Closure $ledgerSet;
+    private \Closure $packCompositeId;
+    private \Closure $unpackCompositeId;
+    private \Closure $metaKeyInKeyspace;
+    private \Closure $serializeValue;
+    private \Closure $cacheDelete;
+
+    public function __construct(
+        \Closure $rowTables,
+        \Closure $metaTables,
+        \Closure $ledgerIdFor,
+        \Closure $ledgerSet,
+        \Closure $packCompositeId,
+        \Closure $unpackCompositeId,
+        \Closure $metaKeyInKeyspace,
+        \Closure $serializeValue,
+        \Closure $cacheDelete
+    ) {
+        $this->rowTables = $rowTables;
+        $this->metaTables = $metaTables;
+        $this->ledgerIdFor = $ledgerIdFor;
+        $this->ledgerSet = $ledgerSet;
+        $this->packCompositeId = $packCompositeId;
+        $this->unpackCompositeId = $unpackCompositeId;
+        $this->metaKeyInKeyspace = $metaKeyInKeyspace;
+        $this->serializeValue = $serializeValue;
+        $this->cacheDelete = $cacheDelete;
+    }
+
+    /**
+     * Phase 1: insert an ordinary row with authored values and zero-valued
+     * structural refs. Composite-reference facts materialize wholly in phase
+     * 2 because nothing can reference their bookkeeping identity early.
+     *
+     * @return bool true when a new row was inserted
+     */
+    public function ensureRow(array $entity): bool {
+        global $wpdb;
+        $decl = ($this->rowTables)()[$entity['type']];
+        if (TableGraph::is_composite_ref($decl)) {
+            return false;
+        }
+        $idKind = $decl['id_kind'];
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
+        $uuid = $front['uuid'];
+        $mappedId = ($this->ledgerIdFor)($uuid, $idKind);
+        $prefixed = $wpdb->prefix . $entity['type'];
+        $pk = $decl['pk'];
+
+        // A retained option-name mapping is recovery evidence, not proof the
+        // physical row survived. Recreate the exact id when it did not.
+        if ($mappedId !== null) {
+            $wpdb->last_error = '';
+            $existingId = $wpdb->get_var($wpdb->prepare(
+                "SELECT `$pk` FROM `$prefixed` WHERE `$pk` = %d LIMIT 1",
+                $mappedId
+            ));
+            if ((string) ($wpdb->last_error ?? '') !== '') {
+                throw new \RuntimeException(
+                    "duo: failed to verify retained typed-snapshot identity for {$entity['type']}"
+                );
+            }
+            if ($existingId !== null) {
+                return false;
+            }
+        }
+        $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
+
+        $data = [];
+        if ($mappedId !== null) {
+            $data[$pk] = $mappedId;
+        }
+        foreach ($decl['columns'] ?? [] as $col => $rule) {
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $data[$col] = $front['columns'][$col] ?? null;
+        }
+        foreach ($decl['refs'] ?? [] as $ref) {
+            $data[$ref['column']] = 0;
+        }
+        [$data, $format] = TableSchema::write_format($data, $colTypes);
+        Db::insert($prefixed, $data, $format, "apply insert typed-snapshot row {$entity['type']}");
+        $localId = $mappedId
+            ?? Db::insert_id("apply insert typed-snapshot row {$entity['type']}");
+        ($this->ledgerSet)($uuid, $entity['type'], $idKind, $localId);
+        return true;
+    }
+
+    /**
+     * Phase 2: resolve every structural ref, reconcile attached meta, and run
+     * declared per-row invalidation. Composite rows use their tuple upsert.
+     */
+    public function finalizeRow(object $tokens, array $entity): void {
+        global $wpdb;
+        $decl = ($this->rowTables)()[$entity['type']];
+        if (TableGraph::is_composite_ref($decl)) {
+            $this->finalizeCompositeRow($tokens, $entity, $decl);
+            return;
+        }
+        $idKind = $decl['id_kind'];
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
+        $uuid = $front['uuid'];
+        $localId = ($this->ledgerIdFor)($uuid, $idKind)
+            ?? throw new \RuntimeException("duo: table row $uuid ({$entity['type']}) missing from ledger after phase 1");
+        $prefixed = $wpdb->prefix . $entity['type'];
+        $pk = $decl['pk'];
+        $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
+
+        $data = [];
+        foreach ($decl['columns'] ?? [] as $col => $rule) {
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $value = $front['columns'][$col] ?? null;
+            $data[$col] = is_string($value) ? $tokens->detokenize_text($value) : $value;
+        }
+        foreach ($decl['refs'] ?? [] as $ref) {
+            $col = $ref['column'];
+            $value = $front['columns'][$col] ?? null;
+            $data[$col] = $value === null ? 0 : $tokens->token_to_id((string) $value);
+        }
+        [$data, $format] = TableSchema::write_format($data, $colTypes);
+        Db::update(
+            $prefixed,
+            $data,
+            [$pk => $localId],
+            $format,
+            '%d',
+            "apply update typed-snapshot row {$entity['type']}"
+        );
+
+        foreach (($this->metaTables)() as $metaName => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $entity['type']) {
+                continue;
+            }
+            $this->reconcileMeta(
+                $metaName,
+                $metaDecl,
+                $localId,
+                (array) ($front['meta'] ?? []),
+                $tokens
+            );
+        }
+
+        foreach ($decl['invalidate'] ?? [] as $invalidation) {
+            $this->runInvalidation($invalidation, $localId);
+        }
+    }
+
+    /** Resolve and upsert a pure join fact by this environment's local tuple. */
+    private function finalizeCompositeRow(object $tokens, array $entity, array $decl): void {
+        global $wpdb;
+        $idKind = $decl['id_kind'];
+        $front = $entity['data'] ?? Canon::decode($entity['content']);
+        $uuid = $front['uuid'];
+        $columns = $decl['identity']['columns'];
+        $prefixed = $wpdb->prefix . $entity['type'];
+        $colTypes = TableSchema::live_column_types($entity['type']) ?? [];
+
+        $localByColumn = [];
+        foreach ($columns as $column) {
+            $token = (string) ($front['columns'][$column] ?? '');
+            $localByColumn[$column] = $tokens->token_to_id($token);
+        }
+
+        $authored = [];
+        foreach ($decl['columns'] ?? [] as $column => $rule) {
+            if (($rule['class'] ?? '') !== 'authored') {
+                continue;
+            }
+            $value = $front['columns'][$column] ?? null;
+            $authored[$column] = is_string($value) ? $tokens->detokenize_text($value) : $value;
+        }
+
+        $where = [
+            $columns[0] => $localByColumn[$columns[0]],
+            $columns[1] => $localByColumn[$columns[1]],
+        ];
+        $exists = (bool) $wpdb->get_var($wpdb->prepare(
+            "SELECT 1 FROM `$prefixed` WHERE `{$columns[0]}` = %d AND `{$columns[1]}` = %d LIMIT 1",
+            $localByColumn[$columns[0]],
+            $localByColumn[$columns[1]]
+        ));
+        if ($exists) {
+            if ($authored) {
+                [$data, $format] = TableSchema::write_format($authored, $colTypes);
+                $wpdb->update($prefixed, $data, $where, $format);
+            }
+        } else {
+            [$data, $format] = TableSchema::write_format($where + $authored, $colTypes);
+            $wpdb->insert($prefixed, $data, $format);
+        }
+
+        $packed = ($this->packCompositeId)($entity['type'], $localByColumn);
+        ($this->ledgerSet)($uuid, $entity['type'], $idKind, $packed);
+    }
+
+    /** Reconcile one attached-meta table to the desired authored key set. */
+    private function reconcileMeta(
+        string $metaTable,
+        array $decl,
+        int $ownerLocalId,
+        array $desiredMeta,
+        object $tokens
+    ): void {
+        global $wpdb;
+        $prefixed = $wpdb->prefix . $metaTable;
+        $attachCol = $decl['attached_to']['column'];
+        $idCol = $decl['id_column'] ?? 'id';
+        $keyCol = $decl['key_column'] ?? 'meta_key';
+        $valCol = $decl['value_column'] ?? 'meta_value';
+        $default = $decl['default_class'] ?? 'authored';
+
+        $existing = $wpdb->get_results($wpdb->prepare(
+            "SELECT `$idCol` AS id, `$keyCol` AS k FROM `$prefixed` WHERE `$attachCol` = %d",
+            $ownerLocalId
+        ), ARRAY_A) ?: [];
+        $existingByKey = [];
+        foreach ($existing as $row) {
+            $existingByKey[(string) $row['k']] = (int) $row['id'];
+        }
+
+        $desiredRaw = [];
+        foreach ($desiredMeta as $key => $value) {
+            if (!(($this->metaKeyInKeyspace)($decl, (string) $key))) {
+                throw new \RuntimeException(
+                    "duo: repository asks apply to write table_meta:$metaTable:$key outside its declared keyspace"
+                );
+            }
+            $rule = ReferenceRules::attached_meta_key($decl, $key);
+            if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
+                $resolved = $tokens->struct_apply(
+                    $value,
+                    $rule['json_refs'] ?? [],
+                    $rule['key_refs'] ?? null
+                );
+                $encoded = StructuredValue::encode(
+                    $resolved,
+                    $rule,
+                    "table '$metaTable' key '$key'"
+                );
+                $desiredRaw[$key] = ($this->serializeValue)($encoded);
+            } elseif (!empty($rule['ref'])) {
+                $desiredRaw[$key] = $value === null ? '0' : (string) $tokens->token_to_id((string) $value);
+            } elseif (is_string($value)) {
+                $desiredRaw[$key] = $tokens->detokenize_text($value);
+            } else {
+                $desiredRaw[$key] = $value === null ? null : (string) $value;
+            }
+        }
+
+        foreach ($existingByKey as $key => $rowId) {
+            if (array_key_exists($key, $desiredRaw)) {
+                continue;
+            }
+            if (!(($this->metaKeyInKeyspace)($decl, $key))) {
+                continue;
+            }
+            $rule = ReferenceRules::attached_meta_key($decl, $key);
+            if (($rule['class'] ?? $default) !== 'authored') {
+                continue;
+            }
+            Db::delete($prefixed, [$idCol => $rowId], null, "apply delete authored $metaTable sidecar row");
+        }
+        foreach ($desiredRaw as $key => $value) {
+            $data = [$attachCol => $ownerLocalId, $keyCol => $key, $valCol => $value];
+            if (isset($decl['legacy_key_column'])) {
+                $data[$decl['legacy_key_column']] = $key;
+            }
+            if (isset($decl['legacy_value_column'])) {
+                $data[$decl['legacy_value_column']] = $value;
+            }
+            if (isset($existingByKey[$key])) {
+                Db::update(
+                    $prefixed,
+                    $data,
+                    [$idCol => $existingByKey[$key]],
+                    null,
+                    null,
+                    "apply update $metaTable sidecar row"
+                );
+            } else {
+                Db::insert($prefixed, $data, null, "apply insert $metaTable sidecar row");
+            }
+        }
+    }
+
+    /** Run one generic table-row or option-name cache invalidation rule. */
+    private function runInvalidation(array $invalidation, int $localId): void {
+        global $wpdb;
+        if (isset($invalidation['table'])) {
+            $table = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['table']);
+            $column = preg_replace('/[^A-Za-z0-9_]/', '', $invalidation['column'] ?? 'id');
+            $prefixed = $wpdb->prefix . $table;
+            if ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $prefixed))) {
+                Db::query(
+                    $wpdb->prepare("DELETE FROM `$prefixed` WHERE `$column` = %d", $localId),
+                    "apply invalidate $table cache row"
+                );
+            }
+        }
+        if (isset($invalidation['option_pattern'])) {
+            $name = str_replace('{id}', (string) $localId, (string) $invalidation['option_pattern']);
+            $exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT option_id FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
+                $name
+            ));
+            if ($exists !== null) {
+                Db::delete($wpdb->options, ['option_name' => $name], null, 'apply invalidate option cache row');
+            }
+            ($this->cacheDelete)($name, 'options');
+            ($this->cacheDelete)('alloptions', 'options');
+        }
+    }
+
+    /** Delete one row selected by canonical UUID. */
+    public function deleteRow(string $uuid, string $table): void {
+        $decl = ($this->rowTables)()[$table] ?? null;
+        if ($decl === null) {
+            return;
+        }
+        $localId = ($this->ledgerIdFor)($uuid, $decl['id_kind']);
+        if ($localId === null) {
+            return;
+        }
+        $this->deleteLocalRow($table, $localId);
+    }
+
+    /** Delete one operator-authorized local row and its owned sidecars. */
+    public function deleteLocalRow(string $table, int $localId): void {
+        global $wpdb;
+        $decl = ($this->rowTables)()[$table] ?? null;
+        if ($decl === null) {
+            throw new \RuntimeException("duo: cannot delete row from undeclared table '$table'");
+        }
+        if (TableGraph::is_composite_ref($decl)) {
+            $columns = $decl['identity']['columns'];
+            [$left, $right] = ($this->unpackCompositeId)($localId);
+            Db::delete(
+                $wpdb->prefix . $table,
+                [$columns[0] => $left, $columns[1] => $right],
+                null,
+                "apply delete composite typed-snapshot row $table"
+            );
+            return;
+        }
+        foreach (($this->metaTables)() as $metaName => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
+                continue;
+            }
+            Db::delete(
+                $wpdb->prefix . $metaName,
+                [$metaDecl['attached_to']['column'] => $localId],
+                null,
+                "apply delete $metaName sidecar rows"
+            );
+        }
+        foreach ($decl['invalidate'] ?? [] as $invalidation) {
+            $this->runInvalidation($invalidation, $localId);
+        }
+        Db::delete(
+            $wpdb->prefix . $table,
+            [$decl['pk'] => $localId],
+            null,
+            "apply delete typed-snapshot row $table"
+        );
+    }
+
+    /** Reparent one scalar typed row and any declared attached-meta mirror. */
+    public function reparentLocalRow(string $table, int $localId, string $column, int $targetId): void {
+        global $wpdb;
+        $decl = ($this->rowTables)()[$table] ?? null;
+        if ($decl === null) {
+            throw new \RuntimeException("duo: cannot reparent row in undeclared table '$table'");
+        }
+        if (TableGraph::is_composite_ref($decl)) {
+            throw new \RuntimeException(
+                "duo: reparenting composite_ref table '$table' changes the row's identity; delete the orphaned fact instead"
+            );
+        }
+        $ref = null;
+        foreach ($decl['refs'] ?? [] as $candidate) {
+            if (($candidate['column'] ?? '') === $column) {
+                $ref = $candidate;
+                break;
+            }
+        }
+        if ($ref === null) {
+            throw new \RuntimeException("duo: '$column' is not a declared structural ref column of '$table'");
+        }
+        Db::update(
+            $wpdb->prefix . $table,
+            [$column => $targetId],
+            [$decl['pk'] => $localId],
+            ['%d'],
+            ['%d'],
+            "orphans reparent typed-snapshot row $table"
+        );
+
+        foreach (($this->metaTables)() as $metaName => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
+                continue;
+            }
+            $rule = $metaDecl['keys'][$column] ?? null;
+            if (($rule['ref'] ?? null) !== ($ref['kind'] ?? null)) {
+                continue;
+            }
+            $data = [$metaDecl['value_column'] => (string) $targetId];
+            if (isset($metaDecl['legacy_value_column'])) {
+                $data[$metaDecl['legacy_value_column']] = (string) $targetId;
+            }
+            Db::update(
+                $wpdb->prefix . $metaName,
+                $data,
+                [
+                    $metaDecl['attached_to']['column'] => $localId,
+                    $metaDecl['key_column'] => $column,
+                ],
+                null,
+                null,
+                "orphans reparent $metaName ref mirror"
+            );
+        }
+        foreach ($decl['invalidate'] ?? [] as $invalidation) {
+            $this->runInvalidation($invalidation, $localId);
+        }
+    }
+
+    /** Prove a typed-table delete and every attached-meta cascade. */
+    public function assertRowDeleted(string $table, int $localId): void {
+        global $wpdb;
+        $decl = ($this->rowTables)()[$table] ?? null;
+        if ($decl === null) {
+            throw new \RuntimeException("duo: cannot verify deletion of undeclared table '$table'");
+        }
+        $prefixed = $wpdb->prefix . $table;
+        if (TableGraph::is_composite_ref($decl)) {
+            $columns = $decl['identity']['columns'];
+            [$left, $right] = ($this->unpackCompositeId)($localId);
+            $remaining = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `$prefixed` WHERE `{$columns[0]}` = %d AND `{$columns[1]}` = %d",
+                $left,
+                $right
+            ));
+        } else {
+            $pk = preg_replace('/[^A-Za-z0-9_]/', '', (string) $decl['pk']);
+            $remaining = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `$prefixed` WHERE `$pk` = %d",
+                $localId
+            ));
+        }
+        if ($remaining !== 0) {
+            throw new \RuntimeException("duo: deletion verification failed for $table local id $localId");
+        }
+        foreach (($this->metaTables)() as $metaName => $metaDecl) {
+            if (($metaDecl['attached_to']['table'] ?? null) !== $table) {
+                continue;
+            }
+            $foreignKey = preg_replace(
+                '/[^A-Za-z0-9_]/',
+                '',
+                (string) $metaDecl['attached_to']['column']
+            );
+            $count = (int) $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM `{$wpdb->prefix}$metaName` WHERE `$foreignKey` = %d",
+                $localId
+            ));
+            if ($count !== 0) {
+                throw new \RuntimeException(
+                    "duo: deletion verification failed for $table local id $localId: $count attached $metaName row(s) remain"
+                );
+            }
+        }
+    }
+}
