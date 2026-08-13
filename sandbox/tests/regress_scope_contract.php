@@ -316,6 +316,14 @@ check(
 ScopeContract::assert_associated($optionContract, $compiled, $policy);
 check(ScopeContract::option_root_names($optionContract) === ['blogname'],
     'option-root discovery exposes only the exact selected option name');
+$mixedOptionsContract = ScopeContract::resolve($compiled, $policy, ['options', 'option:blogname']);
+ScopeContract::assert_mutation_supported($mixedOptionsContract, 'scoped promote');
+check(
+    !\Duo\ScopedApply::has_record_scoped_options($mixedOptionsContract)
+        && isset(\Duo\ScopedApply::selected_set($mixedOptionsContract)['options/core'])
+        && !isset(\Duo\ScopedApply::selected_set($mixedOptionsContract)['options/core#blogname']),
+    'a redundant option selector under whole options retains whole-carrier semantics for every consumer'
+);
 $captureScopeContract = new ReflectionMethod(\Duo\Capture::class, 'scope_contract_for_request');
 $captureDirectContract = $captureScopeContract->invoke(null, $optionContract, $compiled, $policy);
 $captureCompactContract = $captureScopeContract->invoke(null, [
@@ -329,14 +337,15 @@ check(
     'capture target accepts direct and host-compact option-root evidence before its record-aware overlay'
 );
 expect_throw(
-    static fn() => ScopeContract::assert_mutation_supported($optionContract, 'scoped plan/apply'),
+    static fn() => ScopeContract::assert_mutation_supported($optionContract, 'scoped promote'),
     'does not support per-option scoped mutation',
-    'valid option-root evidence is refused before a mutation consumer can project target work'
+    'valid option-root evidence remains refused for a whole-document promotion consumer'
 );
-expect_throw(
-    static fn() => \Duo\ScopedApply::resolve_contract($optionContract, $compiled, $policy),
-    'does not support per-option scoped mutation',
-    'agent scoped plan/apply refuses the valid option-root contract before target observation or projection'
+$resolvedOptionApplyContract = \Duo\ScopedApply::resolve_contract($optionContract, $compiled, $policy);
+check(
+    ($resolvedOptionApplyContract['scope_hash'] ?? null) === $optionContract['scope_hash']
+        && \Duo\ScopedApply::has_record_scoped_options($resolvedOptionApplyContract),
+    'agent scoped plan/apply associates valid option-root evidence for its record-aware carrier protocol'
 );
 $optionTargetRows = [];
 foreach ($compiled->tree() as $identity => $row) {
@@ -361,6 +370,112 @@ try {
 } finally {
     ScopedStateOverlay::discard_state_view($optionTargetView);
 }
+$optionTargetActual = [];
+foreach ($compiled->tree() as $identity => $row) {
+    $content = (string) $row['content'];
+    if ($identity === 'options/core') {
+        $records = OptionState::records(Canon::decode($content));
+        $records['blogname'] = OptionState::present('Production title', 'yes');
+        $records['blogdescription'] = OptionState::present('protected sibling drift', 'yes');
+        $content = Canon::encode(OptionState::document($records));
+    }
+    $optionTargetActual[(string) $identity] = [
+        'type' => (string) $row['type'],
+        'hash' => hash('sha256', $content),
+        'path' => (string) $row['path'],
+        'content' => $content,
+    ];
+}
+$optionDecision = \Duo\ScopedApply::option_plan_decision(
+    (array) $compiled->tree()['options/core']['data'],
+    $optionTargetActual['options/core'],
+    [],
+    $optionContract,
+    ['blogname']
+);
+$optionCandidateRow = \Duo\ScopedApply::target_option_candidate_row(
+    $compiled->tree()['options/core'],
+    $optionTargetActual['options/core'],
+    $optionContract
+);
+$optionCandidateRecords = OptionState::records(Canon::decode((string) $optionCandidateRow['content']));
+$optionStateHashes = \Duo\ScopedApply::option_state_hashes(
+    (array) $compiled->tree()['options/core']['data'],
+    $optionContract
+);
+$optionRecoveryRow = \Duo\ScopedApply::recovery_option_row([
+    'uuid' => 'options/core',
+    'type' => 'options',
+    'path' => 'options/core.json',
+    'retry' => true,
+    'rebuild_option_names' => ['blogdescription'],
+], ['blogname'], $compiled->tree()['options/core']);
+$optionProjected = \Duo\ScopedApply::project_plan([
+    'update' => [[
+        'uuid' => 'options/core',
+        'type' => 'options',
+        'rebuild_option_names' => ['blogname'],
+    ]],
+    'unchanged' => [[
+        'uuid' => 'post:' . $ids['page'],
+        'type' => 'post',
+    ]],
+], $optionContract);
+$optionBeforeRoot = \Duo\ScopedApply::selected_observation_root($optionTargetActual, $optionContract);
+$siblingOnlyDrift = $optionTargetActual;
+$siblingRecords = OptionState::records(Canon::decode((string) $siblingOnlyDrift['options/core']['content']));
+$siblingRecords['blogdescription'] = OptionState::present('another protected sibling drift', 'yes');
+$siblingOnlyDrift['options/core']['content'] = Canon::encode(OptionState::document($siblingRecords));
+$siblingOnlyDrift['options/core']['hash'] = hash('sha256', $siblingOnlyDrift['options/core']['content']);
+$desiredWithSiblingDrift = $optionTargetActual;
+$desiredRecords = OptionState::records(Canon::decode((string) $desiredWithSiblingDrift['options/core']['content']));
+$desiredRecords['blogname'] = $compiledOptionRecords['blogname'];
+$desiredWithSiblingDrift['options/core']['content'] = Canon::encode(OptionState::document($desiredRecords));
+$desiredWithSiblingDrift['options/core']['hash'] = hash('sha256', $desiredWithSiblingDrift['options/core']['content']);
+check(
+    ($optionDecision['bucket'] ?? null) === 'update'
+        && (($optionDecision['row']['rebuild_option_names'] ?? null) === ['blogname'])
+        && Canon::encode($optionCandidateRecords['blogname'] ?? null) === Canon::encode($compiledOptionRecords['blogname'])
+        && Canon::encode($optionCandidateRecords['blogdescription'] ?? null)
+            === Canon::encode(OptionState::present('protected sibling drift', 'yes'))
+        && count($optionStateHashes) === 1
+        && array_key_first($optionStateHashes) === \Duo\ScopedApply::option_state_identity('blogname')
+        && strlen((string) array_key_first($optionStateHashes)) === 64
+        && !isset($optionRecoveryRow['retry'])
+        && $optionRecoveryRow['rebuild_option_names'] === ['blogname']
+        && (($optionProjected['update'][0]['uuid'] ?? null) === 'options/core')
+        && ($optionProjected['unchanged'] ?? null) === []
+        && $optionBeforeRoot === \Duo\ScopedApply::selected_observation_root($siblingOnlyDrift, $optionContract)
+        && \Duo\ScopedApply::authored_state(
+            $desiredWithSiblingDrift, $compiled, $policy, $optionContract, $optionBeforeRoot
+        ) === 'desired',
+    'scoped plan/apply selects only the named option, overlays only that record onto the target carrier, and keeps recovery inside the selected virtual record'
+);
+$absentOptionContract = ScopeContract::resolve($compiled, $policy, ['option:blogdescription']);
+$absentOptionDecision = \Duo\ScopedApply::option_plan_decision(
+    (array) $compiled->tree()['options/core']['data'],
+    $optionTargetActual['options/core'],
+    [],
+    $absentOptionContract,
+    []
+);
+$absentOptionCandidate = \Duo\ScopedApply::target_option_candidate_row(
+    $compiled->tree()['options/core'],
+    $optionTargetActual['options/core'],
+    $absentOptionContract
+);
+$absentOptionCandidateRecords = OptionState::records(Canon::decode((string) $absentOptionCandidate['content']));
+$absentOptionBeforeRoot = \Duo\ScopedApply::selected_observation_root($optionTargetActual, $absentOptionContract);
+check(
+    ($absentOptionDecision['bucket'] ?? null) === 'unchanged'
+        && (($absentOptionDecision['row']['rebuild_option_names'] ?? null) === [])
+        && Canon::encode($absentOptionCandidateRecords['blogdescription'] ?? null)
+            === Canon::encode(OptionState::present('protected sibling drift', 'yes'))
+        && \Duo\ScopedApply::authored_state(
+            $optionTargetActual, $compiled, $policy, $absentOptionContract, $absentOptionBeforeRoot
+        ) === 'desired',
+    'a scoped absent option root preserves a target-owned value and terminalizes as an explicit no-mutation intent'
+);
 $pageOptionContract = ScopeContract::resolve($compiled, $policy, ['option:page_on_front']);
 $escapedOptionRows = [];
 foreach ($compiled->tree() as $identity => $row) {

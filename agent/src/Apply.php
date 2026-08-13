@@ -194,6 +194,9 @@ final class Apply {
             // bounded mutation would do.
             Ledger::assert_read_only_schema();
             $a->scopeContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+            if ($scopedPromotion) {
+                ScopeContract::assert_mutation_supported($a->scopeContract, 'scoped promote');
+            }
             $activeScoped = ScopedApplySession::open(new LedgerScopedApplySessionStorage());
             if ($activeScoped !== null && !$activeScoped->is_terminal()) {
                 $authority = $activeScoped->authority();
@@ -468,6 +471,19 @@ final class Apply {
                 // back to all desired records in rebuild_surfaces(), because
                 // its prior authored mutation may already be target-equal.
                 $row['rebuild_option_names'] = $this->apply_planner()->option_rebuild_names($e['data'], $envE);
+                if ($this->scopeContract !== null
+                    && ScopedApply::has_record_scoped_options($this->scopeContract)) {
+                    $decision = ScopedApply::option_plan_decision(
+                        (array) $e['data'],
+                        $envE,
+                        $base,
+                        $this->scopeContract,
+                        (array) $row['rebuild_option_names']
+                    );
+                    $row = $decision['row'] + $row;
+                    $plan[$decision['bucket']][] = $row;
+                    continue;
+                }
             }
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
                 $envFront = Canon::decode($envE['content']);
@@ -1917,6 +1933,9 @@ final class Apply {
             // cannot create a lease or durable scoped session.
             try {
                 $preflightContract = ScopedApply::resolve_contract($scopeRequest, $compiled, $policy);
+                if ($scopedPromotionWitness !== null) {
+                    ScopeContract::assert_mutation_supported($preflightContract, 'scoped promote');
+                }
             } catch (\Throwable $failure) {
                 throw CommandRefusalException::applyRefused(
                     'scoped apply refused because its scope evidence is stale or invalid for the current source artifact',
@@ -3071,7 +3090,13 @@ final class Apply {
                 } elseif ($e['type'] === 'menu') {
                     $this->finalize_menu($e['data']);
                 } elseif ($e['type'] === 'options') {
-                    $this->apply_options($e['data'], !empty($opts['with_deletes']));
+                    $document = ($scoped && ScopedApply::has_record_scoped_options($this->scopeContract))
+                        ? ScopedApply::selected_option_document($e['data'], $this->scopeContract, $r)
+                        : $e['data'];
+                    $classificationDocument = ($scoped && ScopedApply::has_record_scoped_options($this->scopeContract))
+                        ? $e['data']
+                        : null;
+                    $this->apply_options($document, !empty($opts['with_deletes']), $classificationDocument);
                 } elseif ($e['type'] === 'user-meta') {
                     $this->finalize_user_meta($e['data']);
                 } elseif ($e['type'] === SidebarState::ENTITY_TYPE) {
@@ -3316,6 +3341,15 @@ final class Apply {
             }
             foreach ($scoped ? $work : array_merge($plan['unchanged'], $work) as $r) {
                 $e = $tree[$r['uuid']];
+                if ($scoped
+                    && ($r['uuid'] ?? null) === 'options/core'
+                    && ScopedApply::has_record_scoped_options($this->scopeContract)) {
+                    $document = ScopedApply::selected_option_document($e['data'], $this->scopeContract, $r);
+                    foreach (ScopedApply::option_state_hashes($document, $this->scopeContract) as $identity => $hash) {
+                        Ledger::set_state_hash($identity, 'option', $hash);
+                    }
+                    continue;
+                }
                 Ledger::set_state_hash($r['uuid'], $e['type'], $e['hash']);
             }
             if ($executeDeletes) {
@@ -3494,6 +3528,18 @@ final class Apply {
             $entity = $compiled->tree()[$identity] ?? null;
             if (!is_array($entity)) {
                 throw new \RuntimeException('duo: scoped work identity disappeared from frozen artifact');
+            }
+            if ($identity === 'options/core'
+                && ScopedApply::has_record_scoped_options($this->scopeContract)) {
+                $document = ScopedApply::selected_option_document($entity['data'], $this->scopeContract, $row);
+                foreach (OptionState::records($document) as $name => $record) {
+                    $workRows[] = [
+                        'identity_hash' => hash('sha256', 'options/core#' . $name),
+                        'type' => 'option',
+                        'desired_hash' => OptionState::record_hash($record),
+                    ];
+                }
+                continue;
             }
             $workRows[] = [
                 'identity_hash' => hash('sha256', $identity),
@@ -4501,8 +4547,13 @@ final class Apply {
      * already used by PostMaterializer::finalize_post() and
      * DeleteExecutor::delete_entity().
      */
-    private function apply_options(array $document, bool $withDeletes): void {
-        $this->options_materializer()->apply_options($document, $withDeletes, $this->warnings);
+    private function apply_options(array $document, bool $withDeletes, ?array $classificationDocument = null): void {
+        $this->options_materializer()->apply_options(
+            $document,
+            $withDeletes,
+            $this->warnings,
+            $classificationDocument
+        );
     }
 
     private function upsert_option(string $name, string $value, string $autoload): void {
@@ -6694,16 +6745,36 @@ final class Apply {
         foreach ($compiled->tree() as $identity => $entity) {
             $treeByHash[hash('sha256', (string) $identity)] = [(string) $identity, $entity];
         }
+        if (ScopedApply::has_record_scoped_options($this->scopeContract)) {
+            $options = $compiled->tree()['options/core'] ?? null;
+            if (is_array($options)) {
+                foreach (ScopedApply::selected_option_records($options['data'], $this->scopeContract) as $name => $record) {
+                    $treeByHash[hash('sha256', 'options/core#' . $name)] = [
+                        'options/core', $options, 'option:' . $name, $record,
+                    ];
+                }
+            }
+        }
         $work = [];
+        $optionRecoveryNames = [];
         foreach ((array) ($selection['work_items'] ?? []) as $item) {
             $resolved = $treeByHash[(string) ($item['identity_hash'] ?? '')] ?? null;
             if (!is_array($resolved)) {
                 throw new \RuntimeException('duo: scoped recovery work identity is absent from the frozen artifact');
             }
             [$identity, $entity] = $resolved;
-            if (!hash_equals((string) ($item['type'] ?? ''), (string) ($entity['type'] ?? ''))
-                || !hash_equals((string) ($item['desired_hash'] ?? ''), $this->verification_hash($entity))) {
+            $isOptionRecord = count($resolved) === 4;
+            $desiredHash = $isOptionRecord
+                ? OptionState::record_hash((array) $resolved[3])
+                : $this->verification_hash($entity);
+            $type = $isOptionRecord ? 'option' : (string) ($entity['type'] ?? '');
+            if (!hash_equals((string) ($item['type'] ?? ''), $type)
+                || !hash_equals((string) ($item['desired_hash'] ?? ''), $desiredHash)) {
                 throw new \RuntimeException('duo: scoped recovery work identity no longer matches its authority');
+            }
+            if ($isOptionRecord) {
+                $optionRecoveryNames[] = substr((string) $resolved[2], strlen('option:'));
+                continue;
             }
             $work[] = $planRows[$identity] ?? [
                 'uuid' => $identity,
@@ -6711,6 +6782,13 @@ final class Apply {
                 'path' => (string) ($entity['path'] ?? ''),
                 'retry' => true,
             ];
+        }
+        if ($optionRecoveryNames !== []) {
+            $work[] = ScopedApply::recovery_option_row(
+                $planRows['options/core'] ?? null,
+                $optionRecoveryNames,
+                (array) ($compiled->tree()['options/core'] ?? [])
+            );
         }
         usort($work, fn(array $a, array $b): int =>
             $this->phase2_rank($compiled->tree()[(string) $a['uuid']])
