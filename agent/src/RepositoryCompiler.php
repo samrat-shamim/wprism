@@ -17,6 +17,7 @@ require_once __DIR__ . '/ArtifactPolicyIdentity.php';
 // directly so existing RepositoryCompiler consumers keep one closed load graph.
 require_once __DIR__ . '/RepositoryMediaCatalog.php';
 require_once __DIR__ . '/RepositorySchemaValidator.php';
+require_once __DIR__ . '/RepositoryDeletionParser.php';
 
 /**
  * Deterministic offline compiler: repository files + pinned policy artifacts
@@ -77,6 +78,8 @@ final class RepositoryCompiler {
     private RepositoryMediaCatalog $mediaCatalog;
     /** Decoded entity shape validation for this compiler's immutable Policy. */
     private RepositorySchemaValidator $schemaValidator;
+    /** Decoded deletion-intent validation for this compiler's immutable Policy. */
+    private RepositoryDeletionParser $deletionParser;
 
     private function __construct(
         string $stateDir,
@@ -101,6 +104,12 @@ final class RepositoryCompiler {
         $this->schemaValidator = new RepositorySchemaValidator(
             $policy,
             SidebarState::ENTITY_TYPE,
+            function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
+                $this->add($code, $path, $locator, $message, $relatedPath);
+            }
+        );
+        $this->deletionParser = new RepositoryDeletionParser(
+            $policy,
             function (string $code, string $path, string $locator, string $message, ?string $relatedPath = null): void {
                 $this->add($code, $path, $locator, $message, $relatedPath);
             }
@@ -313,7 +322,7 @@ final class RepositoryCompiler {
                 $this->add('conflict_marker', $path, "line $line", 'Git conflict marker survives in canonical content');
             }
             if (preg_match('#^deletions/([^/]+)\.json$#', $path)) {
-                $deletion = $this->parse_deletion($path, $content);
+                $deletion = $this->deletionParser->parse($path, $content);
                 if ($deletion !== null) {
                     $uuid = (string) $deletion['data']['uuid'];
                     if (isset($this->deletions[$uuid])) {
@@ -676,77 +685,6 @@ final class RepositoryCompiler {
         return [
             'type' => $type, 'path' => $path,
             'hash' => hash('sha256', $content), 'source_hash' => hash('sha256', $content),
-            'content' => $content,
-            'data' => $data,
-        ];
-    }
-
-    /** @return ?array typed deletion IR entry */
-    private function parse_deletion(string $path, string $content): ?array {
-        try {
-            $data = Canon::decode($content);
-        } catch (\Throwable $t) {
-            $this->add('malformed_deletion', $path, '', $t->getMessage());
-            return null;
-        }
-        if (!is_array($data) || array_is_list($data)) {
-            $this->add('malformed_deletion', $path, '', 'deletion intent must decode to an object');
-            return null;
-        }
-        $required = ['format', 'uuid', 'kind', 'type', 'expected_hash', 'expected_revision', 'source_path'];
-        $unknown = array_values(array_diff(array_keys($data), $required));
-        if ($unknown) {
-            sort($unknown, SORT_STRING);
-            $this->add('malformed_deletion', $path, '', 'unknown deletion field(s): ' . implode(', ', $unknown));
-        }
-        foreach ($required as $field) {
-            if (!isset($data[$field]) || !is_string($data[$field]) || $data[$field] === '') {
-                $this->add('malformed_deletion', $path, $field, 'required deletion field is missing or not a non-empty string');
-            }
-        }
-        $uuid = (string) ($data['uuid'] ?? '');
-        if (($data['format'] ?? '') !== Deletion::FORMAT) {
-            $this->add('malformed_deletion', $path, 'format', 'unsupported deletion intent format');
-        }
-        if (!preg_match(self::UUID_RE, $uuid)) {
-            $this->add('invalid_uuid', $path, 'uuid', "'$uuid' is not a lowercase RFC UUID");
-        }
-        if (basename($path) !== $uuid . '.json') {
-            $this->add('malformed_deletion', $path, 'uuid', 'deletion filename does not match its uuid');
-        }
-        $kind = (string) ($data['kind'] ?? '');
-        $type = (string) ($data['type'] ?? '');
-        if (!in_array($kind, ['post', 'term', 'menu', 'table'], true)) {
-            $this->add('malformed_deletion', $path, 'kind', "unsupported deletion kind '$kind'");
-        }
-        foreach (['expected_hash', 'expected_revision'] as $field) {
-            if (!preg_match('/^[0-9a-f]{64}$/', (string) ($data[$field] ?? ''))) {
-                $this->add('malformed_deletion', $path, $field, 'field must be a lowercase SHA-256 hash');
-            }
-        }
-        $source = (string) ($data['source_path'] ?? '');
-        $sourceOk = match ($kind) {
-            'post' => preg_match('#^posts/' . preg_quote($type, '#') . '/' . preg_quote($uuid, '#') . '--[^/]+\.md$#', $source),
-            'term' => preg_match('#^terms/' . preg_quote($type, '#') . '/' . preg_quote($uuid, '#') . '--[^/]+\.json$#', $source),
-            'menu' => $type === 'nav_menu' && preg_match('#^menus/[^/]+\.json$#', $source),
-            'table' => preg_match('#^tables/' . preg_quote($type, '#') . '/' . preg_quote($uuid, '#') . '--[^/]+\.json$#', $source),
-            default => false,
-        };
-        if (!$sourceOk) {
-            $this->add('malformed_deletion', $path, 'source_path', 'source_path does not match the declared kind, type, and uuid');
-        }
-        if (in_array($kind, ['post', 'term', 'menu', 'table'], true) && $type !== '') {
-            try {
-                Deletion::capability($this->policy, $kind, $type);
-            } catch (\Throwable $t) {
-                $this->add('unsupported_deletion', $path, 'type', $t->getMessage());
-            }
-        }
-        return [
-            'type' => 'deletion',
-            'path' => $path,
-            'hash' => hash('sha256', $content),
-            'source_hash' => hash('sha256', $content),
             'content' => $content,
             'data' => $data,
         ];
