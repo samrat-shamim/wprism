@@ -82,7 +82,7 @@ final class PublicationRecord {
  * guarantee here is independently testable offline (no docker, no WP
  * bootstrap; the same "vendored fixture, real code" idiom as sandbox/tests/
  * regress_block_refs.php's FakeWpdb, just with no DB stub needed at all).
- * Capture.php owns the DB-side half of this issue (consistent-snapshot
+ * CaptureTransaction.php owns the DB-side half of this issue (consistent-snapshot
  * transaction, storage-engine check, deadlock retry — see its own
  * docblocks); this class owns the filesystem-side half: a capture lock,
  * a staging directory, an atomic two-step rename swap, and deterministic
