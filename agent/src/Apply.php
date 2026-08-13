@@ -486,49 +486,12 @@ final class Apply {
                 }
             }
             if ($e['type'] === SidebarState::ENTITY_TYPE && $envE !== null) {
-                $envFront = Canon::decode($envE['content']);
-                $hasUnmanaged = false;
-                foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
-                    $hasUnmanaged = $hasUnmanaged || !empty($widget['settings']['_duo_unmanaged']);
-                }
-                $missingDesiredMap = false;
-                foreach ((array) ($e['data']['widgets'] ?? []) as $widget) {
-                    if (Ledger::id_for(
-                        (string) ($widget['uuid'] ?? ''),
-                        SidebarState::kind((string) ($widget['type'] ?? ''))
-                    ) === null) {
-                        $missingDesiredMap = true;
-                        break;
-                    }
-                }
-                // The sidebar's own base is the exact evidence this target
-                // previously knew these nested widget identities. Without
-                // that base this may be a first widget rollout over ordinary
-                // theme defaults, even on an otherwise long-managed site.
-                // With it, missing maps are restored-ledger-loss ambiguity.
-                if ($hasUnmanaged && $missingDesiredMap && $baseH !== null) {
-                    throw new \RuntimeException(
-                        "duo: widget identity history is missing for {$e['path']}; refusing to infer which live "
-                        . 'instance owns a canonical UUID. Restore identity-export before plan/apply.'
-                    );
-                }
-                $desiredWidgets = array_fill_keys(array_map(
-                    static fn(array $w): string => (string) ($w['uuid'] ?? ''),
-                    (array) ($e['data']['widgets'] ?? [])
-                ), true);
-                $widgetDeletes = [];
-                foreach ((array) ($envFront['widgets'] ?? []) as $widget) {
-                    if (!isset($desiredWidgets[(string) ($widget['uuid'] ?? '')])) {
-                        $widgetDeletes[] = [
-                            'uuid' => (string) ($widget['uuid'] ?? ''),
-                            'type' => (string) ($widget['type'] ?? ''),
-                            'unmanaged' => !empty($widget['settings']['_duo_unmanaged']),
-                        ];
-                    }
-                }
-                if ($widgetDeletes) {
-                    $row['widget_deletes'] = $widgetDeletes;
-                }
+                $row = $this->apply_planner()->project_sidebar_deletes(
+                    $row,
+                    $e['data'],
+                    $envE,
+                    $baseH
+                );
             }
             if ($e['type'] === 'user-meta' && $envE === null) {
                 $login = (string) ($e['data']['login'] ?? '');
