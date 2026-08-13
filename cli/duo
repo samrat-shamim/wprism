@@ -19,6 +19,7 @@ require __DIR__ . '/src/EnvironmentLifecycle.php';
 require __DIR__ . '/src/CommandOutput.php';
 require __DIR__ . '/src/EnvironmentCommandPreflight.php';
 require __DIR__ . '/src/PassthroughCommand.php';
+require __DIR__ . '/src/CaptureCommand.php';
 require __DIR__ . '/src/EnvironmentCommandOptions.php';
 require __DIR__ . '/src/DriverCapabilitiesCommand.php';
 require __DIR__ . '/src/Transport.php';
@@ -100,6 +101,7 @@ use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
+use Duo\Orchestrator\CaptureCommand;
 use Duo\Orchestrator\EnvironmentCommandOptions;
 use Duo\Orchestrator\DriverCapabilitiesCommand;
 use Duo\Orchestrator\EnvironmentListCommand;
@@ -1089,75 +1091,7 @@ function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra
 
 /** Validate a host-local scope contract, then forward only its compact proof. */
 function cmd_capture(EnvironmentDriver $t, array $extra): int {
-    $forward = [];
-    $contractPath = null;
-    foreach ($extra as $arg) {
-        if (str_starts_with($arg, '--scope-request-b64')) {
-            return capture_scope_refusal(
-                $extra,
-                'invalid_arguments',
-                'capture received an orchestrator-reserved scope argument',
-                'remove the internal scope argument and supply only --scope-contract=<local-path>'
-            );
-        }
-        if ($arg === '--scope-contract' || (str_starts_with($arg, '--scope-contract')
-            && !str_starts_with($arg, '--scope-contract='))) {
-            return capture_scope_refusal(
-                $extra,
-                'invalid_arguments',
-                'capture received a malformed scope contract flag',
-                'supply exactly --scope-contract=<local-path>'
-            );
-        }
-        if (str_starts_with($arg, '--scope-contract=')) {
-            if ($contractPath !== null) {
-                return capture_scope_refusal(
-                    $extra,
-                    'invalid_arguments',
-                    'capture received more than one scope contract',
-                    'supply exactly one --scope-contract=<local-path>'
-                );
-            }
-            $contractPath = substr($arg, strlen('--scope-contract='));
-            if ($contractPath === '') {
-                return capture_scope_refusal(
-                    $extra,
-                    'invalid_arguments',
-                    'capture received an empty scope contract path',
-                    'supply one readable canonical contract with --scope-contract=<local-path>'
-                );
-            }
-            continue;
-        }
-        $forward[] = $arg;
-    }
-    if ($contractPath !== null) {
-        try {
-            $input = read_scope_contract_input($contractPath);
-            $forward[] = '--scope-request-b64=' . $input['request_b64'];
-        } catch (\Throwable $e) {
-            return capture_scope_refusal(
-                $extra,
-                'scope_contract_invalid',
-                'the local scope contract is malformed, tampered, or unsupported',
-                'generate a fresh contract with duo scope --contract and retry capture'
-            );
-        }
-    }
-    return $t->streamWp(array_merge(['duo', 'capture', '--repo=' . $t->repoPath()], $forward));
-}
-
-function capture_scope_refusal(
-    array $extra,
-    string $reasonCode,
-    string $message,
-    string $remediation
-): int {
-    if (wants_agent_refusal_json('capture', $extra)) {
-        return render_agent_refusal_json('capture', $reasonCode, $message, $remediation);
-    }
-    fwrite(STDERR, "duo: capture: $message; $remediation\n");
-    return 2;
+    return CaptureCommand::run($t, $extra);
 }
 
 /**
