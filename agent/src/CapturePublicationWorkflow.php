@@ -1,14 +1,13 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/Canary.php';
+require_once __DIR__ . '/CaptureWordPressExecution.php';
 require_once __DIR__ . '/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CapturePublicationRecovery.php';
 require_once __DIR__ . '/CaptureTransaction.php';
-require_once __DIR__ . '/Code.php';
+require_once __DIR__ . '/CaptureMutationPort.php';
 require_once __DIR__ . '/Deletion.php';
-require_once __DIR__ . '/Deploy.php';
 require_once __DIR__ . '/Db.php';
 require_once __DIR__ . '/Identity.php';
 require_once __DIR__ . '/InitialCaptureBoundary.php';
@@ -17,7 +16,7 @@ require_once __DIR__ . '/Lint.php';
 require_once __DIR__ . '/Policy.php';
 require_once __DIR__ . '/Publish.php';
 require_once __DIR__ . '/RepositoryCompiler.php';
-require_once __DIR__ . '/ScopedApply.php';
+require_once __DIR__ . '/ScopedOptionProjection.php';
 require_once __DIR__ . '/ScopedCaptureProjector.php';
 require_once __DIR__ . '/ScopedStateOverlay.php';
 require_once __DIR__ . '/ScopeContract.php';
@@ -44,9 +43,10 @@ final class CapturePublicationWorkflow {
         ?string $initialConfigIdentity = null,
         ?callable $onInitialPayloadReady = null,
         ?array $scopeRequest = null,
-        ?string $hostEnvironment = null
+        ?string $hostEnvironment = null,
+        ?CaptureMutationPort $mutation = null
     ): array {
-        Canary::suppress_cron_spawn();
+        CaptureWordPressExecution::suppressCronSpawn();
         // Policy's v1 single-site boundary must run before any destination
         // lock or Ledger work: an unsupported multisite request is a clean
         // refusal, not a request that may initialize or rewrite Duo state
@@ -256,7 +256,7 @@ final class CapturePublicationWorkflow {
             // authored-exact option the previous revision had never even
             // been asked to know about. It also skips the current-action
             // code/lifecycle bridge when this history predates code opt-in;
-            // Code::compile() and every ordinary historical integrity check
+            // Descriptor compilation and every ordinary historical integrity check
             // stay active. RepositoryCompiler.php's own
             // $completenessOptional docblock has the full reasoning.
             //
@@ -302,7 +302,7 @@ final class CapturePublicationWorkflow {
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
                 $lock, $initialBaseline, $scoped, $scopeContract,
                 $scopeSourceTreeSha256, $repoPath, $onInitialPayloadReady,
-                $hostEnvironment,
+                $hostEnvironment, $mutation,
                 &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
@@ -546,7 +546,8 @@ final class CapturePublicationWorkflow {
                     $compiledCandidate = RepositoryCompiler::compile_staged($staging, $c->repo(), $c->policy());
                 }
                 if ($initialBaseline) {
-                    $candidate['_initial_code_baseline'] = Code::complete_initial_baseline_in_active_transaction(
+                    $candidate['_initial_code_baseline'] = self::completeInitialCodeBaseline(
+                        $mutation,
                         $repo,
                         $compiledCandidate
                     );
@@ -658,7 +659,7 @@ final class CapturePublicationWorkflow {
                             hash('sha256', $e['hash_basis'] ?? $e['content'])
                         );
                     }
-                    if ($scoped && ScopedApply::has_record_scoped_options($scopeContract)) {
+                    if ($scoped && ScopedOptionProjection::hasRecordScopedOptions($scopeContract)) {
                         $options = null;
                         foreach ($candidate['entities'] as $entity) {
                             if (($entity['uuid'] ?? null) === 'options/core') {
@@ -671,7 +672,7 @@ final class CapturePublicationWorkflow {
                         }
                         try {
                             $document = Canon::decode((string) ($options['content'] ?? ''));
-                            foreach (ScopedApply::option_state_hashes((array) $document, $scopeContract) as $identity => $hash) {
+                            foreach (ScopedOptionProjection::stateHashes((array) $document, $scopeContract) as $identity => $hash) {
                                 Ledger::set_state_hash($identity, 'option', $hash);
                             }
                         } catch (\Throwable $failure) {
@@ -691,7 +692,7 @@ final class CapturePublicationWorkflow {
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
                         ));
-                        Deploy::record_code_versions($c->policy());
+                        self::recordCodeVersions($mutation, $c->policy());
                     }
                 }
                 $intent = Publish::mark_commit_ready($stateDir, $intent, $initialBaseline);
@@ -909,6 +910,25 @@ final class CapturePublicationWorkflow {
             $summary['scope'] = $build['_scope'];
         }
         return $summary;
+    }
+
+    /** @return array{enabled:bool,completed:bool,code_revision:?string,files:int} */
+    private static function completeInitialCodeBaseline(
+        ?CaptureMutationPort $mutation,
+        string $repo,
+        CompiledRepository $compiled
+    ): array {
+        if ($mutation === null) {
+            throw new \RuntimeException('duo: capture mutation bridge is unavailable');
+        }
+        return $mutation->completeInitialCodeBaseline($repo, $compiled);
+    }
+
+    private static function recordCodeVersions(?CaptureMutationPort $mutation, Policy $policy): void {
+        if ($mutation === null) {
+            throw new \RuntimeException('duo: capture mutation bridge is unavailable');
+        }
+        $mutation->recordCodeVersions($policy);
     }
 
     private static function runInConsistentSnapshot(

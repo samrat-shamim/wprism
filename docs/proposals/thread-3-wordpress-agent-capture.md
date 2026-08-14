@@ -1,6 +1,6 @@
 # Thread 3 — WordPress agent and capture pipeline
 
-*Status: proposed for owner approval.*
+*Status: approved for P0 inventory/test-only work; production execution follows Platform P0.*
 
 *Depends on: [Thread 0](thread-0-foundation.md).*
 
@@ -58,16 +58,45 @@ Thread 3 owns:
 - semantic tests for those behaviors.
 
 Operationally, this is every `agent/src/*.php` file not explicitly assigned in
-Thread 4 or Thread 5's allowlists. Thread 0 materializes that rule into the
-machine-readable exhaustive ownership ledger for the current tree, assigns
-every cross-domain file one writer, and resolves any overlap before fan-out.
+Thread 4 or Thread 5's allowlists. Thread 0 has materialized that rule in the
+machine-readable exhaustive ownership ledger for the current tree, assigned
+every cross-domain file one writer, and resolved every overlap before fan-out.
 This residual rule does not own future files: new code goes under the exclusive
 `Agent/`, `Capture/`, `Repository/`, or `WordPress/` module prefix assigned in
-the ledger. No production edit starts until the ledger check passes.
+the ledger. No production edit starts until the ledger check passes and the
+Platform P0 production-edit lock below is released.
 
 Thread 1 owns `agent/duo.php`, `agent/duo-loader.php`, and generated loading.
 Thread 4 owns Policy/adapter/provider/capability/evidence behavior. Thread 5
 owns mutation, deployment, promotion, lifecycle, and recovery behavior.
+
+The authoritative path assignments are the ledger, not the residual rule:
+future `agent/src/Agent/`, `Capture/`, `Repository/`, and `WordPress/`
+prefixes, `docs/contracts/commands/agent/`, and
+`sandbox/catalog/fragments/wordpress-agent/` belong to Thread 3. The
+`CaptureMutationPort.php` leaf is Thread 3-owned, while
+`CaptureMutationBridge.php` is Thread 5-owned. `Journal.php` is Thread 3-owned;
+`Providers.php` and `ProviderSdk.php` are Thread 4-owned. The machine-readable
+ownership ledger and `scripts/ownership-check` are binding for every other
+tracked path.
+
+### Foundation execution lock
+
+Inventory and test work may begin from the published foundation tag. Production
+edits remain locked until Thread 1's platform P0 has landed, the owner-authored
+Thread 2–5 test fragments have been integrated, Thread 1 has generated the
+aggregate and activated nonempty profiles, and every thread worktree has
+rebased onto that P0 integration commit. Thread 3's required fragment path is
+`sandbox/catalog/fragments/wordpress-agent/`.
+
+The one-time published fan-out receipt at
+`refs/tags/refactor-foundation-2026-08-14` binds
+`refs/heads/refactor/integration` and the five thread refs to the same
+foundation commit under `duo-foundation-fanout-receipt/v1`. Its publication and
+unadvanced topology were verified and recorded before this charter was
+approved. Subsequent thread refs advance as descendants; the one-time topology
+check is not an ordinary thread gate or permission to bypass the P0
+production-edit lock.
 
 ## Target internal shape
 
@@ -120,7 +149,10 @@ Extract incrementally:
 5. capability/adapter commands as adapters to Thread 4's facade.
 
 Threads 4 and 5 export tested handlers/services; Thread 3 alone lands the
-registration call. No other branch edits `Cli.php`.
+registration call. No other branch edits `Cli.php`. The merge train places the
+Thread 3 agent/Capture core after Thread 4's stable facades and before Thread
+5's mutation/recovery integration; Thread 3 performs the final narrow
+`Cli.php` wiring only after Thread 5 exports its tested handlers.
 
 ### 3. WordPress infrastructure boundary
 
@@ -232,9 +264,15 @@ The adapter-observation collector owns Journal/Pending orchestration and all
 catalog projector; the capability module never reaches back into WordPress or
 Capture infrastructure.
 
-Thread 0 resolves or quarantines known PII-coverage and experimental-mutation
-gaps before these paths are fixture-frozen. This thread preserves that safer
-baseline. If characterization finds another unobserved sensitive surface or
+Foundation has already resolved the known safety candidates into the frozen
+baseline. Portable Capture and confirmed Init refuse with
+`portable_capture_safety_unqualified` before repository, scope-file, lock,
+ledger, identity, filesystem, or database access; Apply/Delete refuse with
+`qualification_harness_required` before compilation, leases, canaries,
+providers, or target mutation. Journal suspension prevents optional shutdown
+writes on quarantined command paths. Read-only proposal/plan/explain/pending/
+observation paths remain available. Preserve these refusal bytes and side-effect
+boundaries. If characterization finds another unobserved sensitive surface or
 unauthorized production mutation, stop the path; do not update a golden fixture
 to bless it.
 
@@ -284,8 +322,10 @@ At minimum, run catalog-selected suites for:
 - the complete offline corpus before integration.
 
 Use `make test-component COMPONENT=wordpress-agent` for the offline component
-gate. Thread 3 owns the wordpress-agent catalog/component-profile fragment;
-Thread 1 validates and aggregates it. Capture concurrency and
+gate. Thread 3 owns the wordpress-agent catalog/component-profile fragment at
+`sandbox/catalog/fragments/wordpress-agent/`; Thread 1 validates and aggregates
+it. The component profile must be nonempty before the P0 production-edit lock
+is released. Capture concurrency and
 consistent-snapshot suites are cataloged as authorized live integration only
 when the runner verifies exact source SHA and all provisioning, target-role,
 data, credential, egress/effect, sandbox/no-effect, and enforced
@@ -296,8 +336,19 @@ Missing, stale, or mismatched proof refuses frozen-candidate or
 evidence-producing execution, and live suites never enter an unclassified
 offline default.
 
+`make thread-3-gate` is the authoritative Thread 3 acceptance target. It may
+delegate to the focused component profile but must retain the structured result
+at `artifacts/test-results/thread-3/result.json`.
+
 Changes touching broad evidence inputs run the impact-selected conformance and
 certification suites during the final cutover.
+
+The foundation branch is intentionally non-releasable while source-bound v1
+subjects are stale: do not regenerate or sign durable evidence on this thread.
+Run component/profile and impact-selected suites; final release-gate and
+evidence recertification use one frozen integrated candidate and the retained
+exact runtime, declaration, test, harness, provider, environment, and receipt
+inputs.
 
 ## Done means
 

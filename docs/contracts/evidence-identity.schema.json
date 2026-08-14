@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/evidence-identity.schema.json",
+  "title": "Redacted evidence identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "public", "secret_references", "keyed_bindings"],
+  "properties": {
+    "format": {"const": "duo-redacted-evidence-identity/v1"},
+    "public": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform_profile": {"enum": ["php-8.3", "wordpress-7.0.3", "mariadb-11"]},
+        "runner_protocol": {"const": 1},
+        "toolchain_profile": {"enum": ["composer-2", "phpunit-11", "phpstan-2", "rector-2"]},
+        "harness_profile": {"enum": ["duo-foundation", "duo-qualification-v1"]}
+      }
+    },
+    "secret_references": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^vault:[a-z][a-z0-9._-]{2,63}$"},
+      "uniqueItems": true
+    },
+    "keyed_bindings": {
+      "type": "object",
+      "propertyNames": {"pattern": "^[a-z][a-z0-9._-]{2,63}:[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+      "additionalProperties": {"type": "string", "pattern": "^hmac-sha256:[a-f0-9]{64}$"}
+    }
+  },
+  "anyOf": [
+    {"properties": {"public": {"minProperties": 1}}},
+    {"properties": {"secret_references": {"minItems": 1}}},
+    {"properties": {"keyed_bindings": {"minProperties": 1}}}
+  ],
+  "description": "Only reviewed profile identifiers are public. Credentials, raw secrets/PII, machine identity, paths, low-entropy values, and unkeyed digests belong only in reviewed references or domain-separated keyed bindings."
+}

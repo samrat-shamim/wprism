@@ -207,7 +207,7 @@ final class ScopedCertificationBundle {
             }
         };
 
-        foreach (['agent', 'cli', 'sandbox/bin'] as $tree) {
+        foreach (['agent', 'cli', 'recovery', 'sandbox/bin'] as $tree) {
             $addTree($tree);
         }
         foreach ([

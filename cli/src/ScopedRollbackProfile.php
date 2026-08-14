@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
-use Duo\Recovery\RollbackControl;
+require_once __DIR__ . '/HostContracts/RecoveryTransport.php';
+require_once __DIR__ . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+
 
 /**
  * Checkpoint-only authority for one SSH scoped state-promotion window.
@@ -18,9 +20,9 @@ use Duo\Recovery\RollbackControl;
  */
 final class ScopedRollbackProfile {
     private RollbackAuthority $authority;
-    private SshTransport $transport;
+    private RecoveryTransport $transport;
 
-    public function __construct(SshTransport $transport) {
+    public function __construct(RecoveryTransport $transport) {
         $this->transport = $transport;
         $this->authority = new RollbackAuthority($transport);
     }
@@ -31,7 +33,7 @@ final class ScopedRollbackProfile {
      * @return array{automatic:bool,reason:string,status:array<string,mixed>}
      */
     public static function select(
-        SshTransport $transport,
+        RecoveryTransport $transport,
         array $plan,
         string $scopeHash,
         bool $allowDeletes = false,
@@ -60,7 +62,7 @@ final class ScopedRollbackProfile {
         }
         $resuming = false;
         if (($status['active'] ?? false) === true) {
-            if (($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            if (($status['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT) {
                 if (empty($status['terminal'])) {
                     return [
                         'automatic' => false,
@@ -221,13 +223,13 @@ final class ScopedRollbackProfile {
             ],
         ];
         return [
-            'adapter_versions_sha256' => hash('sha256', RollbackControl::canonical($adapters)),
+            'adapter_versions_sha256' => hash('sha256', RecoveryProtocolCodec::canonical($adapters)),
             'allow_deletes' => $allowDeletes,
             'artifact_hash' => $artifact,
             'claim_ttl_seconds' => $ttl,
             'encryption_key_id' => $key,
             'owner' => $owner,
-            'resources_inventory_sha256' => hash('sha256', RollbackControl::canonical($resources)),
+            'resources_inventory_sha256' => hash('sha256', RecoveryProtocolCodec::canonical($resources)),
             'retention_seconds' => $retention,
             'scope_hash' => $scopeHash,
         ];
@@ -254,7 +256,7 @@ final class ScopedRollbackProfile {
         if (($current['available'] ?? false) === true
             && ($current['ok'] ?? false) === true
             && ($current['active'] ?? false) === true
-            && ($current['receipt_format'] ?? null) === RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            && ($current['receipt_format'] ?? null) === RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT) {
             if (empty($current['terminal'])) {
                 $resume = true;
             } else {
@@ -288,7 +290,7 @@ final class ScopedRollbackProfile {
                 $now
             );
         }
-        $payloadHash = hash('sha256', RollbackControl::canonical($claim['receipt']));
+        $payloadHash = hash('sha256', RecoveryProtocolCodec::canonical($claim['receipt']));
         return $claim + ['receipt_payload_sha256' => $payloadHash];
     }
 
@@ -440,7 +442,7 @@ final class ScopedRollbackProfile {
         $status = RollbackAuthority::scopedStatus($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true
-            || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            || ($status['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT) {
             throw new \RuntimeException('duo rollback: active scoped promotion receipt is unavailable or invalid');
         }
         return $status;
@@ -480,7 +482,7 @@ final class ScopedRollbackProfile {
     /** @param array<string,mixed> $input @return array<string,mixed> */
     private function recordHashOnlyOperation(string $state, string $operation, array $input, string $resultHash): array {
         self::assertHash($resultHash, "$operation result hash");
-        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $inputHash = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
         $evidence = RollbackAuthority::scopedEvidence($this->transport);
         $status = (array) $evidence['status'];
         if ((string) ($status['state'] ?? '') !== $state) {
@@ -519,7 +521,7 @@ final class ScopedRollbackProfile {
 
     /** @param array<string,mixed> $input @return array<string,mixed> */
     private function runCheckpointOperation(string $state, string $adapter, array $input): array {
-        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $inputHash = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
         $evidence = RollbackAuthority::scopedEvidence($this->transport);
         $status = (array) $evidence['status'];
         if ((string) ($status['state'] ?? '') !== $state) {
@@ -581,12 +583,12 @@ final class ScopedRollbackProfile {
         $history = (array) ($evidence['completed_operation_history'] ?? []);
         $historical = $history['scoped_apply'] ?? null;
         if (!is_array($historical)
-            || !hash_equals(RollbackControl::canonical($done), RollbackControl::canonical($historical))) {
+            || !hash_equals(RecoveryProtocolCodec::canonical($done), RecoveryProtocolCodec::canonical($historical))) {
             throw new \RuntimeException('duo rollback: scoped apply completion history is inconsistent');
         }
         if ($terminal !== null) {
             $input = self::scopedApplyInput($status, $terminal);
-            $expectedInput = hash('sha256', RollbackControl::canonical($input) . "\n");
+            $expectedInput = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
             if (!hash_equals($expectedInput, (string) $done['input_sha256'])
                 || !hash_equals((string) $terminal['terminal_hash'], (string) $done['result_sha256'])) {
                 throw new \RuntimeException('duo rollback: completed scoped_apply does not bind this terminal receipt');
@@ -622,7 +624,7 @@ final class ScopedRollbackProfile {
             'lease_hash' => (string) $terminal['lease_hash'],
             'scope_hash' => (string) $status['scope_hash'],
             'terminal_hash' => (string) $terminal['terminal_hash'],
-            'terminal_receipt_sha256' => hash('sha256', RollbackControl::canonical($terminal)),
+            'terminal_receipt_sha256' => hash('sha256', RecoveryProtocolCodec::canonical($terminal)),
         ];
     }
 

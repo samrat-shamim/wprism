@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 use Duo\Canon;
-use Duo\NativeActions;
+use Duo\NativeActionCatalog;
 use Duo\Policy;
 
 /**
@@ -55,7 +55,7 @@ use Duo\Policy;
  * The emitted grammar document (`--emit-schema`) follows the same rule one step
  * further: every closed set in it is read from the engine at emission time
  * (Policy::closed_vocabularies(), Policy::grammar_patterns(),
- * NativeActions::vocabulary()/arg_schemas()). None of it is authored here, so
+ * NativeActionCatalog::vocabulary()/argSchemas()). None of it is authored here, so
  * it cannot describe a grammar the engine stopped enforcing.
  *
  * Trust boundary: point this command only at a manifests directory trusted
@@ -584,9 +584,9 @@ final class ManifestValidate {
             return self::fail($t->getMessage());
         }
 
-        $schemas = NativeActions::arg_schemas();
+        $schemas = NativeActionCatalog::argSchemas();
         $actions = [];
-        foreach (NativeActions::vocabulary() as $action) {
+        foreach (NativeActionCatalog::vocabulary() as $action) {
             $actions[$action] = ['args' => $schemas[$action] ?? []];
         }
 
@@ -597,8 +597,8 @@ final class ManifestValidate {
             'derived_from' => [
                 'Duo\\Policy::closed_vocabularies()',
                 'Duo\\Policy::grammar_patterns()',
-                'Duo\\NativeActions::vocabulary()',
-                'Duo\\NativeActions::arg_schemas()',
+                'Duo\\NativeActionCatalog::vocabulary()',
+                'Duo\\NativeActionCatalog::argSchemas()',
             ],
             // Every consumer of this document is entitled to know what it does
             // NOT describe, in the document rather than in a guide it may never
@@ -752,7 +752,8 @@ final class ManifestValidate {
             define('DUO_SPEC_VERSION', (int) $m[1]);
         }
 
-        // Policy.php requires NativeActions.php itself. The other three are
+        // Policy.php requires the pure NativeActionCatalog itself. The other
+        // files are
         // what Policy::load() reaches: canonical decoding, the autoload
         // vocabulary, and the external review/evidence pair it consults when
         // the directory carries one.

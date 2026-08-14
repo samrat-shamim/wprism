@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/NativeActionCatalog.php';
+
 /**
  * The closed native-action vocabulary: engine-implemented operations whose
  * semantics belong to WordPress core rather than to any one plugin.
@@ -40,19 +42,9 @@ final class NativeActions {
      * own name is already prefixed, which would delete a different key than
      * the one it appears to name.
      */
-    private const ACTIONS = [
-        'transient.delete' => [
-            'name' => [
-                'type' => 'string',
-                'required' => true,
-                'pattern' => '/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,170}$/D',
-            ],
-        ],
-    ];
-
     /** @return list<string> */
     public static function vocabulary(): array {
-        return array_keys(self::ACTIONS);
+        return NativeActionCatalog::vocabulary();
     }
 
     /**
@@ -82,20 +74,7 @@ final class NativeActions {
      * @return array<string, array<string, array{type:string, required:bool, pattern?:string}>>
      */
     public static function arg_schemas(): array {
-        $out = [];
-        foreach (self::ACTIONS as $action => $args) {
-            $out[$action] = [];
-            foreach ($args as $key => $rule) {
-                // Field-level projection too, and for the same reason: an
-                // internal annotation on one argument rule would otherwise be
-                // published as part of that argument's declared shape.
-                $out[$action][$key] = array_intersect_key(
-                    $rule,
-                    ['type' => true, 'required' => true, 'pattern' => true]
-                );
-            }
-        }
-        return $out;
+        return NativeActionCatalog::argSchemas();
     }
 
     /**
@@ -108,40 +87,7 @@ final class NativeActions {
      * @param string $where caller-supplied manifest coordinate for the message
      */
     public static function validate(string $action, array $args, string $where): void {
-        $schema = self::ACTIONS[$action] ?? null;
-        if ($schema === null) {
-            throw new \RuntimeException(
-                "duo: $where names unknown native action '$action' — the engine vocabulary is closed ("
-                . implode(', ', self::vocabulary()) . '); a plugin-specific operation belongs in a provider'
-            );
-        }
-        if (array_is_list($args) && $args !== []) {
-            throw new \RuntimeException("duo: $where.args must be an object");
-        }
-        $unknown = array_diff(array_keys($args), array_keys($schema));
-        if ($unknown !== []) {
-            throw new \RuntimeException(
-                "duo: $where.args contains unknown key(s) for native action '$action': "
-                . implode(', ', $unknown)
-            );
-        }
-        foreach ($schema as $key => $rule) {
-            if (!array_key_exists($key, $args)) {
-                if ($rule['required']) {
-                    throw new \RuntimeException(
-                        "duo: $where.args is missing required key '$key' for native action '$action'"
-                    );
-                }
-                continue;
-            }
-            $value = $args[$key];
-            if ($rule['type'] === 'string'
-                && (!is_string($value) || preg_match($rule['pattern'], $value) !== 1)) {
-                throw new \RuntimeException(
-                    "duo: $where.args.$key must be a bounded string matching {$rule['pattern']}"
-                );
-            }
-        }
+        NativeActionCatalog::validate($action, $args, $where);
     }
 
     /**
@@ -184,10 +130,7 @@ final class NativeActions {
     /** Bind the closed native action semantics for scoped authority. */
     public static function scoped_action_digest(string $action): string {
         self::ensure_scoped_support_loaded();
-        $schema = self::ACTIONS[$action] ?? null;
-        if ($schema === null) {
-            self::validate($action, [], "native action '$action'");
-        }
+        $schema = NativeActionCatalog::schema($action);
         return hash('sha256', Canon::encode([
             'format' => Providers::SCOPED_OPERATION_FORMAT,
             'kind' => 'native',

@@ -111,14 +111,8 @@ final class Canary {
      * write. The suppression stays on its own merits.)
      */
     public static function suppress_cron_spawn(): void {
-        if (self::$cronSuppressed) {
-            return;
-        }
+        require_once __DIR__ . '/CaptureWordPressExecution.php';
+        CaptureWordPressExecution::suppressCronSpawn();
         self::$cronSuppressed = true;
-        add_filter('pre_http_request', function ($preempt, $parsed_args, $url) {
-            return str_contains($url, '/wp-cron.php')
-                ? new \WP_Error('duo_cron_suppressed', 'duo: suppressed a wp-cron spawn triggered by a duo command')
-                : $preempt;
-        }, 10, 3);
     }
 }

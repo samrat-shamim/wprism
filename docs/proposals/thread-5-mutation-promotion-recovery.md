@@ -1,6 +1,6 @@
 # Thread 5 — Mutation, promotion, and recovery
 
-*Status: proposed for owner approval.*
+*Status: approved for P0 inventory/test-only work; production execution follows Platform P0.*
 
 *Depends on: [Thread 0](thread-0-foundation.md).*
 
@@ -48,6 +48,7 @@ cli/src/PlanContract.php
 cli/src/PlanSummary.php
 cli/src/PlanView.php
 cli/src/PromoteCommand.php
+cli/src/RecoveryProtocol/RecoveryProtocolCodec.php
 cli/src/RollbackAuthority.php
 cli/src/ScopedRollbackProfile.php
 cli/src/VerifiedRollbackProfile.php
@@ -81,6 +82,7 @@ AttachmentMaterializer.php
 AuthoredTransactionExecutor.php
 AuthoredTransactionRequest.php
 Canary.php
+CaptureMutationBridge.php
 Code.php
 CodeMaterializer.php
 CodeOwnershipPruner.php
@@ -141,13 +143,39 @@ and evidence. Thread 3 owns repository/capture/read-model source. Thread 2
 alone wires Thread 5's host command modules into `cli/duo`; Thread 3 alone wires
 agent handlers into `agent/src/Cli.php`.
 
+`CaptureMutationBridge` is Thread 5's implementation of the Thread 3-owned
+`CaptureMutationPort`. Thread 3 alone instantiates it at the agent composition
+root; Thread 5 exports a tested bridge and never adds a Capture-prefix import of
+`Code`, `Deploy`, `Canary`, `ScopedApply`, promotion, or lifecycle
+implementation. `RecoveryProtocolCodec` is Thread 5's host-side,
+byte-compatible protocol leaf; host callers consume its bytes without importing
+the standalone recovery implementation.
+
 The `NativeActions.php` allowlist entry covers only the compatibility facade and
-WordPress executor remaining after Thread 0 extracts Thread 4's inert native
-action catalog/grammar. New declaration vocabulary does not belong to Thread 5.
+WordPress executor remaining after Thread 0's extraction of Thread 4's inert
+native action catalog/grammar. New declaration vocabulary does not belong to
+Thread 5.
 
 The Thread 0 ledger assigns future `Mutation/`, `Promotion/`, and `Lifecycle/`
 agent prefixes and the recovery implementation prefix exclusively to this
 thread. The allowlist above covers the current flat tree only.
+
+### P0 execution lock and authoritative result
+
+Before Thread 5 changes production code, Thread 1's Platform P0 schema,
+validator, and serial runner must be integrated; all Thread 2–5 owner-authored
+test-only catalog/component-profile fragments must land; and Thread 1 must
+generate the aggregate and activate every nonempty profile. Thread 5 then
+rebases onto that completed P0 and passes its profile. Until then it may
+inventory and add only its exclusive test-only fragment; it does not edit
+production surfaces or copy another thread's implementation.
+
+`make test-component COMPONENT=mutation-recovery` is the focused offline
+development gate. The authoritative Thread 5 gate is `make thread-5-gate`; its
+retained structured result is `artifacts/test-results/thread-5/result.json`.
+The evidence-staleness gate uses one of the four result states and records
+`non_releasable` as release-eligibility metadata/branch state; it must name the
+exact reviewed impact set and cannot waive frozen-candidate recertification.
 
 ## Target internal shape
 
@@ -190,8 +218,10 @@ After Thread 0's safety disposition, pin:
 - locks, leases, fences, lifecycle and transition journals;
 - regeneration/provider-effect requests and receipts;
 - promotion resume/reconcile behavior;
-- the versioned recovery-decision session/precondition record, exact drift
-  comparison, and recovery-only treatment of legacy unbound sessions;
+- the foundation promotion quarantine output, and—when Thread 5 implements its
+  lift condition—the versioned recovery-decision session/precondition record,
+  exact drift comparison, and recovery-only treatment of legacy unbound
+  sessions;
 - checkpoint, code, upload, effect, and rollback protocol bytes;
 - signature verification and failure output.
 
@@ -226,6 +256,13 @@ Thread 5 consumes Thread 3's pure scoped-option projection. Capture-facing cron
 suppression remains behind Thread 3's WordPress port; Thread 5 does not expose
 `ScopedApply`, `Canary`, or lifecycle implementations to Capture.
 
+Thread 5 must not move, bypass, or lift Thread 3's command-entry/Journal
+quarantine. Until separately proven qualification authority exists, Apply/Delete
+remains refused before repository, scope, lease/canary, provider, database, or
+filesystem work, and the refusal path retains Journal shutdown-write
+suppression. `Journal.php`, `CaptureMutationPort`, and agent command wiring are
+not Thread 5-owned surfaces.
+
 Introduce database, clock, filesystem, and process ports only where they make
 an extracted stage independently testable. Existing `Db`/`Ledger` static APIs
 remain compatibility adapters until the foundation grants one writer; do not
@@ -238,15 +275,20 @@ current immutable decision/result containing all facts already used today.
 Host and agent presenters display it without recomputing whether apply or
 promotion may proceed.
 
-Preserve the current plan-precondition hash. Before this refactor freezes
-behavior, Thread 0 adds a narrowly versioned safety record that durably binds
-the selected current recovery provider/profile and relevant configuration
-identity to the promotion session/precondition. Reselect and compare that exact
-decision at the last pre-mutation boundary and on forward resume; mismatch
-refuses. Legacy unbound records remain readable for recovery/reconciliation but
-cannot silently authorize a new forward mutation. This does not add actor
-identity or claim a spec-compliant ReleasePlan. Binding the full recovery/actor
-contract into the future product plan belongs to the enhancement round.
+Preserve the current plan-precondition hash. Thread 0 has deliberately frozen a
+loud `promotion_recovery_decision_unbound` quarantine before scope/ordinary
+routing, target contact, lease, checkpoint, Deploy, or Apply; it has not added
+the recovery-decision record. Thread 5's first promotion slice is that lift
+condition: add a narrowly versioned durable recovery-decision binding to the
+promotion session/precondition, containing the selected current provider,
+profile, and relevant redacted configuration identity. Reselect and compare
+that immutable decision exactly at the last pre-mutation boundary and every
+forward resume; mismatch refuses. Records without the binding remain readable
+only for recovery/reconciliation and cannot silently authorize a new forward
+mutation. Preserve the pre-routing quarantine until this binding and its
+failure tests land. This does not add actor identity or claim a spec-compliant
+ReleasePlan. Binding the full recovery/actor contract into the future product
+plan belongs to the enhancement round.
 
 ### 4. Code lifecycle decomposition
 
@@ -304,7 +346,9 @@ Thread 5 exports a host command module. Thread 2 owns top-level registration,
 common argument handling, and final output plumbing.
 
 Keep all post-safety-gate flags, warnings, fallback behavior, ordering, and exit
-codes. Do not remove or bypass the last-moment recovery-profile comparison.
+codes. Do not remove or bypass the last-moment recovery-decision comparison;
+until the Thread 5 binding slice lands, retain the foundation's loud pre-routing
+quarantine instead of treating an unbound session as a forward-promotion input.
 Do not add actor identity, org policy, `none` acknowledgment, a product
 authorization artifact, semantic journey verification, or a public `recover`
 verb in this round.
@@ -364,16 +408,16 @@ not depend on source-text assertions or unsafe default parallelism.
 - Target code lifecycle facade consuming Thread 3's descriptor contract.
 - Host promotion command/coordinator module.
 - Current promotion result and receipt projection.
-- Standalone recovery protocol/controller facade plus a byte-compatible
-  `RecoveryProtocolCodec/Client` consumed by the host without importing
-  recovery implementation classes.
+- Existing byte-compatible host-side `RecoveryProtocolCodec`, plus the
+  standalone recovery protocol/controller facade and any extracted client
+  behind that codec; the host never imports recovery implementation classes.
 - Mutation/effect execution boundary consuming Thread 4's provider facade.
 
 ## Constraints
 
 - No mutation-authority expansion or new force hatch.
-- After the foundation's versioned recovery-decision safety record is frozen,
-  no further plan, descriptor, journal, receipt, signature, or recovery byte
+- After Thread 5's reviewed versioned recovery-decision binding is frozen, no
+  further plan, descriptor, journal, receipt, signature, or recovery byte
   change.
 - No reordering of deploy, checkpoint, apply, rebuild, convergence, or receipt
   publication.
@@ -402,7 +446,9 @@ At minimum, run catalog-selected suites for:
 - the complete offline corpus before integration.
 
 Per-slice development runs focused recovery regressions and a
-`make test-component COMPONENT=mutation-recovery` gate. Evidence-producing
+`make test-component COMPONENT=mutation-recovery` development gate; the
+authoritative result comes from `make thread-5-gate` and
+`artifacts/test-results/thread-5/result.json`. Evidence-producing
 `certify-ssh-rollback` and subject certification run only against Thread 0's
 frozen candidate. Thread 5 owns the mutation-recovery catalog/component-profile
 fragment; Thread 1 validates and aggregates it. Recovery/adoption/SSH

@@ -1,6 +1,10 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/TargetRuntimeInspector.php';
+require_once __DIR__ . '/VersionRange.php';
+require_once __DIR__ . '/WordPressTargetRuntimeInspector.php';
+
 require_once __DIR__ . '/CodeCompatibility.php';
 require_once __DIR__ . '/DeployPlanner.php';
 require_once __DIR__ . '/LifecycleExecutor.php';
@@ -798,14 +802,7 @@ final class Deploy {
      * @return array{installed:bool, active:bool, version:string}
      */
     public static function plugin_runtime_state(string $plugin): array {
-        self::require_plugin_admin_functions();
-        $installed = !is_wp_error(validate_plugin($plugin));
-        $all = $installed ? get_plugins() : [];
-        return [
-            'installed' => $installed,
-            'active' => in_array($plugin, self::current_active_plugins(), true),
-            'version' => (string) ($all[$plugin]['Version'] ?? ''),
-        ];
+        return (new WordPressTargetRuntimeInspector())->plugin($plugin);
     }
 
     /**
@@ -817,7 +814,7 @@ final class Deploy {
      * instead of a second copy that could drift on an edge case.
      */
     public static function in_range(string $installed, string $min, string $max): bool {
-        return version_compare($installed, $min, '>=') && version_compare($installed, $max, '<');
+        return VersionRange::contains($installed, $min, $max);
     }
 
     /**

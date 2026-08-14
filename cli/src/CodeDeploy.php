@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/HostContracts/TargetInvocation.php';
+
 /**
  * Host-side half of code deployment.
  *
@@ -92,7 +94,7 @@ PHP;
      *
      * @return array{exit:int, stdout:string, stderr:string, summary:?array}
      */
-    public static function compile(EnvironmentDriver $transport, string $repo, string $artifact): array {
+    public static function compile(TargetInvocation $transport, string $repo, string $artifact): array {
         $result = $transport->captureWp(self::controlArgs([
             'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
         ]));
@@ -116,7 +118,7 @@ PHP;
      * @return array{exit:int,stdout:string,stderr:string,summary:?array}
      */
     public static function preflight(
-        EnvironmentDriver $transport,
+        TargetInvocation $transport,
         string $repo,
         string $artifact,
         string $artifactHash,

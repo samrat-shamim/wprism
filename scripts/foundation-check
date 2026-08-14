@@ -1,0 +1,300 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+$matrixPath = $root . '/docs/proposals/refactor-acceptance.json';
+$refresh = in_array('--refresh-acceptance', array_slice($argv, 1), true);
+$policyOnly = in_array('--policy-only', array_slice($argv, 1), true);
+$requireUnadvanced = in_array('--require-unadvanced', array_slice($argv, 1), true);
+$requirePublished = in_array('--require-published', array_slice($argv, 1), true);
+
+function foundation_fail(string $message): never {
+    fwrite(STDERR, "foundation-check: $message\n");
+    exit(1);
+}
+
+/** @return list<string> */
+function charter_items(string $path, string $heading): array {
+    $lines = file($path, FILE_IGNORE_NEW_LINES);
+    if (!is_array($lines)) foundation_fail("cannot read $path");
+    $inside = false; $items = []; $current = null;
+    foreach ($lines as $line) {
+        if ($line === "## $heading") { $inside = true; continue; }
+        if ($inside && str_starts_with($line, '## ')) break;
+        if (!$inside) continue;
+        if (preg_match('/^- (.+)$/', $line, $m) === 1) {
+            if ($current !== null) $items[] = trim(preg_replace('/\s+/', ' ', $current));
+            $current = $m[1];
+            continue;
+        }
+        if ($current !== null && trim($line) !== '' && !str_starts_with(trim($line), '```')) {
+            $current .= ' ' . trim($line);
+        }
+    }
+    if ($current !== null) $items[] = trim(preg_replace('/\s+/', ' ', $current));
+    if ($items === []) foundation_fail("$heading has no stable items in $path");
+    return $items;
+}
+
+$charters = [
+    0 => ['file'=>'docs/proposals/thread-0-foundation.md','heading'=>'Foundation completion gate','profile'=>'foundation'],
+    1 => ['file'=>'docs/proposals/thread-1-engineering-platform-runtime.md','heading'=>'Done means','profile'=>'thread-1-engineering-platform'],
+    2 => ['file'=>'docs/proposals/thread-2-host-cli-environment.md','heading'=>'Done means','profile'=>'thread-2-host-cli'],
+    3 => ['file'=>'docs/proposals/thread-3-wordpress-agent-capture.md','heading'=>'Done means','profile'=>'thread-3-wordpress-agent'],
+    4 => ['file'=>'docs/proposals/thread-4-capability-policy-evidence.md','heading'=>'Done means','profile'=>'thread-4-capability-evidence'],
+    5 => ['file'=>'docs/proposals/thread-5-mutation-promotion-recovery.md','heading'=>'Done means','profile'=>'thread-5-mutation-recovery'],
+];
+
+$expected = [];
+foreach ($charters as $thread => $charter) {
+    $items = charter_items($root . '/' . $charter['file'], $charter['heading']);
+    foreach ($items as $index => $text) {
+        $id = sprintf('T%d-%s-%02d', $thread, $thread === 0 ? 'GATE' : 'DONE', $index + 1);
+        $review = str_contains($text, 'owner approves')
+            || str_contains($text, 'ruling is approved')
+            || str_contains($text, 'protocols are accepted');
+        $command = $thread === 0 ? 'scripts/foundation-check' : "make thread-$thread-gate";
+        $artifact = $thread === 0
+            ? 'docs/proposals/foundation-execution-record.md'
+            : "artifacts/test-results/thread-$thread/result.json";
+        if ($thread === 0 && $index === 0) $command = 'scripts/contracts-check';
+        if ($thread === 0 && $index === 2) $command = 'scripts/ownership-check';
+        if ($thread === 0 && $index === 3) $command = 'scripts/contracts-check';
+        if ($thread === 0 && $index === 9) $command = 'scripts/foundation-check --require-unadvanced';
+        if ($review) {
+            $command = 'review recorded in docs/proposals/foundation-decisions.md';
+            $artifact = 'docs/proposals/foundation-decisions.md';
+        }
+        $expected[$id] = [
+            'id' => $id,
+            'source' => $charter['file'] . '#' . strtolower(str_replace(' ', '-', $charter['heading'])),
+            'source_item_sha256' => 'sha256:' . hash('sha256', $text),
+            'item' => $text,
+            'owner' => "thread-$thread",
+            'gate_profile' => $charter['profile'],
+            'verification' => ['kind' => $review ? 'review_only' : 'executable', 'command' => $command],
+            'expected_artifact' => $artifact,
+            'pass_condition' => $review
+                ? 'named owner/reviewer decision is explicitly approved in the immutable decision record'
+                : 'command/profile exits zero and the retained artifact records this item as satisfied',
+        ];
+    }
+}
+
+if ($refresh) {
+    $matrix = [
+        'format' => 'duo-refactor-acceptance/v1',
+        'generated_from' => array_map(
+            static fn(array $v): string => $v['file'] . '#' . strtolower(str_replace(' ', '-', $v['heading'])),
+            $charters
+        ),
+        'items' => array_values($expected),
+    ];
+    $json = json_encode($matrix, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR) . "\n";
+    if (file_put_contents($matrixPath, $json) === false) foundation_fail('cannot write acceptance matrix');
+}
+
+$raw = @file_get_contents($matrixPath);
+if (!is_string($raw)) foundation_fail('acceptance matrix is absent; run --refresh-acceptance');
+try { $matrix = json_decode($raw, true, 512, JSON_THROW_ON_ERROR); }
+catch (Throwable $e) { foundation_fail('acceptance matrix is invalid JSON'); }
+if (!is_array($matrix) || ($matrix['format'] ?? null) !== 'duo-refactor-acceptance/v1') foundation_fail('acceptance matrix format is invalid');
+$actual = [];
+foreach ((array) ($matrix['items'] ?? []) as $entry) {
+    $id = $entry['id'] ?? null;
+    if (!is_string($id) || isset($actual[$id])) foundation_fail('acceptance item id is missing or duplicated');
+    foreach (['source','source_item_sha256','item','owner','gate_profile','verification','expected_artifact','pass_condition'] as $field) {
+        if (!array_key_exists($field, $entry)) foundation_fail("acceptance item $id misses $field");
+    }
+    $kind = $entry['verification']['kind'] ?? null;
+    if (!in_array($kind, ['executable','review_only'], true)
+        || !is_string($entry['verification']['command'] ?? null)
+        || trim($entry['verification']['command']) === '') foundation_fail("acceptance item $id has invalid verification");
+    if ($kind === 'review_only' && (!is_string($entry['expected_artifact']) || $entry['expected_artifact'] === '')) {
+        foundation_fail("review-only acceptance item $id has no decision artifact");
+    }
+    $actual[$id] = $entry;
+}
+if (array_keys($actual) !== array_keys($expected)) foundation_fail('acceptance matrix has a missing, extra, or reordered charter item');
+foreach ($expected as $id => $entry) {
+    if ($actual[$id] !== $entry) {
+        foundation_fail("acceptance item $id differs from its complete generated verification mapping");
+    }
+    $artifact = $entry['expected_artifact'];
+    if ($entry['owner'] === 'thread-0'
+        && (!is_string($artifact) || $artifact === '' || !is_file($root . '/' . $artifact))) {
+        foundation_fail("acceptance item $id has no retained verification artifact: $artifact");
+    }
+}
+$executionRecord = (string) file_get_contents($root . '/docs/proposals/foundation-execution-record.md');
+$decisionRecord = (string) file_get_contents($root . '/docs/proposals/foundation-decisions.md');
+$reviewHeadings = [
+    'T0-GATE-07' => '## Exact revision and evidence merge ruling',
+    'T0-GATE-08' => '## Hot and generated files',
+    'T0-GATE-12' => '## Approval',
+];
+foreach ($expected as $id => $entry) {
+    if ($entry['owner'] !== 'thread-0') continue;
+    if ($entry['verification']['kind'] === 'review_only') {
+        if (!isset($reviewHeadings[$id]) || !str_contains($decisionRecord, $reviewHeadings[$id])) {
+            foundation_fail("review-only acceptance item $id lacks its explicit approval section");
+        }
+        continue;
+    }
+    $command = $entry['verification']['command'];
+    $recorded = false;
+    foreach (preg_split('/\R/', $executionRecord) ?: [] as $line) {
+        if (str_contains($line, '`' . $command) && str_contains($line, 'PASS')) { $recorded = true; break; }
+    }
+    if (!$recorded) foundation_fail("executable acceptance item $id lacks a PASS record for $command");
+}
+
+$required = [
+    'docs/contracts/command-contract.schema.json','docs/contracts/public-contracts.json',
+    'docs/contracts/closure-v2.schema.json','docs/contracts/evidence-identity.schema.json',
+    'docs/contracts/harness-approval.schema.json','docs/contracts/release-selection.schema.json',
+    'docs/contracts/review-bundle.schema.json',
+    'docs/proposals/refactor-ownership.json','docs/proposals/refactor-acceptance.json',
+    'docs/proposals/foundation-execution-record.md','docs/proposals/foundation-decisions.md',
+    'docs/proposals/foundation-integration.json','sandbox/fixtures/foundation/contracts/fixture-index.json',
+];
+foreach ($required as $path) if (!is_file($root . '/' . $path)) foundation_fail("required artifact is absent: $path");
+
+foreach (glob($root . '/docs/contracts/*.json') ?: [] as $path) {
+    try { json_decode((string) file_get_contents($path), true, 512, JSON_THROW_ON_ERROR); }
+    catch (Throwable $e) { foundation_fail('contract JSON is invalid: ' . basename($path)); }
+}
+
+$integrationPath = $root . '/docs/proposals/foundation-integration.json';
+try { $integration = json_decode((string) file_get_contents($integrationPath), true, 512, JSON_THROW_ON_ERROR); }
+catch (Throwable $e) { foundation_fail('foundation integration record is invalid JSON'); }
+if (!is_array($integration) || ($integration['format'] ?? null) !== 'duo-foundation-integration/v1') {
+    foundation_fail('foundation integration record format is invalid');
+}
+$foundationRef = $integration['foundation_ref'] ?? null;
+$integrationBranch = $integration['integration_branch'] ?? null;
+$publicationRemote = $integration['publication_remote'] ?? null;
+if (!is_string($foundationRef) || preg_match('~^refs/tags/[A-Za-z0-9._/-]+$~D', $foundationRef) !== 1
+    || !is_string($integrationBranch) || preg_match('~^refs/heads/[A-Za-z0-9._/-]+$~D', $integrationBranch) !== 1
+    || !is_string($publicationRemote) || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $publicationRemote) !== 1) {
+    foundation_fail('foundation or integration ref is invalid');
+}
+$worktrees = (array) ($integration['worktrees'] ?? []);
+$worktreeRootEnv = $integration['worktree_root_env'] ?? null;
+$receipt = $integration['receipt'] ?? null;
+if (!is_string($worktreeRootEnv) || preg_match('/^[A-Z][A-Z0-9_]{2,63}$/D', $worktreeRootEnv) !== 1
+    || !is_array($receipt) || $receipt !== [
+        'format' => 'duo-foundation-fanout-receipt/v1',
+        'carrier' => 'annotated-foundation-tag',
+    ]) foundation_fail('portable worktree-root or fan-out receipt contract is malformed');
+$worktreeRoot = getenv($worktreeRootEnv);
+if (!is_string($worktreeRoot) || $worktreeRoot === '') $worktreeRoot = dirname($root);
+if (!str_starts_with($worktreeRoot, '/')) foundation_fail("$worktreeRootEnv must name an absolute directory");
+$worktreeRoot = rtrim($worktreeRoot, '/');
+$seenThreads = []; $seenBranches = []; $seenSuffixes = [];
+foreach ($worktrees as $row) {
+    $thread = $row['thread'] ?? null; $branch = $row['branch'] ?? null; $suffix = $row['worktree_suffix'] ?? null;
+    if (!is_int($thread) || $thread < 1 || $thread > 5 || isset($seenThreads[$thread])
+        || !is_string($branch) || preg_match('~^refs/heads/refactor/[A-Za-z0-9._/-]+$~D', $branch) !== 1
+        || isset($seenBranches[$branch]) || !is_string($suffix)
+        || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D', $suffix) !== 1 || isset($seenSuffixes[$suffix])) {
+        foundation_fail('foundation worktree record is malformed or duplicated');
+    }
+    $seenThreads[$thread] = true; $seenBranches[$branch] = true; $seenSuffixes[$suffix] = true;
+}
+ksort($seenThreads);
+if (array_keys($seenThreads) !== [1,2,3,4,5]) foundation_fail('foundation integration must declare exactly Threads 1-5');
+$p0 = $integration['platform_p0'] ?? null;
+if (!is_array($p0) || ($p0['production_edits_allowed'] ?? null) !== false
+    || count((array) ($p0['preproduction_train'] ?? [])) !== 3
+    || !is_string($p0['unlock_condition'] ?? null) || trim($p0['unlock_condition']) === '') {
+    foundation_fail('platform P0 production-edit lock is absent or malformed');
+}
+
+/** @param list<string> $args */
+function foundation_git(string $root, array $args): string {
+    $process = proc_open(array_merge(['git'], $args), [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $root, null, ['bypass_shell'=>true]);
+    if (!is_resource($process)) foundation_fail('cannot start git verification');
+    fclose($pipes[0]); $stdout=(string)stream_get_contents($pipes[1]); $stderr=(string)stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]);
+    if (proc_close($process) !== 0) foundation_fail('git verification failed: ' . trim($stderr));
+    return trim($stdout);
+}
+
+if (!$policyOnly) {
+    $foundationCommit = foundation_git($root, ['rev-parse', '--verify', $foundationRef . '^{commit}']);
+    if (preg_match('/^[a-f0-9]{40}$/D', $foundationCommit) !== 1) foundation_fail('foundation ref did not resolve to one commit');
+    if (foundation_git($root, ['cat-file', '-t', $foundationRef]) !== 'tag') {
+        foundation_fail('foundation receipt must be carried by an annotated tag');
+    }
+    $tagReceipt = foundation_git($root, ['for-each-ref', $foundationRef, '--format=%(contents)']);
+    $expectedReceiptLines = [
+        'duo-foundation-fanout-receipt/v1',
+        'foundation_commit=' . $foundationCommit,
+        'integration_branch=' . $integrationBranch,
+    ];
+    foreach ($worktrees as $row) $expectedReceiptLines[] = 'thread_' . $row['thread'] . '_branch=' . $row['branch'];
+    foreach ($expectedReceiptLines as $line) {
+        if (!in_array($line, preg_split('/\R/', $tagReceipt) ?: [], true)) {
+            foundation_fail("annotated foundation tag lacks receipt field: $line");
+        }
+    }
+    $integrationHead = foundation_git($root, ['rev-parse', '--verify', $integrationBranch . '^{commit}']);
+    if (foundation_git($root, ['merge-base', $foundationCommit, $integrationHead]) !== $foundationCommit) {
+        foundation_fail('integration branch does not descend from the foundation commit');
+    }
+    if ($requireUnadvanced && $integrationHead !== $foundationCommit) {
+        foundation_fail('integration branch advanced before the one-time fan-out receipt was verified');
+    }
+    $porcelain = foundation_git($root, ['worktree', 'list', '--porcelain']);
+    $actualWorktrees = [];
+    $path = null;
+    foreach (preg_split('/\R/', $porcelain) ?: [] as $line) {
+        if (str_starts_with($line, 'worktree ')) $path = substr($line, 9);
+        if ($path !== null && str_starts_with($line, 'branch ')) {
+            $actualWorktrees[substr($line, 7)] = $path;
+        }
+        if ($line === '') $path = null;
+    }
+    foreach ($worktrees as $row) {
+        $threadHead = foundation_git($root, ['rev-parse', '--verify', $row['branch'] . '^{commit}']);
+        if (foundation_git($root, ['merge-base', $foundationCommit, $threadHead]) !== $foundationCommit) {
+            foundation_fail('thread branch does not descend from the foundation commit: ' . $row['branch']);
+        }
+        if ($requireUnadvanced && $threadHead !== $foundationCommit) {
+            foundation_fail('thread branch advanced before the one-time fan-out receipt was verified: ' . $row['branch']);
+        }
+        $expectedPath = $worktreeRoot . '/' . $row['worktree_suffix'];
+        if (($actualWorktrees[$row['branch']] ?? null) !== $expectedPath || !is_dir($expectedPath)) {
+            foundation_fail('thread worktree is absent or attached to the wrong branch: ' . $row['branch']);
+        }
+    }
+    if ($requirePublished) {
+        $remoteRefs = foundation_git($root, ['ls-remote', $publicationRemote, $foundationRef, $foundationRef . '^{}', $integrationBranch]);
+        foreach ($worktrees as $row) {
+            $remoteRefs .= "\n" . foundation_git($root, ['ls-remote', $publicationRemote, $row['branch']]);
+        }
+        $published = [];
+        foreach (preg_split('/\R/', trim($remoteRefs)) ?: [] as $line) {
+            if (preg_match('/^([a-f0-9]{40})\s+(.+)$/D', $line, $match) === 1) $published[$match[2]] = $match[1];
+        }
+        if (($published[$foundationRef . '^{}'] ?? null) !== $foundationCommit
+            || ($published[$integrationBranch] ?? null) !== $foundationCommit) {
+            foundation_fail('published annotated tag or integration ref does not resolve to the foundation commit');
+        }
+        foreach ($worktrees as $row) {
+            if (($published[$row['branch']] ?? null) !== $foundationCommit) {
+                foundation_fail('published thread ref does not resolve to the foundation commit: ' . $row['branch']);
+            }
+        }
+    }
+    foreach (['scripts/ownership-check','scripts/contracts-check'] as $command) {
+        $process = proc_open([$root . '/' . $command], [0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']], $pipes, $root, null, ['bypass_shell'=>true]);
+        if (!is_resource($process)) foundation_fail("cannot run $command");
+        fclose($pipes[0]); $stdout=(string)stream_get_contents($pipes[1]); $stderr=(string)stream_get_contents($pipes[2]); fclose($pipes[1]); fclose($pipes[2]);
+        if (proc_close($process) !== 0) foundation_fail("$command failed: " . trim($stderr));
+        echo trim($stdout) . PHP_EOL;
+    }
+}
+
+echo 'foundation-check: ' . count($expected) . ' charter acceptance items are mapped; required foundation artifacts are present' . PHP_EOL;

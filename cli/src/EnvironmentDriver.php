@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/HostContracts/EnvironmentAccess.php';
+
 /**
  * The host boundary used by orchestration workflows.
  *
@@ -10,7 +12,7 @@ namespace Duo\Orchestrator;
  * interpret canonical state or plugin semantics; those stay in the target
  * agent, manifests, native actions, and plugin-owned providers.
  */
-interface EnvironmentDriver {
+interface EnvironmentDriver extends EnvironmentAccess {
     public function name(): string;
     public function driverId(): string;
     public function repoPath(): string;

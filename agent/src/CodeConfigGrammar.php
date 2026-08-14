@@ -1,19 +1,17 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/CodeDescriptorCompiler.php';
+
 /**
  * Pure top-level `site.duo.json` code declaration grammar (DUO-3348 slice
  * 25), extracted from Policy.php. The declaration is optional so the legacy
- * state-only repository shape remains valid; when present, the existing Code
- * contract remains the single owner of its exact format/layout/source bytes.
+ * state-only repository shape remains valid; when present, the pure descriptor
+ * compiler remains the single owner of its exact format/layout/source bytes.
  *
- * This file deliberately does not require Code.php. Policy.php had the same
- * implicit Code dependency before this extraction, and Code.php's bootstrap
- * graph includes materialization classes that standalone Policy consumers do
- * not otherwise need. Keeping that load boundary unchanged also preserves
- * offline fixtures that install narrow engine seams before requiring a larger
- * collaborator. Callers that validate an opted-in code declaration must load
- * the normal Code boundary, exactly as they did before this move.
+ * This file deliberately does not require Code.php. Repository and policy
+ * validation depend only on the pure descriptor contract; target staging and
+ * materialization remain behind Code's mutation facade.
  */
 final class CodeConfigGrammar {
     /**
@@ -32,7 +30,7 @@ final class CodeConfigGrammar {
             );
         }
         try {
-            Code::assert_config($code);
+            CodeDescriptorCompiler::assert_config($code);
         } catch (\Throwable $t) {
             throw new \RuntimeException("duo: $label code declaration is invalid: {$t->getMessage()}", 0, $t);
         }

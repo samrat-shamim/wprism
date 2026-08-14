@@ -29,7 +29,7 @@ require __DIR__ . '/src/DockerTransport.php';
 require __DIR__ . '/src/SshTransport.php';
 require __DIR__ . '/src/EnvironmentCommand.php';
 require __DIR__ . '/src/EnvironmentListCommand.php';
-require dirname(__DIR__) . '/recovery/rollback-control.php';
+require __DIR__ . '/src/RecoveryProtocol/RecoveryProtocolCodec.php';
 require __DIR__ . '/src/RollbackAuthority.php';
 require __DIR__ . '/src/VerifiedRollbackProfile.php';
 require __DIR__ . '/src/ScopedRollbackProfile.php';

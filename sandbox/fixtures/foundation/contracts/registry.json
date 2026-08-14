@@ -1,0 +1,10 @@
+{
+    "environments": {
+        "qualification": {
+            "repo_path": "/srv/duo/site",
+            "role": "fixture-only",
+            "transport": "local"
+        }
+    },
+    "format": "duo-environment-registry-fixture/v1"
+}

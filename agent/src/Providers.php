@@ -1,6 +1,9 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/TargetRuntimeInspector.php';
+require_once __DIR__ . '/VersionRange.php';
+
 require_once __DIR__ . '/Canon.php';
 // DUO-3383: receipt bounding screens provider strings through the same
 // public-output authority the JSON refusal envelope uses, so there is one
@@ -249,15 +252,20 @@ final class Providers {
      * A target-facing capability/status/plan path has this WordPress context
      * and may therefore ask providers for identity/capabilities without
      * invoking an action. Do NOT require validate_plugin()/get_plugins() here:
-     * Deploy::plugin_runtime_state() deliberately loads wp-admin's plugin API
+     * The live runtime adapter deliberately loads wp-admin's plugin API
      * on demand under WP-CLI. Keep that distinction here rather than making
      * Policy learn the WordPress lifecycle primitives Deploy owns.
      */
-    public static function runtime_negotiation_available(): bool {
-        return defined('ABSPATH')
-            && defined('WP_PLUGIN_DIR')
-            && function_exists('apply_filters')
-            && function_exists('get_option');
+    public static function runtime_negotiation_available(?TargetRuntimeInspectionPort $runtime = null): bool {
+        if ($runtime !== null) {
+            return $runtime->available();
+        }
+        self::loadDefaultRuntimeInspector();
+        // Policy/registry validation intentionally loads without the live
+        // WordPress adapter. Absence means "no target facts available", not a
+        // class-loading error or a fabricated missing-plugin finding.
+        return class_exists(WordPressTargetRuntimeInspector::class)
+            && (new WordPressTargetRuntimeInspector())->available();
     }
 
     /**
@@ -275,8 +283,12 @@ final class Providers {
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
      */
-    public static function negotiate(Policy $policy, array $selectedActions): array {
-        return self::diagnose($policy, $selectedActions);
+    public static function negotiate(
+        Policy $policy,
+        array $selectedActions,
+        ?TargetRuntimeInspectionPort $runtime = null
+    ): array {
+        return self::diagnose($policy, $selectedActions, $runtime);
     }
 
     /**
@@ -335,11 +347,15 @@ final class Providers {
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>, scoped_capabilities:array<string,array<string,array{operation_envelope:string,receipt_format:string,capability_digest:string}>>}
      */
-    public static function negotiate_scoped(Policy $policy, array $selectedActions): array {
+    public static function negotiate_scoped(
+        Policy $policy,
+        array $selectedActions,
+        ?TargetRuntimeInspectionPort $runtime = null
+    ): array {
         // Keep the scoped declaration internal to this opt-in path. Ordinary
         // negotiate()/diagnose() return the pre-existing capability shape so
         // an unscoped caller cannot observe a new declaration key.
-        $negotiated = self::diagnose_internal($policy, $selectedActions, true);
+        $negotiated = self::diagnose_internal($policy, $selectedActions, true, $runtime);
         $scopedCapabilities = [];
         foreach ($selectedActions as $action) {
             if (($action['kind'] ?? '') !== 'provider') {
@@ -429,15 +445,25 @@ final class Providers {
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
      */
-    public static function diagnose(Policy $policy, array $selectedActions): array {
-        return self::diagnose_internal($policy, $selectedActions, false);
+    public static function diagnose(
+        Policy $policy,
+        array $selectedActions,
+        ?TargetRuntimeInspectionPort $runtime = null
+    ): array {
+        return self::diagnose_internal($policy, $selectedActions, false, $runtime);
     }
 
     /**
      * @param list<array<string,mixed>> $selectedActions Policy::actions_for()
      * @return array{problems:list<array<string,mixed>>, providers:array<string,object>, capabilities:array<string,array<string,array<string,mixed>>>}
      */
-    private static function diagnose_internal(Policy $policy, array $selectedActions, bool $includeScoped): array {
+    private static function diagnose_internal(
+        Policy $policy,
+        array $selectedActions,
+        bool $includeScoped,
+        ?TargetRuntimeInspectionPort $runtime = null
+    ): array {
+        $runtime = self::runtimeInspector($runtime);
         $declarations = $policy->provider_declarations();
         $wanted = [];
         foreach ($selectedActions as $action) {
@@ -481,7 +507,7 @@ final class Providers {
             // register its filter while its plugin is inactive, so checking
             // activation first turns "no provider answered" into the accurate
             // "the owning plugin is not active here".
-            $live = Deploy::plugin_runtime_state($plugin);
+            $live = $runtime->plugin($plugin);
             if (!$live['installed']) {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'missing_plugin',
@@ -503,7 +529,7 @@ final class Providers {
                 continue;
             }
             $installed = $live['version'];
-            if ($range !== null && ($installed === '' || !Deploy::in_range($installed, $range['min'], $range['max']))) {
+            if ($range !== null && ($installed === '' || !VersionRange::contains($installed, $range['min'], $range['max']))) {
                 $problems[] = self::problem(
                     $id, $manifest, $plugin, 'outside_version_range',
                     ">={$range['min']} <{$range['max']}",
@@ -521,7 +547,7 @@ final class Providers {
             // invoke()/regenerate_batch() after the object already existed. An
             // environment that cannot satisfy the contract refuses without the
             // engine ever constructing the adapter.
-            $requirementProblem = self::requirement_problem($declaration, $live);
+            $requirementProblem = self::requirement_problem($declaration, $live, $runtime);
             if ($requirementProblem !== null) {
                 $problems[] = $requirementProblem;
                 continue;
@@ -2726,7 +2752,11 @@ final class Providers {
      * @param array<string,mixed> $declaration
      * @param array{installed:bool,active:bool,version:string} $live
      */
-    private static function requirement_problem(array $declaration, array $live): ?array {
+    private static function requirement_problem(
+        array $declaration,
+        array $live,
+        TargetRuntimeInspectionPort $runtime
+    ): ?array {
         $req = $declaration['requires'] ?? null;
         if (!is_array($req) || $req === []) {
             return null;
@@ -2755,7 +2785,7 @@ final class Providers {
             $max = (string) $req['plugin_version']['max'];
             $expected[] = "plugin_version >=$min <$max";
             $installed = (string) $live['version'];
-            if ($installed === '' || !Deploy::in_range($installed, $min, $max)) {
+            if ($installed === '' || !VersionRange::contains($installed, $min, $max)) {
                 $found[] = 'plugin ' . ($installed !== '' ? $installed : '(unknown version)');
             }
         }
@@ -2763,8 +2793,8 @@ final class Providers {
             $min = (string) $req['wordpress_version']['min'];
             $max = (string) $req['wordpress_version']['max'];
             $expected[] = "wordpress_version >=$min <$max";
-            $wp = function_exists('get_bloginfo') ? (string) get_bloginfo('version') : '';
-            if ($wp === '' || !Deploy::in_range($wp, $min, $max)) {
+            $wp = $runtime->wordpressVersion();
+            if ($wp === '' || !VersionRange::contains($wp, $min, $max)) {
                 $found[] = 'wordpress ' . ($wp !== '' ? $wp : '(unknown version)');
             }
         }
@@ -2772,8 +2802,9 @@ final class Providers {
             $min = (string) $req['php_version']['min'];
             $max = (string) $req['php_version']['max'];
             $expected[] = "php_version >=$min <$max";
-            if (!Deploy::in_range(PHP_VERSION, $min, $max)) {
-                $found[] = 'php ' . PHP_VERSION;
+            $php = $runtime->phpVersion();
+            if (!VersionRange::contains($php, $min, $max)) {
+                $found[] = 'php ' . $php;
             }
         }
 
@@ -2790,6 +2821,27 @@ final class Providers {
             'install, activate, or upgrade the owning plugin and platform until this environment satisfies the '
                 . "provider's declared requirements, or unpin the manifest that declares them"
         );
+    }
+
+    /** Resolve the live adapter only on a target-facing execution path. */
+    private static function runtimeInspector(?TargetRuntimeInspectionPort $runtime): TargetRuntimeInspectionPort {
+        if ($runtime !== null) {
+            return $runtime;
+        }
+        self::loadDefaultRuntimeInspector();
+        if (!class_exists(WordPressTargetRuntimeInspector::class)) {
+            throw new \RuntimeException('duo: target runtime inspector adapter is not installed');
+        }
+        return new WordPressTargetRuntimeInspector();
+    }
+
+    /** Keep the WordPress adapter out of Policy's offline load graph while making live direct loading complete. */
+    private static function loadDefaultRuntimeInspector(): void {
+        if (!class_exists(WordPressTargetRuntimeInspector::class, false)
+            && defined('ABSPATH') && defined('WP_PLUGIN_DIR')
+            && function_exists('apply_filters') && function_exists('get_option')) {
+            require_once __DIR__ . '/WordPressTargetRuntimeInspector.php';
+        }
     }
 
     private static function problem(

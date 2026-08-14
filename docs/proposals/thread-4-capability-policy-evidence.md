@@ -1,6 +1,6 @@
 # Thread 4 — Capability, policy, adapters, providers, and evidence
 
-*Status: proposed for owner approval.*
+*Status: approved for P0 inventory/test-only work; production execution follows Platform P0.*
 
 *Depends on: [Thread 0](thread-0-foundation.md).*
 
@@ -55,7 +55,7 @@ cli/src/AdapterCatalog.php
 cli/src/AdapterDraft.php
 cli/src/AdapterObservation.php
 cli/src/ManifestValidate.php
-future cli/src/ArtifactTrust/**
+cli/src/ArtifactTrust/**
 sandbox/conformance/entries/**
 sandbox/conformance/seeds/**
 sandbox/conformance/postdeploy/**
@@ -80,6 +80,7 @@ Its initial `agent/src` allowlist is:
 ActionProviderGrammar.php
 AdapterCertification.php
 AdapterContractGrammar.php
+AdapterObservationProjector.php
 AdapterRegistry.php
 AdapterSources.php
 ArtifactPolicyIdentity.php
@@ -96,6 +97,7 @@ FieldGrammar.php
 ManifestDispositions.php
 ManifestGrammar.php
 ManifestValidator.php
+NativeActionCatalog.php
 OptionGrammar.php
 OptionNameReferenceResolver.php
 OptionNamespaceResolver.php
@@ -121,13 +123,16 @@ SubKeyGrammar.php
 TableDeclarationResolver.php
 TableGraph.php
 TableSchema.php
+TargetRuntimeInspector.php
 TaxonomyDescriptionReferenceResolver.php
 TaxonomyGrammar.php
 TaxonomyKeyspaceResolver.php
 TaxonomyObjectTypeOptionResolver.php
 TaxonomyPatternResolver.php
 UserMetaGrammar.php
+VersionRange.php
 WidgetTypeResolver.php
+WordPressTargetRuntimeInspector.php
 ```
 
 Thread 3 owns the agent-side `AdapterObservation.php` collector/WordPress
@@ -143,9 +148,30 @@ root. It delegates reusable process, workspace, logging, timeout, and sharding
 mechanics to Thread 1-owned `sandbox/lib/**`; neither thread owns sections of
 the other's file.
 
-The Thread 0 ledger assigns future `Capability/`, `Policy/`, `Adapter/`,
-`Provider/`, and `Evidence/` module prefixes exclusively to this thread. The
-allowlist above covers the current flat tree only.
+The Thread 0 ledger assigns the existing `cli/src/ArtifactTrust/**` prefix and
+future `Capability/`, `Policy/`, `Adapter/`, `Provider/`, and `Evidence/`
+module prefixes exclusively to this thread. The allowlist above covers the
+current flat tree only. `AdapterObservation.php` is deliberately absent: it is
+the Thread 3 collector; `AdapterObservationProjector.php` is the Thread 4
+closed, inert projector.
+
+### P0 execution lock and authoritative result
+
+Before Thread 4 changes production code, Thread 1's Platform P0 schema,
+validator, and serial runner must be integrated; all Thread 2–5 owner-authored
+test-only catalog/component-profile fragments must land; and Thread 1 must
+generate the aggregate and activate every nonempty profile. Thread 4 then
+rebases onto that completed P0 and passes its profile. Until then it may
+inventory and add only its exclusive test-only fragment; it does not edit
+production surfaces or compensate by copying another thread's implementation.
+
+`make test-component COMPONENT=capability-policy-evidence` is the focused
+offline development gate. The authoritative Thread 4 gate is
+`make thread-4-gate`; its retained structured result is
+`artifacts/test-results/thread-4/result.json`. The evidence-staleness gate uses
+one of the four result states and records `non_releasable` as release-eligibility
+metadata/branch state; it must name the exact reviewed impact set and cannot
+waive frozen-candidate recertification.
 
 ## Target internal shape
 
@@ -190,8 +216,14 @@ After Thread 0's safety disposition, add golden fixtures for:
 
 Fixtures distinguish reviewed declarations, evidence records, dispositions,
 and generated claims. A test or manifest cannot manufacture a certified claim.
-They also prove that a generated projection is rejected when its independently
-recomputed bytes differ, even if that projection was packaged or signed.
+The foundation's current projection-pack v1 proves only linkage to reviewed
+bytes; it does not yet carry generated registry/docs/claim bytes. Its archived
+fixtures therefore prove v1 linkage/signature acceptance and rejection. The
+separate versioned projection contract below supplies recomputation and
+byte-comparison fixtures before a generated projection can be used as a cache.
+The foundation source/recovery correction intentionally leaves all affected v1
+subjects stale and this branch non-releasable; no durable evidence is
+regenerated merely to make this thread green.
 
 ### 2. Policy pipeline
 
@@ -217,6 +249,12 @@ It must not depend on Thread 5's target-mutation `Code` facade.
 Policy parsing performs no WordPress or provider side effects. Consumers receive
 an immutable snapshot or current facade, not mutable public arrays they can
 silently amend.
+
+`AtomicFilePublisher` is a Thread 3-owned compatibility seam. `PolicyWriter`
+and `Policy::set_rule()` continue to delegate authoritative single-file
+publication to it; Thread 4 neither reimplements nor weakens same-directory
+exclusive staging, complete write/flush/fsync, atomic rename, existing-mode
+preservation, or the injected pre-rename old-or-new-visible failure contract.
 
 ### 3. Adapter-source pipeline
 
@@ -256,6 +294,12 @@ Split the current facade into explicit roles while preserving its public API:
 - scoped-operation state store;
 - reconciliation and retry decision;
 - budget enforcement.
+
+`TargetRuntimeInspectionPort`, `WordPressTargetRuntimeInspector`, and
+`VersionRange` are Thread 4 provider/capability leaves. Offline policy and
+registry loading has no target facts and must not fabricate a missing-provider
+problem; only a target-facing negotiation path may lazily load the WordPress
+adapter to inspect identity/capabilities without invoking a provider action.
 
 Thread 5 calls one provider execution facade; it does not reach into catalog,
 receipt, or state-store internals. Provider output remains untrusted until the
@@ -338,19 +382,37 @@ recertification cost without proving that every runtime and evidence dependency
 remains bound.
 
 Every environment/provider/configuration identity uses Thread 0's canonical
-redacted schema. Evidence contains no credential, raw secret/PII, machine-local
-path, raw low-entropy value, or unkeyed digest of such a value; it binds
-reviewed secret-reference IDs or domain-separated keyed digests where
-necessary. Redaction and dictionary-guess resistance have adversarial fixtures.
+`RedactedEvidenceIdentity` schema and runtime validator. Its public fields are
+the reviewed profile registry only; other identity is a bounded `vault:`
+reference or domain-separated `hmac-sha256:` keyed binding. Evidence contains
+no credential, raw secret/PII, machine-local path, raw low-entropy value, or
+unkeyed digest of such a value. Closure/evidence assembly validates these
+identities before publication; the host trust verifier treats supplied evidence
+inputs as opaque bytes after their exact bytes are bound. Redaction and
+dictionary-guess resistance have adversarial fixtures.
 
-Publish two physically separate outputs defined by Thread 0. The detached
-review bundle contains only current reviewed authority input—reviewed
-disposition or applicable current platform certification record (never a target
-site attestation), immutable evidence identities, approving principal,
-provenance class, trust-root key ID, and exact payload bindings. The
-deterministic projection pack contains generated registry/docs/claim bytes and
-is always recomputed and byte-compared from its exact reviewed inputs before
-use. A packaged or signed projection remains a cache, never authority.
+Publish two physically separate outputs defined by Thread 0. The current
+detached `duo-review-envelope/v1` is closed and Ed25519-signed: its exact fields
+are `format`, `authority_id`, `key_id`, `payload`, and `signature`. Its closed
+`duo-review-bundle/v2` payload binds the target-install/host digests, the
+host/agent/recovery protocol tuple, and exact declaration-payload and
+evidence-input digest maps. The independently pinned `ReleaseSelection`
+supplies the accepted authority/key pair and public key. Authority/key labels
+without that signature confer no trust. The payload therefore does not
+currently carry a separate approving-principal or provenance-class field. If
+either stronger field is required, Thread 0 must first amend the
+review-envelope/payload schema, trust policy, acceptance rules, and fixtures;
+Thread 4 must not add it unilaterally.
+
+The current `duo-projection-pack/v1` is also closed linkage metadata only:
+`format`, `review_envelope_sha256`, and `reviewed_payload_sha256`. It contains
+no generated registry/docs/claim bytes, and v1 verification establishes those
+links rather than recomputing a projection. Before a projection carries
+generated bytes or is accepted only after byte comparison with a recomputation,
+Thread 0 must approve a versioned projection-pack contract, acceptance policy,
+and migration fixture. Thread 4 then implements that stronger contract while
+preserving v1 audit verification. Until then, a packaged or signed projection
+is never authority and is not evidence of generated claim bytes.
 
 Thread 1 installs those outputs under separate `overlay/review/**` and
 `overlay/projection/**` roots, outside immutable runtime/declaration payloads,
@@ -362,7 +424,10 @@ closure-bound in the host artifact by Thread 1 for Thread 2 adoption. Ordinary
 build/test jobs never hold the approval signing key. Legacy third-party or
 harness signatures keep their literal provenance and cannot be relabeled as
 current-platform review. Neither bundle, projection, nor release manifest can
-confer authority on itself.
+confer authority on itself. `ReleaseSelection` itself is a Thread 2-owned
+HostContracts leaf. Thread 4 consumes its independently pinned
+family/set/host/protocol/key inputs through the host-safe verifier and does not
+extend that closed selection record.
 
 Thread 4 owns an exact source-to-artifact classification fragment for every
 tracked file under `manifests/**`. Reviewed declarations may enter
@@ -445,8 +510,10 @@ At minimum, run catalog-selected suites for:
 - the complete offline corpus before integration.
 
 Use `make test-component COMPONENT=capability-policy-evidence` for the offline
-thread gate. Thread 4 owns that catalog/component-profile fragment; Thread 1
-validates and aggregates it. Live conformance/certification profiles remain
+development gate. `make thread-4-gate` is the authoritative Thread 4 gate and
+must retain `artifacts/test-results/thread-4/result.json`. Thread 4 owns that
+catalog/component-profile fragment; Thread 1 validates and aggregates it. Live
+conformance/certification profiles remain
 separately classified and authority-controlled and require all of Thread 0's
 provisioning/data/credential/egress/effect/output containment bindings.
 

@@ -117,6 +117,20 @@ $exit = EnvironmentCommand::run(
 );
 $check($exit === 1, 'direct command invocation refuses incomplete intent before registry/provider/journal or promotion work');
 
+ob_start();
+$quarantined = EnvironmentCommand::run(
+    ['materialize', 'branch', '--from', 'production', '--branch', 'feature/refactor', '--format=json'],
+    null,
+    static fn(mixed $_driver, array $_context): int => throw new RuntimeException('promotion callback must not run behind containment quarantine')
+);
+$quarantinePayload = json_decode((string) ob_get_clean(), true);
+$check(
+    $quarantined === 1
+        && is_array($quarantinePayload)
+        && ($quarantinePayload['reason_code'] ?? null) === 'environment_materialization_containment_unproved',
+    'valid materialize intent is loudly quarantined before registry/provider/journal construction'
+);
+
 $facade = (string) file_get_contents(__DIR__ . '/../../cli/duo');
 $command = (string) file_get_contents(__DIR__ . '/../../cli/src/EnvironmentCommand.php');
 $facadeStart = strpos($facade, 'function cmd_environment(');

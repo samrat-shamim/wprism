@@ -66,7 +66,7 @@ require $repo . '/agent/src/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
-use Duo\NativeActions;
+use Duo\NativeActionCatalog;
 use Duo\Policy;
 
 $failures = 0;
@@ -1007,12 +1007,12 @@ check(
     'every emitted pattern is the exact PCRE the engine hands to preg_match(), delimiters and modifiers included'
 );
 check(
-    array_keys($schema['native_actions'] ?? []) === NativeActions::vocabulary(),
-    'the emitted action list is NativeActions::vocabulary() itself'
+    array_keys($schema['native_actions'] ?? []) === NativeActionCatalog::vocabulary(),
+    'the emitted action list is NativeActionCatalog::vocabulary() itself'
 );
 $argsMatch = ($schema['native_actions'] ?? []) !== [];
 $argFields = [];
-foreach (NativeActions::arg_schemas() as $action => $args) {
+foreach (NativeActionCatalog::argSchemas() as $action => $args) {
     $argsMatch = $argsMatch && (($schema['native_actions'][$action]['args'] ?? null) === $args);
     foreach ($args as $rule) {
         $argFields = array_merge($argFields, array_keys($rule));
@@ -1624,7 +1624,7 @@ check(
 );
 putenv('DUO_MANIFESTS_DIR');
 
-foreach (NativeActions::vocabulary() as $action) {
+foreach (NativeActionCatalog::vocabulary() as $action) {
     accepts(
         solo_b(['actions' => [['kind' => 'native', 'action' => $action, 'args' => ['name' => 'acme_b']]]]),
         "published native action '$action' is accepted by the runtime validator"

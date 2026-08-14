@@ -231,8 +231,12 @@ require $root . '/agent/src/Canon.php';
 require $root . '/agent/src/OptionState.php';
 require $root . '/agent/src/ManifestDispositions.php';
 require $root . '/agent/src/CapabilityRegistry.php';
+// Policy consumes only the inert catalog after the foundation split; this
+// runtime regression also exercises the compatibility executor facade.
+require_once $root . '/agent/src/NativeActions.php';
 require $root . '/agent/src/Policy.php';
-require $root . '/agent/src/CodeCompatibility.php';
+// Policy's pure artifact-identity leaf may already have loaded this facade.
+require_once $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Deploy.php';
 require $root . '/agent/src/ProviderSdk.php';
 require $root . '/agent/src/Providers.php';
@@ -924,12 +928,13 @@ $check($negotiated == $diagnosed && $negotiated['problems'] !== [],
 $check(array_column($diagnosed['problems'], 'code') === ['inactive_plugin'],
     'and it is the real problem row, with the real code, not an empty stand-in');
 
+$negotiateMethod = new \ReflectionMethod(\Duo\Providers::class, 'negotiate');
 $negotiateSource = implode("\n", array_slice(
     (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
-    (new \ReflectionMethod(\Duo\Providers::class, 'negotiate'))->getStartLine() - 1,
-    2
+    $negotiateMethod->getStartLine() - 1,
+    $negotiateMethod->getEndLine() - $negotiateMethod->getStartLine() + 1
 ));
-$check((bool) preg_match('/return self::diagnose\(\$policy, \$selectedActions\);/', $negotiateSource),
+$check((bool) preg_match('/return self::diagnose\(\$policy, \$selectedActions, \$runtime\);/', $negotiateSource),
     'negotiate() is literally the delegation — a second copy of the loop could pass the equality check above on the '
     . 'day it was written and drift the day after, so the sharing itself is pinned');
 
@@ -1128,7 +1133,7 @@ PROBE
 require $engine . '/agent/src/Canon.php';
 require $engine . '/agent/src/OptionState.php';
 require $engine . '/agent/src/Policy.php';
-require $engine . '/agent/src/CodeCompatibility.php';
+require_once $engine . '/agent/src/CodeCompatibility.php';
 require $engine . '/agent/src/Deploy.php';
 require $engine . '/agent/src/Providers.php';
 putenv('DUO_MANIFESTS_DIR=' . __DIR__);
@@ -1170,6 +1175,22 @@ $check(is_array($gate) && ($gate['declared'] ?? 0) === 1 && ($gate['problems'] ?
     'and problems() reports NOTHING there even though the pinned manifest declares a provider action — an offline '
     . 'library load cannot manufacture findings about an environment it cannot see');
 @unlink($gateProbe);
+
+$liveLoadProbe = $dir . '/live-load-probe.php';
+file_put_contents($liveLoadProbe, "<?php\n"
+    . "define('ABSPATH', __DIR__ . '/wp/');\n"
+    . "define('WP_PLUGIN_DIR', __DIR__ . '/wp-content/plugins');\n"
+    . "function apply_filters(string \$hook, mixed \$value): mixed { return \$value; }\n"
+    . "function get_option(string \$name, mixed \$default = false): mixed { return \$default; }\n"
+    . 'require ' . var_export($root . '/agent/src/Providers.php', true) . ";\n"
+    . "echo Duo\\Providers::runtime_negotiation_available() ? 'available' : 'unavailable';\n");
+$liveLoadOut = [];
+exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($liveLoadProbe) . ' 2>&1', $liveLoadOut, $liveLoadRc);
+$check(
+    $liveLoadRc === 0 && implode("\n", $liveLoadOut) === 'available',
+    'direct Providers loading in a live WordPress process lazily supplies its default runtime adapter'
+);
+@unlink($liveLoadProbe);
 
 // Both halves of the plan-time posture, on one fixture: apply throws the
 // packaging fault (asserted in this file's final group, unchanged), and the

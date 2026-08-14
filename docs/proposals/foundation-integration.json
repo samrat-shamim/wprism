@@ -1,0 +1,53 @@
+{
+    "format": "duo-foundation-integration/v1",
+    "foundation_ref": "refs/tags/refactor-foundation-2026-08-14",
+    "integration_branch": "refs/heads/refactor/integration",
+    "publication_remote": "origin",
+    "worktree_root_env": "DUO_FOUNDATION_WORKTREE_ROOT",
+    "receipt": {
+        "format": "duo-foundation-fanout-receipt/v1",
+        "carrier": "annotated-foundation-tag"
+    },
+    "worktrees": [
+        {
+            "thread": 1,
+            "branch": "refs/heads/refactor/thread-1-engineering-platform",
+            "worktree_suffix": "duo-wp-refactor-thread-1"
+        },
+        {
+            "thread": 2,
+            "branch": "refs/heads/refactor/thread-2-host-cli",
+            "worktree_suffix": "duo-wp-refactor-thread-2"
+        },
+        {
+            "thread": 3,
+            "branch": "refs/heads/refactor/thread-3-wordpress-agent",
+            "worktree_suffix": "duo-wp-refactor-thread-3"
+        },
+        {
+            "thread": 4,
+            "branch": "refs/heads/refactor/thread-4-capability-evidence",
+            "worktree_suffix": "duo-wp-refactor-thread-4"
+        },
+        {
+            "thread": 5,
+            "branch": "refs/heads/refactor/thread-5-mutation-recovery",
+            "worktree_suffix": "duo-wp-refactor-thread-5"
+        }
+    ],
+    "platform_p0": {
+        "production_edits_allowed": false,
+        "preproduction_train": [
+            "thread-1-schema-validator-serial-runner",
+            "threads-2-through-5-test-only-owner-fragments",
+            "thread-1-generated-aggregate-and-nonempty-gates"
+        ],
+        "unlock_condition": "every thread worktree is rebased onto the completed platform P0 integration commit and its nonempty component profile passes"
+    },
+    "integration_policy": {
+        "delivery": "small reviewed slices with compatibility, timing, export, evidence-impact, and deferred-cleanup records",
+        "ordering": "reader-before-writer and facade-first",
+        "generated_files": "regenerate only on the integration branch with the owning generator",
+        "evidence": "never regenerate or sign durable production evidence on a behavior branch merely to make it green"
+    }
+}

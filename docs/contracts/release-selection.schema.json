@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/release-selection.schema.json",
+  "title": "Independently pinned release selection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "bundle_path", "expected_release_family_sha256",
+    "expected_target_release_set_sha256", "expected_host_artifact_sha256",
+    "expected_protocols", "trusted_review_keys", "pin_record_sha256"
+  ],
+  "properties": {
+    "format": {"const": "duo-release-selection/v1"},
+    "bundle_path": {"type": "string", "pattern": "^/"},
+    "expected_release_family_sha256": {"$ref": "#/$defs/digest"},
+    "expected_target_release_set_sha256": {"$ref": "#/$defs/digest"},
+    "expected_host_artifact_sha256": {"$ref": "#/$defs/digest"},
+    "expected_protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "agent", "recovery"],
+      "properties": {
+        "host": {"$ref": "#/$defs/protocol"},
+        "agent": {"$ref": "#/$defs/protocol"},
+        "recovery": {"$ref": "#/$defs/protocol"}
+      }
+    },
+    "trusted_review_keys": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}:[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+      "additionalProperties": {"type": "string", "contentEncoding": "base64"}
+    },
+    "pin_record_sha256": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "protocol": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"}
+  }
+}

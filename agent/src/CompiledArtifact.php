@@ -1,20 +1,19 @@
 <?php
 namespace Duo;
 
-// Deliberately NOT require_once('Canon.php') or require_once('Code.php') here,
-// matching the pre-extraction file exactly: CompiledRepository has always
-// called Canon::encode()/write_file() and Code::assert_descriptor() without
-// requiring either file itself, relying on a caller (agent/duo.php's bootstrap,
+require_once __DIR__ . '/CodeDescriptorCompiler.php';
+require_once __DIR__ . '/AtomicFilePublisher.php';
+
+// Deliberately NOT require_once('Canon.php') here. CompiledRepository calls
+// Canon::encode()/write_file() while relying on a caller (agent/duo.php's bootstrap,
 // or a test's own hand-picked require list) to have loaded them first.
 // sandbox/tests/regress_cli_json_refusals.php depends on exactly this laxity
 // for Canon — it stubs a fake Duo\Canon and requires RepositoryCompiler.php
 // (hence this file) without ever loading the real Canon.php; requiring it here
 // fatals that suite with "Cannot redeclare class Duo\Canon" (caught by
 // regress-offline-all during this slice's own verification). No current caller
-// stubs Code the same way, but the risk is identical in kind, so this file
-// stays symmetric about both rather than requiring one and not the other. Any
-// caller that needs Canon or Code (like this file's own test) must require
-// them explicitly itself.
+// Descriptor validation now goes through the pure compiler leaf, so this read
+// model no longer imports the target-mutation Code facade.
 
 /**
  * One immutable, typed result of compiling a repository revision. The
@@ -46,7 +45,7 @@ final class CompiledRepository {
             if (!is_array($payload['code'])) {
                 throw new \RuntimeException('duo: compiled code descriptor must be an object');
             }
-            Code::assert_descriptor($payload['code']);
+            CodeDescriptorCompiler::assert_descriptor($payload['code']);
         }
         if (!is_array($payload['tree'] ?? null)) {
             throw new \RuntimeException('duo: compiled repository payload has no typed tree');
@@ -81,7 +80,7 @@ final class CompiledRepository {
             if (!is_array($artifact['code'])) {
                 throw new \RuntimeException('duo: compiled artifact code descriptor is malformed');
             }
-            Code::assert_descriptor($artifact['code']);
+            CodeDescriptorCompiler::assert_descriptor($artifact['code']);
         }
         return new self($artifact);
     }
@@ -214,7 +213,7 @@ final class CompiledRepository {
     }
 
     public function write(string $path): void {
-        Canon::write_file($path, Canon::encode($this->artifact));
+        AtomicFilePublisher::replace($path, Canon::encode($this->artifact));
     }
 }
 

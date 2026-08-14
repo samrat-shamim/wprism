@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/review-bundle.schema.json",
+  "title": "Signed review payload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "target_install_sha256", "host_artifact_sha256", "protocols",
+    "declaration_payloads", "evidence_inputs"
+  ],
+  "properties": {
+    "format": {"const": "duo-review-bundle/v2"},
+    "target_install_sha256": {"$ref": "#/$defs/digest"},
+    "host_artifact_sha256": {"$ref": "#/$defs/digest"},
+    "protocols": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "agent", "recovery"],
+      "properties": {
+        "host": {"$ref": "#/$defs/protocol"},
+        "agent": {"$ref": "#/$defs/protocol"},
+        "recovery": {"$ref": "#/$defs/protocol"}
+      }
+    },
+    "declaration_payloads": {"$ref": "#/$defs/digestMap"},
+    "evidence_inputs": {"$ref": "#/$defs/digestMap"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "protocol": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+    "digestMap": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z][a-z0-9._-]{0,63}$"},
+      "additionalProperties": {"$ref": "#/$defs/digest"}
+    }
+  }
+}

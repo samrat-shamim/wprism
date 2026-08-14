@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+
 /**
  * Bootstrap Duo onto a pre-existing WordPress target through an explicitly
  * authorized adoption transport.
@@ -339,7 +341,7 @@ final class Adopt {
             throw new \RuntimeException('could not encode adoption site-repo seed');
         }
         $seed .= "\n";
-        $recovery = $recoveryConfig === null ? null : \Duo\Recovery\RollbackControl::canonical($recoveryConfig) . "\n";
+        $recovery = $recoveryConfig === null ? null : RecoveryProtocolCodec::canonical($recoveryConfig) . "\n";
 
         $q = static fn(string $value): string => escapeshellarg($value);
         $stage = '/tmp/duo-adopt-' . $token;
@@ -357,7 +359,7 @@ final class Adopt {
         $runtime = $control . '/recovery-runtime';
         $runtimeNew = $controlNew . '/recovery-runtime';
         $scopedPromotionControl = $rollbackKeyId !== null && $recoveryConfig !== null
-            ? \Duo\Recovery\RollbackControl::canonical([
+            ? RecoveryProtocolCodec::canonical([
                 'control_root' => $control,
                 'format' => 'duo-scoped-promotion-control/v1',
             ]) . "\n"

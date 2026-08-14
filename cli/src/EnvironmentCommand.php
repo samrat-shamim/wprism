@@ -7,6 +7,7 @@ require_once __DIR__ . '/Registry.php';
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/EnvironmentLifecycle.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
+require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/Transport.php';
 require_once __DIR__ . '/LocalTransport.php';
 require_once __DIR__ . '/DockerTransport.php';
@@ -43,6 +44,22 @@ final class EnvironmentCommand {
             // or even create operational state.
             $options = $action === 'materialize' ? EnvironmentCommandOptions::materialize($args) : null;
             $reapJson = $action === 'reap' ? EnvironmentCommandOptions::reap($args) : false;
+            if ($action === 'materialize') {
+                $json = is_array($options) && ($options['json'] ?? false) === true;
+                if ($json) {
+                    return CommandOutput::renderRefusalJson(
+                        'env materialize',
+                        'environment_materialization_containment_unproved',
+                        'environment materialization is unavailable until snapshot data, credentials, egress, retention, and deletion are independently contained',
+                        'use an approved synthetic fixture after the engineering platform installs the reviewed harness verifier'
+                    );
+                }
+                fwrite(
+                    STDERR,
+                    "duo: env materialize refused: production-derived snapshot containment is not yet proven\n"
+                );
+                return 1;
+            }
             $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
             $targetConfig = Registry::get($envs, $targetName);
             $targetDriver = Transport::make($targetName, $targetConfig);

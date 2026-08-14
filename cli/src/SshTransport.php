@@ -1,8 +1,10 @@
 <?php
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/HostContracts/RecoveryTransport.php';
+
 /** Runs wp-cli over ssh: `ssh -T <host> 'cd <wp_path> && wp …'`. */
-final class SshTransport extends Transport implements AdoptionTransport {
+final class SshTransport extends Transport implements AdoptionTransport, RecoveryTransport {
     private string $host;
     private string $wpPath;
     private ?string $configFile;

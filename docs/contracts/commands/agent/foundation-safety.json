@@ -1,0 +1,61 @@
+{
+  "format": "duo-command-contract-set/v1",
+  "owner": "thread-3",
+  "entries": [
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.capture",
+      "component": "wordpress-agent",
+      "command": "wp duo capture",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "target repository path"},
+        {"name": "--out", "required": false, "default": null, "shape": "output state path"},
+        {"name": "--scope-contract", "required": false, "default": null, "shape": "canonical scope-contract path"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "not read before refusal"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "JSON refusal only when requested", "stderr": "WP-CLI human error", "json": "duo-command-refusal/v1"},
+      "exit_codes": {"1": "portable-surface proof unavailable; no lock, ledger, identity, filesystem, or database write"},
+      "mutation_boundary": "loudly quarantined at command entry before scope file or repository access",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.apply-delete",
+      "component": "wordpress-agent",
+      "command": "wp duo apply",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "target repository path"},
+        {"name": "--with-deletes", "required": false, "default": false, "shape": "boolean"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "independently approved isolated qualification harness", "repository": "not read before refusal while approval verifier is absent"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "JSON refusal only when requested", "stderr": "WP-CLI human error", "json": "duo-command-refusal/v1"},
+      "exit_codes": {"1": "independent harness approval unavailable; no plan, lease, canary, provider, Apply, or Delete mutation"},
+      "mutation_boundary": "loudly quarantined at command entry before option projection or repository access",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.init-confirm",
+      "component": "wordpress-agent",
+      "command": "wp duo init --confirm",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "target repository path"},
+        {"name": "--confirm", "required": true, "default": null, "shape": "sha256 proposal digest"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "proposal remains read-only; confirmation is refused before mutation"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "JSON refusal only when requested", "stderr": "WP-CLI human error", "json": "duo-command-refusal/v1"},
+      "exit_codes": {"1": "initial portable Capture proof unavailable; no ownership or publication begins"},
+      "mutation_boundary": "read-only proposal remains available; confirmation is quarantined before InitConfirmation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    }
+  ]
+}

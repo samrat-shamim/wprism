@@ -1,0 +1,11 @@
+{
+    "artifact_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "buckets": {
+        "conflict": [],
+        "update": [
+            "options/core"
+        ]
+    },
+    "format": "duo-plan-fixture/v1",
+    "safe": true
+}

@@ -85,6 +85,36 @@ final class CommandRefusalException extends \RuntimeException {
         );
     }
 
+    /** Temporary foundation quarantine for authoritative repository publication. */
+    public static function portableCaptureUnqualified(): self {
+        return new self(
+            'portable_capture_safety_unqualified',
+            'portable capture is unavailable until every selected surface has reviewed portability and sensitivity proof',
+            'use read-only plan, explain, pending, or observation surfaces until portable capture qualification is implemented',
+            [[
+                'code' => 'portable_capture_safety_unqualified',
+                'message' => 'experimental or incompletely classified state cannot become an authoritative portable repository',
+                'remediation' => 'qualify handling and portability before publishing repository state',
+            ]],
+            'duo: portable capture is quarantined by the refactor foundation safety gate'
+        );
+    }
+
+    /** Temporary foundation quarantine for uncontained Apply/Delete. */
+    public static function qualificationHarnessRequired(): self {
+        return new self(
+            'qualification_harness_required',
+            'apply and delete require a current independently issued qualification-harness approval',
+            'run read-only plan or explain; use Apply/Delete only after the engineering platform can verify the reviewed harness record',
+            [[
+                'code' => 'qualification_harness_required',
+                'message' => 'mutable disposable flags and self-asserted test metadata do not prove isolation',
+                'remediation' => 'supply independently verified containment, data, credential, egress, effect, expiry, and target bindings',
+            ]],
+            'duo: Apply/Delete is quarantined until an independent qualification-harness verifier is installed'
+        );
+    }
+
     /**
      * A scoped target read found selected ledger identities which are not
      * backed by the same strict canonical observation. Keep the public

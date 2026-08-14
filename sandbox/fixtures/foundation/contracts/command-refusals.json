@@ -1,0 +1,20 @@
+{
+    "environment_materialization_containment_unproved": {
+        "error": "environment_materialization_containment_unproved",
+        "message": "environment materialization is unavailable until snapshot data, credentials, egress, retention, and deletion are independently contained"
+    },
+    "portable_capture_safety_unqualified": {
+        "error": "portable_capture_safety_unqualified",
+        "message": "portable capture is unavailable until every selected surface has reviewed portability and sensitivity proof",
+        "remediation": "use read-only plan, explain, pending, or observation surfaces until portable capture qualification is implemented"
+    },
+    "promotion_recovery_decision_unbound": {
+        "error": "promotion_recovery_decision_unbound",
+        "message": "promotion is unavailable until recovery provider and profile selection are durably bound and reverified before mutation"
+    },
+    "qualification_harness_required": {
+        "error": "qualification_harness_required",
+        "message": "apply and delete require a current independently issued qualification-harness approval",
+        "remediation": "run read-only plan or explain; use Apply/Delete only after the engineering platform can verify the reviewed harness record"
+    }
+}

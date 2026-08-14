@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . "/Capture.php";
+require_once __DIR__ . "/CaptureMutationPort.php";
 require_once __DIR__ . "/Canon.php";
 require_once __DIR__ . "/Code.php";
 require_once __DIR__ . "/CommandRefusal.php";
@@ -23,7 +24,11 @@ require_once __DIR__ . "/RepositoryCompiler.php";
  */
 final class InitConfirmation {
     /** @return array<string,mixed> */
-    public static function run(string $repo, string $expectedDigest): array {
+    public static function run(
+        string $repo,
+        string $expectedDigest,
+        ?CaptureMutationPort $mutation = null
+    ): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);
         $proposal = InitPlanner::proposal($logicalRepo);
         InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);
@@ -550,7 +555,8 @@ final class InitConfirmation {
                         $attemptRecord,
                         (string) $attemptPublication['published']
                     );
-                }
+                },
+                $mutation
             );
             $stateReserved = false;
             if (($capture['initial_publication_cleanup'] ?? null) !== 'clean') {

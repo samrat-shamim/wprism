@@ -3,7 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
-require_once __DIR__ . '/EnvironmentDriver.php';
+require_once __DIR__ . '/HostContracts/TargetInvocation.php';
+require_once __DIR__ . '/EnvironmentDriver.php'; // compatibility load for direct consumers
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/CodeDeploy.php';
 
@@ -18,13 +19,13 @@ final class DeployCommand {
     /**
      * @param list<string> $extra
      * @param callable(list<string>):?int $scopeRefusal
-     * @param callable(EnvironmentDriver):bool $rollbackFence
+     * @param callable(TargetInvocation):bool $rollbackFence
      * @param callable():string $runIdFactory
-     * @param callable(EnvironmentDriver,array<string,mixed>,string,string):void $compensateUncertainBegin
-     * @param callable(EnvironmentDriver,string,string):bool $abort
+     * @param callable(TargetInvocation,array<string,mixed>,string,string):void $compensateUncertainBegin
+     * @param callable(TargetInvocation,string,string):bool $abort
      */
     public static function run(
-        EnvironmentDriver $transport,
+        TargetInvocation $transport,
         array $extra,
         callable $scopeRefusal,
         callable $rollbackFence,
@@ -161,7 +162,7 @@ final class DeployCommand {
      * has no lease or checkpoint cleanup to perform on failure.
      */
     public static function runtimePreflight(
-        EnvironmentDriver $transport,
+        TargetInvocation $transport,
         string $verb,
         string $repo,
         string $artifact,

@@ -1,0 +1,154 @@
+{
+  "format": "duo-public-contract-inventory/v1",
+  "scope": "current refactor compatibility surface after the foundation safety disposition",
+  "command_contract": {
+    "schema": "docs/contracts/command-contract.schema.json",
+    "host_entries": "docs/contracts/commands/host",
+    "agent_entries": "docs/contracts/commands/agent",
+    "generated_aggregate_owner": "thread-1"
+  },
+  "surfaces": [
+    {
+      "id": "host-command-surface",
+      "producer": "cli/duo and cli/src command handlers",
+      "consumer": "operator, automation, WordPress/recovery transports",
+      "shape": "documented argv plus human streams and selected JSON documents",
+      "canonicalization": "argv is literal; JSON domain is per-command; no generic JSON equivalence is assumed",
+      "tests": ["sandbox/tests/cli_smoke.sh", "sandbox/tests/regress_cli_json_refusals.php", "sandbox/tests/check_guide_commands.sh"],
+      "evidence_inputs": ["agent and cli source closure", "command golden fixtures"],
+      "compatibility_owner": "thread-2",
+      "commands": ["envs", "env materialize", "env reap", "manifest-validate", "adapter-draft", "adapter list", "adapter inspect", "adapter doctor", "adapter-observe", "doctor", "driver-capabilities", "adopt", "init", "status", "capabilities", "capture", "lint", "plan", "explain", "apply", "deploy", "env-set", "promote", "pending", "classify", "coverage", "scope", "refresh", "rebase"]
+    },
+    {
+      "id": "agent-command-surface",
+      "producer": "agent/src/Cli.php",
+      "consumer": "WP-CLI operator and host CLI gateway",
+      "shape": "WP-CLI command arguments, human output, duo-command-refusal/v1, command-specific JSON",
+      "canonicalization": "JSON_UNESCAPED_SLASHES at the command boundary; persisted documents retain their own profiles",
+      "tests": ["sandbox/tests/regress_cli_json_refusals.php", "sandbox/tests/regress_adapter_observation.php", "sandbox/tests/regress_plan_view.php"],
+      "evidence_inputs": ["agent source closure", "command golden fixtures"],
+      "compatibility_owner": "thread-3",
+      "commands": ["compile", "code-preflight", "promotion-begin", "promotion-begin-scoped", "promotion-complete-scoped", "promotion-abort", "code-stage", "code-finalize", "init", "capture", "refresh-export", "identity-export", "identity-import", "plan", "explain", "env-set", "apply", "orphans", "verify-canonical", "deploy", "journal-report", "version", "journal-reset", "pending", "coverage", "scope", "classify", "lint", "policy-to-manifest", "manifest-pin", "adapter-observe", "adapter-survey", "capabilities"]
+    },
+    {
+      "id": "repository-v2",
+      "producer": "WordPress Capture/repository publication",
+      "consumer": "compiler, plan, Apply, refresh/rebase, review tooling",
+      "shape": "site.duo.json plus canonical state/, media/, code/ and explicit tombstones",
+      "canonicalization": "Duo\\Canon v0 pretty sorted JSON with LF/trailing newline plus post front-matter profile",
+      "tests": ["sandbox/tests/regress_repository_compiler.sh", "sandbox/tests/regress_capture_publish.php"],
+      "evidence_inputs": ["spec/repo-format.md", "manifest and scoped-certification closure"],
+      "compatibility_owner": "thread-3"
+    },
+    {
+      "id": "compiled-artifact",
+      "producer": "RepositoryCompiler/CompiledRepository",
+      "consumer": "plan, Apply, deploy, promotion, recovery claim construction",
+      "shape": "typed immutable compiled artifact with outer artifact_hash and revision_hash",
+      "canonicalization": "Duo\\Canon v0; hash fields bind the exact canonical payload defined by spec/repo-format.md",
+      "tests": ["sandbox/tests/regress_repository_compiler.sh", "sandbox/tests/regress_compiled_artifact_reader.php"],
+      "evidence_inputs": ["repository, policy, manifest and code descriptor bytes"],
+      "compatibility_owner": "thread-3"
+    },
+    {
+      "id": "environment-registry",
+      "producer": "site.duo.json and .duo-envs.json authors",
+      "consumer": "cli/src/Registry.php and transport construction",
+      "shape": "host-local JSON environment map; overlay wins by environment name",
+      "canonicalization": "input JSON has no signing profile; fixture bytes are frozen separately from semantic decode",
+      "tests": ["sandbox/tests/cli_smoke.sh", "sandbox/tests/regress_environment_driver.php"],
+      "evidence_inputs": ["host command and transport source closure"],
+      "compatibility_owner": "thread-2"
+    },
+    {
+      "id": "policy-and-adapter-declarations",
+      "producer": "site policy, shipped/site/plugin manifests and reviewed dispositions",
+      "consumer": "Policy, AdapterSources, provider/capability/repository gates",
+      "shape": "repository format v2 site policy and manifest/disposition JSON grammars",
+      "canonicalization": "Duo\\Canon for authored canonical files; declaration identity is exact bytes plus source/provenance",
+      "tests": ["sandbox/tests/regress_manifest_validate.sh", "sandbox/tests/regress_adapter_contract.sh", "sandbox/tests/regress_vocabulary_ownership.sh"],
+      "evidence_inputs": ["manifest bytes", "reviewed dispositions", "scoped certification bundles"],
+      "compatibility_owner": "thread-4"
+    },
+    {
+      "id": "capability-registry-v2",
+      "producer": "scripts/capability-registry.php",
+      "consumer": "CapabilityRegistry, docs readers, release-gate",
+      "shape": "generated manifests/capabilities/registry.json plus docs/capabilities.md and README marker",
+      "canonicalization": "deterministic generator projection; registry bytes are a cache and never authority by themselves",
+      "tests": ["make release-gate", "sandbox/tests/regress_capability_registry.sh"],
+      "evidence_inputs": ["declarations", "dispositions", "current subject bundles", "compatibility baseline"],
+      "compatibility_owner": "thread-4"
+    },
+    {
+      "id": "scoped-certification-v1-and-closure-v2",
+      "producer": "subject certification builder and reviewed evidence importer",
+      "consumer": "CapabilityRegistry and release gate",
+      "shape": "archived v1 bundles plus approved duo-certification-closure/v2 for new candidates",
+      "canonicalization": "canonical signed bundle bytes; v2 categories are defined by docs/contracts/closure-v2.schema.json",
+      "tests": ["sandbox/tests/certify_subject_bundle.sh", "sandbox/tests/regress_scoped_certification_bundle.php"],
+      "evidence_inputs": ["exact source/runtime/declaration/build/test/harness/platform/provider/environment/run identities"],
+      "compatibility_owner": "thread-4"
+    },
+    {
+      "id": "scope-contract-v1",
+      "producer": "agent scope planner and host scope command",
+      "consumer": "host compact transport, scoped plan/Capture/Apply and checkpoint authority",
+      "shape": "duo-scope-contract/v1 and normalized compact scope request",
+      "canonicalization": "Duo\\Canon v0 and exact scope_hash association",
+      "tests": ["sandbox/tests/regress_scope_contract.php", "sandbox/tests/regress_scope_wire.php"],
+      "evidence_inputs": ["compiled repository and policy identity"],
+      "compatibility_owner": "thread-3"
+    },
+    {
+      "id": "plan-and-explanation",
+      "producer": "agent Plan/PlanView/PlanExplanation",
+      "consumer": "host status/promote, operator and automation",
+      "shape": "current plan JSON, additive value-free plan view and explanation document",
+      "canonicalization": "command JSON plus exact compiled artifact/revision associations",
+      "tests": ["sandbox/tests/regress_plan_view.php", "sandbox/tests/regress_plan_explain.php", "sandbox/tests/regress_plan_contract_trust.php"],
+      "evidence_inputs": ["compiled repository", "strict target observation", "policy/provider decisions"],
+      "compatibility_owner": "thread-5"
+    },
+    {
+      "id": "provider-action-receipts",
+      "producer": "NativeActions and Providers execution/reconciliation",
+      "consumer": "Apply, scoped sessions, plan/explanation and recovery inventories",
+      "shape": "closed native/provider invocation inputs and provider-specific bounded receipts",
+      "canonicalization": "Duo\\Canon hash bases with per-provider receipt format declarations",
+      "tests": ["sandbox/tests/regress_actions_providers.php", "sandbox/tests/regress_action_provider_grammar.php"],
+      "evidence_inputs": ["manifest/provider declaration", "runtime negotiation", "exact invocation input"],
+      "compatibility_owner": "thread-4"
+    },
+    {
+      "id": "promotion-and-lifecycle-state",
+      "producer": "promotion/lifecycle coordinators and journals",
+      "consumer": "agent/host resume, reconciliation and recovery",
+      "shape": "leases, sessions, journals, code descriptors and phase receipts",
+      "canonicalization": "versioned canonical documents and exact artifact/session hashes",
+      "tests": ["sandbox/tests/regress_promotion_lock.sh", "sandbox/tests/regress_promotion_unit.sh", "sandbox/tests/regress_lifecycle_planner.php"],
+      "evidence_inputs": ["compiled artifact", "current target state", "recovery authority"],
+      "compatibility_owner": "thread-5"
+    },
+    {
+      "id": "recovery-authority",
+      "producer": "standalone recovery runtime and host RecoveryProtocolCodec client",
+      "consumer": "host rollback authority/profile orchestration and recovery executor",
+      "shape": "duo-rollback-receipt/v2, duo-scoped-promotion-receipt/v1, duo-rollback-event/v1 and provider bundles",
+      "canonicalization": "compact recursively key-sorted JSON without trailing newline for signatures; persisted documents add one LF",
+      "tests": ["sandbox/tests/regress_rollback_authority.php", "sandbox/tests/regress_ssh_rollback_certification.php", "scripts/contracts-check"],
+      "evidence_inputs": ["Ed25519 key id", "target/generation", "artifact and exact recovery inventories"],
+      "compatibility_owner": "thread-5"
+    },
+    {
+      "id": "distribution-and-release-family",
+      "producer": "future Thread 1 deterministic builder plus detached Thread 4 review/projection inputs",
+      "consumer": "Thread 2 adoption through ReleaseSelection and ArtifactTrustVerifier",
+      "shape": "separate host, target runtime, declarations, review bundle, projection pack, target release set and release-family manifests",
+      "canonicalization": "content-addressed payloads and compact canonical detached manifests; no manifest includes itself",
+      "tests": ["scripts/contracts-check", "future frozen-candidate and release-validation profiles"],
+      "evidence_inputs": ["caller-pinned release-family digest", "trusted authority/key ids", "closure-v2"],
+      "compatibility_owner": "thread-1"
+    }
+  ]
+}

@@ -3,7 +3,9 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
-use Duo\Recovery\RollbackControl;
+require_once __DIR__ . '/HostContracts/RecoveryTransport.php';
+require_once __DIR__ . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+
 
 /**
  * Plan-to-claim and signed-state orchestration for production SSH promotion.
@@ -15,9 +17,9 @@ use Duo\Recovery\RollbackControl;
  */
 final class VerifiedRollbackProfile {
     private RollbackAuthority $authority;
-    private SshTransport $transport;
+    private RecoveryTransport $transport;
 
-    public function __construct(SshTransport $transport) {
+    public function __construct(RecoveryTransport $transport) {
         $this->transport = $transport;
         $this->authority = new RollbackAuthority($transport);
     }
@@ -27,7 +29,7 @@ final class VerifiedRollbackProfile {
      * @param ?array<string,mixed> $status
      * @return array{automatic:bool,reason:string,status:array<string,mixed>}
      */
-    public static function select(SshTransport $transport, array $plan, ?array $status = null): array {
+    public static function select(RecoveryTransport $transport, array $plan, ?array $status = null): array {
         $missing = [];
         if (!$transport->rollbackConfigured()) $missing[] = 'rollback signing key';
         if (!$transport->recoveryConfigured()) $missing[] = 'recovery executor';
@@ -138,7 +140,7 @@ final class VerifiedRollbackProfile {
         $fields = [
             'adapter_versions_sha256' => hash(
                 'sha256',
-                RollbackControl::canonical((array) ($plan['resolved_adapters'] ?? []))
+                RecoveryProtocolCodec::canonical((array) ($plan['resolved_adapters'] ?? []))
             ),
             'artifact_hash' => $artifact,
             'claim_ttl_seconds' => $ttl,
@@ -146,7 +148,7 @@ final class VerifiedRollbackProfile {
             'effect_inventory' => $effects,
             'encryption_key_id' => $key,
             'owner' => $owner,
-            'resources_inventory_sha256' => hash('sha256', RollbackControl::canonical($resources)),
+            'resources_inventory_sha256' => hash('sha256', RecoveryProtocolCodec::canonical($resources)),
             'retention_until' => gmdate('Y-m-d\TH:i:s\Z', $created + $retention),
             'upload_inventory' => $uploads,
         ];

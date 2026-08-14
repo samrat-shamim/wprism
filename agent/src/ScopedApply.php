@@ -6,6 +6,7 @@ require_once __DIR__ . '/OptionState.php';
 require_once __DIR__ . '/ApplyPlanner.php';
 require_once __DIR__ . '/ScopeClosure.php';
 require_once __DIR__ . '/ScopedApplySession.php';
+require_once __DIR__ . '/ScopedOptionProjection.php';
 
 /** Atomic duo_kv adapter for the generic scoped-session protocol. */
 final class LedgerScopedApplySessionStorage implements ScopedApplySessionStorage {
@@ -110,30 +111,17 @@ final class ScopedApply {
 
     /** @return array<string,true> */
     public static function selected_set(array $contract): array {
-        $selected = array_fill_keys(ScopedStateOverlay::selected_identities($contract), true);
-        // `options` owns the complete physical carrier. A redundant
-        // `option:<name>` selector must not turn into a second synthetic
-        // selected row alongside it: keep the whole-carrier contract's
-        // ordinary semantics rather than manufacturing an absent virtual row.
-        if (isset($selected['options/core'])) {
-            foreach (array_keys($selected) as $identity) {
-                if (ScopeClosure::is_option_root($identity)) {
-                    unset($selected[$identity]);
-                }
-            }
-        }
-        return $selected;
+        return ScopedOptionProjection::selectedSet($contract);
     }
 
     /** True when virtual option roots, rather than the whole carrier, are selected. */
     public static function has_record_scoped_options(array $contract): bool {
-        return ScopeContract::option_root_names($contract) !== []
-            && !isset(self::selected_set($contract)['options/core']);
+        return ScopedOptionProjection::hasRecordScopedOptions($contract);
     }
 
     /** @return list<string> */
     public static function option_root_names(array $contract): array {
-        return ScopeContract::option_root_names($contract);
+        return ScopedOptionProjection::optionRootNames($contract);
     }
 
     /**
@@ -144,54 +132,17 @@ final class ScopedApply {
      * non-hex byte cannot collide with ordinary UUID/hash state identities.
      */
     public static function option_state_identity(string $name): string {
-        if ($name === '' || str_contains($name, "\0")) {
-            throw new \RuntimeException('duo: scoped option state identity has an invalid option name');
-        }
-        return 'o' . substr(hash('sha256', "duo:scoped-option-state/v1\0" . $name), 0, 63);
+        return ScopedOptionProjection::stateIdentity($name);
     }
 
     /** @return array<string,array<string,mixed>> selected name => canonical record */
     public static function selected_option_records(array $document, array $contract): array {
-        $records = OptionState::records($document);
-        $out = [];
-        foreach (self::option_root_names($contract) as $name) {
-            if (!array_key_exists($name, $records)) {
-                throw new \RuntimeException("duo: scoped option '$name' disappeared from the frozen carrier");
-            }
-            $out[$name] = $records[$name];
-        }
-        ksort($out, SORT_STRING);
-        return $out;
+        return ScopedOptionProjection::selectedRecords($document, $contract);
     }
 
     /** @return array<string,string> durable option-state identity => record hash */
     public static function option_state_hashes(array $document, array $contract, ?array $names = null): array {
-        $allowed = array_fill_keys(self::option_root_names($contract), true);
-        $wanted = $names === null
-            ? null
-            : array_fill_keys(array_map('strval', $names), true);
-        $out = [];
-        foreach (OptionState::records($document) as $name => $record) {
-            if (!isset($allowed[$name])) {
-                if ($wanted !== null) {
-                    throw new \RuntimeException('duo: scoped option state row escaped its selected records');
-                }
-                continue;
-            }
-            if ($wanted === null || isset($wanted[$name])) {
-                $out[self::option_state_identity($name)] = OptionState::record_hash($record);
-            }
-        }
-        if ($wanted !== null) {
-            $documentRecords = OptionState::records($document);
-            foreach (array_keys($wanted) as $name) {
-                if (!isset($allowed[$name]) || !array_key_exists($name, $documentRecords)) {
-                    throw new \RuntimeException('duo: scoped option state row omitted a selected record');
-                }
-            }
-        }
-        ksort($out, SORT_STRING);
-        return $out;
+        return ScopedOptionProjection::stateHashes($document, $contract, $names);
     }
 
     /**

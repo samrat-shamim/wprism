@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/AdapterSources.php';
+require_once __DIR__ . '/ArtifactPolicyIdentity.php';
 
 /**
  * Manifest-pin normalization and validation, extracted from Policy
@@ -23,18 +24,10 @@ require_once __DIR__ . '/AdapterSources.php';
  * inside Policy — to `Policy $policy` explicit, since a bare `self` here
  * would now silently mean PinResolver instead.
  *
- * Deliberately does not require_once RepositoryCompiler.php, even though
- * validate_manifest_pins() calls `RepositoryCompiler::resolved_adapters()`:
- * Policy.php did not require it either before this move (grep-verified), so
- * this preserves an existing, pre-DUO-3348 gap rather than introducing a new
- * one — adding the require here would make Policy.php transitively supply
- * RepositoryCompiler.php for the first time, and several existing offline
- * suites plain-`require` RepositoryCompiler.php AFTER their own Policy.php
- * require, which would turn into "Cannot redeclare class" fatals (the exact
- * shape DUO-3348 slice 4 fixed once already, DUO-3440/DUO-3441/DUO-3442's
- * class of bug run in reverse). Fixing the pre-existing gap itself is out of
- * this slice's scope; DUO-3443's planned generic self-require scan is where
- * it belongs. Deliberately does not require_once Policy.php either, for the
+ * Pin validation consumes the capability-owned identity facade directly.
+ * Calling back through RepositoryCompiler formed a policy/repository cycle
+ * because compilation already consumes this grammar leaf. It deliberately
+ * does not require_once Policy.php either, for the
  * same reason AdapterRegistry.php doesn't (DUO-3348 slice 4): every Policy
  * reference here is the validate_manifest_pins() type hint, never a
  * `Policy::` static call.
@@ -161,7 +154,7 @@ final class PinResolver {
         if (!array_filter($pins, fn($pin) => $pin['digest'] !== null)) {
             return;
         }
-        $resolved = RepositoryCompiler::resolved_adapters($policy);
+        $resolved = ArtifactPolicyIdentity::resolved_adapters($policy);
         foreach ($pins as $i => $pin) {
             if ($pin['digest'] === null) {
                 continue;

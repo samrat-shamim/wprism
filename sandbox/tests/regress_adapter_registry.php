@@ -58,6 +58,7 @@ putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Providers.php';
 
 use Duo\AdapterRegistry;
 use Duo\Policy;
@@ -79,6 +80,11 @@ $check(
     'requiring only Canon/OptionState/Policy.php (never CapabilityRegistry.php or the full agent/duo.php bootstrap) '
         . 'still defines Duo\CapabilityRegistry — proves Policy.php -> AdapterRegistry.php -> CapabilityRegistry.php '
         . 'carries its own transitive require rather than relying on some OTHER file having loaded it first'
+);
+$check(
+    !class_exists(\Duo\WordPressTargetRuntimeInspector::class, false)
+        && \Duo\Providers::runtime_negotiation_available() === false,
+    'pure Policy/Providers loading treats an absent composition-root runtime adapter as unavailable rather than throwing or inventing target facts'
 );
 
 file_put_contents("$fixtureDir/m.json", json_encode([
