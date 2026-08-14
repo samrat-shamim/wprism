@@ -1,0 +1,16 @@
+{
+    "format": "duo-repository-fixture/v2",
+    "site": {
+        "adapters": [
+            "core"
+        ],
+        "spec_version": 2
+    },
+    "state": [
+        {
+            "hash": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "type": "option",
+            "uuid": "options/core"
+        }
+    ]
+}

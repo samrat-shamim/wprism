@@ -1,7 +1,8 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/Canary.php';
+require_once __DIR__ . '/CaptureWordPressExecution.php';
+
 require_once __DIR__ . '/Canon.php';
 require_once __DIR__ . '/CaptureCandidateBuilder.php';
 require_once __DIR__ . '/CaptureTransaction.php';
@@ -32,7 +33,7 @@ final class CaptureSnapshotService {
         ?Policy $policy = null,
         ?array &$planObservations = null
     ): array {
-        Canary::suppress_cron_spawn();
+        CaptureWordPressExecution::suppressCronSpawn();
         Ledger::ensure();
         Identity::assert_embedded_unique();
         Ledger::prune_dead_map();
@@ -81,7 +82,7 @@ final class CaptureSnapshotService {
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null
     ): array {
-        Canary::suppress_cron_spawn();
+        CaptureWordPressExecution::suppressCronSpawn();
         Ledger::assert_read_only_schema();
         self::assertReadOnlyIdentityPrecondition(
             static function (): void {
@@ -138,7 +139,7 @@ final class CaptureSnapshotService {
         array $previousUserLogins,
         bool $forceUnresolvedRefs = false
     ): array {
-        Canary::suppress_cron_spawn();
+        CaptureWordPressExecution::suppressCronSpawn();
         return (new CaptureCandidateBuilder($repo, $policy))->build(
             false,
             $forceUnresolvedRefs,
@@ -160,7 +161,7 @@ final class CaptureSnapshotService {
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null
     ): array {
-        Canary::suppress_cron_spawn();
+        CaptureWordPressExecution::suppressCronSpawn();
         Ledger::ensure();
         Identity::assert_embedded_unique();
         Ledger::prune_dead_map();

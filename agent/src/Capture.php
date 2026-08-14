@@ -3,6 +3,7 @@ namespace Duo;
 
 require_once __DIR__ . '/CommandRefusal.php';
 require_once __DIR__ . '/CaptureGateScanner.php';
+require_once __DIR__ . '/CaptureMutationPort.php';
 require_once __DIR__ . '/CapturePublicationRecovery.php';
 require_once __DIR__ . '/CapturePublicationWorkflow.php';
 require_once __DIR__ . '/CaptureSnapshotService.php';
@@ -57,11 +58,12 @@ final class Capture {
         ?string $outDir = null,
         bool $forceUnresolvedRefs = false,
         ?array $scopeRequest = null,
-        ?string $hostEnvironment = null
+        ?string $hostEnvironment = null,
+        ?CaptureMutationPort $mutation = null
     ): array {
         return self::run_internal(
             $repo, $outDir, $forceUnresolvedRefs, null, false,
-            null, null, null, null, $scopeRequest, $hostEnvironment
+            null, null, null, null, $scopeRequest, $hostEnvironment, $mutation
         );
     }
 
@@ -81,7 +83,8 @@ final class Capture {
         string $initialStateIdentity,
         string $initialMediaIdentity,
         string $initialConfigIdentity,
-        ?callable $onPayloadReady = null
+        ?callable $onPayloadReady = null,
+        ?CaptureMutationPort $mutation = null
     ): array {
         if (!is_resource($publicationLock)) {
             throw new \InvalidArgumentException('duo: init capture requires its held publication lock');
@@ -104,7 +107,10 @@ final class Capture {
             $initialStateIdentity,
             $initialMediaIdentity,
             $initialConfigIdentity,
-            $onPayloadReady
+            $onPayloadReady,
+            null,
+            null,
+            $mutation
         );
     }
 
@@ -120,7 +126,8 @@ final class Capture {
         ?string $initialConfigIdentity = null,
         ?callable $onInitialPayloadReady = null,
         ?array $scopeRequest = null,
-        ?string $hostEnvironment = null
+        ?string $hostEnvironment = null,
+        ?CaptureMutationPort $mutation = null
     ): array {
         return CapturePublicationWorkflow::run(
             $repo,
@@ -133,7 +140,8 @@ final class Capture {
             $initialConfigIdentity,
             $onInitialPayloadReady,
             $scopeRequest,
-            $hostEnvironment
+            $hostEnvironment,
+            $mutation
         );
     }
 

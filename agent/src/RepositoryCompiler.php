@@ -12,6 +12,7 @@ require_once __DIR__ . '/CompiledArtifact.php';
 // repository tree builder. Keep the long-lived RepositoryCompiler methods as
 // compatibility facades while the extracted collaborator owns byte projection.
 require_once __DIR__ . '/ArtifactPolicyIdentity.php';
+require_once __DIR__ . '/CodeDescriptorCompiler.php';
 // DUO-3348 slice 35: persisted-artifact validation is independent of the
 // compiler builder. Keep read_artifact() below as the compatibility facade.
 require_once __DIR__ . '/CompiledArtifactReader.php';
@@ -70,7 +71,7 @@ final class RepositoryCompiler {
     // $completenessOptional therefore narrows historical comparison mode to
     // two current-action checks: the "every required name needs some record"
     // gate in RepositoryEntityParser's options branch, and the CodeStateContract
-    // lifecycle bridge below. It does NOT skip Code::compile() itself, so
+    // lifecycle bridge below. It does NOT skip descriptor compilation, so
     // current code config/source/descriptor validation, malformed JSON,
     // invalid record shapes, illegitimate tombstones, conflict markers,
     // identity uniqueness, media integrity, and every other historical
@@ -274,10 +275,7 @@ final class RepositoryCompiler {
         $codeConfig = $this->policy->code_config();
         try {
             if ($codeConfig !== null) {
-                if (!class_exists(Code::class)) {
-                    throw new \RuntimeException('code payload support is not loaded');
-                }
-                $codeDescriptor = Code::compile($this->repo, $codeConfig);
+                $codeDescriptor = CodeDescriptorCompiler::compile($this->repo, $codeConfig);
             }
         } catch (CodeCompilationException $e) {
             foreach ($e->diagnostics as $diagnostic) {
@@ -418,7 +416,7 @@ final class RepositoryCompiler {
                 }
                 if ($lifecycleRequirements !== null) {
                     foreach (CodeCompatibility::diagnostics(
-                        $this->repo . '/' . Code::SOURCE,
+                        $this->repo . '/' . CodeDescriptorCompiler::SOURCE,
                         $codeDescriptor,
                         self::resolved_adapters($this->policy),
                         (array) ($lifecycleRequirements['active_plugins'] ?? [])
@@ -429,7 +427,7 @@ final class RepositoryCompiler {
             }
             if ($this->completenessOptional || $lifecycleRequirements === null) {
                 foreach (CodeCompatibility::diagnostics(
-                    $this->repo . '/' . Code::SOURCE,
+                    $this->repo . '/' . CodeDescriptorCompiler::SOURCE,
                     $codeDescriptor,
                     self::resolved_adapters($this->policy),
                     null

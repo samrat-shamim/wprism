@@ -1,12 +1,14 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/AtomicFilePublisher.php';
+
 // Manifest validation is a pure offline pass with several entry points of
 // its own (the frozen-snapshot path, the offline harnesses that load this
 // file directly). The native-action vocabulary is part of that pass, so it
 // is required here rather than left to duo.php's bootstrap order — same
 // precedent as Deploy.php requiring CodeCompatibility.php.
-require_once __DIR__ . '/NativeActions.php';
+require_once __DIR__ . '/NativeActionCatalog.php';
 // DUO-3314: adapter provenance is decided inside the same offline pass, before
 // any manifest reaches a policy consumer, so it is required here for the same
 // reason NativeActions is.
@@ -2739,7 +2741,7 @@ final class Policy {
             }
             $site = Canon::decode(Canon::read_file($siteFile));
             $site['policy']['scope'][$m[1]][$m[2]] = $rule;
-            Canon::write_file($siteFile, Canon::encode($site));
+            AtomicFilePublisher::replace($siteFile, Canon::encode($site));
             return;
         }
         if (!in_array($section, self::SECTIONS, true)) {
@@ -2780,7 +2782,7 @@ final class Policy {
         }
         $site = Canon::decode(Canon::read_file($siteFile));
         $site['policy'][$section][$key] = $rule;
-        Canon::write_file($siteFile, Canon::encode($site));
+        AtomicFilePublisher::replace($siteFile, Canon::encode($site));
     }
 
     /**

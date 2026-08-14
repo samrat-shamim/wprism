@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/evidence-identity.schema.json",
+  "title": "Redacted evidence identity",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "public", "secret_references", "keyed_bindings"],
+  "properties": {
+    "format": {"const": "duo-redacted-evidence-identity/v1"},
+    "public": {"type": "object", "additionalProperties": {"type": ["string", "integer", "boolean"]}},
+    "secret_references": {
+      "type": "array",
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+      "uniqueItems": true
+    },
+    "keyed_bindings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["domain", "key_id", "digest"],
+        "properties": {
+          "domain": {"type": "string", "pattern": "^[a-z][a-z0-9._-]{2,63}$"},
+          "key_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"},
+          "digest": {"type": "string", "pattern": "^hmac-sha256:[a-f0-9]{64}$"}
+        }
+      }
+    }
+  },
+  "description": "Credentials, raw secrets/PII, machine-local paths, raw low-entropy values, and unkeyed digests of low-entropy values are forbidden in every field."
+}

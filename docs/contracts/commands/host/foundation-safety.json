@@ -1,0 +1,48 @@
+{
+  "format": "duo-command-contract-set/v1",
+  "owner": "thread-2",
+  "entries": [
+    {
+      "format": "duo-command-contract/v1",
+      "id": "host.env-materialize",
+      "component": "host-cli",
+      "command": "duo env materialize",
+      "arguments": [
+        {"name": "environment", "required": true, "default": null, "shape": "registry environment name"}
+      ],
+      "flags": [
+        {"name": "--from", "required": true, "default": null, "shape": "registry environment name"},
+        {"name": "--branch", "required": true, "default": null, "shape": "non-empty Git ref"},
+        {"name": "--create", "required": false, "default": false, "shape": "boolean"},
+        {"name": "--ttl", "required": false, "default": 0, "shape": "60..2592000 seconds"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "none before the safety refusal", "repository": "none before the safety refusal"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "none"},
+      "output": {"stdout": "empty in human refusal mode", "stderr": "one value-free refusal line", "json": "duo-command-refusal/v1"},
+      "exit_codes": {"1": "containment proof unavailable; no registry load, provider call, journal write, or target contact"},
+      "mutation_boundary": "loudly quarantined after complete option parsing and before registry/provider/journal construction",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "host.promote",
+      "component": "host-cli",
+      "command": "duo promote",
+      "arguments": [
+        {"name": "environment", "required": true, "default": null, "shape": "registry environment name"}
+      ],
+      "flags": [
+        {"name": "--scope-contract", "required": false, "default": null, "shape": "local canonical scope-contract path"},
+        {"name": "--with-deletes", "required": false, "default": false, "shape": "boolean"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "parsed environment only; no target contact before refusal", "repository": "not read before refusal"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "none"},
+      "output": {"stdout": "empty in human refusal mode", "stderr": "one value-free refusal line", "json": "duo-command-refusal/v1"},
+      "exit_codes": {"1": "recovery decision binding unavailable; no checkpoint, lease, deploy, Apply, or target contact"},
+      "mutation_boundary": "loudly quarantined at the command handler before scope routing or ordinary promotion",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    }
+  ]
+}

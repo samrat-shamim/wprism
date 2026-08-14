@@ -1,0 +1,4062 @@
+{
+    "format": "duo-refactor-ownership/v1",
+    "owners": {
+        "thread-0": "foundation policy and integration authority",
+        "thread-1": "engineering platform, build, loader, runner and CI",
+        "thread-2": "host CLI, environment, transport and refresh application",
+        "thread-3": "WordPress agent, Capture and repository/read-model",
+        "thread-4": "capability, policy, adapter, provider and evidence",
+        "thread-5": "mutation, promotion, lifecycle and recovery"
+    },
+    "files": [
+        {
+            "path": ".github/workflows/conformance.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": ".gitignore",
+            "owner": "thread-1"
+        },
+        {
+            "path": "DESIGN.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "Makefile",
+            "owner": "thread-1"
+        },
+        {
+            "path": "README.md",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/duo-loader.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "agent/duo.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "agent/src/ActionProviderGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AdapterCertification.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AdapterContractGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AdapterObservation.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/AdapterObservationProjector.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AdapterRegistry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AdapterSources.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/Apply.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyFieldMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyLedgerFinalizer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyPlanBuilder.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyPlanEnvironment.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyPlanner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyPreparationCoordinator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyPreparationRequest.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyRebuildCoordinator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyRequestCoordinator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyServiceCallbacks.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyServices.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ApplyWorkset.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ArtifactPolicyIdentity.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AtomicFilePublisher.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/AtomicTreePublisher.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/AttachmentMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/AttributeGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/AuthoredTransactionExecutor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/AuthoredTransactionRequest.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/BlockReferenceScanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Blocks.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Canary.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/Canon.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CanonicalSurfaces.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CapabilityRegistry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/Capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureCandidateBuilder.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureGateScanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureIdentity.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureMutationBridge.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/CaptureMutationPort.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CapturePublicationRecovery.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CapturePublicationWorkflow.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureSafetyGates.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureSnapshotService.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureTransaction.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CaptureWordPressExecution.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Cli.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Code.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/CodeCompatibility.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CodeConfigGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/CodeDescriptorCompiler.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CodeMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/CodeOwnershipPruner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/CodeStageTransaction.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/CodeStateContract.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CommandRefusal.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CompiledArtifact.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CompiledArtifactReader.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ContentAttributeRuleResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ConvergenceVerifier.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/Coverage.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/CrossManifestGuards.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/Db.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/DeleteExecutor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DeleteGuardEvaluator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DeleteGuardLockCoordinator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DeleteGuardReferenceScanner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DeleteGuardValueCodec.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/Deletion.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/DeletionAuthority.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DeletionCapabilityResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/DependencyRegenerator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/Deploy.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DeployPlanner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/DiscoveryGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/DurableFilesystem.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/DynamicOptionResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/EntityAdopter.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/EntityMetaCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ExactOptionResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/FieldGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/Identity.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/IdentityBackup.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/IdentityNotes.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/IdentityTokenCodec.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Init.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitAttemptJournal.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitCodeBaseline.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitCodeInventory.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitConfirmation.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitExceptions.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitFaults.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitOwnedArtifacts.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitPlanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitProtocol.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitRecovery.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitRepositoryBoundary.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitSiteProbe.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/InitialCaptureBoundary.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Journal.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/JsonRefs.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Ledger.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/LifecycleExecutor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/LifecycleJournal.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/LifecyclePlanner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/Lint.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/LintFinding.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ManifestDispositions.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ManifestGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ManifestValidator.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/MediaCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/MenuCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/MenuMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/MenuReferenceScanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/NativeActionCatalog.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/NativeActions.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/NativeRebuildExecutor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/OptionGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/OptionNameReferenceResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/OptionNamespaceResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/OptionReferenceGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/OptionState.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/OptionsCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/OptionsMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/OrderPreserved.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Orphans.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PathSafety.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Pending.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/PersonalData.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/PinResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PlainData.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/PlanCategorySummary.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PlanExplanation.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PlanView.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/Policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PolicyLoadFinalizer.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PolicyRuleResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PolicyWriter.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PostCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/PostMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PostTypeGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PostTypeRelationResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PreparedApply.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ProcessFence.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PromotionLease.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PromotionLock.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/PromotionSessionJournal.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ProviderActionBatchBuilder.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ProviderSdk.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/Providers.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/PublicationJournal.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Publish.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RebuildActionDispatcher.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/RebuildActionNegotiator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/RebuildRequest.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/RebuildSelection.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ReferenceGraph.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ReferenceKeyspaceGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ReferenceKindGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ReferencePath.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ReferenceRules.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ReferenceScopeClassifier.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ReferenceShapeGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/RefreshExport.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RegenerationContext.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/RegenerationContextStore.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/RelationshipMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/RepositoryAuthorization.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryCompiler.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryDeletionParser.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryEntityParser.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryIdentityRegistry.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryMediaCatalog.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryMenuLocationValidator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryPortableShapeValidator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryReferenceGraphValidator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositorySchemaValidator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/RepositoryStateFileCatalog.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ScopeClosure.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ScopeContract.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ScopeDiscovery.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ScopeGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ScopedApply.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ScopedApplyCoordinator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ScopedApplySession.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ScopedApplyWorkProjector.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ScopedApplyWorkflow.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ScopedCaptureProjector.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ScopedCertificationBundle.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/ScopedOptionProjection.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ScopedPromotionAuthority.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ScopedStateOverlay.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Secrets.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/SerializedTermDescriptionScanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/ShortcodeAlternateRegistrar.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/ShortcodeReferenceScanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Shortcodes.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/SidebarState.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/SitePolicyValidator.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/Snapshot.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/SnapshotIdentity.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/SnapshotPruner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/StateHandoffVerifier.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/StateTransitionJournal.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/StateTreeWalker.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/StructuredReferenceCodec.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/StructuredReferenceScanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/StructuredValue.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/SubKeyGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TableDeclarationResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TableGraph.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TableSchema.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TargetRuntimeInspector.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TaxonomyApplyContext.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/TaxonomyDescriptionReferenceResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TaxonomyGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TaxonomyKeyspaceResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TaxonomyObjectTypeOptionResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TaxonomyPatternResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/TermCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/TermMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/TextTokenizer.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Tokens.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/TransientDbException.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/TypedTableCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/TypedTableMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/UrlQueryReferenceCodec.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/UserMetaCapture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/UserMetaGrammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/UserMetaMaterializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "agent/src/UserMetaState.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/Uuid.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "agent/src/VersionRange.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/WidgetTypeResolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "agent/src/WordPressTargetRuntimeInspector.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/README.md",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/duo",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/AdapterCatalog.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/src/AdapterDraft.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/src/AdapterObservation.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/src/Adopt.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/AdoptCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/ArtifactTrust/ArtifactTrustVerifier.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/src/ArtifactTrust/RedactedEvidenceIdentity.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/src/BootstrapEligibility.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/CaptureCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/ClassificationBatch.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/ClassifyCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/CodeDeploy.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/CommandOutput.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/DeployCommand.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/DockerTransport.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/Doctor.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/DoctorCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/DriverCapabilitiesCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/EnvironmentCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/EnvironmentCommandOptions.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/EnvironmentCommandPreflight.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/EnvironmentDriver.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/EnvironmentLifecycle.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/EnvironmentListCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/HostContracts/CommandOutputPort.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/HostContracts/EnvironmentAccess.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/HostContracts/RecoveryTransport.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/HostContracts/ReleaseSelection.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/HostContracts/TargetInvocation.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/HostContracts/TransportResult.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/Init.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/InitCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/LocalTransport.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/ManifestValidate.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "cli/src/PassthroughCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/Pending.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/PendingCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/PlanContract.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/PlanSummary.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/PlanView.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/PromoteCommand.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/RebaseCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/RecoveryProtocol/RecoveryProtocolCodec.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/Refresh.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/RefreshCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/RefreshFieldDiff.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/RefreshPlan.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/RefreshPlanCompile.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/Registry.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/RollbackAuthority.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/ScopeCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/ScopedRollbackProfile.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "cli/src/SshTransport.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/StatusCommand.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/Transport.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/Triage.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "cli/src/VerifiedRollbackProfile.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/adoption.md",
+            "owner": "thread-2"
+        },
+        {
+            "path": "docs/agents/linear-loop.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/capabilities.md",
+            "owner": "thread-4"
+        },
+        {
+            "path": "docs/checkpoint-bundle.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/code-release-runtime.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/compatibility-baseline.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "docs/contracts/closure-v2.schema.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/contracts/command-contract.schema.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/contracts/commands/agent/foundation-safety.json",
+            "owner": "thread-3"
+        },
+        {
+            "path": "docs/contracts/commands/host/foundation-safety.json",
+            "owner": "thread-2"
+        },
+        {
+            "path": "docs/contracts/evidence-identity.schema.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/contracts/harness-approval.schema.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/contracts/public-contracts.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/contracts/release-selection.schema.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/design-review-v0.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/effect-bundle.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/fixture-staleness-sweep.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/frontier/elementor.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/frontier/fse.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/frontier/polylang.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/code-half-ecosystem.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/code-half-first-sync.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/code-half.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/duo-3340-adapter-authoring.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/ecommerce-developer.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r1a-forms.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r1b-shop.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r1c-agency.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r2-mitigation.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r3-round.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r3a-multilingual-shop.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/grind/r3b-events-memberships.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/guides/README.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/guides/adapter-authoring.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/guides/capabilities-and-limits.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/guides/code-updates.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/guides/daily-workflow.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/guides/quickstart.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/product-spec.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/code-half.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/engine-adapter-boundary.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/foundation-decisions.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/foundation-execution-record.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/foundation-integration.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/refactor-acceptance.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/refactor-ownership.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/thread-0-foundation.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/thread-1-engineering-platform-runtime.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/thread-2-host-cli-environment.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/thread-3-wordpress-agent-capture.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/thread-4-capability-policy-evidence.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/thread-5-mutation-promotion-recovery.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/proposals/verified-ssh-rollback.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/recovery-runtime.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/roadmap.md",
+            "owner": "thread-0"
+        },
+        {
+            "path": "docs/sandbox.md",
+            "owner": "thread-1"
+        },
+        {
+            "path": "docs/ssh-rollback-certification.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "docs/upload-bundle.md",
+            "owner": "thread-5"
+        },
+        {
+            "path": "manifests/acf.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/adapter-authorities.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/evidence.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/registry.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/diffs/conformance-acf.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/logs/conformance-acf.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/results/conformance-acf.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/diffs/conformance-contact-form-7.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/logs/conformance-contact-form-7.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/results/conformance-contact-form-7.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/diffs/conformance-core.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/diffs/multisite-refusal.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/logs/conformance-core.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/logs/multisite-refusal.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/results/conformance-core.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/results/multisite-refusal.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/diffs/conformance-elementor.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/logs/conformance-elementor.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/results/conformance-elementor.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/diffs/conformance-ninja-forms.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/logs/conformance-ninja-forms.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/results/conformance-ninja-forms.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/diffs/conformance-polylang.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/logs/conformance-polylang.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/results/conformance-polylang.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/diffs/conformance-woocommerce.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/logs/conformance-woocommerce.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/results/conformance-woocommerce.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/diffs/conformance-yoast.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/diffs/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/logs/conformance-yoast.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/logs/exact-artifact-version-matrix.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/results/conformance-yoast.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/results/exact-artifact-version-matrix.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/bundle.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/diffs/conformance-fse.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/logs/conformance-fse.txt",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/results/conformance-fse.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/contact-form-7.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/core.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/dispositions.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/duo-agency-cpt.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/duo-code-half-ecosystem.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/duo-code-half-probe.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/duo-loop-demo-versioned.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/duo-loop-demo.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/elementor.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/interpreters/acf.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/ninja-forms.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/paid-memberships-pro.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/polylang.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/providers/elementor-css.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/providers/ninja-forms-form-cache.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/providers/polylang-nav-menus.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/providers/woocommerce-cache.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/providers/woocommerce-product-lookups.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/providers/yoast-index.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/regenerators/the-events-calendar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/the-events-calendar.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/woocommerce.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "manifests/yoast.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "recovery/AtomicStore.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/CanonicalJson.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/CheckpointBundle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/CodeRelease.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/EffectBundle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/ProtocolLock.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/ProviderClient.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/RecoveryExecutor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/UploadBundle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "recovery/rollback-control.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/bin/artifact-archive-root.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/bin/artifact-cache-fetch.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/bin/fetch-artifact.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/bin/pair.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/bin/ssh-rollback-certification.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/bin/subject-certification-bundle.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/artifacts-cache/.gitkeep",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/artifacts.lock.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/asserts.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/_explain_registry.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/_retry_helper.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/acf.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/contact-form-7.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/core.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/elementor.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/fse.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/ninja-forms.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/paid-memberships-pro.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/polylang.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/woocommerce.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/checks/yoast.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/acf.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/contact-form-7.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/core.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/elementor.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/fse.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/ninja-forms.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/paid-memberships-pro.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/polylang.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/woocommerce.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/entries/yoast.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/manifests.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/postdeploy/contact-form-7.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/postdeploy/core.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/postdeploy/ninja-forms.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/postdeploy/woocommerce.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/run.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/acf.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/contact-form-7.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/core.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/elementor.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/fse.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/ninja-forms.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/paid-memberships-pro.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/polylang.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/woocommerce.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/conformance/seeds/yoast.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/db.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/docker-compose.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-agency-cpt/duo-agency-cpt.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/fatal/duo-ecosystem-fatal.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/mu-plugins/duo-ecosystem-user.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/plugins/duo-ecosystem-base/duo-ecosystem-base.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/plugins/duo-ecosystem-dependent/duo-ecosystem-dependent.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/plugins/duo-ecosystem-single.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/themes/duo-ecosystem-child/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/themes/duo-ecosystem-child/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/themes/duo-ecosystem-parent/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v1/wp-content/themes/duo-ecosystem-parent/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v2/broken/duo-ecosystem-replacement.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-ecosystem/v2/fixed/duo-ecosystem-replacement.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-probe/theme/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-probe/theme/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-probe/v1/duo-code-half-probe.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/fixtures/duo-code-half-probe/v2/duo-code-half-probe.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/replacement/fixed/duo-commerce-replacement.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/plugins/duo-commerce-extension/duo-commerce-extension.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/themes/duo-commerce-child/functions.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/themes/duo-commerce-child/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/themes/duo-commerce-child/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/themes/duo-commerce-parent/functions.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/themes/duo-commerce-parent/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v1/wp-content/themes/duo-commerce-parent/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/broken/duo-commerce-extension.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/fixed/duo-commerce-extension.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/wp-content/themes/duo-commerce-child/functions.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/wp-content/themes/duo-commerce-child/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/wp-content/themes/duo-commerce-child/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/wp-content/themes/duo-commerce-parent/functions.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/wp-content/themes/duo-commerce-parent/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-ecommerce-developer-grind/v2/wp-content/themes/duo-commerce-parent/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-first-sync-hook/broken/wp-content/plugins/duo-first-sync-hook/duo-first-sync-hook.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-first-sync-hook/fixed/wp-content/plugins/duo-first-sync-hook/duo-first-sync-hook.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-first-sync-hook/theme/wp-content/themes/duo-first-sync-theme/index.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-first-sync-hook/theme/wp-content/themes/duo-first-sync-theme/style.css",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-loop-demo/duo-loop-demo.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/duo-taxonomy-keyspace/duo-taxonomy-keyspace.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/command-refusals.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/evidence.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/fixture-index.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/inputs.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/plan.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/receipt.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/recovery-authority.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/recovery-signed.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/registry.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/fixtures/foundation/contracts/repository.json",
+            "owner": "thread-0"
+        },
+        {
+            "path": "sandbox/init-cli.Dockerfile",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_bootstrap.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_budget_lock.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_compose.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_db.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_force_hatch.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_identity.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_lease.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_readiness.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/pair_siterepo.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/lib/proof_legacy_pair.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/pair.artifacts.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/pair.codebind.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/pair.http.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/pair.journal.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/pair.wordpress-offline.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/pair.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/setup.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/site-repo.gitignore.template",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/certification_fixture.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_adversarial_matrix.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_deletion_matrix.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_merge.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_ssh_adoption_roundtrip.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_ssh_rollback.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_subject_bundle.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_subjects_parallel.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_version_matrix.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/certify_version_skew_merge.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/check_guide_commands.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/cli_smoke.sh",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/cli_status_truth.sh",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/cli_triage_smoke.sh",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/fixtures/attachment_portability_register.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/fixtures/checkpoint-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/cli-json-refusal-sources.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/fixtures/code-release-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/core_semantics_register.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo-promotion-probe.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo-publish-stale-is-file.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo-sidecar-refs/duo-sidecar-refs.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo-sidecar-refs/manifest.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo-taxonomy-keyspace/duo-taxonomy-keyspace.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo-taxonomy-keyspace/manifest.json",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo3324-live-cli.Dockerfile",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo3324-live-driver.yml",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo3324-live-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo3344-scoped-live-driver.yml",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/fixtures/duo3344-scoped-promote-unit.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/fixtures/effect-lifecycle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/fixtures/effect-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/recovery-adapter.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/recovery-exclusion-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/scope_gate_register.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/fixtures/ssh-adopt.Dockerfile",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/fixtures/ssh-rollback-certify-driver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/ssh-rollback-checkpoint-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/ssh-rollback-db-loss-probe.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/fixtures/subject-certification-custom-test.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/fixtures/upload-provider.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/grind_code_half.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/grind_code_half_ecosystem.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/grind_ecommerce_developer.matrix.json",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/grind_ecommerce_developer.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/grind_first_sync_hook_recovery.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/grind_r1a_forms.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/grind_r1b_shop.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/grind_r1c_agency.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/grind_r3a_multilingual.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/grind_r3b_events.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/lint_smoke.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/manifest_fixtures.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/offline_diagnostics_guard.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_acf_meta_interpreter.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_acf_meta_interpreter.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_acf_term_options_fields.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_action_provider_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_action_scope.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_actions_providers.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_actions_providers.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_authoring_live.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_catalog.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_catalog.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_contract.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_contract.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_draft.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_draft.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_observation.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_observation.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_registry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_sources.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_sources.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adapter_theme_range.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_adopt_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_adopt_rollback.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_agent_src_requires.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_apply_field_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_apply_planner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_artifact_policy_identity.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_attachment_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_attachment_portability.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_block_reference_scanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_block_refs.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_block_refs.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_bound_helper.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_bundle_coverage.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_capability_registry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_capability_registry.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_atomicity.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_command.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_concurrency.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_gate_scanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_publish.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_publish.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_record_readback.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_refactor_boundaries.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_safety_gates.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_secret_scan.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_capture_secret_scan.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_checkpoint_bundle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_classification_batch.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_classify_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_cli_json_refusals.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_close_gate_parent_count.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_code_compatibility.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_completed_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_config_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_code_deploy_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_descriptor_compiler.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_descriptor_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_drift.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_ledger_transaction_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_materializer_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_ownership_pruner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_release.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_revision_enforcement.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_stage_lock_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_code_stage_transaction_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_collision.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_command_output.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_compiled_artifact.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_compiled_artifact_reader.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_composite_ref.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_composite_ref.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_conflict_view.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_conformance_asserts.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_content_attribute_rule_resolver.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_control_plane_seams.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_convergence_verifier.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_core_semantics.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_coverage.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_coverage_offline.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_cross_manifest_guards.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_delete_executor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_delete_guard_evaluator.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_delete_guard_value_codec.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_deletion_capability_resolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_deploy_command.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_deploy_planner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_discovery_completeness.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_discovery_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_doctor_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_doctor_env_values.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_driver_capabilities_command.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_duo3316_contract.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_duo3316_contract.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_duo_init.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_dynamic_options_policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_dynamic_options_policy.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_ecommerce_developer_matrix.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_ecommerce_developer_static.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_ecommerce_extension_migration.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_effect_bundle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_elementor_dead_guard.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_elementor_matrix_reset.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_entity_meta_capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_entity_type_width.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_env_options_policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_env_options_policy.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_env_set.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_command_options.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_command_preflight.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_driver.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_lifecycle.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_list_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_materializer_live.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_materializer_recovery.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_environment_materializer_ssh.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_exact_option_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_explain_export_premise.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_explain_registry.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_export_manifest_roundtrip.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_export_manifest_roundtrip.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_fatal_mutations.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_fatal_mutations.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_fatal_mutations_unit.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_fetch_artifact.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_frozen_materialization_promotion.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_generic_reference_shapes.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_grind_r1c_manifest_preserve.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_identity_token_codec.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_init_command.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_init_contract.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_interpreter_policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_interpreter_policy.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_journal_bootstrap.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_lifecycle_executor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_lifecycle_options_snapshot.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_lifecycle_phase_handoff_unit.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_lifecycle_planner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_lifecycle_state_handoff.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_linear_loop_freeze.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_lint_primitives.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_live_exit_code_contract.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_local_bootstrap.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_local_bootstrap_live.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_dispositions.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_dispositions.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_reclassification_policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_reclassification_policy.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_validate.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_validate.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_manifest_validator.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_media_capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_menu_capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_menu_field_reclassification_policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_menu_field_reclassification_policy.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_menu_item_meta_gate.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_menu_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_menu_reference_scanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_multisite_refusal.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_natural_key_rename.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_observation_guards.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_offline_diagnostics.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_option_name_reference_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_option_name_refs_wiring.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_option_namespace_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_option_reconciliation.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_option_ref_scope.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_option_reference_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_option_subkeys.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_options_capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_options_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_order_preserving.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_order_preserving.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pa_attributes.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pair_bootstrap_unit.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pair_budget_lock.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pair_candidate_source.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pair_compose_unit.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_parallel_subject_certification.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_parent_scoped_natural_key.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_passthrough_command.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_path_safety.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pending_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_pin_resolver.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_category_summary.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_category_summary_live.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_contract_trust.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_explain.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_summary_code_drift.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_title_render.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plan_view.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_plugin_adapter_source.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_plugin_adapter_source.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_plugin_dependency_order.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_pmpro_composite_ref.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_policy_load_finalizer.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_policy_rule_resolver.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_policy_writer.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_polylang_fail_helper.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_post_field_classification.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_post_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_post_type_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_post_type_relation_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_promote_command.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_promotion.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_promotion_lock.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_promotion_unit.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_proof_legacy_pair.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_provider_contract.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_provider_contract_live.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_provider_requirements_live.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_rebase_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_recovery_executor.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_recovery_protocol.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_reference_keyspace_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_reference_kind_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_reference_scope_classifier.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_refresh_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_refresh_compile_refs.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_refresh_export_unit.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_refresh_field_diff.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_refresh_orchestration.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_refresh_rebase.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_regen_dependency_policy.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_regen_dependency_policy.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_relationship_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_authorization.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_compiler.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_compiler_integration.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_deletion_parser.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_entity_parser.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_identity_registry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_media_catalog.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_menu_location_validator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_portable_shape_validator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_reference_graph_validator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_schema_validator.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_repository_state_file_catalog.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_rollback_authority.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_chain_stability.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_closure.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_closure.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_contract.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_contract.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_discovery.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_gate.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scope_wire.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_apply_live.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_apply_live_cleanup.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_apply_recovery.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_apply_session.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_certification_bundle.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_certification_bundle.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_effect_reconciliation.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_promote_unit.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_scoped_promotion_target.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_serialized_term_description_scanner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_shipping_zones.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_shortcode_reference_scanner.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_shortcode_refs.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_shortcode_refs.sh",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_site_adapter_certification.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_site_adapter_certification.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_site_policy_validator.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_snapshot_identity.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_snapshot_meta.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_snapshot_pruner.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_ssh_adopt.sh",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_ssh_adopt_evidence_retention.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_ssh_rollback_certification.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_state_handoff_verifier.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_status_command.php",
+            "owner": "thread-2"
+        },
+        {
+            "path": "sandbox/tests/regress_structured_reference_codec.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_sub_key_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_subject_certification_bundle.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_subject_certification_bundle.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_table_declaration_resolver.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_table_graph.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_table_schema.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_target_observation_premises.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_description_reference_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_grammar.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_keyspace_resolver.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_object_keyspace.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_object_keyspace.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_object_type_option_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_taxonomy_pattern_resolver.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_tec_regen.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_template_mismatch.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_term_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_term_meta.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_text_tokenizer.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_typed_table_capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_typed_table_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_upload_bundle.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_url_query_reference_codec.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_url_query_refs.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_url_query_refs.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_user_meta.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_user_meta_capture.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_user_meta_materializer.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_vocabulary_ownership.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_vocabulary_ownership.sh",
+            "owner": "thread-4"
+        },
+        {
+            "path": "sandbox/tests/regress_widget_type_resolver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_widgets.sh",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/regress_woo_attribute_deletion.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_woocommerce_contract.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_woocommerce_deletion_authority.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_woocommerce_effect_contract.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "sandbox/tests/regress_woocommerce_product_lookups.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_woocommerce_product_lookups_fake.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/regress_woocommerce_regen_engine.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_a_round_trip.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_b_merge.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_c_provenance.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_d_woo.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_e_acf.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_f_core_loop.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/spike_g_code.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/support/capture_publish_kill_driver.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "sandbox/tests/support/wp-block-parser-stub.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "sandbox/tests/support/wp-shortcode-stub.php",
+            "owner": "thread-5"
+        },
+        {
+            "path": "scripts/adapter-certification.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "scripts/agent-bootstrap.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "scripts/capability-registry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "scripts/close-gate-check.sh",
+            "owner": "thread-1"
+        },
+        {
+            "path": "scripts/contracts-check",
+            "owner": "thread-0"
+        },
+        {
+            "path": "scripts/foundation-check",
+            "owner": "thread-0"
+        },
+        {
+            "path": "scripts/ownership-check",
+            "owner": "thread-0"
+        },
+        {
+            "path": "spec/repo-format.md",
+            "owner": "thread-0"
+        }
+    ],
+    "new_prefixes": [
+        {
+            "prefix": "agent/src/Agent/",
+            "owner": "thread-3"
+        },
+        {
+            "prefix": "agent/src/Capture/",
+            "owner": "thread-3"
+        },
+        {
+            "prefix": "agent/src/Repository/",
+            "owner": "thread-3"
+        },
+        {
+            "prefix": "agent/src/WordPress/",
+            "owner": "thread-3"
+        },
+        {
+            "prefix": "agent/src/Capability/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "agent/src/Policy/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "agent/src/Adapter/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "agent/src/Provider/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "agent/src/Evidence/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "agent/src/Mutation/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "agent/src/Promotion/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "agent/src/Lifecycle/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "cli/src/Application/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "cli/src/Environment/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "cli/src/Transport/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "cli/src/Refresh/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "cli/src/HostContracts/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "cli/src/Adapter/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "cli/src/ArtifactTrust/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "cli/src/Mutation/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "cli/src/Promotion/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "cli/src/Recovery/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "cli/src/RecoveryProtocol/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "recovery/",
+            "owner": "thread-5"
+        },
+        {
+            "prefix": "docs/contracts/commands/host/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "docs/contracts/commands/agent/",
+            "owner": "thread-3"
+        },
+        {
+            "prefix": "docs/contracts/commands/generated/",
+            "owner": "thread-1"
+        },
+        {
+            "prefix": "sandbox/catalog/fragments/engineering-platform/",
+            "owner": "thread-1"
+        },
+        {
+            "prefix": "sandbox/catalog/fragments/host-cli/",
+            "owner": "thread-2"
+        },
+        {
+            "prefix": "sandbox/catalog/fragments/wordpress-agent/",
+            "owner": "thread-3"
+        },
+        {
+            "prefix": "sandbox/catalog/fragments/capability-policy-evidence/",
+            "owner": "thread-4"
+        },
+        {
+            "prefix": "sandbox/catalog/fragments/mutation-recovery/",
+            "owner": "thread-5"
+        }
+    ],
+    "boundary_rules": [
+        {
+            "from": "cli/**",
+            "to": "agent/**",
+            "rule": "wire-contract-only; existing source bridge is exception-listed"
+        },
+        {
+            "from": "cli/**",
+            "to": "recovery/**",
+            "rule": "RecoveryProtocolCodec bytes only; no implementation import"
+        },
+        {
+            "from": "agent/src/Capture*.php",
+            "to": "agent mutation implementation",
+            "rule": "forbidden; CaptureMutationPort only"
+        },
+        {
+            "from": "thread-5 agent mutation",
+            "to": "thread-3 repository and thread-4 capability facades",
+            "rule": "allowed facade dependency"
+        },
+        {
+            "from": "recovery/**",
+            "to": "agent/** or cli/**",
+            "rule": "forbidden"
+        },
+        {
+            "from": "production",
+            "to": "sandbox/** or development tooling",
+            "rule": "forbidden"
+        }
+    ],
+    "exceptions": [
+        {
+            "source": "cli/duo",
+            "target": "agent/src/{Canon,Secrets,ReferenceGraph,ScopeClosure,CanonicalSurfaces,Deletion,ScopeContract}.php",
+            "owner": "thread-2",
+            "rationale": "existing host scope-contract compatibility bridge",
+            "removal_condition": "Thread 2 replaces it with the ratified versioned host-safe repository contract package"
+        },
+        {
+            "source": "cli/src/RefreshPlan.php",
+            "target": "agent/src compatibility load graph",
+            "owner": "thread-2",
+            "rationale": "existing refresh/rebase compatibility bridge",
+            "removal_condition": "Thread 2 routes all target semantics through the agent gateway/built contract artifact"
+        }
+    ],
+    "hot_files": [
+        {
+            "path": "agent/duo.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "cli/duo",
+            "owner": "thread-2"
+        },
+        {
+            "path": "agent/src/Cli.php",
+            "owner": "thread-3"
+        },
+        {
+            "path": "scripts/capability-registry.php",
+            "owner": "thread-4"
+        },
+        {
+            "path": "recovery/rollback-control.php",
+            "owner": "thread-5"
+        }
+    ],
+    "generated_outputs": [
+        {
+            "path": "manifests/capabilities/registry.json",
+            "owner": "thread-4",
+            "generator": "scripts/capability-registry.php"
+        },
+        {
+            "path": "docs/capabilities.md",
+            "owner": "thread-4",
+            "generator": "scripts/capability-registry.php"
+        },
+        {
+            "path": "README.md",
+            "owner": "thread-4",
+            "generator": "scripts/capability-registry.php capability marker only"
+        }
+    ]
+}

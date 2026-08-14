@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/command-contract.schema.json",
+  "title": "Duo public command contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "id", "component", "command", "arguments", "flags",
+    "requirements", "terminal", "output", "exit_codes",
+    "mutation_boundary", "fixtures"
+  ],
+  "properties": {
+    "format": {"const": "duo-command-contract/v1"},
+    "id": {"type": "string", "pattern": "^(host|agent)\\.[a-z][a-z0-9.-]+$"},
+    "component": {"enum": ["host-cli", "wordpress-agent"]},
+    "command": {"type": "string", "minLength": 1},
+    "arguments": {"type": "array", "items": {"$ref": "#/$defs/input"}},
+    "flags": {"type": "array", "items": {"$ref": "#/$defs/input"}},
+    "requirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["environment", "repository"],
+      "properties": {
+        "environment": {"type": "string", "minLength": 1},
+        "repository": {"type": "string", "minLength": 1}
+      }
+    },
+    "terminal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["width", "locale", "tty", "color"],
+      "properties": {
+        "width": {"type": "string", "minLength": 1},
+        "locale": {"type": "string", "minLength": 1},
+        "tty": {"type": "string", "minLength": 1},
+        "color": {"type": "string", "minLength": 1}
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stdout", "stderr", "json"],
+      "properties": {
+        "stdout": {"type": "string", "minLength": 1},
+        "stderr": {"type": "string", "minLength": 1},
+        "json": {"type": ["string", "null"]}
+      }
+    },
+    "exit_codes": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[0-9]+$"},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "mutation_boundary": {"type": "string", "minLength": 1},
+    "fixtures": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "required", "default", "shape"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "required": {"type": "boolean"},
+        "default": {},
+        "shape": {"type": "string", "minLength": 1}
+      }
+    }
+  }
+}

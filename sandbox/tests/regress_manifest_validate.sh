@@ -47,6 +47,7 @@ php -l ../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
 php -l ../../cli/src/ManifestValidate.php >/dev/null || fail "cli/src/ManifestValidate.php has a syntax error"
 php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
 php -l ../../agent/src/NativeActions.php >/dev/null || fail "agent/src/NativeActions.php has a syntax error"
+php -l ../../agent/src/NativeActionCatalog.php >/dev/null || fail "agent/src/NativeActionCatalog.php has a syntax error"
 pass "no syntax errors"
 
 say "the command is WordPress-free by construction — assert it over everything boot() loads"
@@ -55,7 +56,7 @@ say "the command is WordPress-free by construction — assert it over everything
 # those are where WordPress would be reached from. So the scan below runs over
 # boot()'s real load set, enumerated from the handler's own require statements
 # and then closed over those files' own `require_once __DIR__` lines (Policy.php
-# pulls NativeActions.php and AdapterSources.php) — a new require cannot slip
+# pulls NativeActionCatalog.php and AdapterSources.php) — a new require cannot slip
 # past this check by being added in one place only.
 engine_files=$(php <<'PHP'
 <?php
@@ -99,7 +100,7 @@ echo implode("\n", $files), "\n";
 PHP
 )
 [ -n "$engine_files" ] || fail "could not enumerate boot()'s require list from cli/src/ManifestValidate.php"
-for required in Policy.php NativeActions.php CapabilityRegistry.php Canon.php; do
+for required in Policy.php NativeActionCatalog.php CapabilityRegistry.php Canon.php; do
   grep -q "/$required\$" <<<"$engine_files" \
     || fail "boot() enumeration missed $required — the scan below would be checking the wrong files"
 done
@@ -143,8 +144,8 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # own entry unchanged -- it still calls get_option('stylesheet'/'template')
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
-wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,NativeActions.php:delete_transient_action,NativeActions.php:transient_state,NativeActions.php:option_row_present,LifecyclePlanner.php:code_mismatch,LifecyclePlanner.php:code_drift,LifecyclePlanner.php:record_code_versions,LifecyclePlanner.php:check_theme_range,LifecycleExecutor.php:execute,Deploy.php:run,Deploy.php:current_active_plugins,Deploy.php:plugin_runtime_state,Providers.php:plugin_supplied_providers'
-wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() NativeActions::execute() Deploy::code_mismatch() Deploy::code_drift() Providers::negotiate()'
+wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,Providers.php:plugin_supplied_providers'
+wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() Providers::negotiate()'
 
 scan_wp() {
   # $1 = allowlist (may be empty), remaining args = files

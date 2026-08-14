@@ -309,12 +309,23 @@ namespace {
         'lint' => 'lint',
         'capabilities' => 'capabilities',
     ];
+    $foundationQuarantines = [
+        'capture' => [
+            'error' => 'portable_capture_safety_unqualified',
+            'message' => 'portable capture is unavailable until every selected surface has reviewed portability and sensitivity proof',
+        ],
+        'apply' => [
+            'error' => 'qualification_harness_required',
+            'message' => 'apply and delete require a current independently issued qualification-harness approval',
+        ],
+    ];
     foreach ($commands as $method => $command) {
         $payload = invoke_json(static fn() => $cli->$method([], ['format' => 'json']));
         check(($payload['format'] ?? null) === 'duo-command-refusal/v1', "$command refusal names the versioned format");
         check(($payload['ok'] ?? null) === false, "$command refusal is unambiguously not ok");
         check(($payload['command'] ?? null) === $command, "$command refusal names the public command");
-        check(($payload['error'] ?? null) === 'invalid_arguments', "$command refusal has a stable argument error code");
+        $expectedError = $foundationQuarantines[$command]['error'] ?? 'invalid_arguments';
+        check(($payload['error'] ?? null) === $expectedError, "$command refusal has its stable first-gate error code");
         check(($payload['reason_code'] ?? null) === $payload['error'], "$command refusal exposes the error as a finite reason code");
         // Each command's FIRST gate, in its own declaration order — the one a
         // caller invoking with nothing actually hits.
@@ -325,7 +336,8 @@ namespace {
             'promotion-begin-scoped', 'promotion-complete-scoped' => '--promotion-owner',
             default => '--repo',
         };
-        check(($payload['message'] ?? null) === "$missing is required for $command", "$command refusal identifies the missing argument");
+        $expectedMessage = $foundationQuarantines[$command]['message'] ?? "$missing is required for $command";
+        check(($payload['message'] ?? null) === $expectedMessage, "$command refusal identifies its stable first gate");
         check(is_string($payload['remediation'] ?? null) && $payload['remediation'] !== '', "$command refusal carries remediation");
     }
 
@@ -351,7 +363,11 @@ namespace {
     );
 
     echo "\n== deliberately public gates keep stable diagnostics ==\n";
-    \Duo\Capture::$failure = new \Duo\CommandRefusalException(
+    // Capture and Apply are quarantined at command entry by Thread 0. Exercise
+    // the shared refusal formatter through read-only plan so the redaction and
+    // typed-diagnostic compatibility surface remains covered without bypassing
+    // either safety gate.
+    \Duo\Apply::$planFailure = new \Duo\CommandRefusalException(
         'incomplete_state_discovery',
         'capture found state that has no reviewed classification',
         'review it with duo pending, then classify or exclude it before another capture',
@@ -363,23 +379,23 @@ namespace {
         ]],
         'duo: operator-only path /private/repo contains unclassified option acme_widget_color'
     );
-    $capture = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'json' => true]));
-    check(($capture['error'] ?? null) === 'incomplete_state_discovery', 'capture retains the source-owned refusal code');
+    $capture = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'json' => true]));
+    check(($capture['error'] ?? null) === 'incomplete_state_discovery', 'read-only plan retains the source-owned refusal code');
     check(
         ($capture['diagnostics'][0]['surface'] ?? null) === 'options:acme_widget_color'
             && str_contains((string) ($capture['diagnostics'][0]['remediation'] ?? ''), 'classify'),
-        'capture JSON keeps the exact state surface and per-finding remedy'
+        'read-only plan JSON keeps the exact state surface and per-finding remedy'
     );
     check(!str_contains((string) json_encode($capture), '/private/repo'), 'operator-only typed evidence is absent from JSON');
 
     $unsupportedDeletionFactory = new ReflectionMethod(\Duo\Deletion::class, 'unsupported_capability_refusal');
-    \Duo\Capture::$failure = $unsupportedDeletionFactory->invoke(null, 'table:nf3_forms');
-    $unsupportedDeletion = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    \Duo\Apply::$planFailure = $unsupportedDeletionFactory->invoke(null, 'table:nf3_forms');
+    $unsupportedDeletion = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($unsupportedDeletion['format'] ?? null) === 'duo-command-refusal/v1'
             && ($unsupportedDeletion['ok'] ?? null) === false
-            && ($unsupportedDeletion['command'] ?? null) === 'capture',
-        'unsupported deletion uses the primary capture refusal envelope'
+            && ($unsupportedDeletion['command'] ?? null) === 'plan',
+        'unsupported deletion uses the read-only plan refusal envelope'
     );
     check(
         ($unsupportedDeletion['error'] ?? null) === 'unsupported_deletion'
@@ -397,7 +413,7 @@ namespace {
         'safe selector evidence stays public while richer operator prose stays private'
     );
 
-    \Duo\Capture::$failure = new \Duo\CommandRefusalException(
+    \Duo\Apply::$planFailure = new \Duo\CommandRefusalException(
         'policy_refused',
         'policy rejected a reviewed field',
         'review the policy diagnostic',
@@ -409,7 +425,7 @@ namespace {
         ]],
         'duo: operator may inspect the private policy refusal'
     );
-    $structuredRedaction = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    $structuredRedaction = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(($structuredRedaction['reason_code'] ?? null) === 'policy_refused', 'structured redaction retains the stable source reason');
     check(($structuredRedaction['details_redacted'] ?? null) === true, 'structured redaction records its witness');
     check(!array_key_exists('diagnostics', $structuredRedaction), 'sensitive structured diagnostics are removed as a whole');
@@ -442,7 +458,7 @@ namespace {
         'carriage-return control byte' => "reviewed\rMUSTNOTLEAK",
     ];
     foreach ($signedQueryShapes as $shape => $signedUrl) {
-        \Duo\Capture::$failure = new \Duo\CommandRefusalException(
+        \Duo\Apply::$planFailure = new \Duo\CommandRefusalException(
             'provider_refused',
             'provider returned reviewed evidence',
             'inspect the provider diagnostic',
@@ -452,7 +468,7 @@ namespace {
                 'remediation' => 'inspect privately',
             ]]
         );
-        $signedRedaction = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+        $signedRedaction = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
         check(($signedRedaction['details_redacted'] ?? null) === true, "$shape structured refusal is redacted");
         check(!str_contains((string) json_encode($signedRedaction), 'MUSTNOTLEAK'), "$shape value is absent from structured JSON");
     }
@@ -472,12 +488,12 @@ namespace {
         'a duo:-prefixed raw Throwable publishes none of its prose'
     );
 
-    \Duo\Capture::$failure = new RuntimeException(
+    \Duo\Apply::$planFailure = new RuntimeException(
         'duo: deletion intent for table:nf3_forms is unsupported — no pinned adapter declares its reverse-reference checks and cascade effects'
     );
-    $captureRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    $captureRefusal = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
-        ($captureRefusal['error'] ?? null) === 'capture_failed'
+        ($captureRefusal['error'] ?? null) === 'plan_failed'
             && ($captureRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($captureRefusal), 'table:nf3_forms')
             && !str_contains((string) json_encode($captureRefusal), 'reverse-reference checks'),
@@ -485,16 +501,16 @@ namespace {
     );
     check(
         ($captureRefusal['remediation'] ?? null)
-            === 'inspect private operator evidence and capture recovery state; classify, correct, or recover the blocker before another attempt',
-        'an unclassified capture refusal carries only the reviewed generic remediation'
+            === 'inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker',
+        'an unclassified read-only plan refusal carries only the reviewed generic remediation'
     );
 
-    \Duo\Capture::$failure = new RuntimeException(
+    \Duo\Apply::$planFailure = new RuntimeException(
         'duo: refusing capture — option sk_live_1234567890ABCDEFGHIJ looks like a live secret'
     );
-    $secretRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    $secretRefusal = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
-        ($secretRefusal['error'] ?? null) === 'capture_failed'
+        ($secretRefusal['error'] ?? null) === 'plan_failed'
             && ($secretRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($secretRefusal), 'sk_live_1234567890ABCDEFGHIJ'),
         'a duo:-prefixed refusal embedding a secret-shaped value stays on the same generic redacted shape'
@@ -507,10 +523,10 @@ namespace {
         'duo: batch regenerator \'woocommerce-product-lookups\' failed: wpdb said something with an option value in it',
         'duo: deletion guard lock refused for post 7: guard query failed for wp_posts : Deadlock found MUSTNOTLEAK',
     ] as $wrapped) {
-        \Duo\Capture::$failure = new RuntimeException($wrapped);
-        $wrappedRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+        \Duo\Apply::$planFailure = new RuntimeException($wrapped);
+        $wrappedRefusal = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
         check(
-            ($wrappedRefusal['error'] ?? null) === 'capture_failed'
+            ($wrappedRefusal['error'] ?? null) === 'plan_failed'
                 && ($wrappedRefusal['details_redacted'] ?? null) === true
                 && !str_contains((string) json_encode($wrappedRefusal), 'MUSTNOTLEAK')
                 && !str_contains((string) json_encode($wrappedRefusal), 'payload tail'),
@@ -518,41 +534,41 @@ namespace {
         );
     }
 
-    \Duo\Capture::$failure = new RuntimeException(
+    \Duo\Apply::$planFailure = new RuntimeException(
         "duo: user-meta exact login 'privateperson' disappeared after preflight; transaction rolled back"
     );
-    $loginRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    $loginRefusal = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($loginRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($loginRefusal), 'privateperson'),
         'a refusal naming an exact login stays redacted — logins are in the redaction contract by name'
     );
 
-    \Duo\Capture::$failure = new RuntimeException(
+    \Duo\Apply::$planFailure = new RuntimeException(
         'duo: canonical state at /var/www/site/state is not writable'
     );
-    $pathRefusal = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    $pathRefusal = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($pathRefusal['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($pathRefusal), '/var/www'),
         'a refusal embedding an absolute filesystem path stays redacted'
     );
 
-    \Duo\Capture::$failure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
-    $accident = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    \Duo\Apply::$planFailure = new RuntimeException('TypeError-shaped accident with no refusal prefix');
+    $accident = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
-        ($accident['error'] ?? null) === 'capture_failed'
+        ($accident['error'] ?? null) === 'plan_failed'
             && ($accident['details_redacted'] ?? null) === true
             && !str_contains((string) json_encode($accident), 'TypeError-shaped'),
         'an unprefixed Throwable stays fully redacted under the same catch-all rule'
     );
 
-    \Duo\Apply::$applyFailure = \Duo\CommandRefusalException::applyRefused(
+    \Duo\Apply::$planFailure = \Duo\CommandRefusalException::applyRefused(
         'scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created',
         'review the selected tombstones and rerun scoped apply with --with-deletes to authorize their removal',
         'duo: scoped apply selected live tombstones but --with-deletes was not supplied; no scoped session or authored target mutation was created'
     );
-    $scopedApplyRefusal = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    $scopedApplyRefusal = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(
         ($scopedApplyRefusal['reason_code'] ?? null) === 'apply_refused'
             && str_contains((string) ($scopedApplyRefusal['message'] ?? ''), '--with-deletes')
@@ -561,7 +577,7 @@ namespace {
     );
 
     $forcedEntityHash = hash('sha256', 'private-option-or-user-identity');
-    \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
+    \Duo\Apply::$planFailure = new \Duo\CommandRefusalException(
         'apply_forced_override_failed',
         'apply failed after explicit plan conflict overrides were authorized',
         'inspect private operator evidence and apply recovery state; reconcile the failed gate before another attempt and do not assume the authorized override committed',
@@ -581,7 +597,7 @@ namespace {
             'status' => 'authorized',
         ]]
     );
-    $forcedApply = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    $forcedApply = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(($forcedApply['error'] ?? null) === 'apply_forced_override_failed', 'forced apply failure has a stable typed refusal code');
     check(
         ($forcedApply['forced_overrides'][0]['entity_identity_sha256'] ?? null) === $forcedEntityHash
@@ -593,7 +609,7 @@ namespace {
             && !str_contains((string) json_encode($forcedApply), 'provider detail'),
         'forced apply failure JSON omits raw entity and later runtime details'
     );
-    \Duo\Apply::$applyFailure = new \Duo\CommandRefusalException(
+    \Duo\Apply::$planFailure = new \Duo\CommandRefusalException(
         'apply_forced_override_failed',
         'apply failed after explicit plan conflict overrides were authorized',
         'inspect private operator evidence before another attempt',
@@ -602,15 +618,15 @@ namespace {
         null,
         [['entity_identity_sha256' => 'sk_live_1234567890FORCEDLEAK']]
     );
-    $forcedRedaction = invoke_json(static fn() => $cli->apply([], ['repo' => '/fixture', 'format' => 'json']));
+    $forcedRedaction = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(($forcedRedaction['details_redacted'] ?? null) === true, 'sensitive forced override evidence activates the final redaction guard');
     check(!array_key_exists('forced_overrides', $forcedRedaction), 'sensitive forced override evidence is omitted as a whole');
     check(!str_contains((string) json_encode($forcedRedaction), 'FORCEDLEAK'), 'sensitive forced override bytes are absent from JSON');
 
-    \Duo\Capture::$failure = \Duo\CommandRefusalException::ambiguousCaptureRecovery(
+    \Duo\Apply::$planFailure = \Duo\CommandRefusalException::ambiguousCaptureRecovery(
         'duo: operator-only malformed database commit marker detail'
     );
-    $recovery = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+    $recovery = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
     check(($recovery['error'] ?? null) === 'capture_recovery_ambiguous', 'known capture recovery ambiguity retains its stable source code');
     check(str_contains((string) ($recovery['remediation'] ?? ''), 'do not retry or discard'), 'known capture recovery ambiguity preserves its no-retry/no-discard remedy');
     check(!str_contains((string) json_encode($recovery), 'malformed database commit marker'), 'capture recovery JSON omits operator-only marker evidence');
@@ -682,12 +698,12 @@ namespace {
         'personal login and path' => 'failure for admin@example.test at /Users/private-customer/site',
     ];
     foreach ($secretMessages as $shape => $secretMessage) {
-        \Duo\Capture::$failure = new RuntimeException($secretMessage);
-        $redacted = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture', 'format' => 'json']));
+        \Duo\Apply::$planFailure = new RuntimeException($secretMessage);
+        $redacted = invoke_json(static fn() => $cli->plan([], ['repo' => '/fixture', 'format' => 'json']));
         $redactedBytes = json_encode($redacted, JSON_UNESCAPED_SLASHES);
         check(($redacted['details_redacted'] ?? null) === true, "$shape failure records an explicit redaction witness");
         check(!str_contains((string) $redactedBytes, $secretMessage), "$shape exception bytes are absent from JSON");
-        check(($redacted['message'] ?? null) === 'capture refused at an unclassified safety gate', "$shape gets the constant safe message");
+        check(($redacted['message'] ?? null) === 'plan refused at an unclassified safety gate', "$shape gets the constant safe message");
     }
 
     echo "\n== DUO-3397: refresh-export and scope answer machines with the same envelope ==\n";
@@ -1273,24 +1289,25 @@ namespace {
     check(($serialization['error'] ?? null) === 'refusal_serialization_failed', 'serialization fallback has a stable reason code');
     check(($serialization['details_redacted'] ?? null) === true, 'serialization fallback refuses diagnostic details');
 
-    echo "\n== human mode remains human and unchanged ==\n";
+    echo "\n== human mode remains human and foundation quarantines win before backends ==\n";
+    $captureQuarantineOperator = 'duo: portable capture is quarantined by the refactor foundation safety gate';
     WP_CLI::reset();
     \Duo\Capture::$failure = new RuntimeException('duo: human refusal stays human');
     try {
         $cli->capture([], ['repo' => '/fixture']);
         check(false, 'human refusal exits through WP_CLI::error');
     } catch (CliJsonHumanError $e) {
-        check($e->getMessage() === 'duo: human refusal stays human', 'human refusal preserves the original actionable message');
+        check($e->getMessage() === $captureQuarantineOperator, 'human capture publishes the foundation quarantine');
     }
     check(WP_CLI::$lines === [], 'human refusal emits no JSON record');
-    check(WP_CLI::$errors === ['duo: human refusal stays human'], 'human refusal reaches WP_CLI::error exactly once');
+    check(WP_CLI::$errors === [$captureQuarantineOperator], 'human quarantine reaches WP_CLI::error exactly once');
 
     WP_CLI::reset();
     try {
         $cli->capture([], []);
         check(false, 'human missing argument exits through WP_CLI::error');
     } catch (CliJsonHumanError $e) {
-        check($e->getMessage() === '--repo required', 'human missing-argument prose remains backward-compatible');
+        check($e->getMessage() === $captureQuarantineOperator, 'capture quarantine precedes argument and backend work');
     }
     check(WP_CLI::$lines === [], 'human missing argument emits no JSON record');
 

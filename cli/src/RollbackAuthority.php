@@ -3,8 +3,9 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
-use Duo\Recovery\RollbackControl;
-use Duo\Recovery\CanonicalJson;
+require_once __DIR__ . '/HostContracts/RecoveryTransport.php';
+require_once __DIR__ . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+
 
 /**
  * Controller-side client for the adopted rollback authority runtime.
@@ -14,11 +15,11 @@ use Duo\Recovery\CanonicalJson;
  * only signed receipts/events and the public key provisioned by adoption.
  */
 final class RollbackAuthority {
-    private SshTransport $transport;
+    private RecoveryTransport $transport;
     private string $keyId;
     private string $secretKey;
 
-    public function __construct(SshTransport $transport) {
+    public function __construct(RecoveryTransport $transport) {
         if (!$transport->rollbackConfigured()) {
             throw new \RuntimeException(
                 "env '{$transport->name()}': rollback authority needs rollback_key_id + rollback_signing_key"
@@ -52,12 +53,12 @@ final class RollbackAuthority {
      *
      * @return array<string,mixed>
      */
-    public static function status(SshTransport $transport): array {
+    public static function status(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'status');
     }
 
     /** Read signed authority even when exclusion adoption is the failing edge. */
-    public static function authorityStatus(SshTransport $transport): array {
+    public static function authorityStatus(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'authority-status');
     }
 
@@ -69,13 +70,13 @@ final class RollbackAuthority {
      *
      * @return array<string,mixed>
      */
-    public static function scopedStatus(SshTransport $transport): array {
+    public static function scopedStatus(RecoveryTransport $transport): array {
         $status = self::authorityStatus($transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true) {
             return $status;
         }
         if (($status['active'] ?? false) === true && empty($status['terminal'])
-            && ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            && ($status['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT) {
             throw new \RuntimeException('duo rollback: active authority is not a scoped promotion receipt');
         }
         return $status;
@@ -88,13 +89,13 @@ final class RollbackAuthority {
      *
      * @return array<string,mixed>
      */
-    public static function scopedEvidence(SshTransport $transport): array {
+    public static function scopedEvidence(RecoveryTransport $transport): array {
         $evidence = self::readControlAction($transport, 'active-evidence');
         $receipt = $evidence['receipt'] ?? null;
         $status = $evidence['status'] ?? null;
         if (!is_array($receipt) || !is_array($status)
-            || ($receipt['format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
-            || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+            || ($receipt['format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT
+            || ($status['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT
             || !is_array($evidence['open_operations'] ?? null)
             || !is_array($evidence['completed_operations'] ?? null)
             || !is_array($evidence['completed_operation_history'] ?? null)) {
@@ -104,12 +105,12 @@ final class RollbackAuthority {
     }
 
     /** Read canonical hash-only evidence for the complete signed chain. */
-    public static function audit(SshTransport $transport): array {
+    public static function audit(RecoveryTransport $transport): array {
         return self::readStatus($transport, 'audit');
     }
 
     /** @return array<string,mixed> */
-    private static function readStatus(SshTransport $transport, string $action): array {
+    private static function readStatus(RecoveryTransport $transport, string $action): array {
         $runtime = self::runtimePath($transport);
         $root = self::controlRoot($transport);
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
@@ -141,7 +142,7 @@ final class RollbackAuthority {
             return ['active' => null, 'available' => true, 'error' => 'malformed authority status JSON', 'ok' => false];
         }
         if (!is_array($decoded)
-            || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
+            || RecoveryProtocolCodec::canonical($decoded) . "\n" !== $result['stdout']
             || ($decoded['ok'] ?? null) !== true) {
             return ['active' => null, 'available' => true, 'error' => 'invalid authority status evidence', 'ok' => false];
         }
@@ -149,7 +150,7 @@ final class RollbackAuthority {
     }
 
     /** @return array<string,mixed> */
-    private static function readControlAction(SshTransport $transport, string $action): array {
+    private static function readControlAction(RecoveryTransport $transport, string $action): array {
         $runtime = self::runtimePath($transport);
         $root = self::controlRoot($transport);
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
@@ -170,7 +171,7 @@ final class RollbackAuthority {
         } catch (\Throwable $e) {
             throw new \RuntimeException('duo rollback: malformed authority evidence JSON', 0, $e);
         }
-        if (!is_array($decoded) || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']) {
+        if (!is_array($decoded) || RecoveryProtocolCodec::canonical($decoded) . "\n" !== $result['stdout']) {
             throw new \RuntimeException('duo rollback: invalid authority evidence');
         }
         return $decoded;
@@ -195,7 +196,7 @@ final class RollbackAuthority {
         $uploadProviderConfigured = $this->transport->uploadProviderConfigured();
         $effectProviderConfigured = $this->transport->effectProviderConfigured();
         $receiptFormat = $codeReleaseConfigured
-            ? RollbackControl::RECEIPT_FORMAT
+            ? RecoveryProtocolCodec::RECEIPT_FORMAT
             : 'duo-rollback-receipt/v1';
         if (!$codeReleaseConfigured) {
             // V1 remains the truthful schema for manual code recovery. A V2
@@ -425,7 +426,7 @@ final class RollbackAuthority {
         if (!is_int($ttl)) {
             throw new \RuntimeException('duo rollback: claim needs integer claim_ttl_seconds');
         }
-        $signedReceipt = RollbackControl::sign($receipt, $this->keyId, $this->secretKey);
+        $signedReceipt = RecoveryProtocolCodec::sign($receipt, $this->keyId, $this->secretKey);
         $event = $this->eventPayload(
             $receipt,
             1,
@@ -436,14 +437,14 @@ final class RollbackAuthority {
             1,
             $claimant,
             1,
-            hash('sha256', CanonicalJson::encode($receipt)),
+            hash('sha256', RecoveryProtocolCodec::canonical($receipt)),
             str_repeat('0', 64),
             $now,
             $ttl
         );
         $request = [
             'action' => 'claim',
-            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
+            'event' => RecoveryProtocolCodec::sign($event, $this->keyId, $this->secretKey),
             'receipt' => $signedReceipt,
         ];
         return ['receipt' => $receipt, 'status' => $this->send($request)];
@@ -484,7 +485,7 @@ final class RollbackAuthority {
         }
         $fullClaim = self::isFullScopedClaimFields($fields);
         if (($status['active'] ?? false) === true) {
-            if (($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            if (($status['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT) {
                 if (!empty($status['terminal'])) {
                     if (!$fullClaim) {
                         throw new \RuntimeException('duo rollback: a fresh scoped claim needs complete claim fields');
@@ -507,7 +508,7 @@ final class RollbackAuthority {
                 // terminal receipt is safe to advance past.
                 $terminal = self::status($this->transport);
                 if (($terminal['available'] ?? false) !== true || ($terminal['ok'] ?? false) !== true
-                    || ($terminal['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT
+                    || ($terminal['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT
                     || ($terminal['receipt_id'] ?? null) !== ($status['receipt_id'] ?? null)
                     || ($terminal['generation'] ?? null) !== ($status['generation'] ?? null)) {
                     throw new \RuntimeException('duo rollback: scoped terminal exclusion status is unavailable or inconsistent');
@@ -621,7 +622,7 @@ final class RollbackAuthority {
             'created_at' => $checkpointCreated,
             'encryption_key_id' => (string) $fields['encryption_key_id'],
             'exclusion_token_sha256' => (string) $exclusion['token_sha256'],
-            'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'format' => RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT,
             'generation' => $generation,
             'ledger_session_sha256' => (string) $checkpoint['ledger_session_sha256'],
             'owner' => (string) $fields['owner'],
@@ -644,15 +645,15 @@ final class RollbackAuthority {
             1,
             $claimant,
             1,
-            hash('sha256', RollbackControl::canonical($receipt)),
+            hash('sha256', RecoveryProtocolCodec::canonical($receipt)),
             str_repeat('0', 64),
             $checkpointCreated,
             (int) $fields['claim_ttl_seconds']
         );
         $next = $this->send([
             'action' => 'claim',
-            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
-            'receipt' => RollbackControl::sign($receipt, $this->keyId, $this->secretKey),
+            'event' => RecoveryProtocolCodec::sign($event, $this->keyId, $this->secretKey),
+            'receipt' => RecoveryProtocolCodec::sign($receipt, $this->keyId, $this->secretKey),
         ]);
         return ['receipt' => $receipt, 'status' => $next];
     }
@@ -694,7 +695,7 @@ final class RollbackAuthority {
         );
         return $this->send([
             'action' => 'append',
-            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
+            'event' => RecoveryProtocolCodec::sign($event, $this->keyId, $this->secretKey),
             'receipt' => null,
         ]);
     }
@@ -739,7 +740,7 @@ final class RollbackAuthority {
         );
         return $this->send([
             'action' => 'append',
-            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
+            'event' => RecoveryProtocolCodec::sign($event, $this->keyId, $this->secretKey),
             'receipt' => null,
         ]);
     }
@@ -766,7 +767,7 @@ final class RollbackAuthority {
         );
         $next = $this->send([
             'action' => 'append',
-            'event' => RollbackControl::sign($event, $this->keyId, $this->secretKey),
+            'event' => RecoveryProtocolCodec::sign($event, $this->keyId, $this->secretKey),
             'receipt' => null,
         ]);
         if ($this->transport->recoveryConfigured()) {
@@ -816,7 +817,7 @@ final class RollbackAuthority {
                 "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
             );
         }
-        $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
+        $inputHash = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
         $next = $this->append(
             $state,
             'prepared',
@@ -852,7 +853,7 @@ final class RollbackAuthority {
                 "duo rollback: cannot prepare $adapter while target is {$status['state']} instead of $state"
             );
         }
-        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $inputHash = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
         $next = $this->appendScoped(
             $state,
             'prepared',
@@ -885,7 +886,7 @@ final class RollbackAuthority {
         $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
         try {
             @chmod($local, 0600);
-            $bytes = CanonicalJson::encode($input) . "\n";
+            $bytes = RecoveryProtocolCodec::canonical($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write operation handoff');
             }
@@ -915,7 +916,7 @@ final class RollbackAuthority {
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
             $inputHash = hash('sha256', $bytes);
             if (!is_array($decoded)
-                || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
+                || RecoveryProtocolCodec::canonical($decoded) . "\n" !== $result['stdout']
                 || ($decoded['ok'] ?? null) !== true
                 || ($decoded['adapter'] ?? null) !== $adapter
                 || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
@@ -948,7 +949,7 @@ final class RollbackAuthority {
         $remote = '/tmp/duo-rollback-input-' . bin2hex(random_bytes(16)) . '.json';
         try {
             @chmod($local, 0600);
-            $bytes = RollbackControl::canonical($input) . "\n";
+            $bytes = RecoveryProtocolCodec::canonical($input) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write operation handoff');
             }
@@ -978,7 +979,7 @@ final class RollbackAuthority {
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
             $inputHash = hash('sha256', $bytes);
             if (!is_array($decoded)
-                || RollbackControl::canonical($decoded) . "\n" !== $result['stdout']
+                || RecoveryProtocolCodec::canonical($decoded) . "\n" !== $result['stdout']
                 || ($decoded['ok'] ?? null) !== true
                 || ($decoded['adapter'] ?? null) !== $adapter
                 || !hash_equals($inputHash, (string) ($decoded['input_sha256'] ?? ''))
@@ -1003,7 +1004,7 @@ final class RollbackAuthority {
     ): array {
         $status = $this->requiredActiveStatus();
         self::assertOperationIdentity($adapter, $attempt);
-        $inputHash = hash('sha256', CanonicalJson::encode($input) . "\n");
+        $inputHash = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
         if (($execution['adapter'] ?? null) !== $adapter
             || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
             || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
@@ -1032,7 +1033,7 @@ final class RollbackAuthority {
     ): array {
         $status = $this->requiredScopedActiveStatus();
         self::assertOperationIdentity($adapter, $attempt);
-        $inputHash = hash('sha256', RollbackControl::canonical($input) . "\n");
+        $inputHash = hash('sha256', RecoveryProtocolCodec::canonical($input) . "\n");
         if (($execution['adapter'] ?? null) !== $adapter
             || !hash_equals($inputHash, (string) ($execution['input_sha256'] ?? ''))
             || preg_match('/^[a-f0-9]{64}$/', (string) ($execution['result_sha256'] ?? '')) !== 1) {
@@ -1105,7 +1106,7 @@ final class RollbackAuthority {
         $status = self::status($this->transport);
         if (($status['available'] ?? false) !== true || ($status['ok'] ?? false) !== true
             || ($status['active'] ?? false) !== true || empty($status['terminal'])
-            || ($status['receipt_format'] ?? null) !== RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT) {
+            || ($status['receipt_format'] ?? null) !== RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT) {
             throw new \RuntimeException('duo rollback: scoped exclusion release requires valid terminal scoped authority');
         }
         if (($status['exclusion_state'] ?? null) === 'released') {
@@ -1278,7 +1279,7 @@ final class RollbackAuthority {
             'claim_epoch' => $claimEpoch,
             'claim_expires_at' => gmdate('Y-m-d\TH:i:s\Z', $time->getTimestamp() + $ttl),
             'claimant' => $claimant,
-            'format' => RollbackControl::EVENT_FORMAT,
+            'format' => RecoveryProtocolCodec::EVENT_FORMAT,
             'generation' => (int) $receipt['generation'],
             'input_sha256' => $inputHash,
             'operation_id' => $operationId,
@@ -1303,7 +1304,7 @@ final class RollbackAuthority {
     /** @return array<string,mixed> */
     private function sendExclusion(array $payload): array {
         return $this->sendRemote(
-            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            RecoveryProtocolCodec::sign($payload, $this->keyId, $this->secretKey),
             'exclusion-request'
         );
     }
@@ -1311,7 +1312,7 @@ final class RollbackAuthority {
     /** @return array<string,mixed> */
     private function sendCheckpoint(array $payload): array {
         return $this->sendRemote(
-            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            RecoveryProtocolCodec::sign($payload, $this->keyId, $this->secretKey),
             'checkpoint-request'
         );
     }
@@ -1319,7 +1320,7 @@ final class RollbackAuthority {
     /** @return array<string,mixed> */
     private function sendCodeRelease(array $payload): array {
         return $this->sendRemote(
-            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            RecoveryProtocolCodec::sign($payload, $this->keyId, $this->secretKey),
             'code-release-request'
         );
     }
@@ -1327,7 +1328,7 @@ final class RollbackAuthority {
     /** @return array<string,mixed> */
     private function sendUploadBundle(array $payload): array {
         return $this->sendRemote(
-            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            RecoveryProtocolCodec::sign($payload, $this->keyId, $this->secretKey),
             'upload-bundle-request'
         );
     }
@@ -1335,7 +1336,7 @@ final class RollbackAuthority {
     /** @return array<string,mixed> */
     private function sendEffectBundle(array $payload): array {
         return $this->sendRemote(
-            RollbackControl::sign($payload, $this->keyId, $this->secretKey),
+            RecoveryProtocolCodec::sign($payload, $this->keyId, $this->secretKey),
             'effect-bundle-request'
         );
     }
@@ -1350,7 +1351,7 @@ final class RollbackAuthority {
         $remote = '/tmp/duo-rollback-request-' . $token . '.json';
         try {
             @chmod($local, 0600);
-            $bytes = CanonicalJson::encode($request) . "\n";
+            $bytes = RecoveryProtocolCodec::canonical($request) . "\n";
             if (file_put_contents($local, $bytes, LOCK_EX) !== strlen($bytes)) {
                 throw new \RuntimeException('duo rollback: could not write request handoff');
             }
@@ -1372,7 +1373,7 @@ final class RollbackAuthority {
             }
             $decoded = json_decode($result['stdout'], true, 512, JSON_THROW_ON_ERROR);
             if (!is_array($decoded)
-                || CanonicalJson::encode($decoded) . "\n" !== $result['stdout']
+                || RecoveryProtocolCodec::canonical($decoded) . "\n" !== $result['stdout']
                 || ($decoded['ok'] ?? null) !== true) {
                 throw new \RuntimeException('duo rollback: target returned invalid request evidence');
             }
@@ -1464,11 +1465,11 @@ final class RollbackAuthority {
         if (preg_match('/^[a-f0-9]{32}$/', $targetId) !== 1 || $generation < 1) {
             throw new \RuntimeException('duo rollback: scoped claim target generation is malformed');
         }
-        return hash('sha256', RollbackControl::canonical([
+        return hash('sha256', RecoveryProtocolCodec::canonical([
             'allow_deletes' => (bool) $fields['allow_deletes'],
             'artifact_hash' => (string) $fields['artifact_hash'],
             'claimant' => $claimant,
-            'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'format' => RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT,
             'generation' => $generation,
             'owner' => (string) $fields['owner'],
             'scope_hash' => (string) $fields['scope_hash'],
@@ -1502,7 +1503,7 @@ final class RollbackAuthority {
             'created_at' => (string) $status['created_at'],
             'encryption_key_id' => (string) $status['encryption_key_id'],
             'exclusion_token_sha256' => (string) $status['exclusion_token_sha256'],
-            'format' => RollbackControl::SCOPED_PROMOTION_RECEIPT_FORMAT,
+            'format' => RecoveryProtocolCodec::SCOPED_PROMOTION_RECEIPT_FORMAT,
             'generation' => (int) $status['generation'],
             'ledger_session_sha256' => (string) $status['ledger_session_sha256'],
             'owner' => (string) $status['owner'],
@@ -1516,7 +1517,7 @@ final class RollbackAuthority {
             'target_id' => (string) $status['target_id'],
         ];
         $reported = $status['receipt_payload_sha256'] ?? null;
-        $actual = hash('sha256', RollbackControl::canonical($receipt));
+        $actual = hash('sha256', RecoveryProtocolCodec::canonical($receipt));
         if (!is_string($reported) || !hash_equals($actual, $reported)) {
             throw new \RuntimeException('duo rollback: scoped authority status receipt hash does not verify');
         }
@@ -1610,11 +1611,11 @@ final class RollbackAuthority {
         }
     }
 
-    private static function controlRoot(SshTransport $transport): string {
+    private static function controlRoot(RecoveryTransport $transport): string {
         return rtrim($transport->repoPath(), '/') . '/.duo/control';
     }
 
-    private static function runtimePath(SshTransport $transport): string {
+    private static function runtimePath(RecoveryTransport $transport): string {
         return self::controlRoot($transport) . '/recovery-runtime/rollback-control.php';
     }
 

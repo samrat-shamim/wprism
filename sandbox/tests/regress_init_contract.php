@@ -465,15 +465,19 @@ check(
         && (string) $proposalParameters[0]->getType() === 'string'
         && (string) $proposalMethod->getReturnType() === 'array'
         && $confirmMethod->isPublic() && $confirmMethod->isStatic()
-        && count($confirmParameters) === 2
+        && count($confirmParameters) === 3
         && $confirmParameters[0]->getName() === 'repo'
         && (string) $confirmParameters[0]->getType() === 'string'
         && $confirmParameters[1]->getName() === 'expectedDigest'
         && (string) $confirmParameters[1]->getType() === 'string'
+        && $confirmParameters[2]->getName() === 'mutation'
+        && (string) $confirmParameters[2]->getType() === '?Duo\\CaptureMutationPort'
+        && $confirmParameters[2]->isOptional()
+        && $confirmParameters[2]->getDefaultValue() === null
         && (string) $confirmMethod->getReturnType() === 'array'
         && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo);')
-        && str_contains($initFacadeSource, 'return InitConfirmation::run($repo, $expectedDigest);'),
-    'target Init facade preserves its exact public API and delegates both operations to their owning collaborators'
+        && str_contains($initFacadeSource, 'return InitConfirmation::run($repo, $expectedDigest, $mutation);'),
+    'target Init facade preserves its two-argument compatibility API and delegates through the optional Capture mutation port'
 );
 
 require_once __DIR__ . '/../../agent/src/InitAttemptJournal.php';

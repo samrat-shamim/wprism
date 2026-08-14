@@ -154,10 +154,9 @@ final class AdapterRegistry {
             return [];
         }
 
-        // These classes are intentionally late-bound: Policy retains its
-        // pure/offline loading entry point, while a real target path gains the
-        // one runtime contract Deploy and Providers already share.
-        require_once __DIR__ . '/Deploy.php';
+        // Provider code is late-bound so Policy retains its pure/offline load
+        // path. Runtime facts enter through the capability-owned inspection
+        // port; this facade never imports Deploy's mutation implementation.
         require_once __DIR__ . '/Providers.php';
         $packagingProblems = Providers::packaging_problems($this->policy, $providerActions);
         if (!Providers::runtime_negotiation_available()

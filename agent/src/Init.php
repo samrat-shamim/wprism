@@ -17,7 +17,11 @@ final class Init {
     }
 
     /** @return array<string,mixed> */
-    public static function confirm(string $repo, string $expectedDigest): array {
-        return InitConfirmation::run($repo, $expectedDigest);
+    public static function confirm(
+        string $repo,
+        string $expectedDigest,
+        ?CaptureMutationPort $mutation = null
+    ): array {
+        return InitConfirmation::run($repo, $expectedDigest, $mutation);
     }
 }

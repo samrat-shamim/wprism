@@ -54,9 +54,10 @@ $root = dirname(__DIR__, 2);
 require $root . '/agent/src/Canon.php';
 require $root . '/agent/src/OptionState.php';
 require $root . '/agent/src/Db.php';
-// Policy.php require_once's NativeActions.php itself (its validators call the
-// closed vocabulary at load time), so this file must not require it a second
-// time.
+// Policy now consumes the inert NativeActionCatalog. Load the compatibility
+// facade explicitly because this regression also exercises the WordPress
+// executor surface below.
+require_once $root . '/agent/src/NativeActions.php';
 require $root . '/agent/src/Policy.php';
 require $root . '/agent/src/Providers.php';
 require $root . '/agent/src/Ledger.php';

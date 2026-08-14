@@ -11,7 +11,6 @@ require_once __DIR__ . '/DockerTransport.php';
 require_once __DIR__ . '/SshTransport.php';
 require_once __DIR__ . '/BootstrapEligibility.php';
 require_once __DIR__ . '/CodeDeploy.php';
-require_once dirname(__DIR__, 2) . '/recovery/rollback-control.php';
 require_once __DIR__ . '/RollbackAuthority.php';
 require_once __DIR__ . '/Adopt.php';
 require_once __DIR__ . '/Doctor.php';

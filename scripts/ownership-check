@@ -1,0 +1,262 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+$ledgerPath = $root . '/docs/proposals/refactor-ownership.json';
+$refresh = in_array('--refresh', array_slice($argv, 1), true);
+
+function ownership_fail(string $message): never {
+    fwrite(STDERR, "ownership-check: $message\n");
+    exit(1);
+}
+
+/** @return list<string> */
+function tracked_files(string $root): array {
+    $process = proc_open(
+        ['git', 'ls-files', '-z'],
+        [0 => ['pipe','r'], 1 => ['pipe','w'], 2 => ['pipe','w']],
+        $pipes,
+        $root,
+        null,
+        ['bypass_shell' => true]
+    );
+    if (!is_resource($process)) ownership_fail('cannot enumerate tracked files');
+    fclose($pipes[0]);
+    $stdout = (string) stream_get_contents($pipes[1]);
+    $stderr = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]); fclose($pipes[2]);
+    if (proc_close($process) !== 0) ownership_fail('git ls-files failed: ' . trim($stderr));
+    $files = array_values(array_filter(explode("\0", $stdout), static fn(string $v): bool => $v !== ''));
+    sort($files, SORT_STRING);
+    return $files;
+}
+
+/** @return list<string> */
+function t4_agent_files(): array {
+    return array_map(static fn(string $v): string => "agent/src/$v", [
+        'ActionProviderGrammar.php','AdapterCertification.php','AdapterContractGrammar.php',
+        'AdapterObservationProjector.php','AdapterRegistry.php','AdapterSources.php',
+        'ArtifactPolicyIdentity.php','AttributeGrammar.php','CapabilityRegistry.php',
+        'CodeConfigGrammar.php','ContentAttributeRuleResolver.php','CrossManifestGuards.php',
+        'DeletionCapabilityResolver.php','DiscoveryGrammar.php','DynamicOptionResolver.php',
+        'ExactOptionResolver.php','FieldGrammar.php','ManifestDispositions.php','ManifestGrammar.php',
+        'ManifestValidator.php','NativeActionCatalog.php','OptionGrammar.php',
+        'OptionNameReferenceResolver.php','OptionNamespaceResolver.php','OptionReferenceGrammar.php',
+        'PinResolver.php','Policy.php','PolicyLoadFinalizer.php','PolicyRuleResolver.php','PolicyWriter.php',
+        'PostTypeGrammar.php','PostTypeRelationResolver.php','ProviderSdk.php','Providers.php',
+        'ReferenceKeyspaceGrammar.php','ReferenceKindGrammar.php','ReferenceRules.php',
+        'ReferenceScopeClassifier.php','ReferenceShapeGrammar.php','ScopeGrammar.php',
+        'ScopedCertificationBundle.php','SitePolicyValidator.php','SubKeyGrammar.php',
+        'TableDeclarationResolver.php','TableGraph.php','TableSchema.php','TargetRuntimeInspector.php',
+        'TaxonomyDescriptionReferenceResolver.php','TaxonomyGrammar.php','TaxonomyKeyspaceResolver.php',
+        'TaxonomyObjectTypeOptionResolver.php','TaxonomyPatternResolver.php','UserMetaGrammar.php',
+        'VersionRange.php','WidgetTypeResolver.php','WordPressTargetRuntimeInspector.php',
+    ]);
+}
+
+/** @return list<string> */
+function t5_agent_files(): array {
+    return array_map(static fn(string $v): string => "agent/src/$v", [
+        'Apply.php','ApplyFieldMaterializer.php','ApplyLedgerFinalizer.php','ApplyPlanBuilder.php',
+        'ApplyPlanEnvironment.php','ApplyPlanner.php','ApplyPreparationCoordinator.php',
+        'ApplyPreparationRequest.php','ApplyRebuildCoordinator.php','ApplyRequestCoordinator.php',
+        'ApplyServiceCallbacks.php','ApplyServices.php','ApplyWorkset.php','AttachmentMaterializer.php',
+        'AuthoredTransactionExecutor.php','AuthoredTransactionRequest.php','Canary.php','Code.php',
+        'CodeMaterializer.php','CodeOwnershipPruner.php','CodeStageTransaction.php',
+        'ConvergenceVerifier.php','DeleteExecutor.php','DeleteGuardEvaluator.php',
+        'DeleteGuardLockCoordinator.php','DeleteGuardReferenceScanner.php','DeleteGuardValueCodec.php',
+        'DeletionAuthority.php','DependencyRegenerator.php','Deploy.php','DeployPlanner.php',
+        'EntityAdopter.php','LifecycleExecutor.php','LifecycleJournal.php','LifecyclePlanner.php',
+        'MenuMaterializer.php','NativeActions.php','NativeRebuildExecutor.php','OptionsMaterializer.php',
+        'Orphans.php','PlanCategorySummary.php','PlanExplanation.php','PlanView.php','PostMaterializer.php',
+        'PreparedApply.php','ProcessFence.php','PromotionLease.php','PromotionLock.php',
+        'PromotionSessionJournal.php','ProviderActionBatchBuilder.php','RebuildActionDispatcher.php',
+        'RebuildActionNegotiator.php','RebuildRequest.php','RebuildSelection.php',
+        'RegenerationContext.php','RegenerationContextStore.php','RelationshipMaterializer.php',
+        'ScopedApply.php','ScopedApplyCoordinator.php','ScopedApplySession.php',
+        'ScopedApplyWorkProjector.php','ScopedApplyWorkflow.php','ScopedPromotionAuthority.php',
+        'ShortcodeAlternateRegistrar.php','StateHandoffVerifier.php','StateTransitionJournal.php',
+        'TaxonomyApplyContext.php','TermMaterializer.php','TypedTableMaterializer.php',
+        'UserMetaMaterializer.php','CaptureMutationBridge.php',
+    ]);
+}
+
+function semantic_test_owner(string $path): string {
+    $name = strtolower(basename($path));
+    $t4 = ['adapter','manifest','provider','capabilit','certif','evidence','policy','grammar','disposition','vocabulary','registry'];
+    $t5 = ['apply','delete','deploy','promotion','rollback','recovery','lifecycle','materializ','rebuild','regenerat','canary','checkpoint','effect','code_','code-','scoped_apply'];
+    $t2 = ['cli','environment','transport','doctor','adopt','refresh','rebase','status','triage','classif','pending_command','scope_command'];
+    $t3 = ['capture','snapshot','repository','canon','identity','reference','scope','init','pending','lint','publish','option','post','term','media','menu','widget','user_meta'];
+    foreach ($t4 as $needle) if (str_contains($name, $needle)) return 'thread-4';
+    foreach ($t5 as $needle) if (str_contains($name, $needle)) return 'thread-5';
+    foreach ($t2 as $needle) if (str_contains($name, $needle)) return 'thread-2';
+    foreach ($t3 as $needle) if (str_contains($name, $needle)) return 'thread-3';
+    return 'thread-1';
+}
+
+function owner_for(string $path): string {
+    static $t4Agent = null, $t5Agent = null;
+    $t4Agent ??= array_fill_keys(t4_agent_files(), true);
+    $t5Agent ??= array_fill_keys(t5_agent_files(), true);
+
+    if (str_starts_with($path, 'docs/contracts/commands/host/')) return 'thread-2';
+    if (str_starts_with($path, 'docs/contracts/commands/agent/')) return 'thread-3';
+    if (str_starts_with($path, 'docs/contracts/commands/generated/')) return 'thread-1';
+    if (in_array($path, ['scripts/foundation-check','scripts/ownership-check','scripts/contracts-check'], true)
+        || str_starts_with($path, 'docs/contracts/')
+        || $path === 'docs/proposals/refactor-ownership.json'
+        || $path === 'docs/proposals/refactor-acceptance.json'
+        || $path === 'docs/proposals/foundation-execution-record.md'
+        || $path === 'docs/proposals/foundation-decisions.md') return 'thread-0';
+
+    if ($path === 'README.md' || $path === 'docs/capabilities.md'
+        || $path === 'docs/compatibility-baseline.json' || str_starts_with($path, 'manifests/')) return 'thread-4';
+    if ($path === 'cli/README.md' || $path === 'docs/adoption.md') return 'thread-2';
+    if (in_array($path, [
+        'docs/checkpoint-bundle.md','docs/code-release-runtime.md','docs/effect-bundle.md',
+        'docs/ssh-rollback-certification.md','docs/upload-bundle.md','docs/recovery-runtime.md',
+        'docs/guides/code-updates.md',
+    ], true)) return 'thread-5';
+    if ($path === 'docs/sandbox.md' || str_starts_with($path, '.github/') || $path === 'Makefile'
+        || preg_match('~^(composer\.(json|lock)|phpunit|phpstan|rector|\.editorconfig|\.php-cs-fixer)~', $path) === 1) return 'thread-1';
+    if (str_starts_with($path, 'docs/proposals/') || str_starts_with($path, 'spec/')
+        || $path === 'DESIGN.md' || $path === 'docs/product-spec.md' || $path === 'docs/roadmap.md') return 'thread-0';
+    if (str_starts_with($path, 'docs/')) return 'thread-0';
+
+    if ($path === 'agent/duo.php' || $path === 'agent/duo-loader.php') return 'thread-1';
+    if (isset($t4Agent[$path])) return 'thread-4';
+    if (isset($t5Agent[$path])) return 'thread-5';
+    if (str_starts_with($path, 'agent/src/')) return 'thread-3';
+
+    if (str_starts_with($path, 'recovery/')) return 'thread-5';
+    if ($path === 'cli/duo') return 'thread-2';
+    if (str_starts_with($path, 'cli/src/ArtifactTrust/')
+        || in_array($path, ['cli/src/AdapterCatalog.php','cli/src/AdapterDraft.php','cli/src/AdapterObservation.php','cli/src/ManifestValidate.php'], true)) return 'thread-4';
+    if (str_starts_with($path, 'cli/src/RecoveryProtocol/')) return 'thread-5';
+    if (in_array($path, [
+        'cli/src/CodeDeploy.php','cli/src/DeployCommand.php','cli/src/PlanContract.php','cli/src/PlanSummary.php',
+        'cli/src/PlanView.php','cli/src/PromoteCommand.php','cli/src/RollbackAuthority.php',
+        'cli/src/ScopedRollbackProfile.php','cli/src/VerifiedRollbackProfile.php',
+    ], true)) return 'thread-5';
+    if (str_starts_with($path, 'cli/')) return 'thread-2';
+
+    if (in_array($path, ['scripts/capability-registry.php','scripts/adapter-certification.php','scripts/evidence-impact','scripts/evidence-staleness-check'], true)) return 'thread-4';
+    if (str_starts_with($path, 'scripts/')) return 'thread-1';
+
+    if (str_starts_with($path, 'sandbox/fixtures/foundation/contracts/')) return 'thread-0';
+    if (str_starts_with($path, 'sandbox/tests/') || str_starts_with($path, 'sandbox/fixtures/')) return semantic_test_owner($path);
+    if (str_starts_with($path, 'sandbox/conformance/')) return 'thread-4';
+    if (in_array($path, [
+        'sandbox/bin/fetch-artifact.sh','sandbox/bin/artifact-cache-fetch.sh',
+        'sandbox/bin/artifact-archive-root.sh','sandbox/bin/subject-certification-bundle.php',
+    ], true)) return 'thread-4';
+    if ($path === 'sandbox/bin/ssh-rollback-certification.php') return 'thread-5';
+    if (str_starts_with($path, 'sandbox/')) return 'thread-1';
+    return 'thread-1';
+}
+
+if ($refresh) {
+    $files = [];
+    foreach (tracked_files($root) as $path) {
+        $files[] = ['path' => $path, 'owner' => owner_for($path)];
+    }
+    $ledger = [
+        'format' => 'duo-refactor-ownership/v1',
+        'owners' => [
+            'thread-0' => 'foundation policy and integration authority',
+            'thread-1' => 'engineering platform, build, loader, runner and CI',
+            'thread-2' => 'host CLI, environment, transport and refresh application',
+            'thread-3' => 'WordPress agent, Capture and repository/read-model',
+            'thread-4' => 'capability, policy, adapter, provider and evidence',
+            'thread-5' => 'mutation, promotion, lifecycle and recovery',
+        ],
+        'files' => $files,
+        'new_prefixes' => [
+            ['prefix'=>'agent/src/Agent/','owner'=>'thread-3'],['prefix'=>'agent/src/Capture/','owner'=>'thread-3'],
+            ['prefix'=>'agent/src/Repository/','owner'=>'thread-3'],['prefix'=>'agent/src/WordPress/','owner'=>'thread-3'],
+            ['prefix'=>'agent/src/Capability/','owner'=>'thread-4'],['prefix'=>'agent/src/Policy/','owner'=>'thread-4'],
+            ['prefix'=>'agent/src/Adapter/','owner'=>'thread-4'],['prefix'=>'agent/src/Provider/','owner'=>'thread-4'],
+            ['prefix'=>'agent/src/Evidence/','owner'=>'thread-4'],['prefix'=>'agent/src/Mutation/','owner'=>'thread-5'],
+            ['prefix'=>'agent/src/Promotion/','owner'=>'thread-5'],['prefix'=>'agent/src/Lifecycle/','owner'=>'thread-5'],
+            ['prefix'=>'cli/src/Application/','owner'=>'thread-2'],['prefix'=>'cli/src/Environment/','owner'=>'thread-2'],
+            ['prefix'=>'cli/src/Transport/','owner'=>'thread-2'],['prefix'=>'cli/src/Refresh/','owner'=>'thread-2'],
+            ['prefix'=>'cli/src/HostContracts/','owner'=>'thread-2'],
+            ['prefix'=>'cli/src/Adapter/','owner'=>'thread-4'],['prefix'=>'cli/src/ArtifactTrust/','owner'=>'thread-4'],
+            ['prefix'=>'cli/src/Mutation/','owner'=>'thread-5'],['prefix'=>'cli/src/Promotion/','owner'=>'thread-5'],
+            ['prefix'=>'cli/src/Recovery/','owner'=>'thread-5'],['prefix'=>'cli/src/RecoveryProtocol/','owner'=>'thread-5'],
+            ['prefix'=>'recovery/','owner'=>'thread-5'],
+            ['prefix'=>'docs/contracts/commands/host/','owner'=>'thread-2'],
+            ['prefix'=>'docs/contracts/commands/agent/','owner'=>'thread-3'],
+            ['prefix'=>'docs/contracts/commands/generated/','owner'=>'thread-1'],
+            ['prefix'=>'sandbox/catalog/fragments/engineering-platform/','owner'=>'thread-1'],
+            ['prefix'=>'sandbox/catalog/fragments/host-cli/','owner'=>'thread-2'],
+            ['prefix'=>'sandbox/catalog/fragments/wordpress-agent/','owner'=>'thread-3'],
+            ['prefix'=>'sandbox/catalog/fragments/capability-policy-evidence/','owner'=>'thread-4'],
+            ['prefix'=>'sandbox/catalog/fragments/mutation-recovery/','owner'=>'thread-5'],
+        ],
+        'boundary_rules' => [
+            ['from'=>'cli/**','to'=>'agent/**','rule'=>'wire-contract-only; existing source bridge is exception-listed'],
+            ['from'=>'cli/**','to'=>'recovery/**','rule'=>'RecoveryProtocolCodec bytes only; no implementation import'],
+            ['from'=>'agent/src/Capture*.php','to'=>'agent mutation implementation','rule'=>'forbidden; CaptureMutationPort only'],
+            ['from'=>'thread-5 agent mutation','to'=>'thread-3 repository and thread-4 capability facades','rule'=>'allowed facade dependency'],
+            ['from'=>'recovery/**','to'=>'agent/** or cli/**','rule'=>'forbidden'],
+            ['from'=>'production','to'=>'sandbox/** or development tooling','rule'=>'forbidden'],
+        ],
+        'exceptions' => [
+            [
+                'source'=>'cli/duo','target'=>'agent/src/{Canon,Secrets,ReferenceGraph,ScopeClosure,CanonicalSurfaces,Deletion,ScopeContract}.php',
+                'owner'=>'thread-2','rationale'=>'existing host scope-contract compatibility bridge',
+                'removal_condition'=>'Thread 2 replaces it with the ratified versioned host-safe repository contract package',
+            ],
+            [
+                'source'=>'cli/src/RefreshPlan.php','target'=>'agent/src compatibility load graph',
+                'owner'=>'thread-2','rationale'=>'existing refresh/rebase compatibility bridge',
+                'removal_condition'=>'Thread 2 routes all target semantics through the agent gateway/built contract artifact',
+            ],
+        ],
+        'hot_files' => [
+            ['path'=>'agent/duo.php','owner'=>'thread-1'],['path'=>'cli/duo','owner'=>'thread-2'],
+            ['path'=>'agent/src/Cli.php','owner'=>'thread-3'],['path'=>'scripts/capability-registry.php','owner'=>'thread-4'],
+            ['path'=>'recovery/rollback-control.php','owner'=>'thread-5'],
+        ],
+        'generated_outputs' => [
+            ['path'=>'manifests/capabilities/registry.json','owner'=>'thread-4','generator'=>'scripts/capability-registry.php'],
+            ['path'=>'docs/capabilities.md','owner'=>'thread-4','generator'=>'scripts/capability-registry.php'],
+            ['path'=>'README.md','owner'=>'thread-4','generator'=>'scripts/capability-registry.php capability marker only'],
+        ],
+    ];
+    $json = json_encode($ledger, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_THROW_ON_ERROR) . "\n";
+    if (file_put_contents($ledgerPath, $json) === false) ownership_fail('cannot write ledger');
+}
+
+$raw = @file_get_contents($ledgerPath);
+if (!is_string($raw)) ownership_fail('ledger is absent; run scripts/ownership-check --refresh');
+try { $ledger = json_decode($raw, true, 512, JSON_THROW_ON_ERROR); }
+catch (Throwable $e) { ownership_fail('ledger is invalid JSON'); }
+if (!is_array($ledger) || ($ledger['format'] ?? null) !== 'duo-refactor-ownership/v1') ownership_fail('ledger format is invalid');
+$owners = array_keys((array) ($ledger['owners'] ?? []));
+$assigned = [];
+foreach ((array) ($ledger['files'] ?? []) as $row) {
+    $path = $row['path'] ?? null; $owner = $row['owner'] ?? null;
+    if (!is_string($path) || $path === '' || !is_string($owner) || !in_array($owner, $owners, true)) ownership_fail('malformed file assignment');
+    if (isset($assigned[$path])) ownership_fail("multiply owned path: $path");
+    $assigned[$path] = $owner;
+}
+$tracked = tracked_files($root);
+$missing = array_values(array_diff($tracked, array_keys($assigned)));
+$stale = array_values(array_diff(array_keys($assigned), $tracked));
+if ($missing !== []) ownership_fail('unowned tracked path(s): ' . implode(', ', array_slice($missing, 0, 8)));
+if ($stale !== []) ownership_fail('ledger names untracked path(s): ' . implode(', ', array_slice($stale, 0, 8)));
+$prefixes = [];
+foreach ((array) ($ledger['new_prefixes'] ?? []) as $row) {
+    $prefix = $row['prefix'] ?? null; $owner = $row['owner'] ?? null;
+    if (!is_string($prefix) || !str_ends_with($prefix, '/') || isset($prefixes[$prefix])
+        || !is_string($owner) || !in_array($owner, $owners, true)) ownership_fail('invalid or duplicate new-prefix assignment');
+    $prefixes[$prefix] = $owner;
+}
+foreach (['boundary_rules','exceptions','hot_files','generated_outputs'] as $section) {
+    if (!is_array($ledger[$section] ?? null) || $ledger[$section] === []) ownership_fail("$section is missing or empty");
+}
+echo 'ownership-check: ' . count($tracked) . ' tracked paths have exactly one owner; '
+    . count($prefixes) . ' new-module prefixes are exclusive' . PHP_EOL;

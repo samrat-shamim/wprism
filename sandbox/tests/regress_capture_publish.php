@@ -33,20 +33,23 @@
  * and the script exits 1.
  */
 
-// DUO-3442: Capture owns a direct Canary dependency. Keep this probe in a
-// fresh PHP process so the parent harness cannot accidentally preload Canary
-// through duo.php or another fixture. The call deliberately stops at the
-// next legitimate dependency wall in this WordPress-free harness; the
-// regression is that Canary must not be the first failure.
+// Thread 0: Capture owns its WordPress execution adapter and must not pull in
+// the mutation-owned Canary implementation. Keep this probe in a fresh PHP
+// process so the parent harness cannot accidentally preload either class.
+// The call deliberately stops at the next legitimate WordPress dependency
+// wall; the regression is a missing adapter or a Capture -> Canary edge.
 $captureStandalone = __DIR__ . '/../../agent/src/Capture.php';
 $probeCode = 'require_once ' . var_export($captureStandalone, true) . ';'
-    . 'if (!class_exists("Duo\\\\Canary", false)) {'
-    . ' fwrite(STDERR, "Capture.php did not load Duo\\\\Canary\\n"); exit(2);'
+    . 'if (!class_exists("Duo\\\\CaptureWordPressExecution", false)) {'
+    . ' fwrite(STDERR, "Capture.php did not load Duo\\\\CaptureWordPressExecution\\n"); exit(2);'
     . '}'
-    . 'try { Duo\\Capture::snapshot("/tmp/duo-capture-canary-probe"); }'
+    . 'if (class_exists("Duo\\\\Canary", false)) {'
+    . ' fwrite(STDERR, "Capture.php imported mutation-owned Duo\\\\Canary\\n"); exit(3);'
+    . '}'
+    . 'try { Duo\\Capture::snapshot("/tmp/duo-capture-execution-probe"); }'
     . ' catch (Throwable $e) {'
-    . ' if (strpos($e->getMessage(), "Canary") !== false) {'
-    . '  fwrite(STDERR, "Capture reached a Canary class failure: " . $e->getMessage() . "\\n"); exit(3);'
+    . ' if (strpos($e->getMessage(), "CaptureWordPressExecution") !== false) {'
+    . '  fwrite(STDERR, "Capture reached an execution-adapter class failure: " . $e->getMessage() . "\\n"); exit(4);'
     . ' }'
     . ' exit(0);'
     . '}'
@@ -68,7 +71,7 @@ if ($probeExit !== 0) {
     fwrite(STDERR, "FAIL: Capture standalone-load probe exited $probeExit: " . trim($probeStderr . $probeStdout) . "\n");
     exit(1);
 }
-fwrite(STDOUT, "ok: Capture standalone load reaches its next dependency wall without a Canary class failure\n");
+fwrite(STDOUT, "ok: Capture standalone load owns its WordPress adapter without importing Canary\n");
 
 require_once __DIR__ . '/../../agent/src/Canon.php';
 require_once __DIR__ . '/../../agent/src/OptionState.php';

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/release-selection.schema.json",
+  "title": "Independently pinned release selection",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "bundle_path", "expected_release_family_sha256",
+    "trusted_authority_ids", "trusted_key_ids", "pin_record_sha256"
+  ],
+  "properties": {
+    "format": {"const": "duo-release-selection/v1"},
+    "bundle_path": {"type": "string", "pattern": "^/"},
+    "expected_release_family_sha256": {"$ref": "#/$defs/digest"},
+    "trusted_authority_ids": {"$ref": "#/$defs/ids"},
+    "trusted_key_ids": {"$ref": "#/$defs/ids"},
+    "pin_record_sha256": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

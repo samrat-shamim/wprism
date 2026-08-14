@@ -1,0 +1,271 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+$fixtureRoot = $root . '/sandbox/fixtures/foundation/contracts';
+$refresh = in_array('--refresh-fixtures', array_slice($argv, 1), true);
+
+require_once $root . '/agent/src/Canon.php';
+require_once $root . '/agent/src/AtomicFilePublisher.php';
+require_once $root . '/agent/src/CommandRefusal.php';
+require_once $root . '/agent/src/NativeActionCatalog.php';
+require_once $root . '/agent/src/NativeActions.php';
+require_once $root . '/agent/src/VersionRange.php';
+require_once $root . '/cli/src/RecoveryProtocol/RecoveryProtocolCodec.php';
+require_once $root . '/recovery/CanonicalJson.php';
+require_once $root . '/cli/src/HostContracts/ReleaseSelection.php';
+require_once $root . '/cli/src/ArtifactTrust/ArtifactTrustVerifier.php';
+require_once $root . '/cli/src/ArtifactTrust/RedactedEvidenceIdentity.php';
+
+use Duo\AtomicFilePublisher;
+use Duo\Canon;
+use Duo\CommandRefusalException;
+use Duo\NativeActionCatalog;
+use Duo\NativeActions;
+use Duo\VersionRange;
+use Duo\Orchestrator\ArtifactTrustVerifier;
+use Duo\Orchestrator\RecoveryProtocolCodec;
+use Duo\Orchestrator\RedactedEvidenceIdentity;
+use Duo\Orchestrator\ReleaseSelection;
+use Duo\Recovery\CanonicalJson;
+
+function fail_contract(string $message): never {
+    fwrite(STDERR, "contracts-check: $message\n");
+    exit(1);
+}
+
+/** @return array<string,mixed> */
+function json_object(string $path): array {
+    $bytes = @file_get_contents($path);
+    if (!is_string($bytes)) fail_contract("cannot read " . basename($path));
+    try { $value = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR); }
+    catch (Throwable $e) { fail_contract(basename($path) . ' is invalid JSON'); }
+    if (!is_array($value) || array_is_list($value)) fail_contract(basename($path) . ' must be a JSON object');
+    return $value;
+}
+
+function compact_canonical(array $value): string {
+    return ArtifactTrustVerifier::canonical($value) . "\n";
+}
+
+$inputs = json_object($fixtureRoot . '/inputs.json');
+$fixtures = [
+    'repository.json' => Canon::encode((array) $inputs['repository']),
+    'registry.json' => Canon::encode((array) $inputs['registry']),
+    'evidence.json' => Canon::encode((array) $inputs['evidence']),
+    'plan.json' => Canon::encode((array) $inputs['plan']),
+    'receipt.json' => RecoveryProtocolCodec::canonical((array) $inputs['receipt']) . "\n",
+    'recovery-authority.json' => RecoveryProtocolCodec::canonical((array) $inputs['recovery_authority']) . "\n",
+    'command-refusals.json' => Canon::encode((array) $inputs['command_refusals']),
+];
+
+$seed = str_repeat("\x17", SODIUM_CRYPTO_SIGN_SEEDBYTES);
+$pair = sodium_crypto_sign_seed_keypair($seed);
+$secret = sodium_crypto_sign_secretkey($pair);
+$signed = RecoveryProtocolCodec::sign((array) $inputs['recovery_authority'], 'foundation-fixture', $secret);
+$fixtures['recovery-signed.json'] = RecoveryProtocolCodec::canonical($signed) . "\n";
+sodium_memzero($secret);
+
+$index = [];
+foreach ($fixtures as $name => $bytes) {
+    $index[$name] = [
+        'bytes' => strlen($bytes),
+        'sha256' => 'sha256:' . hash('sha256', $bytes),
+    ];
+    $path = $fixtureRoot . '/' . $name;
+    if ($refresh) {
+        if (file_put_contents($path, $bytes) === false) fail_contract("cannot refresh $name");
+    } elseif (@file_get_contents($path) !== $bytes) {
+        fail_contract("$name differs from its fixed synthetic input/profile");
+    }
+}
+$indexBytes = Canon::encode([
+    'format' => 'duo-foundation-contract-fixtures/v1',
+    'fixtures' => $index,
+    'profiles' => [
+        'repository.json' => 'duo-canon-v0-pretty-lf',
+        'registry.json' => 'environment-registry-fixture-pretty-lf',
+        'evidence.json' => 'evidence-fixture-pretty-lf',
+        'plan.json' => 'plan-fixture-pretty-lf',
+        'receipt.json' => 'recovery-compact-sorted-lf',
+        'recovery-authority.json' => 'recovery-compact-sorted-lf',
+        'recovery-signed.json' => 'recovery-ed25519-envelope-compact-sorted-lf',
+        'command-refusals.json' => 'duo-canon-v0-pretty-lf',
+    ],
+]);
+if ($refresh) {
+    file_put_contents($fixtureRoot . '/fixture-index.json', $indexBytes);
+} elseif (@file_get_contents($fixtureRoot . '/fixture-index.json') !== $indexBytes) {
+    fail_contract('fixture-index.json is stale');
+}
+
+// Recovery is an explicit cross-deployable byte contract, not a source import.
+if (CanonicalJson::encode((array) $inputs['recovery_authority'])
+    !== RecoveryProtocolCodec::canonical((array) $inputs['recovery_authority'])) {
+    fail_contract('host recovery codec differs from recovery runtime canonical bytes');
+}
+if (NativeActions::vocabulary() !== NativeActionCatalog::vocabulary()
+    || NativeActions::arg_schemas() !== NativeActionCatalog::argSchemas()) {
+    fail_contract('NativeActions compatibility facade differs from its pure catalog');
+}
+if (!VersionRange::contains('8.3.9', '8.3.0', '8.4.0')
+    || VersionRange::contains('8.4.0', '8.3.0', '8.4.0')) {
+    fail_contract('version-range min-inclusive/max-exclusive contract changed');
+}
+$captureRefusal = CommandRefusalException::portableCaptureUnqualified()->payload();
+$applyRefusal = CommandRefusalException::qualificationHarnessRequired()->payload();
+foreach (['portable_capture_safety_unqualified' => $captureRefusal, 'qualification_harness_required' => $applyRefusal] as $name => $actual) {
+    $expectedRefusal = (array) $inputs['command_refusals'][$name];
+    foreach ($expectedRefusal as $field => $value) {
+        if (($actual[$field] ?? null) !== $value) fail_contract("$name refusal field $field changed");
+    }
+}
+
+// Authoritative file publication keeps old bytes visible through pre-rename failure.
+$tmp = sys_get_temp_dir() . '/duo-contract-atomic-' . bin2hex(random_bytes(8));
+if (!mkdir($tmp, 0700)) fail_contract('cannot create atomic fixture directory');
+$target = $tmp . '/authority.json';
+file_put_contents($target, "old\n");
+putenv('DUO_TEST_MODE=1');
+putenv('DUO_TEST_ATOMIC_FILE_FAIL_PHASE=before-rename');
+try { AtomicFilePublisher::replace($target, "new\n"); fail_contract('atomic fault did not fail'); }
+catch (RuntimeException $e) {
+    if (@file_get_contents($target) !== "old\n") fail_contract('atomic fault changed authoritative old bytes');
+}
+putenv('DUO_TEST_ATOMIC_FILE_FAIL_PHASE');
+AtomicFilePublisher::replace($target, "new\n");
+if (@file_get_contents($target) !== "new\n") fail_contract('atomic replacement did not publish new bytes');
+@unlink($target); @rmdir($tmp);
+
+// A modified archive plus a matching adjacent manifest cannot replace the caller pin.
+$archive = "target-install-v1\n";
+$review = compact_canonical(['authority_id' => 'release-review', 'format' => 'duo-review-bundle/v2', 'key_id' => 'release-key']);
+$projection = "projection-pack-v1\n";
+$family = compact_canonical([
+    'format' => 'duo-release-family/v1',
+    'projection_pack_sha256' => 'sha256:' . hash('sha256', $projection),
+    'review_bundle_sha256' => 'sha256:' . hash('sha256', $review),
+    'target_install_sha256' => 'sha256:' . hash('sha256', $archive),
+]);
+$selection = new ReleaseSelection(
+    '/approved/target-install.tar',
+    'sha256:' . hash('sha256', $family),
+    ['release-review'],
+    ['release-key'],
+    'sha256:' . str_repeat('a', 64)
+);
+ArtifactTrustVerifier::verify($selection, $family, $archive, $review, $projection);
+$modified = "modified-target-install\n";
+$adjacent = compact_canonical([
+    'format' => 'duo-release-family/v1',
+    'projection_pack_sha256' => 'sha256:' . hash('sha256', $projection),
+    'review_bundle_sha256' => 'sha256:' . hash('sha256', $review),
+    'target_install_sha256' => 'sha256:' . hash('sha256', $modified),
+]);
+try {
+    ArtifactTrustVerifier::verify($selection, $adjacent, $modified, $review, $projection);
+    fail_contract('modified archive plus matching adjacent manifest bypassed caller pin');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), 'independently pinned digest')) throw $e;
+}
+
+$redactedIdentity = [
+    'format' => RedactedEvidenceIdentity::FORMAT,
+    'public' => ['platform' => 'php-8.3', 'runner_protocol' => 1],
+    'secret_references' => ['vault:qualification-db'],
+    'keyed_bindings' => [[
+        'domain' => 'duo.environment.provider.v1',
+        'key_id' => 'identity-key-1',
+        'digest' => 'hmac-sha256:' . str_repeat('b', 64),
+    ]],
+];
+RedactedEvidenceIdentity::assertValid($redactedIdentity);
+foreach ([
+    ['public' => ['credential' => 'not-portable']],
+    ['public' => ['workspace' => '/Users/operator/project']],
+    ['public' => ['platform' => 'AKIA1234567890123456']],
+    ['keyed_bindings' => [['domain'=>'duo.environment.provider.v1','key_id'=>'k','digest'=>'sha256:' . str_repeat('c',64)]]],
+] as $attack) {
+    $candidate = array_replace($redactedIdentity, $attack);
+    try { RedactedEvidenceIdentity::assertValid($candidate); fail_contract('redacted identity accepted secret/path/unkeyed adversarial input'); }
+    catch (RuntimeException $e) {
+        if (!str_starts_with($e->getMessage(), 'duo evidence:')) throw $e;
+    }
+}
+
+// Validate the checked-in inventory and command entry contract essentials.
+$inventory = json_object($root . '/docs/contracts/public-contracts.json');
+if (($inventory['format'] ?? null) !== 'duo-public-contract-inventory/v1'
+    || !is_array($inventory['surfaces'] ?? null) || $inventory['surfaces'] === []) {
+    fail_contract('public-contract inventory is malformed or empty');
+}
+$surfaceIds = [];
+foreach ($inventory['surfaces'] as $surface) {
+    foreach (['id','producer','consumer','shape','canonicalization','tests','evidence_inputs','compatibility_owner'] as $field) {
+        if (!array_key_exists($field, (array) $surface)) fail_contract("inventory surface misses $field");
+    }
+    $id = (string) $surface['id'];
+    if ($id === '' || isset($surfaceIds[$id])) fail_contract('inventory surface ids are empty or duplicated');
+    $surfaceIds[$id] = true;
+}
+$fixtureHashes = array_column($index, 'sha256');
+foreach (glob($root . '/docs/contracts/commands/{host,agent}/*.json', GLOB_BRACE) ?: [] as $path) {
+    $set = json_object($path);
+    if (($set['format'] ?? null) !== 'duo-command-contract-set/v1' || !is_array($set['entries'] ?? null)) {
+        fail_contract(basename($path) . ' is not a command-contract set');
+    }
+    foreach ($set['entries'] as $entry) {
+        foreach (['format','id','component','command','arguments','flags','requirements','terminal','output','exit_codes','mutation_boundary','fixtures'] as $field) {
+            if (!array_key_exists($field, (array) $entry)) fail_contract("command entry misses $field");
+        }
+        foreach ((array) $entry['fixtures'] as $digest) {
+            if (!in_array($digest, $fixtureHashes, true)) fail_contract("command entry {$entry['id']} names an unknown fixture digest");
+        }
+    }
+}
+
+// Static architecture assertions cover the specific foundation cycle cuts.
+$captureFiles = glob($root . '/agent/src/Capture*.php') ?: [];
+foreach ($captureFiles as $path) {
+    if (basename($path) === 'CaptureMutationBridge.php') continue;
+    $source = (string) file_get_contents($path);
+    if (preg_match('/(?:require_once[^;]+\/(?:Code|Deploy|Canary|ScopedApply)\.php|(?:Code|Deploy|Canary|ScopedApply)::)/', $source) === 1) {
+        fail_contract(basename($path) . ' imports a mutation implementation');
+    }
+}
+$projector = (string) file_get_contents($root . '/agent/src/AdapterObservationProjector.php');
+foreach (['$wpdb', 'Journal::', 'Pending::', 'Providers::'] as $forbidden) {
+    if (str_contains($projector, $forbidden)) fail_contract("observation projector contains $forbidden");
+}
+$providers = (string) file_get_contents($root . '/agent/src/Providers.php')
+    . (string) file_get_contents($root . '/agent/src/AdapterRegistry.php');
+if (str_contains($providers, 'Deploy::') || preg_match('/require_once[^;]+\/Deploy\.php/', $providers) === 1) {
+    fail_contract('capability/provider facade imports Deploy implementation');
+}
+foreach (array_merge([$root . '/cli/duo'], glob($root . '/cli/src/*.php') ?: []) as $hostFile) {
+    $hostSource = (string) file_get_contents($hostFile);
+    if (preg_match('/(?:require|include)(?:_once)?[^;]+recovery\/rollback-control\.php/', $hostSource) === 1) {
+        fail_contract(str_replace($root . '/', '', $hostFile) . ' imports recovery implementation');
+    }
+}
+$agentCli = (string) file_get_contents($root . '/agent/src/Cli.php');
+foreach ([
+    ['portableCaptureUnqualified()', 'Capture::run('],
+    ['qualificationHarnessRequired()', 'Apply::apply('],
+] as [$gate, $effect]) {
+    $gateAt = strpos($agentCli, $gate); $effectAt = strpos($agentCli, $effect);
+    if ($gateAt === false || $effectAt === false || $gateAt > $effectAt) fail_contract("agent safety gate $gate is absent or follows $effect");
+}
+$promote = (string) file_get_contents($root . '/cli/src/PromoteCommand.php');
+if (($refusalAt = strpos($promote, 'promotion_recovery_decision_unbound')) === false
+    || ($routeAt = strpos($promote, 'foreach ($extra as $arg)')) === false || $refusalAt > $routeAt) {
+    fail_contract('promotion quarantine does not precede scope/ordinary routing');
+}
+$materialize = (string) file_get_contents($root . '/cli/src/EnvironmentCommand.php');
+if (($refusalAt = strpos($materialize, 'environment_materialization_containment_unproved')) === false
+    || ($registryAt = strpos($materialize, 'Registry::load(')) === false || $refusalAt > $registryAt) {
+    fail_contract('materialization quarantine does not precede registry/provider/journal construction');
+}
+
+echo 'contracts-check: public inventory, golden bytes, compatibility facades, trust pins, and boundary seams pass' . PHP_EOL;

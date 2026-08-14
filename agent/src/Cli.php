@@ -687,8 +687,11 @@ final class Cli {
     public function init($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
+            if (isset($assoc['confirm'])) {
+                throw CommandRefusalException::portableCaptureUnqualified();
+            }
             $result = isset($assoc['confirm'])
-                ? Init::confirm((string) $repo, (string) $assoc['confirm'])
+                ? Init::confirm((string) $repo, (string) $assoc['confirm'], new CaptureMutationBridge())
                 : Init::proposal((string) $repo);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'init');
@@ -733,6 +736,7 @@ final class Cli {
      */
     public function capture($args, $assoc) {
         try {
+            throw CommandRefusalException::portableCaptureUnqualified();
             if (isset($assoc['scope-contract']) && isset($assoc['scope-request-b64'])) {
                 throw new \RuntimeException('duo: capture accepts one scope contract source');
             }
@@ -761,7 +765,8 @@ final class Cli {
                 $assoc['out'] ?? null,
                 isset($assoc['force-unresolved-refs']),
                 $scopeRequest,
-                $hostEnvironment
+                $hostEnvironment,
+                new CaptureMutationBridge()
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'capture');
@@ -1527,6 +1532,7 @@ final class Cli {
      */
     public function apply($args, $assoc) {
         try {
+            throw CommandRefusalException::qualificationHarnessRequired();
             $opts = [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',
                 'with_deletes' => isset($assoc['with-deletes']),

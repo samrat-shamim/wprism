@@ -1,0 +1,47 @@
+{
+    "fixtures": {
+        "command-refusals.json": {
+            "bytes": 1276,
+            "sha256": "sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"
+        },
+        "evidence.json": {
+            "bytes": 266,
+            "sha256": "sha256:97358a31f65af032b9c5bf301fd60b17d83c6eca293232a64416a7733aa736a2"
+        },
+        "plan.json": {
+            "bytes": 252,
+            "sha256": "sha256:7ac1f58d693e3aa0778ca868b8532927f8a840ed0619ae4cbad034348c092c4b"
+        },
+        "receipt.json": {
+            "bytes": 171,
+            "sha256": "sha256:cc2fcc9297bb91bb0a8ccfe5a7537ab7a0561fdf06bc8a247dfe0ee7e6bfd23c"
+        },
+        "recovery-authority.json": {
+            "bytes": 160,
+            "sha256": "sha256:fbf6e62e4d44296f7f823214db8e6d7cf216a035f1328ba3c6a89ed749453990"
+        },
+        "recovery-signed.json": {
+            "bytes": 305,
+            "sha256": "sha256:d3f1843a8d3751a40106e8a029333d3e2feb3f6e21fe69c92b4e6bb4f5ffd647"
+        },
+        "registry.json": {
+            "bytes": 233,
+            "sha256": "sha256:93f2bcd5d9b92e39d8b68928cc48801b73ed1c8ca2b1d38dc762c7eac7a8e3b3"
+        },
+        "repository.json": {
+            "bytes": 347,
+            "sha256": "sha256:5200c13871954d8875e13c47111b48ca56b961791253edf3de4d4c2e56482ba7"
+        }
+    },
+    "format": "duo-foundation-contract-fixtures/v1",
+    "profiles": {
+        "command-refusals.json": "duo-canon-v0-pretty-lf",
+        "evidence.json": "evidence-fixture-pretty-lf",
+        "plan.json": "plan-fixture-pretty-lf",
+        "receipt.json": "recovery-compact-sorted-lf",
+        "recovery-authority.json": "recovery-compact-sorted-lf",
+        "recovery-signed.json": "recovery-ed25519-envelope-compact-sorted-lf",
+        "registry.json": "environment-registry-fixture-pretty-lf",
+        "repository.json": "duo-canon-v0-pretty-lf"
+    }
+}

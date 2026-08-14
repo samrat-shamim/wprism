@@ -1,7 +1,7 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/NativeActions.php';
+require_once __DIR__ . '/NativeActionCatalog.php';
 require_once __DIR__ . '/AdapterSources.php';
 // Circular with Policy.php's own require_once of this file: safe because
 // require_once tracks Policy.php's path as included the moment Policy.php's
@@ -217,7 +217,7 @@ final class ActionProviderGrammar {
                 if (!is_string($action['action'] ?? null)) {
                     throw new \RuntimeException("duo: $where.action must be a string");
                 }
-                NativeActions::validate((string) $action['action'], $action['args'], "$where");
+                NativeActionCatalog::validate((string) $action['action'], $action['args'], "$where");
             } else {
                 self::validate_provider_action($action, $providers, $where, $name);
             }

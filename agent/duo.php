@@ -31,6 +31,7 @@ require_once __DIR__ . '/src/ReferenceRules.php';
 require_once __DIR__ . '/src/ManifestGrammar.php';
 require_once __DIR__ . '/src/AdapterRegistry.php';
 require_once __DIR__ . '/src/Policy.php';
+require_once __DIR__ . '/src/WordPressTargetRuntimeInspector.php';
 require_once __DIR__ . '/src/Providers.php';
 require_once __DIR__ . '/src/Ledger.php';
 require_once __DIR__ . '/src/PromotionLease.php';
@@ -100,9 +101,11 @@ require_once __DIR__ . '/src/Apply.php';
 require_once __DIR__ . '/src/Deploy.php';
 require_once __DIR__ . '/src/Journal.php';
 require_once __DIR__ . '/src/Pending.php';
+require_once __DIR__ . '/src/AdapterObservationProjector.php';
 require_once __DIR__ . '/src/AdapterObservation.php';
 require_once __DIR__ . '/src/Coverage.php';
 require_once __DIR__ . '/src/Lint.php';
+require_once __DIR__ . '/src/CaptureMutationBridge.php';
 
 // Provenance journal is opt-in: define('DUO_JOURNAL', true) in wp-config.php
 // (or export DUO_JOURNAL=1 in the environment).

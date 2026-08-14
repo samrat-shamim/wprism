@@ -1,0 +1,685 @@
+{
+    "format": "duo-refactor-acceptance/v1",
+    "generated_from": [
+        "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+        "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+        "docs/proposals/thread-2-host-cli-environment.md#done-means",
+        "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+        "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+        "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means"
+    ],
+    "items": [
+        {
+            "id": "T0-GATE-01",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:b310a8bfaba7f42c12c3dd028678f59aa647f997a1ede0f1206cc4ee27f839e7",
+            "item": "the public-contract inventory and golden fixtures exist;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/contracts-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-02",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:0a361f5ba321cc0e051349debb0f0018018e1ced78e71a34fc8554051d960c20",
+            "item": "a clean baseline and evidence-impact map are recorded;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/foundation-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-03",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:c62e5c8c6aec69958ec7c4b23a86c64ec841ab114baf72b0d3011ec1ca339519",
+            "item": "`docs/proposals/refactor-ownership.json` assigns every tracked production, semantic-test, fixture, generated-output, and new-module prefix exactly once, and `scripts/ownership-check` passes;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/ownership-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-04",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:fc37d0a80969e6e6755e775a55b4d1366ccd7705f729255e97d605f8e39f3454",
+            "item": "the NativeActions, pure code-contract, target-runtime inspection, AdapterObservation, Capture cron/scoped-option, HostContracts, and recovery protocol/release-selection/artifact-trust cycle-breaking seams are fixture-compatible and `contracts-check` sees no Capture-to-mutation implementation edge;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/contracts-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-05",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:e0b1f22ae54da702cdc109ed099e869123bc121d287408d8129d3dd30dfac84e",
+            "item": "the current recovery omission is corrected or its affected claims are withdrawn, and the closure-v2 schema/input set is approved for the later artifact-binding slice;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/foundation-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-06",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:e42444cc085dbcb9e63053da47d8480c7dbe7e5e18efc956fd6921ba0eb9e8ce",
+            "item": "artifact layout, PHP syntax floor, and certified runtime profile are separately documented;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/foundation-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-07",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:37dfd2e00c2d64da54544ff90ed5a48d435fe68d076d98e829a6a1138f619100",
+            "item": "the exact-revision certification/merge-policy ruling is approved;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "review_only",
+                "command": "review recorded in docs/proposals/foundation-decisions.md"
+            },
+            "expected_artifact": "docs/proposals/foundation-decisions.md",
+            "pass_condition": "named owner/reviewer decision is explicitly approved in the immutable decision record"
+        },
+        {
+            "id": "T0-GATE-08",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:9edc2cafb4ebb688e2f677474b198f8eace72bfb663df71bf8ecc3594e2dcf0d",
+            "item": "hot-file and generated-file protocols are accepted;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "review_only",
+                "command": "review recorded in docs/proposals/foundation-decisions.md"
+            },
+            "expected_artifact": "docs/proposals/foundation-decisions.md",
+            "pass_condition": "named owner/reviewer decision is explicitly approved in the immutable decision record"
+        },
+        {
+            "id": "T0-GATE-09",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:cc2f6cd121b440dca5760354802201debc5d038fd57c48f22fdc6206e5f6b9cd",
+            "item": "every charter `Done` item is covered by the validated acceptance matrix;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/foundation-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-10",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:a362bf18bca6dc9c0078c03f1291eb0d04b31b004402d94ba5c1c80d8f28accf",
+            "item": "the integration branch and five worktrees are created from one commit;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/foundation-check --require-unadvanced"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-11",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:8b8e111272e8eb77731fe5c866887ac31360e6639d38799328c27dfb79e3fbf5",
+            "item": "every known safety candidate has executable evidence, a minimal fix, or a loud quarantine, and only the resulting behavior is fixture-frozen;",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "executable",
+                "command": "scripts/foundation-check"
+            },
+            "expected_artifact": "docs/proposals/foundation-execution-record.md",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T0-GATE-12",
+            "source": "docs/proposals/thread-0-foundation.md#foundation-completion-gate",
+            "source_item_sha256": "sha256:742b433edfde524edf20dc0318c5c83d98b0583ce48819a42367c28fa3e4299f",
+            "item": "the owner approves the compatibility freeze and merge train. Threads 2–5 may begin inventory/tests immediately after fork but do not edit production files until Thread 1's platform P0 lands on the integration branch and their worktrees rebase onto it.",
+            "owner": "thread-0",
+            "gate_profile": "foundation",
+            "verification": {
+                "kind": "review_only",
+                "command": "review recorded in docs/proposals/foundation-decisions.md"
+            },
+            "expected_artifact": "docs/proposals/foundation-decisions.md",
+            "pass_condition": "named owner/reviewer decision is explicitly approved in the immutable decision record"
+        },
+        {
+            "id": "T1-DONE-01",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:51bc6526b2ca1b7414a548c54943226a71adba4724e8ca68d0e46138192b325c",
+            "item": "A clean checkout can bootstrap, lint, test, build, and inspect artifacts with documented commands.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-02",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:28127dd59666a633e9977c9aa539ed93744df528249d165836beb49db32e10f2",
+            "item": "Every existing suite is classified and produces retained structured results.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-03",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:da3314f1220811497873e1dcabacc32bfbe2d2065df42136007905ef8b71e174",
+            "item": "CI timeout values derive from retained p95 history, and the PR aggregate accepts only `pass` or selector-proven `not_applicable`; it refuses every absent, skipped, cancelled, failed, or infrastructure-error result.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-04",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:11dbff311e448081c186a4e55979323b58383d0e93c966364a94e199afb60a24",
+            "item": "New pure code is fully statically analyzed without adding baseline debt.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-05",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:8191f8e7ad002ad977af7b81bb032698f79c0857c4b81f2458de096f345eebb3",
+            "item": "Built artifacts are deterministic, self-contained, third-party-runtime-free, and evidence-accounted.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-06",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:d71df8b7cab0c087353efe45c98508b15797b383e05926ecf2f0acc86c45d7bf",
+            "item": "Loader receipts prove the ratified ordinary-request dependency and latency/RSS budgets without registering partial hooks.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-07",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:0e4381b9c1eb74777e21389c90c8ab0980ca1bdc92d734cd1c13c6b65a41ea15",
+            "item": "Contract/golden matrices pass against both roots and every persisted byte domain has an explicit unchanged fixture or approved migration ID.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T1-DONE-08",
+            "source": "docs/proposals/thread-1-engineering-platform-runtime.md#done-means",
+            "source_item_sha256": "sha256:7a1e61faa935c73b1e0750aa8346ec4ec0c6f4cd00dc5a62635fb24b686a9fb6",
+            "item": "Build archives may change only through the approved deterministic artifact migration; this line does not require byte identity with legacy source tarballs.",
+            "owner": "thread-1",
+            "gate_profile": "thread-1-engineering-platform",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-1-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-1/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-01",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:22030a38a91533243c679e7bbb6258c3af24400d1b0d6f647dff07cb936cbd08",
+            "item": "An architecture check permits `cli/duo` to perform only compatibility guard, composition, input handoff, and exit return; it has no workflow imports or direct process/filesystem/network mutation.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-02",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:c9361a552f9e2cecfd0fb88d3345fe60e6901a46266d76c8daf657c7973f85f7",
+            "item": "Every existing command is registered explicitly and retains its contract.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-03",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:75791e2a26a59d2802d847c981a9ef6dba4ac014db17a24a0a18e1c1b82ba89b",
+            "item": "Remote agent interaction passes through one gateway.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-04",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:c1de468f88bd516824e02fe4fe1d50579ed9bfa85a5b8a16854f1d857c0f27e1",
+            "item": "Direct agent-source imports are eliminated or isolated in one shrinking, tested legacy bridge.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-05",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:be686772e43a6e6e02eb5611b6f752a277239c5540ea563e1101bcd801949623",
+            "item": "Environment and refresh workflows consist of named stages with injected side-effect ports and exactly their current retry/resume behavior.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-06",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:c9661084ce83c8571ce0986ad6cb224a9248a5e3d61357ca5f3e7a104011a690",
+            "item": "Human/JSON presenters do not recompute domain decisions.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T2-DONE-07",
+            "source": "docs/proposals/thread-2-host-cli-environment.md#done-means",
+            "source_item_sha256": "sha256:ea02e45b556aaf28f95f87e445b78f36f219b6b292b613037561a09068c5807c",
+            "item": "Built host artifacts run without a source checkout.",
+            "owner": "thread-2",
+            "gate_profile": "thread-2-host-cli",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-2-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-2/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-01",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:cbca34843517ae2b03ada4ed7b15c0683d3cebd2ec2cb9b3c6fd6ff84fea3a24",
+            "item": "An architecture check permits `Cli.php` only WP-CLI registration, composition, top-level refusal conversion, and presenter handoff; it has no application workflow body or direct mutation dependency.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-02",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:118436894f20ad04a9795985914cb94b0a688e2f575db8d7dda7bb62eb1457ed",
+            "item": "Capture is a readable coordinator over explicit, independently tested stages.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-03",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:b9f65d0aaf415705a83263c612db119b5cc883a0ba2627a6907c92a1c13379eb",
+            "item": "WordPress/global access is confined to named adapters for the refactored paths.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-04",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:8716d0173aaa6553be08d244b474773ac4c253e9aadacc8dc009b73cec595274",
+            "item": "Repository projection and filesystem publication are separate concerns.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-05",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:44357b141c5e1ef874b464866421253450292899e2bba87d0a5ee18391fd2bfd",
+            "item": "Canonical and compiled bytes are fixture-identical.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-06",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:ed6a135c0fdd964700fdcdf996473b261034b15acbf93487d4ec664ab0d31228",
+            "item": "Init/observation/pending code clearly declares read and mutation boundaries.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T3-DONE-07",
+            "source": "docs/proposals/thread-3-wordpress-agent-capture.md#done-means",
+            "source_item_sha256": "sha256:f1c6890041f4661ffbf909d758464f3b218ab0afb92a0e3bf13c7ccace35ab8f",
+            "item": "New agent modules load through the generated artifact without manual bootstrap additions.",
+            "owner": "thread-3",
+            "gate_profile": "thread-3-wordpress-agent",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-3-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-3/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-01",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:c162274ec94ed0376cbdc5a12944ca0426270a2ece510d6b08c6a26996f55499",
+            "item": "`Policy`, `AdapterSources`, `Providers`, and `CapabilityRegistry` are stable facades over focused modules rather than multi-domain implementations.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-02",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:727e0b26cae42f30398535d00fa3f8a86673ee1629096e0e1df417be99c4207a",
+            "item": "Consumers use exported facades and dependency checks enforce that rule.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-03",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:32d8dc5cadf6a2c8b042007fbd7953b5e61c02e2b325a9719c6ddd9b1ae834de",
+            "item": "Registry/docs serializers remain deterministic and schema/meaning compatible for fixed post-safety inputs; production evidence is regenerated once for the frozen candidate, so its source-bound digests are expected to change.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-04",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:1a126a0821e1ffa273b339794fb260d621f103d36b72d4ebfa682c9959add5ca",
+            "item": "Evidence dependency impact is inspectable before merge.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-05",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:f23318e5bf20c11869c1be472ef128c20b71cccfb0d59879df4e0aee9fdb8ed2",
+            "item": "Current adapter evidence is not confused with the future per-site application attestation.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-06",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:76acdbfb09fb6893a97efa72f1171cf8d4e3b809dd8e335fba1f74ecaff0a76b",
+            "item": "New internal consumers cannot access the legacy `ready` boolean except through the compatibility serializer.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T4-DONE-07",
+            "source": "docs/proposals/thread-4-capability-policy-evidence.md#done-means",
+            "source_item_sha256": "sha256:bcc15ba53c1a5fe5b370b1bd56cf314b43d7eabae282138cd818bcc91036c915",
+            "item": "No new product capability claim was created by the refactor.",
+            "owner": "thread-4",
+            "gate_profile": "thread-4-capability-evidence",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-4-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-4/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-01",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:7e83de9f53eee6dd4635eadea26fea921640885454c10d3293b2646b865248a3",
+            "item": "Apply, code lifecycle, promotion, and recovery are explicit coordinators over named stages and side-effect ports.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-02",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:1e2c6a6e5fb4cca546a0b000c800ccc9ac54f9c393c23f0faf10d11b5ac62699",
+            "item": "Current plan/mutation-precondition decisions are produced once and only presented elsewhere.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-03",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:5cff95347ce48bfc9fc510e3e62f55982488e9e2cee7b55baf023615cfc55684",
+            "item": "An architecture check permits Recovery's root file only protocol bootstrap, dependency composition, dispatch, and terminal result emission; resource strategy and state-transition bodies live behind the exported controller.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-04",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:c67bc7a2065f365bebadc2cdec8df3b5c407987d6992c95762466bff7ed161a7",
+            "item": "Current state transitions, hashes, receipts, and signatures are fixture- and fault-test compatible.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-05",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:e1a338a87f058099fd901ee09252f71554b1e1eee4b6ae44aa63de04dc666a18",
+            "item": "No authority, signature, writer-exclusion, or durable-side-effect transition has a deferred test obligation.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-06",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:6031ec7658b3aa499a4d889383fcfab2c1e14d1aa6cf4f5d5f17a44cbf423a38",
+            "item": "Agent/host/recovery components interact only through their exported current contracts.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        },
+        {
+            "id": "T5-DONE-07",
+            "source": "docs/proposals/thread-5-mutation-promotion-recovery.md#done-means",
+            "source_item_sha256": "sha256:302aee66b1264203191a04af96396bfc46a0292e7d1b561504c32b4f845c8346",
+            "item": "No product authority, readiness, containment, or recovery claim was upgraded.",
+            "owner": "thread-5",
+            "gate_profile": "thread-5-mutation-recovery",
+            "verification": {
+                "kind": "executable",
+                "command": "make thread-5-gate"
+            },
+            "expected_artifact": "artifacts/test-results/thread-5/result.json",
+            "pass_condition": "command/profile exits zero and the retained artifact records this item as satisfied"
+        }
+    ]
+}

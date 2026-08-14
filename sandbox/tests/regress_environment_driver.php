@@ -25,6 +25,7 @@ use Duo\Orchestrator\LocalTransport;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\SshTransport;
 use Duo\Orchestrator\ScopeCommand;
+use Duo\Orchestrator\TargetInvocation;
 
 function fail(string $message): never {
     fwrite(STDERR, "FAIL: $message\n");
@@ -158,17 +159,17 @@ assert_true(
 pass('unsupported destructive operation refuses before any driver target call');
 
 $boundaries = [
-    [new ReflectionMethod(Doctor::class, 'run'), 0],
-    [new ReflectionMethod(CodeDeploy::class, 'compile'), 0],
-    [new ReflectionMethod(Refresh::class, 'refresh'), 0],
-    [new ReflectionMethod(Refresh::class, 'rebase'), 0],
+    [new ReflectionMethod(Doctor::class, 'run'), 0, EnvironmentDriver::class],
+    [new ReflectionMethod(CodeDeploy::class, 'compile'), 0, TargetInvocation::class],
+    [new ReflectionMethod(Refresh::class, 'refresh'), 0, EnvironmentDriver::class],
+    [new ReflectionMethod(Refresh::class, 'rebase'), 0, EnvironmentDriver::class],
 ];
-foreach ($boundaries as [$method, $index]) {
+foreach ($boundaries as [$method, $index, $expectedType]) {
     $type = $method->getParameters()[$index]->getType();
     assert_true($type instanceof ReflectionNamedType, $method->getName() . ' driver parameter is untyped');
-    assert_true($type->getName() === EnvironmentDriver::class, $method->getName() . ' still depends on a concrete transport');
+    assert_true($type->getName() === $expectedType, $method->getName() . ' does not depend on its narrow host contract');
 }
-pass('core doctor, compile, refresh, and rebase workflows depend on the narrow driver interface');
+pass('core doctor, compile, refresh, and rebase workflows depend on reviewed narrow host interfaces');
 
 /** @return array{exit:int,stdout:string,stderr:string} */
 function invoke_cli(array $args): array {

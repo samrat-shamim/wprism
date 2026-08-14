@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/contracts/harness-approval.schema.json",
+  "title": "Independent qualification harness approval",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format", "approval_id", "target_sha256", "provisioning_sha256",
+    "environment_role", "data_profile", "credential_realm", "egress_policy",
+    "effect_policy", "sandbox_destinations_sha256", "expires_at", "issuer",
+    "key_id", "signature"
+  ],
+  "properties": {
+    "format": {"const": "duo-harness-approval/v1"},
+    "approval_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "target_sha256": {"$ref": "#/$defs/digest"},
+    "provisioning_sha256": {"$ref": "#/$defs/digest"},
+    "environment_role": {"const": "isolated_qualification"},
+    "data_profile": {"enum": ["approved_synthetic", "approved_minimized"]},
+    "credential_realm": {"const": "non_production"},
+    "egress_policy": {"const": "default_deny"},
+    "effect_policy": {"enum": ["sandbox_only", "no_external_effect_possible"]},
+    "sandbox_destinations_sha256": {"$ref": "#/$defs/digest"},
+    "expires_at": {"type": "string", "format": "date-time"},
+    "issuer": {"type": "string", "minLength": 1},
+    "key_id": {"type": "string", "minLength": 1},
+    "signature": {"type": "string", "minLength": 1}
+  },
+  "$defs": {"digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"}}
+}

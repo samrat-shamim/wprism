@@ -1,0 +1,7 @@
+{
+    "authority": "reviewed-platform",
+    "authorizing": false,
+    "candidate": "1111111111111111111111111111111111111111",
+    "format": "duo-evidence-fixture/v2",
+    "payload_sha256": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+}
