@@ -1,0 +1,196 @@
+
+[1;36m== pair-budget preflight ==[0m
+
+[1;36m== live sandbox pairs (duo-* compose projects, excluding duo-db) ==[0m
+  - asub3233
+  - codexdc2799
+  - codexmaca3348s44core2
+  - codexmaca3348s44f2
+  - codexmaca3348s44r1
+  - conf
+  - wooattrdel
+
+[1;36m== stopped pairs (kept, zero footprint — resume with: pair.sh start <name>) ==[0m
+  (none)
+
+[1;36m== shared db ==[0m
+  duo-shared-db: running (healthy)
+
+[1;36m== fresh pair subco ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/{agent,manifests}
+  source HEAD:    d2235be40d710fc94e4133878a38bb32ad576586
+  invoked from:   /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/sandbox
+  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)
+ Container duo-shared-db Running
+
+[1;36m== pair 'subco': reset ==[0m
+[1;32mok: wp_subco1/wp_subco2 dropped + recreated empty; siterepo/subco{1,2} cleared in place and origin-subco.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/subco{1,2}, origin-subco.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up subco <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.subco{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/{agent,manifests}
+  source HEAD:    d2235be40d710fc94e4133878a38bb32ad576586
+  invoked from:   /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/sandbox
+  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'subco': databases ==[0m
+[1;32mok: wp_subco1, wp_subco2 exist[0m
+
+[1;36m== pair 'subco': site-repo directories ==[0m
+
+[1;36m== pair 'subco': web containers up ==[0m
+  (bind-mount source: /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle -- this pair.sh copy is running from /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/sandbox)
+ Volume duo-subco_wp1 Creating
+ Volume duo-subco_wp1 Created
+ Volume duo-subco_wp2 Creating
+ Volume duo-subco_wp2 Created
+ Container duo-subco-wp2-1 Creating
+ Container duo-subco-wp1-1 Creating
+ Container duo-subco-wp1-1 Created
+ Container duo-subco-wp2-1 Created
+ Container duo-subco-wp1-1 Starting
+ Container duo-subco-wp2-1 Starting
+ Container duo-subco-wp2-1 Started
+ Container duo-subco-wp1-1 Started
+ Container duo-subco-cli1-1 Creating
+ Container duo-subco-cli2-1 Creating
+ Container duo-subco-cli1-1 Created
+ Container duo-subco-cli2-1 Created
+ Container duo-subco-cli2-1 Starting
+ Container duo-subco-cli1-1 Starting
+ Container duo-subco-cli2-1 Started
+ Container duo-subco-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'subco': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'subco': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.subco1.needs-install present — reset emptied wp_subco1, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-subco-cli1-run-7ac4192bd551 Creating
+ Container duo-subco-cli1-run-7ac4192bd551 Created
+Success: WordPress installed successfully.
+ Container duo-subco-cli1-run-f17b0c22bb8d Creating
+ Container duo-subco-cli1-run-f17b0c22bb8d Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-subco-cli1-run-eb95cad5003a Creating
+ Container duo-subco-cli1-run-eb95cad5003a Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-subco-cli1-run-c87c8079e906 Creating
+ Container duo-subco-cli1-run-c87c8079e906 Created
+ Container duo-subco-cli1-run-f6019f0b9974 Creating
+ Container duo-subco-cli1-run-f6019f0b9974 Created
+ Container duo-subco-cli1-run-f8b028f5ccd6 Creating
+ Container duo-subco-cli1-run-f8b028f5ccd6 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-subco-cli1-run-333dbb7d71a7 Creating
+ Container duo-subco-cli1-run-333dbb7d71a7 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9404)
+  side 2: siterepo/.subco2.needs-install present — reset emptied wp_subco2, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-subco-cli2-run-7a85c01a605c Creating
+ Container duo-subco-cli2-run-7a85c01a605c Created
+Success: WordPress installed successfully.
+ Container duo-subco-cli2-run-cf31a654eec7 Creating
+ Container duo-subco-cli2-run-cf31a654eec7 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-subco-cli2-run-30ab54499715 Creating
+ Container duo-subco-cli2-run-30ab54499715 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-subco-cli2-run-9cb401e6c7b0 Creating
+ Container duo-subco-cli2-run-9cb401e6c7b0 Created
+ Container duo-subco-cli2-run-9b733afb0cd4 Creating
+ Container duo-subco-cli2-run-9b733afb0cd4 Created
+ Container duo-subco-cli2-run-5f33422d39c5 Creating
+ Container duo-subco-cli2-run-5f33422d39c5 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-subco-cli2-run-7778be88adde Creating
+ Container duo-subco-cli2-run-7778be88adde Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9405)
+
+[1;36m== pair 'subco' ready ==[0m
+  wp1: http://localhost:9404 (published on host port 9404)
+  wp2: http://localhost:9405 (published on host port 9405)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-subco -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-subco -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=subco must stay exported, or pass -p duo-subco and set WORDPRESS_DB_NAME/etc. yourself)
+
+[1;36m== convert side 1 to a real WordPress multisite ==[0m
+ Container duo-subco-cli1-run-def895669b47 Creating
+ Container duo-subco-cli1-run-def895669b47 Created
+ Container duo-subco-cli1-run-10b7f2b56d34 Creating
+ Container duo-subco-cli1-run-10b7f2b56d34 Created
+[1;32mok: WordPress reports multisite through its own runtime API[0m
+
+[1;36m== prepare an otherwise-valid core site repository and mutation canary ==[0m
+ Container duo-subco-cli1-run-420d094c2aa7 Creating
+ Container duo-subco-cli1-run-420d094c2aa7 Created
+
+[1;36m== ordinary product path must refuse loudly and publish nothing ==[0m
+ Container duo-subco-cli1-run-f51f46fced93 Creating
+ Container duo-subco-cli1-run-f51f46fced93 Created
+Error: duo: multisite is unsupported by the certified v1 contract; this command is single-site only and refuses before loading policy or mutating state
+ Container duo-subco-cli1-run-69ac3542ec72 Creating
+ Container duo-subco-cli1-run-69ac3542ec72 Created
+[1;32mok: multisite is an actionable non-zero refusal with zero repository/authored-state mutation[0m
+
+[1;32m✔ REGRESS_MULTISITE_REFUSAL PASSED[0m
+
+[1;36m== cleanup: destroy own disposable pair ==[0m
+
+[1;36m== pair 'subco': destroy ==[0m
+ Container duo-subco-wp1-1 Stopping
+ Container duo-subco-wp2-1 Stopping
+ Container duo-subco-cli1-1 Stopping
+ Container duo-subco-cli2-1 Stopping
+ Container duo-subco-cli2-1 Stopped
+ Container duo-subco-cli2-1 Removing
+ Container duo-subco-cli1-1 Stopped
+ Container duo-subco-cli1-1 Removing
+ Container duo-subco-cli2-1 Removed
+ Container duo-subco-cli1-1 Removed
+ Container duo-subco-wp2-1 Stopped
+ Container duo-subco-wp2-1 Removing
+ Container duo-subco-wp1-1 Stopped
+ Container duo-subco-wp1-1 Removing
+ Container duo-subco-wp2-1 Removed
+ Container duo-subco-wp1-1 Removed
+ Volume duo-subco_wp1 Removing
+ Volume duo-subco_wp2 Removing
+ Volume duo-subco_wp2 Removed
+ Volume duo-subco_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_subco1/wp_subco2 dropped[0m
+  siterepo/subco{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: subco destroyed[0m

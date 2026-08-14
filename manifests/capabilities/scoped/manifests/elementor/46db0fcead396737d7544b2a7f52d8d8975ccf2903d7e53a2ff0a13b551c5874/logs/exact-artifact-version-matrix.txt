@@ -1,0 +1,332 @@
+
+[1;36m== boot pair subel (subel1 :9406 / subel2 :9407), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/{agent,manifests}
+  source HEAD:    d2235be40d710fc94e4133878a38bb32ad576586
+  invoked from:   /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/sandbox
+  expected SHA:   d2235be40d710fc94e4133878a38bb32ad576586 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly d2235be40d710fc94e4133878a38bb32ad576586, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'subel': databases ==[0m
+[1;32mok: wp_subel1, wp_subel2 exist[0m
+
+[1;36m== pair 'subel': site-repo directories ==[0m
+
+[1;36m== pair 'subel': web containers up ==[0m
+  (bind-mount source: /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle -- this pair.sh copy is running from /Users/shamim/Projects/duotronic/duo-wp-wt-remove-reference-bundle/sandbox)
+ Volume duo-subel_wp2 Creating
+ Volume duo-subel_wp2 Created
+ Volume duo-subel_wp1 Creating
+ Volume duo-subel_wp1 Created
+ Container duo-subel-wp1-1 Creating
+ Container duo-subel-wp2-1 Creating
+ Container duo-subel-wp2-1 Created
+ Container duo-subel-wp1-1 Created
+ Container duo-subel-wp2-1 Starting
+ Container duo-subel-wp1-1 Starting
+ Container duo-subel-wp2-1 Started
+ Container duo-subel-wp1-1 Started
+ Container duo-subel-cli1-1 Creating
+ Container duo-subel-cli2-1 Creating
+ Container duo-subel-cli1-1 Created
+ Container duo-subel-cli2-1 Created
+ Container duo-subel-cli1-1 Starting
+ Container duo-subel-cli2-1 Starting
+ Container duo-subel-cli2-1 Started
+ Container duo-subel-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'subel': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'subel': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-subel-cli1-run-96e9878a795a Creating
+ Container duo-subel-cli1-run-96e9878a795a Created
+Success: WordPress installed successfully.
+ Container duo-subel-cli1-run-c4029f1d3eb4 Creating
+ Container duo-subel-cli1-run-c4029f1d3eb4 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-subel-cli1-run-7593098b6c91 Creating
+ Container duo-subel-cli1-run-7593098b6c91 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-subel-cli1-run-2c42bcffbec4 Creating
+ Container duo-subel-cli1-run-2c42bcffbec4 Created
+ Container duo-subel-cli1-run-9adf23adcd47 Creating
+ Container duo-subel-cli1-run-9adf23adcd47 Created
+ Container duo-subel-cli1-run-5449888301b9 Creating
+ Container duo-subel-cli1-run-5449888301b9 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-subel-cli1-run-4916cf8553c7 Creating
+ Container duo-subel-cli1-run-4916cf8553c7 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9406)
+ Container duo-subel-cli2-run-9234a7d3edb8 Creating
+ Container duo-subel-cli2-run-9234a7d3edb8 Created
+Success: WordPress installed successfully.
+ Container duo-subel-cli2-run-8784757b766d Creating
+ Container duo-subel-cli2-run-8784757b766d Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-subel-cli2-run-e7ab61c84717 Creating
+ Container duo-subel-cli2-run-e7ab61c84717 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-subel-cli2-run-081338420a0e Creating
+ Container duo-subel-cli2-run-081338420a0e Created
+ Container duo-subel-cli2-run-0914e8ff5209 Creating
+ Container duo-subel-cli2-run-0914e8ff5209 Created
+ Container duo-subel-cli2-run-16517e052120 Creating
+ Container duo-subel-cli2-run-16517e052120 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-subel-cli2-run-74bd56b1e2c7 Creating
+ Container duo-subel-cli2-run-74bd56b1e2c7 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9407)
+
+[1;36m== pair 'subel' ready ==[0m
+  wp1: http://localhost:9406 (published on host port 9406)
+  wp2: http://localhost:9407 (published on host port 9407)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-subel -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-subel -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=subel must stay exported, or pass -p duo-subel and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: elementor 4.0.0 ==[0m
+ Container duo-subel-cli1-run-d54ce365bd82 Creating
+ Container duo-subel-cli1-run-d54ce365bd82 Created
+ Container duo-subel-cli1-run-b4c69dac870a Creating
+ Container duo-subel-cli1-run-b4c69dac870a Created
+ Container duo-subel-cli1-run-beb9a5c7ac33 Creating
+ Container duo-subel-cli1-run-beb9a5c7ac33 Created
+ Container duo-subel-cli1-run-e41efb697f48 Creating
+ Container duo-subel-cli1-run-e41efb697f48 Created
+ Container duo-subel-cli1-run-14666789b237 Creating
+ Container duo-subel-cli1-run-14666789b237 Created
+ Container duo-subel-cli1-run-f9e87e778d42 Creating
+ Container duo-subel-cli1-run-f9e87e778d42 Created
+ Container duo-subel-cli2-run-82cefb4a98fa Creating
+ Container duo-subel-cli2-run-82cefb4a98fa Created
+ Container duo-subel-cli2-run-ee24b393e405 Creating
+ Container duo-subel-cli2-run-ee24b393e405 Created
+ Container duo-subel-cli2-run-c0ea2c75afe4 Creating
+ Container duo-subel-cli2-run-c0ea2c75afe4 Created
+ Container duo-subel-cli2-run-0be6750da5d3 Creating
+ Container duo-subel-cli2-run-0be6750da5d3 Created
+ Container duo-subel-cli2-run-f7c85be84b1d Creating
+ Container duo-subel-cli2-run-f7c85be84b1d Created
+ Container duo-subel-cli2-run-49aef4230cd9 Creating
+ Container duo-subel-cli2-run-49aef4230cd9 Created
+
+[1;36m== fetch + verify elementor 4.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-subel-cli1-run-0efc70427e4a Creating
+ Container duo-subel-cli1-run-0efc70427e4a Created
+artifact-cache: kind=plugin slug=elementor version=4.0.0 sha256=75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2 source=network-fetch path=/artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip
+ Container duo-subel-cli2-run-6c12b56809b4 Creating
+ Container duo-subel-cli2-run-6c12b56809b4 Created
+artifact-cache: kind=plugin slug=elementor version=4.0.0 sha256=75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2 source=cache-hit path=/artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip[0m
+ Container duo-subel-cli1-run-94e6f5c66082 Creating
+ Container duo-subel-cli1-run-94e6f5c66082 Created
+ Container duo-subel-cli1-run-f57b61e0c060 Creating
+ Container duo-subel-cli1-run-f57b61e0c060 Created
+[1;32mok: side 1: elementor 4.0.0 installed from verified artifact, active[0m
+elementor seed: target=2 page=7 hero=3 galA=4 galB=5 bg=6
+elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1
+ Container duo-subel-cli1-run-835cd6368bc5 Creating
+ Container duo-subel-cli1-run-835cd6368bc5 Created
+ Container duo-subel-cli1-run-fb61ea6797fa Creating
+ Container duo-subel-cli1-run-fb61ea6797fa Created
+ Container duo-subel-cli1-run-11ab96da3cc7 Creating
+ Container duo-subel-cli1-run-11ab96da3cc7 Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+ Container duo-subel-cli1-run-2a50a324233a Creating
+ Container duo-subel-cli1-run-2a50a324233a Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: captured on side 1 (elementor 4.0.0)[0m
+Success: no findings — captured state is clean
+ Container duo-subel-cli1-run-e8f46c0f09b0 Creating
+ Container duo-subel-cli1-run-e8f46c0f09b0 Created
+[1;32mok: lint: 0 findings[0m
+ Container duo-subel-cli2-run-04fa0e168ac1 Creating
+ Container duo-subel-cli2-run-04fa0e168ac1 Created
+ Container duo-subel-cli2-run-e1fe88db704f Creating
+ Container duo-subel-cli2-run-e1fe88db704f Created
+activated: elementor/elementor.php
+Success: 1 activated, 0 deactivated
+ Container duo-subel-cli2-run-0f01900761cf Creating
+ Container duo-subel-cli2-run-0f01900761cf Created
+Success: applied 10 entities (canary clean) — plan was: {"create":6,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":2,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+ Container duo-subel-cli2-run-b6d36d36607b Creating
+ Container duo-subel-cli2-run-b6d36d36607b Created
+Warning: adopted env post 1 as 019ffe70-a075-7820-9387-5ba9e53f3e21 (posts/elementor_library/019ffe70-a075-7820-9387-5ba9e53f3e21--default-kit.md)
+Warning: adopted env term 1 as 019ffe70-a07a-736c-8d44-2ef5765c6328 (terms/category/019ffe70-a07a-736c-8d44-2ef5765c6328--uncategorized.json)
+Warning: provider capability fired: elementor-css@1.0.0 regenerate_css (1.889s, verified)
+[1;32mok: deploy + apply succeeded on side 2 (elementor 4.0.0, canary clean)[0m
+[1;32mok: conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1[0m
+ Container duo-subel-cli2-run-5b060fe58204 Creating
+ Container duo-subel-cli2-run-5b060fe58204 Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+ Container duo-subel-cli2-run-d9254e967613 Creating
+ Container duo-subel-cli2-run-d9254e967613 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at elementor 4.0.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: elementor 4.2.2 ==[0m
+ Container duo-subel-cli1-run-7ff5f80036b1 Creating
+ Container duo-subel-cli1-run-7ff5f80036b1 Created
+ Container duo-subel-cli1-run-f635855c7c97 Creating
+ Container duo-subel-cli1-run-f635855c7c97 Created
+ Container duo-subel-cli1-run-3ed4a9f9e337 Creating
+ Container duo-subel-cli1-run-3ed4a9f9e337 Created
+ Container duo-subel-cli1-run-2bedaa4284c9 Creating
+ Container duo-subel-cli1-run-2bedaa4284c9 Created
+ Container duo-subel-cli1-run-5760346a991f Creating
+ Container duo-subel-cli1-run-5760346a991f Created
+ Container duo-subel-cli1-run-0ec8a5792e7e Creating
+ Container duo-subel-cli1-run-0ec8a5792e7e Created
+ Container duo-subel-cli2-run-20cb7b8e9cf2 Creating
+ Container duo-subel-cli2-run-20cb7b8e9cf2 Created
+ Container duo-subel-cli2-run-49d7607566ba Creating
+ Container duo-subel-cli2-run-49d7607566ba Created
+ Container duo-subel-cli2-run-c7b92b75f00f Creating
+ Container duo-subel-cli2-run-c7b92b75f00f Created
+ Container duo-subel-cli2-run-8522cda4ef47 Creating
+ Container duo-subel-cli2-run-8522cda4ef47 Created
+ Container duo-subel-cli2-run-933687c0fe0a Creating
+ Container duo-subel-cli2-run-933687c0fe0a Created
+ Container duo-subel-cli2-run-7701148f34ee Creating
+ Container duo-subel-cli2-run-7701148f34ee Created
+
+[1;36m== fetch + verify elementor 4.2.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-subel-cli1-run-b824873f778b Creating
+ Container duo-subel-cli1-run-b824873f778b Created
+artifact-cache: kind=plugin slug=elementor version=4.2.2 sha256=4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db source=cache-hit path=/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip
+ Container duo-subel-cli2-run-d02de1b58ee7 Creating
+ Container duo-subel-cli2-run-d02de1b58ee7 Created
+artifact-cache: kind=plugin slug=elementor version=4.2.2 sha256=4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db source=cache-hit path=/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip[0m
+ Container duo-subel-cli1-run-6f5d6733494c Creating
+ Container duo-subel-cli1-run-6f5d6733494c Created
+ Container duo-subel-cli1-run-630e816e32be Creating
+ Container duo-subel-cli1-run-630e816e32be Created
+[1;32mok: side 1: elementor 4.2.2 installed from verified artifact, active[0m
+elementor seed: target=2 page=7 hero=3 galA=4 galB=5 bg=6
+elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1
+ Container duo-subel-cli1-run-3a7fe08658f7 Creating
+ Container duo-subel-cli1-run-3a7fe08658f7 Created
+ Container duo-subel-cli1-run-db80a8204d80 Creating
+ Container duo-subel-cli1-run-db80a8204d80 Created
+ Container duo-subel-cli1-run-8f6621ee5bea Creating
+ Container duo-subel-cli1-run-8f6621ee5bea Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+ Container duo-subel-cli1-run-5058c5c7172e Creating
+ Container duo-subel-cli1-run-5058c5c7172e Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: captured on side 1 (elementor 4.2.2)[0m
+Success: no findings — captured state is clean
+ Container duo-subel-cli1-run-a1dca73710b1 Creating
+ Container duo-subel-cli1-run-a1dca73710b1 Created
+[1;32mok: lint: 0 findings[0m
+ Container duo-subel-cli2-run-42921a6785bf Creating
+ Container duo-subel-cli2-run-42921a6785bf Created
+ Container duo-subel-cli2-run-f91c850f393a Creating
+ Container duo-subel-cli2-run-f91c850f393a Created
+activated: elementor/elementor.php
+Success: 1 activated, 0 deactivated
+ Container duo-subel-cli2-run-3d6f43459f6a Creating
+ Container duo-subel-cli2-run-3d6f43459f6a Created
+Success: applied 10 entities (canary clean) — plan was: {"create":6,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":2,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+ Container duo-subel-cli2-run-b9e96c268595 Creating
+ Container duo-subel-cli2-run-b9e96c268595 Created
+Warning: adopted env post 1 as 019ffe72-2ac4-7893-8756-aa249a48d785 (posts/elementor_library/019ffe72-2ac4-7893-8756-aa249a48d785--default-kit.md)
+Warning: adopted env term 1 as 019ffe72-2ac7-7706-b910-c0047a4e27e2 (terms/category/019ffe72-2ac7-7706-b910-c0047a4e27e2--uncategorized.json)
+Warning: provider capability fired: elementor-css@1.0.0 regenerate_css (1.11s, verified)
+[1;32mok: deploy + apply succeeded on side 2 (elementor 4.2.2, canary clean)[0m
+[1;32mok: conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1[0m
+ Container duo-subel-cli2-run-39f54ba9faf0 Creating
+ Container duo-subel-cli2-run-39f54ba9faf0 Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+ Container duo-subel-cli2-run-aaadf20344e8 Creating
+ Container duo-subel-cli2-run-aaadf20344e8 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at elementor 4.2.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-subel-cli1-run-12f450ccd6a6 Creating
+ Container duo-subel-cli1-run-12f450ccd6a6 Created
+ Container duo-subel-cli1-run-adcd5974d368 Creating
+ Container duo-subel-cli1-run-adcd5974d368 Created
+ Container duo-subel-cli1-run-c67e9e63f170 Creating
+ Container duo-subel-cli1-run-c67e9e63f170 Created
+ Container duo-subel-cli1-run-484e20ccd622 Creating
+ Container duo-subel-cli1-run-484e20ccd622 Created
+ Container duo-subel-cli1-run-3120468a9ade Creating
+ Container duo-subel-cli1-run-3120468a9ade Created
+ Container duo-subel-cli1-run-d033b99145bf Creating
+ Container duo-subel-cli1-run-d033b99145bf Created
+ Container duo-subel-cli1-run-b99e63ae97ab Creating
+ Container duo-subel-cli1-run-b99e63ae97ab Created
+artifact-cache: kind=plugin slug=elementor version=3.35.9 sha256=90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc source=network-fetch path=/artifacts-cache/plugin-elementor-3.35.9-90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc.zip
+ Container duo-subel-cli1-run-1e81e8eacf22 Creating
+ Container duo-subel-cli1-run-1e81e8eacf22 Created
+ Container duo-subel-cli1-run-d450cab1f777 Creating
+ Container duo-subel-cli1-run-d450cab1f777 Created
+ Container duo-subel-cli1-run-348f3c52fdfd Creating
+ Container duo-subel-cli1-run-348f3c52fdfd Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-subel-cli1-run-afa73999a62b Creating
+ Container duo-subel-cli1-run-afa73999a62b Created
+Error: duo: deploy refused — code_mismatch:
+
+  - elementor/elementor.php 3.35.9 is active in this environment, outside the 'elementor' manifest's declared version_range (>=4.0.0 <5.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: elementor 3.35.9 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'subel': destroy ==[0m
+ Container duo-subel-cli1-1 Stopping
+ Container duo-subel-wp2-1 Stopping
+ Container duo-subel-cli2-1 Stopping
+ Container duo-subel-wp1-1 Stopping
+ Container duo-subel-cli1-1 Stopped
+ Container duo-subel-cli1-1 Removing
+ Container duo-subel-cli2-1 Stopped
+ Container duo-subel-cli2-1 Removing
+ Container duo-subel-cli2-1 Removed
+ Container duo-subel-cli1-1 Removed
+ Container duo-subel-wp2-1 Stopped
+ Container duo-subel-wp2-1 Removing
+ Container duo-subel-wp1-1 Stopped
+ Container duo-subel-wp1-1 Removing
+ Container duo-subel-wp1-1 Removed
+ Container duo-subel-wp2-1 Removed
+ Volume duo-subel_wp2 Removing
+ Volume duo-subel_wp1 Removing
+ Volume duo-subel_wp1 Removed
+ Volume duo-subel_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_subel1/wp_subel2 dropped[0m
+  siterepo/subel{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed subel (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m
