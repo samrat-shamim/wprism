@@ -57,12 +57,19 @@ namespace Duo\EngineeringPlatform;
  *     format:string,
  *     suites:list<Suite>,
  *     inventory:list<InventoryEntry>,
- *     profiles:list<Profile>,
- *     source_fragments:list<array{path:string,sha256:string}>
- * }
+     *     profiles:list<Profile>,
+     *     source_fragments:list<array{path:string,sha256:string}>
+     * }
+ * @phpstan-type RequirementIndex array<string,array<string,array<string,true>>>
  */
 final class Catalog
 {
+    /** @var array<string,string>|null */
+    private ?array $trackedOwnership = null;
+
+    /** @var array<string,true>|null */
+    private ?array $makeTargets = null;
+
     private const OWNER_DIRECTORIES = [
         'thread-1' => 'engineering-platform',
         'thread-2' => 'host-cli',
@@ -83,10 +90,30 @@ final class Catalog
         'component-wordpress-agent',
         'component-capability-policy-evidence',
         'component-mutation-recovery',
-        'pr',
-        'frozen-candidate',
-        'evidence-child',
-        'release-validation',
+        'legacy-offline-compatibility',
+        'legacy-live-compatibility',
+    ];
+
+    /** @var array<string,string> */
+    private const PROFILE_OWNERS = [
+        'platform-p0-bootstrap' => 'thread-1',
+        'platform-p0' => 'thread-1',
+        'component-engineering-platform' => 'thread-1',
+        'thread-1-engineering-platform' => 'thread-1',
+        'thread-2-host-cli' => 'thread-2',
+        'thread-3-wordpress-agent' => 'thread-3',
+        'thread-4-capability-evidence' => 'thread-4',
+        'thread-5-mutation-recovery' => 'thread-5',
+        'component-host-cli' => 'thread-2',
+        'component-wordpress-agent' => 'thread-3',
+        'component-capability-policy-evidence' => 'thread-4',
+        'component-mutation-recovery' => 'thread-5',
+        'pr' => 'thread-1',
+        'frozen-candidate' => 'thread-1',
+        'evidence-child' => 'thread-1',
+        'release-validation' => 'thread-1',
+        'legacy-offline-compatibility' => 'thread-1',
+        'legacy-live-compatibility' => 'thread-1',
     ];
 
     /** @var list<string> */
@@ -125,6 +152,7 @@ final class Catalog
         $suites = [];
         $inventory = [];
         $profiles = [];
+        $inventoryOwners = [];
         $sources = [];
         foreach ($fragments as $path => $fragment) {
             $owner = $fragment['owner'];
@@ -150,6 +178,7 @@ final class Catalog
                     throw new CatalogException("duplicate inventory entry $key in $relativePath");
                 }
                 $inventory[$key] = $entry;
+                $inventoryOwners[$key] = $owner;
             }
             foreach ($fragment['profiles'] as $profile) {
                 $id = $profile['id'];
@@ -159,8 +188,25 @@ final class Catalog
                 if ($profile['owner'] !== $owner) {
                     throw new CatalogException("profile $id owner differs from fragment owner");
                 }
+                if (isset(self::PROFILE_OWNERS[$id]) && self::PROFILE_OWNERS[$id] !== $owner) {
+                    throw new CatalogException("profile $id is reserved to " . self::PROFILE_OWNERS[$id]);
+                }
                 $profiles[$id] = $profile;
             }
+        }
+
+        if ($onlyOwner !== null) {
+            foreach ($profiles as $id => $profile) {
+                if (array_diff($profile['suite_ids'], array_keys($suites)) !== []) {
+                    unset($profiles[$id]);
+                }
+            }
+        }
+
+        [$requirements, $requirementSources] = $this->loadRequirementDefinitions($onlyOwner);
+        array_push($sources, ...$requirementSources);
+        foreach ($suites as $suite) {
+            $this->assertAuthorityReferences($suite, $requirements);
         }
 
         foreach ($inventory as $key => $entry) {
@@ -169,6 +215,7 @@ final class Catalog
                     throw new CatalogException("inventory entry $key references unknown suite $suiteId");
                 }
             }
+            $this->assertInventoryAuthority($entry, $inventoryOwners[$key]);
         }
         foreach ($profiles as $id => $profile) {
             foreach ($profile['suite_ids'] as $suiteId) {
@@ -178,6 +225,10 @@ final class Catalog
                 if ($profile['environment_class'] === 'offline'
                     && $suites[$suiteId]['environment_class'] !== 'offline') {
                     throw new CatalogException("offline profile $id contains non-offline suite $suiteId");
+                }
+                if ($profile['owner'] !== 'thread-1'
+                    && !in_array($suites[$suiteId]['owner'], [$profile['owner'], 'thread-1'], true)) {
+                    throw new CatalogException("profile $id contains suite $suiteId from an unauthorized owner");
                 }
             }
         }
@@ -198,6 +249,111 @@ final class Catalog
             'profiles' => array_values($profiles),
             'source_fragments' => $sources,
         ];
+    }
+
+    /**
+     * @return array{RequirementIndex,list<array{path:string,sha256:string}>}
+     */
+    private function loadRequirementDefinitions(?string $onlyOwner): array
+    {
+        $index = [];
+        $sources = [];
+        $kinds = [
+            'provisioning', 'environment_role', 'credential', 'effect_policy',
+            'sandbox_destination',
+        ];
+        foreach (self::OWNER_DIRECTORIES as $owner => $directory) {
+            if ($onlyOwner !== null && $owner !== $onlyOwner) {
+                continue;
+            }
+            $path = $this->root . '/sandbox/catalog/fragments/' . $directory . '/requirements.json';
+            if (!is_file($path)) {
+                continue;
+            }
+            $relative = $this->relative($path);
+            $raw = file_get_contents($path);
+            if (!is_string($raw)) {
+                throw new CatalogException("cannot read $relative");
+            }
+            try {
+                $document = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+            } catch (\JsonException $exception) {
+                throw new CatalogException("$relative: invalid JSON: " . $exception->getMessage());
+            }
+            if (!is_array($document) || array_is_list($document)) {
+                throw new CatalogException("$relative: requirement definitions must be an object");
+            }
+            $this->assertExactKeys($document, ['format', 'owner', 'definitions'], $relative);
+            if (($document['format'] ?? null) !== 'duo-test-requirement-definitions/v1'
+                || ($document['owner'] ?? null) !== $owner
+                || !is_array($document['definitions'] ?? null)
+                || !array_is_list($document['definitions'])) {
+                throw new CatalogException("$relative: invalid requirement definition document");
+            }
+            foreach ($document['definitions'] as $definitionNumber => $definition) {
+                $where = "$relative: definition $definitionNumber";
+                if (!is_array($definition) || array_is_list($definition)) {
+                    throw new CatalogException("$where must be an object");
+                }
+                $this->assertExactKeys($definition, ['id', 'kind', 'requirement'], $where);
+                $id = $definition['id'] ?? null;
+                $kind = $definition['kind'] ?? null;
+                $requirement = $definition['requirement'] ?? null;
+                if (!is_string($id) || !is_string($kind) || !in_array($kind, $kinds, true)
+                    || !is_array($requirement) || array_is_list($requirement)) {
+                    throw new CatalogException("$where has invalid fields");
+                }
+                $canonical = json_encode(
+                    $this->canonicalize($requirement),
+                    JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR,
+                );
+                if ($id !== 'sha256:' . hash('sha256', $canonical)) {
+                    throw new CatalogException("$where id does not address the canonical requirement bytes");
+                }
+                if (isset($index[$owner][$kind][$id])) {
+                    throw new CatalogException("$where duplicates requirement id $id");
+                }
+                $index[$owner][$kind][$id] = true;
+            }
+            $sources[] = [
+                'path' => $relative,
+                'sha256' => 'sha256:' . hash_file('sha256', $path),
+            ];
+        }
+        return [$index, $sources];
+    }
+
+    /**
+     * @param Suite $suite
+     * @param RequirementIndex $requirements
+     */
+    private function assertAuthorityReferences(array $suite, array $requirements): void
+    {
+        if ($suite['environment_class'] === 'offline') {
+            return;
+        }
+        $authority = $suite['authority_requirements'] ?? null;
+        if (!is_array($authority)) {
+            throw new CatalogException('non-offline suite lacks authority requirements: ' . $suite['id']);
+        }
+        $fields = [
+            'provisioning_reference_id' => 'provisioning',
+            'environment_role_reference_id' => 'environment_role',
+            'credential_reference_id' => 'credential',
+            'effect_policy_reference_id' => 'effect_policy',
+            'sandbox_destination_reference_id' => 'sandbox_destination',
+        ];
+        foreach ($fields as $field => $kind) {
+            $id = $authority[$field];
+            if (!isset($requirements[$suite['owner']][$kind][$id])) {
+                throw new CatalogException(sprintf(
+                    'suite %s has unresolved %s authority reference %s',
+                    $suite['id'],
+                    $kind,
+                    $id,
+                ));
+            }
+        }
     }
 
     /** @param CatalogAggregate $catalog */
@@ -319,6 +475,15 @@ final class Catalog
             throw new CatalogException("$where has invalid id");
         }
         $command = $this->stringList($suite['command'] ?? null, "$where command", false);
+        foreach ($command as $argument) {
+            if (preg_match('/[\x00-\x1f\x7f]/', $argument) === 1) {
+                throw new CatalogException("$where command contains a control character");
+            }
+        }
+        if (str_starts_with($command[0], '/') || str_contains($command[0], '\\')
+            || in_array('..', explode('/', $command[0]), true)) {
+            throw new CatalogException("$where command executable must be a safe name or repository-relative path");
+        }
         if (!is_string($layer) || !in_array($layer, ['unit', 'offline', 'integration', 'conformance', 'certification', 'grind', 'platform', 'architecture'], true)
             || !is_string($owner) || !isset(self::OWNER_DIRECTORIES[$owner])
             || !is_int($timeout) || $timeout < 1 || $timeout > 86400
@@ -332,6 +497,9 @@ final class Catalog
         $lists = [];
         foreach (['resource_locks', 'required_tools', 'required_services', 'covered_paths', 'covered_contracts', 'evidence_inputs', 'expected_outputs'] as $key) {
             $lists[$key] = $this->stringList($suite[$key] ?? null, "$where $key", true);
+        }
+        foreach ($lists['expected_outputs'] as $path) {
+            $this->assertArtifactPath($path, "$where expected_outputs");
         }
         if (!is_null($reviewGate) && (!is_string($reviewGate) || $reviewGate === '')) {
             throw new CatalogException("$where required_review_gate must be null or a nonempty string");
@@ -381,6 +549,8 @@ final class Catalog
         $role = $entry['role'] ?? null;
         if (!is_string($kind) || !in_array($kind, ['file', 'make_target'], true)
             || !is_string($name) || $name === ''
+            || str_starts_with($name, '/') || str_contains($name, '\\')
+            || in_array('..', explode('/', $name), true)
             || !is_string($role) || !in_array($role, ['suite', 'helper', 'self_test', 'fixture', 'aggregate', 'diagnostic'], true)) {
             throw new CatalogException("$where has invalid fields");
         }
@@ -411,13 +581,17 @@ final class Catalog
             || !is_string($evidenceStaleness) || !in_array($evidenceStaleness, ['forbidden', 'permitted', 'required'], true)) {
             throw new CatalogException("$where has invalid fields");
         }
+        $expectedOutputs = $this->stringList($profile['expected_outputs'] ?? null, "$where expected_outputs", false);
+        foreach ($expectedOutputs as $path) {
+            $this->assertArtifactPath($path, "$where expected_outputs");
+        }
         return [
             'id' => $id,
             'owner' => $owner,
             'suite_ids' => $this->stringList($profile['suite_ids'] ?? null, "$where suite_ids", false),
             'environment_class' => $environmentClass,
             'blocking' => $blocking,
-            'expected_outputs' => $this->stringList($profile['expected_outputs'] ?? null, "$where expected_outputs", false),
+            'expected_outputs' => $expectedOutputs,
             'evidence_staleness' => $evidenceStaleness,
         ];
     }
@@ -442,9 +616,9 @@ final class Catalog
             }
             $values[$key] = $value;
         }
-        foreach (array_slice($keys, 0, 6) as $key) {
-            if (preg_match('/^[a-z][a-z0-9._\/-]*$/D', $values[$key]) !== 1) {
-                throw new CatalogException("$where field $key is not a reference id");
+        foreach (['provisioning_reference_id', 'environment_role_reference_id', 'credential_reference_id', 'effect_policy_reference_id', 'sandbox_destination_reference_id'] as $key) {
+            if (preg_match('/^sha256:[a-f0-9]{64}$/D', $values[$key]) !== 1) {
+                throw new CatalogException("$where field $key is not a content-addressed reference id");
             }
         }
         if (!in_array($values['data_profile'], ['synthetic', 'approved_minimized'], true)
@@ -486,6 +660,27 @@ final class Catalog
                 throw new CatalogException("discovered test Make target is not classified: $target");
             }
         }
+        $inventorySuites = [];
+        foreach ($inventory as $entry) {
+            foreach ($entry['suite_ids'] as $suiteId) {
+                $inventorySuites[$suiteId] = true;
+            }
+        }
+        $profileSuites = [];
+        foreach ($profiles as $profile) {
+            foreach ($profile['suite_ids'] as $suiteId) {
+                $profileSuites[$suiteId] = true;
+            }
+        }
+        foreach (array_keys($suites) as $suiteId) {
+            if (!isset($inventorySuites[$suiteId])) {
+                throw new CatalogException("suite is not linked from inventory: $suiteId");
+            }
+            if ($suites[$suiteId]['environment_class'] === 'offline' && !isset($profileSuites[$suiteId])) {
+                throw new CatalogException("offline suite is not selected by any profile: $suiteId");
+            }
+        }
+        $this->assertLegacyCompatibility($suites, $profiles);
         if ($suites === []) {
             throw new CatalogException('catalog has no suites');
         }
@@ -494,7 +689,12 @@ final class Catalog
     /** @return list<string> */
     private function discoveredFiles(): array
     {
-        $output = $this->process(['git', 'ls-files', '-z', '--', 'sandbox/tests', 'sandbox/conformance']);
+        $output = $this->process([
+            'git', 'ls-files', '-z', '--',
+            'sandbox/tests',
+            'sandbox/conformance',
+            'sandbox/catalog/fragments/*/tests',
+        ]);
         $files = array_values(array_filter(explode("\0", $output), static fn(string $path): bool => $path !== ''));
         sort($files, SORT_STRING);
         return $files;
@@ -503,6 +703,149 @@ final class Catalog
     /** @return list<string> */
     private function discoveredMakeTargets(): array
     {
+        $targets = [];
+        foreach (array_keys($this->allMakeTargets()) as $target) {
+            if (preg_match('/^(regress-|certify-|grind-|conformance-|spike-)/', $target) === 1
+                || in_array($target, [
+                    'code-half-unit', 'cli-smoke', 'cli-triage-smoke', 'lint-smoke',
+                    'adapter-authoring-exercise', 'release-gate', 'doctor', 'bootstrap-dev',
+                    'foundation-check', 'ownership-check', 'contracts-check', 'guide-check',
+                    'canonical-contract-check', 'recovery-transition-check', 'evidence-impact',
+                    'evidence-staleness-check', 'verify-generated', 'lint', 'check',
+                    'catalog-fragment-check', 'catalog-check', 'platform-p0', 'test-component',
+                    'thread-1-gate', 'test-unit', 'test-offline', 'format-check', 'static-analysis',
+                ], true)) {
+                $targets[$target] = true;
+            }
+        }
+        $result = array_keys($targets);
+        sort($result, SORT_STRING);
+        return $result;
+    }
+
+    /**
+     * @param array<string,Suite> $suites
+     * @param array<string,Profile> $profiles
+     */
+    private function assertLegacyCompatibility(array $suites, array $profiles): void
+    {
+        $expected = [
+            'legacy-offline-compatibility' => $this->makePrerequisites('regress-offline-corpus'),
+            'legacy-live-compatibility' => $this->legacyLiveTargets(),
+        ];
+        foreach ($expected as $profileId => $targets) {
+            if (!isset($profiles[$profileId])) {
+                throw new CatalogException("legacy compatibility profile is missing: $profileId");
+            }
+            $actual = [];
+            foreach ($profiles[$profileId]['suite_ids'] as $suiteId) {
+                $command = $suites[$suiteId]['command'];
+                if (count($command) !== 3 || $command[0] !== 'make' || $command[1] !== '--no-print-directory') {
+                    throw new CatalogException("legacy compatibility suite $suiteId must invoke exactly one Make target");
+                }
+                $target = $command[2];
+                if (isset($actual[$target])) {
+                    throw new CatalogException("legacy compatibility target is selected more than once: $target");
+                }
+                $actual[$target] = true;
+            }
+            $actualTargets = array_keys($actual);
+            sort($actualTargets, SORT_STRING);
+            sort($targets, SORT_STRING);
+            if ($actualTargets !== $targets) {
+                $missing = array_values(array_diff($targets, $actualTargets));
+                $extra = array_values(array_diff($actualTargets, $targets));
+                throw new CatalogException(sprintf(
+                    '%s differs from the legacy list; missing=%s extra=%s',
+                    $profileId,
+                    implode(',', array_slice($missing, 0, 8)),
+                    implode(',', array_slice($extra, 0, 8)),
+                ));
+            }
+        }
+    }
+
+    /** @return list<string> */
+    private function makePrerequisites(string $wanted): array
+    {
+        $bytes = file_get_contents($this->root . '/Makefile');
+        $logical = is_string($bytes) ? preg_replace('/\\\\\r?\n[\t ]*/', ' ', $bytes) : null;
+        if (!is_string($logical)) {
+            throw new CatalogException('cannot read legacy aggregate from Makefile');
+        }
+        foreach (preg_split('/\r?\n/', $logical) ?: [] as $line) {
+            if (preg_match('/^' . preg_quote($wanted, '/') . ':\s*(.*)$/D', $line, $match) !== 1) {
+                continue;
+            }
+            $targets = preg_split('/\s+/', trim($match[1])) ?: [];
+            $targets = array_values(array_filter($targets, static fn(string $target): bool => $target !== ''));
+            if ($targets === [] || count($targets) !== count(array_unique($targets))) {
+                throw new CatalogException("legacy aggregate $wanted is empty or contains duplicates");
+            }
+            sort($targets, SORT_STRING);
+            return $targets;
+        }
+        throw new CatalogException("legacy aggregate target is absent: $wanted");
+    }
+
+    /** @return list<string> */
+    private function legacyLiveTargets(): array
+    {
+        $bytes = file_get_contents($this->root . '/Makefile');
+        if (!is_string($bytes)) {
+            throw new CatalogException('cannot read legacy live list from Makefile');
+        }
+        $inside = false;
+        $targets = [];
+        foreach (preg_split('/\r?\n/', $bytes) ?: [] as $line) {
+            if ($line === 'regress-live-list:') {
+                $inside = true;
+                continue;
+            }
+            if ($inside && $line !== '' && $line[0] !== "\t" && $line[0] !== '#') {
+                break;
+            }
+            if ($inside && preg_match('/^\s*@echo "\s{2}((?:regress|certify|grind)-[a-z0-9-]+)/', $line, $match) === 1) {
+                if (isset($targets[$match[1]])) {
+                    throw new CatalogException('legacy live list contains duplicate target: ' . $match[1]);
+                }
+                $targets[$match[1]] = true;
+            }
+        }
+        if ($targets === []) {
+            throw new CatalogException('legacy live list is empty');
+        }
+        $result = array_keys($targets);
+        sort($result, SORT_STRING);
+        return $result;
+    }
+
+    /** @param InventoryEntry $entry */
+    private function assertInventoryAuthority(array $entry, string $owner): void
+    {
+        if ($entry['kind'] === 'make_target') {
+            if (!isset($this->allMakeTargets()[$entry['name']])) {
+                throw new CatalogException('inventory names an absent Make target: ' . $entry['name']);
+            }
+            return;
+        }
+        $ownership = $this->trackedOwnership();
+        if (!isset($ownership[$entry['name']])) {
+            throw new CatalogException('inventory names an untracked or unowned file: ' . $entry['name']);
+        }
+        if ($ownership[$entry['name']] !== $owner) {
+            throw new CatalogException(
+                sprintf('fragment %s cannot classify %s-owned file %s', $owner, $ownership[$entry['name']], $entry['name']),
+            );
+        }
+    }
+
+    /** @return array<string,true> */
+    private function allMakeTargets(): array
+    {
+        if ($this->makeTargets !== null) {
+            return $this->makeTargets;
+        }
         $bytes = file_get_contents($this->root . '/Makefile');
         if (!is_string($bytes)) {
             throw new CatalogException('cannot read Makefile');
@@ -520,15 +863,79 @@ final class Catalog
                 continue;
             }
             foreach (preg_split('/\s+/', trim($match[1])) ?: [] as $target) {
-                if (preg_match('/^(regress-|certify-|grind-|conformance-)/', $target) === 1
-                    || in_array($target, ['code-half-unit', 'cli-smoke', 'cli-triage-smoke', 'lint-smoke', 'adapter-authoring-exercise', 'release-gate'], true)) {
+                if ($target !== '' && !str_contains($target, '%') && !str_contains($target, '$')) {
                     $targets[$target] = true;
                 }
             }
         }
-        $result = array_keys($targets);
-        sort($result, SORT_STRING);
+        ksort($targets, SORT_STRING);
+        $this->makeTargets = $targets;
+        return $targets;
+    }
+
+    /** @return array<string,string> */
+    private function trackedOwnership(): array
+    {
+        if ($this->trackedOwnership !== null) {
+            return $this->trackedOwnership;
+        }
+        $path = $this->root . '/docs/proposals/refactor-ownership.json';
+        $raw = file_get_contents($path);
+        if (!is_string($raw)) {
+            throw new CatalogException('ownership ledger is absent');
+        }
+        try {
+            $ledger = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            throw new CatalogException('ownership ledger is invalid: ' . $exception->getMessage());
+        }
+        if (!is_array($ledger) || ($ledger['format'] ?? null) !== 'duo-refactor-ownership/v1') {
+            throw new CatalogException('ownership ledger format is invalid');
+        }
+        $fileRows = $ledger['files'] ?? null;
+        $prefixRows = $ledger['new_prefixes'] ?? null;
+        if (!is_array($fileRows) || !is_array($prefixRows)) {
+            throw new CatalogException('ownership ledger assignments are invalid');
+        }
+        $owners = [];
+        foreach ($fileRows as $row) {
+            if (is_array($row) && is_string($row['path'] ?? null) && is_string($row['owner'] ?? null)) {
+                $owners[$row['path']] = $row['owner'];
+            }
+        }
+        $prefixes = [];
+        foreach ($prefixRows as $row) {
+            if (is_array($row) && is_string($row['prefix'] ?? null) && is_string($row['owner'] ?? null)) {
+                $prefixes[$row['prefix']] = $row['owner'];
+            }
+        }
+        $tracked = array_values(array_filter(
+            explode("\0", $this->process(['git', 'ls-files', '-z'])),
+            static fn(string $candidate): bool => $candidate !== '',
+        ));
+        $result = [];
+        foreach ($tracked as $trackedPath) {
+            if (isset($owners[$trackedPath])) {
+                $result[$trackedPath] = $owners[$trackedPath];
+                continue;
+            }
+            foreach ($prefixes as $prefix => $owner) {
+                if (str_starts_with($trackedPath, $prefix)) {
+                    $result[$trackedPath] = $owner;
+                    break;
+                }
+            }
+        }
+        $this->trackedOwnership = $result;
         return $result;
+    }
+
+    private function assertArtifactPath(string $path, string $where): void
+    {
+        if (!str_starts_with($path, 'artifacts/') || str_contains($path, '\\')
+            || in_array('..', explode('/', $path), true) || str_ends_with($path, '/')) {
+            throw new CatalogException("$where contains an unsafe artifact path: $path");
+        }
     }
 
     /** @param list<string> $argv */

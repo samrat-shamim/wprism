@@ -15,7 +15,7 @@ $root = dirname(__DIR__, 4);
 $profile = null;
 $owner = null;
 $suites = [];
-$result = $root . '/artifacts/test-results/catalog/result.json';
+$result = 'artifacts/test-results/catalog/result.json';
 foreach (array_slice($argv, 1) as $argument) {
     if (str_starts_with($argument, '--profile=')) {
         $profile = substr($argument, strlen('--profile='));
@@ -25,7 +25,7 @@ foreach (array_slice($argv, 1) as $argument) {
         $owner = substr($argument, strlen('--partial-owner='));
     } elseif (str_starts_with($argument, '--result=')) {
         $candidate = substr($argument, strlen('--result='));
-        $result = str_starts_with($candidate, '/') ? $candidate : $root . '/' . $candidate;
+        $result = $candidate;
     } else {
         fwrite(STDERR, "runner: unknown argument: $argument\n");
         exit(2);
@@ -38,8 +38,15 @@ if (($profile === null) === ($suites === [])) {
 
 try {
     $catalog = (new Catalog($root))->validate($owner, $owner === null);
-    exit((new Runner($root, $catalog, $result))->run($suites, $profile));
-} catch (CatalogException $exception) {
-    fwrite(STDERR, 'runner: ' . $exception->getMessage() . "\n");
+    exit((new Runner($root, $catalog, $result, $owner))->run($suites, $profile));
+} catch (Throwable $exception) {
+    $message = str_replace($root, '<repo>', $exception->getMessage());
+    $message = (string) preg_replace('#(?<![A-Za-z0-9:])/(?:[A-Za-z0-9._@%+=,~\-]+/?)+#', '<redacted-path>', $message);
+    try {
+        Runner::publishPreflightFailure($root, $result, $profile, $owner, $message);
+    } catch (Throwable) {
+        // Unsafe output paths are refused rather than replaced or normalized.
+    }
+    fwrite(STDERR, 'runner: ' . $message . "\n");
     exit(1);
 }

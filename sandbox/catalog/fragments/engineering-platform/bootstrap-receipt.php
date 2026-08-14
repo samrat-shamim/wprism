@@ -7,6 +7,33 @@ use Duo\EngineeringPlatform\Doctor;
 
 require_once __DIR__ . '/Doctor.php';
 
+/** @param list<string> $argv */
+function bootstrap_probe(array $argv, string $root): string
+{
+    $process = proc_open(
+        $argv,
+        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $pipes,
+        $root,
+        ['LC_ALL' => 'C', 'TZ' => 'UTC', 'PATH' => (string) getenv('PATH')],
+        ['bypass_shell' => true],
+    );
+    if (!is_resource($process)) {
+        throw new RuntimeException('cannot execute tool identity probe');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    $exit = proc_close($process);
+    $identity = trim((string) $stdout . "\n" . (string) $stderr);
+    if ($exit !== 0 || $identity === '') {
+        throw new RuntimeException(sprintf('tool identity probe failed for %s', basename($argv[0])));
+    }
+    return $identity;
+}
+
 $root = dirname(__DIR__, 4);
 $doctor = new Doctor();
 $checks = $doctor->inspect($root);
@@ -17,16 +44,27 @@ foreach ($checks as $check) {
     }
 }
 $lockPath = $root . '/composer.lock';
-$receipt = [
-    'format' => 'duo-development-bootstrap-receipt/v1',
-    'composer_lock_sha256' => 'sha256:' . hash_file('sha256', $lockPath),
-    'php_version' => PHP_VERSION,
-    'tools' => [
-        'php-cs-fixer' => trim((string) shell_exec(escapeshellarg($root . '/vendor/bin/php-cs-fixer') . ' --version 2>/dev/null')),
-        'phpstan' => trim((string) shell_exec(escapeshellarg($root . '/vendor/bin/phpstan') . ' --version 2>/dev/null')),
-        'phpunit' => trim((string) shell_exec(escapeshellarg($root . '/vendor/bin/phpunit') . ' --version 2>/dev/null')),
-    ],
-];
+$lockDigest = hash_file('sha256', $lockPath);
+if (!is_string($lockDigest)) {
+    fwrite(STDERR, "bootstrap-dev: cannot hash composer.lock\n");
+    exit(1);
+}
+try {
+    $receipt = [
+        'format' => 'duo-development-bootstrap-receipt/v1',
+        'composer_lock_sha256' => 'sha256:' . $lockDigest,
+        'php_version' => PHP_VERSION,
+        'tools' => [
+            'composer' => bootstrap_probe(['composer', '--version', '--no-ansi'], $root),
+            'php-cs-fixer' => bootstrap_probe([$root . '/vendor/bin/php-cs-fixer', '--version'], $root),
+            'phpstan' => bootstrap_probe([$root . '/vendor/bin/phpstan', '--version'], $root),
+            'phpunit' => bootstrap_probe([$root . '/vendor/bin/phpunit', '--version'], $root),
+        ],
+    ];
+} catch (RuntimeException $exception) {
+    fwrite(STDERR, 'bootstrap-dev: ' . $exception->getMessage() . "\n");
+    exit(1);
+}
 ksort($receipt['tools'], SORT_STRING);
 $bytes = json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
 $output = $root . '/artifacts/bootstrap/tool-lock-receipt.json';

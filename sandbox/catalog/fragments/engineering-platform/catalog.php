@@ -38,11 +38,24 @@ try {
         );
         exit(0);
     }
-    if ($command === 'generate') {
+    if ($command === 'generate' || $command === 'verify') {
         if ($owner !== null) {
-            throw new CatalogException('generate does not accept --owner; only a complete aggregate is authoritative');
+            throw new CatalogException("$command does not accept --owner; only a complete aggregate is authoritative");
         }
         $bytes = $catalog->encode($catalog->validate());
+        if ($command === 'verify') {
+            $current = is_file($output) ? file_get_contents($output) : false;
+            if (!is_string($current) || !hash_equals(hash('sha256', $bytes), hash('sha256', $current))) {
+                throw new CatalogException(
+                    'generated catalog is absent or stale; run catalog.php generate',
+                );
+            }
+            printf(
+                "catalog: generated aggregate agrees (%s)\n",
+                'sha256:' . hash('sha256', $bytes),
+            );
+            exit(0);
+        }
         $directory = dirname($output);
         if (!is_dir($directory) && !mkdir($directory, 0755, true) && !is_dir($directory)) {
             throw new CatalogException('cannot create generated catalog directory');

@@ -28,6 +28,17 @@
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
     },
+    "artifactPaths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^artifacts/(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+[^/\\\\]$"}
+    },
+    "nonemptyArtifactPaths": {
+      "allOf": [
+        {"$ref": "#/$defs/artifactPaths"},
+        {"minItems": 1}
+      ]
+    },
     "strings": {
       "type": "array",
       "uniqueItems": true,
@@ -62,9 +73,16 @@
         "evidence_role": {"enum": ["none", "characterization", "qualification", "authority_input"]},
         "required_review_gate": {"type": ["string", "null"], "minLength": 1},
         "environment_class": {"enum": ["offline", "live", "destructive", "credentialed", "evidence-producing"]},
-        "expected_outputs": {"$ref": "#/$defs/strings"},
+        "expected_outputs": {"$ref": "#/$defs/artifactPaths"},
         "authority_requirements": {"$ref": "#/$defs/authorityRequirements"}
-      }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"environment_class": {"const": "offline"}}, "required": ["environment_class"]},
+          "then": {"not": {"required": ["authority_requirements"]}},
+          "else": {"required": ["authority_requirements"]}
+        }
+      ]
     },
     "authorityRequirements": {
       "type": "object",
@@ -75,12 +93,12 @@
         "sandbox_destination_reference_id", "output_authority", "output_adoptability"
       ],
       "properties": {
-        "provisioning_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
-        "environment_role_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "provisioning_reference_id": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "environment_role_reference_id": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
         "data_profile": {"enum": ["synthetic", "approved_minimized"]},
-        "credential_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
-        "effect_policy_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
-        "sandbox_destination_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "credential_reference_id": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "effect_policy_reference_id": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "sandbox_destination_reference_id": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
         "output_authority": {"const": "non_authorizing"},
         "output_adoptability": {"const": "forbidden"}
       }
@@ -109,7 +127,7 @@
         "suite_ids": {"$ref": "#/$defs/nonemptyStrings"},
         "environment_class": {"enum": ["offline", "live", "destructive", "credentialed", "evidence-producing", "mixed"]},
         "blocking": {"type": "boolean"},
-        "expected_outputs": {"$ref": "#/$defs/nonemptyStrings"},
+        "expected_outputs": {"$ref": "#/$defs/nonemptyArtifactPaths"},
         "evidence_staleness": {"enum": ["forbidden", "permitted", "required"]}
       }
     }
