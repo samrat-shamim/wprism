@@ -127,7 +127,7 @@ commit/ref receipt for `T0-GATE-10` and is published with the fan-out refs.
 | focused manifest-validation grammar/boot boundary | All non-authority semantic checks pass; 22 shipped-current assertions fail solely because every named v1 closure is intentionally stale |
 | `make --no-print-directory release-gate` after source changes | Expected FAIL in 1.48 s at the first stale subject, `manifests.acf`; branch is non-releasable |
 | `make --no-print-directory regress-offline-all` after source changes | Expected FAIL in 106.09 s at the first stale-current consumer, `regress_manifest_dispositions`; all preceding suites pass and no evidence is regenerated |
-| `scripts/foundation-check --require-unadvanced` | Post-commit fan-out receipt: must pass once with the tag, integration branch, and five thread worktrees all at the exact foundation commit |
+| `scripts/foundation-check --require-unadvanced` | PASS — the annotated tag receipt, integration branch, and five thread worktrees resolve to the exact foundation commit |
 
 Production evidence is regenerated once, after all five threads stabilize an
 exact candidate. Synthetic serializer bytes remain fixed; source-bound bundle
