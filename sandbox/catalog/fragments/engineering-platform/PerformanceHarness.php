@@ -62,8 +62,8 @@ final class PerformanceHarness
             $baselineDist = $this->temporary . '/baseline-dist';
             (new Build($this->root))->build($candidateDist);
             (new Build($this->baselineRoot))->build($baselineDist);
-            $this->startInfrastructure($images, $resources);
             $this->installWordPressPayloads($baselineDist, $candidateDist);
+            $this->startInfrastructure($images, $resources);
             $environment = $this->environment($images, $resources, $baseline['commit']);
             $scenarios = [];
             foreach ($this->scenarioNames() as $scenario) {
@@ -110,7 +110,7 @@ final class PerformanceHarness
             $this->capture(['docker', 'image', 'inspect', $image, '--format={{.Id}}']);
         }
         $documentRoot = $this->temporary . '/wordpress';
-        if (!mkdir($documentRoot, 0777, true)) {
+        if (!is_dir($documentRoot) && !mkdir($documentRoot, 0777, true)) {
             throw new CatalogException('cannot create WordPress performance document root');
         }
         chmod($documentRoot, 0777);
@@ -709,6 +709,10 @@ PHP;
     private function cleanup(): void
     {
         if ($this->wordpressContainer !== '') {
+            $this->tryCommand([
+                'docker', 'exec', $this->wordpressContainer,
+                'chown', '-R', posix_geteuid() . ':' . posix_getegid(), '/var/www/html',
+            ]);
             $this->tryCommand(['docker', 'rm', '--force', $this->wordpressContainer]);
         }
         if ($this->databaseContainer !== '') {
