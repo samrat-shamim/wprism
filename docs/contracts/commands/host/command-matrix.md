@@ -80,3 +80,21 @@ The extracted root may share result objects between human and JSON presenters,
 but presenters cannot calculate a new readiness or authorization decision. A
 legacy fallback may exist only in the test selector while the compatibility
 fixtures are being migrated; no production option may select it.
+
+## Current foundation-check handoff findings
+
+The offline baseline was rerun from the foundation checkout. The following
+results are recorded so integration does not misdiagnose stale suites as a
+reason to relax the frozen safety boundary:
+
+| Suite | Result | Finding and required owner/action |
+| --- | --- | --- |
+| `regress_environment_lifecycle.php` | Fails in its public CLI materialization assertion | The suite expects provider URL validation and a journal/receipt path, but the frozen foundation behavior refuses `duo env materialize` with `environment_materialization_containment_unproved` before registry/provider/journal construction. The direct lifecycle portions still pass. Thread 5 owns this suite; update its public-path expectation when the integrated catalog/P0 baseline is refreshed. |
+| `regress_environment_materializer_ssh.php` | Fails at its public attach-receipt assertion | It reaches the same frozen materialization quarantine and therefore cannot produce an attach receipt. The provider/SSH phase assertions are not evidence that the public quarantine should be bypassed. Thread 5 owns this suite; split the quarantined public check from the provider-phase test when integration is ready. |
+| `regress_plan_contract_trust.php` | Fails during recovery-authority setup | The foundation checkout does not yet contain `Duo\\Recovery\\RollbackControl`; this is a missing Thread 5 recovery-runtime integration dependency, not a host status/parser failure. |
+
+The remaining selected offline suites passed, including environment driver and
+command boundary, materializer/recovery phases, refresh orchestration and
+field planning, plan view/explain, shared recovery protocol, rollback
+authority, adoption rollback, and local bootstrap. No production behavior was
+changed to make the stale/incomplete integration suites pass.
