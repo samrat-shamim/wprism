@@ -238,8 +238,8 @@ branch or edit files before this passes.
     gate and requires a current record for every certified subject. A new WP
     extension joins by adding its manifest, disposition, conformance entry (or
     `sandbox/certification/tests/<test-id>.sh` or
-    `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no
-    central certification allowlist or dispatch switch is edited. The shared
+    `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no central
+    certification allowlist or dispatch switch is edited. The shared
     artifact file is projected to the exact bootstrap theme, conformance-entry
     plugins/themes, and matrix boundaries used by that subject, including each
     selected archive root, so unrelated
