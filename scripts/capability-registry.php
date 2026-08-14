@@ -49,6 +49,8 @@ use Duo\CapabilityRegistry;
 use Duo\ManifestDispositions;
 use Duo\ScopedCertificationBundle;
 use Duo\EvidencePublicationBoundary;
+use Duo\EvidenceInputClosure;
+use Duo\EvidenceSubjectIdentity;
 use Duo\Policy\PolicyPublicationBoundary;
 
 const EVIDENCE_FILE = '/manifests/capabilities/evidence.json';
