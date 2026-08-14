@@ -1,6 +1,6 @@
 # Thread 1 — Engineering platform and runtime composition
 
-*Status: proposed for owner approval.*
+*Status: approved to execute Platform P0 and the subsequent platform work.*
 
 *Depends on: [Thread 0](thread-0-foundation.md).*
 
@@ -19,20 +19,23 @@ and quality tools are development/build inputs, not host requirements.
 
 ## Why this thread exists
 
-- The agent bootstrap has 91 direct requires and a 223-file transitive load
-  graph before deciding whether the request needs journal or CLI behavior. A
+- At the recorded pre-foundation base `9cca320c6625773e1a9bfcfb9060cb57df8ff520`,
+  the agent bootstrap had 91 direct requires and a 223-file transitive load
+  graph before deciding whether the request needed journal or CLI behavior. A
   directional cold-process benchmark showed roughly 50 ms and 12 MB additional
-  RSS; a real FPM/OPcache benchmark is required before setting the production
-  budget.
+  RSS; Platform P0 records a fresh baseline, and a real FPM/OPcache benchmark
+  is required before setting the production budget.
 - The host CLI has another manually ordered load graph, and several files add
   their own conditional or nested requires.
-- Only 46 of 282 PHP module files under `agent/src`, `cli/src`, and `recovery`
-  currently declare strict types.
-- The Makefile is approximately 1,950 lines and manually indexes a 238-suite
-  offline corpus.
-- The offline aggregate currently runs longer than the workflow's five-minute
-  timeout. The diagnostic wrapper buffers output and discards it when an
-  interrupted run exits.
+- At that same base, only 46 of 282 PHP module files under `agent/src`,
+  `cli/src`, and `recovery` declared strict types. These are discovery
+  measurements, not current limits or style targets.
+- The base Makefile was approximately 1,950 lines and manually indexed a
+  238-suite offline corpus.
+- At the base, the offline aggregate ran longer than the workflow's five-minute
+  timeout, and the diagnostic wrapper buffered output and discarded it when an
+  interrupted run exited. P0 measures clean completion before choosing timeout
+  or concurrency policy.
 - The guide-command checker passes independently but has no Make or CI target.
 - There is no Composer project, conventional unit runner, static-analysis
   ratchet, architecture gate, test metadata catalog, or deterministic release
@@ -54,7 +57,9 @@ Thread 1 owns:
   component-profile fragments;
 - `sandbox/lib/**` and test-infrastructure code, but not another thread's
   semantic assertions;
-- build/distribution scripts and artifact manifests;
+- build/distribution scripts, generated build metadata, and output manifests,
+  but not `manifests/**`, contract schemas/policy data, or other threads'
+  semantic manifests;
 - `agent/duo.php`, `agent/duo-loader.php`, and generated agent loaders;
 - `docs/sandbox.md` and developer documentation for setup, testing, building,
   and CI;
@@ -67,6 +72,14 @@ entrypoints and asks Threads 2 or 5 to wire their owned files.
 Thread 0 permanently owns the foundation/ownership/contract policy scripts and
 Thread 4 owns evidence impact/staleness decision scripts. Thread 1 owns their
 Make/CI wrappers and presentation, not the underlying policy logic.
+
+Thread 1 consumes `docs/contracts/**` read-only, except for its exclusive
+`docs/contracts/commands/generated/**` aggregate prefix. Thread 0 owns the
+contract schemas, foundation fixtures, acceptance/ownership records, and their
+refresh policy. Thread 1 requests any change to those sources from Thread 0;
+it never refreshes them as part of a platform gate. `manifests/**` and
+`cli/src/ArtifactTrust/**` remain Thread 4 surfaces, while
+`cli/src/HostContracts/**` remains Thread 2's exported interface surface.
 
 The Thread 0 ledger assigns future build/tooling, generated-loader, test-runner,
 and shared test-harness prefixes exclusively to this thread. It does not grant
@@ -85,7 +98,10 @@ their initial test-only fragments; Thread 1 activates the generated aggregate
 last. Its compatibility check proves the combined suite set matches the legacy
 aggregate and live lists exactly; unknown suites and empty selections fail.
 The complete mini-train lands on `refactor/integration` before Threads 2–5 edit
-production code.
+production code. T1 integrates the owner-authored fragments; it does not write
+another thread's fragment. The lock lifts only after every thread worktree is
+rebased onto that completed P0 integration commit and its nonempty component
+profile passes.
 Parallel/resource-aware execution, CI redesign, and the production loader/dist
 cutover follow without blocking their inventory and characterization work.
 
@@ -117,6 +133,7 @@ make test-unit
 make test-offline
 make test-changed BASE_SHA=<40hex> HEAD_SHA=<40hex>
 make test-component COMPONENT=<name>
+make thread-1-gate
 make test-integration SUITES=<catalog-ids>
 make test-conformance SUBJECTS=<names>
 make verify-generated
@@ -142,6 +159,14 @@ checks run through explicit `make audit` and their visible CI lane. Composer
 packages never appear in deployed runtime artifacts unless a future proposal
 explicitly changes the dependency policy.
 
+The ordinary `make foundation-check` wrapper invokes
+`scripts/foundation-check --policy-only`; its full fan-out and publication
+topology modes are explicit foundation-administration operations, not clean
+checkout prerequisites. `make ownership-check` invokes `scripts/ownership-check`
+without `--refresh`, and `make contracts-check` invokes
+`scripts/contracts-check` without `--refresh-fixtures`. Those refresh modes are
+reserved to Thread 0's reviewed policy/fixture maintenance.
+
 The command DAG is explicit rather than encoded through surprising Make side
 effects:
 
@@ -149,12 +174,12 @@ effects:
 |---|---|---|
 | `bootstrap-dev` | Network and workspace write are explicit | Install only lock-pinned dev tools; emit tool/lock receipt |
 | `doctor` | None; read-only | Report prerequisites and versions; never bootstrap |
-| `check` | None after bootstrap; temp roots only | Static/structural aggregate: format/lint, foundation/ownership/contracts, guide/canonical/recovery-transition, schemas, and generated drift |
+| `check` | None after bootstrap; temp roots only | Static/structural aggregate: format/lint, policy-only foundation plus ownership/contracts wrappers, guide/canonical/recovery-transition, schemas, and generated drift |
 | component profiles | Declared by catalog | Nonempty owned suite set plus relevant static/contract checks |
 | integration/conformance profiles | Exact catalog declaration | Isolated live/destructive suites only when their environment and authority class permits |
 | `build`/`payload-dist-check`/`payload-reproducibility-check` | Dist/temp writes; no network after locked builder acquisition | Clean-tree candidate payload production, membership/boot verification, and two-root byte comparison; no reviewed overlay is required |
 | `candidate-adoption-check` | Independently authorized qualification target; output cannot be released | Exercise pre-evidence transfer/swap/rollback with synthetic test trust, producing an explicitly non-authorizing receipt |
-| `release-family-check`/`assembly-reproducibility-check` | Read-only over retained payload/review/projection bytes; temp assembly output only | Post-evidence trust/closure checks and deterministic assembly; never rebuild or re-sign candidate payloads |
+| `release-family-check`/`assembly-reproducibility-check` | Read-only over retained payload/review-envelope/projection bytes; temp assembly output only | Post-evidence trust/closure checks and deterministic assembly from independently selected exact bytes; never rebuild or re-sign candidate payloads |
 | `release-validation` | Independently authorized qualification target; target mutation is explicit | Post-evidence adoption plus recovery/rollback using the retained exact family/set/composite; no build, signing, or Git write |
 | `perf-smoke`/`perf-budget` | Temp output; budget profile uses pinned service resources | Harness health locally; ratified median/p95 gate only in controlled infrastructure |
 | PR profile | None unless a separately visible live job is selected | Aggregate over independently completed `check`, unit, offline-shard, resolved-SHA selection, build/dist-smoke, and exact evidence-staleness results; it does not rerun those jobs |
@@ -210,7 +235,9 @@ output adoptability: forbidden
 ```
 
 The catalog contains checked-in `platform-p0`, `component-engineering-platform`,
-`component-host-cli`, `component-wordpress-agent`,
+`thread-1-engineering-platform`, `thread-2-host-cli`,
+`thread-3-wordpress-agent`, `thread-4-capability-evidence`,
+`thread-5-mutation-recovery`, `component-host-cli`, `component-wordpress-agent`,
 `component-capability-policy-evidence`, `component-mutation-recovery`, `pr`,
 `frozen-candidate`, `evidence-child`, and `release-validation` gate profiles.
 A profile declares its suite IDs, environment class, blocking semantics,
@@ -219,6 +246,12 @@ IDs, an empty required profile, a live suite in an offline profile, or a missing
 expected output fails validation. `make test-component` resolves only through
 these profiles; ad hoc suite lists remain explicit integration diagnostics, not
 an authority gate.
+
+`make thread-1-gate` is the Thread 1 acceptance target: it materializes
+`artifacts/test-results/thread-1/result.json` for the
+`thread-1-engineering-platform` profile and may delegate to
+`make test-component COMPONENT=engineering-platform`. The latter remains the
+developer-facing component command.
 
 Every aggregate dependency materializes a result with exactly one state:
 `pass`, `not_applicable`, `fail`, or `infra_error`. A path-conditional gate runs
@@ -241,7 +274,8 @@ The runner provides:
   local suites that touch fixed repository or `/tmp` paths;
 - process-group timeouts and cleanup;
 - an execution preflight that resolves each live suite's references against a
-  separately controlled, signed provisioning/environment authority record;
+  fresh, separately controlled `duo-harness-approval/v1` record conforming to
+  `docs/contracts/harness-approval.schema.json`;
   verifies its trust root, freshness, target/image/provisioning identity,
   environment role, data profile, non-production credential realm,
   network/egress/effect policy, sandbox destinations, and non-adoptable output
@@ -279,13 +313,14 @@ invocation schema, dependency lock, toolchain, image, or platform contract does
 not match the frozen candidate's reviewed run plan, or whose independently
 issued provisioning record was stale/mismatched at execution.
 
-The environment authority record follows Thread 0's schema/trust policy and is
-issued by the approved sandbox provisioner or current review authority, outside
-the repository and outside behavior-thread control. Its signing key is distinct
-from product certification/release approval keys. A qualification target lacks
-production credential/approval keys, and adoption/promotion/release selection
-refuses its provenance class, so `non_adoptable` is an enforced trust-boundary
-property rather than a catalog label.
+The harness-approval record is issued by the approved sandbox provisioner or
+current review authority, outside the repository and outside behavior-thread
+control. The runner verifies it but cannot issue, refresh, or weaken it. Its
+signing key is distinct from product certification/release approval keys. A
+qualification target lacks production credential/approval keys, and
+adoption/promotion/release selection refuses its provenance class, so
+`non_adoptable` is an enforced trust-boundary property rather than a catalog
+label.
 
 `guide-check` validates command names, flags, defaults, and cited examples
 against the shared command-contract aggregate and retains the existing
@@ -421,12 +456,15 @@ overlay/projection/**
 ```
 
 The candidate commit produces only the three `payload/**` roots. After review,
-the direct evidence child supplies a detached review bundle under
-`overlay/review/**` and deterministic generated registry/docs/claims under
-`overlay/projection/**`. Generated output is never copied into the declaration
-payload. The installed runtime resolves both overlay roots through Thread 4's
-verified lookup facade, which validates reviewed authority and
-recomputes/compares the projection before using its bytes as a cache.
+the direct evidence child supplies the exact signed review envelope under
+`overlay/review/**`; its signed `duo-review-bundle/v2` payload is the reviewed
+content. The current `duo-projection-pack/v1` under `overlay/projection/**`
+contains only the review-envelope and canonical reviewed-payload digests, and
+the verifier checks that linkage. It does not contain or prove generated
+registry/docs/claim bytes. If Thread 0 approves Thread 4's stronger versioned
+projection contract, Thread 1 packages those deterministic generated bytes only
+in that overlay and the runtime recomputes/compares them before cache use.
+Generated output is never copied into the declaration payload.
 
 A detached target release-set manifest binds all target payload/overlay
 components and both the frozen candidate and direct evidence-child commits. A
@@ -438,18 +476,22 @@ records file paths, content digests, source commit, format/build version, and
 its artifact compatibility contract. Each manifest is excluded from its own
 digest.
 
-The host artifact includes Thread 4's pure `ArtifactTrust` verifier and its
-versioned fixtures. Thread 1 owns only packaging/build closure, not trust policy,
-selection-pin values, review decisions, or the verifier's semantics.
+The host artifact packages Thread 4's pure `ArtifactTrustVerifier` with Thread
+2's host-safe `ReleaseSelection` interface and their declared runtime
+dependencies. Thread 0's foundation fixtures are test inputs and never ship in
+runtime payloads. Thread 1 owns only packaging/build closure, not trust policy,
+selection-pin values, review decisions, or verifier semantics.
 
 Two clean candidate builds from the same source and locked inputs must produce
 identical payload and component-manifest bytes. The builder is a digest-pinned
 image/toolchain. Rebuild in two different absolute roots with fixed locale,
 timezone, umask, and normalized file ordering, modes, timestamps, uid/gid, and
-archive metadata. Review-bundle bytes are imported reviewed input, not
-re-signed by the build. For fixed reviewed inputs, build the projection pack,
-target release set, release-family manifest, and composite twice and compare
-their bytes. Refuse release builds from a dirty tree.
+archive metadata. The exact signed review-envelope bytes are imported reviewed
+input, not re-signed by the build; the target release set binds its envelope
+digest and the projection binds both its envelope and canonical reviewed-payload
+digests. For fixed reviewed inputs, build the projection pack, target release
+set, release-family manifest, and composite twice and compare their bytes.
+Refuse release builds from a dirty tree.
 
 Compatibility metadata is artifact-specific rather than one loose extension
 list. For host CLI, agent, recovery, and declaration consumers it names the
@@ -479,11 +521,14 @@ the retained candidate payloads without rebuilding them and proves:
 
 - overlay roots are physically separate and runtime lookup refuses an
   unverified or mismatched overlay;
-- the configured trusted review key validates the caller-expected review
-  bundle, its payload bindings match actual components, and generated
-  projections recompute byte-for-byte from those reviewed inputs;
+- the independently supplied `ReleaseSelection` and exact pin-record bytes
+  match `pin_record_sha256`; selected trust keys validate the caller-expected
+  signed review envelope, whose `duo-review-bundle/v2` payload bindings match
+  actual host, target-install, declaration, and evidence-input byte maps;
 - caller-supplied expected release-family and target release-set digests match
-  both detached manifests—co-located archive/manifest consistency alone is
+  both detached manifests, while the target set binds the exact review-envelope
+  and projection bytes and the projection binds both envelope and canonical
+  reviewed-payload digests—co-located archive/manifest consistency alone is
   insufficient;
 - the host CLI verifies its own artifact digest and protocol tuple against the
   selected release family before target mutation;
@@ -502,13 +547,14 @@ provenance and can never satisfy release proof. Only the post-evidence
 using the retained exact family/set/composite without rebuild, re-signing, or
 Git write.
 
-This partition avoids recursive authority: the reviewed bundle binds immutable
-candidate payloads; the release manifests bind reviewed and derived detached
-components for transfer integrity; no component grants authority merely by
-naming or packaging itself. Ordinary build/test jobs cannot access the approval
-signing key. Runtime payload reproducibility is checked from the frozen
-candidate, deterministic projection reproducibility from fixed evidence-child
-inputs, and assembly reproducibility from retained exact components.
+This partition avoids recursive authority: the signed review envelope and its
+reviewed payload bind immutable candidate components; the release manifests bind
+reviewed and derived detached components for transfer integrity; no component
+grants authority merely by naming or packaging itself. Ordinary build/test jobs
+cannot access the approval signing key. Runtime payload reproducibility is
+checked from the frozen candidate, deterministic projection reproducibility from
+fixed evidence-child inputs, and assembly reproducibility from retained exact
+components.
 
 Runtime code must never assume a sibling repository checkout.
 
@@ -627,6 +673,10 @@ symlink replacement, membership changes, corruption, and concurrent mutation.
 - Makefile consolidation preserves useful design commentary, either in place
   or in reviewed developer documentation.
 - Thread-specific semantic tests remain owned by their behavior thread.
+- Thread 1 does not refresh Thread 0's acceptance matrix, ownership ledger,
+  contract fixtures, schemas, or policy scripts. Any approved change to a
+  `Done means` item is paired with Thread 0's reviewed acceptance-matrix
+  regeneration.
 
 ## Required verification
 
@@ -649,6 +699,7 @@ make payload-reproducibility-check
 make candidate-adoption-check
 make perf-smoke
 make check
+make thread-1-gate
 ```
 
 Loader changes additionally require real WordPress request benchmarks and
@@ -657,7 +708,10 @@ matrix from the evidence-impact report. At the frozen candidate,
 `candidate-adoption-check` must fail on source-checkout fallback and emit only a
 non-authorizing qualification receipt; the profile additionally requires
 `make perf-budget` and `make audit`. Branch profiles require the exact
-evidence-staleness check.
+evidence-staleness check. T0's current 15 shipped subject identities are
+intentionally stale after the foundation changes: `release-gate` remains
+non-zero until the final evidence-only child, and no behavior branch regenerates
+or signs durable production evidence merely to make an intermediate gate green.
 
 The evidence-child profile alone runs `make release-family-check
 RELEASE_FAMILY=<path>`, `make assembly-reproducibility-check
@@ -668,8 +722,10 @@ retained family/set/composite on an independently authorized qualification
 target. It performs no rebuild/signing/Git write; failure blocks merge/release
 and restarts the frozen-candidate/evidence cycle.
 
-Thread 1's own component gate is
-`make test-component COMPONENT=engineering-platform`.
+Thread 1's developer-facing component command is
+`make test-component COMPONENT=engineering-platform`; its authoritative
+acceptance target and retained result are `make thread-1-gate` and
+`artifacts/test-results/thread-1/result.json`, respectively.
 
 ## Done means
 

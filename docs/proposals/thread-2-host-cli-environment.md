@@ -1,6 +1,6 @@
 # Thread 2 — Host CLI and environment orchestration
 
-*Status: proposed for owner approval.*
+*Status: approved for P0 inventory/test-only work; production execution follows Platform P0.*
 
 *Depends on: [Thread 0](thread-0-foundation.md).*
 
@@ -89,6 +89,35 @@ The Thread 0 ledger assigns future `Application/`, `Environment/`,
 `Transport/`, and `Refresh/` host prefixes to Thread 2. Adapter/catalog and
 mutation/promotion host prefixes belong to Threads 4 and 5 respectively.
 
+The authoritative path assignments are the ledger, not this residual list:
+`cli/src/HostContracts/`, `cli/src/Application/`,
+`cli/src/Environment/`, `cli/src/Transport/`, `cli/src/Refresh/`,
+`docs/contracts/commands/host/`, and
+`sandbox/catalog/fragments/host-cli/` belong to Thread 2. Thread 4 owns
+`cli/src/Adapter/`, `cli/src/ArtifactTrust/`, and the existing host
+adapter/catalog compatibility files. Thread 5 owns
+`cli/src/RecoveryProtocol/`, `cli/src/Mutation/`, and `cli/src/Promotion/`.
+The machine-readable ownership ledger and `scripts/ownership-check` are the
+binding source for any path not named here.
+
+### Foundation execution lock
+
+Inventory and test work may begin from the published foundation tag. Production
+edits remain locked until Thread 1's platform P0 has landed, the owner-authored
+Thread 2–5 test fragments have been integrated, Thread 1 has generated the
+aggregate and activated nonempty profiles, and every thread worktree has
+rebased onto that P0 integration commit. Thread 2's required fragment path is
+`sandbox/catalog/fragments/host-cli/`.
+
+The one-time published fan-out receipt at
+`refs/tags/refactor-foundation-2026-08-14` binds
+`refs/heads/refactor/integration` and the five thread refs to the same
+foundation commit under `duo-foundation-fanout-receipt/v1`. Its publication and
+unadvanced topology were verified and recorded before this charter was
+approved. Subsequent thread refs advance as descendants; the one-time topology
+check is not an ordinary thread gate or permission to bypass the P0
+production-edit lock.
+
 ## Target internal shape
 
 ```text
@@ -166,11 +195,14 @@ Do not introduce a new wire envelope in this round. The gateway must read the
 current protocol exactly. Its boundary makes a future dual-reader migration
 possible.
 
-Centralize all direct `agent/src` compatibility imports behind one named
-legacy bridge. Prevent new imports with the boundary checker. Remove a breach
-only when the host can validate the same contract without copying agent
-business logic. The goal is one visible compatibility debt point, then zero;
-not parallel implementations of canonicalization or policy.
+Centralize direct `agent/src` compatibility imports behind the exception-listed
+compatibility boundary. The exact existing source files and target sets are
+recorded in `refactor-ownership.json`; no new source bridge is permitted by
+`contracts-check`. Remove exceptions individually only when the host validates
+the same contract through the built wire/repository artifact without copying
+agent business logic. This is one boundary policy with a shrinking, exact
+exception list, not one source file or a parallel implementation of
+canonicalization or policy.
 
 The transitional host artifact either packages the bridge's exact files and
 binds them in its artifact/evidence manifest or eliminates the bridge before
@@ -196,11 +228,13 @@ IDs, replay/retry rules, receipts, and refusal behavior byte-compatible.
 The current environment registry does not prove the finalized spec's role,
 data-minimization, credential, egress, retention, or containment requirements.
 Do not add a `disposable: true` shortcut or treat provider booleans as trusted
-attestation. Thread 0 first restricts production-derived materialization to
-approved synthetic fixtures or a loud refusal. The refactor preserves that
-post-safety-gate behavior and exposes a neutrally named
-`CurrentEnvironmentContext` seam. The enhancement round defines and proves the
-future environment profile/containment contract.
+attestation. Foundation disposition is already frozen: `duo env materialize`
+refuses with `environment_materialization_containment_unproved` after complete
+option parsing and before registry/provider/journal construction; `env reap`
+remains available. Preserve that boundary and use the existing
+`EnvironmentAccess`/`TargetInvocation` host contracts. No `CurrentEnvironmentContext`
+API is introduced in this structural round; the enhancement round defines and
+proves the future environment profile/containment contract.
 
 ### 5. Refresh/rebase decomposition
 
@@ -221,7 +255,7 @@ field policy, stable plan/receipt hashes, and current conflict output.
 
 `RefreshPlan` must stop assembling an independent agent runtime. Until the
 proper wire or repository-contract boundary exists, put the current behavior
-behind the single legacy bridge and characterize it.
+behind the exception-listed compatibility boundary and characterize it.
 
 ### 6. Adoption and bootstrap composition
 
@@ -242,26 +276,35 @@ identity with the old source archive is not required after the approved
 generated-loader build change. Adoption must work from an explicit composite
 bundle outside the source checkout and must not fall back to source bytes.
 
-Ratify an immutable internal `ReleaseSelection` input with: composite bundle
-path, expected release-family digest, expected target release-set digest,
-trusted current-review Ed25519 public keys indexed by authority/key IDs, and expected
-host/agent/recovery-protocol tuple. Thread 2 owns the input contract and injects
-it at `cli/duo` and owns the trusted-selection reader. Thread 1 owns only
-manifest format/assembly. Thread 0 owns the selection-pin schema/update policy,
-and an approved release authority or operator-controlled configuration supplies
-the expected family digest outside the artifact producer's control. Trust is
-obtained from that non-co-located pin (or an explicit internal caller input),
-never inferred from a manifest beside the archive. Existing public options
-remain compatible; any new public selector needs the separately reviewed
-artifact-migration command-contract amendment.
+Consume and preserve the ratified immutable internal `ReleaseSelection` input
+with an absolute composite bundle path, expected release-family digest,
+expected target release-set digest,
+expected host-artifact digest, trusted current-review Ed25519 public keys
+indexed by authority/key IDs, expected host/agent/recovery-protocol tuple, and
+the independently pinned selection-record digest. Thread 2 owns the input
+contract and injects it at `cli/duo` and owns the trusted-selection reader.
+Thread 1 owns only manifest format/assembly. Thread 0 owns the selection-pin
+schema/update policy, and an approved release authority or operator-controlled
+configuration supplies the expected family digest outside the artifact
+producer's control. Trust is obtained from that non-co-located pin (or an
+explicit internal caller input), never inferred from a manifest beside the
+archive. Existing public options remain compatible; any new public selector
+needs the separately reviewed artifact-migration command-contract amendment.
 
 Adoption verifies the complete selection, review authority, every expected
-payload/overlay digest, recomputed projection agreement, and actual bytes
-before staging. It does so through Thread 4's pure host-safe artifact-trust
-verifier, packaged and closure-bound in the host artifact by Thread 1; host code
-does not import agent/WordPress implementation. A fixture modifies an archive
-and its adjacent manifests consistently and proves rejection because neither
-matches the independently pinned release family.
+payload/overlay digest, current v1 projection-linkage agreement, and actual
+bytes before staging. Generated projection recomputation and byte comparison
+require the separately approved versioned projection contract described by
+Thread 4. Thread 2 passes exact named byte maps
+`declarationPayloadBytes` and `evidenceInputBytes` to Thread 4's pure host-safe
+`ArtifactTrustVerifier`. Their keys must exactly match the signed review
+payload's `declaration_payloads` and `evidence_inputs`; each supplied raw byte
+string is hashed as `sha256:<digest>`, and missing, extra, renamed, or
+substituted entries refuse. The verifier is packaged and closure-bound in the
+host artifact by Thread 1; host code does not import agent/WordPress
+implementation. Fixtures modify an archive, adjacent manifests, declaration
+bytes, and evidence bytes consistently and prove rejection because none can
+override the independently pinned release family or signed review bindings.
 
 ### 7. Host presentation boundary
 
@@ -281,7 +324,8 @@ top-level rendering and process exit behavior.
 - environment registry repository and current lifecycle facade.
 - Git/worktree/process ports.
 - host output/presenter contract.
-- one documented legacy agent-contract bridge with a shrinking import list.
+- exception-listed host/agent compatibility boundary with exact source/target
+  sets and shrinking removal conditions.
 - stable HostContracts consumed by Thread 5.
 - host composition for Thread 5's byte-compatible recovery protocol client,
   used to remove root imports of recovery internals.
@@ -320,7 +364,13 @@ At minimum, run the catalog-selected suites for:
 Use the common commands from Thread 1, including
 `make test-component COMPONENT=host-cli` and explicit catalog IDs for
 integration/conformance lanes. Thread 2 owns the host-cli catalog/component
-profile fragment; Thread 1 validates and aggregates it.
+profile fragment at `sandbox/catalog/fragments/host-cli/`; Thread 1 validates
+and aggregates it. The component profile must be nonempty before the P0
+production-edit lock is released.
+
+`make thread-2-gate` is the authoritative Thread 2 acceptance target. It may
+delegate to the focused component profile but must retain the structured result
+at `artifacts/test-results/thread-2/result.json`.
 
 Live/SSH suites run where the foundation impact map requires them. All command
 fixtures must pass against both the legacy root and the extracted root during
@@ -332,6 +382,11 @@ Pre-evidence adoption uses Thread 1's explicitly non-authorizing candidate
 profile only. Final adoption proof comes solely from the post-evidence
 release-validation profile, which also exercises recovery/rollback on its
 independently authorized qualification target without rebuilding the artifact.
+The foundation branch is intentionally non-releasable while source-bound v1
+subjects are stale: do not regenerate or sign durable evidence on this thread.
+Run component/profile and impact-selected suites; final release-gate and
+release-validation use one frozen integrated candidate and the retained exact
+family, target-set, composite, declaration, and evidence bytes.
 
 ## Done means
 
