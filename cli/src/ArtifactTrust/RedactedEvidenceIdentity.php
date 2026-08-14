@@ -20,9 +20,11 @@ final class RedactedEvidenceIdentity {
         $keys = array_keys($identity); sort($keys, SORT_STRING);
         if ($keys !== ['format','keyed_bindings','public','secret_references']
             || ($identity['format'] ?? null) !== self::FORMAT
-            || !is_array($identity['public'] ?? null) || array_is_list($identity['public'])
+            || !is_array($identity['public'] ?? null)
+            || ($identity['public'] !== [] && array_is_list($identity['public']))
             || !is_array($identity['secret_references'] ?? null) || !array_is_list($identity['secret_references'])
-            || !is_array($identity['keyed_bindings'] ?? null) || array_is_list($identity['keyed_bindings'])) {
+            || !is_array($identity['keyed_bindings'] ?? null)
+            || ($identity['keyed_bindings'] !== [] && array_is_list($identity['keyed_bindings']))) {
             throw new \RuntimeException('duo evidence: redacted identity is malformed');
         }
         if ($identity['public'] === [] && $identity['secret_references'] === [] && $identity['keyed_bindings'] === []) {

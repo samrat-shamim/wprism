@@ -18,7 +18,9 @@ final class ArtifactTrustVerifier {
         string $hostArtifactBytes,
         string $targetInstallBytes,
         string $reviewEnvelopeBytes,
-        string $projectionPackBytes
+        string $projectionPackBytes,
+        array $declarationPayloadBytes,
+        array $evidenceInputBytes
     ): array {
         self::assertDigest($selection->pinRecordSha256, $pinRecordBytes, 'selection pin record');
         $pin = self::canonicalObject($pinRecordBytes, 'selection pin record');
@@ -70,7 +72,9 @@ final class ArtifactTrustVerifier {
             $review['payload'],
             $selection,
             $hostArtifactBytes,
-            $targetInstallBytes
+            $targetInstallBytes,
+            $declarationPayloadBytes,
+            $evidenceInputBytes
         );
 
         $projection = self::canonicalObject($projectionPackBytes, 'projection pack');
@@ -124,7 +128,9 @@ final class ArtifactTrustVerifier {
         array $payload,
         ReleaseSelection $selection,
         string $hostArtifactBytes,
-        string $targetInstallBytes
+        string $targetInstallBytes,
+        array $declarationPayloadBytes,
+        array $evidenceInputBytes
     ): void {
         self::assertClosedKeys($payload, [
             'declaration_payloads', 'evidence_inputs', 'format', 'host_artifact_sha256',
@@ -136,18 +142,30 @@ final class ArtifactTrustVerifier {
             || self::canonical((array) ($payload['protocols'] ?? [])) !== self::canonical($selection->expectedProtocols)) {
             throw new \RuntimeException('duo adopt: signed review does not bind the selected target, host, and protocol components');
         }
-        foreach (['declaration_payloads', 'evidence_inputs'] as $field) {
-            $map = $payload[$field] ?? null;
-            if (!is_array($map) || array_is_list($map) || $map === []) {
-                throw new \RuntimeException("duo adopt: signed review $field is absent or malformed");
-            }
-            foreach ($map as $name => $digest) {
-                if (!is_string($name) || preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $name) !== 1
-                    || !is_string($digest) || preg_match('/^sha256:[a-f0-9]{64}$/D', $digest) !== 1) {
-                    throw new \RuntimeException("duo adopt: signed review $field is absent or malformed");
-                }
+        foreach ([
+            'declaration_payloads' => $declarationPayloadBytes,
+            'evidence_inputs' => $evidenceInputBytes,
+        ] as $field => $bytesByName) {
+            if (($payload[$field] ?? null) !== self::digestMap($bytesByName, $field)) {
+                throw new \RuntimeException("duo adopt: signed review does not bind the supplied $field bytes");
             }
         }
+    }
+
+    /** @param array<string,mixed> $bytesByName @return array<string,string> */
+    private static function digestMap(array $bytesByName, string $label): array {
+        if ($bytesByName === [] || array_is_list($bytesByName)) {
+            throw new \RuntimeException("duo adopt: $label byte map is absent or malformed");
+        }
+        $digests = [];
+        foreach ($bytesByName as $name => $bytes) {
+            if (!is_string($name) || preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $name) !== 1 || !is_string($bytes)) {
+                throw new \RuntimeException("duo adopt: $label byte map is absent or malformed");
+            }
+            $digests[$name] = self::digest($bytes);
+        }
+        ksort($digests, SORT_STRING);
+        return $digests;
     }
 
     private static function assertDigest(string $expected, string $bytes, string $label): void {

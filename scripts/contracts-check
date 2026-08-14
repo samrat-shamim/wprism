@@ -149,6 +149,8 @@ if ((fileperms($newTarget) & 0777) !== 0640) fail_contract('atomic publication i
 // agree transitively; no adjacent artifact is permitted to nominate its own trust root.
 $archive = "target-install-v1\n";
 $hostArtifact = "host-artifact-v1\n";
+$declarationPayloadBytes = ['manifests' => "declaration-payload-v1\n"];
+$evidenceInputBytes = ['certification' => "certification-evidence-v1\n"];
 $protocols = ['host' => 'host-v1', 'recovery' => 'recovery-v1', 'agent' => 'agent-v1'];
 $keyPair = sodium_crypto_sign_seed_keypair(str_repeat("\x42", SODIUM_CRYPTO_SIGN_SEEDBYTES));
 $publicKey = sodium_crypto_sign_publickey($keyPair);
@@ -158,8 +160,8 @@ $trustedKeys = [
     'backup-review:backup-key' => base64_encode($publicKey),
 ];
 $reviewedPayload = [
-    'declaration_payloads' => ['manifests' => 'sha256:' . str_repeat('c', 64)],
-    'evidence_inputs' => ['certification' => 'sha256:' . str_repeat('d', 64)],
+    'declaration_payloads' => ['manifests' => 'sha256:' . hash('sha256', $declarationPayloadBytes['manifests'])],
+    'evidence_inputs' => ['certification' => 'sha256:' . hash('sha256', $evidenceInputBytes['certification'])],
     'format' => 'duo-review-bundle/v2',
     'host_artifact_sha256' => 'sha256:' . hash('sha256', $hostArtifact),
     'protocols' => $protocols,
@@ -208,7 +210,10 @@ $selection = new ReleaseSelection(
     $trustedKeys,
     'sha256:' . hash('sha256', $pin)
 );
-ArtifactTrustVerifier::verify($selection, $pin, $family, $targetSet, $hostArtifact, $archive, $review, $projection);
+ArtifactTrustVerifier::verify(
+    $selection, $pin, $family, $targetSet, $hostArtifact, $archive, $review, $projection,
+    $declarationPayloadBytes, $evidenceInputBytes
+);
 $reviewVerifier = (new ReflectionClass(ArtifactTrustVerifier::class))->getMethod('verifyReviewEnvelope');
 $reviewVerifier->invoke(null, $selection, $review);
 foreach (['unsigned', 'wrong-key', 'modified-payload'] as $signatureAttack) {
@@ -243,7 +248,10 @@ $adjacentSet = compact_canonical([
     'target_install_sha256' => 'sha256:' . hash('sha256', $modified),
 ]);
 try {
-    ArtifactTrustVerifier::verify($selection, $pin, $family, $adjacentSet, $hostArtifact, $modified, $review, $projection);
+    ArtifactTrustVerifier::verify(
+        $selection, $pin, $family, $adjacentSet, $hostArtifact, $modified, $review, $projection,
+        $declarationPayloadBytes, $evidenceInputBytes
+    );
     fail_contract('modified archive plus matching adjacent manifest bypassed caller pin');
 } catch (RuntimeException $e) {
     if (!str_contains($e->getMessage(), 'target release set')) throw $e;
@@ -274,7 +282,7 @@ $transplantSelection = new ReleaseSelection(
 try {
     ArtifactTrustVerifier::verify(
         $transplantSelection, $transplantPin, $transplantFamily, $adjacentSet,
-        $hostArtifact, $modified, $review, $projection
+        $hostArtifact, $modified, $review, $projection, $declarationPayloadBytes, $evidenceInputBytes
     );
     fail_contract('valid signed review was transplanted onto unrelated target bytes');
 } catch (RuntimeException $e) {
@@ -307,11 +315,31 @@ $hostSelection = new ReleaseSelection(
 try {
     ArtifactTrustVerifier::verify(
         $hostSelection, $hostPin, $hostFamily, $targetSet,
-        $modifiedHost, $archive, $review, $projection
+        $modifiedHost, $archive, $review, $projection, $declarationPayloadBytes, $evidenceInputBytes
     );
     fail_contract('signed component review accepted a substituted host artifact');
 } catch (RuntimeException $e) {
     if (!str_contains($e->getMessage(), 'signed review does not bind')) throw $e;
+}
+try {
+    ArtifactTrustVerifier::verify(
+        $selection, $pin, $family, $targetSet, $hostArtifact, $archive, $review, $projection,
+        ['manifests' => "substituted-declaration-payload\n"], $evidenceInputBytes
+    );
+    fail_contract('signed component review accepted substituted declaration bytes');
+} catch (RuntimeException $e) {
+    if (!str_contains($e->getMessage(), 'declaration_payloads')) throw $e;
+}
+foreach ([[], $declarationPayloadBytes + ['extra' => "unreviewed-declaration\n"]] as $invalidDeclarations) {
+    try {
+        ArtifactTrustVerifier::verify(
+            $selection, $pin, $family, $targetSet, $hostArtifact, $archive, $review, $projection,
+            $invalidDeclarations, $evidenceInputBytes
+        );
+        fail_contract('signed component review accepted a missing or extra declaration byte map');
+    } catch (RuntimeException $e) {
+        if (!str_contains($e->getMessage(), 'declaration_payloads')) throw $e;
+    }
 }
 foreach (['unsigned', 'wrong-key', 'modified-payload', 'modified-projection', 'unbound-pin'] as $attack) {
     $badReview = $review;
@@ -328,7 +356,9 @@ foreach (['unsigned', 'wrong-key', 'modified-payload', 'modified-projection', 'u
             )),
         ]);
     } elseif ($attack === 'modified-payload') {
-        $badReview = str_replace(str_repeat('d', 64), str_repeat('e', 64), $review);
+        $badReviewValue = json_decode($review, true, 512, JSON_THROW_ON_ERROR);
+        $badReviewValue['payload']['evidence_inputs']['certification'] = 'sha256:' . str_repeat('e', 64);
+        $badReview = compact_canonical($badReviewValue);
     } elseif ($attack === 'modified-projection') {
         $badProjectionValue = json_decode($projection, true, 512, JSON_THROW_ON_ERROR);
         $badProjectionValue['reviewed_payload_sha256'] = 'sha256:' . str_repeat('e', 64);
@@ -337,7 +367,10 @@ foreach (['unsigned', 'wrong-key', 'modified-payload', 'modified-projection', 'u
         $badPin = str_replace('host-v1', 'host-v2', $pin);
     }
     try {
-        ArtifactTrustVerifier::verify($selection, $badPin, $family, $targetSet, $hostArtifact, $archive, $badReview, $badProjection);
+        ArtifactTrustVerifier::verify(
+            $selection, $badPin, $family, $targetSet, $hostArtifact, $archive, $badReview, $badProjection,
+            $declarationPayloadBytes, $evidenceInputBytes
+        );
         fail_contract("artifact trust accepted $attack evidence");
     } catch (RuntimeException $e) {
         if (!str_starts_with($e->getMessage(), 'duo adopt:')) throw $e;
@@ -353,6 +386,19 @@ $redactedIdentity = [
     ],
 ];
 RedactedEvidenceIdentity::assertValid($redactedIdentity);
+foreach ([
+    ['public' => ['toolchain_profile' => 'composer-2'], 'keyed_bindings' => []],
+    ['public' => ['platform_profile' => 'wordpress-7.0.3'], 'keyed_bindings' => []],
+    ['public' => [], 'keyed_bindings' => ['duo.provider.v1:identity-key-1' => 'hmac-sha256:' . str_repeat('c', 64)]],
+    ['public' => [], 'keyed_bindings' => ['duo.environment.v1:identity-key-1' => 'hmac-sha256:' . str_repeat('d', 64)]],
+] as $minimalIdentity) {
+    RedactedEvidenceIdentity::assertValid([
+        'format' => RedactedEvidenceIdentity::FORMAT,
+        'public' => $minimalIdentity['public'],
+        'secret_references' => [],
+        'keyed_bindings' => $minimalIdentity['keyed_bindings'],
+    ]);
+}
 $identitySchema = json_object($root . '/docs/contracts/evidence-identity.schema.json');
 $publicRegistry = (new ReflectionClass(RedactedEvidenceIdentity::class))
     ->getReflectionConstant('PUBLIC_VALUES')->getValue();
