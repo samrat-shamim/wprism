@@ -6,6 +6,7 @@ declare(strict_types=1);
 use Duo\EngineeringPlatform\CatalogException;
 use Duo\EngineeringPlatform\Performance;
 
+require_once dirname(__DIR__, 4) . '/vendor/autoload.php';
 require_once __DIR__ . '/CatalogException.php';
 require_once __DIR__ . '/DeterministicArchive.php';
 require_once __DIR__ . '/Build.php';
