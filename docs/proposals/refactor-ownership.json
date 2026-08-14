@@ -3846,6 +3846,32 @@
             "owner": "thread-0"
         }
     ],
+    "future_files": [
+        {
+            "path": ".editorconfig",
+            "owner": "thread-1"
+        },
+        {
+            "path": ".php-cs-fixer.dist.php",
+            "owner": "thread-1"
+        },
+        {
+            "path": "composer.json",
+            "owner": "thread-1"
+        },
+        {
+            "path": "composer.lock",
+            "owner": "thread-1"
+        },
+        {
+            "path": "phpstan.neon",
+            "owner": "thread-1"
+        },
+        {
+            "path": "phpunit.xml",
+            "owner": "thread-1"
+        }
+    ],
     "new_prefixes": [
         {
             "prefix": "agent/src/Agent/",

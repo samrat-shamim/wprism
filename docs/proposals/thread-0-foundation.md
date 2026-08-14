@@ -382,6 +382,12 @@ ownership is:
 | `sandbox/tests/**` semantic assertions and `sandbox/fixtures/**` semantic data | Thread owning the cataloged behavior |
 | Test runner, sharding, shared harness, compose/workspace infrastructure | Thread 1 |
 
+The exhaustive ledger reserves the approved root dev-tool filenames as exact
+future-file assignments to Thread 1. Unlike exclusive directory prefixes,
+these reservations may name files that do not exist at foundation time; once
+created, the ordinary non-refresh ownership check applies them and still
+rejects every unreserved new root file.
+
 The execution charters provide initial allowlists for mixed directories.
 Thread 0 turns those into one exhaustive file ledger and resolves any overlap
 before fan-out. Cross-domain files such as `Canon.php`, `CommandRefusal.php`,
