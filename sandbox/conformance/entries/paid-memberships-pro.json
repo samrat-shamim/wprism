@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "paid-memberships-pro"],
+    "plugins": [{"slug": "paid-memberships-pro", "version": "3.8.3"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "paid-memberships-pro"
+}

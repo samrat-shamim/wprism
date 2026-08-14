@@ -978,8 +978,9 @@ check(
 // instantly, and the live harness's paused root-replacement races then time out
 // waiting for an init lease no confirmation ever took — the bundle blocked on
 // the evidence it exists to mint. The live harness now mounts a hermetic
-// library (the shipped manifests byte for byte, attestation re-sealed against
-// the working tree) instead of the live one. Pinned here because the ordering
+// library (the shipped manifests byte for byte, with independent subject
+// records re-sealed against the working tree) instead of the live one. Pinned
+// here because the ordering
 // is the whole property: sealed and asserted BEFORE the pair exists, and the
 // live library never mounted at all.
 $fixtureBuild = strpos($liveHarness, 'php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT"');
@@ -1009,14 +1010,15 @@ $sealedRegistry = \Duo\Canon::decode(\Duo\Canon::read_file("$sealedDir/capabilit
 $sealedStatuses = [];
 foreach (['manifests', 'profiles'] as $sealedSection) {
     foreach ($sealedRegistry[$sealedSection] as $sealedClaim) {
-        $sealedStatuses[(string) ($sealedClaim['evidence']['status'] ?? '?')] = true;
+        if (($sealedClaim['status'] ?? null) === 'certified') {
+            $sealedStatuses[(string) ($sealedClaim['evidence']['status'] ?? '?')] = true;
+        }
     }
 }
 check(
-    ($sealedRegistry['evidence']['status'] ?? null) === 'current'
-        && array_keys($sealedStatuses) === ['current']
+    array_keys($sealedStatuses) === ['current']
         && duo_cert_library_bytes($sealedDir) === duo_cert_library_bytes(dirname(__DIR__, 2) . '/manifests'),
-    'the shared certification fixture seals this tree into a current attestation over byte-identical shipped manifests'
+    'the shared certification fixture seals every certified subject independently over byte-identical shipped manifests'
 );
 
 // DUO-3421. The confirmation logs are the only place a paused confirmation's

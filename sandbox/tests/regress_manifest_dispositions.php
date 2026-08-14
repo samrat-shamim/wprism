@@ -74,14 +74,23 @@ $manifestFiles = array_values(array_filter(
     fn(string $path): bool => basename($path) !== 'dispositions.json'
 ));
 $manifests = array_map(fn(string $path): array => Canon::decode(Canon::read_file($path)), $manifestFiles);
+$manifestsByName = [];
+foreach ($manifests as $manifest) {
+    $manifestsByName[(string) ($manifest['name'] ?? '')] = $manifest;
+}
 $capabilityRegistry = CapabilityRegistry::load($manifestDir, $registry, $manifests);
 
 echo "\n== complete external matrix and honest classifications ==\n";
 check(count($data['manifests']) === count($manifestFiles), 'every shipped manifest has exactly one external disposition');
-$statuses = array_count_values(array_column($data['manifests'], 'status'));
-check(($statuses['certified'] ?? 0) === 8, 'eight ratified v1 manifests are certified');
-check(($statuses['experimental'] ?? 0) === 2, 'PMPro and The Events Calendar are explicitly experimental');
-check(($statuses['excluded'] ?? 0) === 5, 'all five Duo-only fixtures are explicitly excluded');
+check(
+    array_diff(array_column($data['manifests'], 'status'), ['certified', 'experimental', 'excluded']) === [],
+    'every shipped manifest has a closed reviewed disposition'
+);
+check(
+    ($data['manifests']['paid-memberships-pro']['status'] ?? null) === 'experimental'
+        && ($data['manifests']['the-events-calendar']['status'] ?? null) === 'experimental',
+    'PMPro and The Events Calendar remain explicitly experimental'
+);
 check(($data['profiles']['fse']['status'] ?? null) === 'certified', 'FSE is a named certified profile of core');
 foreach ($data['manifests'] as $name => $entry) {
     check(isset($entry['supported_versions'], $entry['capabilities']['entity_sections'], $entry['capabilities']['field_sections']), "$name names versions, entities, and fields");
@@ -90,36 +99,33 @@ foreach ($data['manifests'] as $name => $entry) {
 }
 
 echo "\n== evidence references and policy readiness ==\n";
-$knownBundleTests = [
-    'conformance-acf',
-    'conformance-contact-form-7',
-    'conformance-core',
-    'conformance-elementor',
-    'conformance-fse',
-    'conformance-ninja-forms',
-    'conformance-paid-memberships-pro',
-    'conformance-polylang',
-    'conformance-woocommerce',
-    'conformance-yoast',
-    'exact-artifact-version-matrix',
-    'multisite-refusal',
-];
+function subject_test_is_discoverable(string $repo, string $test, string $name): bool {
+    if ($test === "conformance-$name") {
+        return is_file("$repo/sandbox/conformance/entries/$name.json");
+    }
+    if ($test === 'exact-artifact-version-matrix' || ($test === 'multisite-refusal' && $name === 'core')) {
+        return true;
+    }
+    return is_executable("$repo/sandbox/certification/tests/$test.sh");
+}
 foreach ($data['manifests'] as $name => $entry) {
     if ($entry['status'] !== 'certified') { continue; }
     foreach ($entry['evidence']['tests'] as $test) {
-        check(in_array($test, $knownBundleTests, true), "$name cites a current reference-bundle test");
+        check(subject_test_is_discoverable($repo, $test, $name), "$name cites a discoverable subject-certification test");
     }
 }
 foreach ($data['profiles'] as $name => $entry) {
     foreach ($entry['evidence']['tests'] as $test) {
-        check(in_array($test, $knownBundleTests, true), "$name profile cites a current reference-bundle test");
+        check(subject_test_is_discoverable($repo, $test, $name), "$name profile cites a discoverable subject-certification test");
     }
 }
-foreach (['acf', 'contact-form-7', 'elementor', 'ninja-forms', 'polylang', 'woocommerce', 'yoast'] as $name) {
+foreach ($data['manifests'] as $name => $entry) {
+    if (($entry['status'] ?? null) !== 'certified' || !isset($manifestsByName[$name]['plugin'])) {
+        continue;
+    }
     check(
-        ($data['manifests'][$name]['evidence']['tests'] ?? null)
-            === ["conformance-$name", 'exact-artifact-version-matrix'],
-        "$name cites its own live conformance and the exact-version matrix"
+        in_array("conformance-$name", $entry['evidence']['tests'] ?? [], true),
+        "$name cites its convention-discovered live conformance"
     );
 }
 check(
@@ -136,7 +142,7 @@ check(
 );
 $corePolicy = Policy::load(null, ['core']);
 $coreBlockers = $corePolicy->adapter_readiness_blockers();
-if (($capabilityRegistry->data()['evidence']['status'] ?? null) === 'current') {
+if (($capabilityRegistry->data()['manifests']['core']['evidence']['status'] ?? null) === 'current') {
     check($coreBlockers === [], 'a certified core pin with current evidence contributes no capability blocker');
 } else {
     check(($coreBlockers[0]['code'] ?? null) === 'evidence_not_current', 'candidate evidence remains a structured readiness blocker');

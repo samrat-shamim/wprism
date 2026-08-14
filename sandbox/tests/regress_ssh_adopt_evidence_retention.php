@@ -61,9 +61,9 @@ $check(
     'the retained diagnostic directory is explicitly mode 0700'
 );
 
-$hermeticAt = strpos($harness, '# The shipped capability attestation is intentionally candidate/expired');
+$hermeticAt = strpos($harness, '# The shipped capability records are intentionally candidate/expired');
 $hermeticArchive = 'tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities';
-$scopedSay = 'say "install the hermetic current-evidence capability projection for scoped promotion"';
+$scopedSay = 'say "install hermetic independently current subject evidence for scoped promotion"';
 $hermeticInstall = 'tar -C /var/www/html/wp-content/mu-plugins/manifests -xf \'$REMOTE_CAPABILITIES_ARCHIVE\'';
 $scopedAt = strpos($harness, $scopedSay);
 $check(
@@ -73,10 +73,11 @@ $check(
         && str_contains($harness, $hermeticArchive)
         && str_contains($harness, 'scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE"')
         && str_contains($harness, $hermeticInstall)
-        && str_contains($harness, '"evidence"]["status"]??null)==="current"')
-        && !str_contains(substr($harness, $scopedAt), 'capability-registry.php import-bundle')
+        && str_contains($harness, 'foreach(["manifests","profiles"] as $s)')
+        && str_contains($harness, '($v["status"]??null)==="certified"&&($v["evidence"]["status"]??null)!=="current"')
+        && !str_contains(substr($harness, $scopedAt), 'capability-registry.php import-')
         && !str_contains(substr($harness, $scopedAt), 'DUO_MANIFESTS_DIR=') ,
-    'scoped SSH promotion manufactures and installs only the hermetic current-evidence projection before promotion, without importing or bypassing the product gate'
+    'scoped SSH promotion manufactures and installs independent current records for every certified subject before promotion, without importing or bypassing the product gate'
 );
 
 $diagnosticAssignments = [

@@ -42,9 +42,7 @@
 # - `up` performs the host-budget check before creating any pair database or
 #   site-repo state. A new pair over the dynamic CPU/RAM budget is refused;
 #   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
-#   the same budget warning for pairs already up. The one exception is the
-#   pair named by a HELD host certification lock, which is already budgeted
-#   for the length of that bundle — see certbundle_reserved_pair() below.
+#   the same budget warning for pairs already up.
 #
 # - `up`/`reset`/`start` print the agent/manifests bind-mount source they
 #   will actually use (path + HEAD) before doing anything, and refuse if
@@ -248,7 +246,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # left exported in someone's shell.
 assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-dir]
   local subcommand="$1" baked="${2:-}"
-  local canonical source_root actual expected dirt dirt_err origin=""
+  local canonical selected source_root actual expected dirt dirt_err origin=""
 
   # An unresolvable canonical root is NOT this function's failure to report
   # while the gate is off: `reset` never needed git at all (it only touches
@@ -261,15 +259,17 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   # this refusal instead of its codebind one. With the gate ON it is fatal:
   # a run that demands an exact source cannot proceed without identifying it.
   canonical="$(canonical_root)" || canonical=""
-  # DUO-3277's canonical bind root stays exactly what pair_compose_configure() exports
-  # and writes to sandbox/.env. A baked source only ever changes what this
-  # gate VERIFIES, never what any later compose call mounts.
+  selected="$(pair_identity_source_root)" || selected=""
+  # The canonical root remains the shared budget-lock identity. The selected
+  # source controls only agent/manifests mounts and is normally canonical;
+  # evidence lanes may explicitly select their clean linked worktree.
   [ -n "$canonical" ] && PAIR_CANONICAL_ROOT="$canonical"
+  [ -n "$selected" ] && PAIR_SOURCE_ROOT="$selected"
 
-  source_root="$canonical"
-  if [ -n "$baked" ] && [ "$baked" != "$canonical/agent" ]; then
+  source_root="$selected"
+  if [ -n "$baked" ] && [ "$baked" != "$selected/agent" ]; then
     source_root="$(dirname "$baked")"
-    origin=" (baked into this pair's existing containers at create time; this checkout's canonical root is $canonical)"
+    origin=" (baked into this pair's existing containers at create time; the selected source root is $selected)"
   fi
   if [ -n "$source_root" ]; then
     actual="$(git -C "$source_root" rev-parse --verify HEAD 2>/dev/null)" || actual=""
@@ -304,7 +304,7 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   [[ "$expected" =~ ^[0-9a-f]{7,40}$ ]] \
     || fail "DUO_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA (got '${DUO_EXPECTED_SOURCE_SHA}') -- take it from \`git rev-parse HEAD\` in the checkout whose bytes this evidence is about; refusing before any pair mutation rather than guessing what was meant"
   [ -n "$source_root" ] \
-    || fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- the agent/manifests bind-mount source cannot be identified, so DUO_EXPECTED_SOURCE_SHA=$expected cannot be honored; refusing before any pair mutation"
+    || fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be the exact physical path of a worktree from this repository; DUO_EXPECTED_SOURCE_SHA=$expected cannot be honored"
   [ -n "$actual" ] \
     || fail "candidate-source gate is set (DUO_EXPECTED_SOURCE_SHA=$expected) but the mounted source has no resolvable HEAD: $source_root -- refusing before any pair mutation"
   if [ "${actual:0:${#expected}}" != "$expected" ]; then
@@ -313,11 +313,10 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   actual mounted source:              ${source_root}/{agent,manifests}${origin}
   actual mounted source HEAD:         $actual
   this pair.sh copy is running from:  $(pwd)
-This is DUO-3277's canonical bind working as designed and DUO-3377's evidence hazard: agent/manifests always resolve to the CANONICAL checkout (git's own common-dir), so a live run launched from an issue worktree executes the canonical checkout's bytes, not your branch's.
-remedy: produce this evidence from a standalone clone of the candidate at that exact commit --
-  git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>
-  cd /path/to/duo-wp-live-<issue> && DUO_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
-or, if the canonical checkout genuinely IS the intended source, set DUO_EXPECTED_SOURCE_SHA=$actual (or leave it unset for a run that is not candidate-bound)"
+By default persistent pairs mount the canonical checkout. For evidence from a
+linked worktree, explicitly select that exact physical worktree:
+  DUO_SOURCE_ROOT=\$(pwd -P) DUO_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
+Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout genuinely is the intended source."
   fi
   # The right commit says nothing about the two directories being PRESENT:
   # `git status -- <pathspec>` reports nothing at all for a path that does not
@@ -465,115 +464,6 @@ pair_budget() {
   printf '%s\n' "$budget"
 }
 
-# DUO-3396: the pair a HELD host certification lock names is already budgeted.
-#
-# sandbox/tests/certify_reference_bundle.sh holds the per-host certification
-# lock (DUO-3382) for one whole ~50-minute run, but it destroys and recreates
-# ONE pair -- the pair it recorded in that lock -- once per leg. Every recreate
-# re-enters the reservation below, so the default 14-leg bundle asks the host
-# for its own pair thirteen times (every leg but the offline init-contract one;
-# DUO-3427/DUO-3428 returned legs 13-14 to the certified set), and a leg that
-# lands after other agents have filled the
-# budget in between is refused ("refusing to bring up new pair ... over
-# budget"), which ends the bundle in an immutable FAIL verdict after the legs
-# it had already earned (observed live: leg 6, ~25 minutes of green burned).
-# Actual DUO_PAIR_BUDGET_OVERRIDE use is recorded through the scoped and
-# reference certifiers' private ledger, so a forced run never falsely claims
-# force_hatches:[]. Availability alone records nothing. Such a bundle remains
-# auditable but cannot be published as a current capability claim; the
-# reservation below is still preferred for an unforced certifier.
-#
-# The slot was committed when the bundle started and the lock is the thing that
-# says it still is, so while that lock is held the recorded pair counts as
-# already budgeted. Two properties carry it, and BOTH fail open toward the
-# ordinary refusal -- no record, an unreadable record, a different name, a lock
-# nobody holds, or no way to ask: the budget then applies exactly as it did
-# before this existed.
-#
-#   Exact name, never a pattern. The recorded name is compared literally; no
-#   prefix, no glob, no `case`. DUO-3382 holds the same discipline for the same
-#   reason (docs/agents/linear-loop.md's field note): a pattern matches
-#   whatever merely CONTAINS the string, including every other agent's pair.
-#
-#   Held right now, decided by the kernel. holder.json is DUO-3382's NAMING
-#   record, not its lock: it is written after the lock is taken, and a crashed
-#   run's record outlives it until the next acquirer sweeps it. Trusting its
-#   existence would hand a dead bundle a permanent reservation on this host --
-#   a phantom that nothing would ever clear. So the question "is it held" goes
-#   to the flock(2) itself, which the kernel drops the instant its holder stops
-#   existing: an acquire that SUCCEEDS is proof that nobody held it.
-#
-# This is the read side of that lock and nothing else. It never creates the
-# rendezvous, never writes or removes the record, and never keeps the
-# descriptor. CERT_BUNDLE_LOCK_DIR is honored so the offline regression can
-# drive a private rendezvous exactly as the bundle's own suite does, and the
-# default is the same fixed literal certify_reference_bundle.sh commits to --
-# both sides must name one path or there is nothing to be exempt from.
-CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"
-
-certbundle_lock_held() { # certbundle_lock_held <lock-file>; 0 = somebody holds it
-  # SHARED (flock -s / LOCK_SH), not exclusive, and dropped the moment it is
-  # taken. Two of these probes can race -- separate checkouts reserve against
-  # separate budget locks -- and an exclusive probe would read its own twin as
-  # "a bundle holds this" and grant a reservation nobody owns. A shared probe
-  # can only ever be excluded by the bundle's own exclusive hold, which is the
-  # single fact being asked about.
-  #
-  # The descriptor is read-only: this side must not create or truncate anything
-  # in a rendezvous it does not own (flock(2) is indifferent to the open mode;
-  # `9>` would truncate the very file the bundle's helper is holding). Only
-  # flock's documented could-not-acquire status (1) is remapped to the "held"
-  # signal 3; a usage error, a missing fd, an unsupported filesystem, a failed
-  # redirection, or an flock that cannot run at all lands on any OTHER status
-  # -- and every other status is doubt, not a holder (the python backend below
-  # has the same shape: only BlockingIOError is a holder).
-  local lock_file="$1" rc=0
-  if command -v flock >/dev/null 2>&1; then
-    ( s=0; flock -s -n 9 || s=$?   # `|| s=` keeps errexit from eating the status
-      [ "$s" -eq 0 ] && exit 0     # we took it -- nobody held it
-      [ "$s" -eq 1 ] && exit 3     # flock(1)'s could-not-acquire -- a holder has it
-      exit 4                       # anything else is a tool failure, not a holder
-    ) 9<"$lock_file" 2>/dev/null || rc=$?
-  elif command -v python3 >/dev/null 2>&1; then
-    # The same fcntl.flock fallback pair.sh's own budget lock and the bundle
-    # both document for macOS/BSD hosts with no util-linux flock(1). Both
-    # backends are flock(2) on one file, so they interoperate.
-    python3 -c '
-import fcntl, sys
-handle = open(sys.argv[1])
-try:
-    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-except BlockingIOError:
-    raise SystemExit(3)
-raise SystemExit(0)
-' "$lock_file" 2>/dev/null || rc=$?
-  else
-    return 1
-  fi
-  # Explicit returns: `set -e` is only suspended for a function called in a
-  # condition, and this one must be safe to call anywhere.
-  case "$rc" in
-    3) return 0 ;;   # could not take it -- a live holder has it
-    *) return 1 ;;   # 0 = we just took it, so nobody did; anything else = doubt
-  esac
-}
-
-certbundle_reserved_pair() { # certbundle_reserved_pair <candidate>; 0 = pre-budgeted
-  local candidate="$1" lock_file="$CERT_BUNDLE_LOCK_DIR/lock" recorded
-  local holder_file="$CERT_BUNDLE_LOCK_DIR/holder.json"
-  [ -n "$candidate" ] || return 1
-  [ -f "$holder_file" ] && [ -f "$lock_file" ] || return 1
-  # jq, the same reader certify_reference_bundle.sh's own
-  # certbundle_lock_read_holder() uses, and already required by pair_compose_live_pairs()
-  # above. A record that is absent, malformed, or carries a non-string pair is
-  # simply not a reservation.
-  recorded="$(jq -r 'if (.pair | type) == "string" then .pair else empty end' \
-    "$holder_file" 2>/dev/null)" || return 1
-  [ "$recorded" = "$candidate" ] || return 1
-  certbundle_lock_held "$lock_file" || return 1
-  return 0
-}
-
 reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
   local candidate="$1" root live budget live_count candidate_live=0 total
   if ! root="$(canonical_root)"; then
@@ -605,17 +495,7 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
     warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
     if [ -n "$candidate" ] && [ "$candidate_live" -eq 0 ]; then
-      # Asked only here, in the branch that would otherwise refuse: an
-      # in-budget `up` never reads the rendezvous at all, and the exemption
-      # can only ever turn a refusal into the bring-up the certification lock
-      # already reserved. Ahead of the override, and not interchangeable with
-      # it: a slot that was RESERVED must be reported as reserved even when an
-      # operator also happens to have the hatch set, or the run's own log says
-      # its budget was forced when it was not (see this section's header on
-      # what the bundle does and does not record today).
-      if certbundle_reserved_pair "$candidate"; then
-        warn "!! '$candidate' is the pair recorded by the HELD host certification lock ($CERT_BUNDLE_LOCK_DIR) — already budgeted for that run (DUO-3396), bringing it up at ${total}/${budget}"
-      elif [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
+      if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         # Presence is permission, not evidence of use.  Record only here,
         # after both the in-budget and held-reservation paths have failed to
         # admit the candidate.  A configured certification ledger that cannot
@@ -729,10 +609,9 @@ cmd_up() {
   fi
 
   say "pair '$name': web containers up"
-  # DUO-3277: agent/manifests bind-mount sources always resolve against
-  # the canonical checkout (see pair_compose_configure()/canonical_root()), never
-  # wherever this script itself was invoked from -- if that resolved
-  # differently than whatever config an EXISTING container for this pair
+  # Persistent callers resolve agent/manifests against the canonical checkout;
+  # exact evidence callers may explicitly select their linked worktree with
+  # DUO_SOURCE_ROOT. If that source differs from whatever config an EXISTING pair
   # was created with (e.g. a pair `up`'d from a worktree before this fix,
   # or from a different worktree than last time), compose's own standard
   # config-drift detection recreates it here automatically, on volumes
@@ -1030,24 +909,19 @@ Environment:
            drop/create, site-repo write, or container create/start —
            unless that source is exactly this commit with no uncommitted
            agent/manifests changes. Bind every live evidence run with it
-           (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`): mounts
-           always resolve to the CANONICAL checkout (DUO-3277), so a run
-           launched from an issue worktree otherwise silently exercises
-           the canonical checkout's code. Unset = unchanged behavior.
+           (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`). Without an
+           explicit source override, mounts resolve to the canonical checkout.
+           Unset = unchanged behavior.
            stop/destroy/list are deliberately ungated (teardown, not
            evidence). sandbox/conformance/run.sh passes it through as
            CONF_EXPECTED_SOURCE_SHA.
+  DUO_SOURCE_ROOT=<absolute physical worktree path>
+           Select this repository worktree as the agent/manifests mount source.
+           The path must be the exact top-level physical path and share this
+           repository's git common directory. Evidence runners set it together
+           with DUO_EXPECTED_SOURCE_SHA; ordinary persistent pairs leave it unset.
   DUO_PAIR_BUDGET_OVERRIDE=1
            bring a pair up/start it even when the host budget is exceeded.
-  CERT_BUNDLE_LOCK_DIR=<dir>
-           DUO-3382's host certification rendezvous, default
-           /tmp/duo-certbundle.lock, READ ONLY here. While that lock is
-           held, the exact pair name its holder.json records is already
-           budgeted (DUO-3396: a bundle destroys and recreates that one
-           pair per leg for ~50 minutes and must not lose the slot it
-           reserved). Nothing else is exempt, and a released or crashed
-           holder's record grants nothing — the flock, not the record,
-           decides. Set it only in step with the bundle itself.
 USAGE
 }
 

@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "polylang"],
+    "plugins": [{"slug": "polylang", "version": "3.8.6"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag", "language", "term_language", "term_translations", "post_translations"]
+  },
+  "manifest": "polylang"
+}

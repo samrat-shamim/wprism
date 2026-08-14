@@ -247,8 +247,8 @@ export -f wp_env wp_conf1 wp_conf2 say pass fail \
 # HEAD) binds this run to that exact commit: pair.sh's own gate then refuses
 # below — before `reset` DROP/CREATEs either database and before any container
 # starts — unless the source it is about to mount is that commit, clean (see
-# pair.sh's assert_candidate_source for why the mounted source is NOT this
-# checkout when run.sh is launched from a linked worktree). Exported rather
+# pair.sh's assert_candidate_source for the canonical default and the explicit
+# DUO_SOURCE_ROOT worktree override). Exported rather
 # than passed as an argument for the same process-boundary reason DUO_PAIR/
 # DUO_PORT1/DUO_PORT2 are exported above: pair.sh is a subprocess here, and
 # `reset` accepts no flags at all. Unset leaves every sweep byte-identical.

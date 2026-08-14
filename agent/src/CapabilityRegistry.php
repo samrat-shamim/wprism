@@ -12,13 +12,13 @@ require_once __DIR__ . '/ScopedCertificationBundle.php';
  *
  * Manifest dispositions remain the reviewed source facts. This registry is
  * their generated product-facing projection: it binds those facts to the
- * exact adapter digest, platform/runtime boundary, and one current
- * content-addressed certification bundle. Missing or mismatched data never
+ * exact subject digest, platform/runtime boundary, and one current
+ * content-addressed certification record. Missing or mismatched data never
  * inherits a broad compatibility assumption.
  */
 final class CapabilityRegistry {
-    public const FORMAT = 'duo-capability-registry/v1';
-    public const EVIDENCE_FORMAT = 'duo-capability-evidence/v1';
+    public const FORMAT = 'duo-capability-registry/v2';
+    public const EVIDENCE_FORMAT = 'duo-capability-evidence/v2';
 
     private array $data;
 
@@ -149,8 +149,38 @@ final class CapabilityRegistry {
     }
 
     /**
+     * Stable identity for one independently certified subject. Manifest
+     * subjects retain the established adapter digest. A profile additionally
+     * binds its own reviewed claim, so changing FSE cannot expire core (or the
+     * reverse) unless their shared manifest bytes genuinely changed.
+     */
+    public static function subject_digest(
+        string $kind,
+        string $name,
+        array $manifest,
+        array $claim,
+        ?string $manifestDir = null
+    ): string {
+        if ($kind === 'manifest') {
+            if (($manifest['name'] ?? null) !== $name) {
+                throw new \RuntimeException('duo: manifest certification subject identity is malformed');
+            }
+            return self::adapter_digest($manifest, $claim, $manifestDir);
+        }
+        if ($kind !== 'profile' || ($claim['manifest'] ?? null) !== ($manifest['name'] ?? null)) {
+            throw new \RuntimeException('duo: profile certification subject identity is malformed');
+        }
+        return hash('sha256', Canon::encode([
+            'kind' => 'profile',
+            'name' => $name,
+            'manifest_digest' => self::adapter_digest($manifest, null, $manifestDir),
+            'profile' => $claim,
+        ]));
+    }
+
+    /**
      * Project one reviewed disposition into the generic capability-row shape
-     * without assigning an adapter digest or consulting this registry's global
+     * without assigning an adapter digest or consulting another subject's
      * evidence.  Shipped registry generation and separately authenticated site
      * adapters can therefore share operations/surface/environment semantics;
      * callers bind their own source-specific evidence and may add the final
@@ -279,7 +309,6 @@ final class CapabilityRegistry {
         $blockers = [];
         $perRowEvidence = [];
         $hasOutOfTree = false;
-        $hasPerManifestEvidence = false;
 
         foreach ($manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '?');
@@ -366,8 +395,8 @@ final class CapabilityRegistry {
             $selectedPlatform = $externalClaim !== null
                 ? (is_array($externalClaim['platform'] ?? null) ? $externalClaim['platform'] : [])
                 : ($outOfTree ? [] : $this->data['platform']);
-            // A site source never inherits the shipped registry's global
-            // evidence. Unsigned site adapters have exactly the explicit
+            // A site source never inherits shipped registry evidence. Unsigned
+            // site adapters have exactly the explicit
             // uncertified blocker above; signed ones are evaluated only
             // against their own signed evidence/platform context.
             if ((!$outOfTree || $externalClaim !== null)
@@ -380,7 +409,7 @@ final class CapabilityRegistry {
                 // closure, adapter digest, artifacts, platform, and citations
                 // are checked at generation time; an unrelated unbound commit
                 // must not make this one adapter borrow or lose evidence.
-                && ($selectedEvidence['bundle_schema'] ?? null) !== 'duo-adapter-certification-bundle/v1'
+                && ($selectedEvidence['bundle_schema'] ?? null) !== ScopedCertificationBundle::FORMAT
                 && !hash_equals((string) ($selectedEvidence['git_revision'] ?? ''), $revision)) {
                 $reasons[] = self::reason(
                     'revision_not_certified',
@@ -405,12 +434,8 @@ final class CapabilityRegistry {
                 'platform' => $selectedPlatform,
                 'scope' => $outOfTree
                     ? ($externalClaim === null ? 'none' : 'site_certificate')
-                    : (($selectedEvidence['bundle_schema'] ?? null) === 'duo-adapter-certification-bundle/v1'
-                        ? 'scoped_adapter' : 'shipped_registry'),
+                    : 'subject_record',
             ];
-            $hasPerManifestEvidence = $hasPerManifestEvidence
-                || $outOfTree
-                || (($selectedEvidence['bundle_schema'] ?? null) === 'duo-adapter-certification-bundle/v1');
             foreach ($reasons as $reason) {
                 $blockers[] = [
                     'name' => $name,
@@ -425,28 +450,24 @@ final class CapabilityRegistry {
             }
         }
 
-        // A mixed report has no single evidence/platform authority. Preserve
-        // the historical top-level shipped fields byte-for-byte for --all and
-        // shipped-only callers, but make mixed reports explicitly per-row so
-        // a signed site claim can never appear to inherit the shipped bundle.
-        if ($hasPerManifestEvidence) {
-            foreach ($rows as $i => &$row) {
-                $row['evidence'] = $perRowEvidence[$i]['evidence'];
-                $row['platform'] = $perRowEvidence[$i]['platform'];
-                $row['evidence_scope'] = $perRowEvidence[$i]['scope'];
-            }
-            unset($row);
+        // Evidence authority is always per subject. This makes the absence or
+        // expiry of one extension visible without contaminating another row.
+        foreach ($rows as $i => &$row) {
+            $row['evidence'] = $perRowEvidence[$i]['evidence'];
+            $row['platform'] = $perRowEvidence[$i]['platform'];
+            $row['evidence_scope'] = $perRowEvidence[$i]['scope'];
         }
+        unset($row);
 
         $report = [
             'schema_version' => self::FORMAT,
             'registry_sha256' => hash('sha256', Canon::encode($this->data)),
             'platform' => $hasOutOfTree ? null : $this->data['platform'],
-            'evidence' => $hasPerManifestEvidence ? null : $this->data['evidence'],
+            'evidence' => null,
             'query' => [
                 'operation' => $operation,
                 'surface' => $surface,
-                'revision' => $revision ?? ($hasPerManifestEvidence ? null : $this->data['evidence']['git_revision']),
+                'revision' => $revision,
             ],
             'target' => $target,
             'ready' => $blockers === [],
@@ -454,9 +475,7 @@ final class CapabilityRegistry {
             'manifests' => $rows,
             'profiles' => $this->profiles(),
         ];
-        if ($hasPerManifestEvidence) {
-            $report['evidence_scope'] = 'per_manifest';
-        }
+        $report['evidence_scope'] = 'per_subject';
         return $report;
     }
 
@@ -615,6 +634,10 @@ final class CapabilityRegistry {
         return preg_match('/([0-9]+(?:\.[0-9]+){1,3})/', $raw, $m) === 1 ? $m[1] : '';
     }
 
+    private static function shaValue($value): bool {
+        return is_string($value) && preg_match('/^[0-9a-f]{64}$/D', $value) === 1;
+    }
+
     /**
      * A remediation string is attached only where one exists, rather than
      * back-filling every pre-existing reason code with invented advice: the
@@ -640,20 +663,13 @@ final class CapabilityRegistry {
     ): void {
         $keys = array_keys($data);
         sort($keys, SORT_STRING);
-        if ($keys !== ['evidence', 'format', 'generated_from', 'manifests', 'platform', 'profiles']
+        if ($keys !== ['format', 'generated_from', 'manifests', 'platform', 'profiles']
             || ($data['format'] ?? null) !== self::FORMAT
             || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])
-            || !is_array($data['evidence'] ?? null) || array_is_list($data['evidence'])
             || !is_array($data['manifests'] ?? null) || array_is_list($data['manifests'])
             || !is_array($data['profiles'] ?? null)
             || !is_array($data['generated_from'] ?? null) || array_is_list($data['generated_from'])) {
             throw new \RuntimeException("duo: $label has an unsupported or malformed root");
-        }
-        if (($data['evidence']['format'] ?? null) !== self::EVIDENCE_FORMAT
-            || ($data['evidence']['bundle_schema'] ?? null) !== ManifestDispositions::BUNDLE_SCHEMA
-            || !preg_match('/^[0-9a-f]{64}$/', (string) ($data['evidence']['bundle_digest'] ?? ''))
-            || !in_array($data['evidence']['status'] ?? null, ['current', 'candidate'], true)) {
-            throw new \RuntimeException("duo: $label has no content-addressed certification evidence record");
         }
         if (($data['platform']['agent_version'] ?? null) !== (defined('DUO_AGENT_VERSION') ? DUO_AGENT_VERSION : '0.5.0')
             || ($data['platform']['spec_version'] ?? null) !== (defined('DUO_SPEC_VERSION') ? DUO_SPEC_VERSION : 2)) {
@@ -679,7 +695,13 @@ final class CapabilityRegistry {
         }
         if ($validateSourceFiles && is_file($evidenceFile)) {
             $rawEvidence = Canon::decode(Canon::read_file($evidenceFile));
-            if (!is_array($rawEvidence) || array_is_list($rawEvidence)) {
+            $rawKeys = is_array($rawEvidence) ? array_keys($rawEvidence) : [];
+            sort($rawKeys, SORT_STRING);
+            if (!is_array($rawEvidence) || array_is_list($rawEvidence)
+                || $rawKeys !== ['format', 'records']
+                || ($rawEvidence['format'] ?? null) !== self::EVIDENCE_FORMAT
+                || !is_array($rawEvidence['records'] ?? null)
+                || (array_is_list($rawEvidence['records']) && $rawEvidence['records'] !== [])) {
                 throw new \RuntimeException("duo: $label certification evidence attestation is malformed");
             }
         }
@@ -690,15 +712,6 @@ final class CapabilityRegistry {
             )) {
             throw new \RuntimeException("duo: $label is stale against the compatibility baseline");
         }
-        $passingTests = [];
-        foreach ($data['evidence']['tests'] ?? [] as $test) {
-            if (is_array($test) && ($test['verdict'] ?? null) === 'pass' && is_string($test['id'] ?? null)) {
-                $passingTests[$test['id']] = true;
-            }
-        }
-        $evidenceStatus = (string) $data['evidence']['status'];
-        $bundleDigest = (string) $data['evidence']['bundle_digest'];
-
         $manifestByName = [];
         foreach ($manifests as $manifest) {
             $manifestByName[(string) ($manifest['name'] ?? '')] = $manifest;
@@ -736,51 +749,36 @@ final class CapabilityRegistry {
                 || ($claimEvidence['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
                 throw new \RuntimeException("duo: $label evidence binding for '$name' is malformed");
             }
-            $claimSchema = $claimEvidence['bundle_schema'] ?? null;
-            if ($claimSchema === ManifestDispositions::BUNDLE_SCHEMA) {
-                if (($claimEvidence['status'] ?? null) !== $evidenceStatus
-                    || ($claimEvidence['bundle_digest'] ?? null) !== $bundleDigest) {
-                    throw new \RuntimeException("duo: $label global evidence binding for '$name' is malformed");
+            if (($claimEvidence['bundle_schema'] ?? null) !== ScopedCertificationBundle::FORMAT
+                || ($claimEvidence['subject'] ?? null) !== 'manifests.' . $name
+                || !is_array($claimEvidence['force_hatches'] ?? null)
+                || !array_is_list($claimEvidence['force_hatches'])
+                || ($claimEvidence['force_hatches'] ?? null) !== []) {
+                throw new \RuntimeException("duo: $label evidence schema for '$name' is unsupported");
+            }
+            if (($claimEvidence['status'] ?? null) === 'current') {
+                if (($claimEvidence['subject_digest'] ?? null) !== ($claim['adapter_digest'] ?? null)
+                    || !self::shaValue($claimEvidence['closure_digest'] ?? null)
+                    || !self::shaValue($claimEvidence['bundle_digest'] ?? null)) {
+                    throw new \RuntimeException("duo: $label current evidence binding for '$name' is malformed");
                 }
-            } elseif ($claimSchema === 'duo-adapter-certification-bundle/v1') {
-                if (($claimEvidence['subject'] ?? null) !== $name
-                    || ($claimEvidence['adapter_digest'] ?? null) !== ($claim['adapter_digest'] ?? null)
-                    || !preg_match('/^[0-9a-f]{64}$/', (string) ($claimEvidence['closure_digest'] ?? ''))
-                    || !preg_match('/^[0-9a-f]{64}$/', (string) ($claimEvidence['bundle_digest'] ?? ''))
-                    || !is_array($claimEvidence['force_hatches'] ?? null)
-                    || !array_is_list($claimEvidence['force_hatches'])
-                    || ($claimEvidence['force_hatches'] ?? null) !== []) {
-                    throw new \RuntimeException("duo: $label scoped evidence binding for '$name' is malformed");
-                }
-                if ($validateSourceFiles && ($claimEvidence['status'] ?? null) === 'current') {
+                if ($validateSourceFiles) {
                     self::assertScopedEvidenceCurrent(
                         $rawEvidence,
                         $evidenceFile,
+                        'manifest',
                         $name,
                         $manifest,
                         $disposition,
-                        $claim,
+                        (string) $claim['adapter_digest'],
+                        $claimEvidence,
                         $data['platform']
                     );
                 }
-            } else {
-                throw new \RuntimeException("duo: $label evidence schema for '$name' is unsupported");
-            }
-            // A candidate is the intentional re-certification bootstrap: it
-            // projects the newly reviewed citations before those future test
-            // IDs can exist in a fresh bundle, while report() still emits the
-            // hard evidence_not_current blocker. Requiring the old bundle to
-            // contain those new IDs makes re-certification circular. Current
-            // evidence has no such allowance: every certified citation must
-            // name a passing test in the exact imported bundle.
-            if (($claimEvidence['status'] ?? null) === 'current' && ($claim['status'] ?? null) === 'certified') {
-                foreach ($claim['evidence']['tests'] ?? [] as $test) {
-                    if ($claimSchema === ManifestDispositions::BUNDLE_SCHEMA && !isset($passingTests[$test])) {
-                        throw new \RuntimeException(
-                            "duo: $label certified claim '$name' cites absent or non-passing evidence '$test'"
-                        );
-                    }
-                }
+            } elseif (($claimEvidence['bundle_digest'] ?? null) !== null
+                || ($claimEvidence['closure_digest'] ?? null) !== null
+                || ($claimEvidence['subject_digest'] ?? null) !== null) {
+                throw new \RuntimeException("duo: $label candidate evidence binding for '$name' is malformed");
             }
         }
         $dispositionProfiles = $dispositions->profiles();
@@ -793,6 +791,13 @@ final class CapabilityRegistry {
         }
         foreach ($data['profiles'] as $name => $profile) {
             $source = $dispositionProfiles[$name] ?? null;
+            $profileManifestName = is_array($profile) ? (string) ($profile['manifest'] ?? '') : '';
+            $profileManifest = $manifestByName[$profileManifestName] ?? null;
+            $profileManifestFile = rtrim($manifestDir, '/') . '/' . $profileManifestName . '.json';
+            if (!is_array($profileManifest) && is_file($profileManifestFile)) {
+                $decodedProfileManifest = Canon::decode(Canon::read_file($profileManifestFile));
+                $profileManifest = is_array($decodedProfileManifest) ? $decodedProfileManifest : null;
+            }
             if (!is_array($profile) || array_is_list($profile)
                 || !isset($data['manifests'][$profile['manifest'] ?? ''])
                 || !in_array($profile['status'] ?? null, ['certified', 'experimental'], true)
@@ -802,28 +807,48 @@ final class CapabilityRegistry {
                 || ($profile['reason'] ?? null) !== ($source['reason'] ?? null)
                 || ($profile['supported_versions'] ?? null) !== ($source['supported_versions'] ?? null)
                 || ($profile['scope'] ?? null) !== ($source['scope'] ?? null)
-                || ($profile['adapter_digest'] ?? null)
-                    !== ($data['manifests'][$profile['manifest']]['adapter_digest'] ?? null)) {
+                || !is_array($profileManifest)
+                || ($profile['subject_digest'] ?? null) !== self::subject_digest(
+                    'profile',
+                    (string) $name,
+                    $profileManifest,
+                    $source,
+                    $manifestDir
+                )) {
                 throw new \RuntimeException("duo: $label profile '$name' is malformed");
             }
             $profileEvidence = $profile['evidence'] ?? null;
-            $manifestEvidence = $data['manifests'][$profile['manifest']]['evidence'] ?? null;
-            if (!is_array($profileEvidence) || !is_array($manifestEvidence)
+            if (!is_array($profileEvidence) || array_is_list($profileEvidence)
                 || ($profileEvidence['tests'] ?? null) !== ($source['evidence']['tests'] ?? [])
-                || ($profileEvidence['status'] ?? null) !== ($manifestEvidence['status'] ?? null)
-                || ($profileEvidence['bundle_schema'] ?? null) !== ($manifestEvidence['bundle_schema'] ?? null)
-                || ($profileEvidence['bundle_digest'] ?? null) !== ($manifestEvidence['bundle_digest'] ?? null)) {
+                || !in_array($profileEvidence['status'] ?? null, ['current', 'candidate'], true)
+                || ($profileEvidence['bundle_schema'] ?? null) !== ScopedCertificationBundle::FORMAT
+                || ($profileEvidence['subject'] ?? null) !== 'profiles.' . $name
+                || ($profileEvidence['force_hatches'] ?? null) !== []) {
                 throw new \RuntimeException("duo: $label evidence binding for profile '$name' is malformed");
             }
-            if (($profileEvidence['status'] ?? null) === 'current' && ($profile['status'] ?? null) === 'certified') {
-                foreach ($profile['evidence']['tests'] ?? [] as $test) {
-                    if (($profileEvidence['bundle_schema'] ?? null) === ManifestDispositions::BUNDLE_SCHEMA
-                        && !isset($passingTests[$test])) {
-                        throw new \RuntimeException(
-                            "duo: $label certified profile '$name' cites absent or non-passing evidence '$test'"
-                        );
-                    }
+            if (($profileEvidence['status'] ?? null) === 'current') {
+                if (($profileEvidence['subject_digest'] ?? null) !== ($profile['subject_digest'] ?? null)
+                    || !self::shaValue($profileEvidence['closure_digest'] ?? null)
+                    || !self::shaValue($profileEvidence['bundle_digest'] ?? null)) {
+                    throw new \RuntimeException("duo: $label current evidence binding for profile '$name' is malformed");
                 }
+                if ($validateSourceFiles) {
+                    self::assertScopedEvidenceCurrent(
+                        $rawEvidence,
+                        $evidenceFile,
+                        'profile',
+                        (string) $name,
+                        $profileManifest,
+                        $source,
+                        (string) $profile['subject_digest'],
+                        $profileEvidence,
+                        $data['platform']
+                    );
+                }
+            } elseif (($profileEvidence['bundle_digest'] ?? null) !== null
+                || ($profileEvidence['closure_digest'] ?? null) !== null
+                || ($profileEvidence['subject_digest'] ?? null) !== null) {
+                throw new \RuntimeException("duo: $label candidate evidence binding for profile '$name' is malformed");
             }
         }
     }
@@ -837,41 +862,43 @@ final class CapabilityRegistry {
     private static function assertScopedEvidenceCurrent(
         ?array $evidence,
         string $evidenceFile,
+        string $kind,
         string $name,
         array $manifest,
-        ?array $disposition,
         array $claim,
+        string $subjectDigest,
+        array $claimEvidence,
         array $platform
     ): void {
-        $entry = is_array($evidence['scoped'][$name] ?? null) ? $evidence['scoped'][$name] : null;
+        $subjectKey = ScopedCertificationBundle::subjectKey($kind, $name);
+        $entry = is_array($evidence['records'][$subjectKey] ?? null) ? $evidence['records'][$subjectKey] : null;
         if ($entry === null || array_is_list($entry)) {
-            throw new \RuntimeException("duo: scoped evidence for '$name' is absent from the attestation");
+            throw new \RuntimeException("duo: scoped evidence for '$subjectKey' is absent from the attestation");
         }
         $keys = array_keys($entry);
         sort($keys, SORT_STRING);
         $record = $entry['bundle'] ?? null;
         $path = $entry['path'] ?? null;
         if ($keys !== ['bundle', 'path'] || !is_array($record) || array_is_list($record) || !is_string($path)) {
-            throw new \RuntimeException("duo: scoped evidence for '$name' is malformed");
+            throw new \RuntimeException("duo: scoped evidence for '$subjectKey' is malformed");
         }
-        ScopedCertificationBundle::validate($record, "scoped certification '$name'");
-        $expectedPath = 'scoped/' . $name . '/' . $record['bundle_digest'];
+        ScopedCertificationBundle::validate($record, "scoped certification '$subjectKey'");
+        $expectedPath = 'scoped/' . $kind . 's/' . $name . '/' . $record['bundle_digest'];
         if (!hash_equals($expectedPath, $path)) {
-            throw new \RuntimeException("duo: scoped evidence for '$name' has a noncanonical durable path");
+            throw new \RuntimeException("duo: scoped evidence for '$subjectKey' has a noncanonical durable path");
         }
         $bundleDir = dirname($evidenceFile) . '/' . $path;
         $bundleFile = $bundleDir . '/bundle.json';
         if (!is_file($bundleFile) || is_link($bundleFile) || !hash_equals(Canon::encode($record), (string) file_get_contents($bundleFile))) {
-            throw new \RuntimeException("duo: scoped evidence for '$name' durable manifest is absent or mismatched");
+            throw new \RuntimeException("duo: scoped evidence for '$subjectKey' durable manifest is absent or mismatched");
         }
         ScopedCertificationBundle::assertEvidenceAssets($record, $bundleDir);
-        $claimEvidence = $claim['evidence'] ?? [];
         if (($claimEvidence['bundle_digest'] ?? null) !== $record['bundle_digest']
-            || ($claimEvidence['adapter_digest'] ?? null) !== $record['adapter_digest']
+            || ($claimEvidence['subject_digest'] ?? null) !== $record['subject_digest']
             || ($claimEvidence['closure_digest'] ?? null) !== ($record['closure']['digest'] ?? null)
-            || ($claimEvidence['subject'] ?? null) !== $name
-            || ($claimEvidence['tests'] ?? null) !== ($disposition['evidence']['tests'] ?? [])) {
-            throw new \RuntimeException("duo: scoped evidence for '$name' disagrees with its generated claim");
+            || ($claimEvidence['subject'] ?? null) !== $subjectKey
+            || ($claimEvidence['tests'] ?? null) !== ($claim['evidence']['tests'] ?? [])) {
+            throw new \RuntimeException("duo: scoped evidence for '$subjectKey' disagrees with its generated claim");
         }
         // evidence.json lives at <manifests>/capabilities/evidence.json. In
         // a deployed mu-plugin, the agent tree and this manifest mount are
@@ -894,12 +921,13 @@ final class CapabilityRegistry {
         }
         ScopedCertificationBundle::assertCurrent(
             $record,
+            $kind,
             $name,
-            self::adapter_digest($manifest, $disposition, $manifestDir),
+            $subjectDigest,
             $platform,
             $boundInputs,
-            $disposition['evidence']['tests'] ?? [],
-            $disposition ?? [],
+            $claim['evidence']['tests'] ?? [],
+            $claim,
             $artifacts
         );
     }
@@ -908,7 +936,7 @@ final class CapabilityRegistry {
     private static function scopedArtifacts(string $root, array $manifest): array {
         $plugin = $manifest['plugin'] ?? null;
         if (!is_string($plugin) || !str_contains($plugin, '/')) {
-            throw new \RuntimeException('duo: scoped certification requires a plugin-backed manifest');
+            return [];
         }
         $slug = strstr($plugin, '/', true);
         $lock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));

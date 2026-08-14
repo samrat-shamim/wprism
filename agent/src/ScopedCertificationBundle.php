@@ -4,27 +4,27 @@ namespace Duo;
 require_once __DIR__ . '/Canon.php';
 
 /**
- * Strict value-level verifier for one-manifest certification evidence.
+ * Strict value-level verifier for one independently certified subject.
  *
- * The global `duo-certification-bundle/v1` remains the full-release record.
- * This format is deliberately a separate namespace: a scoped record has one
- * manifest subject, one closure, and one exact set of claim citations. It can
- * never be mistaken for global evidence or stitched together with another
- * manifest's record.
+ * A subject is either one manifest or one profile. Each record owns one
+ * closure and one exact set of claim citations, so evidence can never leak
+ * between extensions, between a profile and its parent manifest, or across
+ * unrelated changes.
  */
 final class ScopedCertificationBundle {
-    public const FORMAT = 'duo-adapter-certification-bundle/v1';
+    public const FORMAT = 'duo-subject-certification-bundle/v1';
     public const PAIR_BUDGET_OVERRIDE_HATCH = 'DUO_PAIR_BUDGET_OVERRIDE';
 
     /** @return array<string,mixed> */
     public static function validate(array $bundle, string $label = 'scoped certification bundle'): array {
         self::exactKeys($bundle, [
-            'adapter_digest', 'artifacts', 'bundle_digest', 'claims', 'closure', 'created_at',
+            'artifacts', 'bundle_digest', 'claims', 'closure', 'created_at',
             'force_hatches', 'format', 'git_revision', 'platform', 'ratification', 'subject', 'tests', 'verdict',
+            'subject_digest',
         ], $label);
         if (($bundle['format'] ?? null) !== self::FORMAT
             || ($bundle['verdict'] ?? null) !== 'pass'
-            || !self::sha($bundle['adapter_digest'] ?? null)
+            || !self::sha($bundle['subject_digest'] ?? null)
             || !self::sha($bundle['bundle_digest'] ?? null)
             || !is_string($bundle['git_revision'] ?? null)
             || preg_match('/^[0-9a-f]{40}$/D', $bundle['git_revision']) !== 1
@@ -35,10 +35,12 @@ final class ScopedCertificationBundle {
         if (!is_array($bundle['subject'] ?? null) || array_is_list($bundle['subject'])) {
             throw new \RuntimeException("duo: $label.subject must be an object");
         }
-        self::exactKeys($bundle['subject'], ['manifest'], "$label.subject");
-        $manifest = $bundle['subject']['manifest'] ?? null;
-        if (!is_string($manifest) || preg_match('/^[a-z][a-z0-9-]*$/D', $manifest) !== 1) {
-            throw new \RuntimeException("duo: $label.subject.manifest is malformed");
+        self::exactKeys($bundle['subject'], ['kind', 'name'], "$label.subject");
+        $kind = $bundle['subject']['kind'] ?? null;
+        $name = $bundle['subject']['name'] ?? null;
+        if (!in_array($kind, ['manifest', 'profile'], true)
+            || !is_string($name) || preg_match('/^[a-z][a-z0-9-]*$/D', $name) !== 1) {
+            throw new \RuntimeException("duo: $label.subject is malformed");
         }
         if (!is_array($bundle['platform'] ?? null) || array_is_list($bundle['platform'])
             || $bundle['platform'] === []) {
@@ -47,9 +49,9 @@ final class ScopedCertificationBundle {
         self::validateHatches($bundle['force_hatches'], "$label.force_hatches");
         self::validateClosure($bundle['closure'], $label);
         self::validateArtifacts($bundle['artifacts'], "$label.artifacts");
-        self::validateRatification($bundle['ratification'], $manifest, "$label.ratification");
+        self::validateRatification($bundle['ratification'], $kind, $name, "$label.ratification");
         $tests = self::validateTests($bundle['tests'], $label);
-        self::validateClaims($bundle['claims'], $manifest, $tests, $label);
+        self::validateClaims($bundle['claims'], $kind, $name, $tests, $label);
 
         $actual = self::digest($bundle);
         if (!hash_equals((string) $bundle['bundle_digest'], $actual)) {
@@ -65,12 +67,13 @@ final class ScopedCertificationBundle {
      *
      * @param list<array{path:string,sha256:string,size:int}> $boundInputs
      * @param list<string> $requiredTests
-     * @return array{status:string,manifest:string,adapter_digest:string,bundle_digest:string}
+     * @return array{status:string,subject:string,subject_digest:string,bundle_digest:string}
      */
     public static function assertCurrent(
         array $bundle,
-        string $manifest,
-        string $adapterDigest,
+        string $kind,
+        string $name,
+        string $subjectDigest,
         array $platform,
         array $boundInputs,
         array $requiredTests,
@@ -78,14 +81,15 @@ final class ScopedCertificationBundle {
         array $artifacts
     ): array {
         self::validate($bundle);
-        if (($bundle['subject']['manifest'] ?? null) !== $manifest
-            || !hash_equals((string) $bundle['adapter_digest'], $adapterDigest)) {
-            throw new \RuntimeException('duo: scoped certification subject or adapter digest is not current');
+        if (($bundle['subject']['kind'] ?? null) !== $kind
+            || ($bundle['subject']['name'] ?? null) !== $name
+            || !hash_equals((string) $bundle['subject_digest'], $subjectDigest)) {
+            throw new \RuntimeException('duo: scoped certification subject identity is not current');
         }
         if (Canon::encode($bundle['platform']) !== Canon::encode($platform)) {
             throw new \RuntimeException('duo: scoped certification platform boundary is not current');
         }
-        self::assertRatificationCurrent($bundle['ratification'], $manifest, $ratification);
+        self::assertRatificationCurrent($bundle['ratification'], $kind, $name, $ratification);
         if (Canon::encode(self::normalizeArtifacts($bundle['artifacts'], 'scoped certification artifacts'))
             !== Canon::encode(self::normalizeArtifacts($artifacts, 'current scoped certification artifacts'))) {
             throw new \RuntimeException('duo: scoped certification artifacts are not current');
@@ -98,7 +102,8 @@ final class ScopedCertificationBundle {
         }
         $required = self::stringList($requiredTests, 'required scoped certification tests', false);
         sort($required, SORT_STRING);
-        $cited = $bundle['claims']['manifests.' . $manifest] ?? null;
+        $subject = self::subjectKey($kind, $name);
+        $cited = $bundle['claims'][$subject] ?? null;
         if (!is_array($cited)) {
             throw new \RuntimeException('duo: scoped certification has no current subject claim');
         }
@@ -109,10 +114,18 @@ final class ScopedCertificationBundle {
         }
         return [
             'status' => 'current',
-            'manifest' => $manifest,
-            'adapter_digest' => $adapterDigest,
+            'subject' => $subject,
+            'subject_digest' => $subjectDigest,
             'bundle_digest' => (string) $bundle['bundle_digest'],
         ];
+    }
+
+    public static function subjectKey(string $kind, string $name): string {
+        if (!in_array($kind, ['manifest', 'profile'], true)
+            || preg_match('/^[a-z][a-z0-9-]*$/D', $name) !== 1) {
+            throw new \RuntimeException('duo: certification subject key is malformed');
+        }
+        return $kind . 's.' . $name;
     }
 
     /**
@@ -274,16 +287,17 @@ final class ScopedCertificationBundle {
         return $seen;
     }
 
-    private static function validateClaims($claims, string $manifest, array $tests, string $label): void {
+    private static function validateClaims($claims, string $kind, string $name, array $tests, string $label): void {
+        $subject = self::subjectKey($kind, $name);
         if (!is_array($claims) || array_is_list($claims)) {
-            throw new \RuntimeException("duo: $label.claims must name exactly manifests.$manifest");
+            throw new \RuntimeException("duo: $label.claims must name exactly $subject");
         }
         $keys = array_keys($claims);
         sort($keys, SORT_STRING);
-        if ($keys !== ['manifests.' . $manifest]) {
-            throw new \RuntimeException("duo: $label.claims must name exactly manifests.$manifest");
+        if ($keys !== [$subject]) {
+            throw new \RuntimeException("duo: $label.claims must name exactly $subject");
         }
-        $cited = self::stringList($claims['manifests.' . $manifest], "$label subject citations", false);
+        $cited = self::stringList($claims[$subject], "$label subject citations", false);
         foreach ($cited as $test) {
             if (!isset($tests[$test])) {
                 throw new \RuntimeException("duo: $label subject cites absent test '$test'");
@@ -330,22 +344,22 @@ final class ScopedCertificationBundle {
         }
     }
 
-    private static function validateRatification($ratification, string $manifest, string $label): void {
+    private static function validateRatification($ratification, string $kind, string $name, string $label): void {
         if (!is_array($ratification) || array_is_list($ratification)) {
             throw new \RuntimeException("duo: $label must be an object");
         }
-        self::exactKeys($ratification, ['disposition', 'manifest', 'sha256'], $label);
-        if (($ratification['manifest'] ?? null) !== $manifest
-            || !is_array($ratification['disposition'] ?? null) || array_is_list($ratification['disposition'])
+        self::exactKeys($ratification, ['claim', 'kind', 'name', 'sha256'], $label);
+        if (($ratification['kind'] ?? null) !== $kind || ($ratification['name'] ?? null) !== $name
+            || !is_array($ratification['claim'] ?? null) || array_is_list($ratification['claim'])
             || !self::sha($ratification['sha256'] ?? null)
-            || !hash_equals((string) $ratification['sha256'], hash('sha256', Canon::encode($ratification['disposition'])))) {
-            throw new \RuntimeException("duo: $label must bind the exact one-manifest disposition fragment");
+            || !hash_equals((string) $ratification['sha256'], hash('sha256', Canon::encode($ratification['claim'])))) {
+            throw new \RuntimeException("duo: $label must bind the exact one-subject disposition fragment");
         }
     }
 
-    private static function assertRatificationCurrent(array $recorded, string $manifest, array $current): void {
-        self::validateRatification($recorded, $manifest, 'scoped certification ratification');
-        if (Canon::encode($recorded['disposition']) !== Canon::encode($current)) {
+    private static function assertRatificationCurrent(array $recorded, string $kind, string $name, array $current): void {
+        self::validateRatification($recorded, $kind, $name, 'scoped certification ratification');
+        if (Canon::encode($recorded['claim']) !== Canon::encode($current)) {
             throw new \RuntimeException('duo: scoped certification ratification fragment is not current');
         }
     }
@@ -357,8 +371,8 @@ final class ScopedCertificationBundle {
 
     /** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
     private static function normalizeArtifacts($artifacts, string $label): array {
-        if (!is_array($artifacts) || !array_is_list($artifacts) || $artifacts === []) {
-            throw new \RuntimeException("duo: $label must be a non-empty list");
+        if (!is_array($artifacts) || !array_is_list($artifacts)) {
+            throw new \RuntimeException("duo: $label must be a list");
         }
         $out = [];
         $seen = [];

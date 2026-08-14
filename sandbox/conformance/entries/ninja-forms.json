@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "ninja-forms"],
+    "plugins": [{"slug": "ninja-forms", "version": "3.14.11"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "ninja-forms"
+}

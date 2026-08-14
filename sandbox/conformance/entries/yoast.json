@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "yoast"],
+    "plugins": [{"slug": "wordpress-seo", "version": "28.2"}],
+    "post_types": ["post", "page", "attachment"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "yoast"
+}

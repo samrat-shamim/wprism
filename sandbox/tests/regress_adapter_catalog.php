@@ -455,8 +455,9 @@ check(
 );
 $citedVerdicts = array_values(array_unique(array_column($adapter['verification']['tests'] ?? [], 'verdict')));
 check(
-    ($adapter['verification']['tests'] ?? []) !== [] && $citedVerdicts !== ['absent'],
-    'and each named test citation resolved against the bundle\'s OWN verdict rather than asserted (verdicts: '
+    ($adapter['verification']['tests'] ?? []) !== []
+        && $citedVerdicts === [(($adapter['verification']['evidence_status'] ?? null) === 'current' ? 'pass' : 'absent')],
+    'and each named citation reflects whether its own subject record is current (verdicts: '
     . implode(', ', $citedVerdicts) . ')'
 );
 check(
@@ -767,7 +768,10 @@ $missingRegistry['manifests']['woocommerce']['adapter_digest'] = $missingAdapter
 // otherwise the runtime loader correctly stops at the stale current claim
 // before the catalog can report the provider-specific blocker under test.
 $missingRegistry['manifests']['woocommerce']['evidence']['status'] = 'candidate';
-$missingRegistry['manifests']['woocommerce']['evidence']['adapter_digest'] = $missingAdapterDigest;
+$missingRegistry['manifests']['woocommerce']['evidence']['bundle_digest'] = null;
+$missingRegistry['manifests']['woocommerce']['evidence']['closure_digest'] = null;
+$missingRegistry['manifests']['woocommerce']['evidence']['git_revision'] = null;
+$missingRegistry['manifests']['woocommerce']['evidence']['subject_digest'] = null;
 Canon::write_file(
     $missingProviderLibrary . '/capabilities/registry.json',
     Canon::encode($missingRegistry)

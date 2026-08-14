@@ -10,6 +10,29 @@ pair_identity_canonical_root() {
   dirname "$common_dir"
 }
 
+# Evidence runs may explicitly mount the invoking linked worktree. The
+# override must be the physical top-level path of a worktree from this same
+# repository; ordinary persistent-pair callers keep the canonical root.
+pair_identity_source_root() {
+  local requested="${DUO_SOURCE_ROOT:-}" canonical requested_root requested_common canonical_common
+  canonical="$(pair_identity_canonical_root)" || return 1
+  if [ -z "$requested" ]; then
+    printf '%s\n' "$canonical"
+    return 0
+  fi
+  [[ "$requested" = /* ]] || return 1
+  requested_root="$(cd "$requested" 2>/dev/null && pwd -P)" || return 1
+  [ "$requested_root" = "$requested" ] || return 1
+  [ "$(git -C "$requested_root" rev-parse --show-toplevel 2>/dev/null)" = "$requested_root" ] \
+    || return 1
+  requested_common="$(git -C "$requested_root" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+    || return 1
+  canonical_common="$(git -C "$canonical" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" \
+    || return 1
+  [ "$requested_common" = "$canonical_common" ] || return 1
+  printf '%s\n' "$requested_root"
+}
+
 pair_identity_validate_name() { # pair_identity_validate_name <name>
   local name="$1"
   # Used bare both as a MySQL identifier fragment (wp_<name>1/2) and as a

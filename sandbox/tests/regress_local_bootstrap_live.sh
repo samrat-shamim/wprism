@@ -112,7 +112,9 @@ HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROO
   || fail "could not manufacture the hermetic manifest library"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "hermetic manifest library landed outside the owned scratch root"
-jq -e '.evidence.status == "current"' "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
+jq -e '([.manifests[] | select(.status == "certified") | .evidence.status] | all(. == "current"))
+  and ([.profiles[] | select(.status == "certified") | .evidence.status] | all(. == "current"))' \
+  "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
   || fail "hermetic manifest capability evidence is not current"
 pass "candidate-bound manifest fixture is ready"
 

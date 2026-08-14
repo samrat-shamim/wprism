@@ -10,7 +10,7 @@
 #
 # Expects its caller to have already defined a fail() function and to have
 # sourced lib/pair_identity.sh first (pair_compose_configure() calls
-# pair_identity_canonical_root() directly) -- the same inherited-environment
+# pair_identity_source_root() directly) -- the same inherited-environment
 # convention pair_budget_lock.sh/pair_db.sh already established for this
 # file family.
 
@@ -31,12 +31,12 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # Exported HERE, the one place every subcommand already funnels through,
   # rather than duplicated at each call site (caught live: the first
   # version of this fix only set them in cmd_up and `stop` broke instantly).
-  local root="${PAIR_CANONICAL_ROOT:-}"
+  local root="${PAIR_SOURCE_ROOT:-}"
   if [ -z "$root" ]; then
-    if ! root="$(pair_identity_canonical_root)"; then
-      fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- DUO_AGENT_SRC/DUO_MANIFESTS_SRC cannot be computed"
+    if ! root="$(pair_identity_source_root)"; then
+      fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be an exact physical worktree of this repository"
     fi
-    PAIR_CANONICAL_ROOT="$root"
+    PAIR_SOURCE_ROOT="$root"
   fi
   export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
 
@@ -65,8 +65,9 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # caller with zero changes to any of them. Overwritten (never appended)
   # so a stale value can never survive a worktree/checkout change; safe
   # under concurrent pair.sh invocations against the same checkout too,
-  # since canonical_root() is a pure function of the checkout, not the pair
-  # name -- any two concurrent writers here always agree on the value.
+  # Each worktree has its own sandbox/.env, so concurrent worktree writers do
+  # not share this file. Callers in one worktree always agree on its selected
+  # source root.
   printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" > .env
 }
 

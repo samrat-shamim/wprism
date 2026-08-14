@@ -3,10 +3,10 @@
 #
 # pair_compose_configure() (build the docker compose argv, export/persist the
 # canonical bind-mount source) is already exercised for real by
-# regress_pair_bootstrap_unit.sh/regress_pair_candidate_source.sh/
-# regress_certbundle_lock.sh, which run the shipped pair.sh's own
+# regress_pair_bootstrap_unit.sh/regress_pair_candidate_source.sh, which run
+# the shipped pair.sh's own
 # up/stop/start/destroy against a fake docker. This suite covers what those
-# three don't: the jq filtering logic inside pair_compose_live_pairs()/
+# two don't: the jq filtering logic inside pair_compose_live_pairs()/
 # pair_compose_stopped_pairs() — the exact rules deciding which `docker
 # compose ls` rows are a Duo pair at all — fed synthetic `compose ls
 # --format json` output directly, no real docker or pair lifecycle involved.

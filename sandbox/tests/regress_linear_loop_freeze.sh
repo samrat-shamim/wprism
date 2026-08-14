@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Regression — DUO-3449: the dispatch protocol must freeze the reviewed
-# candidate before certification. A previous ordering told agents to rebase
-# immediately before launching the bundle; unrelated main movement could then
-# invalidate a reviewed candidate or a running attestation. This is a pure
+# candidate before subject certification. A previous ordering told agents to
+# rebase immediately before launching certification; unrelated main movement
+# could then invalidate a reviewed candidate or a running subject test. This is a pure
 # source-contract check: it executes no docker, pair, git mutation, or Linear
 # call, and fails if the protocol loses either the freeze sequence or any of
 # the existing exact-source/close-gate safeguards.
@@ -26,29 +26,30 @@ path = Path(sys.argv[1])
 text = path.read_text(encoding="utf-8")
 
 required = [
-    "**Ordering: freeze the reviewed candidate before bundle certification.**",
-    "rebase once → final independent review of exact",
-    "record/freeze C+B",
-    "bundle at C",
-    "deterministic import/generate",
-    "Record candidate `C`, base `B`, and the bundle bound-input closure",
-    "do not rebase merely because",
+    "**Ordering: freeze the reviewed candidate before subject certification.**",
+    "record candidate `C`",
+    "and base `B`",
+    "certify only the affected subjects from a clean checkout",
+    "of exact `C`",
+    "Import each verified record and regenerate the registry",
+    "only post-certification source change",
+    "expires only that subject",
+    "never relabel",
+    "old evidence current",
     "If no\n   candidate freeze `C+B` is recorded",
-    "resume and review/bundle the exact frozen `C` instead",
-    "explicitly break the",
-    "preserve the immutable old bundle as historical evidence",
-    "silently relabel old evidence current",
-    "Merge the frozen PR if",
+    "resume and review/certify the exact frozen `C` instead",
+    "explicit break-and-repeat rule",
+    "php scripts/capability-registry.php check",
 ]
 for needle in required:
     if needle not in text:
         raise SystemExit(f"missing required freeze rule: {needle}")
 
 order = [
-    "rebase once → final independent review of exact",
-    "record/freeze C+B",
-    "bundle at C",
-    "deterministic import/generate",
+    "rebase once → final",
+    "review of `C` over `B`",
+    "subject runs at `C`",
+    "deterministic record imports",
     "merge promptly",
 ]
 positions = [text.index(needle) for needle in order]
@@ -56,7 +57,7 @@ if positions != sorted(positions):
     raise SystemExit(f"freeze sequence is out of order: {positions}")
 
 close_gate = text.index("## Close gate (strict order)")
-freeze = text.index("**Ordering: freeze the reviewed candidate before bundle certification.**")
+freeze = text.index("**Ordering: freeze the reviewed candidate before subject certification.**")
 if freeze >= close_gate:
     raise SystemExit("freeze rule must precede the close-gate procedure")
 
@@ -73,15 +74,15 @@ for forbidden in (
 
 for safeguard in (
     "DUO_EXPECTED_SOURCE_SHA",
-    "bundle import validation",
-    "force-hatch refusal",
+    "import-subject-bundle",
+    "no central\n    certification allowlist or dispatch switch",
     "close-gate-check.sh",
     "merge-base --is-ancestor: ok",
 ):
     if safeguard not in text:
         raise SystemExit(f"existing safeguard disappeared while adding freeze rule: {safeguard}")
 
-# Rebase language after the close-gate heading would be a post-bundle escape
+# Rebase language after the close-gate heading would be a post-certification escape
 # hatch, not the permitted pre-freeze preparation.
 if re.search(r"(?s)## Close gate \(strict order\).*?\brebase\b", text):
     raise SystemExit("close-gate section contains a post-freeze rebase instruction")
@@ -92,7 +93,7 @@ PY
 
 say "protocol source contract: freeze sequence and break rule"
 check_contract "$DOC"
-pass "reviewed C over B is frozen before bundle, with explicit break/repeat semantics"
+pass "reviewed C over B is frozen before subject certification, with explicit break/repeat semantics"
 
 say "protocol source contract: mutate the doc and prove the guard turns red"
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/duo-3449.XXXXXX")

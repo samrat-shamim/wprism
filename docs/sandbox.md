@@ -224,7 +224,7 @@ concurrent cold callers perform one download, and every cache hit re-hashes
 the bytes before use. **`--wordpress-offline`** additionally maps the
 WordPress.org catalog/download hostnames to loopback and requires
 `--artifacts`; it also makes any artifact cache miss refuse before `curl`.
-This overlay is the warm-cache proof mode for reference certification, not a
+This overlay is the warm-cache proof mode for subject certification, not a
 claim that ordinary WordPress itself is generally network-hermetic.
 
 Compose's multi-file merge for `volumes:` is by target path, not whole-list
@@ -318,35 +318,14 @@ capacity or creating pair state. The
 kernel releases the descriptor after a crash/signal; the lock file itself is
 never removed, so a later owner cannot delete another process's reservation.
 `list` uses the same serialized strict query and surfaces the budget warning.
-For certification, variable presence is only permission: both certification
-wrappers initialize a private ledger through
+For certification, variable presence is only permission: the subject wrapper
+initializes a private ledger through
 `sandbox/lib/pair_force_hatch.sh`, and `pair.sh` appends to it only when the
-unreserved over-budget branch actually consumes the override. An in-budget or
-held-reservation admission with the variable present therefore remains
-unforced. If actual use cannot be recorded, pair admission refuses before its
-first post-budget mutation.
-
-One pair name is exempt, and only while a lock says so.
-`certify_reference_bundle.sh` sources the lock protocol from
-`sandbox/lib/certbundle_lock.sh` and holds that per-host certification lock
-(`/tmp/duo-certbundle.lock`, DUO-3382) for a whole ~50-minute run while
-destroying and recreating ONE pair per leg, so every leg re-enters this gate;
-a leg that lands after other agents
-have filled the budget in between would end the bundle in an immutable FAIL
-after the legs it had already earned. While that lock is HELD, `up`/`start`
-treat the exact pair name its `holder.json` records as already budgeted
-(DUO-3396). The name is compared literally — never a prefix or a pattern — and
-the record alone grants nothing: a crashed bundle's record outlives it, so
-pair.sh asks the kernel whether the flock is still held (a shared, nonblocking
-probe on a read-only descriptor, dropped the instant it is taken) and any doubt
-at all — no record, an unreadable one, a different name, a lock nobody holds,
-no way to probe — falls through to the ordinary refusal. This side only READS
-that rendezvous; it never creates, writes, or removes anything in it.
-`DUO_PAIR_BUDGET_OVERRIDE=1` remains a distinct, lower-priority mechanism: if
-the reservation answers, the actual-use ledger stays empty; if an unreserved
-pair really consumes the override, the bundle records
-`force_hatches:["DUO_PAIR_BUDGET_OVERRIDE"]` and remains verifiable but cannot
-be imported as a current capability claim.
+unreserved over-budget branch actually consumes the override. An in-budget
+admission with the variable present therefore remains unforced. If actual use
+cannot be recorded, pair admission refuses before its first post-budget
+mutation. Evidence that records actual override use remains verifiable but
+cannot be imported as a current capability claim.
 
 ## The destroy-when-green convention
 
@@ -429,71 +408,44 @@ actually reach the container's `HostConfig`, not just parsed and ignored).
 The legacy `docker-compose.yml` pairs (`a`, `b`, `conf1/2`, `r1a*/r1b*/r1c*`)
 were confirmed still running, untouched, throughout.
 
-## Reference certification evidence bundles
+## Subject certification evidence
 
-`make certify-reference-bundle` runs the release reference path: named live
-conformance for every shipped conformance manifest (including the experimental
-Paid Memberships Pro adapter), an executable WordPress multisite clean-refusal
-check, and the exact-artifact version matrix (including Ninja Forms' typed-table
-graph). Each `sandbox/conformance/run.sh` invocation exports a
-`conformance-<manifest>` result/diff fragment for direct bundle import; certified
-plugin claims cite that adapter-specific result plus the version matrix. PMPro's
-result is retained without promoting its still-unbound experimental claim. The
-harness owns one disposable pair at a time and destroys it after every attempted
-leg. Override its isolated resources with `CERT_BUNDLE_PAIR`,
-`CERT_BUNDLE_PORT1`, and `CERT_BUNDLE_PORT2` when the defaults are occupied.
-The wrapper sources `sandbox/lib/certbundle_evidence.sh` for the five narrow
-result, scoped-result, fragment, skipped-leg, and aggregate-fragment writers;
-the reference and scoped adapter wrappers both source
-`sandbox/lib/pair_force_hatch.sh` to initialize and project the pair launcher's
-validated actual-use ledger;
-scenario order, exact-source guards, pair lifecycle, and bundle publication
-remain visible in the wrapper. `make regress-certbundle-evidence` executes that
-machine-evidence and force-hatch contract directly with real `jq` and file I/O.
+`make certify-subject-bundle SUBJECT=manifests.<name>` certifies one manifest;
+`SUBJECT=profiles.<name>` certifies one profile. The runner reads that subject's
+required test IDs from `manifests/dispositions.json`. By convention,
+`conformance-<name>` uses the matching conformance entry,
+`exact-artifact-version-matrix` uses the manifest's artifact-lock entries, and
+`multisite-refusal` belongs to core. Any other ID is discovered as an executable
+`sandbox/certification/tests/<id>.sh`. This convention is the extension point:
+adding a WP extension does not require editing a central subject list or switch.
 
-Every run publishes a content-addressed directory below the ignored
-`sandbox/certification-bundles/` directory (or `CERT_BUNDLE_OUT`). Its manifest
-records the exact environment, artifact URLs and digests, harness version,
-force-hatch use, the exact hashed manifest-disposition matrix, named test
-verdicts, diffs, full logs, and SHA-256 digests for
-the repository inputs that define the run. A Git revision is recorded for
-diagnostics, but verification is bound to the actual input bytes rather than a
-mutable branch name.
+Each run owns one disposable pair, destroys it after every attempted test, and
+publishes a content-addressed `duo-subject-certification-bundle/v1` directory
+under `CERT_SUBJECT_OUT` (default
+`/tmp/duo-subject-certification-bundles`). The record contains the exact
+`{kind,name}` subject, subject digest, ratification hash, artifact boundaries,
+force-hatch ledger, named results/diffs/logs, Git revision, and the conservative
+source closure for that lane. Core and profile subjects may legitimately have
+no plugin artifacts. A changed bound input expires that record without affecting
+another subject.
 
-The environment record also contains `duo-artifact-cache-usage/v1`: the typed
-slug, exact version and digest, digest-addressed cache path, resolution sources
-(`network-fetch` and/or `cache-hit`), and use count for every cache entry
-actually requested across all legs. It is display/evidence data
-(`authority:false`), checked against the bound lock before bundle creation.
-Under `DUO_WORDPRESS_ORG_OFFLINE=1`, bundle construction additionally requires
-every observation to be a cache hit; a missing entry refuses before a network
-attempt. This is how a warm-cache run proves that a transient catalog outage
-cannot burn the evidence run while still recording which source path ran.
-
-Every exact artifact is also labeled by purpose. `certified-boundary`
-means the artifact is an admitted supported version; `refusal-fixture` means it
-is deliberately below range and exists only to prove loud refusal;
-`exercise-fixture` means exact bytes used to execute a harness (currently PMPro
-and the bootstrap themes) but never promoted into the bundle's certified
-plugin-artifact claim. Plugin entries may use any of those three closed roles;
-theme entries must be `exercise-fixture` because the current bundle boundary
-inventory is plugin-only. A nonstandard ZIP may additionally pin `archive_root`;
-the harness then renames only that exact extracted directory to the typed slug
-before activation and still requires the installed version readback. Missing
-or unknown roles fail the closed lock validator before any resolver or bundle
-leg can execute; the bundle itself admits only the first two roles.
-
-The builder and verifier emit one JSON verdict on stdout and human diagnostics
-on stderr. Exit `0` means valid and green, `1` means a failed or corrupt bundle,
-and `2` means the evidence expired because a bound input changed. Re-verify a
-bundle explicitly with:
+The builder/verifier emits one JSON verdict and can be invoked directly:
 
 ```sh
-php sandbox/bin/certification-bundle.php verify \
-  sandbox/certification-bundles/<sha256> /path/to/duo-wp
+php sandbox/bin/subject-certification-bundle.php verify \
+  /tmp/duo-subject-certification-bundles/<sha256> /path/to/duo-wp
 ```
 
-Malformed checker output is recorded as `invalid_checker_output` and can never
-become a green bundle. The offline deliberate-defect regression covers changed
-inputs, mutated evidence, and malformed result JSON; run it directly with
-`make regress-certification-bundle` or as part of `make regress-offline-all`.
+Publish only verified, unforced evidence:
+
+```sh
+php scripts/capability-registry.php import-subject-bundle <bundle-dir>
+php scripts/capability-registry.php generate
+php scripts/capability-registry.php check
+```
+
+Import writes the durable record under
+`manifests/capabilities/scoped/<kind>s/<name>/<digest>/` and updates only that
+entry in `manifests/capabilities/evidence.json`. The release check requires all
+certified manifest and profile records to be current; experimental and excluded
+subjects remain non-promoting without forcing unrelated test work.

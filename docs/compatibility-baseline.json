@@ -13,6 +13,6 @@
   },
   "wordpress": {
     "last_verified": "7.0.3",
-    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
   }
 }

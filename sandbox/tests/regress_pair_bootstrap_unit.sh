@@ -26,13 +26,6 @@ trap 'rm -rf "$TMP"' EXIT
 # has no symlink alias and no trailing slash to begin with.
 TMP="$(cd "$TMP" && pwd -P)"
 ORIGINAL_PATH="$PATH"
-# DUO-3396: pair.sh's budget refusal now consults the host certification
-# rendezvous (read-only) to see whether the candidate is the pair a HELD
-# certification lock reserved. Point it at a path under this suite's own
-# scratch that is never created, so these cases decide against a fixture
-# instead of against whatever bundle happens to be running on this host.
-export CERT_BUNDLE_LOCK_DIR="$TMP/no-certbundle-rendezvous"
-
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }

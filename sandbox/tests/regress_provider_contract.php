@@ -985,17 +985,20 @@ $dispositionSnapshot = [
     'profiles' => [],
 ];
 $candidateEvidence = [
-    'format' => \Duo\CapabilityRegistry::EVIDENCE_FORMAT,
-    'bundle_schema' => \Duo\ManifestDispositions::BUNDLE_SCHEMA,
-    'bundle_digest' => str_repeat('a', 64),
+    'bundle_digest' => null,
+    'bundle_schema' => \Duo\ManifestDispositions::EVIDENCE_SCHEMA,
+    'closure_digest' => null,
+    'force_hatches' => [],
+    'git_revision' => null,
     'status' => 'candidate',
+    'subject' => 'manifests.probe',
+    'subject_digest' => null,
     'tests' => [],
 ];
 $capabilitySnapshot = [
     'format' => \Duo\CapabilityRegistry::FORMAT,
     'generated_from' => ['fixture' => 'provider-readiness'],
     'platform' => ['agent_version' => '0.5.0', 'spec_version' => DUO_SPEC_VERSION],
-    'evidence' => $candidateEvidence,
     'manifests' => ['probe' => [
         'name' => 'probe',
         'status' => 'experimental',

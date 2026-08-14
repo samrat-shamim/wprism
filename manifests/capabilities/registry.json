@@ -1,372 +1,13 @@
 {
-    "evidence": {
-        "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-        "bundle_schema": "duo-certification-bundle/v1",
-        "created_at": "2026-08-13T22:09:17Z",
-        "environment_summary": {
-            "active_plugins": [],
-            "artifact_cache": {
-                "authority": false,
-                "entries": [
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-advanced-custom-fields-5.12.6-66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6.zip",
-                        "sha256": "66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6",
-                        "slug": "advanced-custom-fields",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "5.12.6"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip",
-                        "sha256": "b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341",
-                        "slug": "advanced-custom-fields",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 2,
-                        "version": "6.0.0"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip",
-                        "sha256": "f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2",
-                        "slug": "advanced-custom-fields",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 4,
-                        "version": "6.8.7"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-contact-form-7-5.9.8-357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4.zip",
-                        "sha256": "357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4",
-                        "slug": "contact-form-7",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "5.9.8"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip",
-                        "sha256": "23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6",
-                        "slug": "contact-form-7",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 2,
-                        "version": "6.0.1"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip",
-                        "sha256": "e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e",
-                        "slug": "contact-form-7",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 4,
-                        "version": "6.1.6"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-elementor-3.35.9-90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc.zip",
-                        "sha256": "90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc",
-                        "slug": "elementor",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "3.35.9"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip",
-                        "sha256": "75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2",
-                        "slug": "elementor",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 2,
-                        "version": "4.0.0"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip",
-                        "sha256": "4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db",
-                        "slug": "elementor",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 4,
-                        "version": "4.2.2"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip",
-                        "sha256": "82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73",
-                        "slug": "ninja-forms",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 5,
-                        "version": "3.14.11"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-ninja-forms-3.3.21.4-54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f.zip",
-                        "sha256": "54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f",
-                        "slug": "ninja-forms",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "3.3.21.4"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip",
-                        "sha256": "a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687",
-                        "slug": "ninja-forms",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 2,
-                        "version": "3.4.34.2"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-paid-memberships-pro-3.8.3-6c3acc683939e01f203037334c16dddd146aaa30e01e09c41c6503705c1db7bf.zip",
-                        "sha256": "6c3acc683939e01f203037334c16dddd146aaa30e01e09c41c6503705c1db7bf",
-                        "slug": "paid-memberships-pro",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 2,
-                        "version": "3.8.3"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-polylang-3.4.5-adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab.zip",
-                        "sha256": "adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab",
-                        "slug": "polylang",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "3.4.5"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip",
-                        "sha256": "3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1",
-                        "slug": "polylang",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 2,
-                        "version": "3.5"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip",
-                        "sha256": "dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa",
-                        "slug": "polylang",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 5,
-                        "version": "3.8.6"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-woocommerce-10.9.4-6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9.zip",
-                        "sha256": "6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9",
-                        "slug": "woocommerce",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "10.9.4"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip",
-                        "sha256": "ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666",
-                        "slug": "woocommerce",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 6,
-                        "version": "11.0.0"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-wordpress-seo-27.9-eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052.zip",
-                        "sha256": "eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052",
-                        "slug": "wordpress-seo",
-                        "sources": [
-                            "network-fetch"
-                        ],
-                        "uses": 1,
-                        "version": "27.9"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip",
-                        "sha256": "348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f",
-                        "slug": "wordpress-seo",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 3,
-                        "version": "28.0"
-                    },
-                    {
-                        "kind": "plugin",
-                        "path": "/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip",
-                        "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
-                        "slug": "wordpress-seo",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 4,
-                        "version": "28.2"
-                    },
-                    {
-                        "kind": "theme",
-                        "path": "/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip",
-                        "sha256": "f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4",
-                        "slug": "twentytwentyfive",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 4,
-                        "version": "1.5"
-                    },
-                    {
-                        "kind": "theme",
-                        "path": "/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip",
-                        "sha256": "6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e",
-                        "slug": "twentytwentyone",
-                        "sources": [
-                            "cache-hit",
-                            "network-fetch"
-                        ],
-                        "uses": 28,
-                        "version": "2.8"
-                    }
-                ],
-                "format": "duo-artifact-cache-usage/v1",
-                "wordpress_org_blocked": false
-            },
-            "database_client": "11.8.8",
-            "database_server": "11.8.8-MariaDB-ubu2404",
-            "multisite": false,
-            "php": "8.3.33",
-            "theme": {
-                "stylesheet": "twentytwentyfive",
-                "template": "twentytwentyfive"
-            },
-            "wordpress": "7.0.3"
-        },
-        "force_hatches": [],
-        "format": "duo-capability-evidence/v1",
-        "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-        "harness": {
-            "name": "duo-reference-certification",
-            "version": 4
-        },
-        "status": "current",
-        "tests": [
-            {
-                "id": "conformance-core",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-fse",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-acf",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-contact-form-7",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-elementor",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-ninja-forms",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-polylang",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-woocommerce",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-yoast",
-                "verdict": "pass"
-            },
-            {
-                "id": "conformance-paid-memberships-pro",
-                "verdict": "pass"
-            },
-            {
-                "id": "multisite-refusal",
-                "verdict": "pass"
-            },
-            {
-                "id": "exact-artifact-version-matrix",
-                "verdict": "pass"
-            },
-            {
-                "id": "init-contract",
-                "verdict": "pass"
-            },
-            {
-                "id": "duo-init-golden-path",
-                "verdict": "pass"
-            }
-        ]
-    },
-    "format": "duo-capability-registry/v1",
+    "format": "duo-capability-registry/v2",
     "generated_from": {
-        "compatibility_sha256": "4a6726dd5feaf47fe0c6f7e2c1b27711d22d4c44609c34d0f13c227b6025e5c8",
-        "dispositions_sha256": "a2895a1fdba999e0a9d15b4a12760cd3fe10f7f226ae67645d0cd6389903d870",
-        "evidence_sha256": "71e97f3ba1107958d777efa32a03f4686eb792f2d2ff8fece761938c96cff8ea"
+        "compatibility_sha256": "8890e74f412c7ed07e1454c1abd2bd24e330a87990d8832cfe89e9860679b2be",
+        "dispositions_sha256": "94769c86414dc677b3ead30405a82b2ea8288359191c04d949d371778a12549b",
+        "evidence_sha256": "4a8c8bbbcaaa856fb2147cbe20aac4653022152a734f1cb499d82cf6a2021150"
     },
     "manifests": {
         "acf": {
-            "adapter_digest": "e6cdaa69734b3d9bb85f0c33e8fc137dff694e34e4e1e951a2a22fa7b8db9758",
+            "adapter_digest": "d0b09b58fcdc7ffdf9655eafa3dd9c9090b0d10b69f809f7a10bc6417b6fdccb",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -392,15 +33,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.acf",
+                "subject_digest": null,
                 "tests": [
                     "conformance-acf",
                     "exact-artifact-version-matrix"
@@ -454,7 +98,7 @@
             ]
         },
         "contact-form-7": {
-            "adapter_digest": "fe0d1cfa814cf32b53fc8d190861a647faf8c693a983440c00c2aed06ac7de72",
+            "adapter_digest": "a16cb5d14a08bf4e15fae7599a1a5752c969dc84a3c27bcb23b707b64d6c1ca9",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -480,15 +124,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.contact-form-7",
+                "subject_digest": null,
                 "tests": [
                     "conformance-contact-form-7",
                     "exact-artifact-version-matrix"
@@ -547,7 +194,7 @@
             ]
         },
         "core": {
-            "adapter_digest": "2ce6183fdd3cdeb73ae70758787625ea6bbc54ae2fe64592724ed5cfd9278a23",
+            "adapter_digest": "d71f4849eea52b8ec30138cfff4d3bfaca579a3bbdf300ea5d45cc50bed7d4f7",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -580,15 +227,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.core",
+                "subject_digest": null,
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -743,15 +393,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.duo-agency-cpt",
+                "subject_digest": null,
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -813,15 +466,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.duo-code-half-ecosystem",
+                "subject_digest": null,
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -878,15 +534,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.duo-code-half-probe",
+                "subject_digest": null,
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -953,15 +612,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.duo-loop-demo",
+                "subject_digest": null,
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1022,15 +684,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.duo-loop-demo-versioned",
+                "subject_digest": null,
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1062,7 +727,7 @@
             ]
         },
         "elementor": {
-            "adapter_digest": "c090c335ba5dfaae8ec2759aa5bfe8e3b965681593607d3b5b0d7c201134930a",
+            "adapter_digest": "191e30b98171392ce6c65d9b79aaeced4c35f26ffa94b8b0106d3f5b7f046278",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1088,15 +753,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.elementor",
+                "subject_digest": null,
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
@@ -1155,7 +823,7 @@
             ]
         },
         "ninja-forms": {
-            "adapter_digest": "7f88e2552f8d400981a1e7a87231dc1eacabf4a07ba576d95d94d4bf17db95f5",
+            "adapter_digest": "7970d27ed3a744bacd34f136fb04ab90dd776eb01a26e314e8eadb6d07cf7f6a",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1185,15 +853,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.ninja-forms",
+                "subject_digest": null,
                 "tests": [
                     "conformance-ninja-forms",
                     "exact-artifact-version-matrix"
@@ -1267,7 +938,7 @@
             ]
         },
         "paid-memberships-pro": {
-            "adapter_digest": "505e89d4a0d80ebdcc17f691e709cb716585ff023f4a64cd82b57b3c2e0192f8",
+            "adapter_digest": "15a0068464f48382c5e0659eafb2a66047fd17bbf5b0df65121e1d192bdbae1b",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "experimental"
@@ -1295,15 +966,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.paid-memberships-pro",
+                "subject_digest": null,
                 "tests": [
                     "conformance-paid-memberships-pro"
                 ]
@@ -1416,7 +1090,7 @@
             ]
         },
         "polylang": {
-            "adapter_digest": "598f0ab6b882b28a6b3b8ea5aa3f73f5ea9955e8f2de07af97f51f20fc10b760",
+            "adapter_digest": "31e47fb664bd89d649a51b7dfd3374fc876c363bd327bbf5b3db920645a5eba4",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1442,15 +1116,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.polylang",
+                "subject_digest": null,
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1534,15 +1211,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.the-events-calendar",
+                "subject_digest": null,
                 "tests": []
             },
             "lifecycle_phases": [],
@@ -1619,7 +1299,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "12fb092f964fa1010fe1c238cb9905f7c526500491317c89db1cedf6772cb355",
+            "adapter_digest": "3a67c2614ef5756e5fe763971c857e6fe72ad0a542597a3ebe85b03f7ae06a34",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1652,18 +1332,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "adapter_digest": "12fb092f964fa1010fe1c238cb9905f7c526500491317c89db1cedf6772cb355",
-                "bundle_digest": "1f3adcc6c2f4da542271664f91a8333007b579986ff516e6821174a5ee8b3962",
-                "bundle_schema": "duo-adapter-certification-bundle/v1",
-                "closure_digest": "e563bb7476deaca1a7be3c79da951565241fb16d2a82fbf6d355d54bef2f204e",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "4cc8d78c20d99f68276630422636e2341030dd16",
+                "git_revision": null,
                 "status": "candidate",
-                "subject": "woocommerce",
+                "subject": "manifests.woocommerce",
+                "subject_digest": null,
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
@@ -1891,7 +1571,7 @@
             ]
         },
         "yoast": {
-            "adapter_digest": "1d68ba113161d3ea71c501f24b41b5ea1c59e83b75853805c88a5f6e5ba80177",
+            "adapter_digest": "ced2a7c08713513c66cd73bdb61e04905c45a860a331e74b91a898e5c89ae766",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1917,15 +1597,18 @@
                 "site_mode": "single-site",
                 "wordpress": {
                     "last_verified": "7.0.3",
-                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                    "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
                 }
             },
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "manifests.yoast",
+                "subject_digest": null,
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -2021,7 +1704,7 @@
             },
             "wordpress": {
                 "last_verified": "7.0.3",
-                "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by the current passing reference bundle is certified. Any other target version receives wordpress_version_mismatch until a fresh bundle updates this value; a wider range requires a real multi-version core matrix."
+                "note": "Exact evidence boundary, not a claimed range: the sandbox image is not core-version pinned, so only the version recorded by each capability's current subject evidence is certified. Any other target version receives wordpress_version_mismatch until fresh subject evidence updates this value; a wider range requires a real multi-version core matrix."
             }
         },
         "plugin_execution": "unmodified",
@@ -2030,13 +1713,15 @@
     },
     "profiles": {
         "fse": {
-            "adapter_digest": "2ce6183fdd3cdeb73ae70758787625ea6bbc54ae2fe64592724ed5cfd9278a23",
             "evidence": {
-                "bundle_digest": "8204920763deeaf97ae825e8e11b2ab3f8804a994ebe867b9e636331542ec39a",
-                "bundle_schema": "duo-certification-bundle/v1",
+                "bundle_digest": null,
+                "bundle_schema": "duo-subject-certification-bundle/v1",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "b90a9ec1fbb099d0e83d3040c86c96699e5d2317",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
+                "subject": "profiles.fse",
+                "subject_digest": null,
                 "tests": [
                     "conformance-fse"
                 ]
@@ -2058,6 +1743,7 @@
                 ]
             },
             "status": "certified",
+            "subject_digest": "27a2563ccc1f012876c514982a87111ceee8e20c06825f1d2199cfa62f706ab1",
             "supported_versions": {
                 "wordpress": {
                     "source": "bundle.environment_summary.wordpress"

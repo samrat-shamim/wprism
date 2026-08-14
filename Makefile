@@ -9,7 +9,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-init-command regress-init-contract regress-duo-init regress-bound-helper
 .PHONY: regress-plan-view regress-local-bootstrap regress-local-bootstrap-live
 .PHONY: regress-identity-token-codec
-.PHONY: regress-pair-budget-lock regress-pair-compose-unit regress-proof-legacy-pair regress-certbundle-source regress-certbundle-evidence regress-certbundle-cleanup
+.PHONY: regress-pair-budget-lock regress-pair-compose-unit regress-proof-legacy-pair
 .PHONY: regress-text-tokenizer
 .PHONY: regress-structured-reference-codec
 .PHONY: regress-url-query-reference-codec
@@ -25,7 +25,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 .PHONY: regress-delete-guard-evaluator
 .PHONY: regress-scope-discovery regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner
 
-.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-reference-bundle certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
+.PHONY: up down clean setup seed spike-a spike-b spike-c spike-d spike-e spike-f spike-g spikes conformance-% cli-smoke cli-triage-smoke lint-smoke grind-r1c grind-r1a grind-r3a grind-r3b grind-code-half grind-code-half-ecosystem grind-code-half-first-sync grind-ecommerce-developer-live pair-up pair-reset pair-destroy pair-list regress-pa-attributes regress-shipping-zones regress-natural-key-rename certify-merge certify-version-skew-merge certify-adversarial-matrix certify-deletion-matrix certify-version-matrix certify-ssh-adoption-roundtrip certify-ssh-rollback regress-capture-publish regress-code-drift regress-option-subkeys regress-option-reconciliation regress-fatal-mutations-unit regress-fatal-mutations regress-adapter-contract regress-adapter-sources regress-fetch-artifact regress-adapter-theme-range regress-discovery-completeness regress-core-semantics regress-attachment-portability regress-repository-compiler regress-promotion-unit regress-promotion regress-promotion-lock regress-capture-secret-scan regress-order-preserving regress-capture-concurrency regress-menu-item-meta-gate regress-acf-meta-interpreter regress-widgets regress-code-revision-enforcement regress-code-descriptor-unit regress-code-materializer-unit regress-code-completed-unit regress-code-stage-lock-unit regress-code-stage-transaction-unit regress-code-ledger-transaction-unit regress-plan-summary-code-drift regress-plan-title-render regress-conflict-view regress-template-mismatch regress-code-deploy-unit regress-lifecycle-state-handoff regress-lifecycle-phase-handoff-unit regress-plugin-dependency-order regress-rollback-authority regress-recovery-executor regress-checkpoint-bundle regress-code-release code-half-unit \
 	regress-adopt-rollback regress-block-refs regress-composite-ref regress-doctor-env-values regress-dynamic-options-policy regress-taxonomy-object-keyspace \
 	regress-env-options-policy regress-export-manifest-roundtrip regress-manifest-reclassification-policy regress-ecommerce-developer-matrix \
 	regress-menu-field-reclassification-policy regress-regen-dependency-policy regress-shortcode-refs \
@@ -49,12 +49,12 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-recovery \
 	regress-environment-materializer-live \
 	regress-frozen-materialization-promotion \
-	regress-woo-attribute-deletion regress-bundle-coverage regress-certification-bundle \
-	regress-scoped-certification-bundle regress-adapter-certification-bundle certify-adapter-bundle \
+	regress-woo-attribute-deletion regress-bundle-coverage \
+	regress-scoped-certification-bundle regress-subject-certification-bundle certify-subject-bundle \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
-	regress-post-field-classification regress-capability-registry regress-capability-registry-import regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
+	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
-	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-certbundle-lock regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
+	regress-pair-candidate-source regress-manifest-validate regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-scope-contract regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-scope-wire regress-conformance-asserts \
 	capability-registry-generate release-gate
 
 up:
@@ -246,9 +246,6 @@ certify-deletion-matrix:
 certify-version-matrix:
 	bash sandbox/tests/certify_version_matrix.sh
 
-certify-reference-bundle:
-	bash sandbox/tests/certify_reference_bundle.sh
-
 # DUO-3213 (atomic capture publication): offline, no docker -- exercises
 # agent/src/Publish.php's capture lock, staging dir, atomic swap, and crash
 # recovery directly, including a real SIGKILL of a child process mid-
@@ -315,27 +312,21 @@ regress-adapter-contract:
 regress-fetch-artifact:
 	bash sandbox/tests/regress_fetch_artifact.sh
 
-regress-certification-bundle:
-	bash sandbox/tests/regress_certification_bundle.sh
-
 regress-scoped-certification-bundle:
 	bash sandbox/tests/regress_scoped_certification_bundle.sh
 
-regress-adapter-certification-bundle:
-	bash sandbox/tests/regress_adapter_certification_bundle.sh
+regress-subject-certification-bundle:
+	bash sandbox/tests/regress_subject_certification_bundle.sh
 
-# Usage: make certify-adapter-bundle MANIFEST=woocommerce
-certify-adapter-bundle:
-	bash sandbox/tests/certify_adapter_bundle.sh "$(MANIFEST)"
+# Usage: make certify-subject-bundle SUBJECT=manifests.woocommerce
+certify-subject-bundle:
+	bash sandbox/tests/certify_subject_bundle.sh "$(SUBJECT)"
 
 regress-manifest-dispositions:
 	bash sandbox/tests/regress_manifest_dispositions.sh
 
 regress-capability-registry:
 	bash sandbox/tests/regress_capability_registry.sh
-
-regress-capability-registry-import:
-	bash sandbox/tests/regress_capability_registry_import.sh
 
 regress-adapter-sources:
 	bash sandbox/tests/regress_adapter_sources.sh
@@ -551,28 +542,6 @@ regress-manifest-validate:
 # Offline: pure PHP/file-I/O, no docker, no WordPress.
 regress-adapter-draft:
 	bash sandbox/tests/regress_adapter_draft.sh
-
-# DUO-3382: the certification bundle's own per-host flock(2) — real racing
-# processes against a private rendezvous, so the mutual exclusion, the named
-# refusal, bounded waiting, and kernel reclaim of a killed holder are proven
-# on both lock backends without docker or a 50-minute bundle run.
-regress-certbundle-lock:
-	bash sandbox/tests/regress_certbundle_lock.sh
-
-# DUO-3355: direct exact-source checkout/freeze boundary. Real temporary Git
-# repositories, no docker -- belongs in regress-offline-all.
-regress-certbundle-source:
-	bash sandbox/tests/regress_certbundle_source.sh
-
-# DUO-3355: direct machine-evidence writer contract for the reference bundle.
-# Real jq and file I/O, no docker -- belongs in regress-offline-all.
-regress-certbundle-evidence:
-	bash sandbox/tests/regress_certbundle_evidence.sh
-
-# DUO-3355: direct cleanup/owned-pair lifecycle boundary for reference-bundle
-# certification. Pure shell/file-I/O, no docker -- belongs in regress-offline-all.
-regress-certbundle-cleanup:
-	bash sandbox/tests/regress_certbundle_cleanup.sh
 
 # DUO-3408: the shared conformance assertion fragment -- every require_*
 # helper the seeds/postdeploy hooks call must be defined in ONE fragment both
@@ -1653,8 +1622,8 @@ regress-pair-budget-lock:
 # a Duo pair at all) -- fed synthetic compose ls JSON via a fake docker, no
 # real docker or pair lifecycle involved. pair_compose_configure() itself
 # (the docker-compose-argv/canonical-source half of this library) is already
-# exercised for real by the bootstrap/candidate-source/certbundle-lock
-# suites, which run the shipped pair.sh's own subcommands against a fake
+# exercised for real by the bootstrap/candidate-source suites, which run the
+# shipped pair.sh's own subcommands against a fake
 # docker; this target covers the filter edge cases those runs don't reach
 # (the legacy duo-sandbox project's exclusion, malformed/empty compose ls
 # output refusing rather than reporting zero pairs, and the Status/
@@ -1872,10 +1841,10 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 243 offline suites green"
+	@echo "regress-offline-all: 237 offline suites green"
 
 regress-offline-corpus: code-half-unit \
-	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-capability-registry-import regress-certification-bundle regress-scoped-certification-bundle regress-adapter-certification-bundle regress-interpreter-policy regress-proof-legacy-pair \
+	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-scoped-certification-bundle regress-subject-certification-bundle regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
 	regress-order-preserving \
 	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
@@ -1890,9 +1859,9 @@ regress-offline-corpus: code-half-unit \
 	regress-woocommerce-regen-engine regress-action-scope regress-actions-providers regress-pair-budget-lock regress-pair-compose-unit regress-pair-bootstrap-unit regress-pair-candidate-source \
 	regress-post-field-classification regress-ecommerce-developer-static regress-ecommerce-developer-matrix regress-ecommerce-extension-migration regress-capture-atomicity regress-capture-record-readback regress-fetch-artifact \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
-	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-certbundle-lock regress-certbundle-source regress-certbundle-evidence regress-certbundle-cleanup regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
+	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics
-	@echo "regress-offline-corpus: 243 offline suites green"
+	@echo "regress-offline-corpus: 237 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/regress_offline_diagnostics.sh
@@ -1951,7 +1920,7 @@ regress-live-list:
 	@echo "  regress-duo-init                         pair codexmaca3336 9300/9301 (parameterized: DUO_INIT_PAIR/DUO_INIT_PORT1/DUO_INIT_PORT2)"
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
-	@echo "  certify-adapter-bundle MANIFEST=woocommerce own disposable pair (CERT_ADAPTER_PAIR/CERT_ADAPTER_PORT1/CERT_ADAPTER_PORT2; exact candidate gate)"
+	@echo "  certify-subject-bundle SUBJECT=manifests.woocommerce own disposable pair (CERT_SUBJECT_PAIR/CERT_SUBJECT_PORT1/CERT_SUBJECT_PORT2; exact candidate gate)"
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
 	@echo ""
 	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."

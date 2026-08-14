@@ -28,7 +28,7 @@ final class AdapterCertification {
     // is no weaker second envelope protocol to accidentally accept.
     public const ENVELOPE_FORMAT = self::FORMAT;
     public const AUTHORITIES_FORMAT = 'duo-adapter-authorities/v1';
-    public const BUNDLE_FORMAT = 'duo-certification-bundle/v1';
+    public const BUNDLE_FORMAT = 'duo-site-adapter-certification-bundle/v1';
     public const RATIFICATION_FORMAT = 'duo-manifest-dispositions/v1';
 
     /** Kept independent from JSON framing so this signature cannot verify elsewhere. */
@@ -363,7 +363,7 @@ final class AdapterCertification {
             );
         }
 
-        $bundle = self::verifyEmbeddedBundle($statementTyped->bundle, $statement['bundle']);
+        $bundle = self::verifyEmbeddedBundle($statementTyped->bundle, $statement['bundle'], $name);
         self::assertBundleSubjectInput($bundle['bound_inputs'], $name, $adapter);
         [$ratification, $disposition, $ratificationRaw] = self::verifyEmbeddedRatification(
             $statementTyped->ratification,
@@ -746,7 +746,7 @@ final class AdapterCertification {
             );
         }
         [, $typed, $data] = self::readCanonicalObjectFile($file, 'agent capability registry');
-        if (($data['format'] ?? null) !== 'duo-capability-registry/v1'
+        if (($data['format'] ?? null) !== CapabilityRegistry::FORMAT
             || !isset($typed->platform) || !is_object($typed->platform)
             || !is_array($data['platform'] ?? null) || array_is_list($data['platform'])) {
             throw new \RuntimeException('duo: agent capability registry has no valid platform boundary');
@@ -832,7 +832,7 @@ final class AdapterCertification {
         [$bundleDir, $bundleFile] = self::bundleFile($bundleInput);
         [$bundleRaw, $bundleTyped, $bundle] = self::readBundleObjectFile($bundleFile, 'certification bundle manifest');
         unset($bundleRaw);
-        $info = self::verifyBundleManifest($bundleTyped, $bundle, 'certification bundle manifest');
+        $info = self::verifyBundleManifest($bundleTyped, $bundle, 'certification bundle manifest', $name);
         self::assertBundleSubjectInput($info['bound_inputs'], $name, [
             'raw_sha256' => hash('sha256', $adapterRaw),
             'raw_size' => strlen($adapterRaw),
@@ -886,11 +886,16 @@ final class AdapterCertification {
      *
      * @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string}
      */
-    private static function verifyBundleManifest(object $typed, array $bundle, string $label): array {
+    private static function verifyBundleManifest(
+        object $typed,
+        array $bundle,
+        string $label,
+        string $name
+    ): array {
         self::assertExactKeys($bundle, [
             'artifacts', 'bound_inputs', 'bundle_digest', 'created_at', 'environment', 'environment_summary',
             'force_hatches', 'git_revision', 'harness', 'ratification', 'ratification_summary', 'schema_version',
-            'tests', 'verdict',
+            'subject', 'tests', 'verdict',
         ], $label);
         foreach (['environment', 'environment_summary', 'harness', 'ratification', 'ratification_summary'] as $key) {
             if (!isset($typed->$key) || !is_object($typed->$key)
@@ -903,6 +908,17 @@ final class AdapterCertification {
                 || !is_array($bundle[$key] ?? null) || !array_is_list($bundle[$key])) {
                 throw new \RuntimeException("duo: $label.$key must be a JSON list");
             }
+        }
+        if (!isset($typed->subject) || !is_object($typed->subject)
+            || !is_array($bundle['subject'] ?? null) || array_is_list($bundle['subject'])) {
+            throw new \RuntimeException("duo: $label.subject must be an object");
+        }
+        self::assertExactKeys($bundle['subject'], ['kind', 'name'], "$label.subject");
+        if (($bundle['subject']['kind'] ?? null) !== 'site_adapter'
+            || ($bundle['subject']['name'] ?? null) !== $name) {
+            throw new \RuntimeException(
+                "duo: $label must be scoped exactly to site_adapter.$name"
+            );
         }
         if (($bundle['schema_version'] ?? null) !== self::BUNDLE_FORMAT
             || ($bundle['verdict'] ?? null) !== 'pass'
@@ -1167,8 +1183,13 @@ final class AdapterCertification {
     }
 
     /** @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string} */
-    private static function verifyEmbeddedBundle(object $bundleTyped, array $bundle): array {
-        return self::verifyBundleManifest($bundleTyped, $bundle, 'signed certification bundle manifest');
+    private static function verifyEmbeddedBundle(object $bundleTyped, array $bundle, string $name): array {
+        return self::verifyBundleManifest(
+            $bundleTyped,
+            $bundle,
+            'signed certification bundle manifest',
+            $name
+        );
     }
 
     /**
@@ -1275,7 +1296,12 @@ final class AdapterCertification {
             }
             self::assertExactKeys($row, ['reason', 'status', 'table'], "site adapter disposition '$name'.default_authored_keyspaces[$i]");
         }
-        ManifestDispositions::validate_external_entry($name, $disposition, $manifest);
+        ManifestDispositions::validate_external_entry(
+            $name,
+            $disposition,
+            $manifest,
+            self::BUNDLE_FORMAT
+        );
     }
 
     /**

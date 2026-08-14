@@ -1,0 +1,11 @@
+{
+  "entry": {
+    "pin": ["core"],
+    "plugins": [],
+    "post_types": ["post", "page", "attachment", "wp_block", "wp_navigation", "wp_template", "wp_template_part"],
+    "setup": "block-theme",
+    "taxonomies": ["category", "post_tag", "wp_pattern_category", "wp_template_part_area", "wp_theme"],
+    "themes": [{"slug": "twentytwentyfive", "version": "1.5"}]
+  },
+  "manifest": "fse"
+}

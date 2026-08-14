@@ -79,6 +79,7 @@ require_once __DIR__ . '/../../agent/src/Cli.php';
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
 use Duo\Canon;
+use Duo\CapabilityRegistry;
 use Duo\InitPlanner;
 use Duo\Policy;
 use Duo\Providers;
@@ -188,7 +189,7 @@ function cert_bundle_digest(array $bundle): string {
 }
 
 /**
- * Create the exact subset of a duo-certification-bundle/v1 needed for one
+ * Create the exact subset of a site-adapter-scoped certification bundle needed for one
  * certified site adapter.  Files used for facts that later need frozen
  * revalidation (the ratification and environment) use repository Canon;
  * bundle.json and result assets use the established bundle producer's
@@ -254,7 +255,11 @@ function cert_write_bundle(
             'manifest_count' => 1,
             'profile_count' => 0,
         ],
-        'schema_version' => 'duo-certification-bundle/v1',
+        'schema_version' => AdapterCertification::BUNDLE_FORMAT,
+        'subject' => [
+            'kind' => 'site_adapter',
+            'name' => $name,
+        ],
         'tests' => [[
             'diff' => cert_descriptor($dir . '/diffs/site-conformance.json', 'diffs/site-conformance.json'),
             'id' => 'site-conformance',
@@ -325,7 +330,7 @@ $ratification = [
             ],
             'default_authored_keyspaces' => [],
             'evidence' => [
-                'bundle_schema' => 'duo-certification-bundle/v1',
+                'bundle_schema' => AdapterCertification::BUNDLE_FORMAT,
                 'tests' => ['site-conformance'],
             ],
             'reason' => 'The external review covered this exact declarative site adapter.',
@@ -364,7 +369,7 @@ try {
 }
 putenv('DUO_MANIFESTS_DIR');
 cert_write_canon($agent . '/capabilities/registry.json', [
-    'format' => 'duo-capability-registry/v1',
+    'format' => CapabilityRegistry::FORMAT,
     'platform' => $platform,
 ]);
 
@@ -578,7 +583,7 @@ $providerAuthorities = [
     'keys' => $providerKeys,
 ];
 cert_write_canon($providerAgent . '/capabilities/registry.json', [
-    'format' => 'duo-capability-registry/v1',
+    'format' => CapabilityRegistry::FORMAT,
     'platform' => $platform,
 ]);
 cert_write_canon($providerAgent . '/capabilities/adapter-authorities.json', $providerAuthorities);
@@ -954,7 +959,7 @@ cert_check(
 $providerPolicyManifests = $root . '/provider-policy-manifests';
 cert_write_canon($providerPolicyManifests . '/capabilities/adapter-authorities.json', $authorities);
 cert_write_canon($providerPolicyManifests . '/capabilities/registry.json', [
-    'format' => 'duo-capability-registry/v1',
+    'format' => CapabilityRegistry::FORMAT,
     'platform' => $platform,
 ]);
 cert_write_canon($site . '/site.duo.json', [
@@ -990,10 +995,8 @@ $integrationRegistry = json_decode(
     JSON_THROW_ON_ERROR
 );
 $integrationRegistry['platform'] = $platform;
-// Exercise mixed per-row evidence isolation independent of whether the
-// checked-out shipped registry currently carries current or candidate global
-// evidence.  Only the shipped row should inherit this synthetic blocker.
-$integrationRegistry['evidence']['status'] = 'candidate';
+// Exercise mixed per-row evidence isolation. Only shipped subject rows should
+// inherit this synthetic blocker; the independently signed site row must not.
 foreach ($integrationRegistry['manifests'] as &$integrationManifestClaim) {
     $integrationManifestClaim['evidence']['status'] = 'candidate';
 }
@@ -1760,11 +1763,11 @@ PHP
         $mixedRows[$row['name']] = $row;
     }
     cert_check(
-        ($mixedReport['evidence_scope'] ?? null) === 'per_manifest'
+        ($mixedReport['evidence_scope'] ?? null) === 'per_subject'
         && $mixedReport['evidence'] === null
         && ($mixedRows['site-demo']['evidence_scope'] ?? null) === 'site_certificate'
         && ($mixedRows['site-demo']['verdict']['status'] ?? null) === 'certified'
-        && ($mixedRows['core']['evidence_scope'] ?? null) === 'shipped_registry'
+        && ($mixedRows['core']['evidence_scope'] ?? null) === 'subject_record'
         && ($mixedRows['core']['verdict']['status'] ?? null) === 'blocked',
         'mixed reporting evaluates the signed site row against its own current evidence while shipped candidate evidence blocks only the shipped row'
     );
@@ -1773,7 +1776,7 @@ PHP
     $mixedResolved = RepositoryCompiler::resolved_adapters($mixedPolicy);
     cert_check(
         ($mixedResolved[0]['digest'] ?? null) === ($shippedOnlyResolved[0]['digest'] ?? null)
-        && !array_key_exists('evidence_scope', $shippedOnly->capability_report(['operation' => 'promote'])),
+        && ($shippedOnly->capability_report(['operation' => 'promote'])['evidence_scope'] ?? null) === 'per_subject',
         'installing a certified site adapter leaves the shipped core digest and shipped-only report shape unchanged'
     );
 
@@ -1884,7 +1887,7 @@ cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities
 $changedPlatform = $platform;
 $changedPlatform['branchable_state'] = 'a different current platform boundary';
 cert_write_canon($agent . '/capabilities/registry.json', [
-    'format' => 'duo-capability-registry/v1',
+    'format' => CapabilityRegistry::FORMAT,
     'platform' => $changedPlatform,
 ]);
 cert_expect_throw(
@@ -1893,7 +1896,7 @@ cert_expect_throw(
     'a current platform mutation invalidates frozen certification'
 );
 cert_write_canon($agent . '/capabilities/registry.json', [
-    'format' => 'duo-capability-registry/v1',
+    'format' => CapabilityRegistry::FORMAT,
     'platform' => $platform,
 ]);
 
