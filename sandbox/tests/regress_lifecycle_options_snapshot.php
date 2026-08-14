@@ -913,12 +913,12 @@ foreach ($wpdb->queryCalls as $call) {
         $allocatedWidgetUuids[] = (string) ($call['args'][0] ?? '');
     }
 }
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$authoredExecutorSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
 $check(
     $allocatedWidgetUuids === [$selectedSidebarWidget]
         && !in_array($protectedSidebarWidget, $allocatedWidgetUuids, true)
-        && is_string($applySource)
-        && str_contains($applySource, 'array_intersect_key($tree, ScopedApply::selected_set($this->scopeContract))'),
+        && is_string($authoredExecutorSource)
+        && str_contains($authoredExecutorSource, 'array_intersect_key($tree, ScopedApply::selected_set($scopeContract))'),
     'scoped sidebar allocation receives the selected projection and never maps an unselected desired widget'
 );
 

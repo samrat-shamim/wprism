@@ -1065,6 +1065,7 @@ namespace {
 
     $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");
     $applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+    $nativeRebuildSource = (string) file_get_contents("$root/agent/src/NativeRebuildExecutor.php");
     $cliBeginStart = strpos($cliSource, 'public function promotion_begin_scoped');
     $cliBeginEnd = strpos($cliSource, 'public function promotion_complete_scoped');
     $cliBeginSource = substr($cliSource, (int) $cliBeginStart, (int) $cliBeginEnd - (int) $cliBeginStart);
@@ -1247,7 +1248,7 @@ namespace {
         'option/table/sidebar/user-meta scoped work skips taxonomy callbacks'
     );
     $check(
-        str_contains($applySource, '$needsTaxonomyRecount = !$suppressScopedExternalEffects')
+        str_contains($nativeRebuildSource, '$needsTaxonomyRecount = !$suppressExternalEffects')
             && str_contains($applySource, '$scopedCoreComplete,' . "\n" . '            $scopedPromotion'),
         'taxonomy callback suppression is explicit to scoped promotion and preserves ordinary scoped apply behavior'
     );
@@ -1268,9 +1269,10 @@ namespace {
     );
 
     $applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+    $actionDispatcherSource = (string) file_get_contents("$root/agent/src/RebuildActionDispatcher.php");
     $check(
         str_contains($applySource, 'plus derived cache eviction')
-            && preg_match('/if \(\$this->selectedActions !== \[\]\) \{.{0,320}wp_cache_flush\(\)/s', $applySource) === 1,
+            && preg_match('/if \(\$selectedActions !== \[\]\) \{.{0,320}wp_cache_flush\(\)/s', $actionDispatcherSource) === 1,
         'the initial profile admits only derived cache eviction: action-free scoped work cannot dispatch a pre-action cache/effect path'
     );
 

@@ -72,6 +72,35 @@ final class TermMaterializer {
     ) {
     }
 
+    public function ensure_term_row(array $front, string $entityType): void {
+        global $wpdb;
+        if (Ledger::id_for($front['uuid'], Ledger::KIND_TERM) !== null) {
+            return;
+        }
+        Db::insert(
+            $wpdb->terms,
+            ['name' => $front['name'], 'slug' => $front['slug'], 'term_group' => 0],
+            null,
+            'apply insert term'
+        );
+        $termId = Db::insert_id('apply insert term');
+        Db::insert($wpdb->term_taxonomy, [
+            'term_id' => $termId,
+            'taxonomy' => $front['taxonomy'],
+            'description' => '',
+            'parent' => 0,
+            'count' => 0,
+        ], null, 'apply insert term taxonomy');
+        $termTaxonomyId = Db::insert_id('apply insert term taxonomy');
+        Db::insert($wpdb->termmeta, [
+            'term_id' => $termId,
+            'meta_key' => '_duo_uuid',
+            'meta_value' => $front['uuid'],
+        ], null, 'apply insert term identity');
+        Ledger::set($front['uuid'], $entityType, Ledger::KIND_TERM, $termId);
+        Ledger::set($front['uuid'], $entityType, Ledger::KIND_TT, $termTaxonomyId);
+    }
+
     /** @param string[] $termObjectTaxes policy-scoped taxonomies whose resolved object_keyspace is `term` */
     public function finalize_term(array $front, array $termObjectTaxes): void {
         global $wpdb;

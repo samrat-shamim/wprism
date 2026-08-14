@@ -477,6 +477,8 @@ $check(
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$planBuilderSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanBuilder.php');
+$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardReferenceScanner.php');
 $engineFacade = substr(
     $applySource,
     strpos($applySource, 'private function assert_delete_guard_engines('),
@@ -485,13 +487,16 @@ $engineFacade = substr(
 );
 $check(
     str_contains($applySource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
-        && substr_count($applySource, 'DeleteGuardEvaluator::lock_index(') === 3
+        && str_contains($applySource, "require_once __DIR__ . '/DeleteGuardReferenceScanner.php';")
+        && str_contains($scannerSource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
+        && substr_count($scannerSource, 'DeleteGuardEvaluator::lock_index(') === 3
         && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));')
         && !str_contains($engineFacade, 'information_schema.TABLES'),
-    'Apply delegates every deletion-guard index and storage-engine decision to the evaluator'
+    'the scanner and Apply delegate every deletion-guard index and storage-engine decision to the evaluator'
 );
 $check(
-    !str_contains($applySource, 'private function guard_lock_index('),
+    !str_contains($applySource, 'private function guard_lock_index(')
+        && !str_contains($scannerSource, 'private function guard_lock_index('),
     'Apply retains no duplicate lock-boundary evaluator'
 );
 $isolationFacade = substr(
@@ -531,10 +536,10 @@ $check(
     'Apply keeps lock/isolation and target-fact callbacks while the evaluator owns witness revalidation'
 );
 $planGuardSection = substr(
-    $applySource,
-    strpos($applySource, '// Runtime reverse references are target facts'),
-    strpos($applySource, '// docs/proposals/code-half.md')
-        - strpos($applySource, '// Runtime reverse references are target facts')
+    $planBuilderSource,
+    strpos($planBuilderSource, '// Runtime reverse references are target facts'),
+    strpos($planBuilderSource, '// docs/proposals/code-half.md')
+        - strpos($planBuilderSource, '// Runtime reverse references are target facts')
 );
 $check(
     str_contains($planGuardSection, 'DeleteGuardEvaluator::annotate_plan_guard_findings(')

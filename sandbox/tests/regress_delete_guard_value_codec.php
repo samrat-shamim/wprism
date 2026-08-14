@@ -75,14 +75,18 @@ $check(
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardReferenceScanner.php');
 $check(
-    str_contains($applySource, "require_once __DIR__ . '/DeleteGuardValueCodec.php';")
-        && str_contains($applySource, 'DeleteGuardValueCodec::meta_value_ids(')
-        && str_contains($applySource, 'DeleteGuardValueCodec::canonical_meta_ref_contains_uuid('),
-    'Apply delegates both target-controlled representation decisions to the codec'
+    str_contains($applySource, "require_once __DIR__ . '/DeleteGuardReferenceScanner.php';")
+        && str_contains($scannerSource, "require_once __DIR__ . '/DeleteGuardValueCodec.php';")
+        && str_contains($scannerSource, 'DeleteGuardValueCodec::meta_value_ids(')
+        && str_contains($scannerSource, 'DeleteGuardValueCodec::canonical_meta_ref_contains_uuid('),
+    'the deletion-guard scanner delegates both target-controlled representation decisions to the codec'
 );
 $check(
     !str_contains($applySource, 'private function meta_guard_value_ids(')
+        && !str_contains($applySource, 'DeleteGuardValueCodec::meta_value_ids(')
+        && !str_contains($applySource, 'DeleteGuardValueCodec::canonical_meta_ref_contains_uuid(')
         && !str_contains($applySource, 'private function canonical_meta_ref_contains_uuid(')
         && !str_contains($applySource, 'private function strict_unserialize('),
     'Apply retains no duplicate deletion-guard value codec'
