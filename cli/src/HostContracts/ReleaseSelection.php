@@ -7,6 +7,11 @@ namespace Duo\Orchestrator;
 final class ReleaseSelection {
     public const FORMAT = 'duo-release-selection/v1';
 
+    /** @var array{agent:string,host:string,recovery:string} */
+    public readonly array $expectedProtocols;
+    /** @var array<string,string> */
+    public readonly array $trustedReviewKeys;
+
     /**
      * @param array{host:string,agent:string,recovery:string} $expectedProtocols
      * @param array<string,string> $trustedReviewKeys authority-id:key-id => base64 Ed25519 public key
@@ -16,8 +21,8 @@ final class ReleaseSelection {
         public readonly string $expectedReleaseFamilySha256,
         public readonly string $expectedTargetReleaseSetSha256,
         public readonly string $expectedHostArtifactSha256,
-        public readonly array $expectedProtocols,
-        public readonly array $trustedReviewKeys,
+        array $expectedProtocols,
+        array $trustedReviewKeys,
         public readonly string $pinRecordSha256
     ) {
         if ($bundlePath === '' || $bundlePath[0] !== '/' || str_contains($bundlePath, "\0")) {
@@ -28,6 +33,10 @@ final class ReleaseSelection {
         }
         self::assertProtocols($expectedProtocols);
         self::assertTrustedKeys($trustedReviewKeys);
+        ksort($expectedProtocols, SORT_STRING);
+        ksort($trustedReviewKeys, SORT_STRING);
+        $this->expectedProtocols = $expectedProtocols;
+        $this->trustedReviewKeys = $trustedReviewKeys;
     }
 
     /** @param array<string,mixed> $input */

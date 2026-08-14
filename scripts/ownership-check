@@ -215,36 +215,59 @@ if ($refresh) {
         'exceptions' => [
             [
                 'source'=>'cli/duo','target'=>'agent/src/{Canon,Secrets,ReferenceGraph,ScopeClosure,CanonicalSurfaces,Deletion,ScopeContract}.php',
+                'allowed_targets'=>array_map(static fn(string $name): string => "agent/src/$name.php", [
+                    'Canon','Secrets','ReferenceGraph','ScopeClosure','CanonicalSurfaces','Deletion','ScopeContract',
+                ]),
                 'owner'=>'thread-2','rationale'=>'existing host scope-contract compatibility bridge',
                 'removal_condition'=>'Thread 2 replaces it with the ratified versioned host-safe repository contract package',
             ],
             [
                 'source'=>'cli/src/RefreshPlan.php','target'=>'agent/src compatibility load graph',
+                'allowed_targets'=>array_map(static fn(string $name): string => "agent/src/$name.php", [
+                    'Uuid','OrderPreserved','Canon','OptionState','UserMetaState','Db','Secrets','PersonalData',
+                    'ManifestDispositions','CapabilityRegistry','Policy','Ledger','PromotionLock','Identity',
+                    'IdentityBackup','Deletion','JsonRefs','Tokens','Blocks','PlainData','SidebarState',
+                    'Shortcodes','Canary','IdentityNotes','Snapshot','Orphans','TransientDbException','Publish',
+                    'Capture','RepositoryAuthorization','CodeCompatibility','Code','ReferenceGraph',
+                    'RepositoryCompiler','ScopeClosure','CanonicalSurfaces','ScopeContract','ScopedStateOverlay',
+                    'CodeStateContract',
+                ]),
                 'owner'=>'thread-2','rationale'=>'existing refresh/rebase compatibility bridge',
                 'removal_condition'=>'Thread 2 routes all target semantics through the agent gateway/built contract artifact',
             ],
             [
                 'source'=>'cli/src/Refresh.php','target'=>'agent/src/ScopeContract.php',
+                'allowed_targets'=>['agent/src/ScopeContract.php'],
                 'owner'=>'thread-2','rationale'=>'existing refresh scope-contract compatibility bridge',
                 'removal_condition'=>'Thread 2 consumes the ratified host-safe repository contract package',
             ],
             [
                 'source'=>'cli/src/PassthroughCommand.php','target'=>'agent/src/{Canon,ScopeContract}.php',
+                'allowed_targets'=>['agent/src/Canon.php','agent/src/ScopeContract.php'],
                 'owner'=>'thread-2','rationale'=>'existing host passthrough compatibility bridge',
                 'removal_condition'=>'Thread 2 consumes the ratified host-safe canonical scope package',
             ],
             [
                 'source'=>'cli/src/AdapterCatalog.php','target'=>'agent/src compatibility classmap declared in source',
+                'allowed_targets'=>array_map(static fn(string $name): string => "agent/src/$name.php", [
+                    'Canon','OptionState','ManifestDispositions','CapabilityRegistry','Policy',
+                ]),
                 'owner'=>'thread-4','rationale'=>'existing offline adapter catalog compatibility bridge',
                 'removal_condition'=>'Thread 4 publishes the catalog through its host-safe artifact package',
             ],
             [
                 'source'=>'cli/src/AdapterDraft.php','target'=>'agent/src compatibility classmap declared in source',
+                'allowed_targets'=>array_map(static fn(string $name): string => "agent/src/$name.php", [
+                    'Canon','OptionState','ManifestDispositions','CapabilityRegistry','Policy','Deletion','Secrets',
+                ]),
                 'owner'=>'thread-4','rationale'=>'existing offline adapter draft compatibility bridge',
                 'removal_condition'=>'Thread 4 publishes the draft grammar through its host-safe artifact package',
             ],
             [
                 'source'=>'cli/src/ManifestValidate.php','target'=>'agent/src compatibility classmap declared in source',
+                'allowed_targets'=>array_map(static fn(string $name): string => "agent/src/$name.php", [
+                    'Canon','OptionState','ManifestDispositions','CapabilityRegistry','Policy',
+                ]),
                 'owner'=>'thread-4','rationale'=>'existing offline manifest-validation compatibility bridge',
                 'removal_condition'=>'Thread 4 publishes validation through its host-safe artifact package',
             ],
@@ -278,11 +301,23 @@ foreach ((array) ($ledger['files'] ?? []) as $row) {
     $assigned[$path] = $owner;
 }
 $prefixes = [];
-foreach ((array) ($ledger['new_prefixes'] ?? []) as $row) {
+$ratifiedPrefixes = new_prefix_assignments();
+if (($ledger['new_prefixes'] ?? null) !== $ratifiedPrefixes) {
+    ownership_fail('checked-in new-prefix assignments differ from the ratified policy');
+}
+foreach ($ratifiedPrefixes as $row) {
     $prefix = $row['prefix'] ?? null; $owner = $row['owner'] ?? null;
     if (!is_string($prefix) || !str_ends_with($prefix, '/') || isset($prefixes[$prefix])
         || !is_string($owner) || !in_array($owner, $owners, true)) ownership_fail('invalid or duplicate new-prefix assignment');
     $prefixes[$prefix] = $owner;
+}
+$prefixNames = array_keys($prefixes);
+foreach ($prefixNames as $index => $prefix) {
+    foreach (array_slice($prefixNames, $index + 1) as $other) {
+        if (str_starts_with($prefix, $other) || str_starts_with($other, $prefix)) {
+            ownership_fail("new-prefix assignments overlap: $prefix and $other");
+        }
+    }
 }
 $tracked = tracked_files($root);
 $stale = array_values(array_diff(array_keys($assigned), $tracked));
@@ -322,8 +357,12 @@ foreach ($ledger['boundary_rules'] as $row) {
 }
 foreach ($ledger['exceptions'] as $row) {
     $keys = array_keys((array) $row); sort($keys, SORT_STRING);
-    if ($keys !== ['owner','rationale','removal_condition','source','target']
-        || !in_array($row['owner'] ?? null, $owners, true)) ownership_fail('boundary exception is malformed');
+    if ($keys !== ['allowed_targets','owner','rationale','removal_condition','source','target']
+        || !in_array($row['owner'] ?? null, $owners, true)
+        || !is_array($row['allowed_targets'] ?? null) || !array_is_list($row['allowed_targets'])
+        || $row['allowed_targets'] === [] || count(array_unique($row['allowed_targets'])) !== count($row['allowed_targets'])) {
+        ownership_fail('boundary exception is malformed');
+    }
 }
 echo 'ownership-check: ' . count($tracked) . ' tracked paths have exactly one owner; '
     . count($prefixes) . ' new-module prefixes are exclusive' . PHP_EOL;

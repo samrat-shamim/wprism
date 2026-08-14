@@ -54,10 +54,6 @@ final class AtomicFilePublisher {
                 throw new \RuntimeException('duo: atomic publication replacement failed');
             }
             $published = true;
-            clearstatcache(true, $path);
-            if ((fileperms($path) & 0777) !== $publishMode) {
-                throw new \RuntimeException('duo: atomic publication permissions changed during replacement');
-            }
 
             // Persist the directory entry when the platform supports syncing
             // directory handles. Some PHP/filesystem combinations reject the

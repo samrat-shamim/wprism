@@ -1266,6 +1266,10 @@
             "owner": "thread-0"
         },
         {
+            "path": "docs/contracts/review-bundle.schema.json",
+            "owner": "thread-0"
+        },
+        {
             "path": "docs/design-review-v0.md",
             "owner": "thread-0"
         },
@@ -4004,6 +4008,15 @@
         {
             "source": "cli/duo",
             "target": "agent/src/{Canon,Secrets,ReferenceGraph,ScopeClosure,CanonicalSurfaces,Deletion,ScopeContract}.php",
+            "allowed_targets": [
+                "agent/src/Canon.php",
+                "agent/src/Secrets.php",
+                "agent/src/ReferenceGraph.php",
+                "agent/src/ScopeClosure.php",
+                "agent/src/CanonicalSurfaces.php",
+                "agent/src/Deletion.php",
+                "agent/src/ScopeContract.php"
+            ],
             "owner": "thread-2",
             "rationale": "existing host scope-contract compatibility bridge",
             "removal_condition": "Thread 2 replaces it with the ratified versioned host-safe repository contract package"
@@ -4011,6 +4024,47 @@
         {
             "source": "cli/src/RefreshPlan.php",
             "target": "agent/src compatibility load graph",
+            "allowed_targets": [
+                "agent/src/Uuid.php",
+                "agent/src/OrderPreserved.php",
+                "agent/src/Canon.php",
+                "agent/src/OptionState.php",
+                "agent/src/UserMetaState.php",
+                "agent/src/Db.php",
+                "agent/src/Secrets.php",
+                "agent/src/PersonalData.php",
+                "agent/src/ManifestDispositions.php",
+                "agent/src/CapabilityRegistry.php",
+                "agent/src/Policy.php",
+                "agent/src/Ledger.php",
+                "agent/src/PromotionLock.php",
+                "agent/src/Identity.php",
+                "agent/src/IdentityBackup.php",
+                "agent/src/Deletion.php",
+                "agent/src/JsonRefs.php",
+                "agent/src/Tokens.php",
+                "agent/src/Blocks.php",
+                "agent/src/PlainData.php",
+                "agent/src/SidebarState.php",
+                "agent/src/Shortcodes.php",
+                "agent/src/Canary.php",
+                "agent/src/IdentityNotes.php",
+                "agent/src/Snapshot.php",
+                "agent/src/Orphans.php",
+                "agent/src/TransientDbException.php",
+                "agent/src/Publish.php",
+                "agent/src/Capture.php",
+                "agent/src/RepositoryAuthorization.php",
+                "agent/src/CodeCompatibility.php",
+                "agent/src/Code.php",
+                "agent/src/ReferenceGraph.php",
+                "agent/src/RepositoryCompiler.php",
+                "agent/src/ScopeClosure.php",
+                "agent/src/CanonicalSurfaces.php",
+                "agent/src/ScopeContract.php",
+                "agent/src/ScopedStateOverlay.php",
+                "agent/src/CodeStateContract.php"
+            ],
             "owner": "thread-2",
             "rationale": "existing refresh/rebase compatibility bridge",
             "removal_condition": "Thread 2 routes all target semantics through the agent gateway/built contract artifact"
@@ -4018,6 +4072,9 @@
         {
             "source": "cli/src/Refresh.php",
             "target": "agent/src/ScopeContract.php",
+            "allowed_targets": [
+                "agent/src/ScopeContract.php"
+            ],
             "owner": "thread-2",
             "rationale": "existing refresh scope-contract compatibility bridge",
             "removal_condition": "Thread 2 consumes the ratified host-safe repository contract package"
@@ -4025,6 +4082,10 @@
         {
             "source": "cli/src/PassthroughCommand.php",
             "target": "agent/src/{Canon,ScopeContract}.php",
+            "allowed_targets": [
+                "agent/src/Canon.php",
+                "agent/src/ScopeContract.php"
+            ],
             "owner": "thread-2",
             "rationale": "existing host passthrough compatibility bridge",
             "removal_condition": "Thread 2 consumes the ratified host-safe canonical scope package"
@@ -4032,6 +4093,13 @@
         {
             "source": "cli/src/AdapterCatalog.php",
             "target": "agent/src compatibility classmap declared in source",
+            "allowed_targets": [
+                "agent/src/Canon.php",
+                "agent/src/OptionState.php",
+                "agent/src/ManifestDispositions.php",
+                "agent/src/CapabilityRegistry.php",
+                "agent/src/Policy.php"
+            ],
             "owner": "thread-4",
             "rationale": "existing offline adapter catalog compatibility bridge",
             "removal_condition": "Thread 4 publishes the catalog through its host-safe artifact package"
@@ -4039,6 +4107,15 @@
         {
             "source": "cli/src/AdapterDraft.php",
             "target": "agent/src compatibility classmap declared in source",
+            "allowed_targets": [
+                "agent/src/Canon.php",
+                "agent/src/OptionState.php",
+                "agent/src/ManifestDispositions.php",
+                "agent/src/CapabilityRegistry.php",
+                "agent/src/Policy.php",
+                "agent/src/Deletion.php",
+                "agent/src/Secrets.php"
+            ],
             "owner": "thread-4",
             "rationale": "existing offline adapter draft compatibility bridge",
             "removal_condition": "Thread 4 publishes the draft grammar through its host-safe artifact package"
@@ -4046,6 +4123,13 @@
         {
             "source": "cli/src/ManifestValidate.php",
             "target": "agent/src compatibility classmap declared in source",
+            "allowed_targets": [
+                "agent/src/Canon.php",
+                "agent/src/OptionState.php",
+                "agent/src/ManifestDispositions.php",
+                "agent/src/CapabilityRegistry.php",
+                "agent/src/Policy.php"
+            ],
             "owner": "thread-4",
             "rationale": "existing offline manifest-validation compatibility bridge",
             "removal_condition": "Thread 4 publishes validation through its host-safe artifact package"

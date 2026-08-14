@@ -66,6 +66,12 @@ final class ArtifactTrustVerifier {
         }
 
         $review = self::verifyReviewEnvelope($selection, $reviewEnvelopeBytes);
+        self::assertReviewedPayloadBindings(
+            $review['payload'],
+            $selection,
+            $hostArtifactBytes,
+            $targetInstallBytes
+        );
 
         $projection = self::canonicalObject($projectionPackBytes, 'projection pack');
         self::assertClosedKeys($projection, ['format','review_envelope_sha256','reviewed_payload_sha256'], 'projection pack');
@@ -111,6 +117,37 @@ final class ArtifactTrustVerifier {
             throw new \RuntimeException('duo adopt: reviewed payload format is unsupported');
         }
         return $review;
+    }
+
+    /** @param array<string,mixed> $payload */
+    private static function assertReviewedPayloadBindings(
+        array $payload,
+        ReleaseSelection $selection,
+        string $hostArtifactBytes,
+        string $targetInstallBytes
+    ): void {
+        self::assertClosedKeys($payload, [
+            'declaration_payloads', 'evidence_inputs', 'format', 'host_artifact_sha256',
+            'protocols', 'target_install_sha256',
+        ], 'reviewed payload');
+        if (($payload['format'] ?? null) !== 'duo-review-bundle/v2'
+            || ($payload['target_install_sha256'] ?? null) !== self::digest($targetInstallBytes)
+            || ($payload['host_artifact_sha256'] ?? null) !== self::digest($hostArtifactBytes)
+            || self::canonical((array) ($payload['protocols'] ?? [])) !== self::canonical($selection->expectedProtocols)) {
+            throw new \RuntimeException('duo adopt: signed review does not bind the selected target, host, and protocol components');
+        }
+        foreach (['declaration_payloads', 'evidence_inputs'] as $field) {
+            $map = $payload[$field] ?? null;
+            if (!is_array($map) || array_is_list($map) || $map === []) {
+                throw new \RuntimeException("duo adopt: signed review $field is absent or malformed");
+            }
+            foreach ($map as $name => $digest) {
+                if (!is_string($name) || preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $name) !== 1
+                    || !is_string($digest) || preg_match('/^sha256:[a-f0-9]{64}$/D', $digest) !== 1) {
+                    throw new \RuntimeException("duo adopt: signed review $field is absent or malformed");
+                }
+            }
+        }
     }
 
     private static function assertDigest(string $expected, string $bytes, string $label): void {

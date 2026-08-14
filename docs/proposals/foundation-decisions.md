@@ -77,7 +77,8 @@ WordPress or agent implementation code. Closure v2 is approved by
 The selection pin binds the family digest, target release-set digest, exact
 host artifact, host/agent/recovery protocol tuple, and Ed25519 review keys
 indexed by authority/key ID. The verifier authenticates a closed signed review
-envelope, binds its exact bytes into the target set, and proves that the
+envelope whose payload follows `docs/contracts/review-bundle.schema.json`,
+binds its exact bytes into the target set, and proves that the
 projection pack names both that envelope and its reviewed payload. Adjacent
 manifests, unsigned identity claims, and an unused pin-record digest are never
 trust inputs.

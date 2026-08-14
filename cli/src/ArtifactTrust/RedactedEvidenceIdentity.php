@@ -8,11 +8,11 @@ final class RedactedEvidenceIdentity {
     public const FORMAT = 'duo-redacted-evidence-identity/v1';
 
     /** Reviewed public fields; all environment-specific identity belongs in a reference or keyed binding. */
-    private const PUBLIC_GRAMMAR = [
-        'platform_profile' => '/^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$/D',
-        'runner_protocol' => '/^[1-9][0-9]{0,5}$/D',
-        'toolchain_profile' => '/^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$/D',
-        'harness_profile' => '/^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$/D',
+    private const PUBLIC_VALUES = [
+        'platform_profile' => ['php-8.3', 'wordpress-7.0.3', 'mariadb-11'],
+        'runner_protocol' => [1],
+        'toolchain_profile' => ['composer-2', 'phpunit-11', 'phpstan-2', 'rector-2'],
+        'harness_profile' => ['duo-foundation', 'duo-qualification-v1'],
     ];
 
     /** @param array<string,mixed> $identity */
@@ -22,41 +22,35 @@ final class RedactedEvidenceIdentity {
             || ($identity['format'] ?? null) !== self::FORMAT
             || !is_array($identity['public'] ?? null) || array_is_list($identity['public'])
             || !is_array($identity['secret_references'] ?? null) || !array_is_list($identity['secret_references'])
-            || !is_array($identity['keyed_bindings'] ?? null) || !array_is_list($identity['keyed_bindings'])) {
+            || !is_array($identity['keyed_bindings'] ?? null) || array_is_list($identity['keyed_bindings'])) {
             throw new \RuntimeException('duo evidence: redacted identity is malformed');
         }
+        if ($identity['public'] === [] && $identity['secret_references'] === [] && $identity['keyed_bindings'] === []) {
+            throw new \RuntimeException('duo evidence: redacted identity contains no portable identity');
+        }
         foreach ($identity['public'] as $key => $value) {
-            if (!is_string($key) || !isset(self::PUBLIC_GRAMMAR[$key])
-                || (!is_string($value) && !is_int($value))
-                || preg_match(self::PUBLIC_GRAMMAR[$key], (string) $value) !== 1
-                || (is_string($value) && self::looksSensitive($value))) {
+            if (!is_string($key) || !isset(self::PUBLIC_VALUES[$key])
+                || !in_array($value, self::PUBLIC_VALUES[$key], true)) {
                 throw new \RuntimeException('duo evidence: public identity contains an unreviewed field or value');
             }
         }
         $seen = [];
         foreach ($identity['secret_references'] as $reference) {
             if (!is_string($reference)
-                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/D', $reference) !== 1
+                || preg_match('/^vault:[a-z][a-z0-9._-]{2,63}$/D', $reference) !== 1
                 || self::looksSensitive($reference)
                 || isset($seen[$reference])) {
                 throw new \RuntimeException('duo evidence: secret reference id is malformed, sensitive, or duplicated');
             }
             $seen[$reference] = true;
         }
-        $seenBindings = [];
-        foreach ($identity['keyed_bindings'] as $binding) {
-            if (!is_array($binding)) throw new \RuntimeException('duo evidence: keyed binding is malformed');
-            $bindingKeys = array_keys($binding); sort($bindingKeys, SORT_STRING);
-            $bindingIdentity = is_string($binding['domain'] ?? null) && is_string($binding['key_id'] ?? null)
-                ? $binding['domain'] . ':' . $binding['key_id'] : '';
-            if ($bindingKeys !== ['digest','domain','key_id']
-                || preg_match('/^[a-z][a-z0-9._-]{2,63}$/D', (string) ($binding['domain'] ?? '')) !== 1
-                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', (string) ($binding['key_id'] ?? '')) !== 1
-                || preg_match('/^hmac-sha256:[a-f0-9]{64}$/D', (string) ($binding['digest'] ?? '')) !== 1
-                || isset($seenBindings[$bindingIdentity])) {
+        foreach ($identity['keyed_bindings'] as $bindingIdentity => $digest) {
+            if (!is_string($bindingIdentity)
+                || preg_match('/^[a-z][a-z0-9._-]{2,63}:[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $bindingIdentity) !== 1
+                || !is_string($digest)
+                || preg_match('/^hmac-sha256:[a-f0-9]{64}$/D', $digest) !== 1) {
                 throw new \RuntimeException('duo evidence: keyed binding must be unique domain-separated HMAC identity');
             }
-            $seenBindings[$bindingIdentity] = true;
         }
     }
 

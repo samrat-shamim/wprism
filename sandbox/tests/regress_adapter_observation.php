@@ -16,6 +16,7 @@ namespace {
     if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
     define('DUO_AGENT_VERSION', '0.5.0');
     define('DUO_SPEC_VERSION', 2);
+    define('WP_CLI', true);
 
     final class ObservationCliHalt extends RuntimeException {}
 
@@ -449,6 +450,29 @@ namespace {
     }
 
     echo "== command-entry journal suspension ==\n";
+    check(
+        Journal::quarantinedWpCliCommand(['wp', '--path=/srv/site', 'duo', 'capture', '--repo=/state'])
+            && Journal::quarantinedWpCliCommand(['wp', 'duo', 'apply', '--repo=/state'])
+            && Journal::quarantinedWpCliCommand(['wp', 'duo', 'init', '--confirm=sha256:abc'])
+            && !Journal::quarantinedWpCliCommand(['wp', 'duo', 'init', '--repo=/state']),
+        'quarantined mutation argv is recognized before Journal boot can register a shutdown write'
+    );
+    $earlyProbe = sys_get_temp_dir() . '/duo-journal-early-' . bin2hex(random_bytes(6)) . '.php';
+    file_put_contents($earlyProbe, "<?php\n"
+        . "define('WP_CLI', true);\n"
+        . "\$_SERVER['argv'] = ['wp','duo','apply','--repo=/state'];\n"
+        . "function get_option(string \$name): bool { throw new RuntimeException('boot read option'); }\n"
+        . "function add_filter(...\$args): void { throw new RuntimeException('boot added filter'); }\n"
+        . "function add_action(...\$args): void { throw new RuntimeException('boot added action'); }\n"
+        . 'require ' . var_export($repoRoot . '/agent/src/Journal.php', true) . ";\n"
+        . "Duo\\Journal::boot(); echo 'safe';\n");
+    $earlyOut = [];
+    exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($earlyProbe) . ' 2>&1', $earlyOut, $earlyRc);
+    @unlink($earlyProbe);
+    check(
+        $earlyRc === 0 && implode("\n", $earlyOut) === 'safe',
+        'quarantined mutation suppresses Journal before an early bootstrap abort can register shutdown DML'
+    );
     $wpdb = new ObservationFakeWpdb();
     $GLOBALS['wpdb'] = $wpdb;
     Journal::boot();

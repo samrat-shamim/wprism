@@ -7,6 +7,7 @@ $matrixPath = $root . '/docs/proposals/refactor-acceptance.json';
 $refresh = in_array('--refresh-acceptance', array_slice($argv, 1), true);
 $policyOnly = in_array('--policy-only', array_slice($argv, 1), true);
 $requireUnadvanced = in_array('--require-unadvanced', array_slice($argv, 1), true);
+$requirePublished = in_array('--require-published', array_slice($argv, 1), true);
 
 function foundation_fail(string $message): never {
     fwrite(STDERR, "foundation-check: $message\n");
@@ -126,11 +127,34 @@ foreach ($expected as $id => $entry) {
         foundation_fail("acceptance item $id has no retained verification artifact: $artifact");
     }
 }
+$executionRecord = (string) file_get_contents($root . '/docs/proposals/foundation-execution-record.md');
+$decisionRecord = (string) file_get_contents($root . '/docs/proposals/foundation-decisions.md');
+$reviewHeadings = [
+    'T0-GATE-07' => '## Exact revision and evidence merge ruling',
+    'T0-GATE-08' => '## Hot and generated files',
+    'T0-GATE-12' => '## Approval',
+];
+foreach ($expected as $id => $entry) {
+    if ($entry['owner'] !== 'thread-0') continue;
+    if ($entry['verification']['kind'] === 'review_only') {
+        if (!isset($reviewHeadings[$id]) || !str_contains($decisionRecord, $reviewHeadings[$id])) {
+            foundation_fail("review-only acceptance item $id lacks its explicit approval section");
+        }
+        continue;
+    }
+    $command = $entry['verification']['command'];
+    $recorded = false;
+    foreach (preg_split('/\R/', $executionRecord) ?: [] as $line) {
+        if (str_contains($line, '`' . $command) && str_contains($line, 'PASS')) { $recorded = true; break; }
+    }
+    if (!$recorded) foundation_fail("executable acceptance item $id lacks a PASS record for $command");
+}
 
 $required = [
     'docs/contracts/command-contract.schema.json','docs/contracts/public-contracts.json',
     'docs/contracts/closure-v2.schema.json','docs/contracts/evidence-identity.schema.json',
     'docs/contracts/harness-approval.schema.json','docs/contracts/release-selection.schema.json',
+    'docs/contracts/review-bundle.schema.json',
     'docs/proposals/refactor-ownership.json','docs/proposals/refactor-acceptance.json',
     'docs/proposals/foundation-execution-record.md','docs/proposals/foundation-decisions.md',
     'docs/proposals/foundation-integration.json','sandbox/fixtures/foundation/contracts/fixture-index.json',
@@ -150,8 +174,10 @@ if (!is_array($integration) || ($integration['format'] ?? null) !== 'duo-foundat
 }
 $foundationRef = $integration['foundation_ref'] ?? null;
 $integrationBranch = $integration['integration_branch'] ?? null;
+$publicationRemote = $integration['publication_remote'] ?? null;
 if (!is_string($foundationRef) || preg_match('~^refs/tags/[A-Za-z0-9._/-]+$~D', $foundationRef) !== 1
-    || !is_string($integrationBranch) || preg_match('~^refs/heads/[A-Za-z0-9._/-]+$~D', $integrationBranch) !== 1) {
+    || !is_string($integrationBranch) || preg_match('~^refs/heads/[A-Za-z0-9._/-]+$~D', $integrationBranch) !== 1
+    || !is_string($publicationRemote) || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $publicationRemote) !== 1) {
     foundation_fail('foundation or integration ref is invalid');
 }
 $worktrees = (array) ($integration['worktrees'] ?? []);
@@ -241,6 +267,25 @@ if (!$policyOnly) {
         $expectedPath = $worktreeRoot . '/' . $row['worktree_suffix'];
         if (($actualWorktrees[$row['branch']] ?? null) !== $expectedPath || !is_dir($expectedPath)) {
             foundation_fail('thread worktree is absent or attached to the wrong branch: ' . $row['branch']);
+        }
+    }
+    if ($requirePublished) {
+        $remoteRefs = foundation_git($root, ['ls-remote', $publicationRemote, $foundationRef, $foundationRef . '^{}', $integrationBranch]);
+        foreach ($worktrees as $row) {
+            $remoteRefs .= "\n" . foundation_git($root, ['ls-remote', $publicationRemote, $row['branch']]);
+        }
+        $published = [];
+        foreach (preg_split('/\R/', trim($remoteRefs)) ?: [] as $line) {
+            if (preg_match('/^([a-f0-9]{40})\s+(.+)$/D', $line, $match) === 1) $published[$match[2]] = $match[1];
+        }
+        if (($published[$foundationRef . '^{}'] ?? null) !== $foundationCommit
+            || ($published[$integrationBranch] ?? null) !== $foundationCommit) {
+            foundation_fail('published annotated tag or integration ref does not resolve to the foundation commit');
+        }
+        foreach ($worktrees as $row) {
+            if (($published[$row['branch']] ?? null) !== $foundationCommit) {
+                foundation_fail('published thread ref does not resolve to the foundation commit: ' . $row['branch']);
+            }
         }
     }
     foreach (['scripts/ownership-check','scripts/contracts-check'] as $command) {

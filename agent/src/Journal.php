@@ -26,6 +26,10 @@ final class Journal {
     private static bool $observationSuspended = false;
 
     public static function boot(): void {
+        if (self::quarantinedWpCliCommand((array) ($_SERVER['argv'] ?? []))) {
+            self::suspend_for_refusal();
+            return;
+        }
         if (self::$booted || self::$observationSuspended) {
             return;
         }
@@ -134,6 +138,21 @@ final class Journal {
     /** Suppress optional shutdown writes before a command-level safety quarantine refuses mutation. */
     public static function suspend_for_refusal(): void {
         self::suspend_for_observation();
+    }
+
+    /** @param list<mixed> $argv */
+    public static function quarantinedWpCliCommand(array $argv): bool {
+        if (!(defined('WP_CLI') && WP_CLI)) return false;
+        $words = array_values(array_map('strval', $argv));
+        $duo = array_search('duo', $words, true);
+        if (!is_int($duo) || !isset($words[$duo + 1])) return false;
+        $command = $words[$duo + 1];
+        if (in_array($command, ['capture', 'apply'], true)) return true;
+        if ($command !== 'init') return false;
+        foreach (array_slice($words, $duo + 2) as $word) {
+            if ($word === '--confirm' || str_starts_with($word, '--confirm=')) return true;
+        }
+        return false;
     }
 
     private static function table_of(string $sql, string $op): ?string {

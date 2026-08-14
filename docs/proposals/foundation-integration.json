@@ -2,6 +2,7 @@
     "format": "duo-foundation-integration/v1",
     "foundation_ref": "refs/tags/refactor-foundation-2026-08-14",
     "integration_branch": "refs/heads/refactor/integration",
+    "publication_remote": "origin",
     "worktree_root_env": "DUO_FOUNDATION_WORKTREE_ROOT",
     "receipt": {
         "format": "duo-foundation-fanout-receipt/v1",

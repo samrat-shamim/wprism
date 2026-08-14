@@ -115,7 +115,7 @@ commit/ref receipt for `T0-GATE-10` and is published with the fan-out refs.
 | Verification | Result |
 |---|---|
 | `scripts/contracts-check` | PASS — public inventory, golden bytes, compatibility facades, trust pins, and boundary seams |
-| `scripts/ownership-check` | PASS — 958 tracked paths exactly once; 31 non-overlapping exclusive new-module prefixes |
+| `scripts/ownership-check` | PASS — 959 tracked paths exactly once; 31 non-overlapping exclusive new-module prefixes |
 | `scripts/foundation-check --policy-only` | PASS — all 48 charter acceptance items mapped and required artifacts present |
 | `git diff --check` | PASS |
 | PHP syntax over all `agent`, `cli`, and `recovery` PHP | PASS |
