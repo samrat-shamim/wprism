@@ -62,6 +62,12 @@ require_once __DIR__ . '/TableDeclarationResolver.php';
 // DUO-3348 slice 54: exact/pattern classification rule selection remains pure
 // manifest work; Policy keeps the public facades and source-autoload port.
 require_once __DIR__ . '/PolicyRuleResolver.php';
+// DUO-3348 slice 55: the exact option declaration projection is pure
+// manifest work; Policy keeps its public inventory facades below.
+require_once __DIR__ . '/ExactOptionResolver.php';
+// DUO-3348 slice 56: option namespace ownership is pure manifest work;
+// Policy keeps its public discovery authority facade below.
+require_once __DIR__ . '/OptionNamespaceResolver.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
@@ -626,6 +632,11 @@ final class Policy {
         );
     }
 
+    /** Fresh per call so mutable Policy fixture declarations remain observable. */
+    private function exact_option_resolver(): ExactOptionResolver {
+        return new ExactOptionResolver($this->site, $this->manifests, $this->policy_rule_resolver());
+    }
+
     private function rule(string $section, string $name): ?array {
         return $this->rule_details($section, $name)['rule'];
     }
@@ -639,6 +650,11 @@ final class Policy {
         return $this->rule_details('options', $name);
     }
 
+    /** Fresh per call so mutable Policy fixture declarations remain observable. */
+    private function option_namespace_resolver(): OptionNamespaceResolver {
+        return new OptionNamespaceResolver($this->manifests);
+    }
+
     /**
      * Return the manifest namespace that claims discovery responsibility for
      * an option name. A namespace is deliberately ownership-only: it does
@@ -648,25 +664,7 @@ final class Policy {
      * @return ?array{owner:string, match:string}
      */
     public function option_namespace(string $name): ?array {
-        $matches = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['option_namespaces'] ?? [] as $decl) {
-                if (preg_match('/' . $decl['match'] . '/', $name)) {
-                    $matches[] = [
-                        'owner' => (string) ($m['name'] ?? '?'),
-                        'match' => (string) $decl['match'],
-                    ];
-                }
-            }
-        }
-        if (count($matches) > 1) {
-            throw new \RuntimeException(
-                "duo: option '$name' is claimed by overlapping namespaces from "
-                . implode(', ', array_map(fn($m) => $m['owner'], $matches))
-                . ' — discovery ownership must not depend on manifest load order'
-            );
-        }
-        return $matches[0] ?? null;
+        return $this->option_namespace_resolver()->owner_for($name);
     }
 
     /** Classification for a namespace-owned option, with owner agreement. */
@@ -723,22 +721,16 @@ final class Policy {
     /**
      * Option names classified authored (the capture whitelist).
      *
-     * DUO-3255: resolved_exact_options() is the single precedence path for
-     * this and the env/sub-key bulk enumerators. It delegates every name to
-     * rule_details(), so bulk lookup can never silently use a different pin
-     * winner than the per-name capture/apply path. Policy::load() has
+     * DUO-3255: ExactOptionResolver is the single precedence path for this
+     * and the env/sub-key bulk enumerators. It delegates every name to
+     * PolicyRuleResolver, so bulk lookup can never silently use a different
+     * pin winner than the per-name capture/apply path. Policy::load() has
      * already refused contradictory non-core declarations; identical ones
      * dedupe here, while core-yields-to-plugin and site override precedence
      * remain exactly the rule_details() contract.
      */
     public function authored_options(): array {
-        $out = [];
-        foreach ($this->resolved_exact_options() as $name => $r) {
-            if (($r['class'] ?? '') === 'authored') {
-                $out[$name] = $r;
-            }
-        }
-        return $out;
+        return $this->exact_option_resolver()->authored();
     }
 
     /**
@@ -771,44 +763,7 @@ final class Policy {
      * @return array<string, array{class:string, sub_keys:array<string,array>}>
      */
     public function sub_keyed_options(): array {
-        $out = [];
-        foreach ($this->resolved_exact_options() as $name => $r) {
-            if (!empty($r['sub_keys'])) {
-                $out[$name] = $r;
-            }
-        }
-        return $out;
-    }
-
-    /**
-     * Resolve every exact option name once through rule_details() — never
-     * reimplement its precedence with a bulk foreach overwrite. Names from
-     * site policy are included even when no manifest declares them. Pattern
-     * rules remain discovery/classification rules and are deliberately not
-     * enumerated here, matching these bulk APIs' historical exact-name
-     * contract.
-     *
-     * @return array<string,array>
-     */
-    private function resolved_exact_options(): array {
-        $names = [];
-        foreach ($this->manifests as $manifest) {
-            foreach ($manifest['options'] ?? [] as $name => $_rule) {
-                $names[(string) $name] = true;
-            }
-        }
-        foreach ($this->site['policy']['options'] ?? [] as $name => $_rule) {
-            $names[(string) $name] = true;
-        }
-        $out = [];
-        foreach (array_keys($names) as $name) {
-            $rule = $this->option_rule_details($name)['rule'];
-            if ($rule !== null) {
-                $out[$name] = $rule;
-            }
-        }
-        ksort($out, SORT_STRING);
-        return $out;
+        return $this->exact_option_resolver()->sub_keyed();
     }
 
     /**
@@ -2278,13 +2233,7 @@ final class Policy {
      * is a separate, scoped follow-up, not solved speculatively here.
      */
     public function env_options(): array {
-        $out = [];
-        foreach ($this->resolved_exact_options() as $name => $r) {
-            if (($r['class'] ?? '') === 'env') {
-                $out[$name] = $r;
-            }
-        }
-        return $out;
+        return $this->exact_option_resolver()->env();
     }
 
     /**
