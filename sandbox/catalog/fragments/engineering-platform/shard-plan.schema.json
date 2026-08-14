@@ -1,0 +1,49 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://duo.local/contracts/test-shard-plan.schema.json",
+    "title": "Duo deterministic test shard plan",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "format", "candidate_sha", "catalog_sha256", "profile_id", "profile_sha256",
+        "history_sha256", "planner_version", "execution_waves", "shards"
+    ],
+    "properties": {
+        "format": {"const": "duo-test-shard-plan/v1"},
+        "candidate_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "catalog_sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "profile_id": {"type": "string", "minLength": 1},
+        "profile_sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "history_sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "planner_version": {"const": "duration-lpt/v1"},
+        "execution_waves": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {"type": "integer", "minimum": 0}
+            }
+        },
+        "shards": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["index", "estimated_duration_ms", "suite_ids"],
+                "properties": {
+                    "index": {"type": "integer", "minimum": 0},
+                    "estimated_duration_ms": {"type": "integer", "minimum": 1},
+                    "suite_ids": {
+                        "type": "array",
+                        "minItems": 1,
+                        "uniqueItems": true,
+                        "items": {"type": "string", "minLength": 1}
+                    }
+                }
+            }
+        }
+    }
+}

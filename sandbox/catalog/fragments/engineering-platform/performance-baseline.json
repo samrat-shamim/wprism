@@ -1,0 +1,7 @@
+{
+    "format": "duo-performance-baseline/v1",
+    "profile_id": "duo-linux-aarch64-wordpress-7.0.2-php-8.3-fpm-opcache/v1",
+    "baseline_sha": "16cc150ff1c91af274d222ea96a9ba39c7ec214f",
+    "ratification_state": "pending_review",
+    "scenarios": {}
+}

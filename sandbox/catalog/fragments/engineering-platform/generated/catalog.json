@@ -3,11 +3,73 @@
     "inventory": [
         {
             "kind": "file",
+            "name": "Makefile",
+            "role": "helper",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "agent/duo-loader.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-loader-contract",
+                "platform-performance-budget"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "agent/duo.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-loader-contract",
+                "platform-performance-budget"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "docs/contracts/commands/generated/developer-commands.json",
+            "role": "aggregate",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/capability-policy-evidence/requirements.json",
             "role": "fixture",
             "suite_ids": [
                 "platform-catalog-complete",
                 "platform-generated-agreement"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Aggregate.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-evidence-child-aggregate",
+                "platform-frozen-candidate-aggregate",
+                "platform-pr-aggregate",
+                "platform-release-validation-aggregate"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Audit.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Build.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-candidate-build",
+                "platform-performance-budget"
             ]
         },
         {
@@ -28,10 +90,92 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/CloseGate.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/CommandContract.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/CommandResult.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/DeterministicArchive.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-candidate-build",
+                "platform-performance-budget"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/Doctor.php",
             "role": "helper",
             "suite_ids": [
                 "platform-doctor"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/HarnessApproval.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Loader.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-loader-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Performance.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-performance-budget",
+                "platform-performance-smoke"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/PerformanceHarness.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-performance-budget"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Qualification.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Quality.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-lint"
             ]
         },
         {
@@ -45,10 +189,85 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Release.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Reports.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/Runner.php",
             "role": "helper",
             "suite_ids": [
                 "platform-catalog-self-test"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Selection.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/ShardPlan.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Toolchain.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/actionlint.yaml",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-lint"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-evidence-child-aggregate",
+                "platform-frozen-candidate-aggregate",
+                "platform-pr-aggregate",
+                "platform-release-validation-aggregate"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/artifact-manifest.schema.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-candidate-build"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/audit.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
             ]
         },
         {
@@ -61,10 +280,52 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/build.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-candidate-build",
+                "platform-payload-dist",
+                "platform-payload-reproducibility"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/catalog.php",
             "role": "helper",
             "suite_ids": [
                 "platform-catalog-self-test"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/changed-selector.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/close-gate.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/command-contract.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/command-result.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-catalog-unit"
             ]
         },
         {
@@ -77,10 +338,37 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/developer-command.schema.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/developer-commands.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/doctor.php",
             "role": "suite",
             "suite_ids": [
                 "platform-doctor"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/gate-profiles.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-evidence-child-aggregate",
+                "platform-frozen-candidate-aggregate",
+                "platform-pr-aggregate",
+                "platform-release-validation-aggregate"
             ]
         },
         {
@@ -98,6 +386,56 @@
             "role": "fixture",
             "suite_ids": [
                 "platform-catalog-self-test"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/lint.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-lint"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/loader-check.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-loader-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/loader-profile.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-loader-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/performance-baseline.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-performance-budget"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/performance-profile.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-performance-budget",
+                "platform-performance-smoke"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/performance.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-performance-budget",
+                "platform-performance-smoke"
             ]
         },
         {
@@ -127,11 +465,36 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/qualification.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/quality-scope.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-lint"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/release.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/requirements.json",
             "role": "fixture",
             "suite_ids": [
                 "platform-catalog-complete",
-                "platform-generated-agreement"
+                "platform-generated-agreement",
+                "platform-performance-budget"
             ]
         },
         {
@@ -160,6 +523,14 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/selection.schema.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/self-test.php",
             "role": "self_test",
             "suite_ids": [
@@ -168,7 +539,72 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/shard-plan.schema.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/shard.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/suite-selection.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/AggregateTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/AuditTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/BuildTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-candidate-build",
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/tests/CatalogTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/CommandContractTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/CommandResultTest.php",
             "role": "suite",
             "suite_ids": [
                 "platform-catalog-unit"
@@ -193,7 +629,89 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/HarnessApprovalTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/LoaderTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit",
+                "platform-loader-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/PerformanceTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit",
+                "platform-performance-smoke"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/QualificationTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/QualityTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/ReleaseTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/ReportsTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/tests/RunnerTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/SelectionTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/ShardPlanTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/ToolchainTest.php",
             "role": "suite",
             "suite_ids": [
                 "platform-catalog-unit"
@@ -205,6 +723,15 @@
             "role": "helper",
             "suite_ids": [
                 "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/toolchain-lock.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-catalog-unit",
+                "platform-doctor"
             ]
         },
         {
@@ -3660,10 +4187,34 @@
         },
         {
             "kind": "make_target",
+            "name": "assembly-reproducibility-check",
+            "role": "diagnostic",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "bootstrap-dev",
             "role": "diagnostic",
             "suite_ids": [
                 "platform-doctor"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "build",
+            "role": "suite",
+            "suite_ids": [
+                "platform-candidate-build"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "candidate-adoption-check",
+            "role": "diagnostic",
+            "suite_ids": [
+                "platform-catalog-unit"
             ]
         },
         {
@@ -3821,6 +4372,14 @@
         },
         {
             "kind": "make_target",
+            "name": "developer-command-check",
+            "role": "suite",
+            "suite_ids": [
+                "platform-developer-command-contract"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "doctor",
             "role": "diagnostic",
             "suite_ids": [
@@ -3841,6 +4400,14 @@
             "role": "diagnostic",
             "suite_ids": [
                 "platform-delegation-contract"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "final-integration-close-gate",
+            "role": "diagnostic",
+            "suite_ids": [
+                "platform-catalog-unit"
             ]
         },
         {
@@ -3957,10 +4524,50 @@
         },
         {
             "kind": "make_target",
+            "name": "loader-check",
+            "role": "suite",
+            "suite_ids": [
+                "platform-loader-contract"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "ownership-check",
             "role": "suite",
             "suite_ids": [
                 "platform-ownership-policy"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "payload-dist-check",
+            "role": "suite",
+            "suite_ids": [
+                "platform-payload-dist"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "payload-reproducibility-check",
+            "role": "suite",
+            "suite_ids": [
+                "platform-payload-reproducibility"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "perf-budget",
+            "role": "suite",
+            "suite_ids": [
+                "platform-performance-budget"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "perf-smoke",
+            "role": "suite",
+            "suite_ids": [
+                "platform-performance-smoke"
             ]
         },
         {
@@ -6261,10 +6868,26 @@
         },
         {
             "kind": "make_target",
+            "name": "release-family-check",
+            "role": "diagnostic",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "release-gate",
             "role": "suite",
             "suite_ids": [
                 "legacy-release-gate"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "release-validation",
+            "role": "diagnostic",
+            "suite_ids": [
+                "platform-catalog-unit"
             ]
         },
         {
@@ -6503,18 +7126,24 @@
                 "legacy-regress-woocommerce-product-lookups",
                 "legacy-regress-woocommerce-product-lookups-fake",
                 "legacy-regress-woocommerce-regen-engine",
+                "platform-candidate-build",
                 "platform-catalog-complete",
                 "platform-catalog-self-test",
                 "platform-catalog-unit",
                 "platform-contract-policy",
                 "platform-delegation-contract",
+                "platform-developer-command-contract",
                 "platform-doctor",
                 "platform-format-check",
                 "platform-foundation-policy",
                 "platform-generated-agreement",
                 "platform-guide-contract",
                 "platform-lint",
+                "platform-loader-contract",
                 "platform-ownership-policy",
+                "platform-payload-dist",
+                "platform-payload-reproducibility",
+                "platform-performance-smoke",
                 "platform-static-analysis"
             ]
         },
@@ -6662,6 +7291,32 @@
                 "legacy-regress-url-query-reference-codec",
                 "legacy-regress-user-meta-capture",
                 "legacy-regress-widget-type-resolver"
+            ]
+        },
+        {
+            "blocking": true,
+            "environment_class": "mixed",
+            "evidence_staleness": "required",
+            "expected_outputs": [
+                "artifacts/test-results/gates/evidence-child-profile.json"
+            ],
+            "id": "evidence-child",
+            "owner": "thread-1",
+            "suite_ids": [
+                "platform-evidence-child-aggregate"
+            ]
+        },
+        {
+            "blocking": true,
+            "environment_class": "mixed",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
+                "artifacts/test-results/gates/frozen-candidate-profile.json"
+            ],
+            "id": "frozen-candidate",
+            "owner": "thread-1",
+            "suite_ids": [
+                "platform-frozen-candidate-aggregate"
             ]
         },
         {
@@ -6997,6 +7652,32 @@
             "environment_class": "offline",
             "evidence_staleness": "forbidden",
             "expected_outputs": [
+                "artifacts/test-results/gates/pr-profile.json"
+            ],
+            "id": "pr",
+            "owner": "thread-1",
+            "suite_ids": [
+                "platform-pr-aggregate"
+            ]
+        },
+        {
+            "blocking": true,
+            "environment_class": "mixed",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
+                "artifacts/test-results/gates/release-validation-profile.json"
+            ],
+            "id": "release-validation",
+            "owner": "thread-1",
+            "suite_ids": [
+                "platform-release-validation-aggregate"
+            ]
+        },
+        {
+            "blocking": true,
+            "environment_class": "offline",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
                 "artifacts/test-results/thread-1/result.json"
             ],
             "id": "thread-1-engineering-platform",
@@ -7063,18 +7744,24 @@
                 "legacy-regress-woocommerce-product-lookups",
                 "legacy-regress-woocommerce-product-lookups-fake",
                 "legacy-regress-woocommerce-regen-engine",
+                "platform-candidate-build",
                 "platform-catalog-complete",
                 "platform-catalog-self-test",
                 "platform-catalog-unit",
                 "platform-contract-policy",
                 "platform-delegation-contract",
+                "platform-developer-command-contract",
                 "platform-doctor",
                 "platform-format-check",
                 "platform-foundation-policy",
                 "platform-generated-agreement",
                 "platform-guide-contract",
                 "platform-lint",
+                "platform-loader-contract",
                 "platform-ownership-policy",
+                "platform-payload-dist",
+                "platform-payload-reproducibility",
+                "platform-performance-smoke",
                 "platform-static-analysis"
             ]
         },
@@ -7295,11 +7982,11 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:dde796733f198290824ecc9dc1cd2d48411c3eea75928d43ebac70389f972ea4"
+            "sha256": "sha256:eb15030ac5eeb74a5bdccf15206e15b19da50a15c3b797cd3cecfd6a290823d4"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",
-            "sha256": "sha256:de86826e040aadcaab61ab43190548b61e37807092508d9e840c1d10feea5067"
+            "sha256": "sha256:8453b599581c92cb3856840abb91917d5bb87331303c19abc6a45f476eaeb7c5"
         },
         {
             "path": "sandbox/catalog/fragments/host-cli/host-cli.catalog.json",
@@ -18803,6 +19490,54 @@
         {
             "command": [
                 "php",
+                "sandbox/catalog/fragments/engineering-platform/build.php",
+                "build",
+                "--output=artifacts/dist"
+            ],
+            "covered_contracts": [
+                "duo-artifact-manifest/v1",
+                "duo-candidate-build/v1",
+                "duo-candidate-release-set/v1"
+            ],
+            "covered_paths": [
+                "agent/**",
+                "cli/**",
+                "docs/contracts/**",
+                "recovery/**",
+                "sandbox/catalog/fragments/engineering-platform/Build.php",
+                "sandbox/catalog/fragments/engineering-platform/DeterministicArchive.php",
+                "sandbox/catalog/fragments/engineering-platform/artifact-manifest.schema.json",
+                "sandbox/catalog/fragments/engineering-platform/build.php",
+                "sandbox/catalog/fragments/engineering-platform/tests/BuildTest.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "composer.lock"
+            ],
+            "evidence_role": "characterization",
+            "expected_outputs": [
+                "artifacts/dist/build-receipt.json"
+            ],
+            "id": "platform-candidate-build",
+            "layer": "platform",
+            "owner": "thread-1",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [
+                "dist-output"
+            ],
+            "temporary_directory": "unique",
+            "timeout_seconds": 180,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "php",
                 "sandbox/catalog/fragments/engineering-platform/catalog.php",
                 "validate"
             ],
@@ -18958,6 +19693,42 @@
         {
             "command": [
                 "php",
+                "sandbox/catalog/fragments/engineering-platform/command-contract.php",
+                "verify"
+            ],
+            "covered_contracts": [
+                "duo-developer-commands/v1"
+            ],
+            "covered_paths": [
+                "Makefile",
+                "docs/contracts/commands/generated/developer-commands.json",
+                "sandbox/catalog/fragments/engineering-platform/CommandContract.php",
+                "sandbox/catalog/fragments/engineering-platform/command-contract.php",
+                "sandbox/catalog/fragments/engineering-platform/developer-command.schema.json",
+                "sandbox/catalog/fragments/engineering-platform/developer-commands.json"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "none",
+            "expected_outputs": [],
+            "id": "platform-developer-command-contract",
+            "layer": "platform",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 30,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
                 "sandbox/catalog/fragments/engineering-platform/doctor.php"
             ],
             "covered_contracts": [
@@ -18980,13 +19751,64 @@
             "required_services": [],
             "required_tools": [
                 "composer",
+                "curl",
                 "git",
                 "jq",
                 "make",
                 "php",
-                "setsid"
+                "setsid",
+                "tar"
             ],
             "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 30,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "--profile=evidence-child",
+                "--dependency=assembly-reproducibility:artifacts/test-results/assembly-reproducibility/result.json",
+                "--dependency=final-integration-close-gate:artifacts/test-results/final-integration-close-gate/result.json",
+                "--dependency=generated-agreement:artifacts/test-results/generated-agreement/result.json",
+                "--dependency=release-family:artifacts/test-results/release-family/result.json",
+                "--dependency=release-gate:artifacts/test-results/release-gate/result.json",
+                "--result=artifacts/test-results/gates/evidence-child.json"
+            ],
+            "covered_contracts": [
+                "duo-gate-aggregate/v1"
+            ],
+            "covered_paths": [
+                "sandbox/catalog/fragments/engineering-platform/Aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/gate-profiles.json"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "artifacts/test-results/assembly-reproducibility/result.json",
+                "artifacts/test-results/final-integration-close-gate/result.json",
+                "artifacts/test-results/generated-agreement/result.json",
+                "artifacts/test-results/release-family/result.json",
+                "artifacts/test-results/release-gate/result.json"
+            ],
+            "evidence_role": "authority_input",
+            "expected_outputs": [
+                "artifacts/test-results/gates/evidence-child.json"
+            ],
+            "id": "platform-evidence-child-aggregate",
+            "layer": "platform",
+            "owner": "thread-1",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [
+                "gate-results"
+            ],
             "temporary_directory": "unique",
             "timeout_seconds": 30,
             "workspace_mode": "read_only"
@@ -19052,6 +19874,55 @@
             "resource_locks": [],
             "temporary_directory": "unique",
             "timeout_seconds": 120,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "--profile=frozen-candidate",
+                "--dependency=audit:artifacts/test-results/audit/result.json",
+                "--dependency=candidate-adoption:artifacts/test-results/candidate-adoption/result.json",
+                "--dependency=payload-reproducibility:artifacts/test-results/payload-reproducibility/result.json",
+                "--dependency=perf-budget:artifacts/test-results/performance/budget.json",
+                "--dependency=pr:artifacts/test-results/gates/pr.json",
+                "--result=artifacts/test-results/gates/frozen-candidate.json"
+            ],
+            "covered_contracts": [
+                "duo-gate-aggregate/v1"
+            ],
+            "covered_paths": [
+                "sandbox/catalog/fragments/engineering-platform/Aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/gate-profiles.json"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "artifacts/test-results/audit/result.json",
+                "artifacts/test-results/candidate-adoption/result.json",
+                "artifacts/test-results/gates/pr.json",
+                "artifacts/test-results/payload-reproducibility/result.json",
+                "artifacts/test-results/performance/budget.json"
+            ],
+            "evidence_role": "authority_input",
+            "expected_outputs": [
+                "artifacts/test-results/gates/frozen-candidate.json"
+            ],
+            "id": "platform-frozen-candidate-aggregate",
+            "layer": "platform",
+            "owner": "thread-1",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [
+                "gate-results"
+            ],
+            "temporary_directory": "unique",
+            "timeout_seconds": 30,
             "workspace_mode": "read_only"
         },
         {
@@ -19125,7 +19996,9 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
-                "sandbox/catalog/fragments/engineering-platform/**"
+                ".github/workflows/**",
+                "sandbox/catalog/fragments/engineering-platform/**",
+                "sandbox/tests/check_guide_commands.sh"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -19138,11 +20011,52 @@
             "required_review_gate": null,
             "required_services": [],
             "required_tools": [
-                "find",
+                "git",
                 "make",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 120,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
                 "php",
-                "sort",
-                "xargs"
+                "sandbox/catalog/fragments/engineering-platform/loader-check.php",
+                "--dist=artifacts/dist",
+                "--result=artifacts/test-results/loader/result.json"
+            ],
+            "covered_contracts": [
+                "duo-loader-check/v1"
+            ],
+            "covered_paths": [
+                "agent/duo-loader.php",
+                "agent/duo.php",
+                "agent/src/**",
+                "sandbox/catalog/fragments/engineering-platform/Build.php",
+                "sandbox/catalog/fragments/engineering-platform/Loader.php",
+                "sandbox/catalog/fragments/engineering-platform/loader-check.php",
+                "sandbox/catalog/fragments/engineering-platform/loader-profile.json",
+                "sandbox/catalog/fragments/engineering-platform/tests/LoaderTest.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "composer.lock"
+            ],
+            "evidence_role": "characterization",
+            "expected_outputs": [
+                "artifacts/test-results/loader/result.json"
+            ],
+            "id": "platform-loader-contract",
+            "layer": "integration",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
             ],
             "resource_locks": [],
             "temporary_directory": "unique",
@@ -19177,6 +20091,300 @@
             "resource_locks": [],
             "temporary_directory": "unique",
             "timeout_seconds": 120,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/build.php",
+                "payload-dist-check",
+                "--output=artifacts/dist",
+                "--result=artifacts/test-results/payload-dist/result.json"
+            ],
+            "covered_contracts": [
+                "duo-artifact-manifest/v1",
+                "duo-payload-dist-check/v1"
+            ],
+            "covered_paths": [
+                "agent/**",
+                "cli/**",
+                "docs/contracts/**",
+                "recovery/**",
+                "sandbox/catalog/fragments/engineering-platform/Build.php",
+                "sandbox/catalog/fragments/engineering-platform/DeterministicArchive.php",
+                "sandbox/catalog/fragments/engineering-platform/build.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "artifacts/dist/build-receipt.json"
+            ],
+            "evidence_role": "characterization",
+            "expected_outputs": [
+                "artifacts/test-results/payload-dist/result.json"
+            ],
+            "id": "platform-payload-dist",
+            "layer": "integration",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 120,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/build.php",
+                "payload-reproducibility-check",
+                "--result=artifacts/test-results/payload-reproducibility/result.json"
+            ],
+            "covered_contracts": [
+                "duo-payload-reproducibility/v1"
+            ],
+            "covered_paths": [
+                "agent/**",
+                "cli/**",
+                "docs/contracts/**",
+                "recovery/**",
+                "sandbox/catalog/fragments/engineering-platform/Build.php",
+                "sandbox/catalog/fragments/engineering-platform/DeterministicArchive.php",
+                "sandbox/catalog/fragments/engineering-platform/build.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "composer.lock"
+            ],
+            "evidence_role": "characterization",
+            "expected_outputs": [
+                "artifacts/test-results/payload-reproducibility/result.json"
+            ],
+            "id": "platform-payload-reproducibility",
+            "layer": "integration",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 180,
+            "workspace_mode": "read_only"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:43dcc0a0ca22373a42bff542b11d0ee2843f998c9aaeb4cc1dae6c25584b64b1",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:69114a1716666c4d33703eb2154e224e7cbe03a15c4a7f4db8be50e961370d87",
+                "environment_role_reference_id": "sha256:852942fd8f92f14c1ac07ea8ca3ac6b3c7a78feeb6a1635e2940583166ecacc5",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:68f08ede226413dbaaf1a6f2c8e48579cd49738b65b0dd04b4f2233dd93e6759",
+                "sandbox_destination_reference_id": "sha256:f92bdf436dcd09f313f63e1cbb12574c18398519adadc72db39104668a0adab0"
+            },
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/performance.php",
+                "budget",
+                "--result=artifacts/test-results/performance/budget.json"
+            ],
+            "covered_contracts": [
+                "duo-performance-baseline/v1",
+                "duo-performance-profile/v1",
+                "duo-performance-result/v1"
+            ],
+            "covered_paths": [
+                ".github/workflows/conformance.yml",
+                "agent/duo-loader.php",
+                "agent/duo.php",
+                "agent/src/**",
+                "cli/**",
+                "sandbox/catalog/fragments/engineering-platform/Build.php",
+                "sandbox/catalog/fragments/engineering-platform/DeterministicArchive.php",
+                "sandbox/catalog/fragments/engineering-platform/Performance.php",
+                "sandbox/catalog/fragments/engineering-platform/PerformanceHarness.php",
+                "sandbox/catalog/fragments/engineering-platform/performance-baseline.json",
+                "sandbox/catalog/fragments/engineering-platform/performance-profile.json",
+                "sandbox/catalog/fragments/engineering-platform/performance.php",
+                "sandbox/catalog/fragments/engineering-platform/requirements.json",
+                "sandbox/catalog/fragments/engineering-platform/tests/PerformanceTest.php"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [
+                "composer.lock",
+                "sandbox/catalog/fragments/engineering-platform/performance-baseline.json",
+                "sandbox/catalog/fragments/engineering-platform/performance-profile.json"
+            ],
+            "evidence_role": "qualification",
+            "expected_outputs": [
+                "artifacts/test-results/performance/budget.json"
+            ],
+            "id": "platform-performance-budget",
+            "layer": "integration",
+            "owner": "thread-1",
+            "parallel_safe": false,
+            "required_review_gate": "duo-performance-profile/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "git",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "performance-runner",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/performance.php",
+                "smoke",
+                "--result=artifacts/test-results/performance/smoke.json"
+            ],
+            "covered_contracts": [
+                "duo-performance-profile/v1",
+                "duo-performance-result/v1"
+            ],
+            "covered_paths": [
+                "agent/duo-loader.php",
+                "agent/duo.php",
+                "agent/src/**",
+                "cli/**",
+                "sandbox/catalog/fragments/engineering-platform/Performance.php",
+                "sandbox/catalog/fragments/engineering-platform/performance-profile.json",
+                "sandbox/catalog/fragments/engineering-platform/performance.php",
+                "sandbox/catalog/fragments/engineering-platform/tests/PerformanceTest.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [
+                "artifacts/test-results/performance/smoke.json"
+            ],
+            "id": "platform-performance-smoke",
+            "layer": "integration",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 120,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "--profile=pr",
+                "--dependency=build-dist:artifacts/test-results/ci/build-dist.json",
+                "--dependency=changed-impact:artifacts/test-results/ci/changed-impact.json",
+                "--dependency=check:artifacts/test-results/ci/check.json",
+                "--dependency=evidence-staleness:artifacts/test-results/ci/evidence-staleness.json",
+                "--dependency=offline-shards:artifacts/test-results/ci/offline-shards.json",
+                "--dependency=unit-php-8.2:artifacts/test-results/ci/unit-php-8.2.json",
+                "--dependency=unit-php-8.3:artifacts/test-results/ci/unit-php-8.3.json",
+                "--result=artifacts/test-results/gates/pr.json"
+            ],
+            "covered_contracts": [
+                "duo-gate-aggregate/v1"
+            ],
+            "covered_paths": [
+                "sandbox/catalog/fragments/engineering-platform/Aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/gate-profiles.json"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "artifacts/test-results/ci/build-dist.json",
+                "artifacts/test-results/ci/changed-impact.json",
+                "artifacts/test-results/ci/check.json",
+                "artifacts/test-results/ci/evidence-staleness.json",
+                "artifacts/test-results/ci/offline-shards.json",
+                "artifacts/test-results/ci/unit-php-8.2.json",
+                "artifacts/test-results/ci/unit-php-8.3.json"
+            ],
+            "evidence_role": "authority_input",
+            "expected_outputs": [
+                "artifacts/test-results/gates/pr.json"
+            ],
+            "id": "platform-pr-aggregate",
+            "layer": "platform",
+            "owner": "thread-1",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [
+                "gate-results"
+            ],
+            "temporary_directory": "unique",
+            "timeout_seconds": 30,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "--profile=release-validation",
+                "--dependency=evidence-child:artifacts/test-results/gates/evidence-child.json",
+                "--dependency=release-validation:artifacts/test-results/release-validation/result.json",
+                "--result=artifacts/test-results/gates/release-validation.json"
+            ],
+            "covered_contracts": [
+                "duo-gate-aggregate/v1"
+            ],
+            "covered_paths": [
+                "sandbox/catalog/fragments/engineering-platform/Aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/aggregate.php",
+                "sandbox/catalog/fragments/engineering-platform/gate-profiles.json"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "artifacts/test-results/gates/evidence-child.json",
+                "artifacts/test-results/release-validation/result.json"
+            ],
+            "evidence_role": "authority_input",
+            "expected_outputs": [
+                "artifacts/test-results/gates/release-validation.json"
+            ],
+            "id": "platform-release-validation-aggregate",
+            "layer": "platform",
+            "owner": "thread-1",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [
+                "gate-results"
+            ],
+            "temporary_directory": "unique",
+            "timeout_seconds": 30,
             "workspace_mode": "read_only"
         },
         {

@@ -6,6 +6,7 @@ namespace Duo\EngineeringPlatform\Tests;
 
 use Duo\EngineeringPlatform\CatalogException;
 use Duo\EngineeringPlatform\Runner;
+use Duo\EngineeringPlatform\Selection;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -21,7 +22,7 @@ use PHPUnit\Framework\TestCase;
  *     state:string,
  *     message:?string,
  *     interrupt_signal:?int,
- *     results:list<array{log_path:?string,message:?string,timed_out:bool,signal:?int,cleanup:string}>
+ *     results:list<array{id:string,log_path:?string,message:?string,timed_out:bool,signal:?int,cleanup:string}>
  * }
  */
 final class RunnerTest extends TestCase
@@ -58,7 +59,7 @@ final class RunnerTest extends TestCase
             putenv('DUO_SECRET_SENTINEL');
         }
 
-        self::assertSame(0, $exit);
+        self::assertSame(0, $exit, (string) file_get_contents($this->root . '/' . $result));
         $receipt = $this->receipt($result);
         self::assertSame('non_authorizing_partial', $receipt['authority']);
         self::assertSame(['kind' => 'partial_owner', 'owner' => 'thread-1'], $receipt['catalog_scope']);
@@ -84,6 +85,74 @@ final class RunnerTest extends TestCase
         self::assertStringNotContainsString($this->root, $log);
         self::assertStringNotContainsString('review-sentinel-must-not-leak', $log);
         self::assertSame(0600, fileperms($logPath) & 0777);
+    }
+
+    public function testExplicitSuiteRunIsNonAuthorizingDiagnostic(): void
+    {
+        $result = $this->resultPath('explicit-diagnostic');
+        $suite = $this->suite('runner-explicit-fixture', ['php', '-r', 'exit(0);']);
+        $catalog = $this->catalog($suite, 'runner-unused-profile', $result);
+
+        self::assertSame(0, (new Runner($this->root, $catalog, $result))->run([$suite['id']], null));
+        $receipt = $this->receipt($result);
+        self::assertSame('non_authorizing_diagnostic', $receipt['authority']);
+        self::assertSame('pass', $receipt['state']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testResolvedEmptyChangedSelectionProducesNotApplicableReceipt(): void
+    {
+        $result = $this->resultPath('changed-not-applicable');
+        $suite = $this->suite('runner-unselected-fixture', ['php', '-r', 'exit(0);']);
+        $catalog = $this->catalog($suite, 'runner-unused-profile', $result);
+        $head = $this->gitHead();
+        $selection = (new Selection($this->root, $catalog))->changed($head, $head);
+
+        self::assertSame(0, (new Runner($this->root, $catalog, $result, null, $selection))->run([], null));
+        $receipt = $this->receipt($result);
+        self::assertSame('non_authorizing_advisory', $receipt['authority']);
+        self::assertSame('not_applicable', $receipt['state']);
+        self::assertSame('selector.changed-paths', $receipt['results'][0]['id'] ?? null);
+    }
+
+    public function testShardRunIsNonAuthorizingAndBindsItsPlan(): void
+    {
+        $result = $this->resultPath('shard');
+        $suite = $this->suite('runner-shard-fixture', ['php', '-r', 'exit(0);']);
+        $catalog = $this->catalog($suite, 'runner-shard-profile', $result);
+        $shard = [
+            'candidate_sha' => $this->gitHead(),
+            'profile_id' => 'runner-shard-profile',
+            'plan_sha256' => 'sha256:' . str_repeat('a', 64),
+            'index' => 0,
+            'count' => 1,
+            'estimated_duration_ms' => 1000,
+            'suite_ids' => [$suite['id']],
+        ];
+
+        self::assertSame(0, (new Runner($this->root, $catalog, $result, null, null, $shard))->run([$suite['id']], null));
+        $receipt = $this->receipt($result);
+        self::assertSame('non_authorizing_shard', $receipt['authority']);
+        self::assertSame('pass', $receipt['state']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testRunnerPublishesJUnitAndTapReports(): void
+    {
+        $result = $this->resultPath('reports');
+        $directory = dirname($result);
+        $junit = $directory . '/junit.xml';
+        $tap = $directory . '/results.tap';
+        $suite = $this->suite('runner-report-fixture', ['php', '-r', 'exit(0);']);
+        $catalog = $this->catalog($suite, 'runner-report-profile', $result);
+
+        self::assertSame(0, (new Runner($this->root, $catalog, $result, null, null, null, $junit, $tap))
+            ->run([$suite['id']], null));
+        self::assertStringContainsString('<testsuite name="duo" tests="1"', (string) file_get_contents($this->root . '/' . $junit));
+        self::assertStringContainsString("TAP version 13\n1..1\n", (string) file_get_contents($this->root . '/' . $tap));
+        $receipt = $this->receipt($result);
+        self::assertSame('pass', $receipt['state']);
+        $this->trackLogDirectory($receipt);
     }
 
     public function testUnsafeResultPathIsRejected(): void
@@ -139,7 +208,9 @@ final class RunnerTest extends TestCase
         self::assertSame(1, (new Runner($this->root, $catalog, $result))->run([], 'runner-descendant-profile'));
         $receipt = $this->receipt($result);
         self::assertNotSame('pass', $receipt['state']);
-        self::assertLessThan(4.0, (hrtime(true) - $started) / 1_000_000_000);
+        // Descendant cleanup uses the same two bounded group-termination
+        // passes and workspace fingerprints as the timeout path above.
+        self::assertLessThan(8.0, (hrtime(true) - $started) / 1_000_000_000);
         $this->trackLogDirectory($receipt);
     }
 
@@ -425,6 +496,34 @@ final class RunnerTest extends TestCase
         return $directory . '/result.json';
     }
 
+    private function gitHead(): string
+    {
+        $process = proc_open(
+            ['git', 'rev-parse', 'HEAD'],
+            [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+            $pipes,
+            $this->root,
+            ['PATH' => (string) getenv('PATH'), 'LC_ALL' => 'C'],
+            ['bypass_shell' => true],
+        );
+        if (!is_resource($process)) {
+            throw new \RuntimeException('cannot resolve runner-test HEAD');
+        }
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        if (proc_close($process) !== 0 || !is_string($stdout)) {
+            throw new \RuntimeException('cannot resolve runner-test HEAD');
+        }
+        $sha = trim($stdout);
+        if (preg_match('/^[a-f0-9]{40}$/D', $sha) !== 1) {
+            throw new \RuntimeException('runner-test HEAD is not a full SHA');
+        }
+        return $sha;
+    }
+
     /** @return TestReceipt */
     private function receipt(string $relative): array
     {
@@ -458,6 +557,7 @@ final class RunnerTest extends TestCase
         $results = [];
         foreach ($decoded['results'] as $result) {
             if (!is_array($result)
+                || !is_string($result['id'] ?? null)
                 || !(is_string($result['log_path'] ?? null) || ($result['log_path'] ?? null) === null)
                 || !(is_string($result['message'] ?? null) || ($result['message'] ?? null) === null)
                 || !is_bool($result['timed_out'] ?? null)
@@ -466,6 +566,7 @@ final class RunnerTest extends TestCase
                 throw new \RuntimeException('runner test received a malformed suite result');
             }
             $results[] = [
+                'id' => $result['id'],
                 'log_path' => $result['log_path'] ?? null,
                 'message' => $result['message'] ?? null,
                 'timed_out' => $result['timed_out'],

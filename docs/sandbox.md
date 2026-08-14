@@ -33,16 +33,21 @@ Platform P0 receipts until equivalent process-group cleanup semantics are
 implemented and qualified.
 
 `bootstrap-dev` is the explicit network/workspace mutation boundary: it installs
-only `composer.lock` dependencies and writes a local tool/lock receipt under
-`artifacts/bootstrap/`. The `artifacts/`, `vendor/`, and `dist/` trees are local
-or CI outputs and are not source.
+only `composer.lock` dependencies plus the actionlint 1.7.12, ShellCheck 0.11.0,
+and shfmt 3.13.1 binaries selected for the host by the checked-in content lock.
+Downloads are HTTPS-only and rejected unless their SHA-256 matches
+`toolchain-lock.json`. The installed binaries live below
+`artifacts/bootstrap-dev/bin/`; `artifacts/bootstrap-dev/receipt.json` binds the
+Composer lock, tool lock, selected platform, downloaded sources, installed
+executables, and tool identities. The `artifacts/`, `vendor/`, and `dist/`
+trees are local or CI outputs and are not source.
 
 Platform P0 catalog sources live below `sandbox/catalog/fragments/`. Each
 behavior thread owns only its ledger-assigned fragment directory. Thread 1 owns
 the schema, fail-closed validator, generated aggregate, serial runner, and the
-`engineering-platform` fragment. The complete P0 aggregate contains 338 suites,
-including exact compatibility profiles for all 218 legacy offline targets and
-46 legacy live targets. `platform-p0`, `test-component`, `catalog-check`, and
+`engineering-platform` fragment. The complete aggregate includes exact
+compatibility profiles for every legacy offline and live target.
+`platform-p0`, `test-component`, `catalog-check`, and
 `thread-1-gate` require that complete aggregate. The narrower
 `platform-p0-bootstrap` remains an explicitly non-authorizing diagnostic. No
 missing, empty, unknown, or stale suite selection is treated as a pass. Every
@@ -68,6 +73,128 @@ generated loader. Behavior branches do not add ad hoc `require` statements to
 production bootstraps. Until the generated-loader cutover lands, a new module
 may be cataloged and unit-tested but must not be made reachable from a runtime
 entrypoint through a one-off loader exception.
+
+## Engineering-platform testing, build, and release
+
+After `make bootstrap-dev`, `make check` is offline. It runs formatting, PHP
+syntax and static analysis, catalog/schema and generated-byte validation,
+ShellCheck/shfmt over the explicit ratchet in `quality-scope.json`, actionlint
+over every workflow, and the read-only foundation/ownership/contract/guide
+checks. Network advisory work is separate: `make audit` returns clean (0),
+policy failure (1), or unavailable (2), and unavailable is never normalized to
+success.
+
+The catalog is the execution authority. Common entrypoints are:
+
+```sh
+make test-unit
+make test-offline OFFLINE_SHARDS=4
+make test-changed BASE_SHA=<40hex> HEAD_SHA=<40hex>
+make test-component COMPONENT=engineering-platform
+make test-integration SUITES=<comma-separated-catalog-ids>
+make test-conformance SUBJECTS=<comma-separated-catalog-ids>
+make thread-1-gate
+```
+
+Changed selection requires full, existing commits and records the merge base;
+an empty selection produces a selector-proven `not_applicable` receipt rather
+than a missing job. Offline shards use deterministic longest-processing-time
+assignment and resource-aware execution waves. A shard containing an exclusive
+or non-parallel-safe suite runs alone; only disjoint, parallel-safe shards may
+overlap. Runner receipts bind the complete catalog, selection/shard plan,
+command, runner/process-entry bytes, toolchain, expected outputs, workspace
+fingerprints, logs, JUnit/TAP reports, and any independently verified harness
+approval. Timeouts terminate the entire process group and retain partial logs.
+
+`make build` requires a clean worktree and creates deterministic ustar payloads
+under `artifacts/dist/`. The candidate has physically disjoint agent, recovery,
+declaration, and host-CLI components plus `archives/target-install.tar`, which
+is exactly the union of the three target payload roots. Manifests bind file
+membership, modes, bytes, source commit, compatibility, and the locked builder
+inputs. `make payload-dist-check`, `make payload-reproducibility-check`, and
+`make loader-check` independently verify membership, two-root byte identity,
+source-independent boot, and the bounded loader graph. No Composer package,
+test, cache, credential, or local source path is shipped.
+
+The release boundary never rebuilds the frozen candidate. Supply the retained
+bundle together with independently controlled absolute selection and pin files:
+
+```sh
+make release-family-check \
+  RELEASE_FAMILY=/retained/family \
+  RELEASE_SELECTION=/authority/selection.json \
+  RELEASE_PIN_RECORD=/authority/pin-record.json
+
+make assembly-reproducibility-check \
+  RELEASE_FAMILY=/retained/family \
+  RELEASE_SELECTION=/authority/selection.json \
+  RELEASE_PIN_RECORD=/authority/pin-record.json
+```
+
+Selection and pin files must be outside both the checkout and retained bundle,
+must not be symlinks, and must not be group/world writable. Verification binds
+the signed review envelope, canonical reviewed payload, projection, target set,
+family, host and target archives, candidate/evidence-child lineage, and actual
+component bytes. Assembly runs twice in different temporary roots.
+
+The approved final-integration exception uses a separate close gate after a
+fresh fetch:
+
+```sh
+git fetch --no-tags origin main
+make final-integration-close-gate \
+  CANDIDATE_SHA=<40hex> EVIDENCE_CHILD_SHA=<40hex> \
+  RELEASE_FAMILY=/retained/family \
+  RELEASE_SELECTION=/authority/selection.json \
+  RELEASE_PIN_RECORD=/authority/pin-record.json
+```
+
+It requires `refs/remotes/origin/main`, proves both commits are reachable from
+that ref, proves the evidence child has exactly the frozen candidate as parent,
+confines its nonempty diff to the approved review/projection source allowlist,
+and reruns exact retained-family trust and payload verification. Ordinary PRs
+continue to use the existing Thread 0 squash close policy.
+
+Candidate adoption and release validation are explicit destructive
+qualification operations. `APPROVAL` names an absolute directory outside the
+checkout containing canonical `approval.json`, `keyring.json`,
+`provisioning.json`, `probe.json`, and `command.json`. The signed approval is
+Ed25519-verified, expiry/probe freshness and every provision/effect/data/
+credential/sandbox binding must agree, and only approved environment names are
+passed. The external command must consume the exact retained archive and prove
+transfer, swap, adoption, recovery, rollback, target mutation, restored state,
+and absence of source-checkout fallback. Candidate receipts are forcibly
+non-authorizing and non-adoptable. Post-evidence validation additionally
+requires `RELEASE_FAMILY_SHA256` and permits only the retained exact release.
+
+`make perf-smoke` checks the harness locally. `make perf-budget` is authoritative
+only on the pinned controlled runner/image declared by
+`performance-profile.json`; elsewhere it fails as infrastructure unavailable.
+The gate uses warmup and repeated samples, median/p95 and RSS thresholds, a
+noise guard, and separate source/dist loader scenarios. Do not turn a local
+directional measurement into a production budget update.
+
+## Engineering-platform CI and manual merge policy
+
+`.github/workflows/conformance.yml` defines resolved-SHA selection, PHP 8.2/8.3
+unit jobs, resource-aware offline shards, deterministic dist/loader smoke,
+evidence staleness, a fail-closed receipt aggregate, a visible network audit,
+and separately approved nightly live/conformance jobs. Actions use immutable
+commit SHAs, read-only repository permission, bounded retention, and PR-only
+cancellation. PR lanes have no secrets. Qualification secrets are base64
+materialized with mode 0600 under the runner's external temporary directory and
+are still rejected unless the signed harness contract validates.
+
+As observed on 2026-08-14, repository-level GitHub Actions remain disabled and
+this repository tier cannot bind required status checks. These lanes are
+defined but are not described as enforced or operational until an owner enables
+an approved runner. Until then, a merge review must record the exact commit,
+manually run commands, and retained receipts; absence of a check run or receipt
+is never a pass. At minimum run `make bootstrap-dev`, `make check`,
+`make test-unit`, `make test-offline`, `make build`,
+`make payload-dist-check`, `make payload-reproducibility-check`,
+`make loader-check`, and `make perf-smoke`, plus every path-selected or
+authority lane applicable to the change.
 
 ## The model
 

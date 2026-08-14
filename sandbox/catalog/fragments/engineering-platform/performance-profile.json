@@ -1,0 +1,39 @@
+{
+    "format": "duo-performance-profile/v1",
+    "id": "duo-linux-aarch64-wordpress-7.0.2-php-8.3-fpm-opcache/v1",
+    "runner_class": "duo-performance-dedicated-linux-aarch64/v1",
+    "images": {
+        "wordpress": "wordpress:7.0.2-php8.3-fpm@sha256:b3f5d0d05eaec9d18eba7a0c683d380440db3bfde48760a53f8d512ff00a35fe",
+        "database": "mariadb:11.4.12@sha256:67873d30a17f6a9c331f06363b2fa15f38abca415529966d67c84f87f82439fe"
+    },
+    "resources": {
+        "cpu_count": 2,
+        "memory_mib": 4096
+    },
+    "baseline": {
+        "commit": "16cc150ff1c91af274d222ea96a9ba39c7ec214f",
+        "record": "performance-baseline.json"
+    },
+    "warmups": 5,
+    "samples": 20,
+    "statistic": "median_and_nearest_rank_p95",
+    "outlier_rule": "none; reject noisy run",
+    "maximum_noise_ratio": 0.35,
+    "maximum_baseline_drift_ratio": 0.35,
+    "retry": {
+        "maximum_attempts": 2,
+        "allowed_reason": "noise_above_profile_limit"
+    },
+    "budgets": {
+        "ordinary-wordpress-disabled": {"median_ms": 1000, "p95_ms": 1500, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "ordinary-wordpress-enabled": {"median_ms": 1100, "p95_ms": 1600, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "journal-enabled": {"median_ms": 1200, "p95_ms": 1800, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "agent-command-cold": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "agent-command-warm": {"median_ms": 400, "p95_ms": 600, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "host-cli-cold": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "host-cli-warm": {"median_ms": 400, "p95_ms": 600, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "closure-hashing": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "targeted-test-feedback": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
+        "complete-test-feedback": {"median_ms": 2000, "p95_ms": 3000, "rss_kib": 262144, "maximum_regression_ratio": 0.2}
+    }
+}

@@ -1,90 +1,579 @@
-name: conformance
-
-# The manifest-treadmill answer (DESIGN.md §6 / adversarial-review finding
-# #20): a capture -> apply -> re-capture round-trip gate run per manifest,
-# so drift between a manifest's classification rules and the plugin's real
-# behavior fails CI instead of surfacing as silent corruption later.
+name: engineering platform
 
 on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '17 3 * * *'
   workflow_dispatch:
+    inputs:
+      gate:
+        description: Explicit retained-artifact gate to execute
+        required: false
+        type: choice
+        default: none
+        options: [none, frozen-candidate, evidence-child, release-validation]
+      candidate_sha:
+        description: Exact frozen candidate commit
+        required: false
+        type: string
+      evidence_child_sha:
+        description: Exact direct evidence-child commit
+        required: false
+        type: string
+      release_family:
+        description: Absolute retained family directory on the qualification runner
+        required: false
+        type: string
+      release_selection:
+        description: Absolute independent release-selection file
+        required: false
+        type: string
+      release_pin_record:
+        description: Absolute independent selection-pin file
+        required: false
+        type: string
+      release_family_sha256:
+        description: Independently verified retained release-family digest
+        required: false
+        type: string
+      approval:
+        description: Absolute external qualification approval directory
+        required: false
+        type: string
+      prior_receipt:
+        description: Absolute prior-stage aggregate receipt on the qualification runner
+        required: false
+        type: string
+      run_live:
+        description: Run externally approved live qualification lanes
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  COMPOSER_NO_INTERACTION: '1'
 
 jobs:
-  # DUO-3285: was `code-half-unit` (12 suites, the code/state-boundary
-  # slice only). regress-offline-all is a strict superset -- its own first
-  # prerequisite IS code-half-unit -- so this job now also runs the 19
-  # other offline (no-docker) suites that existed but had never run in any
-  # bundle or CI check before this issue: 7 with a Makefile target nobody
-  # had wired into a bundle, 12 with no Makefile target at all. Renamed
-  # rather than kept as a second, redundant job (this repo has no GitHub
-  # branch-protection required-status-check binding to a job id to
-  # preserve -- verified, this repo's tier doesn't support that GitHub
-  # feature at all, so "required" here means "the CI workflow runs it,"
-  # not a hard merge-block).
-  regress-offline-all:
+  resolve-shas:
+    name: resolve immutable event SHAs
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      base: ${{ steps.resolve.outputs.base }}
+      head: ${{ steps.resolve.outputs.head }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact event head with ancestry
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4, resolved 2026-08-14
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - id: resolve
+        name: Validate exact base and head objects
+        env:
+          EVENT_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EVENT_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$EVENT_BASE" =~ ^[a-f0-9]{40}$ ]] || [[ "$EVENT_BASE" =~ ^0+$ ]]; then
+            EVENT_BASE="$(git rev-parse HEAD^)"
+          fi
+          [[ "$EVENT_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          git cat-file -e "$EVENT_BASE^{commit}"
+          git cat-file -e "$EVENT_HEAD^{commit}"
+          git merge-base "$EVENT_BASE" "$EVENT_HEAD" >/dev/null
+          printf 'base=%s\nhead=%s\n' "$EVENT_BASE" "$EVENT_HEAD" >>"$GITHUB_OUTPUT"
 
-      - name: full offline regress corpus (64 suites, no docker)
-        run: make regress-offline-all
-
-      - name: evidence freshness and generated product claims
-        run: make release-gate
-
-  code-half-live-lock:
+  quality:
+    name: quality / PHP 8.2
+    needs: resolve-shas
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+      - run: make bootstrap-dev
+      - name: Offline policy, syntax, static, schema, boundary and drift checks
+        run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=check --result=artifacts/test-results/ci/check.json -- make check
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-check
+          path: artifacts/test-results/ci/check.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: live promotion lease, fencing, and frozen-input races
-        run: make regress-promotion-lock
-
-  code-half-grind:
+  unit:
+    name: unit / PHP ${{ matrix.php }}
+    needs: resolve-shas
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: clean-room code materialization and state handoff
-        run: make grind-code-half
-
-  code-half-ecosystem-grind:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: advanced WordPress code ecosystem and recovery
-        run: make grind-code-half-ecosystem
-
-  code-half-first-sync-hook-recovery:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: failed lifecycle hook and exact first-sync recovery
-        run: make grind-code-half-first-sync
-
-  conformance:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 8
     strategy:
       fail-fast: false
       matrix:
-        manifest: [core, woocommerce, acf, yoast, fse, elementor, polylang, contact-form-7, ninja-forms, paid-memberships-pro]
+        php: ['8.2', '8.3']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=unit-php-${{ matrix.php }} --result=artifacts/test-results/ci/unit-php-${{ matrix.php }}.json -- make test-unit
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-unit-php-${{ matrix.php }}
+          path: artifacts/test-results/ci/unit-php-${{ matrix.php }}.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: docker/compose versions
+  offline-shards:
+    name: catalog offline shards
+    needs: resolve-shas
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: make test-offline OFFLINE_SHARDS=4
+      - run: cp artifacts/test-results/offline/result.json artifacts/test-results/ci/offline-shards.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-offline-shards
+          path: artifacts/test-results/ci/offline-shards.json
+          if-no-files-found: error
+          retention-days: 7
+
+  changed-impact:
+    name: resolved-SHA changed impact
+    needs: resolve-shas
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+      - run: make bootstrap-dev
+      - name: Always materialize selector and result
+        env:
+          BASE_SHA: ${{ needs.resolve-shas.outputs.base }}
+          HEAD_SHA: ${{ needs.resolve-shas.outputs.head }}
+        run: make test-changed BASE_SHA="$BASE_SHA" HEAD_SHA="$HEAD_SHA"
+      - run: cp artifacts/test-results/changed/result.json artifacts/test-results/ci/changed-impact.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-changed-impact
+          path: artifacts/test-results/ci/changed-impact.json
+          if-no-files-found: error
+          retention-days: 7
+
+  build-dist:
+    name: deterministic dist and loader smoke
+    needs: resolve-shas
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: make build
+      - run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=build-dist --result=artifacts/test-results/ci/build-dist.json -- make payload-dist-check
+      - run: make loader-check
+      - run: make perf-smoke
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-build-dist
+          path: artifacts/test-results/ci/build-dist.json
+          if-no-files-found: error
+          retention-days: 7
+
+  evidence-staleness:
+    name: exact evidence staleness
+    needs: resolve-shas
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Owner-exported impact and exact stale-subject check
+        env:
+          BASE_SHA: ${{ needs.resolve-shas.outputs.base }}
+          HEAD_SHA: ${{ needs.resolve-shas.outputs.head }}
         run: |
-          docker --version
-          docker compose version
+          make evidence-impact BASE_SHA="$BASE_SHA" HEAD_SHA="$HEAD_SHA"
+          php sandbox/catalog/fragments/engineering-platform/command-result.php --id=evidence-staleness --result=artifacts/test-results/ci/evidence-staleness.json -- make evidence-staleness-check REPORT=artifacts/evidence-impact/report.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-evidence-staleness
+          path: artifacts/test-results/ci/evidence-staleness.json
+          if-no-files-found: error
+          retention-days: 7
 
-      - name: conformance gate (${{ matrix.manifest }})
-        run: bash sandbox/conformance/run.sh ${{ matrix.manifest }}
+  pr-verdict:
+    name: aggregate PR verdict
+    if: always()
+    needs: [resolve-shas, quality, unit, offline-shards, changed-impact, build-dist, evidence-staleness]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - name: Download every independently materialized dependency
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: receipt-*
+          path: artifacts/test-results/ci
+          merge-multiple: true
+      - name: Fail closed over absent, cancelled, malformed, stale, failed, or infrastructure results
+        run: >-
+          php sandbox/catalog/fragments/engineering-platform/aggregate.php
+          --profile=pr
+          --dependency=build-dist:artifacts/test-results/ci/build-dist.json
+          --dependency=changed-impact:artifacts/test-results/ci/changed-impact.json
+          --dependency=check:artifacts/test-results/ci/check.json
+          --dependency=evidence-staleness:artifacts/test-results/ci/evidence-staleness.json
+          --dependency=offline-shards:artifacts/test-results/ci/offline-shards.json
+          --dependency=unit-php-8.2:artifacts/test-results/ci/unit-php-8.2.json
+          --dependency=unit-php-8.3:artifacts/test-results/ci/unit-php-8.3.json
+          --result=artifacts/test-results/ci/pr.json
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-pr-verdict
+          path: artifacts/test-results/ci/pr.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  network-audit:
+    name: network-aware dependency audit
+    needs: resolve-shas
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.2'
+          tools: composer:v2
+          coverage: none
+      - run: make audit
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-network-audit
+          path: artifacts/test-results/audit/result.json
+          if-no-files-found: error
+          retention-days: 7
+
+  frozen-candidate:
+    name: frozen candidate authority gate
+    if: github.event_name == 'workflow_dispatch' && inputs.gate == 'frozen-candidate'
+    environment: qualification
+    runs-on: duo-performance-qualification-aarch64
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.candidate_sha }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+      - run: make bootstrap-dev
+      - name: Validate frozen input and retain the prior PR decision
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          PRIOR_RECEIPT: ${{ inputs.prior_receipt }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          [[ "$PRIOR_RECEIPT" = /* ]] && test -f "$PRIOR_RECEIPT" && test ! -L "$PRIOR_RECEIPT"
+          install -d -m 0700 artifacts/test-results/gates
+          install -m 0600 "$PRIOR_RECEIPT" artifacts/test-results/gates/pr.json
+      - run: make build
+      - run: make payload-reproducibility-check
+      - env:
+          APPROVAL: ${{ inputs.approval }}
+        run: make candidate-adoption-check APPROVAL="$APPROVAL"
+      - name: Run the paired controlled performance gate
+        env:
+          DUO_PERF_RESOURCE_CLASS: 2cpu-4096mib
+          DUO_PERF_RUNNER_PROFILE: duo-performance-dedicated-linux-aarch64/v1
+        run: make perf-budget
+      - run: make audit
+      - name: Aggregate exact frozen-candidate receipts
+        run: >-
+          php sandbox/catalog/fragments/engineering-platform/aggregate.php
+          --profile=frozen-candidate
+          --dependency=audit:artifacts/test-results/audit/result.json
+          --dependency=candidate-adoption:artifacts/test-results/candidate-adoption/result.json
+          --dependency=payload-reproducibility:artifacts/test-results/payload-reproducibility/result.json
+          --dependency=perf-budget:artifacts/test-results/performance/budget.json
+          --dependency=pr:artifacts/test-results/gates/pr.json
+          --result=artifacts/test-results/gates/frozen-candidate.json
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: frozen-candidate-receipts-${{ inputs.candidate_sha }}
+          path: |
+            artifacts/dist/
+            artifacts/test-results/audit/result.json
+            artifacts/test-results/candidate-adoption/result.json
+            artifacts/test-results/gates/frozen-candidate.json
+            artifacts/test-results/payload-reproducibility/result.json
+            artifacts/test-results/performance/budget.json
+          if-no-files-found: error
+          retention-days: 30
+
+  evidence-child:
+    name: evidence-child retained-family gate
+    if: github.event_name == 'workflow_dispatch' && inputs.gate == 'evidence-child'
+    environment: evidence-review
+    runs-on: duo-qualification
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.evidence_child_sha }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+      - run: make bootstrap-dev
+      - name: Refresh main and validate exact lineage inputs
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EVIDENCE_CHILD_SHA: ${{ inputs.evidence_child_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$EVIDENCE_CHILD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EVIDENCE_CHILD_SHA"
+          git fetch --no-tags origin main
+      - name: Verify retained family and deterministic assembly
+        env:
+          RELEASE_FAMILY: ${{ inputs.release_family }}
+          RELEASE_SELECTION: ${{ inputs.release_selection }}
+          RELEASE_PIN_RECORD: ${{ inputs.release_pin_record }}
+        run: |
+          make release-family-check RELEASE_FAMILY="$RELEASE_FAMILY" RELEASE_SELECTION="$RELEASE_SELECTION" RELEASE_PIN_RECORD="$RELEASE_PIN_RECORD"
+          make assembly-reproducibility-check RELEASE_FAMILY="$RELEASE_FAMILY" RELEASE_SELECTION="$RELEASE_SELECTION" RELEASE_PIN_RECORD="$RELEASE_PIN_RECORD"
+      - name: Verify final-integration exception
+        env:
+          CANDIDATE_SHA: ${{ inputs.candidate_sha }}
+          EVIDENCE_CHILD_SHA: ${{ inputs.evidence_child_sha }}
+          RELEASE_FAMILY: ${{ inputs.release_family }}
+          RELEASE_SELECTION: ${{ inputs.release_selection }}
+          RELEASE_PIN_RECORD: ${{ inputs.release_pin_record }}
+        run: >-
+          make final-integration-close-gate
+          CANDIDATE_SHA="$CANDIDATE_SHA"
+          EVIDENCE_CHILD_SHA="$EVIDENCE_CHILD_SHA"
+          RELEASE_FAMILY="$RELEASE_FAMILY"
+          RELEASE_SELECTION="$RELEASE_SELECTION"
+          RELEASE_PIN_RECORD="$RELEASE_PIN_RECORD"
+      - run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=generated-agreement --result=artifacts/test-results/generated-agreement/result.json -- make verify-generated
+      - run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=release-gate --result=artifacts/test-results/release-gate/result.json -- make release-gate
+      - name: Aggregate evidence-child receipts
+        run: >-
+          php sandbox/catalog/fragments/engineering-platform/aggregate.php
+          --profile=evidence-child
+          --dependency=assembly-reproducibility:artifacts/test-results/assembly-reproducibility/result.json
+          --dependency=final-integration-close-gate:artifacts/test-results/final-integration-close-gate/result.json
+          --dependency=generated-agreement:artifacts/test-results/generated-agreement/result.json
+          --dependency=release-family:artifacts/test-results/release-family/result.json
+          --dependency=release-gate:artifacts/test-results/release-gate/result.json
+          --result=artifacts/test-results/gates/evidence-child.json
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: evidence-child-receipts-${{ inputs.evidence_child_sha }}
+          path: artifacts/test-results/
+          if-no-files-found: error
+          retention-days: 30
+
+  release-validation:
+    name: exact retained release validation
+    if: github.event_name == 'workflow_dispatch' && inputs.gate == 'release-validation'
+    environment: qualification
+    runs-on: duo-qualification
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.evidence_child_sha }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Retain exact evidence-child decision
+        env:
+          EVIDENCE_CHILD_SHA: ${{ inputs.evidence_child_sha }}
+          PRIOR_RECEIPT: ${{ inputs.prior_receipt }}
+        run: |
+          set -euo pipefail
+          [[ "$EVIDENCE_CHILD_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EVIDENCE_CHILD_SHA"
+          [[ "$PRIOR_RECEIPT" = /* ]] && test -f "$PRIOR_RECEIPT" && test ! -L "$PRIOR_RECEIPT"
+          install -d -m 0700 artifacts/test-results/gates
+          install -m 0600 "$PRIOR_RECEIPT" artifacts/test-results/gates/evidence-child.json
+      - name: Qualify retained exact release bytes
+        env:
+          RELEASE_FAMILY: ${{ inputs.release_family }}
+          RELEASE_FAMILY_SHA256: ${{ inputs.release_family_sha256 }}
+          APPROVAL: ${{ inputs.approval }}
+        run: make release-validation RELEASE_FAMILY="$RELEASE_FAMILY" RELEASE_FAMILY_SHA256="$RELEASE_FAMILY_SHA256" APPROVAL="$APPROVAL"
+      - name: Aggregate final release-validation receipts
+        run: >-
+          php sandbox/catalog/fragments/engineering-platform/aggregate.php
+          --profile=release-validation
+          --dependency=evidence-child:artifacts/test-results/gates/evidence-child.json
+          --dependency=release-validation:artifacts/test-results/release-validation/result.json
+          --result=artifacts/test-results/gates/release-validation.json
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-validation-receipts-${{ inputs.evidence_child_sha }}
+          path: artifacts/test-results/
+          if-no-files-found: error
+          retention-days: 30
+
+  nightly-live:
+    name: externally approved live compatibility
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_live)
+    needs: resolve-shas
+    environment: qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Materialize protected authority outside the checkout
+        env:
+          APPROVAL_B64: ${{ secrets.QUALIFICATION_APPROVAL_B64 }}
+          KEYRING_B64: ${{ secrets.QUALIFICATION_KEYRING_B64 }}
+          PROVISIONING_B64: ${{ secrets.QUALIFICATION_PROVISIONING_B64 }}
+          PROBE_B64: ${{ secrets.QUALIFICATION_PROBE_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/duo-harness"
+          umask 077
+          printf '%s' "$APPROVAL_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/approval.json"
+          printf '%s' "$KEYRING_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/keyring.json"
+          printf '%s' "$PROVISIONING_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/provisioning.json"
+          printf '%s' "$PROBE_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/probe.json"
+      - name: Live runner refuses absent or mismatched independent harness approval
+        run: >-
+          php sandbox/catalog/fragments/engineering-platform/runner.php
+          --profile=legacy-live-compatibility
+          --result=artifacts/test-results/compatibility/legacy-live/result.json
+          --harness-approval="$RUNNER_TEMP/duo-harness/approval.json"
+          --harness-keyring="$RUNNER_TEMP/duo-harness/keyring.json"
+          --harness-provisioning="$RUNNER_TEMP/duo-harness/provisioning.json"
+          --harness-probe="$RUNNER_TEMP/duo-harness/probe.json"
+
+  nightly-conformance:
+    name: conformance / ${{ matrix.subject }}
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_live)
+    needs: resolve-shas
+    environment: qualification
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        subject: [core, woocommerce, acf, yoast, fse, elementor, polylang, contact-form-7, ninja-forms, paid-memberships-pro]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - name: Materialize protected authority outside the checkout
+        env:
+          APPROVAL_B64: ${{ secrets.QUALIFICATION_APPROVAL_B64 }}
+          KEYRING_B64: ${{ secrets.QUALIFICATION_KEYRING_B64 }}
+          PROVISIONING_B64: ${{ secrets.QUALIFICATION_PROVISIONING_B64 }}
+          PROBE_B64: ${{ secrets.QUALIFICATION_PROBE_B64 }}
+        run: |
+          set -euo pipefail
+          install -d -m 0700 "$RUNNER_TEMP/duo-harness"
+          umask 077
+          printf '%s' "$APPROVAL_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/approval.json"
+          printf '%s' "$KEYRING_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/keyring.json"
+          printf '%s' "$PROVISIONING_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/provisioning.json"
+          printf '%s' "$PROBE_B64" | base64 --decode >"$RUNNER_TEMP/duo-harness/probe.json"
+      - name: Explicit destructive qualification subject
+        run: >-
+          make test-conformance
+          SUBJECTS="conformance-${{ matrix.subject }}"
+          HARNESS_APPROVAL="$RUNNER_TEMP/duo-harness/approval.json"
+          HARNESS_KEYRING="$RUNNER_TEMP/duo-harness/keyring.json"
+          HARNESS_PROVISIONING="$RUNNER_TEMP/duo-harness/provisioning.json"
+          HARNESS_PROBE="$RUNNER_TEMP/duo-harness/probe.json"

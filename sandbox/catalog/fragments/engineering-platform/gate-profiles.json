@@ -1,0 +1,44 @@
+{
+    "format": "duo-gate-orchestration-profiles/v1",
+    "profiles": [
+        {
+            "id": "evidence-child",
+            "dependencies": [
+                "assembly-reproducibility",
+                "final-integration-close-gate",
+                "generated-agreement",
+                "release-family",
+                "release-gate"
+            ]
+        },
+        {
+            "id": "frozen-candidate",
+            "dependencies": [
+                "audit",
+                "candidate-adoption",
+                "payload-reproducibility",
+                "perf-budget",
+                "pr"
+            ]
+        },
+        {
+            "id": "pr",
+            "dependencies": [
+                "build-dist",
+                "changed-impact",
+                "check",
+                "evidence-staleness",
+                "offline-shards",
+                "unit-php-8.2",
+                "unit-php-8.3"
+            ]
+        },
+        {
+            "id": "release-validation",
+            "dependencies": [
+                "evidence-child",
+                "release-validation"
+            ]
+        }
+    ]
+}

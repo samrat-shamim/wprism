@@ -1,0 +1,10 @@
+{
+    "format": "duo-loader-profile/v1",
+    "maximums": {
+        "journal_duo_files_at_boot": 2,
+        "normal_duo_files_after_lazy_reference": 2,
+        "normal_duo_files_at_boot": 1,
+        "peak_rss_kib": 32768,
+        "wp_cli_duo_files_at_boot": 7
+    }
+}
