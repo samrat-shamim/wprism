@@ -998,10 +998,18 @@ $integrationRegistry['platform'] = $platform;
 // Exercise mixed per-row evidence isolation. Only shipped subject rows should
 // inherit this synthetic blocker; the independently signed site row must not.
 foreach ($integrationRegistry['manifests'] as &$integrationManifestClaim) {
+    $integrationManifestClaim['evidence']['bundle_digest'] = null;
+    $integrationManifestClaim['evidence']['closure_digest'] = null;
+    $integrationManifestClaim['evidence']['git_revision'] = null;
+    $integrationManifestClaim['evidence']['subject_digest'] = null;
     $integrationManifestClaim['evidence']['status'] = 'candidate';
 }
 unset($integrationManifestClaim);
 foreach ($integrationRegistry['profiles'] as &$integrationProfileClaim) {
+    $integrationProfileClaim['evidence']['bundle_digest'] = null;
+    $integrationProfileClaim['evidence']['closure_digest'] = null;
+    $integrationProfileClaim['evidence']['git_revision'] = null;
+    $integrationProfileClaim['evidence']['subject_digest'] = null;
     $integrationProfileClaim['evidence']['status'] = 'candidate';
 }
 unset($integrationProfileClaim);
