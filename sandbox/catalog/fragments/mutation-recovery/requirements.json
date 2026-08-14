@@ -1,0 +1,46 @@
+{
+    "definitions": [
+        {
+            "id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+            "kind": "provisioning",
+            "requirement": {
+                "property": "verified provisioning provenance",
+                "record_format": "duo-harness-approval/v1"
+            }
+        },
+        {
+            "id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+            "kind": "environment_role",
+            "requirement": {
+                "property": "reviewed non-production environment role",
+                "record_format": "duo-harness-approval/v1"
+            }
+        },
+        {
+            "id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+            "kind": "credential",
+            "requirement": {
+                "property": "reviewed non-production credential class",
+                "record_format": "duo-harness-approval/v1"
+            }
+        },
+        {
+            "id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+            "kind": "effect_policy",
+            "requirement": {
+                "property": "bounded egress and no production effect",
+                "record_format": "duo-harness-approval/v1"
+            }
+        },
+        {
+            "id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf",
+            "kind": "sandbox_destination",
+            "requirement": {
+                "property": "approved sandbox destination identity",
+                "record_format": "duo-harness-approval/v1"
+            }
+        }
+    ],
+    "format": "duo-test-requirement-definitions/v1",
+    "owner": "thread-5"
+}

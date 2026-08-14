@@ -1,0 +1,3389 @@
+{
+    "format": "duo-test-catalog-fragment/v1",
+    "inventory": [
+        {
+            "kind": "file",
+            "name": "sandbox/tests/fixtures/duo-promotion-probe.php",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-regress-frozen-materialization-promotion"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/fixtures/effect-lifecycle.php",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-regress-effect-bundle"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/fixtures/ssh-rollback-db-loss-probe.php",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-regress-adopt-rollback"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/grind_code_half.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-grind-code-half"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/grind_code_half_ecosystem.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-grind-code-half-ecosystem"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/grind_first_sync_hook_recovery.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-grind-code-half-first-sync"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_adopt_rollback.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-adopt-rollback"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_apply_field_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-apply-field-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_apply_planner.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-apply-planner"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_attachment_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-attachment-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_checkpoint_bundle.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-checkpoint-bundle"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_compatibility.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-compatibility"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_completed_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-completed-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_deploy_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-deploy-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_descriptor_compiler.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-descriptor-compiler"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_descriptor_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-descriptor-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_drift.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-drift"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_ledger_transaction_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-ledger-transaction-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_materializer_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-materializer-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_ownership_pruner.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-ownership-pruner"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_release.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-release"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_revision_enforcement.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-revision-enforcement"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_stage_lock_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-stage-lock-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_code_stage_transaction_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-stage-transaction-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_delete_executor.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-delete-executor"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_delete_guard_evaluator.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-delete-guard-evaluator"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_delete_guard_value_codec.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-delete-guard-value-codec"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_deploy_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-deploy-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_deploy_planner.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-deploy-planner"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_effect_bundle.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-effect-bundle"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_lifecycle.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-lifecycle"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_materializer_live.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer-live"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_materializer_recovery.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer-recovery"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_materializer_ssh.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer-ssh"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_frozen_materialization_promotion.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-frozen-materialization-promotion"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_lifecycle_executor.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-executor"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_lifecycle_options_snapshot.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-options-snapshot"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_lifecycle_phase_handoff_unit.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-phase-handoff-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_lifecycle_planner.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-planner"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_lifecycle_state_handoff.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-state-handoff"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_live_exit_code_contract.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-live-exit-code-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_menu_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-menu-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_options_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-options-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_plan_summary_code_drift.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-plan-summary-code-drift"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_post_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-post-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_promotion.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-promotion"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_promotion_lock.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-promotion-lock"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_promotion_unit.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-promotion-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_recovery_executor.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-recovery-executor"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_recovery_protocol.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-recovery-protocol"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_relationship_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-relationship-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_rollback_authority.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-rollback-authority"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scoped_apply_live.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-live"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scoped_apply_live_cleanup.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-live-cleanup"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scoped_apply_recovery.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-recovery"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scoped_apply_session.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-session"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scoped_effect_reconciliation.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-effect-reconciliation"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scoped_promotion_target.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-promotion-target"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_shortcode_reference_scanner.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-shortcode-reference-scanner"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_shortcode_refs.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-shortcode-refs"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_shortcode_refs.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-shortcode-refs"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_term_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-term-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_typed_table_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-typed-table-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_user_meta_materializer.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-user-meta-materializer"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_woocommerce_effect_contract.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-woocommerce-effect-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/support/wp-shortcode-stub.php",
+            "role": "helper",
+            "suite_ids": [
+                "legacy-regress-shortcode-reference-scanner"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/mutation-recovery/requirements.json",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-code-half-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "code-half-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-code-half-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "grind-code-half",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-grind-code-half"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "grind-code-half-ecosystem",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-grind-code-half-ecosystem"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "grind-code-half-first-sync",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-grind-code-half-first-sync"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-adopt-rollback",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-adopt-rollback"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-apply-field-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-apply-field-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-apply-planner",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-apply-planner"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-attachment-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-attachment-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-checkpoint-bundle",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-checkpoint-bundle"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-compatibility",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-compatibility"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-completed-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-completed-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-deploy-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-deploy-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-descriptor-compiler",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-descriptor-compiler"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-descriptor-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-descriptor-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-drift",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-drift"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-ledger-transaction-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-ledger-transaction-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-materializer-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-materializer-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-ownership-pruner",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-ownership-pruner"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-release",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-release"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-revision-enforcement",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-revision-enforcement"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-stage-lock-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-stage-lock-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-code-stage-transaction-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-code-stage-transaction-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-delete-executor",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-delete-executor"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-delete-guard-evaluator",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-delete-guard-evaluator"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-delete-guard-value-codec",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-delete-guard-value-codec"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-deploy-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-deploy-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-deploy-planner",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-deploy-planner"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-effect-bundle",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-effect-bundle"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-lifecycle",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-lifecycle"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-materializer-live",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer-live"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-materializer-recovery",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer-recovery"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-materializer-ssh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-materializer-ssh"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-frozen-materialization-promotion",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-frozen-materialization-promotion"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-lifecycle-executor",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-executor"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-lifecycle-options-snapshot",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-options-snapshot"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-lifecycle-phase-handoff-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-phase-handoff-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-lifecycle-planner",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-planner"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-lifecycle-state-handoff",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-lifecycle-state-handoff"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-live-exit-code-contract",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-live-exit-code-contract"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-menu-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-menu-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-options-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-options-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-plan-summary-code-drift",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-plan-summary-code-drift"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-post-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-post-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-promotion",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-promotion"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-promotion-lock",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-promotion-lock"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-promotion-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-promotion-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-recovery-executor",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-recovery-executor"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-recovery-protocol",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-recovery-protocol"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-relationship-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-relationship-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-rollback-authority",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-rollback-authority"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scoped-apply-live",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-live"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scoped-apply-live-cleanup",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-live-cleanup"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scoped-apply-recovery",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-recovery"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scoped-apply-session",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-apply-session"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scoped-effect-reconciliation",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-effect-reconciliation"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scoped-promotion-target",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scoped-promotion-target"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-shortcode-reference-scanner",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-shortcode-reference-scanner"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-shortcode-refs",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-shortcode-refs"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-term-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-term-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-typed-table-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-typed-table-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-user-meta-materializer",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-user-meta-materializer"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-woocommerce-effect-contract",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-woocommerce-effect-contract"
+            ]
+        }
+    ],
+    "owner": "thread-5",
+    "profiles": [
+        {
+            "blocking": true,
+            "environment_class": "offline",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
+                "artifacts/test-results/threads/thread-5/result.json"
+            ],
+            "id": "thread-5-mutation-recovery",
+            "owner": "thread-5",
+            "suite_ids": [
+                "legacy-code-half-unit",
+                "legacy-regress-adopt-rollback",
+                "legacy-regress-apply-field-materializer",
+                "legacy-regress-apply-planner",
+                "legacy-regress-attachment-materializer",
+                "legacy-regress-checkpoint-bundle",
+                "legacy-regress-code-descriptor-compiler",
+                "legacy-regress-code-release",
+                "legacy-regress-delete-executor",
+                "legacy-regress-delete-guard-evaluator",
+                "legacy-regress-delete-guard-value-codec",
+                "legacy-regress-deploy-planner",
+                "legacy-regress-effect-bundle",
+                "legacy-regress-environment-lifecycle",
+                "legacy-regress-environment-materializer",
+                "legacy-regress-environment-materializer-recovery",
+                "legacy-regress-environment-materializer-ssh",
+                "legacy-regress-frozen-materialization-promotion",
+                "legacy-regress-lifecycle-executor",
+                "legacy-regress-lifecycle-planner",
+                "legacy-regress-live-exit-code-contract",
+                "legacy-regress-menu-materializer",
+                "legacy-regress-options-materializer",
+                "legacy-regress-post-materializer",
+                "legacy-regress-recovery-executor",
+                "legacy-regress-recovery-protocol",
+                "legacy-regress-relationship-materializer",
+                "legacy-regress-rollback-authority",
+                "legacy-regress-scoped-apply-live-cleanup",
+                "legacy-regress-scoped-apply-recovery",
+                "legacy-regress-scoped-apply-session",
+                "legacy-regress-scoped-effect-reconciliation",
+                "legacy-regress-scoped-promotion-target",
+                "legacy-regress-shortcode-reference-scanner",
+                "legacy-regress-shortcode-refs",
+                "legacy-regress-term-materializer",
+                "legacy-regress-typed-table-materializer",
+                "legacy-regress-user-meta-materializer",
+                "legacy-regress-woocommerce-effect-contract"
+            ]
+        },
+        {
+            "blocking": true,
+            "environment_class": "offline",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
+                "artifacts/test-results/components/mutation-recovery/result.json"
+            ],
+            "id": "component-mutation-recovery",
+            "owner": "thread-5",
+            "suite_ids": [
+                "legacy-code-half-unit",
+                "legacy-regress-adopt-rollback",
+                "legacy-regress-apply-field-materializer",
+                "legacy-regress-apply-planner",
+                "legacy-regress-attachment-materializer",
+                "legacy-regress-checkpoint-bundle",
+                "legacy-regress-code-descriptor-compiler",
+                "legacy-regress-code-release",
+                "legacy-regress-delete-executor",
+                "legacy-regress-delete-guard-evaluator",
+                "legacy-regress-delete-guard-value-codec",
+                "legacy-regress-deploy-planner",
+                "legacy-regress-effect-bundle",
+                "legacy-regress-environment-lifecycle",
+                "legacy-regress-environment-materializer",
+                "legacy-regress-environment-materializer-recovery",
+                "legacy-regress-environment-materializer-ssh",
+                "legacy-regress-frozen-materialization-promotion",
+                "legacy-regress-lifecycle-executor",
+                "legacy-regress-lifecycle-planner",
+                "legacy-regress-live-exit-code-contract",
+                "legacy-regress-menu-materializer",
+                "legacy-regress-options-materializer",
+                "legacy-regress-post-materializer",
+                "legacy-regress-recovery-executor",
+                "legacy-regress-recovery-protocol",
+                "legacy-regress-relationship-materializer",
+                "legacy-regress-rollback-authority",
+                "legacy-regress-scoped-apply-live-cleanup",
+                "legacy-regress-scoped-apply-recovery",
+                "legacy-regress-scoped-apply-session",
+                "legacy-regress-scoped-effect-reconciliation",
+                "legacy-regress-scoped-promotion-target",
+                "legacy-regress-shortcode-reference-scanner",
+                "legacy-regress-shortcode-refs",
+                "legacy-regress-term-materializer",
+                "legacy-regress-typed-table-materializer",
+                "legacy-regress-user-meta-materializer",
+                "legacy-regress-woocommerce-effect-contract"
+            ]
+        }
+    ],
+    "suites": [
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "code-half-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-code-half-unit",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "grind-code-half"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/grind_code_half.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-grind-code-half",
+            "layer": "grind",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "grind-code-half-ecosystem"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/grind_code_half_ecosystem.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-grind-code-half-ecosystem",
+            "layer": "grind",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "grind-code-half-first-sync"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/grind_first_sync_hook_recovery.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-grind-code-half-first-sync",
+            "layer": "grind",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-adopt-rollback"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/fixtures/ssh-rollback-db-loss-probe.php",
+                "sandbox/tests/regress_adopt_rollback.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-adopt-rollback",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-apply-field-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_apply_field_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-apply-field-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-apply-planner"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_apply_planner.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-apply-planner",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-attachment-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_attachment_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-attachment-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-checkpoint-bundle"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_checkpoint_bundle.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-checkpoint-bundle",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-compatibility"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_compatibility.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-compatibility",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-completed-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_completed_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-completed-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-deploy-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_deploy_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-deploy-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-descriptor-compiler"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_descriptor_compiler.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-descriptor-compiler",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-descriptor-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_descriptor_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-descriptor-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-drift"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_drift.sh"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-drift",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-ledger-transaction-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_ledger_transaction_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-ledger-transaction-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-materializer-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_materializer_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-materializer-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-ownership-pruner"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_ownership_pruner.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-ownership-pruner",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-release"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_release.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-release",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-revision-enforcement"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_revision_enforcement.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-revision-enforcement",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-stage-lock-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_stage_lock_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-stage-lock-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-code-stage-transaction-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_code_stage_transaction_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-code-stage-transaction-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-delete-executor"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_delete_executor.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-delete-executor",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-delete-guard-evaluator"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_delete_guard_evaluator.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-delete-guard-evaluator",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-delete-guard-value-codec"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_delete_guard_value_codec.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-delete-guard-value-codec",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-deploy-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_deploy_command.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-deploy-command",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-deploy-planner"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_deploy_planner.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-deploy-planner",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-effect-bundle"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/fixtures/effect-lifecycle.php",
+                "sandbox/tests/regress_effect_bundle.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-effect-bundle",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-lifecycle"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_lifecycle.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-lifecycle",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-materializer-live"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_materializer_live.sh"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-materializer-live",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-materializer-recovery"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_materializer_recovery.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-materializer-recovery",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-materializer-ssh"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_materializer_ssh.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-materializer-ssh",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-frozen-materialization-promotion"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/fixtures/duo-promotion-probe.php",
+                "sandbox/tests/regress_frozen_materialization_promotion.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-frozen-materialization-promotion",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-lifecycle-executor"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_lifecycle_executor.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-lifecycle-executor",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-lifecycle-options-snapshot"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_lifecycle_options_snapshot.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-lifecycle-options-snapshot",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-lifecycle-phase-handoff-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_lifecycle_phase_handoff_unit.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-lifecycle-phase-handoff-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-lifecycle-planner"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_lifecycle_planner.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-lifecycle-planner",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-lifecycle-state-handoff"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_lifecycle_state_handoff.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-lifecycle-state-handoff",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-live-exit-code-contract"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_live_exit_code_contract.sh"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-live-exit-code-contract",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-menu-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_menu_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-menu-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-options-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_options_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-options-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-plan-summary-code-drift"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_plan_summary_code_drift.php"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-plan-summary-code-drift",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-post-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_post_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-post-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-promotion"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_promotion.sh"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-promotion",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-promotion-lock"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_promotion_lock.sh"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-promotion-lock",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-promotion-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_promotion_unit.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-promotion-unit",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-recovery-executor"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_recovery_executor.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-recovery-executor",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-recovery-protocol"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_recovery_protocol.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-recovery-protocol",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-relationship-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_relationship_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-relationship-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-rollback-authority"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_rollback_authority.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-rollback-authority",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scoped-apply-live"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scoped_apply_live.sh"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-scoped-apply-live",
+            "layer": "integration",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scoped-apply-live-cleanup"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scoped_apply_live_cleanup.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-scoped-apply-live-cleanup",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scoped-apply-recovery"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scoped_apply_recovery.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-scoped-apply-recovery",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scoped-apply-session"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scoped_apply_session.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-scoped-apply-session",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scoped-effect-reconciliation"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scoped_effect_reconciliation.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-scoped-effect-reconciliation",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scoped-promotion-target"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scoped_promotion_target.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-scoped-promotion-target",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-shortcode-reference-scanner"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_shortcode_reference_scanner.php",
+                "sandbox/tests/support/wp-shortcode-stub.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-shortcode-reference-scanner",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-shortcode-refs"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_shortcode_refs.php",
+                "sandbox/tests/regress_shortcode_refs.sh"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-shortcode-refs",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-term-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_term_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-term-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-typed-table-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_typed_table_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-typed-table-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-user-meta-materializer"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_user_meta_materializer.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-user-meta-materializer",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-woocommerce-effect-contract"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_woocommerce_effect_contract.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-woocommerce-effect-contract",
+            "layer": "offline",
+            "owner": "thread-5",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        }
+    ]
+}
