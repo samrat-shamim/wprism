@@ -171,6 +171,18 @@ throws(static fn() => ProviderClient::request([PHP_BINARY, $largeProvider], [], 
     'provider client enforces the output cap after draining an exited process');
 
 echo "== wiring ==\n";
+ok(
+    class_exists('Duo\\Recovery\\RecoveryAuthorityController')
+        && class_exists('Duo\\Recovery\\RecoveryCliDispatcher'),
+    'standalone recovery root exports the authority controller and CLI dispatcher'
+);
+$dispatcherSource = (string) file_get_contents($repoRoot . '/recovery/RecoveryCliDispatcher.php');
+ok(
+    str_contains($dispatcherSource, 'RecoveryAuthorityController::')
+        && !str_contains($dispatcherSource, 'RollbackControl::initialize')
+        && !str_contains($dispatcherSource, 'RollbackControl::status'),
+    'recovery CLI dispatch uses the exported controller rather than the legacy implementation name'
+);
 $wiring = [
     'recovery/RecoveryExecutor.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
     'recovery/CheckpointBundle.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],

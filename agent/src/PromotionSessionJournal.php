@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Promotion/PromotionRecoveryDecision.php';
+
 /**
  * Immutable typed view of the durable `promotion_session` checkpoint.
  *
@@ -44,6 +46,12 @@ final class PromotionSessionRecord {
                 throw new \InvalidArgumentException("malformed promotion $key");
             }
         }
+        if (array_key_exists('recovery_decision', $payload)) {
+            if (!is_array($payload['recovery_decision'])) {
+                throw new \InvalidArgumentException('malformed promotion recovery decision');
+            }
+            PromotionRecoveryDecision::fromArray($payload['recovery_decision']);
+        }
         if (array_key_exists('profile', $payload)) {
             self::assertScoped($payload);
         } else {
@@ -65,6 +73,14 @@ final class PromotionSessionRecord {
         $value = $this->payload['session_id'] ?? null;
         return is_string($value) && $value !== '' ? $value : null;
     }
+
+    public function recoveryDecision(): ?PromotionRecoveryDecision {
+        $value = $this->payload['recovery_decision'] ?? null;
+        return is_array($value) ? PromotionRecoveryDecision::fromArray($value) : null;
+    }
+
+    /** Legacy records have no decision and are recovery/reconciliation-only. */
+    public function isForwardAuthorized(): bool { return $this->recoveryDecision() !== null; }
 
     /** @param array<string,mixed> $attempt */
     private static function validAttempt(array $attempt): bool {
@@ -97,7 +113,7 @@ final class PromotionSessionRecord {
             'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
             'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id',
             'scoped_target_id', 'lifecycle_attempt', 'pending_state_transition',
-            'state_transition', 'lifecycle_phases',
+            'state_transition', 'lifecycle_phases', 'recovery_decision',
         ];
         foreach (array_keys($payload) as $key) {
             if (!is_string($key) || !in_array($key, $allowed, true)) {
@@ -168,7 +184,7 @@ final class PromotionSessionJournal {
         return $record;
     }
 
-    public static function write(PromotionSessionRecord $session): void {
+    private static function write(PromotionSessionRecord $session): void {
         $payload = $session->toArray();
         $encoded = function_exists('wp_json_encode')
             ? wp_json_encode($payload)
@@ -198,6 +214,13 @@ final class PromotionSessionJournal {
             $payload['session_id'] = $sessionId;
         }
         if ($metadata !== null) {
+            if (array_key_exists('recovery_decision', $metadata)
+                && (!class_exists(PromotionLease::class, false)
+                    || !PromotionLease::bound_session_write_allowed($owner, $artifactHash))) {
+                throw new \RuntimeException(
+                    'duo: recovery decision sessions must be published by PromotionLease::begin_bound'
+                );
+            }
             foreach ($metadata as $key => $value) {
                 if (!is_string($key) || array_key_exists($key, $payload)) {
                     throw new \InvalidArgumentException('malformed promotion session scoped metadata');
@@ -224,10 +247,18 @@ final class PromotionSessionJournal {
         }
         $expectedPayload = $expected->toArray();
         $nextPayload = $next->toArray();
+        $expectedDecision = $expected->recoveryDecision();
+        $nextDecision = $next->recoveryDecision();
+        if (($expectedDecision === null) !== ($nextDecision === null)) {
+            throw new \RuntimeException(
+                'duo: promotion recovery decision binding is immutable; legacy sessions cannot be upgraded in place'
+            );
+        }
         if (($expectedPayload['profile'] ?? null) === 'scoped-checkpoint-v1') {
             $scopedKeys = [
                 'profile', 'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
                 'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id',
+                'recovery_decision',
             ];
             foreach ($scopedKeys as $key) {
                 if (($expectedPayload[$key] ?? null) !== ($nextPayload[$key] ?? null)) {
@@ -235,11 +266,80 @@ final class PromotionSessionJournal {
                 }
             }
         }
+        if (array_key_exists('recovery_decision', $expectedPayload)
+            && (($nextPayload['recovery_decision'] ?? null) !== $expectedPayload['recovery_decision'])) {
+            throw new \RuntimeException('duo: promotion recovery decision is immutable after binding');
+        }
         $current = self::read();
         if ($current === null || !self::same($current, $expected)) {
             throw new \RuntimeException('duo: promotion session changed before its typed transition');
         }
         self::write($next);
+    }
+
+    /**
+     * Verify/replay the recovery witness on an already-bound session. New
+     * sessions must use PromotionLease::begin_bound(), which publishes the
+     * lease and witness through one acquire path; this method deliberately
+     * refuses to upgrade a legacy unbound row in place.
+     */
+    public static function assertBoundRecoveryDecision(
+        string $owner,
+        string $artifactHash,
+        array $decision
+    ): PromotionSessionRecord {
+        $current = self::readFor($owner, $artifactHash);
+        if ($current === null) {
+            throw new \RuntimeException('duo: cannot bind recovery decision without a promotion session');
+        }
+        $selected = PromotionRecoveryDecision::fromArray($decision);
+        $existing = $current->recoveryDecision();
+        if ($existing === null) {
+            throw new \RuntimeException('duo: legacy unbound promotion session is recovery-only and cannot be upgraded');
+        }
+        if (!$existing->same($selected)) {
+            throw new \RuntimeException('duo: promotion recovery decision drifted after session binding');
+        }
+        return $current;
+    }
+
+    /**
+     * Compatibility name retained for callers that adopted the initial
+     * binding seam; it verifies an existing binding and never writes one.
+     *
+     * @param array<string,mixed> $decision
+     */
+    public static function bindRecoveryDecision(
+        string $owner,
+        string $artifactHash,
+        array $decision
+    ): PromotionSessionRecord {
+        return self::assertBoundRecoveryDecision($owner, $artifactHash, $decision);
+    }
+
+    /**
+     * Re-select and compare the exact current decision before a forward
+     * continuation.  Missing legacy bindings are deliberately not upgraded
+     * here: callers must use the explicit bind-and-acquire entrypoint.
+     */
+    public static function assertRecoveryDecision(
+        string $owner,
+        string $artifactHash,
+        array $decision
+    ): PromotionSessionRecord {
+        $current = self::readFor($owner, $artifactHash);
+        if ($current === null) {
+            throw new \RuntimeException('duo: promotion recovery decision has no durable session');
+        }
+        $bound = $current->recoveryDecision();
+        if ($bound === null) {
+            throw new \RuntimeException('duo: promotion recovery decision is unbound; legacy session is recovery-only');
+        }
+        $selected = PromotionRecoveryDecision::fromArray($decision);
+        if (!$bound->same($selected)) {
+            throw new \RuntimeException('duo: promotion recovery decision changed before forward resume');
+        }
+        return $current;
     }
 
     private static function same(PromotionSessionRecord $left, PromotionSessionRecord $right): bool {

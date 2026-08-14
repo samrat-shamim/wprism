@@ -360,6 +360,100 @@ namespace {
         'target_id' => str_repeat('f', 32),
         'terminal' => false,
     ];
+    $boundOwner = 'bound-owner';
+    $boundArtifact = str_repeat('b', 64);
+    $boundDecision = \Duo\PromotionRecoveryDecision::select(
+        'verified-rollback-provider',
+        'verified_rollback',
+        hash('sha256', 'bound-target-config')
+    );
+    $boundLease = PromotionLock::begin_bound(
+        $boundOwner,
+        $boundArtifact,
+        $boundDecision->toArray(),
+        300
+    );
+    $boundSession = json_decode(
+        (string) (ScopedPromotionTargetLedger::$values['promotion_session'] ?? ''),
+        true,
+        512,
+        JSON_THROW_ON_ERROR
+    );
+    $check(
+        ($boundLease['owner'] ?? null) === $boundOwner
+            && ($boundSession['recovery_decision'] ?? null) === $boundDecision->toArray()
+            && !ScopedPromotionTargetLedger::transactionOpen(),
+        'bound promotion begin publishes its lease and recovery decision atomically'
+    );
+    $resumedBound = PromotionLock::resume_bound(
+        $boundOwner,
+        $boundArtifact,
+        'code-stage',
+        $boundDecision->toArray(),
+        300
+    );
+    $boundLeaseBytesBeforeDrift = ScopedPromotionTargetLedger::$values['promotion_lock'] ?? '';
+    $check(
+        ($resumedBound['session_id'] ?? null) === ($boundLease['session_id'] ?? null),
+        'bound promotion resume preserves the exact durable generation after decision revalidation'
+    );
+    $driftedDecision = \Duo\PromotionRecoveryDecision::select(
+        'other-provider',
+        'verified_rollback',
+        hash('sha256', 'bound-target-config')
+    );
+    $expect(
+        static fn() => PromotionLock::resume_bound(
+            $boundOwner,
+            $boundArtifact,
+            'code-stage',
+            $driftedDecision->toArray(),
+            300
+        ),
+        'changed before forward resume',
+        'bound promotion resume refuses provider drift before renewing its lease'
+    );
+    $check(
+        (ScopedPromotionTargetLedger::$values['promotion_lock'] ?? '') === $boundLeaseBytesBeforeDrift,
+        'decision drift refusal leaves the durable lease bytes untouched'
+    );
+    PromotionLock::abort($boundOwner, $boundArtifact);
+    ScopedPromotionTargetLedger::$values = [];
+    ScopedPromotionTargetLedger::$failNextPromotionSessionUpsert = true;
+    $expect(
+        static fn() => PromotionLock::begin_bound(
+            $boundOwner,
+            $boundArtifact,
+            $boundDecision->toArray(),
+            300
+        ),
+        'injected scoped promotion session upsert failure',
+        'bound promotion begin rolls back a lease when its recovery decision cannot be published'
+    );
+    $check(
+        !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
+            && !array_key_exists('promotion_session', ScopedPromotionTargetLedger::$values)
+            && !ScopedPromotionTargetLedger::transactionOpen(),
+        'failed bound promotion begin leaves no lease without its recovery decision'
+    );
+    $GLOBALS['wpdb']->duoKvEngine = 'MyISAM';
+    $expect(
+        static fn() => PromotionLock::begin_bound(
+            $boundOwner,
+            $boundArtifact,
+            $boundDecision->toArray(),
+            300
+        ),
+        'requires an InnoDB duo_kv table',
+        'bound promotion begin refuses nontransactional storage before publishing a lease'
+    );
+    $check(
+        !array_key_exists('promotion_lock', ScopedPromotionTargetLedger::$values)
+            && !array_key_exists('promotion_session', ScopedPromotionTargetLedger::$values)
+            && !ScopedPromotionTargetLedger::transactionOpen(),
+        'nontransactional bound promotion refusal leaves no split handoff state'
+    );
+    $GLOBALS['wpdb']->duoKvEngine = 'InnoDB';
     try {
         ScopedPromotionAuthority::validate(
             $witness, $owner, $artifact, $receipt, $scopeHash, ['promoting']

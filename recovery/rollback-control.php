@@ -836,6 +836,17 @@ final class RollbackControl {
             if (!in_array($nextState, self::TRANSITIONS[$currentState] ?? [], true)) {
                 throw new \RuntimeException("duo rollback: invalid state transition $currentState -> $nextState");
             }
+            // New runtimes enforce the extracted transition policy as the
+            // single named seam. The local vocabulary remains as a byte-safe
+            // fallback for archived v1 bundles that predate that leaf.
+            if (class_exists(RecoveryTransitionPolicy::class, false)
+                && !RecoveryTransitionPolicy::allows(
+                    $currentState,
+                    $nextState,
+                    $scopedReceipt ? 'scoped-checkpoint-v1' : 'ordinary'
+                )) {
+                throw new \RuntimeException("duo rollback: extracted transition policy refused $currentState -> $nextState");
+            }
             if ($open) {
                 throw new \RuntimeException('duo rollback: state transition refused with incomplete resource operations');
             }
@@ -1435,10 +1446,21 @@ final class RollbackControl {
 }
 
 /** @return array<string,string> */
-function rollback_control_args(array $argv): array {
+function rollback_control_main(array $argv): int {
+    if (class_exists(RecoveryCliDispatcher::class)) {
+        return RecoveryCliDispatcher::run($argv);
+    }
+    // Adopted v1 runtime bundles may not yet contain the extracted dispatcher.
+    // Keep their CLI byte contract runnable while new installations use the
+    // explicit dispatcher above.
+    return rollback_control_legacy_main($argv);
+}
+
+/** @return array<string,string> */
+function rollback_control_legacy_args(array $argv): array {
     $out = [];
     foreach ($argv as $arg) {
-        if (str_starts_with($arg, '--') && str_contains($arg, '=')) {
+        if (is_string($arg) && str_starts_with($arg, '--') && str_contains($arg, '=')) {
             [$key, $value] = explode('=', substr($arg, 2), 2);
             $out[$key] = $value;
         }
@@ -1446,27 +1468,20 @@ function rollback_control_args(array $argv): array {
     return $out;
 }
 
-function rollback_control_main(array $argv): int {
+function rollback_control_legacy_main(array $argv): int {
     array_shift($argv);
-    $action = array_shift($argv) ?? '';
-    $args = rollback_control_args($argv);
-    $root = $args['root'] ?? '';
+    $action = (string) (array_shift($argv) ?? '');
+    $args = rollback_control_legacy_args($argv);
+    $root = (string) ($args['root'] ?? '');
     if ($root === '' || $root[0] !== '/') {
         fwrite(STDERR, "duo rollback: --root must be an absolute path\n");
         return 2;
     }
     try {
         $result = match ($action) {
-            'init' => RollbackControl::initialize(
-                $root,
-                isset($args['target-id']) && $args['target-id'] !== '' ? $args['target-id'] : null
-            ),
+            'init' => RollbackControl::initialize($root, isset($args['target-id']) && $args['target-id'] !== '' ? $args['target-id'] : null),
             'install-key' => (function () use ($root, $args): array {
-                RollbackControl::installPublicKey(
-                    $root,
-                    (string) ($args['key-id'] ?? ''),
-                    (string) ($args['public-key'] ?? '')
-                );
+                RollbackControl::installPublicKey($root, (string) ($args['key-id'] ?? ''), (string) ($args['public-key'] ?? ''));
                 return ['ok' => true];
             })(),
             'request' => RollbackControl::handleRequest($root, (string) ($args['request'] ?? '')),
@@ -1477,15 +1492,7 @@ function rollback_control_main(array $argv): int {
             'code-release-request' => CodeRelease::handleRequest($root, (string) ($args['request'] ?? '')),
             'upload-bundle-request' => UploadBundle::handleRequest($root, (string) ($args['request'] ?? '')),
             'effect-bundle-request' => EffectBundle::handleRequest($root, (string) ($args['request'] ?? '')),
-            'execute' => RecoveryExecutor::execute(
-                $root,
-                (string) ($args['adapter'] ?? ''),
-                (string) ($args['operation-id'] ?? ''),
-                (int) ($args['attempt'] ?? 0),
-                (string) ($args['claimant'] ?? ''),
-                (int) ($args['claim-epoch'] ?? 0),
-                (string) ($args['input'] ?? '')
-            ),
+            'execute' => RecoveryExecutor::execute($root, (string) ($args['adapter'] ?? ''), (string) ($args['operation-id'] ?? ''), (int) ($args['attempt'] ?? 0), (string) ($args['claimant'] ?? ''), (int) ($args['claim-epoch'] ?? 0), (string) ($args['input'] ?? '')),
             'active-evidence' => RollbackControl::activeEvidence($root),
             'authority-status' => RollbackControl::status($root),
             'scoped-promotion-witness' => RecoveryExecutor::scopedPromotionWitness($root),
@@ -1510,6 +1517,12 @@ require_once __DIR__ . '/CheckpointBundle.php';
 require_once __DIR__ . '/CodeRelease.php';
 require_once __DIR__ . '/UploadBundle.php';
 require_once __DIR__ . '/EffectBundle.php';
+if (is_file(__DIR__ . '/RecoveryAuthorityController.php')) {
+    require_once __DIR__ . '/RecoveryAuthorityController.php';
+}
+if (is_file(__DIR__ . '/RecoveryCliDispatcher.php')) {
+    require_once __DIR__ . '/RecoveryCliDispatcher.php';
+}
 
 if (isset($_SERVER['SCRIPT_FILENAME']) && realpath((string) $_SERVER['SCRIPT_FILENAME']) === __FILE__) {
     exit(rollback_control_main($argv));
