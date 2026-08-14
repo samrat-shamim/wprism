@@ -5,6 +5,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 $ledgerPath = $root . '/docs/proposals/refactor-ownership.json';
 $refresh = in_array('--refresh', array_slice($argv, 1), true);
+$selfTest = in_array('--self-test', array_slice($argv, 1), true);
 
 function ownership_fail(string $message): never {
     fwrite(STDERR, "ownership-check: $message\n");
@@ -109,6 +110,33 @@ function new_prefix_assignments(): array {
     ];
 }
 
+/** @return list<array{path:string,owner:string}> */
+function future_file_assignments(): array {
+    return [
+        ['path'=>'.editorconfig','owner'=>'thread-1'],
+        ['path'=>'.php-cs-fixer.dist.php','owner'=>'thread-1'],
+        ['path'=>'composer.json','owner'=>'thread-1'],
+        ['path'=>'composer.lock','owner'=>'thread-1'],
+        ['path'=>'phpstan.neon','owner'=>'thread-1'],
+        ['path'=>'phpunit.xml','owner'=>'thread-1'],
+    ];
+}
+
+/**
+ * @param array<string,string> $future
+ * @param array<string,string> $prefixes
+ */
+function future_prefix_conflict(array $future, array $prefixes): ?string {
+    foreach ($future as $path => $futureOwner) {
+        foreach ($prefixes as $prefix => $prefixOwner) {
+            if (str_starts_with($path, $prefix) && $futureOwner !== $prefixOwner) {
+                return "future-file owner disagrees with exclusive prefix for $path";
+            }
+        }
+    }
+    return null;
+}
+
 function semantic_test_owner(string $path): string {
     $name = strtolower(basename($path));
     $t4 = ['adapter','manifest','provider','capabilit','certif','evidence','policy','grammar','disposition','vocabulary','registry'];
@@ -187,6 +215,20 @@ function owner_for(string $path): string {
     return 'thread-1';
 }
 
+if ($selfTest) {
+    $conflict = future_prefix_conflict(
+        ['sandbox/catalog/fragments/engineering-platform/future.json'=>'thread-2'],
+        ['sandbox/catalog/fragments/engineering-platform/'=>'thread-1']
+    );
+    if ($conflict === null) ownership_fail('self-test did not reject a contradictory future-file reservation');
+    if (future_prefix_conflict(
+        ['sandbox/catalog/fragments/engineering-platform/future.json'=>'thread-1'],
+        ['sandbox/catalog/fragments/engineering-platform/'=>'thread-1']
+    ) !== null) ownership_fail('self-test rejected an agreeing future-file reservation');
+    echo "ownership-check self-test: future-file/prefix conflicts fail before file creation\n";
+    exit(0);
+}
+
 if ($refresh) {
     $files = [];
     foreach (tracked_files($root) as $path) {
@@ -203,6 +245,7 @@ if ($refresh) {
             'thread-5' => 'mutation, promotion, lifecycle and recovery',
         ],
         'files' => $files,
+        'future_files' => future_file_assignments(),
         'new_prefixes' => new_prefix_assignments(),
         'boundary_rules' => [
             ['from'=>'cli/**','to'=>'agent/**','rule'=>'wire-contract-only; existing source bridge is exception-listed'],
@@ -301,6 +344,17 @@ foreach ((array) ($ledger['files'] ?? []) as $row) {
     $assigned[$path] = $owner;
 }
 $prefixes = [];
+$futureRows = future_file_assignments();
+if (($ledger['future_files'] ?? null) !== $futureRows) {
+    ownership_fail('checked-in future-file assignments differ from the ratified policy');
+}
+$future = [];
+foreach ($futureRows as $row) {
+    $path = $row['path']; $owner = $row['owner'];
+    if ($path === '' || str_ends_with($path, '/') || isset($future[$path])
+        || !in_array($owner, $owners, true)) ownership_fail('invalid or duplicate future-file assignment');
+    $future[$path] = $owner;
+}
 $ratifiedPrefixes = new_prefix_assignments();
 if (($ledger['new_prefixes'] ?? null) !== $ratifiedPrefixes) {
     ownership_fail('checked-in new-prefix assignments differ from the ratified policy');
@@ -319,6 +373,8 @@ foreach ($prefixNames as $index => $prefix) {
         }
     }
 }
+$futureConflict = future_prefix_conflict($future, $prefixes);
+if ($futureConflict !== null) ownership_fail($futureConflict);
 $tracked = tracked_files($root);
 $stale = array_values(array_diff(array_keys($assigned), $tracked));
 if ($stale !== []) ownership_fail('ledger names untracked path(s): ' . implode(', ', array_slice($stale, 0, 8)));
@@ -330,9 +386,19 @@ foreach ($tracked as $path) {
     }
     if (count($matches) > 1) ownership_fail("tracked path matches multiple new-prefix owners: $path");
     if (isset($assigned[$path])) {
+        if (isset($future[$path]) && $assigned[$path] !== $future[$path]) {
+            ownership_fail("explicit owner disagrees with future-file assignment for $path");
+        }
         if ($matches !== [] && $assigned[$path] !== reset($matches)) {
             ownership_fail("explicit owner disagrees with exclusive prefix for $path");
         }
+        continue;
+    }
+    if (isset($future[$path])) {
+        if ($matches !== [] && $future[$path] !== reset($matches)) {
+            ownership_fail("future-file owner disagrees with exclusive prefix for $path");
+        }
+        $effective[$path] = $future[$path];
         continue;
     }
     if ($matches === []) ownership_fail("unowned tracked path outside every exclusive prefix: $path");
@@ -365,4 +431,4 @@ foreach ($ledger['exceptions'] as $row) {
     }
 }
 echo 'ownership-check: ' . count($tracked) . ' tracked paths have exactly one owner; '
-    . count($prefixes) . ' new-module prefixes are exclusive' . PHP_EOL;
+    . count($prefixes) . ' new-module prefixes and ' . count($future) . ' exact future files are exclusive' . PHP_EOL;
