@@ -98,10 +98,14 @@ got="$(pair_compose_stopped_pairs)"
 pass "stopped_pairs' Status filter is independent of live_pairs' own (status-blind) query"
 
 say "stopped container bindings remain visible even though no listener exists"
+export DUO_PAIR_TEST_COMPOSE_LS='[
+  {"Name":"duo-down","Status":"exited(2)","ConfigFiles":"/repo/sandbox/pair.yml"},
+  {"Name":"duo-headless","Status":"exited(2)","ConfigFiles":"/repo/sandbox/pair.yml"}
+]'
 export DUO_PAIR_TEST_INSPECT_PAIR=down DUO_PAIR_TEST_INSPECT_PORT1=9300 DUO_PAIR_TEST_INSPECT_PORT2=9301
 got="$(pair_compose_all_bound_ports)"
 [ "$got" = $'down\t9300\ndown\t9301' ] \
-  || fail "expected stopped pair bindings down/9300 and down/9301, got: $got"
+  || fail "expected stopped pair bindings plus a successful no-port headless project, got: $got"
 unset DUO_PAIR_TEST_INSPECT_PAIR DUO_PAIR_TEST_INSPECT_PORT1 DUO_PAIR_TEST_INSPECT_PORT2
 pass "lease preflight can enumerate persisted ports from stopped web containers"
 

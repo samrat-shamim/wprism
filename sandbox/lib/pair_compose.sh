@@ -161,4 +161,5 @@ pair_compose_all_bound_ports() { # pair_compose_all_bound_ports — <pair><tab><
       [ -n "$port" ] && printf '%s\t%s\n' "$pair" "$port"
     done <<<"$ports"
   done <<<"$pairs"
+  return 0
 }
