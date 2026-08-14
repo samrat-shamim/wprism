@@ -41,6 +41,9 @@ $buildStart = strpos($candidate, 'public function build(');
 $buildEnd = strpos($candidate, 'private function reset(', (int) $buildStart);
 $candidateBuild = substr($candidate, (int) $buildStart, (int) $buildEnd - (int) $buildStart);
 
+require_once "$root/agent/src/Capture.php";
+$captureReflection = new ReflectionClass(Duo\Capture::class);
+
 $check(substr_count($capture, "\n") + 1 <= 650, 'Capture stays a small command-facing façade');
 $check(!str_contains($capture, '$this->'), 'Capture has no per-build mutable instance state');
 $check(!str_contains($captureCode, 'Db::') && !str_contains($captureCode, '$wpdb'),
@@ -48,22 +51,140 @@ $check(!str_contains($captureCode, 'Db::') && !str_contains($captureCode, '$wpdb
 $check(!str_contains($capture, 'Publish::begin_intent(') && !str_contains($capture, 'Publish::swap('),
     'Capture owns no publication implementation');
 
-preg_match_all('/public static function ([A-Za-z_][A-Za-z0-9_]*)\(/', $capture, $matches);
-$public = $matches[1] ?? [];
-$check($public === [
-    'run',
-    'run_initial_baseline',
-    'snapshot',
-    'snapshot_read_only',
-    'build_read_only_export',
-    'assert_read_only_export_engine_support',
-    'snapshot_options_core',
-    'gate_scan',
-    'gate_scan_read_only',
-    'publication_commit_status',
-    'ref_target_type',
-    'classify_unscoped_ref',
-], 'Capture preserves the complete historical public static API');
+$check(!$captureReflection->isInstantiable(), 'Capture preserves its historical non-instantiable boundary');
+$constructor = $captureReflection->getConstructor();
+$check(
+    $constructor !== null
+        && $constructor->isPrivate()
+        && array_map(
+            static fn(ReflectionParameter $parameter): array => [
+                'name' => $parameter->getName(),
+                'type' => $parameter->hasType() ? (string) $parameter->getType() : null,
+            ],
+            $constructor->getParameters()
+        ) === [
+            ['name' => 'repo', 'type' => 'string'],
+            ['name' => 'policy', 'type' => 'Duo\\Policy'],
+        ],
+    'Capture preserves its private constructor contract'
+);
+
+$methodContract = static function (ReflectionMethod $method): array {
+    return [
+        'public' => $method->isPublic(),
+        'static' => $method->isStatic(),
+        'return' => $method->hasReturnType() ? (string) $method->getReturnType() : null,
+        'parameters' => array_map(static function (ReflectionParameter $parameter): array {
+            return [
+                'name' => $parameter->getName(),
+                'type' => $parameter->hasType() ? (string) $parameter->getType() : null,
+                'by_reference' => $parameter->isPassedByReference(),
+                'variadic' => $parameter->isVariadic(),
+                'required' => !$parameter->isDefaultValueAvailable(),
+                'default' => $parameter->isDefaultValueAvailable() ? $parameter->getDefaultValue() : null,
+            ];
+        }, $method->getParameters()),
+    ];
+};
+$parameter = static fn(
+    string $name,
+    ?string $type,
+    bool $required = true,
+    mixed $default = null,
+    bool $byReference = false
+): array => [
+    'name' => $name,
+    'type' => $type,
+    'by_reference' => $byReference,
+    'variadic' => false,
+    'required' => $required,
+    'default' => $default,
+];
+$expectedApi = [
+    'run' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('outDir', '?string', false),
+        $parameter('forceUnresolvedRefs', 'bool', false, false),
+        $parameter('scopeRequest', '?array', false),
+        $parameter('hostEnvironment', '?string', false),
+    ]],
+    'run_initial_baseline' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('publicationLock', null),
+        $parameter('initialStateIdentity', 'string'),
+        $parameter('initialMediaIdentity', 'string'),
+        $parameter('initialConfigIdentity', 'string'),
+        $parameter('onPayloadReady', '?callable', false),
+    ]],
+    'snapshot' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('forceUnresolvedRefs', 'bool', false, false),
+        $parameter('compiled', '?Duo\\CompiledRepository', false),
+        $parameter('policy', '?Duo\\Policy', false),
+        $parameter('planObservations', '?array', false, null, true),
+    ]],
+    'snapshot_read_only' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('forceUnresolvedRefs', 'bool', false, false),
+        $parameter('compiled', '?Duo\\CompiledRepository', false),
+        $parameter('policy', '?Duo\\Policy', false),
+    ]],
+    'build_read_only_export' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('policy', 'Duo\\Policy'),
+        $parameter('previousOptions', '?array'),
+        $parameter('previousUserLogins', 'array'),
+        $parameter('forceUnresolvedRefs', 'bool', false, false),
+    ]],
+    'assert_read_only_export_engine_support' => ['void', [
+        $parameter('policy', 'Duo\\Policy'),
+    ]],
+    'snapshot_options_core' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('forceUnresolvedRefs', 'bool', false, false),
+        $parameter('compiled', '?Duo\\CompiledRepository', false),
+        $parameter('policy', '?Duo\\Policy', false),
+    ]],
+    'gate_scan' => ['array', [$parameter('repo', 'string')]],
+    'gate_scan_read_only' => ['array', [
+        $parameter('repo', 'string'),
+        $parameter('policy', 'Duo\\Policy'),
+        $parameter('observationReadCheckpoint', '?callable', false),
+    ]],
+    'publication_commit_status' => ['bool', [
+        $parameter('stateDir', 'string'),
+        $parameter('intent', 'array'),
+    ]],
+    'ref_target_type' => ['?string', [
+        $parameter('id', 'int'),
+        $parameter('kind', 'string'),
+    ]],
+    'classify_unscoped_ref' => ['?string', [
+        $parameter('id', 'int'),
+        $parameter('kind', 'string'),
+        $parameter('force', 'bool'),
+        $parameter('policy', 'Duo\\Policy'),
+    ]],
+];
+$actualApi = [];
+foreach ($captureReflection->getMethods(ReflectionMethod::IS_PUBLIC) as $method) {
+    if ($method->getDeclaringClass()->getName() === Duo\Capture::class) {
+        $actualApi[$method->getName()] = $methodContract($method);
+    }
+}
+$normalizedExpectedApi = array_map(
+    static fn(array $contract): array => [
+        'public' => true,
+        'static' => true,
+        'return' => $contract[0],
+        'parameters' => $contract[1],
+    ],
+    $expectedApi
+);
+$check(array_keys($actualApi) === array_keys($normalizedExpectedApi),
+    'Capture preserves the complete historical public method set and declaration order');
+$check($actualApi === $normalizedExpectedApi,
+    'Capture preserves visibility, staticness, return types, parameters, defaults, and references');
 
 foreach ([
     'CapturePublicationWorkflow::run(' => 'publication workflow',
@@ -113,10 +234,61 @@ $check(str_contains($snapshot, 'Ledger::assert_read_only_schema()')
     && !str_contains($snapshot, "Snapshot::repair_truncated_entity_types(")
     && str_contains($snapshot, '$capture->build('),
     'snapshot service keeps strict reads separate from maintenance-aware observation');
-$check(str_contains($workflow, 'CaptureTransaction::run(')
-    && str_contains($workflow, 'Publish::begin_intent(')
-    && str_contains($workflow, 'Publish::mark_commit_ready('),
-    'publication workflow owns the ordered transaction and filesystem protocol');
+$transactionStart = strpos($workflow, '$build = self::runInConsistentSnapshot(');
+$transactionEnd = strpos($workflow, '}, $publicationPhase, $policy);', (int) $transactionStart);
+$transactionProtocol = substr(
+    $workflow,
+    (int) $transactionStart,
+    (int) $transactionEnd - (int) $transactionStart
+);
+$protocolOffsets = [];
+foreach ([
+    "\$publicationPhase['publication_started'] = true;" => 'publication-start boundary',
+    'Publish::begin_intent(' => 'durable intent',
+    'Publish::mark_swapped(' => 'swapped intent',
+    'Ledger::set_state_hash(' => 'ledger finalization',
+    'Publish::mark_commit_ready(' => 'commit-ready intent',
+    'Ledger::kv_set(' => 'database commit marker',
+    'return $candidate;' => 'transaction return',
+] as $needle => $label) {
+    $offset = strpos($transactionProtocol, $needle);
+    $check($offset !== false, "publication workflow owns $label");
+    $protocolOffsets[] = $offset;
+}
+$check(
+    !in_array(false, $protocolOffsets, true)
+        && $protocolOffsets === (function (array $positions): array { sort($positions); return $positions; })($protocolOffsets),
+    'publication protocol preserves intent, swap, ledger, commit-marker, and transaction-return ordering'
+);
+$beginIntentOffset = strpos($transactionProtocol, 'Publish::begin_intent(');
+$markSwappedOffset = strpos($transactionProtocol, 'Publish::mark_swapped(');
+foreach ([
+    'Publish::swap_initial(' => 'initial filesystem swap',
+    'Publish::swap($stateDir, true);' => 'ordinary filesystem swap',
+] as $needle => $label) {
+    $swapOffset = strpos($transactionProtocol, $needle);
+    $check(
+        $beginIntentOffset !== false
+            && $swapOffset !== false
+            && $markSwappedOffset !== false
+            && $beginIntentOffset < $swapOffset
+            && $swapOffset < $markSwappedOffset,
+        "$label remains between durable intent and the swapped marker"
+    );
+}
+$receiptOffset = strpos($workflow, 'Publish::write_receipt(', (int) $transactionEnd);
+$cleanupInitialOffset = strpos($workflow, 'Publish::cleanup_committed_initial(', (int) $receiptOffset);
+$cleanupOffset = strpos($workflow, 'Publish::cleanup_committed(', (int) $receiptOffset);
+$check(
+    $transactionEnd !== false
+        && $receiptOffset !== false
+        && $cleanupInitialOffset !== false
+        && $cleanupOffset !== false
+        && $transactionEnd < $receiptOffset
+        && $receiptOffset < $cleanupInitialOffset
+        && $receiptOffset < $cleanupOffset,
+    'receipt and cleanup remain strictly post-transaction'
+);
 $check(str_contains($recovery, "'duo-capture-commit-marker/v1'")
     && str_contains($recovery, 'CommandRefusalException::ambiguousCaptureRecovery('),
     'publication recovery owns exact self-hashed commit proof and ambiguity refusal');

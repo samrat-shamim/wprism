@@ -1,29 +1,226 @@
 <?php
+/** Direct behavioral regression for the extracted pending gate scanner. */
 declare(strict_types=1);
 
-require __DIR__ . '/../../agent/src/CaptureGateScanner.php';
-
-function check(bool $condition, string $message): void {
-    if (!$condition) {
-        fwrite(STDERR, "FAIL: $message\n");
-        exit(1);
+namespace {
+    if (!defined('ARRAY_A')) {
+        define('ARRAY_A', 'ARRAY_A');
     }
-    echo "ok: $message\n";
+
+    function esc_sql(string $value): string {
+        return str_replace("'", "''", $value);
+    }
+
+    function get_post_types(array $_args, string $_output): array {
+        return ['page', 'book'];
+    }
+
+    function get_taxonomies(array $_args, string $_output): array {
+        return ['category', 'genre'];
+    }
+
+    function get_option(string $name): string {
+        return $name === 'home' ? 'https://scanner.example.test/' : '';
+    }
+
+    function wp_upload_dir(mixed $_time = null, bool $_create = true): array {
+        return ['baseurl' => 'https://scanner.example.test/wp-content/uploads/'];
+    }
+
+    function untrailingslashit(string $value): string {
+        return rtrim($value, '/\\');
+    }
+
+    function is_serialized($value, $strict = true): bool {
+        if (!is_string($value)) {
+            return false;
+        }
+        return preg_match('/^(?:N;|[aObisCdE]:)/', trim($value)) === 1;
+    }
 }
 
-$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureGateScanner.php');
-$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+namespace Duo {
+    require __DIR__ . '/../../agent/src/CaptureGateScanner.php';
 
-check(class_exists(Duo\CaptureGateScanner::class, false), 'gate scanner loads as a direct boundary');
-check(!class_exists(Duo\Capture::class, false), 'gate scanner does not load Capture');
-check(str_contains($scannerSource, 'public function scan(): array'), 'gate scanner owns one focused read-only entry point');
-check(str_contains($scannerSource, '$this->scopeDiscovery->gaps()'), 'gate scanner reuses the extracted scope reader');
-check(str_contains($scannerSource, '$this->entityMetaCapture->postMetaMap('), 'gate scanner reuses the extracted ordered metadata reader');
-check(!str_contains($scannerSource, 'Ledger::'), 'gate scanner has no ledger mutation or repair path');
-check(!str_contains($scannerSource, 'Publish::'), 'gate scanner has no publication path');
-check(
-    str_contains($captureSource, 'return (new CaptureGateScanner($policy, $observationReadCheckpoint))->scan();'),
-    'Capture retains a thin public gate-scan compatibility wrapper'
-);
+    function check(bool $condition, string $message): void {
+        if (!$condition) {
+            fwrite(STDERR, "FAIL: $message\n");
+            exit(1);
+        }
+        echo "ok: $message\n";
+    }
 
-echo "REGRESS_CAPTURE_GATE_SCANNER PASSED\n";
+    final class CaptureGateScannerWpdbFixture {
+        public string $options = 'wp_options';
+        public string $posts = 'wp_posts';
+        public string $postmeta = 'wp_postmeta';
+        public string $terms = 'wp_terms';
+        public string $term_taxonomy = 'wp_term_taxonomy';
+        public string $term_relationships = 'wp_term_relationships';
+        public string $termmeta = 'wp_termmeta';
+        /** @var string[] */
+        public array $events = [];
+
+        public function prepare(string $query, ...$args): array {
+            return ['query' => $query, 'args' => $args];
+        }
+
+        public function get_results(string|array $query, mixed $_mode = null): array {
+            $args = is_array($query) ? $query['args'] : [];
+            $sql = is_array($query) ? $query['query'] : $query;
+            if (str_contains($sql, 'SELECT post_type, COUNT(*) AS entities')) {
+                $this->events[] = 'query:post-gaps';
+                return [
+                    ['post_type' => 'page', 'entities' => '1'],
+                    ['post_type' => 'book', 'entities' => '2'],
+                ];
+            }
+            if (str_contains($sql, 'SELECT taxonomy, COUNT(*) AS entities')) {
+                $this->events[] = 'query:taxonomy-gaps';
+                return [
+                    ['taxonomy' => 'category', 'entities' => '1'],
+                    ['taxonomy' => 'genre', 'entities' => '3'],
+                ];
+            }
+            if (str_contains($sql, 'SELECT option_name, option_value')) {
+                $this->events[] = 'query:options';
+                return [
+                    ['option_name' => 'outside', 'option_value' => 'ignored'],
+                    ['option_name' => 'owned_known', 'option_value' => 'classified'],
+                    ['option_name' => 'owned_unknown', 'option_value' => serialize(['future' => true])],
+                    ['option_name' => 'widget_future', 'option_value' => serialize([
+                        2 => ['title' => 'one'],
+                        7 => ['title' => 'two'],
+                        '_multiwidget' => 1,
+                    ])],
+                    ['option_name' => 'widget_known', 'option_value' => serialize([
+                        4 => ['title' => 'known'],
+                        '_multiwidget' => 1,
+                    ])],
+                ];
+            }
+            if (str_contains($sql, 'SELECT * FROM')) {
+                $this->events[] = 'query:posts';
+                return [(object) ['ID' => 10, 'post_type' => 'page']];
+            }
+            if (str_contains($sql, 'FROM wp_postmeta')) {
+                $postId = (int) ($args[0] ?? 0);
+                $this->events[] = "query:post-meta:$postId";
+                return $postId === 10
+                    ? [
+                        ['meta_key' => '_wp_attached_file', 'meta_value' => 'ignored.jpg'],
+                        ['meta_key' => 'known_post', 'meta_value' => 'classified'],
+                        ['meta_key' => 'shared_unknown', 'meta_value' => 'page value'],
+                    ]
+                    : [
+                        ['meta_key' => 'shared_unknown', 'meta_value' => 'menu value'],
+                    ];
+            }
+            if (str_contains($sql, 'SELECT t.term_id')) {
+                $this->events[] = 'query:terms';
+                return [(object) ['term_id' => 20, 'taxonomy' => 'category']];
+            }
+            if (str_contains($sql, 'FROM wp_termmeta')) {
+                $this->events[] = 'query:term-meta:20';
+                return [
+                    ['meta_key' => 'known_term', 'meta_value' => 'classified'],
+                    ['meta_key' => 'unknown_term', 'meta_value' => serialize(['future' => true])],
+                ];
+            }
+            throw new \RuntimeException('unexpected gate-scanner query: ' . $sql);
+        }
+
+        public function get_col(string $sql): array {
+            if (!str_contains($sql, "tt.taxonomy = 'nav_menu'")) {
+                throw new \RuntimeException('unexpected gate-scanner column query: ' . $sql);
+            }
+            $this->events[] = 'query:menu-items';
+            return [30];
+        }
+    }
+
+    $scannerSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureGateScanner.php');
+    $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+
+    check(class_exists(CaptureGateScanner::class, false), 'gate scanner loads as a direct boundary');
+    check(!class_exists(Capture::class, false), 'gate scanner does not load Capture');
+    check(str_contains($scannerSource, 'public function scan(): array'), 'gate scanner owns one focused read-only entry point');
+    check(!str_contains($scannerSource, 'Ledger::'), 'gate scanner has no ledger mutation or repair path');
+    check(!str_contains($scannerSource, 'Publish::'), 'gate scanner has no publication path');
+    check(
+        str_contains($captureSource, 'return (new CaptureGateScanner($policy, $observationReadCheckpoint))->scan();'),
+        'Capture retains a thin public gate-scan compatibility wrapper'
+    );
+
+    $policy = new Policy();
+    $policy->site = ['policy' => [
+        'post_types' => ['page'],
+        'taxonomies' => ['category'],
+    ]];
+    $policy->manifests = [[
+        'name' => 'gate-scanner-fixture',
+        'post_types' => ['book' => ['class' => 'authored']],
+        'taxonomies' => ['genre' => ['class' => 'authored']],
+        'option_namespaces' => [['match' => '^owned_']],
+        'options' => ['owned_known' => ['class' => 'authored']],
+        'widgets' => ['known' => ['settings' => ['title' => ['class' => 'authored']]]],
+        'post_meta' => ['known_post' => ['class' => 'authored']],
+        'term_meta' => ['known_term' => ['class' => 'authored']],
+    ]];
+    $wpdb = new CaptureGateScannerWpdbFixture();
+    $GLOBALS['wpdb'] = $wpdb;
+    $scanner = new CaptureGateScanner($policy, static function () use ($wpdb): void {
+        $wpdb->events[] = 'checkpoint';
+    });
+    $result = $scanner->scan();
+
+    check($result === [
+        'scope' => [
+            'post_type:book' => ['entities' => 2],
+            'taxonomy:genre' => ['entities' => 3],
+        ],
+        'options' => [
+            'owned_unknown' => [
+                'entities' => 1,
+                'owner_candidates' => ['gate-scanner-fixture'],
+                'value_shapes' => ['array'],
+                'reason' => 'owner namespace matched but no exact or pattern classification exists',
+            ],
+        ],
+        'widgets' => [
+            'future' => [
+                'entities' => 2,
+                'value_shapes' => ['multi-instance array'],
+                'reason' => 'live widget instances exist but no pinned manifest declares this widget type',
+            ],
+        ],
+        'post_meta' => [
+            'shared_unknown' => [
+                'entities' => 2,
+                'post_types' => ['page', 'nav_menu_item'],
+            ],
+        ],
+        'term_meta' => [
+            'unknown_term' => [
+                'entities' => 1,
+                'taxonomies' => ['category'],
+                'value_shapes' => ['array'],
+                'reason' => 'unclassified term meta on an in-scope taxonomy',
+            ],
+        ],
+        'user_meta' => [],
+    ], 'scan aggregates exact scope, option, widget, post, term, and menu evidence');
+    check($wpdb->events === [
+        'query:post-gaps', 'checkpoint',
+        'query:taxonomy-gaps', 'checkpoint',
+        'query:options', 'checkpoint',
+        'query:posts', 'checkpoint',
+        'query:post-meta:10', 'checkpoint',
+        'query:terms', 'checkpoint',
+        'query:term-meta:20', 'checkpoint',
+        'query:menu-items', 'checkpoint',
+        'query:post-meta:30', 'checkpoint',
+    ], 'every scanner query preserves its immediate read checkpoint and frozen order');
+
+    echo "REGRESS_CAPTURE_GATE_SCANNER PASSED\n";
+}

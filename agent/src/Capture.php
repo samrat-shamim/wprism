@@ -40,6 +40,13 @@ require_once __DIR__ . '/ScopedCaptureProjector.php';
  */
 final class Capture {
     /**
+     * Preserve the historical non-instantiable boundary. Capture is a static
+     * command-facing facade; mutable per-capture state belongs to its focused
+     * collaborators.
+     */
+    private function __construct(string $repo, Policy $policy) {}
+
+    /**
      * Full capture. Writes the state tree (repo/state, or $outDir), copies
      * media + updates the ledger only when writing into the repo itself.
      *
