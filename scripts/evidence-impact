@@ -1,0 +1,43 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+require_once $root . '/agent/src/Evidence/EvidenceImpactReport.php';
+
+use Duo\Canon;
+use Duo\EvidenceImpactReport;
+
+$base = null;
+$head = null;
+$output = null;
+foreach (array_slice($argv, 1) as $argument) {
+    if (str_starts_with($argument, '--base-sha=')) {
+        $base = substr($argument, strlen('--base-sha='));
+    } elseif (str_starts_with($argument, '--head-sha=')) {
+        $head = substr($argument, strlen('--head-sha='));
+    } elseif (str_starts_with($argument, '--output=')) {
+        $output = substr($argument, strlen('--output='));
+    } else {
+        fwrite(STDERR, "evidence-impact: unknown argument $argument\n");
+        exit(64);
+    }
+}
+
+if (!is_string($base) || !is_string($head) || $base === '' || $head === '') {
+    fwrite(STDERR, "usage: scripts/evidence-impact --base-sha=<40hex> --head-sha=<40hex> [--output=<path>]\n");
+    exit(64);
+}
+
+try {
+    $report = EvidenceImpactReport::build($root, $base, $head);
+    $encoded = Canon::encode($report);
+    if (is_string($output) && $output !== '') {
+        Canon::write_file($output, $encoded);
+    }
+    fwrite(STDOUT, $encoded);
+    exit(0);
+} catch (Throwable $e) {
+    fwrite(STDERR, "evidence-impact: {$e->getMessage()}\n");
+    exit(1);
+}

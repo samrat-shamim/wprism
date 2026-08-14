@@ -213,12 +213,20 @@ final class ScopedCertificationBundle {
         foreach ([
             'Makefile',
             'docs/compatibility-baseline.json',
+            'docs/contracts/closure-v2.schema.json',
+            'docs/contracts/evidence-identity.schema.json',
             'sandbox/conformance/asserts.sh',
             'sandbox/conformance/run.sh',
             'sandbox/db.yml',
             'sandbox/init-cli.Dockerfile',
             'sandbox/tests/certify_subject_bundle.sh',
+            'cli/src/ArtifactTrust/CertificationClosureV2.php',
+            'cli/src/ArtifactTrust/RedactedEvidenceIdentity.php',
+            'manifests/dispositions.json',
             'scripts/capability-registry.php',
+            'scripts/evidence-impact',
+            'scripts/evidence-staleness-check',
+            'manifests/capabilities/source-to-artifact.json',
         ] as $path) {
             $add($path);
         }

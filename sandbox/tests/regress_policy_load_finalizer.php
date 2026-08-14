@@ -10,6 +10,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../agent/src/PolicyLoadFinalizer.php';
+require_once __DIR__ . '/../../agent/src/Policy/PolicySnapshot.php';
+require_once __DIR__ . '/../../agent/src/Policy/PolicyQueryFacade.php';
 
 use Duo\Policy;
 use Duo\PolicyLoadFinalizer;
@@ -105,6 +107,33 @@ $check(
         && !str_contains($policySource, 'bind_explicit_pins($pins)')
         && $ordered,
     'both Policy loaders delegate one complete ordered finalizer sequence ending in pin verification then explicit binding'
+);
+
+$snapshot = \Duo\PolicySnapshot::fromArrays(
+    ['name' => 'demo-site'],
+    [[
+        'name' => 'demo',
+        'options' => ['blogname' => ['class' => 'authored']],
+        'actions' => [['id' => 'read']],
+        'providers' => [['id' => 'cache']],
+    ]]
+);
+$queries = new \Duo\PolicyQueryFacade($snapshot);
+$snapshotCopy = $snapshot->data();
+$snapshotCopy['site']['name'] = 'mutated-copy';
+$check(
+    $snapshot->manifestNames() === ['demo']
+        && $queries->field('options.blogname')[0]['manifest'] === 'demo'
+        && $queries->action('read')[0]['manifest'] === 'demo'
+        && $queries->provider('cache')[0]['manifest'] === 'demo'
+        && $snapshot->site()['name'] === 'demo-site',
+    'PolicySnapshot indexes fields/actions/providers and remains immutable when a caller mutates an exported copy'
+);
+$check(
+    str_contains($policySource, 'PolicySourceReader::bytes(')
+        && str_contains($policySource, 'PolicyPublicationBoundary::publish(')
+        && str_contains($policySource, 'function snapshot(): PolicySnapshot'),
+    'Policy source reads and publication flow through the Thread 4 boundaries while the legacy facade remains available'
 );
 
 if ($failures !== []) {

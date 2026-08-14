@@ -7178,7 +7178,7 @@
             "environment_class": "offline",
             "evidence_staleness": "forbidden",
             "expected_outputs": [
-                "artifacts/test-results/threads/thread-4/result.json"
+                "artifacts/test-results/thread-4/result.json"
             ],
             "id": "thread-4-capability-evidence",
             "owner": "thread-4",
@@ -7287,7 +7287,7 @@
     "source_fragments": [
         {
             "path": "sandbox/catalog/fragments/capability-policy-evidence/capability-policy-evidence.catalog.json",
-            "sha256": "sha256:734d4eb11ee3e38bc2a4110db2d7033bb94de1b25477bb12d1743345f93d1c56"
+            "sha256": "sha256:d0ce930bc2c42d8600b6af5080956fbdd11d14db10a621d5e1e601d9add4fc9f"
         },
         {
             "path": "sandbox/catalog/fragments/capability-policy-evidence/requirements.json",

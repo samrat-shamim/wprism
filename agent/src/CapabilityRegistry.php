@@ -59,6 +59,25 @@ final class CapabilityRegistry {
         return $this->data['profiles'];
     }
 
+    /** Compatibility projection facade for new capability consumers. */
+    public function current_projection(
+        array $manifests,
+        array $query = [],
+        ?array $target = null,
+        array $sources = [],
+        array $externalContexts = []
+    ): \Duo\Capability\CurrentCapabilityProjection {
+        require_once __DIR__ . '/Capability/CurrentCapabilityProjection.php';
+        return \Duo\Capability\CurrentCapabilityProjection::fromRegistry(
+            $this,
+            $manifests,
+            $query,
+            $target,
+            $sources,
+            $externalContexts
+        );
+    }
+
     /**
      * The exact digest RepositoryCompiler exposes for a pinned adapter.
      * Keep one implementation: registry generation/validation and compiled

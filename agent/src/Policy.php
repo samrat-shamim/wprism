@@ -1,8 +1,6 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . '/AtomicFilePublisher.php';
-
 // Manifest validation is a pure offline pass with several entry points of
 // its own (the frozen-snapshot path, the offline harnesses that load this
 // file directly). The native-action vocabulary is part of that pass, so it
@@ -135,6 +133,12 @@ require_once __DIR__ . '/DeletionCapabilityResolver.php';
 // DUO-3348 slice 40: manifest-declared post-type relationship queries are
 // pure and reusable by scope/planning without broadening their authority.
 require_once __DIR__ . '/PostTypeRelationResolver.php';
+// Thread 4 policy boundary: new consumers read an immutable snapshot/query
+// facade; Policy remains the compatibility loader and historical query facade.
+require_once __DIR__ . '/Policy/PolicySnapshot.php';
+require_once __DIR__ . '/Policy/PolicyQueryFacade.php';
+require_once __DIR__ . '/Policy/PolicySourceReader.php';
+require_once __DIR__ . '/Policy/PolicyPublicationBoundary.php';
 
 /**
  * Layered classification policy: site policy overrides > pinned manifests
@@ -198,6 +202,8 @@ final class Policy {
     private ?AdapterSources $adapterSources = null;
     /** Generated evidence/platform projection of the reviewed dispositions. */
     private ?CapabilityRegistry $capabilityRegistry = null;
+    /** Immutable declaration view published after load/frozen reconstruction. */
+    private ?PolicySnapshot $policySnapshot = null;
     /** @var array<string, object>|null lazily-built interpreter instances */
     private ?array $interpreterInstances = null;
     /** @var array<string, object>|null lazily-built regenerator instances (DUO-3234) */
@@ -302,7 +308,7 @@ final class Policy {
             if (!is_file($siteFile)) {
                 throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
             }
-            $p->site = Canon::decode(Canon::read_file($siteFile));
+            $p->site = Canon::decode(\Duo\Policy\PolicySourceReader::bytes($siteFile));
             SitePolicyValidator::validate(
                 $p->site,
                 'site.duo.json',
@@ -330,7 +336,7 @@ final class Policy {
             // normalize_manifest_pins() has already proved this exact identity
             // path-free and canonical; never rewrite it into a different key.
             $key = $name;
-            $manifest = Canon::decode(Canon::read_file($p->adapterSources->file($key, $dir)));
+            $manifest = Canon::decode(\Duo\Policy\PolicySourceReader::bytes($p->adapterSources->file($key, $dir)));
             // DUO-3371: the earliest point on the live load path where a
             // manifest's FILE name and its DECLARED name are both in hand, and
             // therefore the only place one identity can be enforced for both
@@ -394,6 +400,7 @@ final class Policy {
                 );
             }
         }
+        $p->policySnapshot = PolicySnapshot::fromPolicy($p);
         return $p;
     }
 
@@ -498,7 +505,18 @@ final class Policy {
             throw new \RuntimeException('duo: frozen policy snapshot has dispositions but no capability registry');
         }
         PolicyLoadFinalizer::finalize($p, $pins);
+        $p->policySnapshot = PolicySnapshot::fromPolicy($p);
         return $p;
+    }
+
+    /** Immutable, target-free policy projection for new internal consumers. */
+    public function snapshot(): PolicySnapshot {
+        return $this->policySnapshot ??= PolicySnapshot::fromPolicy($this);
+    }
+
+    /** Focused query services over the immutable policy projection. */
+    public function queries(): PolicyQueryFacade {
+        return new PolicyQueryFacade($this->snapshot());
     }
 
     /**
@@ -509,6 +527,23 @@ final class Policy {
      */
     public function adapter_sources(): AdapterSources {
         return $this->adapterSources ??= AdapterSources::discover(self::manifests_dir(), null);
+    }
+
+    /** Immutable source/provenance catalog for new adapter consumers. */
+    public function adapter_catalog(): \Duo\Adapter\AdapterCatalog {
+        return $this->adapter_sources()->catalog();
+    }
+
+    /** Read-only provider negotiation boundary; invocation is separate. */
+    public function provider_negotiation(): \Duo\Provider\ProviderNegotiationFacade {
+        require_once __DIR__ . '/Provider/ProviderNegotiationFacade.php';
+        return new \Duo\Provider\ProviderNegotiationFacade($this);
+    }
+
+    /** Immutable declaration catalog; target negotiation remains separate. */
+    public function provider_catalog(): \Duo\Provider\ProviderCatalog {
+        require_once __DIR__ . '/Provider/ProviderCatalog.php';
+        return \Duo\Provider\ProviderCatalog::fromPolicy($this);
     }
 
     /**
@@ -2739,9 +2774,9 @@ final class Policy {
             if (!is_file($siteFile)) {
                 throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
             }
-            $site = Canon::decode(Canon::read_file($siteFile));
+            $site = Canon::decode(\Duo\Policy\PolicySourceReader::bytes($siteFile));
             $site['policy']['scope'][$m[1]][$m[2]] = $rule;
-            AtomicFilePublisher::replace($siteFile, Canon::encode($site));
+            \Duo\Policy\PolicyPublicationBoundary::publish($siteFile, Canon::encode($site));
             return;
         }
         if (!in_array($section, self::SECTIONS, true)) {
@@ -2780,9 +2815,9 @@ final class Policy {
         if (!is_file($siteFile)) {
             throw new \RuntimeException("duo: $siteFile not found (not a duo site repo?)");
         }
-        $site = Canon::decode(Canon::read_file($siteFile));
+        $site = Canon::decode(\Duo\Policy\PolicySourceReader::bytes($siteFile));
         $site['policy'][$section][$key] = $rule;
-        AtomicFilePublisher::replace($siteFile, Canon::encode($site));
+        \Duo\Policy\PolicyPublicationBoundary::publish($siteFile, Canon::encode($site));
     }
 
     /**

@@ -1961,7 +1961,7 @@ regress-duo-init:
 # is the one explicit lock-pinned dependency installation step.
 .PHONY: doctor bootstrap-dev foundation-check ownership-check contracts-check guide-check
 .PHONY: canonical-contract-check recovery-transition-check evidence-impact evidence-staleness-check
-.PHONY: catalog-fragment-check catalog-check platform-p0-bootstrap platform-p0 test-component thread-1-gate
+.PHONY: catalog-fragment-check catalog-check platform-p0-bootstrap platform-p0 test-component thread-1-gate thread-4-gate
 .PHONY: test-unit test-offline format-check static-analysis lint verify-generated check
 
 THREAD1_PLATFORM_DIR := sandbox/catalog/fragments/engineering-platform
@@ -2036,6 +2036,11 @@ test-component:
 # slice it requires the complete multi-owner aggregate and cannot pass early.
 thread-1-gate:
 	@php $(THREAD1_PLATFORM_DIR)/runner.php --profile=thread-1-engineering-platform --result=artifacts/test-results/thread-1/result.json
+
+# Thread 4's authoritative profile is supplied by its owner-authored catalog
+# fragment; the runner and receipt mechanics remain Thread 1-owned.
+thread-4-gate:
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --profile=thread-4-capability-evidence --result=artifacts/test-results/thread-4/result.json
 
 test-unit:
 	@vendor/bin/phpunit --colors=never

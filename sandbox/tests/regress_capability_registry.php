@@ -7,6 +7,7 @@ define('DUO_SPEC_VERSION', 2);
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/ManifestDispositions.php';
 require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
+require __DIR__ . '/../../agent/src/Capability/CurrentCapabilityProjection.php';
 require __DIR__ . '/../../cli/src/CodeDeploy.php';
 require __DIR__ . '/../../cli/src/PlanSummary.php';
 
@@ -220,6 +221,15 @@ check(($full['manifests'][0]['authored_state']['status'] ?? null) === 'certified
 check(
     ($full['manifests'][0]['evidence']['tests'] ?? null) === ['conformance-acf', 'exact-artifact-version-matrix'],
     'certified ACF cites its own live conformance plus the exact-version matrix'
+);
+$currentProjection = \Duo\Capability\CurrentCapabilityProjection::fromReport($full);
+$legacyVerdict = $currentProjection->verdict('acf');
+check(
+    $currentProjection->claim('acf') === $full['manifests'][0]
+        && $legacyVerdict instanceof \Duo\Capability\LegacyCapabilityVerdict
+        && $legacyVerdict->isLegacyCertified()
+        && $legacyVerdict->status() === 'certified',
+    'the current capability projection preserves the legacy certified verdict without inventing a new generic readiness claim'
 );
 
 echo "\n== partially certified / experimental ==\n";

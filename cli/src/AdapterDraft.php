@@ -6,7 +6,7 @@ namespace Duo\Orchestrator;
 use Duo\Canon;
 use Duo\AdapterSources;
 use Duo\Deletion;
-use Duo\NativeActions;
+use Duo\NativeActionCatalog;
 use Duo\Policy;
 use Duo\Secrets;
 
@@ -1226,7 +1226,7 @@ final class AdapterDraft {
                 'questions' => [
                     'is this actually plugin-generated? the LIVE journal WHY-signal is needed to confirm — deferred',
                     'executable regeneration is a plugin capability declaration or a native action from the closed '
-                        . 'vocabulary (' . implode(', ', NativeActions::vocabulary()) . '), NEVER engine code',
+                        . 'vocabulary (' . implode(', ', NativeActionCatalog::vocabulary()) . '), NEVER engine code',
                 ],
                 '_screen' => $record['screen'],
             ];

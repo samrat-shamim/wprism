@@ -39,11 +39,17 @@ require $repo . '/agent/src/Canon.php';
 require $repo . '/agent/src/ManifestDispositions.php';
 require $repo . '/agent/src/CapabilityRegistry.php';
 require_once $repo . '/agent/src/ScopedCertificationBundle.php';
+require_once $repo . '/agent/src/Evidence/EvidenceSubjectIdentity.php';
+require_once $repo . '/agent/src/Evidence/EvidenceInputClosure.php';
+require_once $repo . '/agent/src/Evidence/EvidencePublicationBoundary.php';
+require_once $repo . '/agent/src/Policy/PolicyPublicationBoundary.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;
 use Duo\ManifestDispositions;
 use Duo\ScopedCertificationBundle;
+use Duo\EvidencePublicationBoundary;
+use Duo\Policy\PolicyPublicationBoundary;
 
 const EVIDENCE_FILE = '/manifests/capabilities/evidence.json';
 const REGISTRY_FILE = '/manifests/capabilities/registry.json';
@@ -110,14 +116,13 @@ function cap_scoped_current_inputs(
     array $manifest,
     array $claim
 ): array {
-    $paths = ScopedCertificationBundle::subjectInputPaths(
+    return EvidenceInputClosure::current(
         $repo,
         $kind,
         $name,
         $manifest,
         $claim['evidence']['tests'] ?? []
     );
-    return ScopedCertificationBundle::currentInputsForPaths($repo, $paths);
 }
 
 /** @return array{record:array,current:bool} */
@@ -139,7 +144,7 @@ function cap_scoped_record(
             $record,
             $kind,
             $name,
-            CapabilityRegistry::subject_digest($kind, $name, $manifest, $claim, $repo . '/manifests'),
+            EvidenceSubjectIdentity::digest($kind, $name, $manifest, $claim, $repo . '/manifests'),
             cap_platform($repo),
             cap_scoped_current_inputs($repo, $kind, $name, $manifest, $claim),
             $claim['evidence']['tests'] ?? [],
@@ -226,7 +231,7 @@ function cap_publish_scoped_bundle(string $repo, string $kind, string $name, arr
         throw new RuntimeException('could not create scoped evidence staging directory');
     }
     try {
-        cap_copy_scoped_asset($sourceDir, $stage, 'bundle.json');
+        EvidencePublicationBoundary::publish($stage . '/bundle.json', Canon::encode($bundle), 0644);
         foreach ($bundle['tests'] as $test) {
             foreach (['result', 'diff', 'log'] as $kind) {
                 cap_copy_scoped_asset($sourceDir, $stage, $test[$kind]['path']);
@@ -661,10 +666,7 @@ function cap_generate(string $repo, bool $check): void {
         return;
     }
     foreach ($expected as $path => $content) {
-        if (!is_dir(dirname($path)) && !mkdir(dirname($path), 0777, true) && !is_dir(dirname($path))) {
-            throw new RuntimeException("could not create " . dirname($path));
-        }
-        file_put_contents($path, $content);
+        PolicyPublicationBoundary::publish($path, $content, 0644);
     }
     fwrite(STDOUT, "generated manifests/capabilities/registry.json, docs/capabilities.md, and README capability summary\n");
 }

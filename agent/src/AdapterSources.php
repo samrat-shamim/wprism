@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/Adapter/AdapterSourceReader.php';
+
 /**
  * Where each pinned adapter came from, and what that origin is allowed to do.
  *
@@ -1695,7 +1697,7 @@ final class AdapterSources {
      */
     private static function read_manifest(string $file): array {
         try {
-            $raw = Canon::read_file($file);
+            $raw = \Duo\Adapter\AdapterSourceReader::bytes($file);
         } catch (\Throwable $t) {
             return ['error' => self::unprefixed($t->getMessage()), 'manifest' => null, 'stage' => 'read'];
         }
@@ -2154,7 +2156,7 @@ final class AdapterSources {
             return [];
         }
         try {
-            $site = Canon::decode(Canon::read_file(rtrim($repo, '/') . '/site.duo.json'));
+            $site = Canon::decode(\Duo\Adapter\AdapterSourceReader::bytes(rtrim($repo, '/') . '/site.duo.json'));
         } catch (\Throwable $t) {
             return [];
         }
@@ -2723,7 +2725,7 @@ final class AdapterSources {
                     continue;
                 }
             } else {
-                $manifest = Canon::decode(Canon::read_file($origin['file']));
+                $manifest = Canon::decode(\Duo\Adapter\AdapterSourceReader::bytes($origin['file']));
             }
             $declared = $manifest['name'] ?? null;
             if (is_string($declared) && $declared !== '') {
@@ -3172,6 +3174,22 @@ final class AdapterSources {
         return $names;
     }
 
+    /**
+     * New immutable catalog facade. AdapterSources remains the compatibility
+     * implementation and owns discovery/refusal semantics; this method only
+     * publishes its already-resolved facts to new consumers.
+     */
+    public function catalog(): \Duo\Adapter\AdapterCatalog {
+        require_once __DIR__ . '/Adapter/AdapterCatalog.php';
+        return \Duo\Adapter\AdapterCatalog::fromSources($this);
+    }
+
+    /** Frozen provenance bytes for a separate verification process. */
+    public function snapshot(): \Duo\Adapter\AdapterSnapshot {
+        require_once __DIR__ . '/Adapter/AdapterSnapshot.php';
+        return \Duo\Adapter\AdapterSnapshot::fromSources($this);
+    }
+
     /** The synthesized disposition for an out-of-tree adapter; null for shipped. */
     public function provenance(string $name): ?array {
         return $this->provenance[$name] ?? null;
@@ -3394,7 +3412,7 @@ final class AdapterSources {
                         . $file
                     );
                 }
-                $shipped = Canon::decode(Canon::read_file($file));
+                $shipped = Canon::decode(\Duo\Adapter\AdapterSourceReader::bytes($file));
                 if (Canon::encode($shipped) !== Canon::encode($manifest)) {
                     throw new \RuntimeException(
                         "duo: frozen adapter '$name' is absent from out_of_tree but its bytes do not match the "

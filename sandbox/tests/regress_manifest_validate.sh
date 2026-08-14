@@ -144,8 +144,8 @@ printf 'boot() loads: %s\n' "$(tr '\n' ' ' <<<"$engine_files" | sed 's#[^ ]*/##g
 # own entry unchanged -- it still calls get_option('stylesheet'/'template')
 # directly, earlier in the method, to compute $stylesheetMismatch/
 # $templateMismatch before the moved call.
-wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies,Providers.php:plugin_supplied_providers'
-wp_allow_via='CapabilityRegistry::report() Policy::taxonomies() Providers::negotiate()'
+wp_allow='CapabilityRegistry.php:probe_target,Policy.php:taxonomies'
+wp_allow_via='CapabilityRegistry::report() Policy::taxonomies()'
 
 scan_wp() {
   # $1 = allowlist (may be empty), remaining args = files
