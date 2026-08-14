@@ -107,27 +107,27 @@ $check(
 // delete_term_relationships() had no such caller and were removed entirely
 // -- covered by regress_relationship_materializer.php, not repeated here.
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$deleteSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteExecutor.php');
 $check(
     !preg_match('/private function delete_entity\(string \$uuid, string \$type\): void \{\s*global \$wpdb;\s*if \(isset\(\$this->snapshotRowTables/', $applySource),
     'Apply.php no longer inlines delete_entity()\'s own body (only the facade remains)'
 );
 $check(
-    str_contains($applySource, '$this->delete_executor()->delete_entity($uuid, $type, $this->snapshotRowTables(), $this->warnings);'),
-    'Apply::delete_entity() is a thin facade delegating to DeleteExecutor, passing snapshotRowTables()/warnings'
+    str_contains($transactionSource, '$this->deleteExecutor->delete_entity('),
+    'AuthoredTransactionExecutor delegates deletion directly to DeleteExecutor'
 );
 $check(
-    str_contains($applySource, 'Ledger::kv_delete(self::REGEN_PENDING_PREFIX . $uuid);'),
-    'Apply::delete_entity() keeps the trailing REGEN_PENDING_PREFIX marker cleanup itself -- reconciliation bookkeeping, not row-deletion execution'
+    str_contains($transactionSource, "Ledger::kv_delete(self::REGEN_PENDING_PREFIX . \$row['uuid']);"),
+    'AuthoredTransactionExecutor retains regeneration-marker cleanup beside the delete call'
 );
 $check(
     !str_contains($applySource, 'private function assert_zero('),
     'Apply.php no longer defines assert_zero() at all (moved to DeleteExecutor, no facade needed -- it had no other caller)'
 );
-$check(
-    str_contains($applySource, 'private function assign_locations(int $menuTermId, array $locations): void {')
-        && str_contains($applySource, '$this->menu_materializer()->assign_locations($menuTermId, $locations);'),
-    'Apply::assign_locations() is still a thin facade delegating to MenuMaterializer, kept solely for regress_lifecycle_options_snapshot.php\'s reflection-based caller'
-);
+$check(!str_contains($applySource, 'function assign_locations(')
+    && str_contains($deleteSource, '$this->menuMaterializer->assign_locations($termId, []);'),
+    'Apply has no dead location facade and DeleteExecutor calls MenuMaterializer directly');
 
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";

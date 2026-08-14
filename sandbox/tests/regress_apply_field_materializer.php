@@ -163,9 +163,8 @@ $check(substr_count($materializerSource, 'function reconcile_authored_term_meta(
 // (slice 6).
 $check(!str_contains($applySource, 'private function reconcile_authored_meta('),
     'Apply no longer defines reconcile_authored_meta() at all (moved to PostMaterializer\'s own call site, no facade needed -- it had no other caller)');
-$check(substr_count($applySource, 'private function reconcile_authored_term_meta(') === 1
-    && str_contains($applySource, '$this->field_materializer()->reconcile_authored_term_meta'),
-    'Apply keeps a thin termmeta compatibility facade');
+$check(!str_contains($applySource, 'function reconcile_authored_term_meta('),
+    'Apply no longer keeps a dead termmeta compatibility facade');
 
 $wpdb = new ApplyFieldMaterializerFakeWpdb();
 $materializer = (new ReflectionClass(ApplyFieldMaterializer::class))->newInstanceWithoutConstructor();

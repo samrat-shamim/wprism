@@ -289,25 +289,16 @@ function option_authorization_diagnostics(Policy $policy, array $document): arra
     }
 }
 
-function apply_instance(Policy $policy, Tokens $tokens): Apply {
-    $apply = (new ReflectionClass(Apply::class))->newInstanceWithoutConstructor();
-    set_private($apply, 'repo', '/offline');
-    set_private($apply, 'policy', $policy);
-    set_private($apply, 'tokens', $tokens);
-    // DUO-3347 slice 11: finalize_post()'s facade now lazily constructs
-    // PostMaterializer, which eagerly constructs AttachmentMaterializer as
-    // one of its five collaborators (needed for the type==='attachment'
-    // branch) -- and AttachmentMaterializer's constructor requires a real
-    // CompiledRepository instance, unconditionally, regardless of which
-    // post type is actually being finalized. None of this suite's fixture
-    // posts are attachments, so place_attachment() itself is never called
-    // and this stub is never read -- it only needs to exist so
-    // AttachmentMaterializer's constructor has something typed to store.
-    // In real production use $compiled is always set via Apply's own
-    // constructor before any post is finalized; this offline suite is the
-    // one place that reflects past that constructor entirely.
-    set_private($apply, 'compiled', (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor());
-    return $apply;
+function apply_instance(Policy $policy, Tokens $tokens): \Duo\PostMaterializer {
+    $fieldMaterializer = new \Duo\ApplyFieldMaterializer($policy, $tokens);
+    $compiled = (new ReflectionClass(CompiledRepository::class))->newInstanceWithoutConstructor();
+    return new \Duo\PostMaterializer(
+        $policy,
+        $tokens,
+        $fieldMaterializer,
+        new \Duo\RelationshipMaterializer($policy),
+        new \Duo\AttachmentMaterializer($fieldMaterializer, $compiled)
+    );
 }
 
 $root = dirname(__DIR__, 2);
@@ -700,7 +691,8 @@ $tokens = new Tokens();
 
 $wpdb->map = [$uuid => 41];
 $apply = apply_instance($policy, $tokens);
-invoke_private($apply, 'finalize_post', $source, '');
+$materializerWarnings = [];
+$apply->finalize_post($source, '', null, $materializerWarnings, []);
 $existingProductUpdate = $wpdb->updates[0]['data'] ?? [];
 check(
     !array_key_exists('post_modified', $existingProductUpdate)
@@ -719,7 +711,7 @@ check(
     post_authorization_diagnostics($policy, $variation) === [],
     'RepositoryAuthorization accepts captured Woo variation derived title and timestamps'
 );
-invoke_private($apply, 'finalize_post', $variation, '');
+$apply->finalize_post($variation, '', null, $materializerWarnings, []);
 $existingVariationUpdate = $wpdb->updates[1]['data'] ?? [];
 check(
     !array_key_exists('post_modified', $existingVariationUpdate)
@@ -731,7 +723,7 @@ check(
 $articleUuid = '018f0000-0000-7000-8000-000000000004';
 $wpdb->map = [$articleUuid => 43];
 $article = post_front('article', $articleUuid, '2026-08-08 00:00:03');
-invoke_private($apply, 'finalize_post', $article, '');
+$apply->finalize_post($article, '', null, $materializerWarnings, []);
 $existingArticleUpdate = $wpdb->updates[2]['data'] ?? [];
 check(
     ($existingArticleUpdate['post_modified'] ?? null) === $article['modified']
@@ -747,8 +739,7 @@ $newProduct = post_front('product', '018f0000-0000-7000-8000-000000000005', '202
 // post_materializer() factory rather than hand-built, so this test's
 // PostMaterializer is wired with the exact same Tokens instance the real
 // facade would use.
-$postMaterializer = invoke_private($apply, 'post_materializer');
-check(invoke_private($postMaterializer, 'ensure_post_row', $newProduct) === true, 'new Woo product row is inserted');
+check($apply->ensure_post_row($newProduct) === true, 'new Woo product row is inserted');
 $insertedPost = $wpdb->inserts[0]['data'] ?? [];
 check(
     ($insertedPost['post_modified'] ?? null) === $newProduct['modified']

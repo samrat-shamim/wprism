@@ -375,12 +375,13 @@ check_wire(
 );
 
 $hostSource = (string) file_get_contents("$root/cli/duo");
-$applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+$applyCoordinatorSource = (string) file_get_contents("$root/agent/src/ApplyRequestCoordinator.php");
 check_wire(
     str_contains($hostSource, "'--scope-request-b64=' . \$scopeInput['request_b64'], '--scoped-promotion', '--format=json'")
         && str_contains($cliSource, "'scoped_promotion' => isset(\$assoc['scoped-promotion'])")
         && str_contains($cliSource, "\$options['scoped_promotion']")
-        && str_contains($applySource, "\$work = \$a->rebuild_work(\$plan, \$compiled->tree(), \$opts, false, \$scopedPromotion)"),
+        && str_contains($applyCoordinatorSource, "\$work = \$a->services->apply_planner()->rebuild_work(")
+        && str_contains($applyCoordinatorSource, "\$scopedPromotion\n            );"),
     'SSH scoped-promotion plan carries an explicit drift-inclusive action projection before claim'
 );
 

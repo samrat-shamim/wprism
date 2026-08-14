@@ -984,7 +984,7 @@ namespace {
     ScopedPromotionTargetLedger::$values = [];
     PromotionLock::begin_scoped($owner, $artifact, $receipt, $scopeHash, $witness, 300);
 
-    $applyReflection = new ReflectionClass(Apply::class);
+    $applyReflection = new ReflectionClass(\Duo\ApplyRequestCoordinator::class);
     $requestGate = $applyReflection->getMethod('assert_scoped_promotion_request');
     $validScopedOpts = [
         'scope_request' => ['format' => 'duo-scope-request/v1', 'scope_hash' => $scopeHash],
@@ -1064,7 +1064,8 @@ namespace {
     );
 
     $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");
-    $applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+    $applySource = (string) file_get_contents("$root/agent/src/ApplyRequestCoordinator.php");
+    $preparationSource = (string) file_get_contents("$root/agent/src/ApplyPreparationCoordinator.php");
     $nativeRebuildSource = (string) file_get_contents("$root/agent/src/NativeRebuildExecutor.php");
     $cliBeginStart = strpos($cliSource, 'public function promotion_begin_scoped');
     $cliBeginEnd = strpos($cliSource, 'public function promotion_complete_scoped');
@@ -1087,7 +1088,7 @@ namespace {
         str_contains($cliSource, '@subcommand promotion-complete-scoped')
             && str_contains($cliSource, "['committed']")
             && str_contains($applySource, "['promoting']")
-            && substr_count($applySource, 'ScopedPromotionAuthority::require_installed(') >= 3,
+            && substr_count($applySource . $preparationSource, 'ScopedPromotionAuthority::require_installed(') >= 3,
         'begin/apply/pre-write/complete all re-prove the fixed external authority state'
     );
     $check(
@@ -1187,10 +1188,28 @@ namespace {
         'Apply rejects ordinary-profile session replay before it can return a terminal scoped result'
     );
 
-    $apply = $applyReflection->newInstanceWithoutConstructor();
-    $selectedActions = $applyReflection->getProperty('selectedActions');
-    $selectionGate = $applyReflection->getMethod('assert_scoped_promotion_selection');
-    $taxonomyGate = $applyReflection->getMethod('scoped_work_needs_taxonomy_recount');
+    $apply = null;
+    $selectionState = (object) ['actions' => []];
+    $selectedActions = new class($selectionState) {
+        public function __construct(private readonly object $state) {}
+        public function setValue(mixed $_, array $actions): void { $this->state->actions = $actions; }
+    };
+    $selectionGate = new class($selectionState) {
+        public function __construct(private readonly object $state) {}
+        public function invoke(mixed $_, array $work, array $deletions, array $tree): void {
+            \Duo\RebuildActionNegotiator::assert_scoped_promotion_selection(
+                $this->state->actions,
+                $work,
+                $deletions,
+                $tree
+            );
+        }
+    };
+    $taxonomyGate = new class {
+        public function invoke(mixed $_, array $work, array $tree, array $deletions): bool {
+            return \Duo\NativeRebuildExecutor::needs_taxonomy_recount($work, $tree, $deletions);
+        }
+    };
     $dbContainedTree = [
         'option-uuid' => ['type' => 'option'],
         'table-uuid' => ['type' => 'table'],
@@ -1249,7 +1268,7 @@ namespace {
     );
     $check(
         str_contains($nativeRebuildSource, '$needsTaxonomyRecount = !$suppressExternalEffects')
-            && str_contains($applySource, '$scopedCoreComplete,' . "\n" . '            $scopedPromotion'),
+            && str_contains($applySource, 'scopedCoreComplete: $scopedCoreComplete === null'),
         'taxonomy callback suppression is explicit to scoped promotion and preserves ordinary scoped apply behavior'
     );
     foreach (['post', 'term', 'menu'] as $taxonomyType) {
@@ -1268,10 +1287,10 @@ namespace {
         'taxonomy-sensitive tombstones still require a taxonomy recount'
     );
 
-    $applySource = (string) file_get_contents("$root/agent/src/Apply.php");
+    $applySource = (string) file_get_contents("$root/agent/src/ApplyRequestCoordinator.php");
     $actionDispatcherSource = (string) file_get_contents("$root/agent/src/RebuildActionDispatcher.php");
     $check(
-        str_contains($applySource, 'plus derived cache eviction')
+        str_contains($applySource, 'scopedCoreComplete: $scopedCoreComplete === null')
             && preg_match('/if \(\$selectedActions !== \[\]\) \{.{0,320}wp_cache_flush\(\)/s', $actionDispatcherSource) === 1,
         'the initial profile admits only derived cache eviction: action-free scoped work cannot dispatch a pre-action cache/effect path'
     );

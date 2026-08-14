@@ -74,7 +74,7 @@ $check(
     'codec exposes only the two pure guard contracts and has no runtime dependencies'
 );
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardLockCoordinator.php');
 $scannerSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardReferenceScanner.php');
 $check(
     str_contains($applySource, "require_once __DIR__ . '/DeleteGuardReferenceScanner.php';")
@@ -89,7 +89,7 @@ $check(
         && !str_contains($applySource, 'DeleteGuardValueCodec::canonical_meta_ref_contains_uuid(')
         && !str_contains($applySource, 'private function canonical_meta_ref_contains_uuid(')
         && !str_contains($applySource, 'private function strict_unserialize('),
-    'Apply retains no duplicate deletion-guard value codec'
+    'the lock coordinator retains no duplicate deletion-guard value codec'
 );
 
 if ($failures) {

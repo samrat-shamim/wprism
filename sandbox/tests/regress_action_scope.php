@@ -161,12 +161,20 @@ $bad = $manifest;
 $bad['actions'][0]['unexpected'] = true;
 $expectThrow($bad, 'unknown key', 'unknown action key');
 
-$apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$policyProperty = new ReflectionProperty(\Duo\Apply::class, 'policy');
-$policyProperty->setValue($apply, $policy);
-$surfaceMethod = new ReflectionMethod(\Duo\Apply::class, 'rebuild_surfaces');
-$rebuildWorkMethod = new ReflectionMethod(\Duo\Apply::class, 'rebuild_work');
-$optionNamesMethod = new ReflectionMethod(\Duo\Apply::class, 'option_rebuild_names');
+$apply = new \Duo\ApplyPlanner(
+    $policy,
+    [],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
+$surfaceMethod = new class($policy) {
+    public function __construct(private readonly \Duo\Policy $policy) {}
+    public function invoke(mixed $_, array $work, array $tree, array $deletions = []): array {
+        return \Duo\CanonicalSurfaces::for_apply($work, $tree, $deletions, $this->policy);
+    }
+};
+$rebuildWorkMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'rebuild_work');
+$optionNamesMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'option_rebuild_names');
 $optionDelta = $optionNamesMethod->invoke(
     $apply,
     [

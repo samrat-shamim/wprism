@@ -516,10 +516,13 @@ check($position['woocommerce_shipping_zones'] < $position['woocommerce_shipping_
 check($position['woocommerce_tax_rates'] < $position['woocommerce_tax_rate_locations'],
     'tax-rate parent is ordered before location child for phase-2 creation');
 
-$deletionRank = new ReflectionMethod(\Duo\Apply::class, 'deletion_rank');
-$rankApply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$rankPolicy = new ReflectionProperty(\Duo\Apply::class, 'policy');
-$rankPolicy->setValue($rankApply, $policy);
+$deletionRank = new ReflectionMethod(\Duo\ApplyPlanner::class, 'deletion_rank');
+$rankApply = new \Duo\ApplyPlanner(
+    $policy,
+    $rows,
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => null
+);
 $zoneRank = $deletionRank->invoke($rankApply, [
     'deletion_kind' => 'table', 'deletion_type' => 'woocommerce_shipping_zones',
 ]);
@@ -691,10 +694,12 @@ $fakeWpdb->metaRows = [[
     'meta_value' => serialize([42]),
 ]];
 $GLOBALS['wpdb'] = $fakeWpdb;
-$apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$policyProperty = new ReflectionProperty(\Duo\Apply::class, 'policy');
-$policyProperty->setValue($apply, $policy);
-$countGuard = new ReflectionMethod(\Duo\Apply::class, 'count_guard_refs');
+$apply = new \Duo\DeleteGuardLockCoordinator(
+    $policy,
+    new \Duo\DeleteGuardReferenceScanner($policy),
+    $rows
+);
+$countGuard = new ReflectionMethod(\Duo\DeleteGuardLockCoordinator::class, 'count');
 $metaGuard = $variationMetaGuard;
 $treeWithRef = [$groupedUuid => ['data' => ['meta' => ['_children' => ["{{post:$childUuid}}"]]]]];
 $treeWithoutRef = [$groupedUuid => ['data' => ['meta' => ['_children' => []]]]];
@@ -969,10 +974,13 @@ $metaRaceManifest = $policy->manifests[0];
 $metaRaceManifest['deletions']['post:product_variation']['guards'] = [$metaGuard];
 $metaRacePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $metaRacePolicy->manifests = [$metaRaceManifest];
-$metaRaceApply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$policyProperty->setValue($metaRaceApply, $metaRacePolicy);
-$lockAndRevalidate = new ReflectionMethod(\Duo\Apply::class, 'lock_and_revalidate_delete_guards');
-$deleteGuardEngines = new ReflectionMethod(\Duo\Apply::class, 'assert_delete_guard_engines');
+$metaRaceApply = new \Duo\DeleteGuardLockCoordinator(
+    $metaRacePolicy,
+    new \Duo\DeleteGuardReferenceScanner($metaRacePolicy),
+    Snapshot::row_tables($metaRacePolicy)
+);
+$lockAndRevalidate = new ReflectionMethod(\Duo\DeleteGuardLockCoordinator::class, 'lock_and_revalidate');
+$deleteGuardEngines = new ReflectionMethod(\Duo\DeleteGuardLockCoordinator::class, 'assert_guard_engines');
 $fakeWpdb->metaRows = [[
     'guard_id' => 200,
     'source_id' => 7,
@@ -1170,8 +1178,11 @@ $scopeManifest['deletions']['post:product_variation']['guards'] = [
 ];
 $scopePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $scopePolicy->manifests = [$scopeManifest];
-$scopeApply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$policyProperty->setValue($scopeApply, $scopePolicy);
+$scopeApply = new \Duo\DeleteGuardLockCoordinator(
+    $scopePolicy,
+    new \Duo\DeleteGuardReferenceScanner($scopePolicy),
+    Snapshot::row_tables($scopePolicy)
+);
 $fakeWpdb->engineQueries = [];
 $scopeAccepted = true;
 try {
@@ -1184,7 +1195,6 @@ check($scopeAccepted
     && str_contains($fakeWpdb->engineQueries[0], "TABLE_NAME IN ('wp_options','wp_postmeta')")
     && !str_contains($fakeWpdb->engineQueries[0], 'wp_comments'),
     'deletion guard engine scope is deduplicated and deterministically sorted per current delete work');
-$policyProperty->setValue($metaRaceApply, $metaRacePolicy);
 
 $savedMetaIndexes = $fakeWpdb->indexRows['wp_postmeta'];
 $fakeWpdb->indexRows['wp_postmeta'] = [];
@@ -1261,8 +1271,11 @@ $optionRaceManifest = $policy->manifests[0];
 $optionRaceManifest['deletions']['table:woocommerce_shipping_zone_methods']['guards'] = [$optionGuard];
 $optionRacePolicy = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $optionRacePolicy->manifests = [$optionRaceManifest];
-$optionRaceApply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$policyProperty->setValue($optionRaceApply, $optionRacePolicy);
+$optionRaceApply = new \Duo\DeleteGuardLockCoordinator(
+    $optionRacePolicy,
+    new \Duo\DeleteGuardReferenceScanner($optionRacePolicy),
+    Snapshot::row_tables($optionRacePolicy)
+);
 $fakeWpdb->modernIsolationError = false;
 $fakeWpdb->optionRows = [[
     'guard_id' => 501,
@@ -1350,13 +1363,13 @@ try {
 }
 check($optionInsertRefused,
     'shipping-method settings option inserted after the plan is refused by the locked range');
-$planHash = new ReflectionMethod(\Duo\Apply::class, 'plan_precondition_hash');
+$planHash = new ReflectionMethod(\Duo\ApplyPlanner::class, 'plan_precondition_hash');
 $hashInputs = [
     'delete' => [['uuid' => $childUuid, 'guard_witnesses' => ['0' => str_repeat('a', 64)]]],
 ];
 $changedHashInputs = $hashInputs;
 $changedHashInputs['delete'][0]['guard_witnesses']['0'] = str_repeat('b', 64);
-check($planHash->invoke($apply, $hashInputs) !== $planHash->invoke($apply, $changedHashInputs),
+check($planHash->invoke(null, $hashInputs) !== $planHash->invoke(null, $changedHashInputs),
     'plan_precondition_hash binds exact deletion guard witnesses');
 
 // Safe unserialization regression: a target-controlled object must not be

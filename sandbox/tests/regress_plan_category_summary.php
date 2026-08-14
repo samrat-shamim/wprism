@@ -21,7 +21,7 @@ require_once __DIR__ . '/../../agent/src/Apply.php';
 require_once __DIR__ . '/../../cli/src/PlanContract.php';
 require_once __DIR__ . '/../../cli/src/PlanSummary.php';
 
-use Duo\Apply;
+use Duo\ApplyPlanner;
 use Duo\PlanCategorySummary;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
@@ -356,9 +356,8 @@ $malformedPlan = $plan;
 $malformedPlan['create'][0]['uuid'] = new stdClass();
 $check(PlanCategorySummary::build($malformedPlan, $tree, $deletions, $context) === null, 'non-string row identity omits without invoking plugin-controlled string conversion');
 
-// The nested-candidate helper is deliberately private production plumbing;
-// reflection lets this offline fixture prove its pure evidence projection.
-$nested = new ReflectionMethod(Apply::class, 'nested_delete_candidate_counts');
+// Exercise the pure planner projection directly at its production owner.
+$nested = new ReflectionMethod(ApplyPlanner::class, 'nested_delete_candidate_counts');
 $nestedTree = [
     'menu-update' => ['type' => 'menu', 'data' => ['items' => [
         ['uuid' => 'item-keep'], ['uuid' => 'item-new'],

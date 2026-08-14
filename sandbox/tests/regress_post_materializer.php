@@ -118,33 +118,29 @@ $check(
 // regress_relationship_materializer.php/regress_attachment_materializer.php/
 // regress_apply_field_materializer.php, not repeated here.
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
 $check(
     !preg_match('/private function ensure_post_row\(array \$front\): bool \{\s*global \$wpdb;\s*if \(Ledger::id_for/', $applySource),
     'Apply.php no longer inlines ensure_post_row()\'s own body (only the facade remains)'
 );
-$check(
-    str_contains($applySource, '$this->post_materializer()->ensure_post_row($front);'),
-    'Apply::ensure_post_row() is a thin facade delegating to PostMaterializer'
-);
+$check(!str_contains($applySource, 'function ensure_post_row(')
+    && str_contains($transactionSource, '$this->postMaterializer->ensure_post_row($front);'),
+    'AuthoredTransactionExecutor calls PostMaterializer::ensure_post_row() directly');
 $check(
     !preg_match('/private function finalize_post\(array \$front, string \$body\): void \{\s*global \$wpdb;\s*\$id = Ledger::id_for.*\$parentId = 0;/s', $applySource),
     'Apply.php no longer inlines finalize_post()\'s own body (only the facade remains)'
 );
-$check(
-    str_contains($applySource, '$this->post_materializer()->finalize_post(')
-        && str_contains($applySource, '$this->defaultAuthor,')
-        && str_contains($applySource, '$this->warnings,')
-        && str_contains($applySource, '$this->taxes_for_post_type($front[\'type\'])'),
-    'Apply::finalize_post() is a thin facade delegating to PostMaterializer, passing defaultAuthor/warnings/the resolved taxonomy roster'
-);
+$check(!str_contains($applySource, 'function finalize_post(')
+    && str_contains($transactionSource, '$this->postMaterializer->finalize_post(')
+    && str_contains($transactionSource, '$defaultAuthor,')
+    && str_contains($transactionSource, '$warnings,'),
+    'AuthoredTransactionExecutor calls PostMaterializer::finalize_post() with explicit state');
 $check(
     !preg_match('/private function resolve_login\(string \$login\): \?int \{\s*global \$wpdb;\s*if \(\$login/', $applySource),
     'Apply.php no longer inlines resolve_login()\'s own body (only the facade remains)'
 );
-$check(
-    str_contains($applySource, '$this->post_materializer()->resolve_login($login);'),
-    'Apply::resolve_login() is a thin facade delegating to PostMaterializer (run()\'s own $defaultAuthor-seeding call site needs no edit)'
-);
+$check(!str_contains($applySource, 'function resolve_login('),
+    'Apply has no dead resolve_login compatibility facade');
 $check(
     !str_contains($applySource, 'private array $userIds'),
     'Apply.php no longer declares $userIds itself (moved to PostMaterializer alongside resolve_login())'

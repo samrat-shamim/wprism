@@ -419,19 +419,22 @@ $compiled = CompiledRepository::create([
 // regression cannot pass merely because the source contains a safer helper:
 // assign_locations() reads theme_mods_<stylesheet>, while
 // apply_option_sub_keys() reads a manifest-owned live option blob.
-$applyReflection = new ReflectionClass(Apply::class);
-$applyConstructor = $applyReflection->getConstructor();
-$apply = $applyReflection->newInstanceWithoutConstructor();
-$applyConstructor->invoke($apply, '/unused', $policy(false), $compiled);
-$assignLocations = new ReflectionMethod(Apply::class, 'assign_locations');
+$materializerPolicy = $policy(false);
+$materializerTokens = new \Duo\Tokens();
+$fieldMaterializer = new \Duo\ApplyFieldMaterializer($materializerPolicy, $materializerTokens);
+$apply = new \Duo\MenuMaterializer($materializerPolicy, $materializerTokens, $fieldMaterializer);
+$assignLocations = new ReflectionMethod(\Duo\MenuMaterializer::class, 'assign_locations');
 // DUO-3347 slice 7: apply_option_sub_keys() moved from Apply onto
 // OptionsMaterializer (Apply keeps only apply_options() as a facade). Fetched
 // via Apply's own options_materializer() factory rather than hand-built, so
 // this test's OptionsMaterializer is wired with the exact same Policy/Tokens/
 // ApplyFieldMaterializer instances the real facade would use.
 $applyOptionSubKeys = new ReflectionMethod(\Duo\OptionsMaterializer::class, 'apply_option_sub_keys');
-$optionsMaterializerAccessor = new ReflectionMethod(Apply::class, 'options_materializer');
-$optionsMaterializer = $optionsMaterializerAccessor->invoke($apply);
+$optionsMaterializer = new \Duo\OptionsMaterializer(
+    $materializerPolicy,
+    $materializerTokens,
+    $fieldMaterializer
+);
 
 $wpdb->optionRows = [
     'stylesheet' => ['option_value' => 'fixture-theme', 'autoload' => 'yes'],

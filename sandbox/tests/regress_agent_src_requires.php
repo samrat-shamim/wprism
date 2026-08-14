@@ -414,7 +414,7 @@ $knownGapsByFile = [
     'AdapterObservation' => ['AdapterSources', 'Canon', 'CommandRefusalException', 'Journal', 'Pending', 'Policy'],
     'AdapterRegistry' => ['AdapterSources', 'ManifestDispositions', 'Policy'],
     'AdapterSources' => ['Canon', 'ManifestDispositions', 'Policy'],
-    'Apply' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Deletion', 'Ledger', 'LedgerScopedApplySessionStorage', 'OptionState', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
+    'ApplyRequestCoordinator' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Ledger', 'LedgerScopedApplySessionStorage', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
     'ApplyFieldMaterializer' => ['Db', 'StructuredValue'],
     'AttachmentMaterializer' => ['CompiledRepository'],
     'Blocks' => ['Policy', 'Shortcodes', 'Tokens'],
@@ -495,7 +495,7 @@ check($staleAllowlist === [], 'allowlist contains no-longer-observed gaps: ' . i
 
 $mutated = $sources;
 foreach ([
-    ['Apply', 'ConvergenceVerifier'],
+    ['ApplyRequestCoordinator', 'ConvergenceVerifier'],
     ['ConvergenceVerifier', 'Canon'],
     ['CapturePublicationWorkflow', 'Canary'],
     ['CapturePublicationWorkflow', 'ScopedApply'],

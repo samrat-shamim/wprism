@@ -569,7 +569,7 @@ pct_ok($contract::requireComplete(pct_plan(), 'unit surface') === pct_plan(),
 // bucket assignment or append, and plan()'s own `warnings`, must equal the contract
 // exactly — an emitter that grows a bucket without teaching the validator
 // about it would silently widen what a promotion receipt is allowed to trust.
-$applySource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/Apply.php');
+$applySource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/ApplyRequestCoordinator.php');
 if (!is_string($applySource)) pct_fail('could not read the plan emitter');
 $builderSource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/ApplyPlanBuilder.php');
 if (!is_string($builderSource)) pct_fail('could not read the plan builder');

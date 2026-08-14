@@ -223,7 +223,7 @@ require __DIR__ . '/../../agent/src/Apply.php';
 // rather than duplicating the query shapes it encapsulates. Loading the
 // class definition only; nothing here ever instantiates Capture or calls
 // any of its other (WordPress-dependent) methods.
-require __DIR__ . '/../../agent/src/Capture.php';
+require_once __DIR__ . '/../../agent/src/Capture.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -423,12 +423,8 @@ check(Shortcodes::apply_rewrite_text($legacyCanonical, $policy, $tokens) === $le
 // S1d — Apply registers the canonical alternate witnesses before any body
 // rewrite.  The reverse index must reject duplicate alternate values within
 // one declared lookup domain (and zero is never a valid legacy identifier).
-$applyForAlternates = (new \ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-$applyPolicy = new \ReflectionProperty(\Duo\Apply::class, 'policy');
-$applyPolicy->setValue($applyForAlternates, $policy);
-$applyTokens = new \ReflectionProperty(\Duo\Apply::class, 'tokens');
-$applyTokens->setValue($applyForAlternates, new Tokens());
-$registerAlternates = new \ReflectionMethod(\Duo\Apply::class, 'register_shortcode_alternates');
+$applyForAlternates = new \Duo\ShortcodeAlternateRegistrar($policy, new Tokens());
+$registerAlternates = new \ReflectionMethod(\Duo\ShortcodeAlternateRegistrar::class, 'register');
 $duplicateAlternateTree = [
     ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],
     ['type' => 'post', 'data' => ['type' => 'wpcf7_contact_form', 'uuid' => MAPPED2_UUID, 'meta' => ['_old_cf7_unit_id' => '77']]],

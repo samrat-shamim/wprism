@@ -140,11 +140,10 @@ foreach (['option_apply_target', 'dynamic_option_rule_for_name', 'dynamic_option
         "Apply.php no longer defines $method() itself (moved to OptionsMaterializer.php, no facade needed -- called only from within the extracted cluster)"
     );
 }
-$check(
-    str_contains($applySource, '$this->options_materializer()->apply_options(')
-        && str_contains($applySource, '$classificationDocument'),
-    'Apply::apply_options() is a thin facade delegating its explicit immutable classification document to OptionsMaterializer'
-);
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$check(!str_contains($applySource, 'function apply_options(')
+    && str_contains($transactionSource, '$this->optionsMaterializer->apply_options('),
+    'AuthoredTransactionExecutor calls OptionsMaterializer directly without an Apply facade');
 
 // A record-scoped option write must retain the complete immutable carrier as
 // classification context while passing only the selected record to the write
