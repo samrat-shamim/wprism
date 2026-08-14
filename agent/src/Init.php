@@ -3,12 +3,13 @@ namespace Duo;
 
 require_once __DIR__ . "/InitPlanner.php";
 require_once __DIR__ . "/InitConfirmation.php";
+require_once __DIR__ . "/InitProtocol.php";
 
 /**
  * Stable public facade for first-run, target-local onboarding.
  */
 final class Init {
-    public const FORMAT = "duo-init-plan/v1";
+    public const FORMAT = InitProtocol::PLAN_FORMAT;
 
     /** @return array<string,mixed> */
     public static function proposal(string $repo): array {

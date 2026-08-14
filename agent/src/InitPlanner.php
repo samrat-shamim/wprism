@@ -7,6 +7,7 @@ require_once __DIR__ . "/Code.php";
 require_once __DIR__ . "/InitAttemptJournal.php";
 require_once __DIR__ . "/InitCodeInventory.php";
 require_once __DIR__ . "/InitOwnedArtifacts.php";
+require_once __DIR__ . "/InitProtocol.php";
 require_once __DIR__ . "/InitRecovery.php";
 require_once __DIR__ . "/InitRepositoryBoundary.php";
 require_once __DIR__ . "/InitSiteProbe.php";
@@ -17,7 +18,7 @@ require_once __DIR__ . "/RepositoryCompiler.php";
  * Builds the read-only, content-addressed initialization proposal.
  */
 final class InitPlanner {
-    public const FORMAT = "duo-init-plan/v1";
+    public const FORMAT = InitProtocol::PLAN_FORMAT;
     /** @return array<string,mixed> */
     public static function proposal(string $repo): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);

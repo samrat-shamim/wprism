@@ -428,8 +428,6 @@ $codeBaselineSource = file_get_contents(__DIR__ . '/../../agent/src/InitCodeBase
 check(is_string($codeBaselineSource), 'target init code-baseline source is readable');
 $initExceptionSource = file_get_contents(__DIR__ . '/../../agent/src/InitExceptions.php');
 check(is_string($initExceptionSource), 'target init exception source is readable');
-$agentSource = $initFacadeSource . "\n" . $plannerSource . "\n" . $confirmationSource . "\n"
-    . $codeBaselineSource . "\n" . $initExceptionSource;
 $siteProbeSource = file_get_contents(__DIR__ . '/../../agent/src/InitSiteProbe.php');
 check(is_string($siteProbeSource), 'target init site-probe source is readable');
 $codeInventorySource = file_get_contents(__DIR__ . '/../../agent/src/InitCodeInventory.php');
@@ -444,8 +442,53 @@ $attemptJournalSource = file_get_contents(__DIR__ . '/../../agent/src/InitAttemp
 check(is_string($attemptJournalSource), 'target init attempt-journal source is readable');
 $recoverySource = file_get_contents(__DIR__ . '/../../agent/src/InitRecovery.php');
 check(is_string($recoverySource), 'target init recovery source is readable');
+$protocolSource = file_get_contents(__DIR__ . '/../../agent/src/InitProtocol.php');
+check(is_string($protocolSource), 'target init protocol source is readable');
+
+require_once __DIR__ . '/../../agent/src/Init.php';
+$agentInit = new ReflectionClass(\Duo\Init::class);
+$proposalMethod = $agentInit->getMethod('proposal');
+$confirmMethod = $agentInit->getMethod('confirm');
+$proposalParameters = $proposalMethod->getParameters();
+$confirmParameters = $confirmMethod->getParameters();
+$publicAgentInitMethods = array_map(
+    static fn(ReflectionMethod $method): string => $method->getName(),
+    $agentInit->getMethods(ReflectionMethod::IS_PUBLIC)
+);
+sort($publicAgentInitMethods, SORT_STRING);
+check(
+    $agentInit->getFileName() === realpath(__DIR__ . '/../../agent/src/Init.php')
+        && $publicAgentInitMethods === ['confirm', 'proposal']
+        && $proposalMethod->isPublic() && $proposalMethod->isStatic()
+        && count($proposalParameters) === 1
+        && $proposalParameters[0]->getName() === 'repo'
+        && (string) $proposalParameters[0]->getType() === 'string'
+        && (string) $proposalMethod->getReturnType() === 'array'
+        && $confirmMethod->isPublic() && $confirmMethod->isStatic()
+        && count($confirmParameters) === 2
+        && $confirmParameters[0]->getName() === 'repo'
+        && (string) $confirmParameters[0]->getType() === 'string'
+        && $confirmParameters[1]->getName() === 'expectedDigest'
+        && (string) $confirmParameters[1]->getType() === 'string'
+        && (string) $confirmMethod->getReturnType() === 'array'
+        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo);')
+        && str_contains($initFacadeSource, 'return InitConfirmation::run($repo, $expectedDigest);'),
+    'target Init facade preserves its exact public API and delegates both operations to their owning collaborators'
+);
 
 require_once __DIR__ . '/../../agent/src/InitAttemptJournal.php';
+check(
+    \Duo\Init::FORMAT === 'duo-init-plan/v1'
+        && \Duo\InitPlanner::FORMAT === \Duo\Init::FORMAT
+        && \Duo\InitRecovery::PLAN_FORMAT === \Duo\Init::FORMAT
+        && \Duo\InitProtocol::PLAN_FORMAT === \Duo\Init::FORMAT
+        && \Duo\InitProtocol::ATTEMPT_FORMAT === 'duo-init-attempt/v1'
+        && \Duo\InitAttemptJournal::FILE === '.duo-init-attempt'
+        && \Duo\InitAttemptJournal::NEXT_FILE === '.duo-init-attempt.next'
+        && \Duo\InitAttemptJournal::FILE === \Duo\InitProtocol::ATTEMPT_FILE
+        && \Duo\InitAttemptJournal::NEXT_FILE === \Duo\InitProtocol::ATTEMPT_NEXT_FILE,
+    'init protocol aliases preserve the exact public formats and fixed journal filenames'
+);
 $attemptEnvelope = [
     'format' => 'duo-init-attempt/v1',
     'owned' => [],
@@ -472,27 +515,38 @@ try {
 }
 
 $initCompensationSource = $confirmationSource;
-check(str_contains($agentSource, "'code' => 'repository_external_writer_exclusion'"), 'target proposal binds the generic repository writer-exclusion advisory');
-check(!str_contains(strtolower($agentSource), 'woocommerce'), 'generic target init has no plugin-name branch');
-check(str_contains($agentSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
-check(substr_count($agentSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
-$lockedRecheck = strrpos($agentSource, 'InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);');
-$siteWrite = $lockedRecheck === false ? false : strpos($agentSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
-check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
-check(str_contains($agentSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
-check(str_contains($agentSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
+check(str_contains($plannerSource, "'code' => 'repository_external_writer_exclusion'"), 'target proposal binds the generic repository writer-exclusion advisory');
 check(
-    str_contains($agentSource, 'Capture::run_initial_baseline(')
-        && str_contains($agentSource, '(string) $stateIdentity')
-        && str_contains($agentSource, '(string) $mediaIdentity'),
+    !str_contains(
+        strtolower(implode("\n", [
+            $initFacadeSource, $plannerSource, $confirmationSource, $codeBaselineSource,
+            $codeInventorySource, $siteProbeSource, $recoverySource, $repositorySource,
+            $ownedArtifactsSource, $attemptJournalSource, $protocolSource, $faultSource,
+            $initExceptionSource,
+        ])),
+        'woocommerce'
+    ),
+    'generic target init has no plugin-name branch'
+);
+check(str_contains($plannerSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
+check(substr_count($plannerSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
+$lockedRecheck = strrpos($confirmationSource, 'InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);');
+$siteWrite = $lockedRecheck === false ? false : strpos($confirmationSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
+check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
+check(str_contains($plannerSource, "'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => Code::SOURCE]"), 'site config declares code independently from state policy');
+check(str_contains($codeBaselineSource, 'Code::descriptor_from_source($stage)'), 'captured code is validated by the existing descriptor contract before publication');
+check(
+    str_contains($confirmationSource, 'Capture::run_initial_baseline(')
+        && str_contains($confirmationSource, '(string) $stateIdentity')
+        && str_contains($confirmationSource, '(string) $mediaIdentity'),
     'confirmed baseline uses the init-wide strict publication transaction'
 );
-check(str_contains($agentSource, 'SELECT GET_LOCK(%s, 0)'), 'concurrent confirmations share a target advisory lease');
+check(str_contains($confirmationSource, 'SELECT GET_LOCK(%s, 0)'), 'concurrent confirmations share a target advisory lease');
 check(
-    str_contains($agentSource, "'existing_state_payload'")
-        && str_contains($agentSource, "'existing_media_payload'")
-        && str_contains($agentSource, "'existing_capture_receipt'")
-        && str_contains($agentSource, "'existing_duo_ledger'"),
+    str_contains($plannerSource, "'existing_state_payload'")
+        && str_contains($plannerSource, "'existing_media_payload'")
+        && str_contains($plannerSource, "'existing_capture_receipt'")
+        && str_contains($plannerSource, "'existing_duo_ledger'"),
     'stale state, media, capture-receipt, and ledger ownership block initialization'
 );
 check(str_contains($codeInventorySource, 'Secrets::hard_match($window)'), 'every code byte crosses the high-confidence secret matcher');
@@ -505,12 +559,12 @@ check(
     'bounded risk discovery uses deterministic primary-key keyset ordering'
 );
 check(str_contains($repositorySource, "git', 'init', '--initial-branch=main"), 'confirmation creates a verified Git worktree when absent');
-check(str_contains($agentSource, "\$finalGit['mode'] !== 'existing-worktree'"), 'success re-verifies Git readiness after the baseline transaction');
-$gitAttempt = strpos($agentSource, '$gitCreated = true;');
-$gitInitialize = strpos($agentSource, 'InitRepositoryBoundary::initialize_git($repo);');
+check(str_contains($confirmationSource, "\$finalGit['mode'] !== 'existing-worktree'"), 'success re-verifies Git readiness after the baseline transaction');
+$gitAttempt = strpos($confirmationSource, '$gitCreated = true;');
+$gitInitialize = strpos($confirmationSource, 'InitRepositoryBoundary::initialize_git($repo);');
 check(
     $gitAttempt !== false && $gitInitialize !== false && $gitAttempt < $gitInitialize
-        && str_contains($agentSource, "file_exists(\$repo . '/.git') || is_link(\$repo . '/.git')"),
+        && str_contains($confirmationSource, "file_exists(\$repo . '/.git') || is_link(\$repo . '/.git')"),
     'partial first Git initialization is marked before invocation and fully compensated'
 );
 $rootLinkCheck = strpos($repositorySource, 'if (is_link($repo))');
@@ -520,17 +574,17 @@ check(
     'dangling repository-root links refuse before the absent-root path'
 );
 check(
-    str_contains($agentSource, 'InitRepositoryBoundary::root_blocker($logicalRepo)')
-        && str_contains($agentSource, "return self::proposal_bound('.', \$logicalRepo, \$binding['identity'])")
-        && str_contains($agentSource, "\$repo = '.';")
+    str_contains($plannerSource, 'InitRepositoryBoundary::root_blocker($logicalRepo)')
+        && str_contains($plannerSource, "return self::proposal_bound('.', \$logicalRepo, \$binding['identity'])")
+        && str_contains($confirmationSource, "\$repo = '.';")
         && str_contains($repositorySource, 'self::freshLstat($repo)'),
     'proposal and confirmation bind a freshly inspected ordinary repository inode before child traversal'
 );
-$reviewedIdentity = strpos($agentSource, "\$reviewedIdentity = \$proposal['state']['repository_identity'] ?? null;");
-$publicationLock = strpos($agentSource, '$publicationLock = Publish::lock_new($stateDir);');
+$reviewedIdentity = strpos($confirmationSource, "\$reviewedIdentity = \$proposal['state']['repository_identity'] ?? null;");
+$publicationLock = strpos($confirmationSource, '$publicationLock = Publish::lock_new($stateDir);');
 check(
     $reviewedIdentity !== false && $publicationLock !== false && $reviewedIdentity < $publicationLock
-        && str_contains($agentSource, "hash_equals(\$reviewedIdentity, \$binding['identity'])"),
+        && str_contains($confirmationSource, "hash_equals(\$reviewedIdentity, \$binding['identity'])"),
     'a replacement ordinary directory refuses before the first publication-lock write'
 );
 check(
@@ -539,17 +593,17 @@ check(
     'missing repository roots are an explicit bootstrap prerequisite rather than a racy init mutation'
 );
 check(
-    str_contains($agentSource, "'unsafe_site_config'")
-        && str_contains($agentSource, 'InitOwnedArtifacts::publish_owned_file(')
+    str_contains($plannerSource, "'unsafe_site_config'")
+        && str_contains($confirmationSource, 'InitOwnedArtifacts::publish_owned_file(')
         && str_contains($ownedArtifactsSource, 'self::regular_file_identity($path, $label)')
         && str_contains($ownedArtifactsSource, 'if (!@rename($tmp, $path))'),
     'site config publication verifies reviewed bytes before its crash-atomic same-parent replacement'
 );
 check(
-    str_contains($agentSource, "'unsafe_code_root'")
-        && str_contains($agentSource, "assert_absent_owned_path(\$codeRoot, 'code publication root')")
-        && str_contains($agentSource, "mkdir(\$codeRoot, 0700)")
-        && str_contains($agentSource, "rename(\$stagedCode, \$codeRoot . '/wp-content')"),
+    str_contains($plannerSource, "'unsafe_code_root'")
+        && str_contains($confirmationSource, "assert_absent_owned_path(\$codeRoot, 'code publication root')")
+        && str_contains($confirmationSource, "mkdir(\$codeRoot, 0700)")
+        && str_contains($confirmationSource, "rename(\$stagedCode, \$codeRoot . '/wp-content')"),
     'code baseline reserves an owned root before publishing its verified child'
 );
 $publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
@@ -576,11 +630,20 @@ check(
         && str_contains($repoFormat, 'adversarial namespace-race sandbox for these siblings'),
     'ordinary capture states its protocol-namespace exclusion without overclaiming portable PHP race safety'
 );
+$attemptWrite = strpos($confirmationSource, 'InitAttemptJournal::write($repo, $attemptRecord, \'absent\')');
+$firstPublicationLock = strpos($confirmationSource, '$publicationLock = Publish::lock_new($stateDir);');
 check(
-    str_contains($attemptJournalSource, "public const FILE = '.duo-init-attempt';")
-        && str_contains($attemptJournalSource, "public const NEXT_FILE = '.duo-init-attempt.next';")
-        && strpos($agentSource, 'InitAttemptJournal::write($repo, $attemptRecord, \'absent\')')
-            < strpos($agentSource, '$publicationLock = Publish::lock_new($stateDir);'),
+    str_contains($protocolSource, "public const ATTEMPT_FILE = '.duo-init-attempt';")
+        && str_contains($protocolSource, "public const ATTEMPT_NEXT_FILE = '.duo-init-attempt.next';")
+        && str_contains($attemptJournalSource, 'public const FILE = InitProtocol::ATTEMPT_FILE;')
+        && str_contains($attemptJournalSource, 'public const NEXT_FILE = InitProtocol::ATTEMPT_NEXT_FILE;')
+        && str_contains($repositorySource, 'private const ATTEMPT_FILE = InitProtocol::ATTEMPT_FILE;')
+        && str_contains($repositorySource, 'private const ATTEMPT_NEXT_FILE = InitProtocol::ATTEMPT_NEXT_FILE;')
+        && str_contains($captureSource, 'InitProtocol::ATTEMPT_FILE')
+        && str_contains($captureSource, 'InitProtocol::ATTEMPT_NEXT_FILE')
+        && $attemptWrite !== false
+        && $firstPublicationLock !== false
+        && $attemptWrite < $firstPublicationLock,
     'sealed init recovery journal is durable before the first persistent capture lock mutation'
 );
 check(
@@ -622,10 +685,10 @@ check(
     'Init hidden temp and claim boundaries have explicit crash seams for live evidence'
 );
 check(
-    str_contains($agentSource, "InitFaults::checkpoint('lock-created')")
+    str_contains($confirmationSource, "InitFaults::checkpoint('lock-created')")
         && str_contains($attemptJournalSource, "InitFaults::checkpoint('attempt-transition-pre-rename')")
         && str_contains($attemptJournalSource, "'attempt-transition-pre-rename-' . (string) \$attempt['phase']")
-        && str_contains($agentSource, "InitFaults::checkpoint('capture-complete')")
+        && str_contains($confirmationSource, "InitFaults::checkpoint('capture-complete')")
         && str_contains($ownedArtifactsSource, "InitFaults::checkpoint('attempt-remove-pre-unlink')")
         && str_contains($ownedArtifactsSource, "InitFaults::checkpoint('attempt-remove-post-unlink')")
         && str_contains($faultSource, 'posix_kill(getmypid()')
@@ -634,20 +697,20 @@ check(
     'init exposes fresh-process crash seams and distinct precommit/committed recovery outcomes'
 );
 check(
-    str_contains($agentSource, "\$attemptRecord['owned']['code_stage_planned'] = true;")
+    str_contains($confirmationSource, "\$attemptRecord['owned']['code_stage_planned'] = true;")
         && str_contains($recoverySource, 'partial code staging tree without a complete descriptor'),
     'code-stage creation is write-ahead journaled before the staging-root mutation'
 );
 check(
-    str_contains($agentSource, 'final class InitAttemptRetentionException')
-        && str_contains($agentSource, 'if ($error instanceof InitAttemptRetentionException)')
-        && str_contains($agentSource, "DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file'")
+    str_contains($initExceptionSource, 'final class InitAttemptRetentionException')
+        && str_contains($confirmationSource, 'if ($error instanceof InitAttemptRetentionException)')
+        && str_contains($codeBaselineSource, "DUO_TEST_INIT_FAIL_PHASE') === 'code-copy-after-file'")
         && str_contains($liveHarness, 'changed code source left a staging tree, journal, lock, or canonical payload')
         && str_contains($publishSource, "if (\$stillSame) @unlink(\$name);"),
     'post-create code-copy failures either compensate the exact partial stage or retain sealed recovery authority'
 );
 check(
-    str_contains($agentSource, 'git-initialized-before-identity')
+    str_contains($confirmationSource, 'git-initialized-before-identity')
         && str_contains($recoverySource, 'incomplete Git metadata without a complete ownership manifest')
         && str_contains($liveHarness, 'Git initialization failure left an unjournaled or unlocked metadata root'),
     'planned-to-mutated Git failures retain their sealed journal when no complete ownership manifest exists'
@@ -658,15 +721,15 @@ check(
     'first-lock acquisition failure cannot erase its journal while leaving an unowned canonical lock'
 );
 check(
-    str_contains($agentSource, 'state-reserved-before-identity')
+    str_contains($confirmationSource, 'state-reserved-before-identity')
         && str_contains($recoverySource, 'incomplete state reservation without a complete ownership manifest')
         && str_contains($liveHarness, 'state recovery refusal deleted the unmanifested sentinel'),
     'state reservation is not deletion authority until its complete identity is sealed'
 );
 check(
-    str_contains($agentSource, "'capture-payload-ready'")
-        && str_contains($agentSource, "\$attemptRecord['owned']['state_staging_manifest'] = \$stagingManifest;")
-        && str_contains($agentSource, "\$attemptRecord['owned']['media_manifest'] = \$mediaManifest;")
+    str_contains($confirmationSource, "'capture-payload-ready'")
+        && str_contains($confirmationSource, "\$attemptRecord['owned']['state_staging_manifest'] = \$stagingManifest;")
+        && str_contains($confirmationSource, "\$attemptRecord['owned']['media_manifest'] = \$mediaManifest;")
         && str_contains($recoverySource, 'the interrupted-init state root no longer matches any sealed ownership manifest')
         && str_contains($recoverySource, 'Publish::tree_ownership_manifest($path)')
         && str_contains($recoverySource, 'no longer matches its sealed ownership manifest')
@@ -691,7 +754,7 @@ check(
     str_contains($publishSource, 'public static function intent_record(')
         && str_contains($publishSource, 'public static function receipt_record(')
         && str_contains($recoverySource, 'self::assert_interrupted_committed_attempt(')
-        && str_contains($agentSource, "'recovery' => 'committed-finalized'"),
+        && str_contains($confirmationSource, "'recovery' => 'committed-finalized'"),
     'committed journal recovery verifies durable intent/receipt state before returning a truthful result'
 );
 check(
@@ -1187,7 +1250,6 @@ check(
     $recoveryReason($gitFixtureRepo, $gitReadyAttempt) === $incompleteGitReason,
     'a partially deleted Git root restored to its canonical path is non-confirmable before recovery mutates it'
 );
-$initAuthoritySource = $confirmationSource . "\n" . $codeBaselineSource;
 check(
     substr_count($recoverySource, 'self::git_deletion_identity_current($repo, $owned)') === 2
         && str_contains($recoverySource, 'private static function git_deletion_identity_current('),
@@ -1199,22 +1261,22 @@ check(
 // catch; this ordering pin proves its failure branch sets retention before the
 // journal and both lock teardown paths can run.
 $precommitRetentionMessage = 'duo: init retained its sealed recovery journal and capture lock because pre-COMMIT compensation could not safely complete:';
-$precommitRetentionMessageAt = strpos($initAuthoritySource, $precommitRetentionMessage);
+$precommitRetentionMessageAt = strpos($confirmationSource, $precommitRetentionMessage);
 $precommitRetainAt = $precommitRetentionMessageAt === false
     ? false
-    : strrpos(substr($initAuthoritySource, 0, $precommitRetentionMessageAt), '$retainPublicationLock = true;');
+    : strrpos(substr($confirmationSource, 0, $precommitRetentionMessageAt), '$retainPublicationLock = true;');
 $precommitThrowAt = $precommitRetainAt === false
     ? false
-    : strpos($initAuthoritySource, 'throw new InitAttemptRetentionException(', $precommitRetainAt);
+    : strpos($confirmationSource, 'throw new InitAttemptRetentionException(', $precommitRetainAt);
 $attemptVerificationAt = $precommitRetentionMessageAt === false
     ? false
-    : strpos($initAuthoritySource, 'if (is_array($attemptPublication) && is_resource($publicationLock))', $precommitRetentionMessageAt);
+    : strpos($confirmationSource, 'if (is_array($attemptPublication) && is_resource($publicationLock))', $precommitRetentionMessageAt);
 $catchLockTeardownAt = $precommitRetentionMessageAt === false
     ? false
-    : strpos($initAuthoritySource, 'if (!$retainPublicationLock && $lockOwnedAndCreated', $precommitRetentionMessageAt);
+    : strpos($confirmationSource, 'if (!$retainPublicationLock && $lockOwnedAndCreated', $precommitRetentionMessageAt);
 $finallyLockTeardownAt = $precommitRetentionMessageAt === false
     ? false
-    : strpos($initAuthoritySource, 'if (!$succeeded && !$retainPublicationLock && $lockOwnedAndCreated', $precommitRetentionMessageAt);
+    : strpos($confirmationSource, 'if (!$succeeded && !$retainPublicationLock && $lockOwnedAndCreated', $precommitRetentionMessageAt);
 check(
     $precommitRetainAt !== false && $precommitThrowAt !== false
         && $attemptVerificationAt !== false && $catchLockTeardownAt !== false && $finallyLockTeardownAt !== false
@@ -1392,8 +1454,8 @@ check(
 // The source digest keeps its own, correct verification site: the confirmation
 // still refuses when the target's code changed between proposal and capture.
 check(
-    str_contains($initAuthoritySource, "if (!hash_equals((string) (\$code['source_revision'] ?? ''), \$revision)) {")
-        && str_contains($initAuthoritySource, 'duo: code changed after proposal review; rerun init and review the new digest'),
+    str_contains($codeBaselineSource, "if (!hash_equals((string) (\$code['source_revision'] ?? ''), \$revision)) {")
+        && str_contains($codeBaselineSource, 'duo: code changed after proposal review; rerun init and review the new digest'),
     'the live source digest is still enforced where it belongs, against the source it describes'
 );
 
@@ -1592,7 +1654,7 @@ check(
 check(
     \Duo\InitCodeInventory::safeIdentifier('@woocommerce') === false
         && \Duo\InitCodeInventory::safeIdentifier('woocommerce') === true
-        && substr_count($initAuthoritySource, 'self::safe_stage_component($part)') === 1
+        && substr_count($codeBaselineSource, 'self::safe_stage_component($part)') === 1
         && substr_count($codeInventorySource, 'self::safeIdentifier($component)') === 1
         && substr_count($codeInventorySource, 'self::safeIdentifier($theme)') === 1,
     'the selected plugin basename and theme slug keep the strict identifier charset; only the staging walk was widened'

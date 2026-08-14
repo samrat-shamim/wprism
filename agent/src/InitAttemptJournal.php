@@ -5,6 +5,7 @@ require_once __DIR__ . '/Canon.php';
 require_once __DIR__ . '/Publish.php';
 require_once __DIR__ . '/InitFaults.php';
 require_once __DIR__ . '/InitOwnedArtifacts.php';
+require_once __DIR__ . '/InitProtocol.php';
 
 /** Typed view of the existing duo-init-attempt/v1 envelope. */
 final class InitAttemptRecord {
@@ -29,7 +30,7 @@ final class InitAttemptRecord {
         sort($keys, SORT_STRING);
         sort($expectedKeys, SORT_STRING);
         if ($keys !== $expectedKeys
-            || ($record['format'] ?? null) !== 'duo-init-attempt/v1'
+            || ($record['format'] ?? null) !== InitProtocol::ATTEMPT_FORMAT
             || !is_string($record['phase'] ?? null)
             || !is_array($record['owned'] ?? null)
             || !is_array($record['proposal'] ?? null)
@@ -65,8 +66,8 @@ final class InitAttemptRecord {
 
 /** Sealed fixed-slot journal for first-init phase and ownership evidence. */
 final class InitAttemptJournal {
-    public const FILE = '.duo-init-attempt';
-    public const NEXT_FILE = '.duo-init-attempt.next';
+    public const FILE = InitProtocol::ATTEMPT_FILE;
+    public const NEXT_FILE = InitProtocol::ATTEMPT_NEXT_FILE;
 
     /** @return ?array<string,mixed> */
     public static function read(string $repo): ?array {

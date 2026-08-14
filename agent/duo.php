@@ -74,6 +74,7 @@ require_once __DIR__ . '/src/InitCodeInventory.php';
 require_once __DIR__ . '/src/InitFaults.php';
 require_once __DIR__ . '/src/InitOwnedArtifacts.php';
 require_once __DIR__ . '/src/InitRepositoryBoundary.php';
+require_once __DIR__ . '/src/InitProtocol.php';
 require_once __DIR__ . '/src/InitAttemptJournal.php';
 require_once __DIR__ . '/src/InitRecovery.php';
 require_once __DIR__ . '/src/InitExceptions.php';

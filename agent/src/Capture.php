@@ -7,6 +7,7 @@ require_once __DIR__ . '/Canary.php';
 require_once __DIR__ . '/PlainData.php';
 require_once __DIR__ . '/StructuredValue.php';
 require_once __DIR__ . '/Canon.php';
+require_once __DIR__ . '/InitProtocol.php';
 require_once __DIR__ . '/Publish.php';
 require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/ScopeDiscovery.php';
@@ -1207,7 +1208,7 @@ final class Capture {
      * always printed.
      */
     private static function assert_no_interrupted_init(string $repo): void {
-        foreach (['.duo-init-attempt', '.duo-init-attempt.next'] as $name) {
+        foreach ([InitProtocol::ATTEMPT_FILE, InitProtocol::ATTEMPT_NEXT_FILE] as $name) {
             $path = rtrim($repo, '/') . '/' . $name;
             if (file_exists($path) || is_link($path)) {
                 throw new CommandRefusalException(

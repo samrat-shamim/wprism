@@ -3,11 +3,12 @@ namespace Duo;
 
 require_once __DIR__ . '/Canon.php';
 require_once __DIR__ . '/InitOwnedArtifacts.php';
+require_once __DIR__ . '/InitProtocol.php';
 
 /** Repository path binding, Git readiness, and first-init ignore policy. */
 final class InitRepositoryBoundary {
-    private const ATTEMPT_FILE = '.duo-init-attempt';
-    private const ATTEMPT_NEXT_FILE = '.duo-init-attempt.next';
+    private const ATTEMPT_FILE = InitProtocol::ATTEMPT_FILE;
+    private const ATTEMPT_NEXT_FILE = InitProtocol::ATTEMPT_NEXT_FILE;
 
     public static function normalize(string $repo): string {
         $repo = rtrim(trim($repo), '/');
