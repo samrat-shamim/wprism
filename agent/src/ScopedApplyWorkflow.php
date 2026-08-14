@@ -59,19 +59,6 @@ final class ScopedApplyWorkflow {
         );
     }
 
-    /** @return list<string> */
-    public function observation_ledger_map_identity_hashes(): array {
-        if ($this->observation === null) {
-            throw new \RuntimeException('duo: scoped mutation authority has no ledger-map identity observation');
-        }
-        return ScopedApplyCoordinator::observation_ledger_map_identity_hashes($this->observation);
-    }
-
-    /** @return list<string> */
-    public function assert_ledger_map_identity_hashes(mixed $hashes, string $source): array {
-        return ScopedApplyCoordinator::assert_ledger_map_identity_hashes($hashes, $source);
-    }
-
     public function guard_witnesses_hash(array $deleteWork): string {
         return ScopedApplyCoordinator::guard_witnesses_hash($deleteWork);
     }
@@ -109,43 +96,6 @@ final class ScopedApplyWorkflow {
         return ScopedApplyCoordinator::receipt($intent, $afterHash);
     }
 
-    public function action_effect_hash(array $action): string {
-        return ScopedApplyCoordinator::action_effect_hash($action);
-    }
-
-    public function effect_operation(int $ordinal, string $inputHash, string $effectHash): array {
-        if ($this->session === null) {
-            throw new \RuntimeException('duo: scoped effect has no durable session');
-        }
-        return ScopedApplyCoordinator::effect_operation($this->session, $ordinal, $inputHash, $effectHash);
-    }
-
-    public function assert_effect_result(
-        array $result,
-        array $operation,
-        string $capabilityDigest
-    ): void {
-        ScopedApplyCoordinator::assert_effect_result($result, $operation, $capabilityDigest);
-    }
-
-    public function public_action_receipt(
-        string $source,
-        string $kind,
-        array $operation,
-        string $capabilityDigest,
-        ?array $receipt,
-        string $status = 'verified'
-    ): array {
-        return ScopedApplyCoordinator::public_action_receipt(
-            $source,
-            $kind,
-            $operation,
-            $capabilityDigest,
-            $receipt,
-            $status
-        );
-    }
-
     public function receipt_at(int $ordinal): ?array {
         return ScopedApplyCoordinator::receipt_at($this->session, $ordinal);
     }
@@ -154,11 +104,4 @@ final class ScopedApplyWorkflow {
         return ScopedApplyCoordinator::core_readback_hash($policy, $work, $tree);
     }
 
-    public function archive_terminal_candidate(): void {
-        if ($this->terminalSessionToArchive === null) {
-            return;
-        }
-        $this->terminalSessionToArchive->archive_terminal();
-        $this->terminalSessionToArchive = null;
-    }
 }

@@ -49,6 +49,12 @@ function get_plugins(): array {
 function get_option(string $name, mixed $default = false): mixed {
     return $name === 'active_plugins' ? $GLOBALS['duo_test_active'] : $default;
 }
+function untrailingslashit(string $value): string {
+    return rtrim($value, '/\\');
+}
+function wp_upload_dir(mixed $time = null, bool $refresh = false): array {
+    return ['baseurl' => 'https://fixture.invalid/uploads'];
+}
 function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
@@ -2491,45 +2497,45 @@ $driveRebuild = static function (
         'capabilities' => ['probe-cache' => ['flush' => $provider->capabilities()['flush']]],
     ];
     $selection->set_negotiated_providers($negotiated);
-    $contextStore = new \Duo\RegenerationContextStore(
-        $passPolicy,
-        fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
-    );
-    $regenerator = new \Duo\DependencyRegenerator(
-        $passPolicy,
-        $contextStore,
-        fn(string $surface): bool => $selection->declares_entity_batch_for($surface),
-        fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface),
-        fn(string $surface): bool => $selection->triggers_provider_action_for($surface),
-        fn(string $surface): bool => $selection->pinned_action_owns($surface),
-        static function (): void {}
-    );
-    $dispatcher = new \Duo\RebuildActionDispatcher(
-        $passPolicy,
-        new \Duo\ProviderActionBatchBuilder($passPolicy, \Duo\Snapshot::row_tables($passPolicy)),
-        static function (): void {}
-    );
     [$attachmentIds, $work, $tree, $regenContext, $deleteWork, $withDeletes, $absentTombstones] = $rebuildArgs;
     $warnings = [];
     $receipts = [];
     $error = '';
     try {
-        $durableReparents = $contextStore->durable_reparents();
-        $durableDeletions = $contextStore->durable_deletions();
-        $regenerator->run($work, $tree, $regenContext, $warnings);
-        $dispatcher->dispatch(
-            [$driveAction],
-            $negotiated,
-            $work,
-            $tree,
-            array_merge($withDeletes ? $deleteWork : [], $retrying ? $absentTombstones : []),
-            $regenContext,
-            $durableReparents,
-            $durableDeletions,
-            $retrying,
-            false,
-            null,
-            null,
+        $compiledSentinel = (new \ReflectionClass(\Duo\CompiledRepository::class))
+            ->newInstanceWithoutConstructor();
+        $callbacks = new \Duo\ApplyServiceCallbacks(
+            taxonomyOwnership: static fn(): array => [],
+            renewPromotionLock: static function (string $phase): void {},
+            renewRegenerationLease: static function (): void {},
+            renewProviderLease: static function (): void {},
+            lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
+            selectionDeclaresChannelFor: fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface),
+            selectionDeclaresEntityBatchFor: fn(string $surface): bool => $selection->declares_entity_batch_for($surface),
+            selectionTriggersProviderActionFor: fn(string $surface): bool => $selection->triggers_provider_action_for($surface),
+            pinnedProviderActionOwns: fn(string $surface): bool => $selection->pinned_action_owns($surface),
+            upsertMeta: static function (string $table, string $keyColumn, int $id, string $metaKey, ?string $value, ?string $phase, string $metaIdColumn): void {}
+        );
+        $services = new \Duo\ApplyServices($passPolicy, $compiledSentinel, $callbacks);
+        $coordinator = new \Duo\ApplyRebuildCoordinator($services, $selection);
+        $coordinator->rebuild(
+            new \Duo\RebuildRequest(
+                attachmentIds: $attachmentIds,
+                work: $work,
+                tree: $tree,
+                regenerationContext: $regenContext,
+                deleteWork: $deleteWork,
+                withDeletes: $withDeletes,
+                absentTombstones: $absentTombstones,
+                retryingIncompleteApply: $retrying,
+                scoped: false,
+                skipScopedCore: false,
+                scopedCoreComplete: null,
+                suppressScopedExternalEffects: false,
+                scopedSession: null,
+                scopedObservation: null
+            ),
             $warnings,
             $receipts
         );

@@ -2057,6 +2057,19 @@ $preparedAt = strpos($applySource, '$prepared = $this->preparationCoordinator->p
 $freshActualContractAt = strpos($preparationSource, 'freshActual: $freshActual');
 $freshActualHandoffAt = strpos($applySource, '$freshActual = $prepared->freshActual;');
 $authoredStateAt = strpos($applySource, 'ScopedApply::authored_state(');
+$freshActualProbe = ['selected' => ['sentinel' => true]];
+$preparedProbe = new \Duo\PreparedApply(
+    freshPlan: [],
+    work: [],
+    deleteWork: [],
+    rebuildDeleteWork: [],
+    deleteUuids: [],
+    guardRepairUuids: [],
+    negotiation: [],
+    executeDeletes: false,
+    defaultAuthor: null,
+    freshActual: $freshActualProbe
+);
 $terminalArchiveAt = strpos($applySource, '$this->scopedWorkflow->terminalSessionToArchive->archive_terminal();');
 $archivedReplayLookupAt = strpos($applySource, 'ScopedApplySession::open_terminal_for_request(');
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
@@ -2101,6 +2114,10 @@ $check(
         && $authoredStateAt !== false
         && $freshActualHandoffAt < $authoredStateAt,
     'scoped preparation carries the fresh target snapshot through PreparedApply before authored-state validation'
+);
+$check(
+    $preparedProbe->freshActual === $freshActualProbe,
+    'PreparedApply declares and preserves the freshActual named state contract'
 );
 $check(
     $terminalArchiveAt !== false
