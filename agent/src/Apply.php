@@ -10,6 +10,8 @@ require_once __DIR__ . '/ApplyRequestCoordinator.php';
  * class preserves the shipped static API used by WP-CLI and integrations.
  */
 final class Apply {
+    private function __construct() {}
+
     public static function plan(string $repo, array $opts = []): array {
         return ApplyRequestCoordinator::plan($repo, $opts);
     }

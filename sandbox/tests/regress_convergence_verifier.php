@@ -94,6 +94,11 @@ $check(
 
 // ---- 3. All private convergence methods are gone from Apply.
 $applyReflection = new ReflectionClass(Apply::class);
+$applyConstructor = $applyReflection->getConstructor();
+$check(
+    $applyConstructor !== null && $applyConstructor->isPrivate(),
+    'Apply remains a static-only, non-instantiable public facade'
+);
 foreach (['verify_scoped_convergence', 'verify_scoped_convergence_local', 'verify_convergence_local', 'verify_convergence', 'verification_hash'] as $moved) {
     $check(
         !$applyReflection->hasMethod($moved),
