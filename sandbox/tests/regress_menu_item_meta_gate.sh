@@ -30,28 +30,52 @@
 #       with real cross-environment token resolution;
 #   (g) recaptures byte-identical.
 #
-# Own dedicated pair (asub3275 — fresh, issue-scoped, never asub3222*/
-# asub3266's own old name), destroyed unconditionally on exit via trap.
+# Dedicated pair, destroyed unconditionally on exit. Capture writes as
+# container uid 33, so every host-side commit/copy/removal first uses
+# pair.sh's exact-root repo-host handback, and refreshes clear contents in
+# place so Docker's bind-mounted root inode and mode survive. The historical
+# default remains asub3275 for CI; distributed agents must supply their own
+# PAIR and explicit ports so this regression never resets another actor's
+# sandbox.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
 
-PAIR=asub3275
-PORT1=8954
-PORT2=8955
-export DUO_PAIR="$PAIR"
+PAIR="${PAIR:-asub3275}"
+[[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
+  || { echo "FAIL: PAIR '$PAIR' invalid (pair.sh naming: lowercase letters/digits, letter first)" >&2; exit 1; }
+if [ "$PAIR" != "asub3275" ] && { [ -z "${PORT1:-}" ] || [ -z "${PORT2:-}" ]; }; then
+  echo "FAIL: custom PAIR '$PAIR' requires explicit PORT1 and PORT2" >&2
+  exit 1
+fi
+PORT1="${PORT1:-8954}"
+PORT2="${PORT2:-8955}"
+export DUO_PAIR="$PAIR" DUO_PORT1="$PORT1" DUO_PORT2="$PORT2"
 COMPOSE=(docker compose -p "duo-${PAIR}" -f sandbox/pair.yml)
 SITE1="$REPO_ROOT/sandbox/siterepo/${PAIR}1"
 SITE2="$REPO_ROOT/sandbox/siterepo/${PAIR}2"
 
 wp1() { "${COMPOSE[@]}" run --rm -T cli1 wp "$@"; }
 wp2() { "${COMPOSE[@]}" run --rm -T cli2 wp "$@"; }
+repo_host() { bash sandbox/bin/pair.sh repo-host "$PAIR" "${1:-both}" >/dev/null; }
+clear_repo() {
+  local root="$1"
+  [ -d "$root" ] && [ ! -L "$root" ] || fail "pair repository root is not an ordinary directory: $root"
+  find "$root" -mindepth 1 -xdev -depth -delete
+  chmod 0777 "$root"
+}
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 cleanup() {
+  repo_host both >/dev/null 2>&1 || true
   bash sandbox/bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
-  rm -rf "$SITE1" "$SITE2"
+  for root in "$SITE1" "$SITE2"; do
+    if [ -d "$root" ] && [ ! -L "$root" ]; then
+      find "$root" -mindepth 1 -xdev -depth -delete >/dev/null 2>&1 || true
+      rmdir -- "$root" >/dev/null 2>&1 || true
+    fi
+  done
 }
 trap cleanup EXIT
 
@@ -60,8 +84,9 @@ bash sandbox/bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" --headless >/dev/null || f
 pass "pair up"
 
 say "site-repo: core manifest only — the mega-menu key starts genuinely UNCLASSIFIED, no pre-declared policy"
-rm -rf "$SITE1" "$SITE2"
-mkdir -p "$SITE1"
+repo_host both
+clear_repo "$SITE1"
+clear_repo "$SITE2"
 cat > "$SITE1/site.duo.json" <<'EOF'
 {
   "manifests": ["core"],
@@ -77,6 +102,11 @@ cp sandbox/site-repo.gitignore.template "$SITE1/.gitignore"
 git -C "$SITE1" init -q
 git -C "$SITE1" config user.name duo
 git -C "$SITE1" config user.email duo@example.test
+# The repository root is deliberately shared with container uid 33. This
+# policy file is created by the host but `wp duo classify` atomically rewrites
+# it inside the container, so read-only-for-others mode would strand the live
+# workflow halfway through its own loud-gate proof.
+chmod a+rw "$SITE1/site.duo.json"
 pass "site-repo scaffolded, no policy override for the mega-menu key yet"
 
 say "build the menu + one item, and a real post to use as the ref target"
@@ -152,9 +182,11 @@ assert it['ref'] == 'https://example.test/', it
 pass "(e) type/title/ref (custom-link URL) all correct — existing menu capture untouched by this fix"
 
 say "(f) commit SITE1, clone to SITE2, apply on a second, independent environment"
+repo_host both
 git -C "$SITE1" add -A
 git -C "$SITE1" commit -qm "asub3275 menu-item meta fixture" >/dev/null
-cp -R "$SITE1" "$SITE2"
+clear_repo "$SITE2"
+cp -R "$SITE1"/. "$SITE2"/
 chmod -R a+rwX "$SITE2"
 wp2 duo apply --repo=/siterepo --adopt-by-slug=posts,terms,menus --default-author=admin >/dev/null \
   || fail "apply failed on the target environment"

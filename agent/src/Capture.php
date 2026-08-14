@@ -12,6 +12,7 @@ require_once __DIR__ . '/CaptureTransaction.php';
 require_once __DIR__ . '/ScopeDiscovery.php';
 require_once __DIR__ . '/UserMetaCapture.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
+require_once __DIR__ . '/MenuCapture.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /**
@@ -46,6 +47,7 @@ final class Capture {
     private ?ScopeDiscovery $scopeDiscovery = null;
     private ?UserMetaCapture $userMetaCapture = null;
     private ?EntityMetaCapture $entityMetaCapture = null;
+    private ?MenuCapture $menuCapture = null;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
@@ -164,6 +166,44 @@ final class Capture {
             );
         }
         return $this->entityMetaCapture;
+    }
+
+    /** Lazily bind nav-menu reads to Capture's identity and meta boundaries. */
+    private function menu_capture(): MenuCapture {
+        if ($this->menuCapture === null) {
+            $this->menuCapture = new MenuCapture(
+                $this->policy,
+                $this->tokens,
+                function (object $term, string $type, bool $mint, bool $strictReadOnly): ?string {
+                    return $this->ensure_term_uuid($term, $type, $mint, $strictReadOnly);
+                },
+                function (int $id, string $type, bool $mint, bool $strictReadOnly): ?string {
+                    return $this->ensure_post_uuid($id, $type, $mint, $strictReadOnly);
+                },
+                function (int $id): array {
+                    return $this->post_meta_map($id);
+                },
+                function (int $id): array {
+                    return $this->post_meta_by_key($id);
+                },
+                function (
+                    string $key,
+                    array $values,
+                    array $flatMeta,
+                    string $ownerLabel,
+                    string $unclassifiedPrefix
+                ): array {
+                    return $this->classify_meta_value(
+                        $key,
+                        $values,
+                        $flatMeta,
+                        $ownerLabel,
+                        $unclassifiedPrefix
+                    );
+                }
+            );
+        }
+        return $this->menuCapture;
     }
 
     /**
@@ -2991,217 +3031,9 @@ final class Capture {
 
     /** @return array<int, array{uuid: string, slug: string, front: array}> */
     private function scope_menus(bool $mint, bool $strictReadOnly = false): array {
-        global $wpdb;
-        $menuTerms = $wpdb->get_results(
-            "SELECT t.term_id, t.name, t.slug, tt.term_taxonomy_id, tt.taxonomy, tt.description, tt.parent
-             FROM {$wpdb->terms} t JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id
-             WHERE tt.taxonomy = 'nav_menu' ORDER BY t.term_id ASC"
-        ) ?: [];
-        if (!$menuTerms) {
-            return [];
-        }
-
-        // menu -> locations, from the active theme's mods. DUO-3272: under a
-        // manifest that reclassifies menu_fields.locations 'derived' (e.g.
-        // Polylang — its own Languages::update_default() unconditionally
-        // rewrites this exact raw slot from ITS OWN nav_menus/default_lang
-        // bookkeeping any time the default language changes or is
-        // re-resolved, entirely outside this capture/apply cycle), the raw
-        // slot is not carried at all: not read here, not written into any
-        // menu's 'locations' key below. See Policy::menu_field_class()'s
-        // docblock and manifests/polylang.json's own DUO-3272 note for the
-        // full empirical grounding.
-        $locationsDerived = $this->policy->menu_field_class('locations') === 'derived';
-        $locByTerm = [];
-        if (!$locationsDerived) {
-            $stylesheet = (string) get_option('stylesheet');
-            // WordPress' get_option() path uses maybe_unserialize(), whose
-            // legacy unserialize() call can construct target-controlled PHP
-            // objects before this capture ever sees the value. Read the
-            // exact row instead, then cross the shared plain-data boundary
-            // with object hooks disabled while retaining WordPress's false
-            // default for a missing row.
-            $name = 'theme_mods_' . $stylesheet;
-            $raw = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1",
-                $name
-            ));
-            $mods = $raw === null ? false : PlainData::decode($raw, "option '$name'");
-            if (is_array($mods) && !empty($mods['nav_menu_locations'])) {
-                foreach ($mods['nav_menu_locations'] as $loc => $tid) {
-                    $locByTerm[(int) $tid][] = (string) $loc;
-                }
-            }
-        }
-
-        $menus = [];
-        foreach ($menuTerms as $mt) {
-            // One query supplies both canonical published items and the
-            // internal observation needed by plan deletion summaries. A menu
-            // tombstone deletes EVERY assigned nav_menu_item, while a normal
-            // menu reconciliation deletes only items already carrying a
-            // durable UUID. Keeping both facts in this same consistent-
-            // snapshot read prevents a later plan query from observing a
-            // different target moment.
-            $allItems = $wpdb->get_results($wpdb->prepare(
-                "SELECT p.*,
-                        (SELECT pm.meta_value FROM {$wpdb->postmeta} pm
-                         WHERE pm.post_id = p.ID AND pm.meta_key = '_duo_uuid'
-                         ORDER BY pm.meta_id ASC LIMIT 1) AS duo_uuid
-                 FROM {$wpdb->posts} p
-                 JOIN {$wpdb->term_relationships} tr ON tr.object_id = p.ID
-                 WHERE tr.term_taxonomy_id = %d AND p.post_type = 'nav_menu_item'
-                 ORDER BY p.menu_order ASC, p.ID ASC",
-                (int) $mt->term_taxonomy_id
-            )) ?: [];
-            $uuid = $this->ensure_term_uuid($mt, 'menu', $mint, $strictReadOnly);
-            if ($uuid === null) {
-                // An unmanaged target menu is not canonical capture state,
-                // and ordinary capture must not mint identities for its
-                // items. It is nevertheless a possible --adopt-by-slug
-                // target. Preserve only pre-existing item UUIDs and the full
-                // item count, keyed by target term id so Apply can associate
-                // the later adopt row's env_id without pretending the source
-                // UUID already belongs to this target menu.
-                $managedItemUuids = [];
-                foreach ($allItems as $ip) {
-                    $itemUuid = (string) ($ip->duo_uuid ?? '');
-                    if ($itemUuid !== '') {
-                        $managedItemUuids[$itemUuid] = true;
-                    }
-                }
-                $this->planObservations['menus_by_term_id'][(string) (int) $mt->term_id] = [
-                    'uuid' => null,
-                    'managed_menu_item_uuids' => array_keys($managedItemUuids),
-                    'all_menu_item_count' => count($allItems),
-                ];
-                continue;
-            }
-            $items = array_values(array_filter(
-                $allItems,
-                static fn(object $item): bool => (string) ($item->post_status ?? '') === 'publish'
-            ));
-
-            // first pass: identity for parent refs
-            $itemUuidById = [];
-            foreach ($items as $ip) {
-                $iu = $this->ensure_post_uuid((int) $ip->ID, 'menu_item', $mint, $strictReadOnly);
-                if ($iu !== null) {
-                    $itemUuidById[(int) $ip->ID] = $iu;
-                }
-            }
-            $managedItemUuids = [];
-            foreach ($allItems as $ip) {
-                $id = (int) $ip->ID;
-                $itemUuid = $itemUuidById[$id] ?? (string) ($ip->duo_uuid ?? '');
-                if ($itemUuid !== '') {
-                    $managedItemUuids[$itemUuid] = true;
-                }
-            }
-            $this->planObservations['menus_by_term_id'][(string) (int) $mt->term_id] = [
-                'uuid' => $uuid,
-                'managed_menu_item_uuids' => array_keys($managedItemUuids),
-                'all_menu_item_count' => count($allItems),
-            ];
-
-            $itemList = [];
-            foreach ($items as $ip) {
-                $iid = (int) $ip->ID;
-                $iu = $itemUuidById[$iid] ?? null;
-                if ($iu === null) {
-                    continue;
-                }
-                $m = $this->post_meta_map($iid);
-                $type = $m['_menu_item_type'] ?? 'custom';
-                $objectId = (int) ($m['_menu_item_object_id'] ?? 0);
-                $ref = '';
-                if ($type === 'post_type') {
-                    $ref = $this->tokens->id_to_token($objectId, 'post')
-                        ?? throw new \RuntimeException("duo: menu '{$mt->slug}' item $iid points at unmanaged post $objectId");
-                } elseif ($type === 'taxonomy') {
-                    $ref = $this->tokens->id_to_token($objectId, 'term')
-                        ?? throw new \RuntimeException("duo: menu '{$mt->slug}' item $iid points at unmanaged term $objectId");
-                } else {
-                    $ref = $this->tokens->tokenize_text((string) ($m['_menu_item_url'] ?? ''));
-                }
-                $parentItem = (int) ($m['_menu_item_menu_item_parent'] ?? 0);
-                $classes = PlainData::decode(
-                    $m['_menu_item_classes'] ?? '',
-                    "menu '{$mt->slug}' item $iid _menu_item_classes"
-                );
-                $classes = is_array($classes)
-                    ? array_values(array_filter(array_map('strval', $classes), fn($s) => $s !== ''))
-                    : [];
-                // DUO-3266: every OTHER key in this item's meta — anything
-                // beyond the 8 WordPress-core _menu_item_* keys read above
-                // — used to be silently dropped here, never reaching
-                // Policy::meta_rule_for_post() or $this->unclassified[]
-                // the way ordinary post_meta already does (Capture.php's
-                // build_post(), a few hundred lines up). manifests/core.json
-                // already classifies all 8 core keys "managed" (bespoke-
-                // handled, same as _wp_attached_file) or "runtime"
-                // (_menu_item_orphaned) — neither is 'authored' — so
-                // classify_meta_value() skips them here for free, with NO
-                // separate allowlist needed; a genuinely unclassified key
-                // (a plugin's own menu-item meta) now hits the SAME loud
-                // gate every other post type's meta already does, and a
-                // key a manifest DOES classify authored now actually
-                // captures instead of vanishing.
-                $itemByKey = $this->post_meta_by_key($iid);
-                $itemFlatMeta = array_map(fn($vals) => $vals[0], $itemByKey);
-                $itemMeta = [];
-                foreach ($itemByKey as $ikey => $ivalues) {
-                    [$store, $iv] = $this->classify_meta_value(
-                        $ikey,
-                        $ivalues,
-                        $itemFlatMeta,
-                        "menu '{$mt->slug}' item $iid",
-                        'menu_item_meta'
-                    );
-                    if ($store) {
-                        $itemMeta[$ikey] = $iv;
-                    }
-                }
-                $itemList[] = [
-                    'uuid' => $iu,
-                    'type' => $type,
-                    'object' => (string) ($m['_menu_item_object'] ?? ''),
-                    'ref' => $ref,
-                    'meta' => $itemMeta,
-                    'parent' => $parentItem > 0 ? ($itemUuidById[$parentItem] ?? null) : null,
-                    'position' => (int) $ip->menu_order,
-                    'title' => $ip->post_title,
-                    'description' => $this->tokens->tokenize_text((string) $ip->post_content),
-                    'attr_title' => (string) $ip->post_excerpt,
-                    'target' => (string) ($m['_menu_item_target'] ?? ''),
-                    'classes' => $classes,
-                    'xfn' => (string) ($m['_menu_item_xfn'] ?? ''),
-                ];
-            }
-
-            $front = [
-                'uuid' => $uuid,
-                'name' => $mt->name,
-                'slug' => $mt->slug,
-                'items' => $itemList,
-            ];
-            if (!$locationsDerived) {
-                // DUO-3272: omitted entirely (not captured as []) when
-                // derived — Apply::finalize_menu()'s own '?? []' fallback
-                // for a missing key is exactly what keeps a derived-under-
-                // Polylang menu file forward-compatible with an
-                // engine/manifest pairing that predates this override.
-                $locations = $locByTerm[(int) $mt->term_id] ?? [];
-                sort($locations, SORT_STRING);
-                $front['locations'] = $locations;
-            }
-            $menus[] = [
-                'uuid' => $uuid,
-                'slug' => $mt->slug,
-                'front' => $front,
-            ];
-        }
-        return $menus;
+        $result = $this->menu_capture()->capture($mint, $strictReadOnly);
+        $this->planObservations['menus_by_term_id'] = $result['observations'];
+        return $result['menus'];
     }
 
     private function post_meta_map(int $postId): array {
