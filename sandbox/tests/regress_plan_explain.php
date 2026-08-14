@@ -318,6 +318,7 @@ $check(
     'duplicate/invalid embedded identity state maps to the stable value-free observation precondition refusal'
 );
 $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$mediaCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/MediaCapture.php');
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
 $captureStart = strpos((string) $captureSource, 'public static function snapshot_read_only(');
 $captureEnd = strpos((string) $captureSource, "\n    /**", (int) $captureStart + 1);
@@ -351,9 +352,11 @@ foreach (['Ledger::ensure', 'prune_dead_map', 'repair_truncated_entity_types'] a
 $check(
     $buildPostStart !== false && $buildPostEnd !== false
         && str_contains($captureSource, '$forceUnresolvedRefs,' . "\n" . '                $strictReadOnly')
-        && str_contains($buildPost, 'if (!$strictReadOnly) {')
-        && str_contains($buildPost, "'duo_attachment_capture_source'")
-        && str_contains($buildPost, 'external offload hook is deliberately not invoked by explain'),
+        && str_contains($buildPost, '$this->media_capture()->capture(')
+        && str_contains($buildPost, '$strictReadOnly')
+        && str_contains((string) $mediaCaptureSource, 'if (!$strictReadOnly) {')
+        && str_contains((string) $mediaCaptureSource, "'duo_attachment_capture_source'")
+        && str_contains((string) $mediaCaptureSource, 'external offload hook is deliberately not invoked by explain'),
     'strict attachment observation uses only local bytes and refuses rather than invoking an offload provider hook'
 );
 $check(
