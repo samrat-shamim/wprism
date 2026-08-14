@@ -38,6 +38,18 @@ final class Runner
     private ?int $activeProcessGroup = null;
     private bool $interrupted = false;
     private ?int $interruptSignal = null;
+    private bool $finalizing = false;
+
+    /** @var array<string,string> receipt key => sha256 digest */
+    private array $toolchainBindings = [];
+
+    /** @var array<string,string> receipt key => absolute path */
+    private array $toolchainPaths = [];
+
+    /** @var array<string,string> suite id => sha256 digest */
+    private array $suiteExecutableBindings = [];
+
+    private ?string $setsidPath = null;
 
     /** @param CatalogAggregate $catalog */
     public function __construct(
@@ -100,6 +112,10 @@ final class Runner
                 throw new CatalogException("unknown suite: $suiteId");
             }
         }
+        /** @var list<Suite> $selectedSuites */
+        $selectedSuites = array_map(static fn(string $id): array => $suiteMap[$id], $suiteIds);
+        $this->bindToolchain($selectedSuites);
+        $platformContract = $this->platformContract();
 
         $candidateSha = trim($this->capture(['git', 'rev-parse', 'HEAD'], $this->root));
         if (preg_match('/^[a-f0-9]{40}$/D', $candidateSha) !== 1) {
@@ -126,6 +142,17 @@ final class Runner
                 break;
             }
             $results[] = $this->runSuite($suiteMap[$suiteId], $logRoot, $logRootRelative);
+            $changedBinding = $this->changedToolchainBinding();
+            if ($changedBinding !== null) {
+                $results[] = $this->infrastructureResult(
+                    'runner.toolchain-integrity',
+                    "bound execution input changed during suite $suiteId: $changedBinding",
+                );
+                foreach (array_slice($suiteIds, $index + 1) as $unrunId) {
+                    $results[] = $this->infrastructureResult($unrunId, 'suite was not run after execution-input tampering');
+                }
+                break;
+            }
         }
 
         $profileArtifacts = [];
@@ -153,9 +180,17 @@ final class Runner
                 'Git-visible workspace state changed during the catalog run',
             );
         }
+        // Enter the terminal commit boundary before the final interruption
+        // read. The signal handler ignores later signals, while any signal
+        // delivered before this assignment is already visible below.
+        $this->finalizing = true;
+        if ($this->interrupted) {
+            $results[] = $this->infrastructureResult(
+                'runner.interruption',
+                'runner was interrupted before terminal receipt finalization',
+            );
+        }
         $aggregateState = $this->aggregateState($results);
-        /** @var list<Suite> $selectedSuites */
-        $selectedSuites = array_map(static fn(string $id): array => $suiteMap[$id], $suiteIds);
         $receipt = [
             'format' => 'duo-test-run-receipt/v1',
             'phase' => 'complete',
@@ -179,13 +214,9 @@ final class Runner
             'execution_plan' => array_map(fn(array $suite): array => $this->executionPlan($suite), $selectedSuites),
             'runner_sha256' => $this->fileDigest(__FILE__),
             'dependency_lock_sha256' => $this->fileDigest($this->root . '/composer.lock'),
-            'toolchain' => $this->toolchain($selectedSuites),
+            'toolchain' => $this->toolchainBindings,
             'image_digest' => null,
-            'platform_contract' => [
-                'php_version' => PHP_VERSION,
-                'os_family' => PHP_OS_FAMILY,
-                'architecture' => php_uname('m'),
-            ],
+            'platform_contract' => $platformContract,
             'started_at' => $startedWall,
             'finished_at' => gmdate('Y-m-d\TH:i:s\Z'),
             'duration_ms' => (int) round((hrtime(true) - $started) / 1_000_000),
@@ -214,12 +245,7 @@ final class Runner
     private function runSuite(array $suite, string $logRoot, string $logRootRelative): array
     {
         $id = $suite['id'];
-        foreach ($suite['required_tools'] as $tool) {
-            if (!$this->hasTool($tool)) {
-                return $this->infrastructureResult($id, "required tool is unavailable: $tool");
-            }
-        }
-        if (!$this->hasTool('setsid') || !function_exists('posix_kill')) {
+        if ($this->setsidPath === null || !function_exists('posix_kill')) {
             return $this->infrastructureResult($id, 'setsid and posix_kill are required for process-group cleanup');
         }
         if ($suite['required_services'] !== []) {
@@ -262,7 +288,25 @@ final class Runner
             }
         }
 
-        $workspaceBefore = $this->workspaceFingerprint($workspace);
+        $enforceWorkspaceIntegrity = $suite['workspace_mode'] === 'read_only';
+        $runnerOwnedOutputTrees = $this->inheritedRunnerOutputTrees();
+        $runnerOwnedOutputTrees[] = $logRootRelative;
+        $runnerOwnedOutputTrees = array_values(array_unique($runnerOwnedOutputTrees));
+        $fingerprintExcludedTrees = array_merge(['.git'], $runnerOwnedOutputTrees);
+        $fingerprintExcludedExactPaths = $suite['expected_outputs'];
+        foreach ($suite['expected_outputs'] as $expectedOutput) {
+            $ancestor = dirname($expectedOutput);
+            while ($ancestor !== '.' && $ancestor !== '') {
+                if (!file_exists($workspace . '/' . $ancestor) && !is_link($workspace . '/' . $ancestor)) {
+                    $fingerprintExcludedExactPaths[] = $ancestor;
+                }
+                $ancestor = dirname($ancestor);
+            }
+        }
+        $fingerprintExcludedExactPaths = array_values(array_unique($fingerprintExcludedExactPaths));
+        $workspaceBefore = $enforceWorkspaceIntegrity
+            ? $this->workspaceFingerprint($workspace, $fingerprintExcludedTrees, $fingerprintExcludedExactPaths)
+            : [];
         foreach ($suite['expected_outputs'] as $expectedOutput) {
             self::normalizeArtifactPath($workspace, $expectedOutput);
             $staleOutput = $workspace . '/' . $expectedOutput;
@@ -287,6 +331,7 @@ final class Runner
             'LC_ALL' => 'C',
             'LANG' => 'C',
             'TZ' => 'UTC',
+            'DUO_RUNNER_OWNED_OUTPUT_TREES' => $this->canonical($runnerOwnedOutputTrees),
         ];
         if ($suite['temporary_directory'] === 'unique') {
             $environment['DUO_TEST_TMPDIR'] = $temporary;
@@ -313,13 +358,20 @@ final class Runner
             $this->cleanupWorkspace($worktreeCreated, $workspace, $controlRoot, $lock);
             return $this->infrastructureResult($id, 'suite executable cannot be resolved');
         }
+        $executableDigest = hash_file('sha256', $executable);
+        if (!is_string($executableDigest)
+            || ($this->suiteExecutableBindings[$id] ?? null) !== 'sha256:' . $executableDigest) {
+            fclose($log);
+            $this->cleanupWorkspace($worktreeCreated, $workspace, $controlRoot, $lock);
+            return $this->infrastructureResult($id, 'resolved suite executable disagrees with its bound digest');
+        }
         $processGroupFile = $controlRoot . '/process-group.pid';
         $processStatusFile = $controlRoot . '/process-status.json';
         $started = hrtime(true);
         $process = proc_open(
             array_merge(
                 [
-                    'setsid', '--fork', '--wait', PHP_BINARY, __DIR__ . '/process-entry.php',
+                    $this->setsidPath, '--fork', '--wait', PHP_BINARY, __DIR__ . '/process-entry.php',
                     $processGroupFile, $processStatusFile, $executable,
                 ],
                 array_slice($suite['command'], 1),
@@ -500,8 +552,10 @@ final class Runner
             $artifacts[] = $artifact;
         }
 
-        $workspaceAfter = $this->workspaceFingerprint($workspace);
-        $workspaceChanged = $workspaceBefore !== $workspaceAfter;
+        $workspaceAfter = $enforceWorkspaceIntegrity
+            ? $this->workspaceFingerprint($workspace, $fingerprintExcludedTrees, $fingerprintExcludedExactPaths)
+            : [];
+        $workspaceChanged = $enforceWorkspaceIntegrity && $workspaceBefore !== $workspaceAfter;
         $workspaceCleanup = $this->cleanupWorkspace($worktreeCreated, $workspace, $controlRoot, $lock);
         if (!$workspaceCleanup) {
             $cleanupMessage = 'workspace cleanup failed';
@@ -622,23 +676,131 @@ final class Runner
         ];
     }
 
-    /**
-     * @param list<Suite> $suites
-     * @return array<string,string>
-     */
-    private function toolchain(array $suites): array
+    /** @param list<Suite> $suites */
+    private function bindToolchain(array $suites): void
     {
-        $tools = ['php' => $this->fileDigest(PHP_BINARY)];
+        $setsid = $this->findTool('setsid');
+        if ($setsid === null || !function_exists('posix_kill')) {
+            throw new CatalogException('setsid and posix_kill are required for process-group cleanup');
+        }
+        $this->setsidPath = $setsid;
+        $this->bindToolchainPath('php', PHP_BINARY);
+        $this->bindToolchainPath('runner.process-entry', __DIR__ . '/process-entry.php');
+        $this->bindToolchainPath('runner.setsid', $setsid);
         foreach ($suites as $suite) {
+            $executable = $this->resolveExecutable($suite['command'][0], $this->root);
+            if ($executable === null) {
+                throw new CatalogException('suite executable cannot be resolved: ' . $suite['id']);
+            }
+            $key = 'suite.' . $suite['id'] . '.executable';
+            $this->bindToolchainPath($key, $executable);
+            $this->suiteExecutableBindings[$suite['id']] = $this->toolchainBindings[$key];
             foreach ($suite['required_tools'] as $tool) {
                 $path = $this->findTool($tool);
-                if ($path !== null) {
-                    $tools[$tool] = $this->fileDigest($path);
+                if ($path === null) {
+                    throw new CatalogException("required tool is unavailable: $tool");
                 }
+                $this->bindToolchainPath('required.' . $tool, $path);
             }
         }
-        ksort($tools, SORT_STRING);
-        return $tools;
+        ksort($this->toolchainBindings, SORT_STRING);
+        ksort($this->toolchainPaths, SORT_STRING);
+        ksort($this->suiteExecutableBindings, SORT_STRING);
+    }
+
+    private function bindToolchainPath(string $key, string $path): void
+    {
+        $this->toolchainPaths[$key] = $path;
+        $this->toolchainBindings[$key] = $this->fileDigest($path);
+    }
+
+    private function changedToolchainBinding(): ?string
+    {
+        foreach ($this->toolchainPaths as $key => $path) {
+            $digest = is_file($path) ? hash_file('sha256', $path) : false;
+            if (!is_string($digest) || 'sha256:' . $digest !== $this->toolchainBindings[$key]) {
+                return $key;
+            }
+        }
+        return null;
+    }
+
+    /** @return list<string> */
+    private function inheritedRunnerOutputTrees(): array
+    {
+        $raw = getenv('DUO_RUNNER_OWNED_OUTPUT_TREES');
+        if (!is_string($raw) || $raw === '') {
+            return [];
+        }
+        try {
+            $paths = json_decode($raw, true, 16, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return [];
+        }
+        if (!is_array($paths) || !array_is_list($paths)) {
+            return [];
+        }
+        $validated = [];
+        foreach ($paths as $path) {
+            if (!is_string($path)
+                || preg_match(
+                    '~^artifacts/test-results/runs/[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}-[a-f0-9]{8}$~D',
+                    $path,
+                ) !== 1
+                || !is_dir($this->root . '/' . $path)
+                || is_link($this->root . '/' . $path)) {
+                return [];
+            }
+            $validated[] = $path;
+        }
+        return $validated;
+    }
+
+    /** @return array{profile_id:string,contract_sha256:string} */
+    private function platformContract(): array
+    {
+        $path = __DIR__ . '/platform-profiles.json';
+        $bytes = @file_get_contents($path);
+        if (!is_string($bytes)) {
+            throw new CatalogException('reviewed platform profiles are unavailable');
+        }
+        try {
+            $document = json_decode($bytes, true, 64, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $exception) {
+            throw new CatalogException('reviewed platform profiles are malformed: ' . $exception->getMessage());
+        }
+        if (!is_array($document)
+            || ($document['format'] ?? null) !== 'duo-development-platform-profiles/v1'
+            || !is_array($document['profiles'] ?? null)
+            || !array_is_list($document['profiles'])) {
+            throw new CatalogException('reviewed platform profiles are malformed');
+        }
+        $architecture = match (strtolower(php_uname('m'))) {
+            'amd64', 'x86_64' => 'x86_64',
+            'arm64', 'aarch64' => 'aarch64',
+            default => null,
+        };
+        $version = PHP_MAJOR_VERSION . '.' . PHP_MINOR_VERSION;
+        foreach ($document['profiles'] as $profile) {
+            if (!is_array($profile)
+                || array_keys($profile) !== ['id', 'php_major_minor', 'os_family', 'architecture']
+                || !is_string($profile['id'])
+                || !is_string($profile['php_major_minor'])
+                || !is_string($profile['os_family'])
+                || !is_string($profile['architecture'])) {
+                throw new CatalogException('reviewed platform profiles are malformed');
+            }
+            if ($profile['php_major_minor'] !== $version
+                || $profile['os_family'] !== PHP_OS_FAMILY
+                || $profile['architecture'] !== $architecture) {
+                continue;
+            }
+            return [
+                'profile_id' => $profile['id'],
+                'contract_sha256' => 'sha256:' . hash('sha256', $this->canonical($profile)),
+            ];
+        }
+        throw new CatalogException('current development platform has no reviewed public profile');
     }
 
     /**
@@ -711,17 +873,37 @@ final class Runner
         );
     }
 
-    /** @return array<string,string|int> */
-    private function workspaceFingerprint(string $workspace): array
+    /**
+     * @param list<string> $excludedTrees
+     * @param list<string> $excludedExactPaths
+     * @return array<string,string|int>
+     */
+    private function workspaceFingerprint(string $workspace, array $excludedTrees, array $excludedExactPaths): array
     {
+        $trees = [];
+        foreach ($excludedTrees as $path) {
+            $trees[] = trim(str_replace('\\', '/', $path), '/');
+        }
+        $exact = [];
+        foreach ($excludedExactPaths as $path) {
+            $exact[trim(str_replace('\\', '/', $path), '/')] = true;
+        }
+        $isExcludedTree = static function (string $relative) use ($trees): bool {
+            $relative = trim(str_replace('\\', '/', $relative), '/');
+            foreach ($trees as $path) {
+                if ($path !== '' && ($relative === $path || str_starts_with($relative, $path . '/'))) {
+                    return true;
+                }
+            }
+            return false;
+        };
         $result = [];
         $directory = new \RecursiveDirectoryIterator($workspace, \FilesystemIterator::SKIP_DOTS);
         $filtered = new \RecursiveCallbackFilterIterator(
             $directory,
-            static function (\SplFileInfo $info) use ($workspace): bool {
+            static function (\SplFileInfo $info) use ($workspace, $isExcludedTree): bool {
                 $relative = substr($info->getPathname(), strlen($workspace) + 1);
-                $first = explode('/', str_replace('\\', '/', $relative), 2)[0];
-                return !in_array($first, ['.git', '.phpunit.cache', 'artifacts', 'dist', 'vendor'], true);
+                return !$isExcludedTree($relative);
             },
         );
         $iterator = new \RecursiveIteratorIterator($filtered, \RecursiveIteratorIterator::SELF_FIRST);
@@ -732,6 +914,9 @@ final class Runner
             $info = $candidate;
             $path = $info->getPathname();
             $relative = substr($path, strlen($workspace) + 1);
+            if (isset($exact[trim(str_replace('\\', '/', $relative), '/')])) {
+                continue;
+            }
             if ($info->isLink()) {
                 $result[$relative] = 'link:' . (string) readlink($path);
             } elseif ($info->isFile()) {
@@ -804,6 +989,9 @@ final class Runner
         foreach ([SIGINT, SIGTERM] as $signal) {
             $previous[$signal] = function_exists('pcntl_signal_get_handler') ? pcntl_signal_get_handler($signal) : SIG_DFL;
             pcntl_signal($signal, function (int $received): void {
+                if ($this->finalizing) {
+                    return;
+                }
                 $this->interrupted = true;
                 $this->interruptSignal = $received;
                 if ($this->activeProcessGroup !== null) {
@@ -820,11 +1008,6 @@ final class Runner
         foreach ($handlers as $signal => $handler) {
             pcntl_signal($signal, $handler);
         }
-    }
-
-    private function hasTool(string $tool): bool
-    {
-        return $this->findTool($tool) !== null;
     }
 
     private function findTool(string $tool): ?string

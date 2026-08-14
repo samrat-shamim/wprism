@@ -1,0 +1,29 @@
+{
+  "format": "duo-development-platform-profiles/v1",
+  "profiles": [
+    {
+      "id": "development-linux-x86_64-php-8.2",
+      "php_major_minor": "8.2",
+      "os_family": "Linux",
+      "architecture": "x86_64"
+    },
+    {
+      "id": "development-linux-aarch64-php-8.2",
+      "php_major_minor": "8.2",
+      "os_family": "Linux",
+      "architecture": "aarch64"
+    },
+    {
+      "id": "certified-linux-x86_64-php-8.3",
+      "php_major_minor": "8.3",
+      "os_family": "Linux",
+      "architecture": "x86_64"
+    },
+    {
+      "id": "certified-linux-aarch64-php-8.3",
+      "php_major_minor": "8.3",
+      "os_family": "Linux",
+      "architecture": "aarch64"
+    }
+  ]
+}

@@ -159,9 +159,9 @@ $check_throws(
 // \Duo\Policy::class as a symbol needs the class defined) -- required here
 // for exactly that, and for nothing else this suite still deliberately
 // avoids requiring (RepositoryCompiler.php is never required in this file).
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Canon.php';
+require_once __DIR__ . '/../../agent/src/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy.php';
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
 }

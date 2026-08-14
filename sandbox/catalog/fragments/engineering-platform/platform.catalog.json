@@ -174,7 +174,7 @@
             "name": "sandbox/tests/check_guide_commands.sh",
             "role": "suite",
             "suite_ids": [
-                "legacy-grind-ecommerce-developer-live"
+                "platform-guide-contract"
             ]
         },
         {
@@ -214,7 +214,7 @@
             "name": "sandbox/tests/fixtures/duo3324-live-driver.yml",
             "role": "fixture",
             "suite_ids": [
-                "legacy-grind-ecommerce-developer-live"
+                "legacy-regress-environment-materializer-live"
             ]
         },
         {
@@ -2007,8 +2007,7 @@
             "name": "sandbox/catalog/fragments/engineering-platform/delegate-check.php",
             "role": "helper",
             "suite_ids": [
-                "platform-catalog-self-test",
-                "platform-generated-agreement"
+                "platform-delegation-contract"
             ]
         },
         {
@@ -2022,10 +2021,18 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/platform-profiles.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "platform-catalog-self-test",
+                "platform-catalog-complete",
                 "platform-generated-agreement"
             ]
         },
@@ -2610,7 +2617,8 @@
                 "git",
                 "jq",
                 "make",
-                "php"
+                "php",
+                "setsid"
             ],
             "resource_locks": [],
             "temporary_directory": "unique",
@@ -2620,7 +2628,8 @@
         {
             "command": [
                 "vendor/bin/phpunit",
-                "--colors=never"
+                "--colors=never",
+                "--do-not-cache-result"
             ],
             "covered_contracts": [
                 "duo-test-catalog-fragment/v1"
@@ -2679,7 +2688,7 @@
             ],
             "temporary_directory": "unique",
             "timeout_seconds": 120,
-            "workspace_mode": "read_only"
+            "workspace_mode": "exclusive"
         },
         {
             "command": [
@@ -2722,7 +2731,8 @@
                 "duo-refactor-acceptance/v1"
             ],
             "covered_paths": [
-                "docs/proposals/refactor-acceptance.json"
+                "docs/proposals/refactor-acceptance.json",
+                "scripts/foundation-check"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -2751,7 +2761,8 @@
                 "duo-refactor-ownership/v1"
             ],
             "covered_paths": [
-                "docs/proposals/refactor-ownership.json"
+                "docs/proposals/refactor-ownership.json",
+                "scripts/ownership-check"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -2807,7 +2818,9 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
-                "docs/sandbox.md",
+                "agent/src/Cli.php",
+                "cli/duo",
+                "docs/guides/**",
                 "sandbox/tests/check_guide_commands.sh"
             ],
             "environment_class": "offline",
@@ -2833,6 +2846,7 @@
             "command": [
                 "vendor/bin/phpunit",
                 "--colors=never",
+                "--do-not-cache-result",
                 "--filter",
                 "DelegateCheckTest"
             ],
@@ -2903,7 +2917,7 @@
                 "duo-test-catalog/v1"
             ],
             "covered_paths": [
-                "sandbox/catalog/fragments/engineering-platform/generated/catalog.json"
+                "sandbox/catalog/fragments/**"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -2975,8 +2989,6 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
-                "sandbox/tests/check_guide_commands.sh",
-                "sandbox/tests/fixtures/duo3324-live-driver.yml",
                 "sandbox/tests/grind_ecommerce_developer.matrix.json",
                 "sandbox/tests/grind_ecommerce_developer.sh"
             ],
@@ -5828,6 +5840,8 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
+                "sandbox/tests/fixtures/upload-provider.php",
                 "sandbox/tests/regress_upload_bundle.php"
             ],
             "environment_class": "offline",

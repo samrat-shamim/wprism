@@ -6,7 +6,8 @@
             "name": "sandbox/catalog/fragments/capability-policy-evidence/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-adapter-authoring-exercise"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {
@@ -71,8 +72,7 @@
             "name": "sandbox/catalog/fragments/engineering-platform/delegate-check.php",
             "role": "helper",
             "suite_ids": [
-                "platform-catalog-self-test",
-                "platform-generated-agreement"
+                "platform-delegation-contract"
             ]
         },
         {
@@ -102,6 +102,14 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/platform-profiles.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
             "role": "fixture",
             "suite_ids": [
@@ -122,7 +130,7 @@
             "name": "sandbox/catalog/fragments/engineering-platform/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "platform-catalog-self-test",
+                "platform-catalog-complete",
                 "platform-generated-agreement"
             ]
         },
@@ -204,7 +212,8 @@
             "name": "sandbox/catalog/fragments/host-cli/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-cli-smoke"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {
@@ -212,7 +221,8 @@
             "name": "sandbox/catalog/fragments/mutation-recovery/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-code-half-unit"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {
@@ -220,7 +230,8 @@
             "name": "sandbox/catalog/fragments/wordpress-agent/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-lint-smoke"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {
@@ -228,7 +239,16 @@
             "name": "sandbox/conformance/artifacts-cache/.gitkeep",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf",
+                "legacy-conformance-contact-form-7",
+                "legacy-conformance-core",
+                "legacy-conformance-elementor",
+                "legacy-conformance-fse",
+                "legacy-conformance-ninja-forms",
+                "legacy-conformance-paid-memberships-pro",
+                "legacy-conformance-polylang",
+                "legacy-conformance-woocommerce",
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -236,7 +256,16 @@
             "name": "sandbox/conformance/artifacts.lock.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf",
+                "legacy-conformance-contact-form-7",
+                "legacy-conformance-core",
+                "legacy-conformance-elementor",
+                "legacy-conformance-fse",
+                "legacy-conformance-ninja-forms",
+                "legacy-conformance-paid-memberships-pro",
+                "legacy-conformance-polylang",
+                "legacy-conformance-woocommerce",
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -244,7 +273,16 @@
             "name": "sandbox/conformance/asserts.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf",
+                "legacy-conformance-contact-form-7",
+                "legacy-conformance-core",
+                "legacy-conformance-elementor",
+                "legacy-conformance-fse",
+                "legacy-conformance-ninja-forms",
+                "legacy-conformance-paid-memberships-pro",
+                "legacy-conformance-polylang",
+                "legacy-conformance-woocommerce",
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -252,6 +290,7 @@
             "name": "sandbox/conformance/checks/_explain_registry.sh",
             "role": "helper",
             "suite_ids": [
+                "legacy-conformance-core",
                 "legacy-regress-explain-registry"
             ]
         },
@@ -260,7 +299,7 @@
             "name": "sandbox/conformance/checks/_retry_helper.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-fse"
             ]
         },
         {
@@ -268,7 +307,7 @@
             "name": "sandbox/conformance/checks/acf.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf"
             ]
         },
         {
@@ -276,7 +315,7 @@
             "name": "sandbox/conformance/checks/contact-form-7.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-contact-form-7"
             ]
         },
         {
@@ -284,7 +323,7 @@
             "name": "sandbox/conformance/checks/core.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-core"
             ]
         },
         {
@@ -292,7 +331,7 @@
             "name": "sandbox/conformance/checks/elementor.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-elementor"
             ]
         },
         {
@@ -300,7 +339,7 @@
             "name": "sandbox/conformance/checks/fse.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-fse"
             ]
         },
         {
@@ -308,7 +347,7 @@
             "name": "sandbox/conformance/checks/ninja-forms.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-ninja-forms"
             ]
         },
         {
@@ -316,7 +355,7 @@
             "name": "sandbox/conformance/checks/paid-memberships-pro.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-paid-memberships-pro"
             ]
         },
         {
@@ -324,7 +363,7 @@
             "name": "sandbox/conformance/checks/polylang.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-polylang"
             ]
         },
         {
@@ -332,7 +371,7 @@
             "name": "sandbox/conformance/checks/woocommerce.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-woocommerce"
             ]
         },
         {
@@ -340,7 +379,7 @@
             "name": "sandbox/conformance/checks/yoast.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -348,7 +387,7 @@
             "name": "sandbox/conformance/entries/acf.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf"
             ]
         },
         {
@@ -356,7 +395,7 @@
             "name": "sandbox/conformance/entries/contact-form-7.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-contact-form-7"
             ]
         },
         {
@@ -364,7 +403,7 @@
             "name": "sandbox/conformance/entries/core.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-core"
             ]
         },
         {
@@ -372,7 +411,7 @@
             "name": "sandbox/conformance/entries/elementor.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-elementor"
             ]
         },
         {
@@ -380,7 +419,7 @@
             "name": "sandbox/conformance/entries/fse.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-fse"
             ]
         },
         {
@@ -388,7 +427,7 @@
             "name": "sandbox/conformance/entries/ninja-forms.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-ninja-forms"
             ]
         },
         {
@@ -396,7 +435,7 @@
             "name": "sandbox/conformance/entries/paid-memberships-pro.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-paid-memberships-pro"
             ]
         },
         {
@@ -404,7 +443,7 @@
             "name": "sandbox/conformance/entries/polylang.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-polylang"
             ]
         },
         {
@@ -412,7 +451,7 @@
             "name": "sandbox/conformance/entries/woocommerce.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-woocommerce"
             ]
         },
         {
@@ -420,7 +459,7 @@
             "name": "sandbox/conformance/entries/yoast.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -428,7 +467,16 @@
             "name": "sandbox/conformance/manifests.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf",
+                "legacy-conformance-contact-form-7",
+                "legacy-conformance-core",
+                "legacy-conformance-elementor",
+                "legacy-conformance-fse",
+                "legacy-conformance-ninja-forms",
+                "legacy-conformance-paid-memberships-pro",
+                "legacy-conformance-polylang",
+                "legacy-conformance-woocommerce",
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -436,7 +484,7 @@
             "name": "sandbox/conformance/postdeploy/contact-form-7.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-contact-form-7"
             ]
         },
         {
@@ -444,7 +492,7 @@
             "name": "sandbox/conformance/postdeploy/core.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-core"
             ]
         },
         {
@@ -452,7 +500,7 @@
             "name": "sandbox/conformance/postdeploy/ninja-forms.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-ninja-forms"
             ]
         },
         {
@@ -460,15 +508,24 @@
             "name": "sandbox/conformance/postdeploy/woocommerce.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-woocommerce"
             ]
         },
         {
             "kind": "file",
             "name": "sandbox/conformance/run.sh",
-            "role": "helper",
+            "role": "suite",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf",
+                "legacy-conformance-contact-form-7",
+                "legacy-conformance-core",
+                "legacy-conformance-elementor",
+                "legacy-conformance-fse",
+                "legacy-conformance-ninja-forms",
+                "legacy-conformance-paid-memberships-pro",
+                "legacy-conformance-polylang",
+                "legacy-conformance-woocommerce",
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -476,7 +533,7 @@
             "name": "sandbox/conformance/seeds/acf.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-acf"
             ]
         },
         {
@@ -484,7 +541,7 @@
             "name": "sandbox/conformance/seeds/contact-form-7.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-contact-form-7"
             ]
         },
         {
@@ -492,7 +549,7 @@
             "name": "sandbox/conformance/seeds/core.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-core"
             ]
         },
         {
@@ -500,7 +557,7 @@
             "name": "sandbox/conformance/seeds/elementor.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-elementor"
             ]
         },
         {
@@ -508,7 +565,7 @@
             "name": "sandbox/conformance/seeds/fse.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-fse"
             ]
         },
         {
@@ -516,7 +573,7 @@
             "name": "sandbox/conformance/seeds/ninja-forms.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-ninja-forms"
             ]
         },
         {
@@ -524,7 +581,7 @@
             "name": "sandbox/conformance/seeds/paid-memberships-pro.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-paid-memberships-pro"
             ]
         },
         {
@@ -532,7 +589,7 @@
             "name": "sandbox/conformance/seeds/polylang.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-polylang"
             ]
         },
         {
@@ -540,7 +597,7 @@
             "name": "sandbox/conformance/seeds/woocommerce.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-woocommerce"
             ]
         },
         {
@@ -548,7 +605,7 @@
             "name": "sandbox/conformance/seeds/yoast.sh",
             "role": "helper",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -637,7 +694,7 @@
             "name": "sandbox/tests/check_guide_commands.sh",
             "role": "suite",
             "suite_ids": [
-                "legacy-grind-ecommerce-developer-live"
+                "platform-guide-contract"
             ]
         },
         {
@@ -677,7 +734,7 @@
             "name": "sandbox/tests/fixtures/checkpoint-provider.php",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-regress-effect-bundle"
             ]
         },
         {
@@ -693,7 +750,9 @@
             "name": "sandbox/tests/fixtures/code-release-provider.php",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-certify-ssh-rollback",
+                "legacy-regress-code-release",
+                "legacy-regress-ssh-adopt"
             ]
         },
         {
@@ -765,7 +824,7 @@
             "name": "sandbox/tests/fixtures/duo3324-live-driver.yml",
             "role": "fixture",
             "suite_ids": [
-                "legacy-grind-ecommerce-developer-live"
+                "legacy-regress-environment-materializer-live"
             ]
         },
         {
@@ -805,7 +864,8 @@
             "name": "sandbox/tests/fixtures/effect-provider.php",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-certify-ssh-rollback",
+                "legacy-regress-effect-bundle"
             ]
         },
         {
@@ -821,7 +881,12 @@
             "name": "sandbox/tests/fixtures/recovery-exclusion-provider.php",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-certify-ssh-rollback",
+                "legacy-regress-code-release",
+                "legacy-regress-effect-bundle",
+                "legacy-regress-ssh-adopt",
+                "legacy-regress-upload-bundle",
+                "legacy-regress-woocommerce-effect-contract"
             ]
         },
         {
@@ -877,7 +942,8 @@
             "name": "sandbox/tests/fixtures/upload-provider.php",
             "role": "fixture",
             "suite_ids": [
-                "legacy-regress-action-provider-grammar"
+                "legacy-certify-ssh-rollback",
+                "legacy-regress-upload-bundle"
             ]
         },
         {
@@ -3726,6 +3792,23 @@
             "role": "suite",
             "suite_ids": [
                 "legacy-code-half-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "conformance-%",
+            "role": "aggregate",
+            "suite_ids": [
+                "legacy-conformance-acf",
+                "legacy-conformance-contact-form-7",
+                "legacy-conformance-core",
+                "legacy-conformance-elementor",
+                "legacy-conformance-fse",
+                "legacy-conformance-ninja-forms",
+                "legacy-conformance-paid-memberships-pro",
+                "legacy-conformance-polylang",
+                "legacy-conformance-woocommerce",
+                "legacy-conformance-yoast"
             ]
         },
         {
@@ -7204,7 +7287,7 @@
     "source_fragments": [
         {
             "path": "sandbox/catalog/fragments/capability-policy-evidence/capability-policy-evidence.catalog.json",
-            "sha256": "sha256:51d5cd8ba7ecace2a59d0ca4e48c20d7d2f8198d849af965b4b29d7d9333bbe4"
+            "sha256": "sha256:734d4eb11ee3e38bc2a4110db2d7033bb94de1b25477bb12d1743345f93d1c56"
         },
         {
             "path": "sandbox/catalog/fragments/capability-policy-evidence/requirements.json",
@@ -7212,7 +7295,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:fd3d4dcbbb49735dcb0f3fc96929bc1f3eff7977f90cc7ec8658fa05e8cefb1e"
+            "sha256": "sha256:dde796733f198290824ecc9dc1cd2d48411c3eea75928d43ebac70389f972ea4"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",
@@ -7220,7 +7303,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/host-cli/host-cli.catalog.json",
-            "sha256": "sha256:c7bd3d933ce388e1efbf2e4fe25c2e0c59eaccf5c9499639bfc7850309cfb795"
+            "sha256": "sha256:7c6c7922c9c80c2a7194d5b2f7fcd4651164d5af59cd7117264afe052c921539"
         },
         {
             "path": "sandbox/catalog/fragments/host-cli/requirements.json",
@@ -7228,7 +7311,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/mutation-recovery/mutation-recovery.catalog.json",
-            "sha256": "sha256:60d4aeaf5f118fe936a1d01885b0f40b46ee65dbb597fb20095cb4376609c86c"
+            "sha256": "sha256:79747657bcc3b16c5a8486d54cc78e3fbc96122893a2fd69289f0a9620d4e499"
         },
         {
             "path": "sandbox/catalog/fragments/mutation-recovery/requirements.json",
@@ -7240,7 +7323,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/wordpress-agent/wordpress-agent.catalog.json",
-            "sha256": "sha256:c22ebadc21001618176be4dfb18001711ffe1f7ffa40e7dabf6293b40d351d4c"
+            "sha256": "sha256:feba2b297a8d13ad19ebf43d0dd067cad6c170e6c3ef6dde671b2c3ffd8a92c7"
         }
     ],
     "suites": [
@@ -7482,7 +7565,11 @@
             "covered_contracts": [],
             "covered_paths": [
                 "sandbox/tests/certify_ssh_rollback.sh",
-                "sandbox/tests/fixtures/ssh-rollback-certify-driver.php"
+                "sandbox/tests/fixtures/code-release-provider.php",
+                "sandbox/tests/fixtures/effect-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
+                "sandbox/tests/fixtures/ssh-rollback-certify-driver.php",
+                "sandbox/tests/fixtures/upload-provider.php"
             ],
             "environment_class": "live",
             "evidence_inputs": [],
@@ -7812,6 +7899,602 @@
                 "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
             },
             "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/acf.json",
+                "make",
+                "--no-print-directory",
+                "conformance-acf"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/acf.sh",
+                "sandbox/conformance/entries/acf.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/acf.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-acf",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/contact-form-7.json",
+                "make",
+                "--no-print-directory",
+                "conformance-contact-form-7"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/contact-form-7.sh",
+                "sandbox/conformance/entries/contact-form-7.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/postdeploy/contact-form-7.sh",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/contact-form-7.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-contact-form-7",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/core.json",
+                "make",
+                "--no-print-directory",
+                "conformance-core"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/_explain_registry.sh",
+                "sandbox/conformance/checks/core.sh",
+                "sandbox/conformance/entries/core.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/postdeploy/core.sh",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/core.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-core",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/elementor.json",
+                "make",
+                "--no-print-directory",
+                "conformance-elementor"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/elementor.sh",
+                "sandbox/conformance/entries/elementor.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/elementor.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-elementor",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/fse.json",
+                "make",
+                "--no-print-directory",
+                "conformance-fse"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/_retry_helper.sh",
+                "sandbox/conformance/checks/fse.sh",
+                "sandbox/conformance/entries/fse.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/fse.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-fse",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/ninja-forms.json",
+                "make",
+                "--no-print-directory",
+                "conformance-ninja-forms"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/ninja-forms.sh",
+                "sandbox/conformance/entries/ninja-forms.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/postdeploy/ninja-forms.sh",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/ninja-forms.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-ninja-forms",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/paid-memberships-pro.json",
+                "make",
+                "--no-print-directory",
+                "conformance-paid-memberships-pro"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/paid-memberships-pro.sh",
+                "sandbox/conformance/entries/paid-memberships-pro.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/paid-memberships-pro.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-paid-memberships-pro",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/polylang.json",
+                "make",
+                "--no-print-directory",
+                "conformance-polylang"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/polylang.sh",
+                "sandbox/conformance/entries/polylang.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/polylang.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-polylang",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/woocommerce.json",
+                "make",
+                "--no-print-directory",
+                "conformance-woocommerce"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/woocommerce.sh",
+                "sandbox/conformance/entries/woocommerce.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/postdeploy/woocommerce.sh",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/woocommerce.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-woocommerce",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "env",
+                "CONFORMANCE_ENTRY_FILE=conformance/entries/yoast.json",
+                "make",
+                "--no-print-directory",
+                "conformance-yoast"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/conformance/artifacts-cache/.gitkeep",
+                "sandbox/conformance/artifacts.lock.json",
+                "sandbox/conformance/asserts.sh",
+                "sandbox/conformance/checks/yoast.sh",
+                "sandbox/conformance/entries/yoast.json",
+                "sandbox/conformance/manifests.json",
+                "sandbox/conformance/run.sh",
+                "sandbox/conformance/seeds/yoast.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-conformance-yoast",
+            "layer": "conformance",
+            "owner": "thread-4",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "bash",
+                "curl",
+                "docker",
+                "env",
+                "git",
+                "jq",
+                "make",
+                "php"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
                 "make",
                 "--no-print-directory",
                 "grind-code-half"
@@ -7950,8 +8633,6 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
-                "sandbox/tests/check_guide_commands.sh",
-                "sandbox/tests/fixtures/duo3324-live-driver.yml",
                 "sandbox/tests/grind_ecommerce_developer.matrix.json",
                 "sandbox/tests/grind_ecommerce_developer.sh"
             ],
@@ -8326,51 +9007,6 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
-                "sandbox/conformance/artifacts-cache/.gitkeep",
-                "sandbox/conformance/artifacts.lock.json",
-                "sandbox/conformance/asserts.sh",
-                "sandbox/conformance/checks/_retry_helper.sh",
-                "sandbox/conformance/checks/acf.sh",
-                "sandbox/conformance/checks/contact-form-7.sh",
-                "sandbox/conformance/checks/core.sh",
-                "sandbox/conformance/checks/elementor.sh",
-                "sandbox/conformance/checks/fse.sh",
-                "sandbox/conformance/checks/ninja-forms.sh",
-                "sandbox/conformance/checks/paid-memberships-pro.sh",
-                "sandbox/conformance/checks/polylang.sh",
-                "sandbox/conformance/checks/woocommerce.sh",
-                "sandbox/conformance/checks/yoast.sh",
-                "sandbox/conformance/entries/acf.json",
-                "sandbox/conformance/entries/contact-form-7.json",
-                "sandbox/conformance/entries/core.json",
-                "sandbox/conformance/entries/elementor.json",
-                "sandbox/conformance/entries/fse.json",
-                "sandbox/conformance/entries/ninja-forms.json",
-                "sandbox/conformance/entries/paid-memberships-pro.json",
-                "sandbox/conformance/entries/polylang.json",
-                "sandbox/conformance/entries/woocommerce.json",
-                "sandbox/conformance/entries/yoast.json",
-                "sandbox/conformance/manifests.json",
-                "sandbox/conformance/postdeploy/contact-form-7.sh",
-                "sandbox/conformance/postdeploy/core.sh",
-                "sandbox/conformance/postdeploy/ninja-forms.sh",
-                "sandbox/conformance/postdeploy/woocommerce.sh",
-                "sandbox/conformance/run.sh",
-                "sandbox/conformance/seeds/acf.sh",
-                "sandbox/conformance/seeds/contact-form-7.sh",
-                "sandbox/conformance/seeds/core.sh",
-                "sandbox/conformance/seeds/elementor.sh",
-                "sandbox/conformance/seeds/fse.sh",
-                "sandbox/conformance/seeds/ninja-forms.sh",
-                "sandbox/conformance/seeds/paid-memberships-pro.sh",
-                "sandbox/conformance/seeds/polylang.sh",
-                "sandbox/conformance/seeds/woocommerce.sh",
-                "sandbox/conformance/seeds/yoast.sh",
-                "sandbox/tests/fixtures/checkpoint-provider.php",
-                "sandbox/tests/fixtures/code-release-provider.php",
-                "sandbox/tests/fixtures/effect-provider.php",
-                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
-                "sandbox/tests/fixtures/upload-provider.php",
                 "sandbox/tests/regress_action_provider_grammar.php"
             ],
             "environment_class": "offline",
@@ -9999,6 +10635,8 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/code-release-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/regress_code_release.php"
             ],
             "environment_class": "offline",
@@ -11182,7 +11820,10 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/checkpoint-provider.php",
                 "sandbox/tests/fixtures/effect-lifecycle.php",
+                "sandbox/tests/fixtures/effect-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/regress_effect_bundle.php"
             ],
             "environment_class": "offline",
@@ -11642,6 +12283,7 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/duo3324-live-driver.yml",
                 "sandbox/tests/regress_environment_materializer_live.sh"
             ],
             "environment_class": "live",
@@ -16500,6 +17142,8 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/code-release-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/fixtures/ssh-adopt.Dockerfile",
                 "sandbox/tests/regress_ssh_adopt.sh"
             ],
@@ -17287,6 +17931,8 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
+                "sandbox/tests/fixtures/upload-provider.php",
                 "sandbox/tests/regress_upload_bundle.php"
             ],
             "environment_class": "offline",
@@ -17691,6 +18337,7 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/regress_woocommerce_effect_contract.php"
             ],
             "environment_class": "offline",
@@ -18218,7 +18865,8 @@
         {
             "command": [
                 "vendor/bin/phpunit",
-                "--colors=never"
+                "--colors=never",
+                "--do-not-cache-result"
             ],
             "covered_contracts": [
                 "duo-test-catalog-fragment/v1"
@@ -18278,6 +18926,7 @@
             "command": [
                 "vendor/bin/phpunit",
                 "--colors=never",
+                "--do-not-cache-result",
                 "--filter",
                 "DelegateCheckTest"
             ],
@@ -18334,7 +18983,8 @@
                 "git",
                 "jq",
                 "make",
-                "php"
+                "php",
+                "setsid"
             ],
             "resource_locks": [],
             "temporary_directory": "unique",
@@ -18382,7 +19032,8 @@
                 "duo-refactor-acceptance/v1"
             ],
             "covered_paths": [
-                "docs/proposals/refactor-acceptance.json"
+                "docs/proposals/refactor-acceptance.json",
+                "scripts/foundation-check"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -18413,7 +19064,7 @@
                 "duo-test-catalog/v1"
             ],
             "covered_paths": [
-                "sandbox/catalog/fragments/engineering-platform/generated/catalog.json"
+                "sandbox/catalog/fragments/**"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -18442,7 +19093,9 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
-                "docs/sandbox.md",
+                "agent/src/Cli.php",
+                "cli/duo",
+                "docs/guides/**",
                 "sandbox/tests/check_guide_commands.sh"
             ],
             "environment_class": "offline",
@@ -18504,7 +19157,8 @@
                 "duo-refactor-ownership/v1"
             ],
             "covered_paths": [
-                "docs/proposals/refactor-ownership.json"
+                "docs/proposals/refactor-ownership.json",
+                "scripts/ownership-check"
             ],
             "environment_class": "offline",
             "evidence_inputs": [],
@@ -18556,7 +19210,7 @@
             ],
             "temporary_directory": "unique",
             "timeout_seconds": 120,
-            "workspace_mode": "read_only"
+            "workspace_mode": "exclusive"
         }
     ]
 }

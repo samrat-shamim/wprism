@@ -16,7 +16,11 @@ use PHPUnit\Framework\TestCase;
  *     catalog_scope:array{kind:string,owner:?string},
  *     execution_plan:list<mixed>,
  *     dependency_lock_sha256:string,
+ *     toolchain:array<string,string>,
+ *     platform_contract:array{profile_id:string,contract_sha256:string},
  *     state:string,
+ *     message:?string,
+ *     interrupt_signal:?int,
  *     results:list<array{log_path:?string,message:?string,timed_out:bool,signal:?int,cleanup:string}>
  * }
  */
@@ -60,6 +64,18 @@ final class RunnerTest extends TestCase
         self::assertSame(['kind' => 'partial_owner', 'owner' => 'thread-1'], $receipt['catalog_scope']);
         self::assertNotEmpty($receipt['execution_plan']);
         self::assertMatchesRegularExpression('/^sha256:[a-f0-9]{64}$/D', (string) $receipt['dependency_lock_sha256']);
+        foreach (['php', 'required.php', 'runner.process-entry', 'runner.setsid', 'suite.runner-redaction-fixture.executable'] as $binding) {
+            self::assertArrayHasKey($binding, $receipt['toolchain']);
+            self::assertMatchesRegularExpression('/^sha256:[a-f0-9]{64}$/D', $receipt['toolchain'][$binding]);
+        }
+        self::assertMatchesRegularExpression(
+            '/^(development|certified)-(linux|darwin)-(x86_64|aarch64)-php-8\\.[23]$/D',
+            $receipt['platform_contract']['profile_id'],
+        );
+        self::assertMatchesRegularExpression('/^sha256:[a-f0-9]{64}$/D', $receipt['platform_contract']['contract_sha256']);
+        self::assertArrayNotHasKey('php_version', $receipt['platform_contract']);
+        self::assertArrayNotHasKey('os_family', $receipt['platform_contract']);
+        self::assertArrayNotHasKey('architecture', $receipt['platform_contract']);
         $first = $receipt['results'][0];
         $logPath = $this->root . '/' . $first['log_path'];
         $this->cleanupPaths[] = dirname($logPath);
@@ -105,7 +121,10 @@ final class RunnerTest extends TestCase
         $receipt = $this->receipt($result);
         self::assertSame('fail', $receipt['state']);
         self::assertTrue($receipt['results'][0]['timed_out']);
-        self::assertLessThan(4.0, (hrtime(true) - $started) / 1_000_000_000);
+        // One second of suite time plus two bounded process-group cleanup
+        // passes and whole-workspace fingerprints can exceed four seconds on
+        // slower filesystems while remaining deterministically bounded.
+        self::assertLessThan(8.0, (hrtime(true) - $started) / 1_000_000_000);
         $this->trackLogDirectory($receipt);
     }
 
@@ -137,6 +156,31 @@ final class RunnerTest extends TestCase
         $receipt = $this->receipt($result);
         self::assertSame(15, $receipt['results'][0]['signal']);
         self::assertSame('fail', $receipt['state']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testSignalToRunnerCannotPublishPass(): void
+    {
+        $result = $this->resultPath('runner-signal');
+        $suite = $this->suite('runner-process-signal-fixture', ['php', '-r', 'sleep(10);']);
+        $catalog = $this->catalog($suite, 'runner-process-signal-profile', $result);
+        $signaler = pcntl_fork();
+        self::assertNotSame(-1, $signaler);
+        if ($signaler === 0) {
+            usleep(250000);
+            posix_kill(posix_getppid(), SIGTERM);
+            exit(0);
+        }
+
+        try {
+            self::assertSame(143, (new Runner($this->root, $catalog, $result))->run([], 'runner-process-signal-profile'));
+        } finally {
+            pcntl_waitpid($signaler, $status);
+        }
+        $receipt = $this->receipt($result);
+        self::assertSame('infra_error', $receipt['state']);
+        self::assertSame('runner interrupted', $receipt['message']);
+        self::assertSame(SIGTERM, $receipt['interrupt_signal']);
         $this->trackLogDirectory($receipt);
     }
 
@@ -175,6 +219,123 @@ final class RunnerTest extends TestCase
                 unlink($fixture);
             }
         }
+    }
+
+    public function testReadOnlyModeRejectsUndeclaredDurableArtifacts(): void
+    {
+        $undeclared = 'artifacts/test-results/runner-tests/undeclared-' . bin2hex(random_bytes(4)) . '.txt';
+        $this->cleanupPaths[] = $this->root . '/' . $undeclared;
+        $result = $this->resultPath('undeclared-artifact');
+        $program = 'mkdir("artifacts/test-results/runner-tests", 0700, true);'
+            . 'file_put_contents("' . $undeclared . '", "undeclared\\n");';
+        $suite = $this->suite('runner-undeclared-artifact-fixture', ['php', '-r', $program]);
+        $catalog = $this->catalog($suite, 'runner-undeclared-artifact-profile', $result);
+
+        self::assertSame(1, (new Runner($this->root, $catalog, $result))->run([], 'runner-undeclared-artifact-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('infra_error', $receipt['state']);
+        self::assertStringContainsString('outside permitted output roots', (string) $receipt['results'][0]['message']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testReadOnlyModeRejectsPhpunitCacheMutation(): void
+    {
+        $cacheDirectory = '.phpunit.cache/runner-tests-' . bin2hex(random_bytes(4));
+        $this->cleanupPaths[] = $this->root . '/' . $cacheDirectory;
+        $result = $this->resultPath('phpunit-cache-mutation');
+        $program = 'mkdir("' . $cacheDirectory . '", 0700, true);'
+            . 'file_put_contents("' . $cacheDirectory . '/result", "undeclared\\n");';
+        $suite = $this->suite('runner-phpunit-cache-fixture', ['php', '-r', $program]);
+        $catalog = $this->catalog($suite, 'runner-phpunit-cache-profile', $result);
+
+        self::assertSame(1, (new Runner($this->root, $catalog, $result))->run([], 'runner-phpunit-cache-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('infra_error', $receipt['state']);
+        self::assertStringContainsString('outside permitted output roots', (string) $receipt['results'][0]['message']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testReadOnlyModeRejectsDirectoryOnlyMutation(): void
+    {
+        $directory = 'artifacts/test-results/runner-tests/undeclared-directory-' . bin2hex(random_bytes(4));
+        $this->cleanupPaths[] = $this->root . '/' . $directory;
+        $result = $this->resultPath('undeclared-directory');
+        $suite = $this->suite(
+            'runner-undeclared-directory-fixture',
+            ['php', '-r', 'mkdir("' . $directory . '", 0700, true);'],
+        );
+        $catalog = $this->catalog($suite, 'runner-undeclared-directory-profile', $result);
+
+        self::assertSame(1, (new Runner($this->root, $catalog, $result))->run([], 'runner-undeclared-directory-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('infra_error', $receipt['state']);
+        self::assertStringContainsString('outside permitted output roots', (string) $receipt['results'][0]['message']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testExclusiveModeAllowsUnboundMutationUnderWorkspaceLock(): void
+    {
+        $directory = 'artifacts/test-results/runner-tests/exclusive-directory-' . bin2hex(random_bytes(4));
+        $this->cleanupPaths[] = $this->root . '/' . $directory;
+        $result = $this->resultPath('exclusive-directory');
+        $suite = $this->suite(
+            'runner-exclusive-directory-fixture',
+            ['php', '-r', 'mkdir("' . $directory . '", 0700, true);'],
+            [],
+            10,
+            'exclusive',
+        );
+        $catalog = $this->catalog($suite, 'runner-exclusive-directory-profile', $result);
+
+        self::assertSame(0, (new Runner($this->root, $catalog, $result))->run([], 'runner-exclusive-directory-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('pass', $receipt['state']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testReadOnlyModeProtectsVendorAndDist(): void
+    {
+        $suffix = bin2hex(random_bytes(4));
+        $vendorFixture = $this->root . '/vendor/.runner-integrity-' . $suffix;
+        $distFixture = $this->root . '/dist/.runner-integrity-' . $suffix;
+        if (!is_dir($this->root . '/dist')) {
+            mkdir($this->root . '/dist', 0700);
+            $this->cleanupPaths[] = $this->root . '/dist';
+        }
+        $this->cleanupPaths[] = $vendorFixture;
+        $this->cleanupPaths[] = $distFixture;
+        $result = $this->resultPath('protected-roots');
+        $program = 'file_put_contents("vendor/.runner-integrity-' . $suffix . '", "changed\\n");'
+            . 'file_put_contents("dist/.runner-integrity-' . $suffix . '", "changed\\n");';
+        $suite = $this->suite('runner-protected-roots-fixture', ['php', '-r', $program]);
+        $catalog = $this->catalog($suite, 'runner-protected-roots-profile', $result);
+
+        self::assertSame(1, (new Runner($this->root, $catalog, $result))->run([], 'runner-protected-roots-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('infra_error', $receipt['state']);
+        self::assertStringContainsString('outside permitted output roots', (string) $receipt['results'][0]['message']);
+        $this->trackLogDirectory($receipt);
+    }
+
+    public function testExecutableTamperingFailsClosedEvenInExclusiveMode(): void
+    {
+        $relative = 'vendor/.runner-executable-' . bin2hex(random_bytes(4));
+        $absolute = $this->root . '/' . $relative;
+        $this->cleanupPaths[] = $absolute;
+        file_put_contents(
+            $absolute,
+            "#!/usr/bin/env php\n<?php file_put_contents(__FILE__, \"#!/usr/bin/env php\\n<?php exit(0);\\n\");\n",
+        );
+        chmod($absolute, 0700);
+        $result = $this->resultPath('executable-tampering');
+        $suite = $this->suite('runner-executable-tampering-fixture', [$relative], [], 10, 'exclusive');
+        $catalog = $this->catalog($suite, 'runner-executable-tampering-profile', $result);
+
+        self::assertSame(1, (new Runner($this->root, $catalog, $result))->run([], 'runner-executable-tampering-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('infra_error', $receipt['state']);
+        self::assertStringContainsString('bound execution input changed', (string) $receipt['results'][1]['message']);
+        $this->trackLogDirectory($receipt);
     }
 
     public function testIsolatedCopyRetainsOnlyDeclaredArtifact(): void
@@ -277,9 +438,22 @@ final class RunnerTest extends TestCase
             || !(is_string($decoded['catalog_scope']['owner'] ?? null) || ($decoded['catalog_scope']['owner'] ?? null) === null)
             || !is_array($decoded['execution_plan'] ?? null) || !array_is_list($decoded['execution_plan'])
             || !is_string($decoded['dependency_lock_sha256'] ?? null)
+            || !is_array($decoded['toolchain'] ?? null)
+            || !is_array($decoded['platform_contract'] ?? null)
+            || !is_string($decoded['platform_contract']['profile_id'] ?? null)
+            || !is_string($decoded['platform_contract']['contract_sha256'] ?? null)
             || !is_string($decoded['state'] ?? null)
+            || !(is_string($decoded['message'] ?? null) || ($decoded['message'] ?? null) === null)
+            || !(is_int($decoded['interrupt_signal'] ?? null) || ($decoded['interrupt_signal'] ?? null) === null)
             || !is_array($decoded['results'] ?? null) || !array_is_list($decoded['results'])) {
             throw new \RuntimeException('runner test received a malformed receipt');
+        }
+        $toolchain = [];
+        foreach ($decoded['toolchain'] as $key => $digest) {
+            if (!is_string($key) || !is_string($digest)) {
+                throw new \RuntimeException('runner test received malformed toolchain bindings');
+            }
+            $toolchain[$key] = $digest;
         }
         $results = [];
         foreach ($decoded['results'] as $result) {
@@ -307,7 +481,14 @@ final class RunnerTest extends TestCase
             ],
             'execution_plan' => $decoded['execution_plan'],
             'dependency_lock_sha256' => $decoded['dependency_lock_sha256'],
+            'toolchain' => $toolchain,
+            'platform_contract' => [
+                'profile_id' => $decoded['platform_contract']['profile_id'],
+                'contract_sha256' => $decoded['platform_contract']['contract_sha256'],
+            ],
             'state' => $decoded['state'],
+            'message' => $decoded['message'] ?? null,
+            'interrupt_signal' => $decoded['interrupt_signal'] ?? null,
             'results' => $results,
         ];
     }

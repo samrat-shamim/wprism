@@ -33,14 +33,6 @@ namespace Duo {
         }
     }
 
-    // CompiledRepository validates descriptors through this caller-provided
-    // contract. Keep it fake here so the reader test can separately prove the
-    // optional CodeStateContract branch below.
-    final class Code {
-        /** @param array<string,mixed> $descriptor */
-        public static function assert_descriptor(array $descriptor): void {}
-    }
-
     final class Policy {
         /** @var array<string,mixed> */
         public array $site;
@@ -87,6 +79,7 @@ namespace {
     use Duo\Canon;
     use Duo\CompiledArtifactReader;
     use Duo\CompiledRepository;
+    use Duo\CodeDescriptorCompiler;
     use Duo\Policy;
     use Duo\RepositoryCompilationException;
 
@@ -120,7 +113,6 @@ $classes = [
     Duo\CompiledRepository::class,
     Duo\CompiledArtifactReader::class,
     Duo\AdapterSources::class,
-    Duo\ManifestDispositions::class,
     Duo\CapabilityRegistry::class,
 ];
 foreach ($classes as $class) {
@@ -141,7 +133,7 @@ PHP;
     exec(escapeshellarg(PHP_BINARY) . ' -r ' . escapeshellarg($normalLoader) . ' 2>&1', $normalOutput, $normalRc);
     $check(
         $normalRc === 0 && implode("\n", $normalOutput) === 'normal reader load closed',
-        'a normal fresh reader load closes the complete Canon/Policy identity stack without loading RepositoryCompiler'
+        'a normal fresh reader load closes its directly required Canon/Policy identity stack without loading RepositoryCompiler'
     );
 
     $tmp = sys_get_temp_dir() . '/duo-compiled-artifact-reader-' . bin2hex(random_bytes(6));
@@ -174,6 +166,21 @@ PHP;
             $out['code'] = $code;
         }
         return $out;
+    };
+    /** @return array<string,mixed> */
+    $codeDescriptor = static function (): array {
+        $descriptor = [
+            'files' => [],
+            'format' => CodeDescriptorCompiler::DESCRIPTOR_FORMAT,
+            'layout' => CodeDescriptorCompiler::LAYOUT,
+            'owned_roots' => [],
+            'plugin_main_files' => [],
+            'source' => CodeDescriptorCompiler::SOURCE,
+            'theme_slugs' => [],
+            'theme_templates' => [],
+        ];
+        $descriptor['code_revision'] = CodeDescriptorCompiler::revision_for($descriptor);
+        return $descriptor;
     };
     /** @param array<string,mixed> $payload */
     $writeArtifact = static function (string $path, array $payload): CompiledRepository {
@@ -243,7 +250,7 @@ PHP;
 
     $precedencePolicy = new Policy();
     $precedencePath = "$tmp/precedence-site.json";
-    $precedencePayload = $payload($precedencePolicy, [['effect' => 'different']], ['code_revision' => 'test']);
+    $precedencePayload = $payload($precedencePolicy, [['effect' => 'different']], $codeDescriptor());
     $precedencePayload['site_hash'] = str_repeat('0', 64);
     $precedencePayload['manifest_hash'] = str_repeat('1', 64);
     $writeArtifact($precedencePath, $precedencePayload);
@@ -255,7 +262,7 @@ PHP;
 
     $manifestPrecedencePolicy = new Policy();
     $manifestPrecedencePath = "$tmp/precedence-manifest.json";
-    $manifestPrecedencePayload = $payload($manifestPrecedencePolicy, [['effect' => 'different']], ['code_revision' => 'test']);
+    $manifestPrecedencePayload = $payload($manifestPrecedencePolicy, [['effect' => 'different']], $codeDescriptor());
     $manifestPrecedencePayload['manifest_hash'] = str_repeat('1', 64);
     $writeArtifact($manifestPrecedencePath, $manifestPrecedencePayload);
     $check(
@@ -266,7 +273,7 @@ PHP;
 
     $effectsPrecedencePolicy = new Policy();
     $effectsPrecedencePath = "$tmp/precedence-effects.json";
-    $writeArtifact($effectsPrecedencePath, $payload($effectsPrecedencePolicy, [['effect' => 'different']], ['code_revision' => 'test']));
+    $writeArtifact($effectsPrecedencePath, $payload($effectsPrecedencePolicy, [['effect' => 'different']], $codeDescriptor()));
     $check(
         $diagnostic(static fn() => CompiledArtifactReader::read_artifact($effectsPrecedencePath, $effectsPrecedencePolicy)) === 'compiled_artifact_invalid'
             && $effectsPrecedencePolicy->primeCalls === 0,
@@ -275,7 +282,7 @@ PHP;
 
     $presencePath = "$tmp/code-presence-mismatch.json";
     $presencePolicy = new Policy();
-    $writeArtifact($presencePath, $payload($presencePolicy, [], ['code_revision' => 'test']));
+    $writeArtifact($presencePath, $payload($presencePolicy, [], $codeDescriptor()));
     $check(
         $diagnostic(static fn() => CompiledArtifactReader::read_artifact($presencePath, $presencePolicy)) === 'compiled_artifact_code_mismatch'
             && $presencePolicy->primeCalls === 0,
@@ -284,7 +291,8 @@ PHP;
 
     $codePolicy = new Policy(['enabled' => true]);
     $codePath = "$tmp/code.json";
-    $writeArtifact($codePath, $payload($codePolicy, [], ['code_revision' => 'test']));
+    $descriptor = $codeDescriptor();
+    $writeArtifact($codePath, $payload($codePolicy, [], $descriptor));
     $check(
         $diagnostic(static fn() => CompiledArtifactReader::read_artifact($codePath, $codePolicy)) === 'compiled_artifact_code_state_contract_unavailable'
             && $codePolicy->primeCalls === 0,
@@ -315,7 +323,7 @@ PHP);
     $codeSuccessPolicy = new Policy(['enabled' => true]);
     $codeSuccess = CompiledArtifactReader::read_artifact($codePath, $codeSuccessPolicy);
     $check(
-        $codeSuccess->code_descriptor() === ['code_revision' => 'test']
+        $codeSuccess->code_descriptor() === $descriptor
             && \Duo\CodeStateContract::$calls === 2
             && $codeSuccessPolicy->primeCalls === 1,
         'a code-bearing artifact primes interpreters only after the optional bridge accepts its descriptor'

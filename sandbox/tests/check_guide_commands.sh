@@ -165,7 +165,7 @@ scan_guides() {
                 allowed="$verbs"
                 label="duo $token"
             fi
-            if printf '%s\n' "$allowed" | grep -qxF -- "$token"; then
+            if grep -qxF -- "$token" <<<"$allowed"; then
                 continue
             fi
             if [ "$planned" = '1' ]; then

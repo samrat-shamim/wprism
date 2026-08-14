@@ -246,7 +246,8 @@
             "name": "sandbox/catalog/fragments/host-cli/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-cli-smoke"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {
@@ -1301,6 +1302,8 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/code-release-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/fixtures/ssh-adopt.Dockerfile",
                 "sandbox/tests/regress_ssh_adopt.sh"
             ],

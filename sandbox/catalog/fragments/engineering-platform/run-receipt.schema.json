@@ -46,11 +46,10 @@
     "platform_contract": {
       "type": ["object", "null"],
       "additionalProperties": false,
-      "required": ["php_version", "os_family", "architecture"],
+      "required": ["profile_id", "contract_sha256"],
       "properties": {
-        "php_version": {"type": "string"},
-        "os_family": {"type": "string"},
-        "architecture": {"type": "string"}
+        "profile_id": {"type": "string", "pattern": "^(development|certified)-(linux|darwin)-(x86_64|aarch64)-php-8\\.[23]$"},
+        "contract_sha256": {"$ref": "#/$defs/digest"}
       }
     },
     "started_at": {"type": "string", "format": "date-time"},

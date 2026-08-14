@@ -134,6 +134,25 @@ function self_test_process(array $argv, string $root): void
 $path = $fragmentDirectory . '/fixture.catalog.json';
 try {
     write_fragment($path, valid_fragment());
+    $foreignDirectory = $temporary . '/sandbox/catalog/fragments/mutation-recovery';
+    if (!mkdir($foreignDirectory, 0700, true)) {
+        throw new RuntimeException('cannot create foreign fixture fragment directory');
+    }
+    $foreignPath = $foreignDirectory . '/fixture.catalog.json';
+    $foreign = valid_fragment();
+    $foreign['owner'] = 'thread-5';
+    $foreign['suites'][0]['id'] = 'foreign-suite';
+    $foreign['suites'][0]['owner'] = 'thread-5';
+    $foreign['suites'][0]['covered_paths'] = [
+        'sandbox/catalog/fragments/engineering-platform/fixture.catalog.json',
+        'sandbox/catalog/fragments/mutation-recovery/fixture.catalog.json',
+    ];
+    $foreign['inventory'][0]['name'] = 'sandbox/catalog/fragments/mutation-recovery/fixture.catalog.json';
+    $foreign['inventory'][0]['suite_ids'] = ['foreign-suite'];
+    $foreign['profiles'][0]['id'] = 'foreign-fixture-profile';
+    $foreign['profiles'][0]['owner'] = 'thread-5';
+    $foreign['profiles'][0]['suite_ids'] = ['foreign-suite'];
+    write_fragment($foreignPath, $foreign);
     $ledgerDirectory = $temporary . '/docs/proposals';
     if (!mkdir($ledgerDirectory, 0700, true)) {
         throw new RuntimeException('cannot create fixture ledger directory');
@@ -144,6 +163,9 @@ try {
         'new_prefixes' => [[
             'prefix' => 'sandbox/catalog/fragments/engineering-platform/',
             'owner' => 'thread-1',
+        ], [
+            'prefix' => 'sandbox/catalog/fragments/mutation-recovery/',
+            'owner' => 'thread-5',
         ]],
     ];
     $ledgerBytes = json_encode($ledger, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
@@ -151,12 +173,36 @@ try {
         throw new RuntimeException('cannot write fixture ownership ledger');
     }
     self_test_process(['git', 'init', '--quiet'], $temporary);
-    self_test_process(['git', 'add', 'Makefile', 'docs/proposals/refactor-ownership.json', 'sandbox/catalog/fragments/engineering-platform/fixture.catalog.json'], $temporary);
+    self_test_process([
+        'git', 'add', 'Makefile', 'docs/proposals/refactor-ownership.json',
+        'sandbox/catalog/fragments/engineering-platform/fixture.catalog.json',
+        'sandbox/catalog/fragments/mutation-recovery/fixture.catalog.json',
+    ], $temporary);
     $catalog = (new Catalog($temporary))->validate('thread-1', false);
     if (count($catalog['suites']) !== 1 || $catalog['suites'][0]['id'] !== 'catalog-fixture') {
         throw new RuntimeException('valid fragment did not produce the expected aggregate');
     }
     echo "ok: valid partial fragment\n";
+
+    $crossOwner = valid_fragment();
+    $crossOwner['inventory'][0]['suite_ids'] = ['foreign-suite'];
+    write_fragment($path, $crossOwner);
+    $partial = (new Catalog($temporary))->validate('thread-1', false);
+    if (count($partial['suites']) !== 1
+        || $partial['suites'][0]['id'] !== 'catalog-fixture'
+        || count($partial['source_fragments']) !== 1
+        || $partial['source_fragments'][0]['path'] !== 'sandbox/catalog/fragments/engineering-platform/fixture.catalog.json') {
+        throw new RuntimeException('cross-owner resolution polluted the returned partial aggregate');
+    }
+    echo "ok: cross-owner inventory links resolve without widening partial output\n";
+
+    $miscoveredForeign = $foreign;
+    $miscoveredForeign['suites'][0]['covered_paths'] = [
+        'sandbox/catalog/fragments/mutation-recovery/fixture.catalog.json',
+    ];
+    write_fragment($foreignPath, $miscoveredForeign);
+    expect_failure('cross-owner inventory links require foreign coverage', 'is not covered by linked suite foreign-suite', static fn() => (new Catalog($temporary))->validate('thread-1', false));
+    write_fragment($foreignPath, $foreign);
 
     $duplicate = valid_fragment();
     $duplicate['suites'][] = $duplicate['suites'][0];
@@ -167,6 +213,11 @@ try {
     $unknown['inventory'][0]['suite_ids'] = ['absent-suite'];
     write_fragment($path, $unknown);
     expect_failure('unknown inventory links fail', 'unknown suite', static fn() => (new Catalog($temporary))->validate('thread-1', false));
+
+    $misleadingLink = valid_fragment();
+    $misleadingLink['suites'][0]['covered_paths'] = ['sandbox/tests/**'];
+    write_fragment($path, $misleadingLink);
+    expect_failure('inventory links require declared coverage', 'is not covered by linked suite', static fn() => (new Catalog($temporary))->validate('thread-1', false));
 
     $live = valid_fragment();
     $live['suites'][0]['environment_class'] = 'live';
@@ -218,7 +269,7 @@ try {
     write_fragment($path, valid_fragment());
     expect_failure('complete validation requires all profiles', 'required profile is missing', static fn() => (new Catalog($temporary))->validate());
 
-    echo "catalog self-test: 9 checks passed\n";
+    echo "catalog self-test: 12 checks passed\n";
 } finally {
     remove_fixture($temporary);
 }

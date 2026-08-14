@@ -22,6 +22,16 @@ make platform-p0
 ```
 
 `doctor` is read-only and reports required and profile-specific optional tools.
+The authoritative Platform P0 runner currently has a Linux host contract: PHP
+CLI 8.2 or 8.3 must expose `proc_open`, POSIX (`posix_kill` and
+`posix_getpgid`), and PCNTL signal support (`pcntl_signal` and
+`pcntl_async_signals`), and `setsid` must be the util-linux implementation
+with `--fork --wait` support. Composer 2.3 or newer is also required. `doctor`
+fails when any required function or executable is absent. macOS/BSD hosts may
+still use product and sandbox commands, but they do not produce authoritative
+Platform P0 receipts until equivalent process-group cleanup semantics are
+implemented and qualified.
+
 `bootstrap-dev` is the explicit network/workspace mutation boundary: it installs
 only `composer.lock` dependencies and writes a local tool/lock receipt under
 `artifacts/bootstrap/`. The `artifacts/`, `vendor/`, and `dist/` trees are local
@@ -30,7 +40,7 @@ or CI outputs and are not source.
 Platform P0 catalog sources live below `sandbox/catalog/fragments/`. Each
 behavior thread owns only its ledger-assigned fragment directory. Thread 1 owns
 the schema, fail-closed validator, generated aggregate, serial runner, and the
-`engineering-platform` fragment. The complete P0 aggregate contains 328 suites,
+`engineering-platform` fragment. The complete P0 aggregate contains 338 suites,
 including exact compatibility profiles for all 218 legacy offline targets and
 46 legacy live targets. `platform-p0`, `test-component`, `catalog-check`, and
 `thread-1-gate` require that complete aggregate. The narrower

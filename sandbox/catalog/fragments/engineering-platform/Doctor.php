@@ -10,7 +10,12 @@ final class Doctor
     public function inspect(string $root): array
     {
         $checks = [];
-        $checks[] = $this->versionCheck('php', PHP_VERSION, version_compare(PHP_VERSION, '8.2.0', '>='), 'PHP >=8.2 is required for development tooling');
+        $checks[] = $this->versionCheck(
+            'php',
+            PHP_VERSION,
+            version_compare(PHP_VERSION, '8.2.0', '>=') && version_compare(PHP_VERSION, '8.4.0', '<'),
+            'PHP >=8.2,<8.4 is required by the reviewed development profiles',
+        );
         foreach (['dom', 'filter', 'hash', 'iconv', 'json', 'libxml', 'phar', 'sodium', 'tokenizer', 'xmlwriter'] as $extension) {
             $checks[] = [
                 'name' => "php-extension:$extension",
@@ -18,7 +23,7 @@ final class Doctor
                 'detail' => extension_loaded($extension) ? 'loaded' : 'required extension is not loaded',
             ];
         }
-        foreach (['git', 'make', 'composer', 'jq', 'setsid'] as $tool) {
+        foreach (['git', 'make', 'composer', 'jq'] as $tool) {
             $path = $this->findTool($tool);
             $checks[] = [
                 'name' => "tool:$tool",
@@ -33,6 +38,21 @@ final class Doctor
                 'detail' => function_exists($function) ? 'available' : 'required function is unavailable',
             ];
         }
+        $setsidPath = $this->findTool('setsid');
+        $setsidCompatible = false;
+        if ($setsidPath !== null && function_exists('proc_open')) {
+            [$setsidExit, $setsidOutput] = $this->command([$setsidPath, '--help'], $root);
+            $setsidCompatible = $setsidExit === 0
+                && str_contains($setsidOutput, '--fork')
+                && str_contains($setsidOutput, '--wait');
+        }
+        $checks[] = [
+            'name' => 'tool:setsid',
+            'state' => $setsidCompatible ? 'pass' : 'fail',
+            'detail' => $setsidCompatible
+                ? 'util-linux --fork and --wait capabilities are available'
+                : 'util-linux setsid with --fork and --wait is required',
+        ];
         foreach (['docker', 'shellcheck', 'shfmt', 'actionlint'] as $tool) {
             $path = $this->findTool($tool);
             $checks[] = [

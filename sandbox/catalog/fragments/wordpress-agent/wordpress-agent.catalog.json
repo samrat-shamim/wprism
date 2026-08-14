@@ -606,7 +606,8 @@
             "name": "sandbox/catalog/fragments/wordpress-agent/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-lint-smoke"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {

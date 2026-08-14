@@ -144,9 +144,29 @@ final class Catalog
             throw new CatalogException("unknown owner: $onlyOwner");
         }
 
-        $fragments = $this->loadFragments($onlyOwner);
+        $allFragments = $this->loadFragments(null);
+        $fragments = $onlyOwner === null
+            ? $allFragments
+            : array_filter(
+                $allFragments,
+                static fn(array $fragment): bool => $fragment['owner'] === $onlyOwner,
+            );
         if ($fragments === []) {
             throw new CatalogException('no catalog fragments found');
+        }
+
+        $referenceSuites = [];
+        foreach ($allFragments as $path => $fragment) {
+            foreach ($fragment['suites'] as $suite) {
+                $id = $suite['id'];
+                if (isset($referenceSuites[$id])) {
+                    throw new CatalogException('duplicate suite id ' . $id . ' in ' . $this->relative($path));
+                }
+                if ($suite['owner'] !== $fragment['owner']) {
+                    throw new CatalogException("suite $id owner differs from fragment owner");
+                }
+                $referenceSuites[$id] = $suite;
+            }
         }
 
         $suites = [];
@@ -211,11 +231,12 @@ final class Catalog
 
         foreach ($inventory as $key => $entry) {
             foreach ($entry['suite_ids'] as $suiteId) {
-                if (!isset($suites[$suiteId])) {
+                if (!isset($referenceSuites[$suiteId])) {
                     throw new CatalogException("inventory entry $key references unknown suite $suiteId");
                 }
             }
             $this->assertInventoryAuthority($entry, $inventoryOwners[$key]);
+            $this->assertInventoryCoverage($entry, $referenceSuites);
         }
         foreach ($profiles as $id => $profile) {
             foreach ($profile['suite_ids'] as $suiteId) {
@@ -840,6 +861,36 @@ final class Catalog
         }
     }
 
+    /**
+     * A file-to-suite link is an authority claim: the suite must declare that
+     * file (directly or through a covered-path glob). This prevents inventory
+     * helpers and fixtures from being attached to an unrelated suite merely
+     * to satisfy the completeness check.
+     *
+     * @param InventoryEntry $entry
+     * @param array<string,Suite> $suites
+     */
+    private function assertInventoryCoverage(array $entry, array $suites): void
+    {
+        if ($entry['kind'] !== 'file') {
+            return;
+        }
+        foreach ($entry['suite_ids'] as $suiteId) {
+            foreach ($suites[$suiteId]['covered_paths'] as $pattern) {
+                $expression = preg_quote($pattern, '~');
+                $expression = str_replace(['\\*\\*', '\\*'], ['.*', '[^/]*'], $expression);
+                if (preg_match('~^' . $expression . '$~D', $entry['name']) === 1) {
+                    continue 2;
+                }
+            }
+            throw new CatalogException(sprintf(
+                'inventory file %s is not covered by linked suite %s',
+                $entry['name'],
+                $suiteId,
+            ));
+        }
+    }
+
     /** @return array<string,true> */
     private function allMakeTargets(): array
     {
@@ -863,7 +914,9 @@ final class Catalog
                 continue;
             }
             foreach (preg_split('/\s+/', trim($match[1])) ?: [] as $target) {
-                if ($target !== '' && !str_contains($target, '%') && !str_contains($target, '$')) {
+                if ($target !== ''
+                    && (!str_contains($target, '%') || $target === 'conformance-%')
+                    && !str_contains($target, '$')) {
                     $targets[$target] = true;
                 }
             }

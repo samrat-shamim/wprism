@@ -42,6 +42,7 @@ if ($duoPhp === false || $duoPhp > $duoAt) {
 $duoSource = substr($duoSource, $duoPhp + 5, $duoAt - ($duoPhp + 5)); // strip shebang and `<?php`
 $duoSource = str_replace('__DIR__', var_export(dirname(__DIR__, 2) . '/cli', true), $duoSource);
 eval($duoSource);
+require_once __DIR__ . '/../../recovery/rollback-control.php';
 
 use Duo\Orchestrator\DriverCapability;
 use Duo\Orchestrator\DriverCapabilityReport;

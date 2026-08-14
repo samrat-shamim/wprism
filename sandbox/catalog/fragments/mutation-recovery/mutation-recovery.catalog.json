@@ -542,7 +542,8 @@
             "name": "sandbox/catalog/fragments/mutation-recovery/requirements.json",
             "role": "fixture",
             "suite_ids": [
-                "legacy-code-half-unit"
+                "platform-catalog-complete",
+                "platform-generated-agreement"
             ]
         },
         {
@@ -1857,6 +1858,8 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/code-release-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/regress_code_release.php"
             ],
             "environment_class": "offline",
@@ -2183,7 +2186,10 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/checkpoint-provider.php",
                 "sandbox/tests/fixtures/effect-lifecycle.php",
+                "sandbox/tests/fixtures/effect-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/regress_effect_bundle.php"
             ],
             "environment_class": "offline",
@@ -2284,6 +2290,7 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/duo3324-live-driver.yml",
                 "sandbox/tests/regress_environment_materializer_live.sh"
             ],
             "environment_class": "live",
@@ -3363,6 +3370,7 @@
             ],
             "covered_contracts": [],
             "covered_paths": [
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
                 "sandbox/tests/regress_woocommerce_effect_contract.php"
             ],
             "environment_class": "offline",
