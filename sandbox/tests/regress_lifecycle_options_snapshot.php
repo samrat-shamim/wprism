@@ -914,6 +914,21 @@ foreach ($wpdb->queryCalls as $call) {
     }
 }
 $authoredExecutorSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$normalizedAuthoredExecutorSource = is_string($authoredExecutorSource)
+    ? preg_replace('/\s+/', ' ', $authoredExecutorSource)
+    : null;
+$check(
+    is_string($normalizedAuthoredExecutorSource)
+        && str_contains(
+            $normalizedAuthoredExecutorSource,
+            '$this->optionsMaterializer->apply_options( $document, $withDeletes, $warnings, $classificationDocument );'
+        )
+        && str_contains(
+            $normalizedAuthoredExecutorSource,
+            '($this->recheckDeleteGuard)( $row, $deleteUuids, $compiledDeletions, $forceDeleteReferenced, $tree, $guardRepairUuids, true );'
+        ),
+    'authored transaction keeps option tombstone authority separate from forced reference deletion'
+);
 $check(
     $allocatedWidgetUuids === [$selectedSidebarWidget]
         && !in_array($protectedSidebarWidget, $allocatedWidgetUuids, true)

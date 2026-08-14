@@ -195,7 +195,7 @@ final class AuthoredTransactionExecutor {
                         : null;
                     $this->optionsMaterializer->apply_options(
                         $document,
-                        $forceDeleteReferenced,
+                        $withDeletes,
                         $warnings,
                         $classificationDocument
                     );
@@ -224,7 +224,7 @@ final class AuthoredTransactionExecutor {
                         $row,
                         $deleteUuids,
                         $compiledDeletions,
-                        $withDeletes,
+                        $forceDeleteReferenced,
                         $tree,
                         $guardRepairUuids,
                         true

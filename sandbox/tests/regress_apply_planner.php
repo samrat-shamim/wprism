@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../agent/src/Ledger.php';
 require_once __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\ApplyPlanner;
+use Duo\ApplyPlanBuilder;
 use Duo\Canon;
 use Duo\OptionState;
 use Duo\Policy;
@@ -738,23 +739,33 @@ final class ApplyPlannerRawTableLedgerWpdb {
 
 $rawTableLedgerWpdb = new ApplyPlannerRawTableLedgerWpdb();
 $GLOBALS['wpdb'] = $rawTableLedgerWpdb;
-$applyReflection = new ReflectionClass(\Duo\Apply::class);
-$applyForRawTt = $applyReflection->newInstanceWithoutConstructor();
-$applyReflection->getProperty('policy')->setValue($applyForRawTt, new Policy());
-$applyReflection->getProperty('snapshotRowTablesCache')->setValue($applyForRawTt, [
+$rawTtPlanner = new ApplyPlanner(
+    new Policy(),
+    [
     'tt_rooms' => [
         'id_kind' => 'tt',
         'identity' => ['mode' => 'natural_key', 'column' => 'code'],
     ],
-]);
+    ],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => \Duo\Ledger::id_for($uuid, $kind)
+);
+$builderReflection = new ReflectionClass(ApplyPlanBuilder::class);
+$builderForRawTt = $builderReflection->newInstanceWithoutConstructor();
+$builderReflection->getProperty('planner')->setValue($builderForRawTt, $rawTtPlanner);
 $rawTtUuid = 'f2e8bd3d-8c9e-5f4a-9b79-c872f4e8414c';
-$rawTtRow = [];
+$rawTtRow = ['annotations' => ['existing plan note']];
 $rawTtArgs = [&$rawTtRow, $rawTtUuid, 'tt_rooms', ['columns' => ['code' => 'renamed-room']], null];
-$applyReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($applyForRawTt, $rawTtArgs);
+$builderReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($builderForRawTt, $rawTtArgs);
+$builderReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($builderForRawTt, $rawTtArgs);
 $check($rawTtRow['annotations'] === [
+    'existing plan note',
     'tt_rooms row renamed-room: renamed since first capture (uuid retained via ledger)',
-], 'Apply preserves a declared raw tt ledger kind for natural-key continuity');
-$check($rawTableLedgerWpdb->ledgerLookups === [[$rawTtUuid, 'tt']], 'Apply sends literal declared tt to Ledger unchanged');
+], 'ApplyPlanBuilder preserves and deduplicates natural-key continuity on the rendered annotations field');
+$check(
+    $rawTableLedgerWpdb->ledgerLookups === [[$rawTtUuid, 'tt'], [$rawTtUuid, 'tt']],
+    'ApplyPlanBuilder sends literal declared tt to Ledger unchanged'
+);
 
 // ----------------------------------------------------------- work projection
 
@@ -1141,8 +1152,10 @@ $check(
 $check(
     preg_match('/public function natural_key_continuity_annotations\(/', $plannerSource) === 1
         && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
+        && preg_match('/private function annotate_natural_key_continuity\(.*?natural_key_continuity_annotations\(.*?\$row\[\'annotations\'\]\[\]/s', $builderSource) === 1
+        && !str_contains($builderSource, "\$row['identity_notes']")
         && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
-    'natural-key annotation: planner owns the projection while Apply keeps the plan-row compatibility facade'
+    'natural-key annotation: planner owns the projection and the builder preserves the rendered plan-row field'
 );
 $check(
     preg_match('/public static function regeneration_debt_projection\(/', $plannerSource) === 1

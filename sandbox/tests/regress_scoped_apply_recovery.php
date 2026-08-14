@@ -2032,6 +2032,14 @@ $batchBuilderSource = (string) file_get_contents($root . '/agent/src/ProviderAct
 $scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/ScopedApplyCoordinator.php');
 $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/RebuildActionDispatcher.php');
 $actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/RebuildActionNegotiator.php');
+$ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/ApplyLedgerFinalizer.php');
+$check(
+    str_contains(
+        preg_replace('/\s+/', ' ', $ledgerFinalizerSource),
+        '!empty($requestedRevision) ? $requestedRevision : $compiled->revision_hash()'
+    ),
+    'ordinary ledger finalization preserves the legacy empty revision fallback, including string zero'
+);
 $legacyScopedGuardAt = strpos(
     $applySource,
     'PromotionLock::scoped_session_id($promotionOwner, $promotionArtifact);'

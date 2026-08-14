@@ -94,7 +94,7 @@ final class ApplyLedgerFinalizer {
             } else {
                 Ledger::kv_set(
                     'applied_revision',
-                    $requestedRevision !== '' ? $requestedRevision : $compiled->revision_hash()
+                    !empty($requestedRevision) ? $requestedRevision : $compiled->revision_hash()
                 );
             }
             Db::commit('ledger transaction commit');

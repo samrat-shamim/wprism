@@ -523,14 +523,15 @@ final class ApplyPlanBuilder {
         ?array $desired,
         ?array $env
     ): void {
-        $annotations = $this->planner->natural_key_continuity_annotations(
+        foreach ($this->planner->natural_key_continuity_annotations(
             $uuid,
             $type,
             $desired,
             $env
-        );
-        if ($annotations !== []) {
-            $row['identity_notes'] = $annotations;
+        ) as $note) {
+            if ($note !== null && !in_array($note, $row['annotations'] ?? [], true)) {
+                $row['annotations'][] = $note;
+            }
         }
     }
 
