@@ -9,6 +9,66 @@ session — the incident that motivated this redesign. New surface:
 (`sandbox/pair.{http,journal,codebind}.yml`), and the lifecycle tool
 `sandbox/bin/pair.sh`.*
 
+## Engineering-platform bootstrap and Platform P0
+
+Development and build tools are lock-pinned inputs; they are never runtime
+dependencies of the host CLI, WordPress agent, or recovery payload. From a
+clean checkout:
+
+```sh
+make doctor
+make bootstrap-dev
+make platform-p0
+```
+
+`doctor` is read-only and reports required and profile-specific optional tools.
+The authoritative Platform P0 runner currently has a Linux host contract: PHP
+CLI 8.2 or 8.3 must expose `proc_open`, POSIX (`posix_kill` and
+`posix_getpgid`), and PCNTL signal support (`pcntl_signal` and
+`pcntl_async_signals`), and `setsid` must be the util-linux implementation
+with `--fork --wait` support. Composer 2.3 or newer is also required. `doctor`
+fails when any required function or executable is absent. macOS/BSD hosts may
+still use product and sandbox commands, but they do not produce authoritative
+Platform P0 receipts until equivalent process-group cleanup semantics are
+implemented and qualified.
+
+`bootstrap-dev` is the explicit network/workspace mutation boundary: it installs
+only `composer.lock` dependencies and writes a local tool/lock receipt under
+`artifacts/bootstrap/`. The `artifacts/`, `vendor/`, and `dist/` trees are local
+or CI outputs and are not source.
+
+Platform P0 catalog sources live below `sandbox/catalog/fragments/`. Each
+behavior thread owns only its ledger-assigned fragment directory. Thread 1 owns
+the schema, fail-closed validator, generated aggregate, serial runner, and the
+`engineering-platform` fragment. The complete P0 aggregate contains 338 suites,
+including exact compatibility profiles for all 218 legacy offline targets and
+46 legacy live targets. `platform-p0`, `test-component`, `catalog-check`, and
+`thread-1-gate` require that complete aggregate. The narrower
+`platform-p0-bootstrap` remains an explicitly non-authorizing diagnostic. No
+missing, empty, unknown, or stale suite selection is treated as a pass. Every
+receipt records whether it came from a complete catalog or a partial owner
+view, so bootstrap evidence cannot be mistaken for a gate result.
+
+Thread 1 exposes stable wrappers for canonical, recovery-transition, evidence-
+impact, and evidence-staleness checks, but their decision logic remains owned
+by Threads 3, 5, and 4 respectively. Until an owner-controlled executable
+lands, the wrapper exits with unavailable status 69 and a catalog run records
+`infra_error`; it never substitutes a legacy check or synthesizes success.
+
+New engineering-platform PHP files use `strict_types`, one class per file, and
+the `Duo\EngineeringPlatform` namespace. Executable entrypoints load only their
+explicit class files; production entrypoints never load Composer or this
+development tree. New behavioral tests belong to their behavior owner's
+fragment and must declare isolation, timeout, resources, evidence role, and
+expected outputs before entering a gate.
+
+New production PHP modules follow the composition handoff: the behavior owner
+exports a declarative module/command map, and Thread 1 consumes that map in the
+generated loader. Behavior branches do not add ad hoc `require` statements to
+production bootstraps. Until the generated-loader cutover lands, a new module
+may be cataloged and unit-tested but must not be made reachable from a runtime
+entrypoint through a one-off loader exception.
+
 ## The model
 
 **One shared MariaDB server, many pairs.** `sandbox/db.yml` brings up a

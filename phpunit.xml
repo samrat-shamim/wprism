@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+         bootstrap="sandbox/catalog/fragments/engineering-platform/tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="false"
+         failOnWarning="true">
+  <testsuites>
+    <testsuite name="engineering-platform">
+      <directory suffix="Test.php">sandbox/catalog/fragments/engineering-platform/tests</directory>
+    </testsuite>
+  </testsuites>
+</phpunit>

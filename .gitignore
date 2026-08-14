@@ -13,6 +13,13 @@ sandbox/.env
 /.duo/
 .claude/worktrees/
 
+# Engineering-platform outputs are retained locally/through CI artifacts, not
+# committed as source. Their receipts bind the exact source and tool inputs.
+/artifacts/
+/dist/
+/vendor/
+/.phpunit.cache/
+
 # DUO-3213: capture's staging/backup/lock and durable protocol artifacts
 # (agent/src/Publish.php)
 # — siblings of any published state dir; git must never see one, even

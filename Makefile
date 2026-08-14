@@ -1955,3 +1955,102 @@ regress-bound-helper:
 
 regress-duo-init:
 	bash sandbox/tests/regress_duo_init.sh
+
+# Thread 1 engineering-platform entrypoints. These wrappers keep network and
+# mutation boundaries visible: doctor and checks are read-only; bootstrap-dev
+# is the one explicit lock-pinned dependency installation step.
+.PHONY: doctor bootstrap-dev foundation-check ownership-check contracts-check guide-check
+.PHONY: canonical-contract-check recovery-transition-check evidence-impact evidence-staleness-check
+.PHONY: catalog-fragment-check catalog-check platform-p0-bootstrap platform-p0 test-component thread-1-gate
+.PHONY: test-unit test-offline format-check static-analysis lint verify-generated check
+
+THREAD1_PLATFORM_DIR := sandbox/catalog/fragments/engineering-platform
+
+doctor:
+	@php $(THREAD1_PLATFORM_DIR)/doctor.php
+
+bootstrap-dev:
+	composer install --no-interaction --prefer-dist --no-progress
+	@php $(THREAD1_PLATFORM_DIR)/bootstrap-receipt.php
+
+foundation-check:
+	@scripts/foundation-check --policy-only
+
+ownership-check:
+	@scripts/ownership-check
+
+contracts-check:
+	@scripts/contracts-check
+
+guide-check:
+	@bash sandbox/tests/check_guide_commands.sh
+
+# Thread 1 owns only these stable delegation interfaces. The behavior owners
+# supply the decision logic; absence is infrastructure unavailability (69),
+# never a synthesized pass or not-applicable result.
+canonical-contract-check:
+	@php $(THREAD1_PLATFORM_DIR)/delegate-check.php --label=canonical-contract-check --delegate=sandbox/catalog/fragments/wordpress-agent/canonical-contract-check --
+
+recovery-transition-check:
+	@php $(THREAD1_PLATFORM_DIR)/delegate-check.php --label=recovery-transition-check --delegate=sandbox/catalog/fragments/mutation-recovery/recovery-transition-check --
+
+evidence-impact:
+	@php $(THREAD1_PLATFORM_DIR)/delegate-check.php --label=evidence-impact --delegate=scripts/evidence-impact \
+		--required-sha=BASE_SHA="$(BASE_SHA)" --required-sha=HEAD_SHA="$(HEAD_SHA)" -- \
+		--base-sha="$(BASE_SHA)" --head-sha="$(HEAD_SHA)"
+
+evidence-staleness-check:
+	@php $(THREAD1_PLATFORM_DIR)/delegate-check.php --label=evidence-staleness-check --delegate=scripts/evidence-staleness-check \
+		--required-value=REPORT="$(REPORT)" -- --report="$(REPORT)"
+
+# The fragment check is the first P0 train slice. The complete catalog check is
+# intentionally fail-closed until Threads 2-5 land their owner-authored files.
+catalog-fragment-check:
+	@php $(THREAD1_PLATFORM_DIR)/catalog.php validate --owner=thread-1
+
+catalog-check:
+	@php $(THREAD1_PLATFORM_DIR)/catalog.php validate
+
+verify-generated:
+	@php $(THREAD1_PLATFORM_DIR)/catalog.php verify
+
+platform-p0-bootstrap: catalog-fragment-check
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --partial-owner=thread-1 --profile=platform-p0-bootstrap --result=artifacts/test-results/platform-p0-bootstrap/result.json
+
+# The P0 authority target always resolves the complete multi-owner aggregate.
+# Before the owner fragments land it writes an infra_error receipt and fails.
+platform-p0:
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --profile=platform-p0 --result=artifacts/test-results/platform-p0/result.json
+
+test-component:
+	@case "$(COMPONENT)" in \
+		engineering-platform) php $(THREAD1_PLATFORM_DIR)/runner.php --profile=component-engineering-platform --result=artifacts/test-results/components/engineering-platform/result.json ;; \
+		host-cli) php $(THREAD1_PLATFORM_DIR)/runner.php --profile=component-host-cli --result=artifacts/test-results/components/host-cli/result.json ;; \
+		wordpress-agent) php $(THREAD1_PLATFORM_DIR)/runner.php --profile=component-wordpress-agent --result=artifacts/test-results/components/wordpress-agent/result.json ;; \
+		capability-policy-evidence) php $(THREAD1_PLATFORM_DIR)/runner.php --profile=component-capability-policy-evidence --result=artifacts/test-results/components/capability-policy-evidence/result.json ;; \
+		mutation-recovery) php $(THREAD1_PLATFORM_DIR)/runner.php --profile=component-mutation-recovery --result=artifacts/test-results/components/mutation-recovery/result.json ;; \
+		*) echo "test-component: unknown or empty COMPONENT=$(COMPONENT)" >&2; exit 2 ;; \
+	esac
+
+# This is the acceptance target named by the Thread 0 matrix. Unlike the P0
+# slice it requires the complete multi-owner aggregate and cannot pass early.
+thread-1-gate:
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --profile=thread-1-engineering-platform --result=artifacts/test-results/thread-1/result.json
+
+test-unit:
+	@vendor/bin/phpunit --colors=never
+
+test-offline:
+	@$(MAKE) --no-print-directory regress-offline-all
+
+format-check:
+	@vendor/bin/php-cs-fixer check --diff --using-cache=no
+
+static-analysis:
+	@vendor/bin/phpstan analyse --no-progress
+
+lint:
+	@find $(THREAD1_PLATFORM_DIR) -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l >/dev/null
+
+check: format-check lint static-analysis foundation-check ownership-check contracts-check \
+	guide-check catalog-check verify-generated

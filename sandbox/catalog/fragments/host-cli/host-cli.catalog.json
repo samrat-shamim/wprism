@@ -1,0 +1,1365 @@
+{
+    "format": "duo-test-catalog-fragment/v1",
+    "inventory": [
+        {
+            "kind": "file",
+            "name": "sandbox/tests/cli_smoke.sh",
+            "role": "helper",
+            "suite_ids": [
+                "legacy-cli-smoke"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/cli_status_truth.sh",
+            "role": "helper",
+            "suite_ids": [
+                "legacy-regress-cli-json-refusals"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/cli_triage_smoke.sh",
+            "role": "helper",
+            "suite_ids": [
+                "legacy-cli-triage-smoke"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/fixtures/cli-json-refusal-sources.php",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-regress-cli-json-refusals"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/fixtures/duo3324-live-cli.Dockerfile",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-regress-cli-json-refusals"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/fixtures/ssh-adopt.Dockerfile",
+            "role": "fixture",
+            "suite_ids": [
+                "legacy-regress-ssh-adopt"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_adopt_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-adopt-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_classification_batch.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-classification-batch"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_classify_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-classify-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_cli_json_refusals.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-cli-json-refusals"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_doctor_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-doctor-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_doctor_env_values.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-doctor-env-values"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_command_options.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-command-options"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_command_preflight.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-command-preflight"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_driver.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-driver"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_environment_list_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-list-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_pending_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-pending-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_post_field_classification.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-post-field-classification"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_rebase_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-rebase-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_reference_scope_classifier.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-reference-scope-classifier"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_refresh_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_refresh_compile_refs.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-compile-refs"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_refresh_export_unit.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-export-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_refresh_field_diff.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-field-diff"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_refresh_orchestration.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-orchestration"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_refresh_rebase.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-rebase"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_scope_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scope-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_ssh_adopt.sh",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-ssh-adopt"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/tests/regress_status_command.php",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-status-command"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/host-cli/requirements.json",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-catalog-complete",
+                "platform-generated-agreement"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "cli-smoke",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-cli-smoke"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "cli-triage-smoke",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-cli-triage-smoke"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-adopt-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-adopt-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-classification-batch",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-classification-batch"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-classify-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-classify-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-cli-json-refusals",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-cli-json-refusals"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-doctor-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-doctor-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-doctor-env-values",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-doctor-env-values"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-command-options",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-command-options"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-command-preflight",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-command-preflight"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-driver",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-driver"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-environment-list-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-environment-list-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-pending-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-pending-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-post-field-classification",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-post-field-classification"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-rebase-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-rebase-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-reference-scope-classifier",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-reference-scope-classifier"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-refresh-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-refresh-compile-refs",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-compile-refs"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-refresh-export-unit",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-export-unit"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-refresh-field-diff",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-field-diff"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-refresh-orchestration",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-orchestration"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-refresh-rebase",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-refresh-rebase"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-scope-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-scope-command"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-ssh-adopt",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-ssh-adopt"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "regress-status-command",
+            "role": "suite",
+            "suite_ids": [
+                "legacy-regress-status-command"
+            ]
+        }
+    ],
+    "owner": "thread-2",
+    "profiles": [
+        {
+            "blocking": true,
+            "environment_class": "offline",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
+                "artifacts/test-results/threads/thread-2/result.json"
+            ],
+            "id": "thread-2-host-cli",
+            "owner": "thread-2",
+            "suite_ids": [
+                "legacy-regress-adopt-command",
+                "legacy-regress-classification-batch",
+                "legacy-regress-classify-command",
+                "legacy-regress-cli-json-refusals",
+                "legacy-regress-doctor-command",
+                "legacy-regress-doctor-env-values",
+                "legacy-regress-environment-command",
+                "legacy-regress-environment-command-options",
+                "legacy-regress-environment-command-preflight",
+                "legacy-regress-environment-driver",
+                "legacy-regress-environment-list-command",
+                "legacy-regress-pending-command",
+                "legacy-regress-post-field-classification",
+                "legacy-regress-rebase-command",
+                "legacy-regress-reference-scope-classifier",
+                "legacy-regress-refresh-command",
+                "legacy-regress-refresh-compile-refs",
+                "legacy-regress-refresh-export-unit",
+                "legacy-regress-refresh-field-diff",
+                "legacy-regress-refresh-orchestration",
+                "legacy-regress-refresh-rebase",
+                "legacy-regress-scope-command",
+                "legacy-regress-status-command"
+            ]
+        },
+        {
+            "blocking": true,
+            "environment_class": "offline",
+            "evidence_staleness": "forbidden",
+            "expected_outputs": [
+                "artifacts/test-results/components/host-cli/result.json"
+            ],
+            "id": "component-host-cli",
+            "owner": "thread-2",
+            "suite_ids": [
+                "legacy-regress-adopt-command",
+                "legacy-regress-classification-batch",
+                "legacy-regress-classify-command",
+                "legacy-regress-cli-json-refusals",
+                "legacy-regress-doctor-command",
+                "legacy-regress-doctor-env-values",
+                "legacy-regress-environment-command",
+                "legacy-regress-environment-command-options",
+                "legacy-regress-environment-command-preflight",
+                "legacy-regress-environment-driver",
+                "legacy-regress-environment-list-command",
+                "legacy-regress-pending-command",
+                "legacy-regress-post-field-classification",
+                "legacy-regress-rebase-command",
+                "legacy-regress-reference-scope-classifier",
+                "legacy-regress-refresh-command",
+                "legacy-regress-refresh-compile-refs",
+                "legacy-regress-refresh-export-unit",
+                "legacy-regress-refresh-field-diff",
+                "legacy-regress-refresh-orchestration",
+                "legacy-regress-refresh-rebase",
+                "legacy-regress-scope-command",
+                "legacy-regress-status-command"
+            ]
+        }
+    ],
+    "suites": [
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "cli-smoke"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/cli_smoke.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-cli-smoke",
+            "layer": "integration",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "cli-triage-smoke"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/cli_triage_smoke.sh"
+            ],
+            "environment_class": "destructive",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-cli-triage-smoke",
+            "layer": "integration",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-adopt-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_adopt_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-adopt-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-classification-batch"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_classification_batch.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-classification-batch",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-classify-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_classify_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-classify-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-cli-json-refusals"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/cli_status_truth.sh",
+                "sandbox/tests/fixtures/cli-json-refusal-sources.php",
+                "sandbox/tests/fixtures/duo3324-live-cli.Dockerfile",
+                "sandbox/tests/regress_cli_json_refusals.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-cli-json-refusals",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-doctor-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_doctor_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-doctor-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-doctor-env-values"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_doctor_env_values.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-doctor-env-values",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-command-options"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_command_options.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-command-options",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-command-preflight"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_command_preflight.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-command-preflight",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-driver"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_driver.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-driver",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-environment-list-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_environment_list_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-environment-list-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-pending-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_pending_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-pending-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-post-field-classification"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_post_field_classification.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-post-field-classification",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-rebase-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_rebase_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-rebase-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-reference-scope-classifier"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_reference_scope_classifier.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-reference-scope-classifier",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-refresh-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_refresh_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-refresh-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-refresh-compile-refs"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_refresh_compile_refs.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-refresh-compile-refs",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-refresh-export-unit"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_refresh_export_unit.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-refresh-export-unit",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-refresh-field-diff"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_refresh_field_diff.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-refresh-field-diff",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-refresh-orchestration"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_refresh_orchestration.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-refresh-orchestration",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-refresh-rebase"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_refresh_rebase.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-refresh-rebase",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-scope-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_scope_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-scope-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "authority_requirements": {
+                "credential_reference_id": "sha256:d4569722628005c4987789a7771ac38b94796da8c5b6b2892845c648cfd55e88",
+                "data_profile": "synthetic",
+                "effect_policy_reference_id": "sha256:ca8de88e582147eaf424716992d2d40bb4220e57c847c2f6d5259adad6a62f2d",
+                "environment_role_reference_id": "sha256:b8763d4b06bcd6023847e1a7f18a658fb0bb42125059a726c03e2762dd174cda",
+                "output_adoptability": "forbidden",
+                "output_authority": "non_authorizing",
+                "provisioning_reference_id": "sha256:4fc3f71967f738fafc332cced914490c9027bff0221e9616a079976785a24f81",
+                "sandbox_destination_reference_id": "sha256:9516cb23dcb621715442c32d0dcd4924de22bad522c1ecd3b9474bac570a9bcf"
+            },
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-ssh-adopt"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/fixtures/code-release-provider.php",
+                "sandbox/tests/fixtures/recovery-exclusion-provider.php",
+                "sandbox/tests/fixtures/ssh-adopt.Dockerfile",
+                "sandbox/tests/regress_ssh_adopt.sh"
+            ],
+            "environment_class": "live",
+            "evidence_inputs": [],
+            "evidence_role": "qualification",
+            "expected_outputs": [],
+            "id": "legacy-regress-ssh-adopt",
+            "layer": "integration",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": "duo-harness-approval/v1",
+            "required_services": [
+                "docker"
+            ],
+            "required_tools": [
+                "docker",
+                "make"
+            ],
+            "resource_locks": [
+                "docker-host",
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 3600,
+            "workspace_mode": "exclusive"
+        },
+        {
+            "command": [
+                "make",
+                "--no-print-directory",
+                "regress-status-command"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "sandbox/tests/regress_status_command.php"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "characterization",
+            "expected_outputs": [],
+            "id": "legacy-regress-status-command",
+            "layer": "offline",
+            "owner": "thread-2",
+            "parallel_safe": false,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "make"
+            ],
+            "resource_locks": [
+                "workspace-exclusive"
+            ],
+            "temporary_directory": "suite_managed",
+            "timeout_seconds": 120,
+            "workspace_mode": "exclusive"
+        }
+    ]
+}
