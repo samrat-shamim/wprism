@@ -19,21 +19,22 @@
     "statistic": "median_and_nearest_rank_p95",
     "outlier_rule": "none; reject noisy run",
     "maximum_noise_ratio": 0.35,
+    "maximum_noise_ms": 2.0,
     "maximum_baseline_drift_ratio": 0.35,
     "retry": {
         "maximum_attempts": 2,
         "allowed_reason": "noise_above_profile_limit"
     },
     "budgets": {
-        "ordinary-wordpress-disabled": {"median_ms": 1000, "p95_ms": 1500, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "ordinary-wordpress-enabled": {"median_ms": 1100, "p95_ms": 1600, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "journal-enabled": {"median_ms": 1200, "p95_ms": 1800, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "agent-command-cold": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "agent-command-warm": {"median_ms": 400, "p95_ms": 600, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "host-cli-cold": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "host-cli-warm": {"median_ms": 400, "p95_ms": 600, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "closure-hashing": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "targeted-test-feedback": {"median_ms": 500, "p95_ms": 750, "rss_kib": 131072, "maximum_regression_ratio": 0.2},
-        "complete-test-feedback": {"median_ms": 2000, "p95_ms": 3000, "rss_kib": 262144, "maximum_regression_ratio": 0.2}
+        "ordinary-wordpress-disabled": {"median_ms": 60, "p95_ms": 62, "rss_kib": 160000, "maximum_regression_ratio": 0.2},
+        "ordinary-wordpress-enabled": {"median_ms": 60, "p95_ms": 62, "rss_kib": 170000, "maximum_regression_ratio": 0.2},
+        "journal-enabled": {"median_ms": 60, "p95_ms": 63, "rss_kib": 170000, "maximum_regression_ratio": 0.2},
+        "agent-command-cold": {"median_ms": 193, "p95_ms": 198, "rss_kib": 165000, "maximum_regression_ratio": 0.2},
+        "agent-command-warm": {"median_ms": 2, "p95_ms": 2, "rss_kib": 165000, "maximum_regression_ratio": 0.2},
+        "host-cli-cold": {"median_ms": 70, "p95_ms": 70, "rss_kib": 40000, "maximum_regression_ratio": 0.2},
+        "host-cli-warm": {"median_ms": 70, "p95_ms": 70, "rss_kib": 40000, "maximum_regression_ratio": 0.2},
+        "closure-hashing": {"median_ms": 80, "p95_ms": 82, "rss_kib": 32000, "maximum_regression_ratio": 0.2},
+        "targeted-test-feedback": {"median_ms": 30, "p95_ms": 32, "rss_kib": 32000, "maximum_regression_ratio": 0.2},
+        "complete-test-feedback": {"median_ms": 75, "p95_ms": 78, "rss_kib": 38000, "maximum_regression_ratio": 0.2}
     }
 }

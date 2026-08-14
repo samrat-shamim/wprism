@@ -3836,6 +3836,7 @@
             "required_tools": [
                 "docker",
                 "git",
+                "lscpu",
                 "php"
             ],
             "resource_locks": [

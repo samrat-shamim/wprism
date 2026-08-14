@@ -55,9 +55,10 @@ final class Performance
         $warmups = $profile['warmups'];
         $samples = $profile['samples'];
         $maximumNoise = $profile['maximum_noise_ratio'];
+        $maximumNoiseMilliseconds = $profile['maximum_noise_ms'];
         $maximumBaselineDrift = $profile['maximum_baseline_drift_ratio'];
         if (!is_int($warmups) || !is_int($samples) || !is_float($maximumNoise)
-            || !is_float($maximumBaselineDrift)) {
+            || !is_float($maximumNoiseMilliseconds) || !is_float($maximumBaselineDrift)) {
             throw new CatalogException('performance profile sampling fields are malformed');
         }
         $ratified = $this->baselineRecord($profile);
@@ -85,8 +86,8 @@ final class Performance
                 }
                 $baselineResult = $paired['baseline'];
                 $candidateResult = $paired['candidate'];
-                if ($baselineResult['noise_ratio'] > $maximumNoise
-                    || $candidateResult['noise_ratio'] > $maximumNoise) {
+                if ($this->isNoisy($baselineResult, $maximumNoise, $maximumNoiseMilliseconds)
+                    || $this->isNoisy($candidateResult, $maximumNoise, $maximumNoiseMilliseconds)) {
                     $noisy[] = $name;
                 }
                 $budget = $profileBudgets[$name] ?? null;
@@ -353,6 +354,20 @@ final class Performance
             }
         }
         return true;
+    }
+
+    /** @param ScenarioResult $result */
+    private function isNoisy(array $result, float $maximumRatio, float $maximumMilliseconds): bool
+    {
+        $durations = [];
+        foreach ($result['samples'] as $sample) {
+            $durations[] = $sample['duration_ms'];
+        }
+        if ($durations === []) {
+            return true;
+        }
+        $spread = max($durations) - min($durations);
+        return $spread > max($maximumMilliseconds, $result['median_ms'] * $maximumRatio);
     }
 
     /** @return array<string,mixed> */

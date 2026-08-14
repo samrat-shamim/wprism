@@ -278,10 +278,18 @@ PHP;
             || !str_starts_with($fpm['php_version'], '8.3.')) {
             throw new CatalogException('controlled WordPress runtime is not PHP 8.3 FPM with OPcache');
         }
-        $extensions = explode("\n", trim($this->capture([
+        $extensions = array_values(array_unique(array_filter(explode("\n", trim($this->capture([
             'docker', 'exec', $this->wordpressContainer, 'php', '-m',
-        ])));
+        ]))), static fn(string $extension): bool => $extension !== '' && $extension[0] !== '[')));
         sort($extensions, SORT_STRING);
+        $cpu = $this->capture(['lscpu']);
+        $cpuModel = preg_match('/^Model name:\s*(.+)$/m', $cpu, $cpuMatch) === 1
+            ? trim($cpuMatch[1])
+            : 'unknown';
+        $limits = trim($this->capture([
+            'docker', 'inspect', $this->wordpressContainer,
+            '--format={{.HostConfig.NanoCpus}} {{.HostConfig.Memory}}',
+        ]));
         return [
             'baseline_sha' => $baseline,
             'candidate_sha' => trim($this->capture(['git', 'rev-parse', 'HEAD'], $this->root)),
@@ -294,6 +302,8 @@ PHP;
                 'docker', 'image', 'inspect', $databaseImage, '--format={{.Id}}',
             ])),
             'resources' => $resources,
+            'enforced_container_limits' => $limits,
+            'cpu_model' => $cpuModel,
             'kernel' => php_uname('s') . ' ' . php_uname('r') . ' ' . php_uname('m'),
             'docker_server_version' => trim($this->capture(['docker', 'version', '--format={{.Server.Version}}'])),
             'fpm' => $fpm,

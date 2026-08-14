@@ -7982,7 +7982,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:eb15030ac5eeb74a5bdccf15206e15b19da50a15c3b797cd3cecfd6a290823d4"
+            "sha256": "sha256:e4355c24c8b60d28fddb63fd5e48a5f39d8d500e14edcd44759837e1d4705a58"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",
@@ -20238,6 +20238,7 @@
             "required_tools": [
                 "docker",
                 "git",
+                "lscpu",
                 "php"
             ],
             "resource_locks": [
