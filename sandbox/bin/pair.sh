@@ -483,11 +483,15 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
   fi
 
   live_count="$(printf '%s\n' "$live" | awk 'NF {n++} END {print n+0}')"
+  PAIR_BUDGET_LIMIT="$budget"
+  PAIR_BUDGET_LIVE_COUNT="$live_count"
+  PAIR_BUDGET_AVAILABLE=$((budget - live_count))
+  [ "$PAIR_BUDGET_AVAILABLE" -ge 0 ] || PAIR_BUDGET_AVAILABLE=0
   if [ -n "$candidate" ] && printf '%s\n' "$live" | grep -Fqx -- "$candidate"; then
     candidate_live=1
   fi
   total="$live_count"
-  [ "$candidate_live" -eq 1 ] || total=$((total + 1))
+  [ -z "$candidate" ] || [ "$candidate_live" -eq 1 ] || total=$((total + 1))
 
   if [ "$total" -gt "$budget" ]; then
     warn ""
@@ -839,6 +843,21 @@ cmd_list() {
   fi
 }
 
+cmd_capacity() {
+  local pairs budget live_count available
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  pairs="$PAIR_BUDGET_LIVE_PAIRS"
+  budget="$PAIR_BUDGET_LIMIT"
+  live_count="$PAIR_BUDGET_LIVE_COUNT"
+  available="$PAIR_BUDGET_AVAILABLE"
+  disarm_budget_up_cleanup
+  jq -n --arg pairs "$pairs" --argjson budget "$budget" \
+    --argjson live "$live_count" --argjson available "$available" \
+    '{schema_version:1,budget:$budget,live:$live,available:$available,
+      pairs:($pairs | split("\n") | map(select(length > 0)))}'
+}
+
 usage() {
   cat <<'USAGE'
 usage:
@@ -897,6 +916,9 @@ usage:
   list     Show live pairs, stopped pairs, and the shared db's status;
            warns if crowded.
 
+  capacity Print the locked host pair budget, live count, available slots,
+           and live pair names as machine-readable JSON.
+
 Names: lowercase letters/digits only, starting with a letter (no
 hyphens/underscores) — used bare as both a MySQL database-name fragment
 and a docker compose project suffix.
@@ -933,6 +955,7 @@ case "${1:-}" in
   start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;
   list)    shift; cmd_list "$@" ;;
+  capacity) shift; cmd_capacity "$@" ;;
   -h|--help|"") usage ;;
   *) echo "unknown subcommand '$1'" >&2; usage >&2; exit 1 ;;
 esac

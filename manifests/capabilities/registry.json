@@ -37,14 +37,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "7c79315c25167efe579576c13bf0b16097ad2fa3cbd72fc485610d604ef1ebc5",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "33b05364d146ccf10da9b71d1bc9b47e9513f31e9c2ca8caa3c36f79b5ef87ee",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.acf",
-                "subject_digest": "d0b09b58fcdc7ffdf9655eafa3dd9c9090b0d10b69f809f7a10bc6417b6fdccb",
+                "subject_digest": null,
                 "tests": [
                     "conformance-acf",
                     "exact-artifact-version-matrix"
@@ -128,14 +128,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "fb6b3c447328faee01e49cbfe94706d43440c6d83b7b92d0111bb6a24f68ef03",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "3b26777e0ec53ba86b9ac53a43cb259f107a0d2b902d10626dfd6dce7159b03b",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.contact-form-7",
-                "subject_digest": "a16cb5d14a08bf4e15fae7599a1a5752c969dc84a3c27bcb23b707b64d6c1ca9",
+                "subject_digest": null,
                 "tests": [
                     "conformance-contact-form-7",
                     "exact-artifact-version-matrix"
@@ -231,14 +231,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "20c12a63dd20a6f9783d0b62b1fe775c9484743e884837a0f7d98519fee3b401",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "9f2708e03f6dd6f8df9536ab5aef12416916c9642909ec319182eb67b32e4da6",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.core",
-                "subject_digest": "d71f4849eea52b8ec30138cfff4d3bfaca579a3bbdf300ea5d45cc50bed7d4f7",
+                "subject_digest": null,
                 "tests": [
                     "conformance-core",
                     "multisite-refusal"
@@ -757,14 +757,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "46db0fcead396737d7544b2a7f52d8d8975ccf2903d7e53a2ff0a13b551c5874",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "9915e5a7344cec8805163578b9ed6d84a945adf17c9bcf3a8a35abb7cb9c0854",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.elementor",
-                "subject_digest": "191e30b98171392ce6c65d9b79aaeced4c35f26ffa94b8b0106d3f5b7f046278",
+                "subject_digest": null,
                 "tests": [
                     "conformance-elementor",
                     "exact-artifact-version-matrix"
@@ -857,14 +857,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "94b55ff622171117d659e5a3350f0e1dafa9c8bb08ba73e5aab24916339d3dd5",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "a0616a0e64b340f42f9265eb4aa7710231bc5c5c4aa2a925333d73f784659829",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.ninja-forms",
-                "subject_digest": "7970d27ed3a744bacd34f136fb04ab90dd776eb01a26e314e8eadb6d07cf7f6a",
+                "subject_digest": null,
                 "tests": [
                     "conformance-ninja-forms",
                     "exact-artifact-version-matrix"
@@ -1120,14 +1120,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "da936ae97d71092ae18b9cf81a405dfcad58562bc1e24bcc01bffac24f8321a3",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "e948f4e39ba53a9e5cf7056f3cd4435d01fb9d6fac123ddc7704ed949d3d3425",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.polylang",
-                "subject_digest": "31e47fb664bd89d649a51b7dfd3374fc876c363bd327bbf5b3db920645a5eba4",
+                "subject_digest": null,
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"
@@ -1336,14 +1336,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "a59c987d5b1b7f140d91d19132a34cf6a699671f505d3e343d3056ffacfe2f7c",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "197fdf172bb7fc92e1b2fa1fe415a897998deb59d5311e018b678aabb0793a94",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.woocommerce",
-                "subject_digest": "3a67c2614ef5756e5fe763971c857e6fe72ad0a542597a3ebe85b03f7ae06a34",
+                "subject_digest": null,
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
@@ -1601,14 +1601,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "3ef03b924de37802aa4034114722ebc0479330bc01cca997d1fb41c81e363f64",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "f8a75ec986008e9ede7db453591823b19189636df14fd520776d278e2d88ded6",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.yoast",
-                "subject_digest": "ced2a7c08713513c66cd73bdb61e04905c45a860a331e74b91a898e5c89ae766",
+                "subject_digest": null,
                 "tests": [
                     "conformance-yoast",
                     "exact-artifact-version-matrix"
@@ -1714,14 +1714,14 @@
     "profiles": {
         "fse": {
             "evidence": {
-                "bundle_digest": "a342c248c98594da2ddc3af82ae3056f3102f2824876255acb47e38718975065",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "d24bf88c4431ad637e349ee03d4c0e4b3ec229712f65d8a710547ea66abe67c0",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "d2235be40d710fc94e4133878a38bb32ad576586",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "profiles.fse",
-                "subject_digest": "27a2563ccc1f012876c514982a87111ceee8e20c06825f1d2199cfa62f706ab1",
+                "subject_digest": null,
                 "tests": [
                     "conformance-fse"
                 ]

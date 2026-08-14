@@ -686,6 +686,13 @@ Profiles use the same flow with `SUBJECT=profiles.<name>`. The import path is
 derived from `{kind,name,digest}`, so an extension never edits an evidence
 pointer for another subject.
 
+For several independent new or changed extensions, run
+`make certify-subjects-parallel` (optionally `JOBS=<n>` or
+`SUBJECTS="manifests.one manifests.two"`). It allocates collision-free pairs,
+ports, logs, and bundle roots from the currently available host capacity. The
+batch `index.json` is the import manifest; import its bundle paths only after
+the whole batch completes so every lane observes the same clean source commit.
+
 ## Site-installed adapters and external certification
 
 A site may install an additional, data-only adapter at

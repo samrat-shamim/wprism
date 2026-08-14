@@ -50,7 +50,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 	regress-environment-materializer-live \
 	regress-frozen-materialization-promotion \
 	regress-woo-attribute-deletion regress-bundle-coverage \
-	regress-scoped-certification-bundle regress-subject-certification-bundle certify-subject-bundle \
+	regress-scoped-certification-bundle regress-subject-certification-bundle certify-subject-bundle certify-subjects-parallel \
 	regress-multisite-refusal regress-journal-bootstrap regress-pair-bootstrap-unit regress-manifest-dispositions regress-site-adapter-certification \
 	regress-post-field-classification regress-capability-registry regress-woocommerce-contract regress-init-contract regress-duo-init regress-duo3316-contract \
 	regress-refresh-export-unit regress-vocabulary-ownership regress-parent-scoped-natural-key regress-close-gate-parent-count \
@@ -321,6 +321,14 @@ regress-subject-certification-bundle:
 # Usage: make certify-subject-bundle SUBJECT=manifests.woocommerce
 certify-subject-bundle:
 	bash sandbox/tests/certify_subject_bundle.sh "$(SUBJECT)"
+
+# Convention-discovers every certified subject by default and runs independent
+# subject lanes concurrently. Optional: JOBS, PORT_BASE, PAIR_PREFIX, OUT,
+# SUBJECTS="manifests.acf profiles.fse". Imports remain a post-run operation.
+certify-subjects-parallel:
+	CERT_PARALLEL_JOBS="$(JOBS)" CERT_PARALLEL_PORT_BASE="$(PORT_BASE)" \
+	CERT_PARALLEL_PAIR_PREFIX="$(PAIR_PREFIX)" CERT_PARALLEL_OUT="$(OUT)" \
+	CERT_PARALLEL_SUBJECTS="$(SUBJECTS)" bash sandbox/tests/certify_subjects_parallel.sh
 
 regress-manifest-dispositions:
 	bash sandbox/tests/regress_manifest_dispositions.sh
@@ -1921,6 +1929,7 @@ regress-live-list:
 	@echo "  regress-coverage                         needs an already-up pair with WooCommerce active (parameterized: DUO_PAIR)"
 	@echo "  regress-woo-attribute-deletion            pair wooattrdel 8996/8997 (parameterized: WOOATTRDEL_PAIR/WOOATTRDEL_PORT1/WOOATTRDEL_PORT2)"
 	@echo "  certify-subject-bundle SUBJECT=manifests.woocommerce own disposable pair (CERT_SUBJECT_PAIR/CERT_SUBJECT_PORT1/CERT_SUBJECT_PORT2; exact candidate gate)"
+	@echo "  certify-subjects-parallel                discovered subject lanes on unique pairs/ports, capped by locked host capacity"
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
 	@echo ""
 	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."

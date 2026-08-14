@@ -466,3 +466,15 @@ Import writes the durable record under
 entry in `manifests/capabilities/evidence.json`. The release check requires all
 certified manifest and profile records to be current; experimental and excluded
 subjects remain non-promoting without forcing unrelated test work.
+
+Independent subjects can be certified concurrently with
+`make certify-subjects-parallel`. The batch runner discovers every certified
+manifest/profile from dispositions, reads `pair.sh capacity` under the shared
+admission lock, and assigns each lane a unique pair, port pair, log, and bundle
+directory. Legs within one subject remain serial. `JOBS=<n>`,
+`PORT_BASE=<even-port>`, `PAIR_PREFIX=<lowercase-name>`, `OUT=<directory>`, and
+`SUBJECTS="manifests.acf profiles.fse"` narrow or place a run. Requested
+parallelism above current free capacity refuses rather than forcing an
+override. Its `index.json` lists each bundle; import them only after every live
+lane finishes, because importing sooner dirties the exact-source checkout
+shared by the remaining lanes.

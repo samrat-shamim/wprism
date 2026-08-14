@@ -71,6 +71,8 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
+VMATRIX_APPLY_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-apply.${PAIR}.XXXXXX")
+trap 'rm -f -- "$VMATRIX_APPLY_LOG"' EXIT
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix1@example.test)
@@ -533,8 +535,8 @@ EOF
   # captured state's own entities of the same name — the same known,
   # expected pattern every other grind/certify pair script in this repo
   # already handles the identical way (grind_r3b_events.sh, grind_r1b_shop.sh).
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at acf $ACF_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at acf $ACF_VERSION"
   pass "deploy + apply succeeded on side 2 (acf $ACF_VERSION, canary clean)"
 
   wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
@@ -602,8 +604,8 @@ EOF
   wp2 duo deploy --repo=/siterepo
   postdeploy_ninja_forms_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
   pass "deploy + apply succeeded on side 2 (ninja-forms $NINJA_VERSION, canary clean)"
 
   check_ninja_forms_boundary_content
@@ -675,8 +677,8 @@ EOF
 
   run_elementor_command wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
+  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
   pass "deploy + apply succeeded on side 2 (elementor $ELEMENTOR_VERSION, canary clean)"
 
   run_elementor_command check_elementor_content
@@ -770,8 +772,8 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
   pass "deploy + apply succeeded on side 2 (contact-form-7 $CF7_VERSION, canary clean)"
 
   # CF7 derives its post_name from the title/version-specific save path; use
@@ -859,8 +861,8 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at polylang $POLYLANG_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at polylang $POLYLANG_VERSION"
   pass "deploy + apply succeeded on side 2 (polylang $POLYLANG_VERSION, canary clean)"
 
   check_polylang_content
@@ -935,8 +937,8 @@ EOF
   wp2 duo deploy --repo=/siterepo
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at woocommerce $WOO_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
 
   check_woocommerce_content
@@ -1009,8 +1011,8 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
   pass "deploy + apply succeeded on side 2 (wordpress-seo $YOAST_VERSION, canary clean)"
 
   check_yoast_content

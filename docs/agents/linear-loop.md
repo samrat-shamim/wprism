@@ -241,7 +241,12 @@ branch or edit files before this passes.
     `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no
     central certification allowlist or dispatch switch is edited. The shared
     artifact file is projected by plugin slug, so new-extension rows do not
-    stale existing subject evidence.
+    stale existing subject evidence. When several
+    subjects need renewal, `make certify-subjects-parallel` schedules their
+    independent lanes on unique pairs/ports up to the locked free host
+    capacity and emits an `index.json`. Import none of those bundles until all
+    lanes finish, or the shared exact-source checkout becomes dirty underneath
+    the remaining runs.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
     affected adapter surface(s) — never a silent skip, and never the
