@@ -161,6 +161,38 @@ check(
     in_array('evidence_not_current', reason_codes($missingReport), true),
     'a missing ACF record blocks ACF without invalidating the registry or another subject'
 );
+$candidateProfileFixture = $currentFixture;
+$candidateProfileFixture['profiles']['fse']['evidence'] = $candidateFixture['profiles']['fse']['evidence'];
+$candidateProfileRegistry = CapabilityRegistry::from_snapshot(
+    $candidateProfileFixture,
+    $dispositions,
+    array_values($manifests)
+);
+$coreTarget = $scopedTarget;
+$coreTarget['active_plugins'] = [];
+$coreTarget['plugins'] = [];
+$candidateProfileReport = $candidateProfileRegistry->report(
+    [$manifests['core']],
+    ['operation' => 'capture', 'surface' => 'profile:fse'],
+    $coreTarget
+);
+check(
+    $candidateProfileReport['ready'] === false
+    && in_array('profile_evidence_not_current', reason_codes($candidateProfileReport), true)
+    && ($candidateProfileReport['manifests'][0]['evidence']['status'] ?? null) === 'current'
+    && ($candidateProfileReport['profiles'][0]['verdict']['status'] ?? null) === 'blocked',
+    'candidate FSE evidence blocks profile:fse while the independent core record remains current'
+);
+$unrelatedCoreReport = $candidateProfileRegistry->report(
+    [$manifests['core']],
+    ['operation' => 'capture', 'surface' => 'options.blogname'],
+    $coreTarget
+);
+check(
+    $unrelatedCoreReport['ready'] === true
+    && !in_array('profile_evidence_not_current', reason_codes($unrelatedCoreReport), true),
+    'candidate FSE evidence does not contaminate an unrelated core surface'
+);
 $forgedCandidate = $candidateFixture;
 $forgedCandidate['manifests']['acf']['evidence']['status'] = 'current';
 check_throws(

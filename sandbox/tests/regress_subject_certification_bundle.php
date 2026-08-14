@@ -28,9 +28,10 @@ function copy_tree(string $source, string $target): void {
     }
 }
 /** @return array{exit:int,out:string,err:string,json:?array} */
-function run(array $command): array {
+function run(array $command, ?string $cwd = null, ?array $extraEnv = null): array {
     $pipes = [];
-    $proc = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    $env = $extraEnv === null ? null : array_merge(getenv(), $extraEnv);
+    $proc = proc_open($command, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes, $cwd, $env);
     if (!is_resource($proc)) throw new RuntimeException('could not start command');
     fclose($pipes[0]);
     $out = (string) stream_get_contents($pipes[1]);
@@ -42,6 +43,16 @@ function run(array $command): array {
 }
 function write_json(string $path, mixed $value): void {
     file_put_contents($path, json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+}
+function commit_all(string $repo, string $message): array {
+    $add = run(['git', '-C', $repo, 'add', '-A']);
+    if ($add['exit'] !== 0) return $add;
+    return run([
+        'git', '-C', $repo,
+        '-c', 'user.name=duo-subject-regression',
+        '-c', 'user.email=subject-regression@example.test',
+        'commit', '--quiet', '-m', $message,
+    ]);
 }
 function reset_subject_evidence(string $repo): void {
     write_json($repo . '/manifests/capabilities/evidence.json', [
@@ -87,10 +98,10 @@ check(
 );
 $matrixHarness = (string) file_get_contents($source . '/sandbox/tests/certify_version_matrix.sh');
 check(
-    str_contains($matrixHarness, 'VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-all}"')
-    && str_contains($matrixHarness, 'manifest name')
+    str_contains($matrixHarness, 'VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"')
+    && !str_contains($matrixHarness, 'VMATRIX_MANIFEST" = all')
     && str_contains($matrixHarness, 'no exact-artifact matrix fixture is implemented'),
-    'version matrix accepts manifest-driven selection and fails closed without a fixture'
+    'version matrix requires one manifest and exposes no repository-wide all-subject mode'
 );
 $scopedHarness = (string) file_get_contents($source . '/sandbox/tests/certify_subject_bundle.sh');
 check(
@@ -141,24 +152,20 @@ $spec = [
     'repo_root' => $repo,
     'subject' => ['kind' => 'manifest', 'name' => 'woocommerce'],
     'created_at' => '2026-08-12T00:00:00Z',
-    // Provenance does not participate in scoped currentness: an unbound
-    // follow-up commit must not invalidate a verified Woo record.
+    // The builder requires this exact clean HEAD. Later commits may remain
+    // compatible only while every canonical subject input stays byte-equal.
     'git_revision' => trim((string) shell_exec('git -C ' . escapeshellarg($repo) . ' rev-parse HEAD')),
     'force_hatches' => [],
-    'bound_inputs' => [
-        'agent/duo.php', 'agent/src/CapabilityRegistry.php', 'cli/duo',
-        'manifests/dispositions.json', 'manifests/woocommerce.json',
-        'manifests/providers/woocommerce-product-lookups.php',
-        'manifests/providers/woocommerce-cache.php',
-        'sandbox/conformance/artifacts.lock.json', 'sandbox/conformance/run.sh',
-        'sandbox/conformance/entries/woocommerce.json',
-    ],
+    'bound_inputs' => [],
     'tests' => $tests,
 ];
-$specPath = "$root/spec.json";
-write_json($specPath, $spec);
 $out = "$root/bundles";
 $builder = $source . '/sandbox/bin/subject-certification-bundle.php';
+$inputProjection = run([PHP_BINARY, $builder, 'inputs', 'manifest', 'woocommerce', $repo]);
+$canonicalWooInputs = $inputProjection['json']['inputs'] ?? null;
+$spec['bound_inputs'] = is_array($canonicalWooInputs) ? $canonicalWooInputs : [];
+$specPath = "$root/spec.json";
+write_json($specPath, $spec);
 $built = run([PHP_BINARY, $builder, 'build', $specPath, $out]);
 $bundle = $built['json']['bundle'] ?? null;
 check(
@@ -169,6 +176,46 @@ check(
 
 $verified = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1, 'json' => null, 'err' => 'missing bundle'];
 check($verified['exit'] === 0 && ($verified['json']['verdict'] ?? null) === 'valid', 'fresh scoped bundle immediately verifies against exact current inputs');
+
+$incompleteSpec = $spec;
+$incompleteSpec['bound_inputs'] = ['agent/duo.php'];
+$incompleteSpecPath = "$root/incomplete.spec.json";
+write_json($incompleteSpecPath, $incompleteSpec);
+$incompleteBuilt = run([PHP_BINARY, $builder, 'build', $incompleteSpecPath, "$root/incomplete-bundles"]);
+check(
+    $incompleteBuilt['exit'] !== 0 && str_contains($incompleteBuilt['err'], 'canonical subject closure'),
+    'builder rejects a caller-chosen closure that omits canonical subject inputs'
+);
+
+$artifactLockPath = $repo . '/sandbox/conformance/artifacts.lock.json';
+$artifactLockBytes = (string) file_get_contents($artifactLockPath);
+$artifactLock = json_decode($artifactLockBytes, true);
+$artifactLock['plugins']['unrelated-new-extension'] = [
+    '1.0.0' => [
+        'role' => 'certified-boundary',
+        'sha256' => str_repeat('a', 64),
+        'url' => 'https://downloads.wordpress.org/plugin/unrelated-new-extension.1.0.0.zip',
+    ],
+];
+write_json($artifactLockPath, $artifactLock);
+$unrelatedArtifact = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1];
+check(
+    $unrelatedArtifact['exit'] === 0,
+    'adding another plugin artifact projection does not expire Woo evidence'
+);
+file_put_contents($artifactLockPath, $artifactLockBytes);
+
+$newHook = $repo . '/sandbox/certification/version-matrix/woocommerce.sh';
+if (!is_dir(dirname($newHook))) mkdir(dirname($newHook), 0777, true);
+file_put_contents($newHook, "#!/usr/bin/env bash\nexit 0\n");
+chmod($newHook, 0755);
+$expandedClosure = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 0];
+check(
+    $expandedClosure['exit'] !== 0 && str_contains($expandedClosure['err'], 'closure is not current'),
+    'adding a convention-discovered subject driver expires evidence because closure membership is rederived'
+        . ($expandedClosure['exit'] === 0 ? '' : ': ' . trim((string) ($expandedClosure['err'] ?? '')))
+);
+unlink($newHook);
 
 $invalidHatchSpec = $spec;
 $invalidHatchSpec['force_hatches'] = ['unreviewed-hatch'];
@@ -232,6 +279,11 @@ $tamperedImport = run([PHP_BINARY, $tamperedTarget . '/scripts/capability-regist
 check($tamperedImport['exit'] !== 0, 'import rejects a bundle whose referenced evidence log is corrupt');
 
 file_put_contents($repo . '/docs/unbound-adapter-note.md', "unbound documentation edit\n");
+$dirtyBuilt = run([PHP_BINARY, $builder, 'build', $specPath, "$root/dirty-bundles"]);
+check(
+    $dirtyBuilt['exit'] !== 0 && str_contains($dirtyBuilt['err'], 'clean exact-source checkout'),
+    'builder refuses to label dirty post-test bytes with the pre-test Git revision'
+);
 $unbound = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1, 'json' => null];
 check($unbound['exit'] === 0, 'unrelated documentation mutation does not expire Woo evidence');
 file_put_contents($repo . '/manifests/acf.json', "\n", FILE_APPEND);
@@ -292,6 +344,21 @@ if (is_string($bundle)) copy($bundle . '/logs/conformance-woocommerce.txt', $dur
 file_put_contents($clean . '/agent/duo.php', "\n", FILE_APPEND);
 $staleLoad = load_registry($clean);
 check($staleLoad['exit'] !== 0, 'runtime registry loader fails closed when a bound generic engine byte changes after generation');
+$staleGenerate = run([PHP_BINARY, $clean . '/scripts/capability-registry.php', 'generate']);
+$staleRegistry = json_decode((string) file_get_contents($clean . '/manifests/capabilities/registry.json'), true);
+$staleEvidence = $staleRegistry['manifests']['woocommerce']['evidence'] ?? [];
+$staleReload = load_registry($clean);
+check(
+    $staleGenerate['exit'] === 0
+    && ($staleEvidence['status'] ?? null) === 'candidate'
+    && array_key_exists('bundle_digest', $staleEvidence) && $staleEvidence['bundle_digest'] === null
+    && array_key_exists('closure_digest', $staleEvidence) && $staleEvidence['closure_digest'] === null
+    && array_key_exists('git_revision', $staleEvidence) && $staleEvidence['git_revision'] === null
+    && array_key_exists('subject_digest', $staleEvidence) && $staleEvidence['subject_digest'] === null
+    && $staleReload['exit'] === 0
+    && ($staleReload['json']['status'] ?? null) === 'candidate',
+    'stale durable evidence regenerates as a loadable null-bound candidate claim'
+);
 
 echo "\n== profile evidence is independent from its parent manifest ==\n";
 $profileRepo = "$root/profile";
@@ -309,6 +376,8 @@ foreach ([
     copy($source . '/' . $relative, $profileRepo . '/' . $relative);
 }
 reset_subject_evidence($profileRepo);
+$profileCandidateCommit = commit_all($profileRepo, 'test: reset independent profile evidence');
+check($profileCandidateCommit['exit'] === 0, 'profile fixture commits its exact candidate source before certification');
 $profileEvidenceDir = "$root/profile-evidence";
 mkdir($profileEvidenceDir, 0777, true);
 $profileResult = "$profileEvidenceDir/conformance-fse.result.json";
@@ -323,7 +392,7 @@ $profileSpec = [
     'created_at' => '2026-08-14T00:00:00Z',
     'git_revision' => trim((string) shell_exec('git -C ' . escapeshellarg($profileRepo) . ' rev-parse HEAD')),
     'force_hatches' => [],
-    'bound_inputs' => ['agent/duo.php', 'agent/src/CapabilityRegistry.php', 'manifests/core.json'],
+    'bound_inputs' => [],
     'tests' => [[
         'id' => 'conformance-fse',
         'result' => $profileResult,
@@ -331,6 +400,9 @@ $profileSpec = [
         'log' => $profileLog,
     ]],
 ];
+$profileInputs = run([PHP_BINARY, $builder, 'inputs', 'profile', 'fse', $profileRepo]);
+$profileSpec['bound_inputs'] = is_array($profileInputs['json']['inputs'] ?? null)
+    ? $profileInputs['json']['inputs'] : [];
 $profileSpecPath = "$root/profile.spec.json";
 write_json($profileSpecPath, $profileSpec);
 $profileBuilt = run([PHP_BINARY, $builder, 'build', $profileSpecPath, "$root/profile-bundles"]);
@@ -395,7 +467,7 @@ $syntheticClaim['supported_versions'] = [
     'plugin' => 'synthetic-extension/synthetic.php',
     'range' => ['max' => '2.0.0', 'min' => '1.0.0'],
 ];
-$syntheticClaim['evidence']['tests'] = ['conformance-synthetic-extension', 'exact-artifact-version-matrix'];
+$syntheticClaim['evidence']['tests'] = ['exact-artifact-version-matrix'];
 $syntheticDispositions['manifests']['synthetic-extension'] = $syntheticClaim;
 write_json($extensionRepo . '/manifests/dispositions.json', $syntheticDispositions);
 $artifactLock = json_decode((string) file_get_contents($extensionRepo . '/sandbox/conformance/artifacts.lock.json'), true);
@@ -421,37 +493,45 @@ write_json($extensionRepo . '/sandbox/conformance/entries/synthetic-extension.js
     ],
     'manifest' => 'synthetic-extension',
 ]);
-$syntheticEvidenceDir = "$root/synthetic-evidence";
-mkdir($syntheticEvidenceDir, 0777, true);
-$syntheticTests = [];
-foreach (['conformance-synthetic-extension', 'exact-artifact-version-matrix'] as $id) {
-    $result = "$syntheticEvidenceDir/$id.result.json";
-    $diff = "$syntheticEvidenceDir/$id.diff.json";
-    $log = "$syntheticEvidenceDir/$id.log";
-    write_json($result, ['test' => $id, 'verdict' => 'pass', 'exit_code' => 0]);
-    write_json($diff, ['status' => 'clean', 'test' => $id]);
-    file_put_contents($log, "$id passed\n");
-    $syntheticTests[] = ['id' => $id, 'result' => $result, 'diff' => $diff, 'log' => $log];
-}
-$syntheticSpec = [
-    'repo_root' => $extensionRepo,
-    'subject' => ['kind' => 'manifest', 'name' => 'synthetic-extension'],
-    'created_at' => '2026-08-14T00:00:00Z',
-    'git_revision' => trim((string) shell_exec('git -C ' . escapeshellarg($extensionRepo) . ' rev-parse HEAD')),
-    'force_hatches' => [],
-    'bound_inputs' => [
-        'agent/duo.php',
-        'agent/src/CapabilityRegistry.php',
-        'manifests/synthetic-extension.json',
-        'sandbox/conformance/artifacts.lock.json',
-        'sandbox/conformance/entries/synthetic-extension.json',
-    ],
-    'tests' => $syntheticTests,
-];
-$syntheticSpecPath = "$root/synthetic.spec.json";
-write_json($syntheticSpecPath, $syntheticSpec);
-$syntheticBuilt = run([PHP_BINARY, $builder, 'build', $syntheticSpecPath, "$root/synthetic-bundles"]);
-$syntheticBundle = $syntheticBuilt['json']['bundle'] ?? null;
+$syntheticDriver = $extensionRepo . '/sandbox/certification/version-matrix/synthetic-extension.sh';
+if (!is_dir(dirname($syntheticDriver))) mkdir(dirname($syntheticDriver), 0777, true);
+copy($source . '/sandbox/tests/fixtures/subject-certification-custom-test.sh', $syntheticDriver);
+chmod($syntheticDriver, 0755);
+$syntheticCandidate = run([PHP_BINARY, $extensionRepo . '/scripts/capability-registry.php', 'generate']);
+$syntheticCommit = $syntheticCandidate['exit'] === 0
+    ? commit_all($extensionRepo, 'test: add convention-discovered synthetic extension')
+    : ['exit' => 1, 'err' => 'candidate generation failed'];
+$fakeBin = "$root/fake-bin";
+mkdir($fakeBin, 0777, true);
+$fakeDocker = "$fakeBin/docker";
+file_put_contents($fakeDocker, <<<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
+  printf '[]\n'
+elif [ "${1:-}" = info ] && [ "${3:-}" = '{{.NCPU}}' ]; then
+  printf '8\n'
+elif [ "${1:-}" = info ] && [ "${3:-}" = '{{.MemTotal}}' ]; then
+  printf '17179869184\n'
+elif [ "${1:-}" = inspect ] && [ "${2:-}" = -f ] && [ "${3:-}" = '{{.State.Health.Status}}' ]; then
+  printf 'healthy\n'
+fi
+exit 0
+SH
+    . "\n");
+chmod($fakeDocker, 0755);
+$syntheticRun = $syntheticCommit['exit'] === 0 ? run(
+    ['bash', $extensionRepo . '/sandbox/tests/certify_subject_bundle.sh', 'manifests.synthetic-extension'],
+    $extensionRepo,
+    [
+        'PATH' => $fakeBin . PATH_SEPARATOR . (string) getenv('PATH'),
+        'CERT_SUBJECT_OUT' => "$root/synthetic-bundles",
+        'CERT_SUBJECT_PAIR' => 'syntheticcert',
+        'CERT_SUBJECT_PORT1' => '8990',
+        'CERT_SUBJECT_PORT2' => '8991',
+    ]
+) : ['exit' => 1, 'out' => '', 'err' => 'synthetic source commit failed'];
+preg_match('/"bundle"\s*:\s*"([^"]+)"/', (string) ($syntheticRun['out'] ?? ''), $syntheticBundleMatch);
+$syntheticBundle = $syntheticBundleMatch[1] ?? null;
 $syntheticImport = is_string($syntheticBundle)
     ? run([PHP_BINARY, $extensionRepo . '/scripts/capability-registry.php', 'import-subject-bundle', $syntheticBundle])
     : ['exit' => 1, 'err' => 'missing synthetic bundle'];
@@ -464,14 +544,17 @@ foreach ($frameworkPaths as $relative) {
     $frameworkAfter[$relative] = hash_file('sha256', $extensionRepo . '/' . $relative);
 }
 check(
-    $syntheticBuilt['exit'] === 0
+    $syntheticCandidate['exit'] === 0
+    && $syntheticCommit['exit'] === 0
+    && $syntheticRun['exit'] === 0
+    && str_contains((string) $syntheticRun['out'], 'exact-artifact-version-matrix passed')
     && $syntheticImport['exit'] === 0
     && $syntheticGenerate['exit'] === 0
     && ($syntheticRegistry['manifests']['synthetic-extension']['evidence']['status'] ?? null) === 'current'
     && ($syntheticRegistry['manifests']['synthetic-extension']['evidence']['subject'] ?? null) === 'manifests.synthetic-extension'
     && $frameworkBefore === $frameworkAfter,
-    'an unknown plugin extension reaches current evidence and registry output by adding only manifest, disposition, artifacts, fixture, and tests'
-        . ($syntheticBuilt['exit'] === 0 ? '' : ': ' . trim((string) ($syntheticBuilt['err'] ?? 'build failed')))
+    'the real runner discovers an unknown plugin extension matrix driver and reaches current registry output without framework edits'
+        . ($syntheticRun['exit'] === 0 ? '' : ': ' . trim((string) ($syntheticRun['err'] ?? 'runner failed')))
 );
 
 if ($failures !== 0) {
