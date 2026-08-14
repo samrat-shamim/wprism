@@ -1,6 +1,6 @@
 # Duo — product specification
 
-*Status: **PROPOSED FINAL — awaiting founder ratification** (2026-08-14).*
+*Status: **RATIFIED — founder decision** (2026-08-14).*
 
 This document defines Duo's durable product direction: the customer promise,
 product boundary, safety model, core workflows, and strategic priorities. It is
@@ -15,7 +15,7 @@ The document hierarchy is:
   current platform-certified capability claims.
 - [docs/roadmap.md](roadmap.md) records current sequencing, shipped status, and
   owner rulings.
-- This document owns the product promise and direction once ratified.
+- This document owns the product promise and direction.
 
 Current platform-certified behavior is authoritative only from the generated
 registry and repository-format specification. Site-certified behavior is
@@ -30,10 +30,10 @@ optional behavior. Unless explicitly labeled Current, present-tense product
 behavior describes the target product, not shipped availability. Current
 availability is stated only by the capability registry and roadmap.
 
-This specification is distilled from the founding design and the two 2026-08-13
-agent-era drafts. The DUO-3332 operator walkthrough informs its usability
-requirements, but is product-design evidence rather than external market
-validation.
+This specification supersedes the two 2026-08-13 agent-era drafts and the RC1
+working draft. It is distilled from those drafts and the founding design. The
+DUO-3332 operator walkthrough informs its usability requirements, but is
+product-design evidence rather than external market validation.
 
 ## Product definition
 
@@ -915,22 +915,17 @@ Ratification of this document makes the following product decisions:
   deferred.
 - Field adoption and user-surface closure precede broad new abstraction work.
 
-This PR is a decision artifact. Merging it while the status remains **PROPOSED
-FINAL** records the proposal but does not ratify it; the roadmap remains current
-direction. Preferred ratification updates this PR before merge, changing the
-status to **RATIFIED** and completing or explicitly sequencing the dependent
-documentation changes below.
+### Ratification record
 
-On ratification:
-
-1. Change the status above to **RATIFIED** by founder/owner commit.
-2. Mark the two agent-era proposals and RC1 as superseded design history.
-3. Rewrite roadmap ecosystem work around the strategic sequence above.
-4. Update public positioning only when corresponding product surfaces are
-   shipped; current platform-certified capability claims continue to come
-   solely from the generated registry, and site-certified claims only from the
-   generated per-site projection.
-5. Introduce application-contract grammar only through a versioned
-   repository-format change.
+- Ratified by founder decision on 2026-08-14.
+- Supersedes the two 2026-08-13 agent-era drafts and the RC1 working draft,
+  whether retained locally or later archived as design history.
+- The roadmap was aligned to the strategic sequence in the ratifying commit.
+- Public positioning changes only when corresponding product surfaces ship;
+  current platform-certified capability claims continue to come solely from
+  the generated registry, and site-certified claims only from the generated
+  per-site projection.
+- Application-contract grammar enters the normative contract only through a
+  versioned repository-format change.
 
 [DESIGN.md](../DESIGN.md) remains untouched as the founding record.

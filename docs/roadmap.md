@@ -3,7 +3,7 @@
 Owner lane: delegated to the team-lead session (2026-08-07). Rulings are posted on
 Linear issues as `OWNER RULING` comments; this document holds the direction those
 rulings serve. It changes only by owner commit. Honest boundary refreshed
-2026-08-13 (post-DUO-3310/3306/3450).
+2026-08-14 (product-spec ratification; post-DUO-3310/3306/3450).
 
 ## Thesis
 
@@ -23,8 +23,9 @@ version-pinned adapter contracts, and an evidence culture (conformance sweeps,
 grind scenarios, certification matrices) that has repeatedly caught silent-loss
 classes before they shipped. Above it now sits a certification layer: reviewed
 dispositions, content-addressed evidence bundles, and a generated capability
-registry that is the only source of product claims (README, docs, CLI,
-readiness all consume it; `make release-gate` fails on drift).
+registry that is the only source of current platform-certified product claims
+(README, docs, CLI, readiness all consume it; `make release-gate` fails on
+drift). No site-certified product claim exists yet; that path is gated by H3.
 
 The honest boundary has moved again. Proofs now include a real SSH-host
 adoption run (DUO-3257 phase 1), a signed production-form SSH crash-rollback
@@ -56,19 +57,38 @@ same-day-fixed what it surfaced (DUO-3287, DUO-3290). The rollback program
 generation fence, encrypted checkpoints, atomic code releases with verified
 restore, upload journaling, effect contracts, crash certification — and
 DUO-3310 wired `duo promote` to select that profile automatically when the
-target qualifies. Next: adoption phase 2 — a real third-party site, an
-operator-facing guide distilled from a real transcript, and field evidence
-that real targets qualify for the verified profile.
+target qualifies. Next: product-spec Phase A — a calibration cohort of at
+least three transactionally active single-site WooCommerce sites across two
+agencies, followed by the held-out validation cohort defined in
+[docs/product-spec.md](product-spec.md). The outputs are an operator-facing
+guide distilled from real transcripts, frozen launch thresholds, and field
+evidence about real targets and verified recovery.
 
-**H3 — Ecosystem.** The evidence-bound capability registry shipped early
-(DUO-3227), and certified claims now bind to named per-adapter conformance
-evidence (DUO-3306; scoped bundles DUO-3450). Draft-manifest generation exists
-as tooling — `duo adapter-draft` emits inert `_draft` candidates a human
-ratifies, *review* not authorship (the treadmill lesson from
-VersionPress/Mergebot) — but the community loop around it does not. Still
-ahead: the registry made public with evidence attached, host-agnostic bridges
-beyond SSH, and the merge story surfaced as the headline capability — it is
-the market gap.
+**H3 — Agent-native product and ecosystem.** The ratified
+[product specification](product-spec.md) keeps branchable WordPress as the
+market wedge, makes agencies the initial customer, and makes agent-driven
+qualification the evidence-bound route through the ecosystem long tail. The
+evidence-bound platform registry (DUO-3227), named per-adapter conformance
+evidence (DUO-3306; scoped bundles DUO-3450), and inert human-ratified
+`duo adapter-draft` candidates are shipped foundations. The sequence is:
+
+1. **Field grounding and adoptability** — H2's calibration and validation
+   cohorts; close internal-ID, undocumented-command, raw-recovery, and
+   unbounded-output leaks; freeze outcome, cost, and attention thresholds.
+2. **Site certification** — composed application contracts, a registered
+   certification gate and attestation, generated per-site capability
+   projections, semantic oracles, exact dependency invalidation, and the
+   production launch gate defined by the spec.
+3. **Safe scale** — more precise bounded requalification, fleet policy reuse
+   without evidence or authority confusion, broader sandbox/effect contracts,
+   and stronger conflict, plan, verification, refusal, and recovery UX.
+4. **Ecosystem compounding** — only after demand and privacy proof: consented
+   field-evidence aggregation, public registry evidence, host/agent-platform
+   partnerships, and host-agnostic bridges beyond SSH.
+
+The merge story remains the headline capability. Community evidence is review,
+never authorship, and no site-certified Ready claim ships before the Phase B
+launch gate passes.
 
 ## Standing decisions
 
@@ -83,10 +103,13 @@ the market gap.
   through duo, never through operator SQL (DUO-3251 ruling).
 - Sandbox pairs and test fixtures are disposable by design; scripts touching a
   namespace must prove it dead first (linear-loop.md field notes).
-- Certified status derives only from the generated registry bound to
-  executable evidence; product prose never hand-claims support. Dispositions
-  are reviewed inputs kept separate so a manifest cannot certify itself
-  (DUO-3227; release-gate enforces byte-level agreement).
+- Current platform-certified status derives only from the generated registry
+  bound to executable evidence; product prose never hand-claims support.
+  Dispositions are reviewed inputs kept separate so a manifest cannot certify
+  itself (DUO-3227; release-gate enforces byte-level agreement). Future
+  site-certified status is separate and exists only in a generated per-site
+  projection backed by reviewed declarations, current evidence, a registered
+  certification attestation, and environment bindings.
 - Capability *reduction* is a legitimate certification outcome: working but
   unprovable behavior is removed and refused, not shipped under-proven
   (DUO-3225: Woo product deletion → fail-closed boundary).
