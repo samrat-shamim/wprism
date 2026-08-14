@@ -148,6 +148,13 @@ namespace Duo {
         }
     }
 
+    // The direct CLI assertion intentionally stops before WordPress bootstrap
+    // or journal publication. Keep that gate isolated from the production
+    // Journal implementation, which is loaded only by the normal agent root.
+    final class Journal {
+        public static function suspend_for_refusal(): void {}
+    }
+
     function wp_json_encode(mixed $value): string {
         return json_encode($value, JSON_THROW_ON_ERROR);
     }
@@ -1232,8 +1239,8 @@ namespace {
             'artifact-hash' => $artifact,
             'scoped-promotion-receipt' => $receipt,
         ]),
-        'direct scope contract cannot enter scoped promotion',
-        'receipt-bearing direct agent apply is refused before compilation or target mutation without compact wire provenance'
+        'Apply/Delete is quarantined',
+        'receipt-bearing direct agent apply is refused before compilation or target mutation while qualification is unproven'
     );
 
     $beginArgs = CodeDeploy::beginScopedArgs($owner, $artifact, $receipt, $scopeHash);

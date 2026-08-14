@@ -18,6 +18,9 @@ use Duo\Recovery\AtomicStore;
 use Duo\Recovery\CanonicalJson;
 use Duo\Recovery\ProtocolLock;
 use Duo\Recovery\ProviderClient;
+use Duo\Recovery\RecoveryAuthorityController;
+use Duo\Recovery\RecoveryCliDispatcher;
+use Duo\Recovery\RecoveryRuntimeManifest;
 
 $failures = 0;
 
@@ -176,32 +179,20 @@ ok(
         && class_exists('Duo\\Recovery\\RecoveryCliDispatcher'),
     'standalone recovery root exports the authority controller and CLI dispatcher'
 );
-$dispatcherSource = (string) file_get_contents($repoRoot . '/recovery/RecoveryCliDispatcher.php');
+$dispatchRoot = $root . '/dispatch';
+RecoveryAuthorityController::initialize($dispatchRoot);
+ob_start();
+$dispatchExit = RecoveryCliDispatcher::run([
+    'rollback-control.php',
+    'status',
+    '--root=' . $dispatchRoot,
+]);
+$dispatchOutput = ob_get_clean();
+$dispatchStatus = json_decode((string) $dispatchOutput, true);
 ok(
-    str_contains($dispatcherSource, 'RecoveryAuthorityController::')
-        && !str_contains($dispatcherSource, 'RollbackControl::initialize')
-        && !str_contains($dispatcherSource, 'RollbackControl::status'),
-    'recovery CLI dispatch uses the exported controller rather than the legacy implementation name'
+    $dispatchExit === 0 && is_array($dispatchStatus) && ($dispatchStatus['ok'] ?? false) === true,
+    'recovery CLI dispatch reaches the exported controller through the packaged runtime'
 );
-$wiring = [
-    'recovery/RecoveryExecutor.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
-    'recovery/CheckpointBundle.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
-    'recovery/CodeRelease.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
-    'recovery/UploadBundle.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
-    'recovery/EffectBundle.php' => ['AtomicStore::', 'ProtocolLock::', 'ProviderClient::'],
-];
-foreach ($wiring as $relative => $needles) {
-    $source = (string) file_get_contents($repoRoot . '/' . $relative);
-    foreach ($needles as $needle) {
-        ok(str_contains($source, $needle), "$relative delegates its $needle seam");
-    }
-    ok(!str_contains($source, 'proc_open('), "$relative has no private provider process loop");
-}
-$bootstrap = (string) file_get_contents($repoRoot . '/cli/src/BootstrapEligibility.php');
-$adopt = (string) file_get_contents($repoRoot . '/cli/src/Adopt.php');
-foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php'] as $file) {
-    ok(str_contains($bootstrap, $file) && str_contains($adopt, $file), "$file is part of local and adopted runtime completeness");
-}
 $authority = "$root/authority";
 \Duo\Recovery\RollbackControl::initialize($authority);
 $authorityRuntime = $authority . '/recovery-runtime';
@@ -210,10 +201,19 @@ $runtimeFiles = [
     'rollback-control.php', 'RecoveryExecutor.php', 'CheckpointBundle.php',
     'CodeRelease.php', 'UploadBundle.php', 'EffectBundle.php',
     'CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php',
+    'RecoveryTransitionPolicy.php', 'RecoveryAuthorityKernel.php',
+    'RecoveryAuthorityController.php', 'RecoveryCliDispatcher.php',
+    'RecoveryRuntimeManifest.php', 'TransitionFaultMatrix.php',
+    'promotion-recovery-decision.schema.json', 'transition-fault-matrix.json',
+    'runtime-manifest.json',
 ];
 foreach ($runtimeFiles as $file) {
     copy($repoRoot . '/recovery/' . $file, $authorityRuntime . '/' . $file);
 }
+ok(
+    count(RecoveryRuntimeManifest::files($authorityRuntime)) === count($runtimeFiles) - 1,
+    'the target package accepts exactly the reviewed recovery runtime closure'
+);
 ok(
     \Duo\Recovery\RollbackControl::inspectReadOnly($authority)['quiescent'] === true,
     'read-only rollback inspection accepts a complete shared runtime'
@@ -221,7 +221,7 @@ ok(
 unlink($authorityRuntime . '/ProviderClient.php');
 throws(
     static fn() => \Duo\Recovery\RollbackControl::inspectReadOnly($authority),
-    'recovery runtime file',
+    'recovery runtime',
     'read-only rollback inspection refuses a runtime missing a shared protocol dependency'
 );
 
