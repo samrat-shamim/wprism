@@ -476,14 +476,14 @@ $check(
     'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
 );
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardLockCoordinator.php');
 $planBuilderSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanBuilder.php');
 $scannerSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardReferenceScanner.php');
 $engineFacade = substr(
     $applySource,
-    strpos($applySource, 'private function assert_delete_guard_engines('),
-    strpos($applySource, 'private function assert_delete_lock_isolation(')
-        - strpos($applySource, 'private function assert_delete_guard_engines(')
+    strpos($applySource, 'public function assert_guard_engines('),
+    strpos($applySource, 'public function assert_lock_isolation(')
+        - strpos($applySource, 'public function assert_guard_engines(')
 );
 $check(
     str_contains($applySource, "require_once __DIR__ . '/DeleteGuardEvaluator.php';")
@@ -492,48 +492,48 @@ $check(
         && substr_count($scannerSource, 'DeleteGuardEvaluator::lock_index(') === 3
         && str_contains($engineFacade, 'DeleteGuardEvaluator::assert_innodb_tables(array_keys($tables));')
         && !str_contains($engineFacade, 'information_schema.TABLES'),
-    'the scanner and Apply delegate every deletion-guard index and storage-engine decision to the evaluator'
+    'the scanner and lock coordinator delegate deletion-guard index and storage-engine decisions to the evaluator'
 );
 $check(
     !str_contains($applySource, 'private function guard_lock_index(')
         && !str_contains($scannerSource, 'private function guard_lock_index('),
-    'Apply retains no duplicate lock-boundary evaluator'
+    'the lock boundary retains no duplicate index evaluator'
 );
 $isolationFacade = substr(
     $applySource,
-    strpos($applySource, 'private function assert_delete_lock_isolation('),
-    strpos($applySource, 'private function recheck_delete_guards(')
-        - strpos($applySource, 'private function assert_delete_lock_isolation(')
+    strpos($applySource, 'public function assert_lock_isolation('),
+    strpos($applySource, 'public function recheck(')
+        - strpos($applySource, 'public function assert_lock_isolation(')
 );
 $check(
     str_contains($isolationFacade, 'DeleteGuardEvaluator::assert_transaction_isolation();')
         && !str_contains($isolationFacade, 'SELECT @@transaction_isolation')
         && !str_contains($isolationFacade, 'SELECT @@tx_isolation'),
-    'Apply keeps a thin transaction-isolation facade and no duplicate server-variable proof'
+    'DeleteGuardLockCoordinator keeps a thin isolation boundary and no duplicate server-variable proof'
 );
 $recheckFacade = substr(
     $applySource,
-    strpos($applySource, 'private function recheck_delete_guards('),
-    strpos($applySource, 'private function verify_convergence(')
-        - strpos($applySource, 'private function recheck_delete_guards(')
+    strpos($applySource, 'public function recheck('),
+    strpos($applySource, 'public static function append_forced_warnings(')
+        - strpos($applySource, 'public function recheck(')
 );
 $check(
     str_contains($recheckFacade, 'DeleteGuardEvaluator::final_recheck_findings(')
-        && str_contains($recheckFacade, 'warn_forced_guard_refs(')
+        && str_contains($recheckFacade, 'self::append_forced_warnings(')
         && !str_contains($recheckFacade, 'DeleteGuardEvaluator::reference_findings(')
         && !str_contains($recheckFacade, 'foreach ($capability[\'guards\']'),
-    'Apply delegates final guard refusal/findings and retains only policy, SQL, and forced-warning orchestration'
+    'lock coordinator delegates final guard findings and retains policy, SQL, and warning orchestration'
 );
 $lockFacade = substr(
     $applySource,
-    strpos($applySource, 'private function lock_and_revalidate_delete_guards('),
-    strpos($applySource, 'private function assert_delete_guard_engines(')
-        - strpos($applySource, 'private function lock_and_revalidate_delete_guards(')
+    strpos($applySource, 'public function lock_and_revalidate('),
+    strpos($applySource, 'public function assert_guard_engines(')
+        - strpos($applySource, 'public function lock_and_revalidate(')
 );
 $check(
     str_contains($lockFacade, 'DeleteGuardEvaluator::assert_revalidated_witnesses(')
         && !str_contains($lockFacade, 'foreach ($deleteWork'),
-    'Apply keeps lock/isolation and target-fact callbacks while the evaluator owns witness revalidation'
+    'DeleteGuardLockCoordinator keeps target-fact callbacks while the evaluator owns witness revalidation'
 );
 $planGuardSection = substr(
     $planBuilderSource,

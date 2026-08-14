@@ -668,14 +668,10 @@ $check(
     'scoped code witness changes when the target code/lifecycle observation changes'
 );
 
-$applyReflection = new ReflectionClass(\Duo\Apply::class);
-$applyForReadback = $applyReflection->newInstanceWithoutConstructor();
-$policyProperty = $applyReflection->getProperty('policy');
-$policyProperty->setValue($applyForReadback, $policy);
-$coreReadbackMethod = $applyReflection->getMethod('scoped_core_readback_hash');
+$applyForReadback = new \Duo\ScopedApplyWorkflow();
 $GLOBALS['wpdb']->failResults = true;
 try {
-    $coreReadbackMethod->invoke($applyForReadback, [], []);
+    $applyForReadback->core_readback_hash($policy, [], []);
     $check(false, 'a failed taxonomy-count read cannot mint an engine-effect receipt');
 } catch (Throwable $failure) {
     $check(
@@ -1058,11 +1054,10 @@ $phaseAuthority = ScopedApplySession::make_authority(
 $phaseStore = new ScopedRecoveryMemoryStore();
 $phaseSession = ScopedApplySession::begin($phaseStore, $phaseAuthority);
 $phaseSession->transition(ScopedApplySession::PHASE_AUTHORING);
-$phaseApply = $applyReflection->newInstanceWithoutConstructor();
-$applyReflection->getProperty('scopeContract')->setValue($phaseApply, $phaseContract);
-$applyReflection->getProperty('scopedSession')->setValue($phaseApply, $phaseSession);
-$phaseAllowance = $applyReflection->getMethod('scoped_allows_target_old_menu_items');
-$phaseAllowsBefore = $phaseAllowance->invoke($phaseApply, $phaseBeforeActual);
+$phaseApply = new \Duo\ScopedApplyWorkflow();
+$phaseApply->scopeContract = $phaseContract;
+$phaseApply->session = $phaseSession;
+$phaseAllowsBefore = $phaseApply->allows_target_old_menu_items($phaseBeforeActual);
 $phaseDesiredState = ScopedApply::authored_state(
     $authoringDesiredActual,
     $phaseCompiled,
@@ -1070,7 +1065,7 @@ $phaseDesiredState = ScopedApply::authored_state(
     $phaseContract,
     $nestedBeforeRoot
 );
-$phaseAllowsDesired = $phaseAllowance->invoke($phaseApply, $authoringDesiredActual);
+$phaseAllowsDesired = $phaseApply->allows_target_old_menu_items($authoringDesiredActual);
 $check(
     $phaseAllowsBefore === true,
     'authoring recovery admits target-old identities only while the exact selected before root remains intact'
@@ -2027,7 +2022,9 @@ $check(
 // The full public Apply path needs WordPress and a promotion lease, so pin the
 // four recovery/isolation threading edges in its bounded run()/rebuild()
 // source. The protocol seams they call are exercised dynamically above.
-$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$applySource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
+$preparationSource = (string) file_get_contents($root . '/agent/src/ApplyPreparationCoordinator.php');
+$rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/ApplyRebuildCoordinator.php');
 $batchBuilderSource = (string) file_get_contents($root . '/agent/src/ProviderActionBatchBuilder.php');
 $scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/ScopedApplyCoordinator.php');
 $actionDispatcherSource = (string) file_get_contents($root . '/agent/src/RebuildActionDispatcher.php');
@@ -2055,13 +2052,30 @@ $check(
         && str_contains($scopedCoordinatorSource, '$sessionId = PromotionLock::scoped_session_id('),
     'scoped continuations refuse legacy generations before lease renewal and authority seals only random generations'
 );
-$deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
-$terminalArchiveAt = strpos($applySource, '$this->terminalScopedSessionToArchive->archive_terminal();');
+$deleteGateAt = strpos($preparationSource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
+$preparedAt = strpos($applySource, '$prepared = $this->preparationCoordinator->prepare(');
+$freshActualContractAt = strpos($preparationSource, 'freshActual: $freshActual');
+$freshActualHandoffAt = strpos($applySource, '$freshActual = $prepared->freshActual;');
+$authoredStateAt = strpos($applySource, 'ScopedApply::authored_state(');
+$freshActualProbe = ['selected' => ['sentinel' => true]];
+$preparedProbe = new \Duo\PreparedApply(
+    freshPlan: [],
+    work: [],
+    deleteWork: [],
+    rebuildDeleteWork: [],
+    deleteUuids: [],
+    guardRepairUuids: [],
+    negotiation: [],
+    executeDeletes: false,
+    defaultAuthor: null,
+    freshActual: $freshActualProbe
+);
+$terminalArchiveAt = strpos($applySource, '$this->scopedWorkflow->terminalSessionToArchive->archive_terminal();');
 $archivedReplayLookupAt = strpos($applySource, 'ScopedApplySession::open_terminal_for_request(');
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
 $promotionSessionBeginAt = strpos($applySource, 'PromotionLock::begin_apply_session(');
 $check(
-    $deleteGateAt !== false && $sessionBeginAt !== false && $deleteGateAt < $sessionBeginAt,
+    $deleteGateAt !== false && $preparedAt !== false && $sessionBeginAt !== false && $preparedAt < $sessionBeginAt,
     'scoped tombstones without --with-deletes refuse before a session can authorize target mutation'
 );
 $check(
@@ -2079,7 +2093,7 @@ $check(
     'direct scoped apply publishes a random promotion generation only at the sealed-authority boundary'
 );
 $check(
-    substr_count($applySource, 'CommandRefusalException::applyRefused(') >= 3
+    substr_count($applySource . $preparationSource, 'CommandRefusalException::applyRefused(') >= 3
         && str_contains(
             $applySource,
             'scoped apply refused because its scope evidence is stale or invalid for the current source artifact'
@@ -2089,16 +2103,27 @@ $check(
             'terminal scoped receipt no longer describes the live bounded target; no mutation or replay attempted'
         )
         && str_contains(
-            $applySource,
+            $preparationSource,
             'scoped apply selected live tombstones but --with-deletes was not supplied; '
         ),
     'known stale-scope, stale-terminal, and missing-delete scoped gates retain typed public refusals'
 );
 $check(
+    $freshActualContractAt !== false
+        && $freshActualHandoffAt !== false
+        && $authoredStateAt !== false
+        && $freshActualHandoffAt < $authoredStateAt,
+    'scoped preparation carries the fresh target snapshot through PreparedApply before authored-state validation'
+);
+$check(
+    $preparedProbe->freshActual === $freshActualProbe,
+    'PreparedApply declares and preserves the freshActual named state contract'
+);
+$check(
     $terminalArchiveAt !== false
         && $deleteGateAt !== false
         && $sessionBeginAt !== false
-        && $deleteGateAt < $terminalArchiveAt
+        && $preparedAt < $terminalArchiveAt
         && $terminalArchiveAt < $sessionBeginAt,
     'a different scoped request preserves prior terminal evidence until every new-operation gate passes'
 );
@@ -2113,9 +2138,10 @@ $check(
     'both no-receipt and existing-receipt native/provider paths reconcile before trusting completion'
 );
 $check(
-    str_contains($applySource, '$durableReparents = $scoped ? []')
-        && str_contains($applySource, '$durableDeletions = $scoped ? []')
-        && str_contains($applySource, 'if (!$scoped) {' . "\n" . '            $this->regen_dependencies(')
+    str_contains($rebuildCoordinatorSource, '$durableReparents = $request->scoped')
+        && str_contains($rebuildCoordinatorSource, '$durableDeletions = $request->scoped')
+        && str_contains($rebuildCoordinatorSource, 'if (!$request->scoped) {')
+        && str_contains($rebuildCoordinatorSource, '$this->services->dependency_regenerator()->run(')
         && str_contains($batchBuilderSource, 'Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) : []'),
     'scoped rebuild neither consumes nor sweeps the generic regen retry/context keyspaces'
 );

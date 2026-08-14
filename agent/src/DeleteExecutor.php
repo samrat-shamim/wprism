@@ -36,7 +36,7 @@ require_once __DIR__ . '/MenuMaterializer.php';
  * deletion authority in extraction PRs") is exactly why it stays out.
  *
  * Two things this move deliberately does NOT carry over, both left on
- * Apply's own facade rather than folded in here:
+ * AuthoredTransactionExecutor rather than folded in here:
  *
  * - The trailing REGEN_PENDING_PREFIX marker cleanup (DUO-3234), previously
  *   the last statement of the 'post' branch. Clearing a stale regen-pending
@@ -45,13 +45,13 @@ require_once __DIR__ . '/MenuMaterializer.php';
  *   territory, not yet extracted -- not "execute this entity's row
  *   deletion." A real conceptual boundary, not just a convenient place to
  *   stop: this class has no reason to know REGEN_PENDING_PREFIX exists at
- *   all. Apply's facade runs it immediately after delegating here, which
+ *   all. The transaction executor runs it immediately after delegating here, which
  *   only reorders it after the (unrelated) "deleted $type $uuid" warning
  *   append rather than before -- the two have no interaction, so this is
  *   not an observable behavior change.
  *
  * - $scopeContract itself: the only place delete_entity() previously read
- *   it was that same regen-marker guard, which stayed on Apply. This class
+ *   it was that same regen-marker guard, which stayed on the transaction executor. This class
  *   never needed scopeContract as a dependency at all once that one line
  *   moved out with it -- narrower than a mechanical carry-over would have
  *   produced.

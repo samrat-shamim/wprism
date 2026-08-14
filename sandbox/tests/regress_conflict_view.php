@@ -171,7 +171,7 @@ assert_conflict_view(
     'a guard-blocked deletion conflict must not advertise a destructive repository choice'
 );
 
-$applyReflection = new ReflectionClass(\Duo\Apply::class);
+$applyReflection = new ReflectionClass(\Duo\ApplyRequestCoordinator::class);
 $apply = $applyReflection->newInstanceWithoutConstructor();
 $warnings = $applyReflection->getProperty('warnings');
 $warnings->setValue($apply, [
@@ -179,7 +179,7 @@ $warnings->setValue($apply, [
     'FORCED conflict 44444444-4444-7444-8444-444444444444 (repository intent authorized to replace target authored state)',
 ]);
 $forcedEvidence = $applyReflection->getProperty('forcedOverrideEvidence');
-$evidenceMethod = $applyReflection->getMethod('forced_override_evidence');
+$evidenceMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'forced_override_evidence');
 $ordinaryEvidence = $evidenceMethod->invoke(null, [
     'uuid' => '44444444-4444-7444-8444-444444444444',
     'conflict_view' => $plan['conflict'][0]['conflict_view'],
@@ -229,7 +229,7 @@ assert_conflict_view(
         && !array_key_exists('guard_override', $blockedEvidence),
     'a guard-blocked deletion refusal must distinguish required and supplied flags without fabricating authorization or the suppressed apply choice'
 );
-$incompleteMethod = $applyReflection->getMethod('incomplete_override_refusal');
+$incompleteMethod = new ReflectionMethod(\Duo\ApplyPlanner::class, 'incomplete_override_refusal');
 $incomplete = $incompleteMethod->invoke(null, [$blockedEvidence], 'operator-only guard detail');
 $warnings->setValue($apply, ['FORCED past code_drift: reviewed operator-only context']);
 $forcedEvidence->setValue($apply, []);

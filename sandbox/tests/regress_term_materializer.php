@@ -92,10 +92,10 @@ $check(
         && !str_contains($applySource, 'private function reconcile_term_relationships('),
     'Apply.php no longer defines encode_description()/reconcile_term_relationships() itself (moved to TermMaterializer.php, no facade needed -- neither had any other caller)'
 );
-$check(
-    str_contains($applySource, '$this->term_materializer()->finalize_term($front, $this->term_object_taxes());'),
-    'Apply::finalize_term() is a thin facade delegating to TermMaterializer, passing the resolved term-object-taxes roster through'
-);
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$check(!str_contains($applySource, 'function finalize_term(')
+    && str_contains($transactionSource, '$this->termMaterializer->finalize_term('),
+    'AuthoredTransactionExecutor calls TermMaterializer directly without an Apply facade');
 
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";

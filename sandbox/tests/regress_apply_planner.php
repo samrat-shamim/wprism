@@ -1111,9 +1111,11 @@ $check(
     'collision planner: typed-table refs use the declared token kind without loading Ledger directly'
 );
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/ApplyRequestCoordinator.php');
 $builderSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanBuilder.php');
 $plannerSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanner.php');
+$preparationSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPreparationCoordinator.php');
+$planEnvironmentSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanEnvironment.php');
 $check(
     !preg_match('/private function find_collision\(/', $applySource),
     'collision planner: Apply no longer owns the collision implementation'
@@ -1132,26 +1134,24 @@ $check(
 );
 $check(
     preg_match('/public function option_rebuild_names\(/', $plannerSource) === 1
-        && preg_match('/private function option_rebuild_names\([^}]*?return \$this->apply_planner\(\)->option_rebuild_names\(/s', $applySource) === 1,
-    'option projection: implementation lives on ApplyPlanner while Apply keeps only its facade'
+        && !str_contains($applySource, 'function option_rebuild_names('),
+    'option projection: implementation lives only on ApplyPlanner'
 );
 $check(
     preg_match('/public function rebuild_work\(/', $plannerSource) === 1
-        && preg_match('/private function rebuild_work\([^}]*?return \$this->apply_planner\(\)->rebuild_work\(/s', $applySource) === 1
-        && preg_match('/private function phase2_rank\([^}]*?return \$this->apply_planner\(\)->phase2_rank\(/s', $applySource) === 1
-        && preg_match('/private function deletion_rank\([^}]*?return \$this->apply_planner\(\)->deletion_rank\(/s', $applySource) === 1,
-    'work projection: Apply keeps only compatibility facades while planner owns work and ordering projections'
+        && !preg_match('/function (rebuild_work|phase2_rank|deletion_rank)\(/', $applySource),
+    'work projection: planner exclusively owns work and ordering projections'
 );
 $check(
     preg_match('/public static function guard_repair_uuids\(/', $plannerSource) === 1
-        && preg_match('/private function guard_repair_uuids\([^}]*?return ApplyPlanner::guard_repair_uuids\(/s', $applySource) === 1
         && preg_match('/public static function plan_precondition_hash\(/', $plannerSource) === 1
-        && preg_match('/private function plan_precondition_hash\([^}]*?return ApplyPlanner::plan_precondition_hash\(/s', $applySource) === 1,
-    'mutation authority: Apply keeps thin facades while planner owns repair UUID and precondition projections'
+        && str_contains($preparationSource, 'ApplyPlanner::guard_repair_uuids(')
+        && str_contains($preparationSource, 'ApplyPlanner::plan_precondition_hash(')
+        && !preg_match('/function (guard_repair_uuids|plan_precondition_hash)\(/', $applySource),
+    'mutation authority: preparation calls planner-owned repair and precondition projections directly'
 );
 $check(
     preg_match('/public function natural_key_continuity_annotations\(/', $plannerSource) === 1
-        && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
         && preg_match('/private function annotate_natural_key_continuity\(.*?natural_key_continuity_annotations\(.*?\$row\[\'annotations\'\]\[\]/s', $builderSource) === 1
         && !str_contains($builderSource, "\$row['identity_notes']")
         && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
@@ -1159,24 +1159,24 @@ $check(
 );
 $check(
     preg_match('/public static function regeneration_debt_projection\(/', $plannerSource) === 1
-        && preg_match('/private function regeneration_debt_projection\([^}]*?return ApplyPlanner::regeneration_debt_projection\(/s', $applySource) === 1
+        && str_contains($planEnvironmentSource, 'return ApplyPlanner::regeneration_debt_projection(')
         && str_contains($builderSource, '$this->regeneration_debt_projection()')
         && !str_contains($applySource, 'regen_context_plan_rows('),
-    'regeneration debt: planner owns the complete read-only projection while Apply supplies Ledger/Policy boundaries'
+    'regeneration debt: planner owns projection while ApplyPlanEnvironment supplies Ledger/Policy boundaries'
 );
 $envBuildStart = strpos($builderSource, '        // DUO-3232: env-bound value provisioning checklist.');
 $envBuildEnd = strpos($builderSource, '        // DUO-3249:', $envBuildStart);
 $envBuildSection = substr($builderSource, $envBuildStart, $envBuildEnd - $envBuildStart);
 $check(
     preg_match('/public static function env_missing_projection\(/', $plannerSource) === 1
-        && preg_match('/private function env_missing_projection\([^}]*?return ApplyPlanner::env_missing_projection\(/s', $applySource) === 1
+        && str_contains($planEnvironmentSource, 'return ApplyPlanner::env_missing_projection(')
         && str_contains($envBuildSection, '$this->env_missing_projection()')
         && !str_contains($envBuildSection, 'foreach ($this->policy->env_options()'),
-    'env projection: planner owns missing rows and warnings while Apply keeps only Policy/wpdb boundary and plan threading'
+    'env projection: planner owns missing rows while ApplyPlanEnvironment owns the Policy/wpdb boundary'
 );
-$themeSectionStart = strpos($applySource, '    private function check_theme_mismatch(');
-$themeSectionEnd = strpos($applySource, "\n    // ----------------------------------------------------------------- apply", $themeSectionStart);
-$themeSection = substr($applySource, $themeSectionStart, $themeSectionEnd - $themeSectionStart);
+$themeSectionStart = strpos($builderSource, '    private function check_theme_mismatch(');
+$themeSectionEnd = strpos($builderSource, "\n    /**", $themeSectionStart);
+$themeSection = substr($builderSource, $themeSectionStart, $themeSectionEnd - $themeSectionStart);
 $check(
     str_contains($themeSection, 'ApplyPlanner::theme_mismatch_warnings(')
         && str_contains($themeSection, 'ApplyPlanner::theme_mismatch_has_theme_terms(')
@@ -1185,7 +1185,7 @@ $check(
         && strpos($themeSection, 'ApplyPlanner::theme_mismatch_has_theme_terms(')
             < strpos($themeSection, 'get_option(\'stylesheet\')')
         && preg_match('/public static function theme_mismatch_warnings\(/', $plannerSource) === 1,
-    'theme mismatch: Apply keeps the WordPress input/facade while planner owns warning projection'
+    'theme mismatch: ApplyPlanBuilder keeps the WordPress input while planner owns warning projection'
 );
 $deletionSectionStart = strpos($builderSource, '        // Absence is not deletion authority.');
 $deletionSectionEnd = strpos($builderSource, '        // Runtime reverse references are target facts');

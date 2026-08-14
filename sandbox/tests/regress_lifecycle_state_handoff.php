@@ -11,9 +11,9 @@ $root = dirname(__DIR__, 2);
 require_once $root . '/agent/src/Canon.php';
 require_once $root . '/agent/src/OptionState.php';
 require_once $root . '/agent/src/Deploy.php';
-require_once $root . '/agent/src/Apply.php';
+require_once $root . '/agent/src/ApplyPlanner.php';
 
-use Duo\Apply;
+use Duo\ApplyPlanner;
 use Duo\Canon;
 use Duo\Deploy;
 use Duo\OptionState;
@@ -24,7 +24,7 @@ $check = static function (bool $ok, string $message): void {
     }
 };
 
-$method = new ReflectionMethod(Apply::class, 'lifecycle_comparison_hash');
+$method = new ReflectionMethod(ApplyPlanner::class, 'lifecycle_comparison_hash');
 $before = str_repeat('a', 64);
 $after = str_repeat('b', 64);
 $changedAfter = str_repeat('c', 64);

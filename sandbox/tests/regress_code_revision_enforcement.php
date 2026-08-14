@@ -46,6 +46,7 @@ final class Code {
 }
 
 require_once __DIR__ . '/../../agent/src/Deploy.php';
+require_once __DIR__ . '/../../agent/src/ApplyPreparationCoordinator.php';
 require_once __DIR__ . '/../../agent/src/Apply.php';
 
 $failures = [];
@@ -88,7 +89,7 @@ $check(($stale[0]['completed_revision'] ?? null) === $old, 'mismatched completed
 // turn a state write into an allowed operation before finalize records the
 // completed marker. Keeping this pure/offline makes the safety contract cheap
 // to run while still testing the method Apply::run() calls before mutations.
-$applyGate = new \ReflectionMethod(Apply::class, 'enforce_code_mismatch_gate');
+$applyGate = new \ReflectionMethod(ApplyPreparationCoordinator::class, 'enforce_code_mismatch_gate');
 $staleRow = Deploy::code_revision_mismatch($compiled)[0];
 foreach ([
     ['opts' => [], 'label' => 'without force flags'],

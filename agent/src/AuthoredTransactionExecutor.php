@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/ApplyPlanner.php';
+require_once __DIR__ . '/AuthoredTransactionRequest.php';
 require_once __DIR__ . '/DeleteExecutor.php';
 require_once __DIR__ . '/EntityAdopter.php';
 require_once __DIR__ . '/MenuMaterializer.php';
@@ -75,22 +76,23 @@ final class AuthoredTransactionExecutor {
 
     /** @return array{attachment_ids:list<int|null>,regen_context:list<array<string,mixed>>} */
     public function execute(
-        array $plan,
-        array $tree,
-        array $work,
-        array $deleteWork,
-        array $deleteUuids,
-        array $guardRepairUuids,
-        array $compiledDeletions,
-        bool $executeDeletes,
-        bool $scoped,
-        ?array $scopeContract,
-        bool $withDeletes,
-        bool $forceDeleteReferenced,
-        bool $performTransaction,
-        ?int $defaultAuthor,
+        AuthoredTransactionRequest $request,
         array &$warnings
     ): array {
+        $plan = $request->workset->plan;
+        $tree = $request->workset->tree;
+        $work = $request->workset->work;
+        $deleteWork = $request->workset->deleteWork;
+        $deleteUuids = $request->workset->deleteUuids;
+        $guardRepairUuids = $request->workset->guardRepairUuids;
+        $compiledDeletions = $request->workset->compiledDeletions;
+        $executeDeletes = $request->deletionAuthority->execute;
+        $withDeletes = $request->deletionAuthority->withDeletes;
+        $forceDeleteReferenced = $request->deletionAuthority->forceReferenced;
+        $scoped = $request->scoped;
+        $scopeContract = $request->scopeContract;
+        $performTransaction = $request->performTransaction;
+        $defaultAuthor = $request->defaultAuthor;
         $attachmentIds = [];
         $regenContext = [];
         if ($scoped && !$performTransaction) {

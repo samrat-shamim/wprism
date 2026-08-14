@@ -59,29 +59,17 @@ $check(
     'the canonical-encode path is not special-cased to a single non-post type'
 );
 
-// ---- 2. Apply's private facades genuinely delegate rather than duplicating
-// the logic. Source-scraped, not behavior-tested: both are private instance
-// methods, and a bypassed-constructor Apply has no cheap way to prove which
-// code path executed short of reading the source that will actually ship.
-// Reflection alone (hasMethod()) only proves the method still exists, not
-// that its BODY still delegates -- a future edit could reinline the ~90-line
-// verify_convergence() logic and every other check in this suite would keep
-// passing, so both facades get the same one-line-body regex, not just one.
+// ---- 2. The public facade contains no duplicate convergence implementation;
+// the request coordinator constructs the real collaborator at both call sites.
 $applySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$coordinatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/ApplyRequestCoordinator.php');
 $check(
-    (bool) preg_match(
-        '/private function verification_hash\(array \$entity\): string \{\s*return ConvergenceVerifier::hash\(\$entity\);/',
-        $applySource
-    ),
-    'Apply::verification_hash() must delegate to ConvergenceVerifier::hash(), not reimplement it'
+    !str_contains($applySource, 'verification_hash') && !str_contains($applySource, 'verify_convergence'),
+    'Apply must not retain private convergence compatibility facades'
 );
 $check(
-    (bool) preg_match(
-        '/private function verify_convergence\(array \$opts, CompiledRepository \$compiled\): array \{\s*'
-            . 'return \$this->convergence_verifier\(\)->verify\(\$opts, \$compiled\);\s*\}/',
-        $applySource
-    ),
-    'Apply::verify_convergence() must delegate to convergence_verifier()->verify(), not reimplement it'
+    substr_count($coordinatorSource, 'new ConvergenceVerifier(') >= 2,
+    'request verification paths construct ConvergenceVerifier directly'
 );
 
 // Isolate verify_canonical()'s own body: `plan()` and `apply()` legitimately
@@ -90,7 +78,7 @@ $check(
 // on those, not on this method.
 $verifyCanonicalMatched = preg_match(
     '/public static function verify_canonical\(.*?\n    \}\n/s',
-    $applySource,
+    $coordinatorSource,
     $verifyCanonicalMatch
 );
 $check($verifyCanonicalMatched === 1, 'verify_canonical() must be present and isolatable for inspection');
@@ -104,20 +92,19 @@ $check(
     'verify_canonical() must no longer build a full Apply instance just to reach convergence verification'
 );
 
-// ---- 3. The four fully-moved methods are gone from Apply, not duplicated
-// alongside the new class (the facade wraps ConvergenceVerifier; it does not
-// keep a second copy of the logic it forwards to).
+// ---- 3. All private convergence methods are gone from Apply.
 $applyReflection = new ReflectionClass(Apply::class);
-foreach (['verify_scoped_convergence', 'verify_scoped_convergence_local', 'verify_convergence_local'] as $moved) {
+$applyConstructor = $applyReflection->getConstructor();
+$check(
+    $applyConstructor !== null && $applyConstructor->isPrivate(),
+    'Apply remains a static-only, non-instantiable public facade'
+);
+foreach (['verify_scoped_convergence', 'verify_scoped_convergence_local', 'verify_convergence_local', 'verify_convergence', 'verification_hash'] as $moved) {
     $check(
         !$applyReflection->hasMethod($moved),
         "Apply must no longer declare $moved() -- it belongs to ConvergenceVerifier now"
     );
 }
-$check(
-    $applyReflection->hasMethod('verify_convergence') && $applyReflection->hasMethod('verification_hash'),
-    'Apply must keep its two call-site-preserving facade methods'
-);
 
 // ---- 4. ConvergenceVerifier exposes exactly the surface verify_canonical()
 // and Apply::convergence_verifier() need.
@@ -132,28 +119,17 @@ $check(
     'ConvergenceVerifier::hash() must exist as a public static method'
 );
 
-// ---- 5. Apply::convergence_verifier() wires its five fields into
-// ConvergenceVerifier's constructor without transposing scopeContract and
-// scopedObservation -- both are plain ?array, so a swapped argument order
-// would satisfy every type check and only show up as a wrong-data failure
-// deep inside a live scoped apply.
-$apply = $applyReflection->newInstanceWithoutConstructor();
+// ---- 5. The collaborator constructor keeps the two adjacent nullable-array
+// slots distinct; this directly pins its true owner rather than a dead facade.
 $policySentinel = (new ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
 $sessionSentinel = (new ReflectionClass(ScopedApplySession::class))->newInstanceWithoutConstructor();
-
-$setApplyProp = static function (string $name, $value) use ($applyReflection, $apply): void {
-    $prop = $applyReflection->getProperty($name);
-    $prop->setValue($apply, $value);
-};
-$setApplyProp('repo', '/sentinel-repo');
-$setApplyProp('policy', $policySentinel);
-$setApplyProp('scopeContract', ['sentinel' => 'scope-contract']);
-$setApplyProp('scopedObservation', ['sentinel' => 'scoped-observation']);
-$setApplyProp('scopedSession', $sessionSentinel);
-
-$buildVerifier = $applyReflection->getMethod('convergence_verifier');
-$verifier = $buildVerifier->invoke($apply);
-$check($verifier instanceof ConvergenceVerifier, 'convergence_verifier() must return a ConvergenceVerifier');
+$verifier = new ConvergenceVerifier(
+    '/sentinel-repo',
+    $policySentinel,
+    ['sentinel' => 'scope-contract'],
+    ['sentinel' => 'scoped-observation'],
+    $sessionSentinel
+);
 
 $getVerifierProp = static function (string $name) use ($verifierReflection, $verifier) {
     $prop = $verifierReflection->getProperty($name);
@@ -171,9 +147,8 @@ $check(
 );
 $check($getVerifierProp('scopedSession') === $sessionSentinel, 'scopedSession must pass through by identity, unchanged');
 
-// ---- 6/7. DUO-3440/DUO-3441: both Apply.php and ConvergenceVerifier.php
-// must carry their OWN collaborator requires (Apply -> ConvergenceVerifier;
-// ConvergenceVerifier -> Canon), the same way every sibling extraction
+// ---- 6/7. The coordinator and ConvergenceVerifier carry their own requires,
+// the same way every sibling extraction
 // already self-requires its own dependency. This suite's own top-of-file
 // requires (lines 19-23, above) load Canon.php and ConvergenceVerifier.php
 // before Apply.php regardless, so every check above would keep passing even
@@ -198,16 +173,12 @@ $isolatedProbeCheck = static function (string $requiredFile, string $probeBody, 
 };
 
 $isolatedProbeCheck(
-    __DIR__ . '/../../agent/src/Apply.php',
+    __DIR__ . '/../../agent/src/ApplyRequestCoordinator.php',
     <<<'PHP'
-$rm = new ReflectionMethod(\Duo\Apply::class, 'verification_hash');
-$apply = (new ReflectionClass(\Duo\Apply::class))->newInstanceWithoutConstructor();
-echo $rm->invoke($apply, ['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
+echo \Duo\ConvergenceVerifier::hash(['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
 PHP,
     'duo-3440-isolation-probe',
-    'Apply.php must carry its OWN collaborator requires when required standalone: a fresh process '
-        . 'requiring only agent/src/Apply.php (not the full agent/duo.php bootstrap) must reach a '
-        . 'ConvergenceVerifier-touching method without a "Class ...ConvergenceVerifier not found" fatal'
+    'ApplyRequestCoordinator.php must carry its own ConvergenceVerifier dependency when required standalone'
 );
 
 // Canon is the one ConvergenceVerifier dependency worth an isolation check.

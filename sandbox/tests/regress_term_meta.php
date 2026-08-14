@@ -193,11 +193,8 @@ $wpdb->rows = [
     ['meta_id' => 12, 'term_id' => 9, 'meta_key' => 'runtime_counter', 'meta_value' => 'runtime-bytes'],
     ['meta_id' => 13, 'term_id' => 9, 'meta_key' => 'undeclared_plugin_key', 'meta_value' => "opaque\0bytes"],
 ];
-$apply = (new ReflectionClass(Apply::class))->newInstanceWithoutConstructor();
-set_private($apply, 'repo', '/offline');
-set_private($apply, 'policy', $policy);
-set_private($apply, 'tokens', $targetTokens);
-invoke_private($apply, 'reconcile_authored_term_meta', 9, ['thumbnail_id' => $canonical]);
+$apply = new \Duo\ApplyFieldMaterializer($policy, $targetTokens);
+$apply->reconcile_authored_term_meta(9, ['thumbnail_id' => $canonical]);
 
 $byKey = [];
 foreach ($wpdb->rows as $row) $byKey[$row['meta_key']] = $row['meta_value'];

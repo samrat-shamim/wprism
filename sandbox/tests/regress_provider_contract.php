@@ -49,6 +49,12 @@ function get_plugins(): array {
 function get_option(string $name, mixed $default = false): mixed {
     return $name === 'active_plugins' ? $GLOBALS['duo_test_active'] : $default;
 }
+function untrailingslashit(string $value): string {
+    return rtrim($value, '/\\');
+}
+function wp_upload_dir(mixed $time = null, bool $refresh = false): array {
+    return ['baseurl' => 'https://fixture.invalid/uploads'];
+}
 function is_wp_error(mixed $thing): bool {
     return $thing instanceof \WP_Error;
 }
@@ -1249,7 +1255,7 @@ $reset();
 // reflection because Apply.php is not loaded until the batch-assembly group
 // below; the slice boundaries are the two method signatures themselves, so a
 // moved method does not silently widen what is being asserted.
-$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$applySource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
 $planAt = strpos($applySource, 'public static function plan(');
 $buildPlanAt = strpos($applySource, 'private function build_plan(');
 $check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
@@ -2308,20 +2314,7 @@ $wpdb->map = [
 // post_parent before phase 1 rewrites it.
 $wpdb->postsRows = [204 => ['post_type' => 'probe', 'post_parent' => 202]];
 
-$applyClass = new \ReflectionClass(\Duo\Apply::class);
-$apply = $applyClass->newInstanceWithoutConstructor();
-$applyPolicy = $applyClass->getProperty('policy');
-$applyPolicy->setValue($apply, $policyFor($manifest));
 $batchBuilder = new \Duo\ProviderActionBatchBuilder($policyFor($manifest), []);
-$applyRetry = $applyClass->getProperty('retryingIncompleteApply');
-// No setAccessible(): reflection reaches a private directly from PHP 8.1, and
-// the engine already requires 8.1 or newer (array_is_list()). Calling it would
-// only bury this section's own output in deprecation notices.
-$applyMethods = [];
-$applyPrivate = static function (string $method, array $args) use ($applyClass, $apply, &$applyMethods): mixed {
-    $applyMethods[$method] ??= $applyClass->getMethod($method);
-    return $applyMethods[$method]->invokeArgs($apply, $args);
-};
 
 $batchAction = [
     'provider' => 'probe-cache',
@@ -2399,7 +2392,6 @@ $check(count(array_filter($reparents, static fn(array $r): bool => $r['uuid'] ==
 $check(count(array_filter($reparents, static fn(array $r): bool => $r['uuid'] === $liveDeleted)) === 0,
     'a delete-kind receipt riding in the same context list is not mistaken for a reparent');
 
-$applyRetry->setValue($apply, false);
 $context = $batchBuilder->action_context(
     $batchAction,
     ['scope' => 'entity', 'context' => ['deletions']],
@@ -2410,7 +2402,6 @@ $check(array_keys($context) === ['deletions'] && $context['deletions'] === $dele
     'only the declared channel is assembled — an undeclared one costs no work and delivers nothing');
 $check($batchBuilder->action_context($batchAction, ['scope' => 'entity'], $deleteWork, $regenContext) === [],
     'a capability declaring no context assembles nothing at all (the pre-DUO-3369 path)');
-$applyRetry->setValue($apply, true);
 $check($batchBuilder->action_context(
         $batchAction,
         ['scope' => 'entity', 'context' => ['retry']],
@@ -2465,12 +2456,6 @@ echo "\n== the rebuild pass: the edges between those projections and invoke() ==
 // dispatch, cron rescheduling, term recounts, attachment metadata — all walk
 // past an empty work set and an empty term_taxonomy), so the edges are proven
 // here rather than asserted.
-$applyWarnings = $applyClass->getProperty('warnings');
-$applyReceipts = $applyClass->getProperty('actionReceipts');
-$applySelected = $applyClass->getProperty('selectedActions');
-$applyNegotiated = $applyClass->getProperty('negotiatedProviders');
-$rebuildMethod = $applyClass->getMethod('rebuild');
-
 $drivePolicy = $policyFor($manifest);
 $driveAction = $drivePolicy->actions_for(['post:probe'])[0];
 $driveAction['triggers'] = ['post:probe'];
@@ -2493,10 +2478,7 @@ $driveRebuild = static function (
     bool $retrying = false,
     mixed $receiptOverride = null,
     ?\Duo\Policy $policyOverride = null
-) use (
-    $applyClass, $applyPolicy, $applyRetry, $applyWarnings, $applyReceipts, $applySelected,
-    $applyNegotiated, $rebuildMethod, $drivePolicy, $driveAction, $reset
-): array {
+) use ($drivePolicy, $driveAction, $reset): array {
     $reset();
     \Duo\Providers\ProbeCache::$receiptOverride = $receiptOverride;
     \Duo\Providers\ProbeCache::$capabilityOverrides = $channels === []
@@ -2508,25 +2490,63 @@ $driveRebuild = static function (
     // selection does not contain.
     $passPolicy = $policyOverride ?? $drivePolicy;
     $provider = new \Duo\Providers\ProbeCache($passPolicy);
-    $apply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($apply, $passPolicy);
-    $applyRetry->setValue($apply, $retrying);
-    $applySelected->setValue($apply, [$driveAction]);
-    $applyNegotiated->setValue($apply, [
+    $selection = new \Duo\RebuildSelection($passPolicy);
+    $selection->set_selected_actions([$driveAction]);
+    $negotiated = [
         'providers' => ['probe-cache' => $provider],
         'capabilities' => ['probe-cache' => ['flush' => $provider->capabilities()['flush']]],
-    ]);
+    ];
+    $selection->set_negotiated_providers($negotiated);
+    [$attachmentIds, $work, $tree, $regenContext, $deleteWork, $withDeletes, $absentTombstones] = $rebuildArgs;
+    $warnings = [];
+    $receipts = [];
     $error = '';
     try {
-        $rebuildMethod->invokeArgs($apply, $rebuildArgs);
+        $compiledSentinel = (new \ReflectionClass(\Duo\CompiledRepository::class))
+            ->newInstanceWithoutConstructor();
+        $callbacks = new \Duo\ApplyServiceCallbacks(
+            taxonomyOwnership: static fn(): array => [],
+            renewPromotionLock: static function (string $phase): void {},
+            renewRegenerationLease: static function (): void {},
+            renewProviderLease: static function (): void {},
+            lockDeleteGuards: static function (array $a, array $b, array $c, array $d, array $e): void {},
+            recheckDeleteGuard: static function (array $a, array $b, array $c, bool $d, array $e, array $f, bool $g): void {},
+            selectionDeclaresChannelFor: fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface),
+            selectionDeclaresEntityBatchFor: fn(string $surface): bool => $selection->declares_entity_batch_for($surface),
+            selectionTriggersProviderActionFor: fn(string $surface): bool => $selection->triggers_provider_action_for($surface),
+            pinnedProviderActionOwns: fn(string $surface): bool => $selection->pinned_action_owns($surface),
+            upsertMeta: static function (string $table, string $keyColumn, int $id, string $metaKey, ?string $value, ?string $phase, string $metaIdColumn): void {}
+        );
+        $services = new \Duo\ApplyServices($passPolicy, $compiledSentinel, $callbacks);
+        $coordinator = new \Duo\ApplyRebuildCoordinator($services, $selection);
+        $coordinator->rebuild(
+            new \Duo\RebuildRequest(
+                attachmentIds: $attachmentIds,
+                work: $work,
+                tree: $tree,
+                regenerationContext: $regenContext,
+                deleteWork: $deleteWork,
+                withDeletes: $withDeletes,
+                absentTombstones: $absentTombstones,
+                retryingIncompleteApply: $retrying,
+                scoped: false,
+                skipScopedCore: false,
+                scopedCoreComplete: null,
+                suppressScopedExternalEffects: false,
+                scopedSession: null,
+                scopedObservation: null
+            ),
+            $warnings,
+            $receipts
+        );
     } catch (\Throwable $t) {
         $error = $t->getMessage();
     }
     return [
         'args' => $provider->calls[0][1] ?? null,
         'calls' => count($provider->calls),
-        'warnings' => implode("\n", (array) $applyWarnings->getValue($apply)),
-        'receipts' => (array) $applyReceipts->getValue($apply),
+        'warnings' => implode("\n", $warnings),
+        'receipts' => $receipts,
         'error' => $error,
     ];
 };
@@ -2610,19 +2630,27 @@ $wpdb->kv = [];
 // transaction, convergence recapture), so its two threading edges into this
 // pass are asserted against its own source — the idiom
 // regress_woocommerce_regen_engine.php uses for the same class of claim.
-// Reverting either line in Apply.php fails exactly one of these two checks.
-$runMethod = $applyClass->getMethod('run');
-$runSource = implode("\n", array_slice(
-    (array) file((string) $runMethod->getFileName(), FILE_IGNORE_NEW_LINES),
-    $runMethod->getStartLine() - 1,
-    $runMethod->getEndLine() - $runMethod->getStartLine() + 1
-));
-$check((bool) preg_match(
-    '/\$this->rebuild\(\s*\$attachmentIds,\s*\$work,\s*\$tree,\s*\$regenContext,\s*\$deleteWork,'
-    . '\s*\$executeDeletes,\s*\$plan\[\'deleted\'\],\s*\$scoped,\s*\$skipScopedCore,'
-    . '\s*\$scopedCoreComplete,\s*\$scopedPromotion\s*\);/',
-    $runSource
-), "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
+// Isolate the coordinator's actual private run() source so an unrelated
+// constructor, comment, or dead helper cannot satisfy these named mappings.
+$runSource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
+$runMethodStart = strpos($runSource, 'private function run(');
+$rebuildRequestStart = strpos($runSource, 'new RebuildRequest(', (int) $runMethodStart);
+$rebuildRequestEnd = strpos($runSource, "\n            ),\n            \$this->warnings", (int) $rebuildRequestStart);
+$rebuildRequestSource = substr(
+    $runSource,
+    (int) $rebuildRequestStart,
+    (int) $rebuildRequestEnd - (int) $rebuildRequestStart
+);
+$check(
+    $runMethodStart !== false
+        && $rebuildRequestStart !== false
+        && $rebuildRequestEnd !== false
+        && str_contains($rebuildRequestSource, 'deleteWork: $deleteWork,')
+        && str_contains($rebuildRequestSource, "absentTombstones: \$plan['deleted'],")
+        && str_contains($rebuildRequestSource, 'withDeletes: $executeDeletes,')
+        && str_contains($rebuildRequestSource, 'retryingIncompleteApply: $this->retryingIncompleteApply,')
+        && str_contains($rebuildRequestSource, 'suppressScopedExternalEffects: $scopedPromotion,'),
+    "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
     . 'the wider set the pre-mutation selection projected surfaces from; scoped promotion also retains its '
     . 'checkpoint-only external-effects profile');
 $check((bool) preg_match('/\$this->retryingIncompleteApply\s*=\s*\$retryingIncompleteApply;/', $runSource),
@@ -2685,7 +2713,7 @@ $check(
 // same public list and persists only a hash-bound outer receipt in its closed
 // recovery session. These pins keep either path from acquiring a second raw
 // provider-value sink or a host re-renderer.
-$applyReceiptLines = (array) file($root . '/agent/src/Apply.php', FILE_IGNORE_NEW_LINES);
+$applyReceiptLines = (array) file($root . '/agent/src/ApplyRequestCoordinator.php', FILE_IGNORE_NEW_LINES);
 $dispatcherReceiptLines = (array) file($root . '/agent/src/RebuildActionDispatcher.php', FILE_IGNORE_NEW_LINES);
 $check(
     count(array_filter(
@@ -2742,25 +2770,26 @@ echo "\n== the capture behind the reparents channel: scoped to DECLARED consumer
 // types alone made the channel structurally empty for a provider-only
 // manifest — a capability could declare `reparents`, negotiate clean, and
 // never receive a row no matter what the revision moved.
-$captureMethod = $applyClass->getMethod('capture_regen_reparent_context');
 $captureWork = [['uuid' => $moved]];
 $captureTree = [$moved => ['type' => 'post', 'data' => ['type' => 'probe', 'parent' => '{{post:' . $newParent . '}}']]];
 $captureWith = static function (array $channels, array $triggers = ['post:probe']) use (
-    $applyClass, $applyPolicy, $applySelected, $applyNegotiated, $captureMethod,
     $drivePolicy, $driveAction, $captureWork, $captureTree, &$wpdb
 ): array {
     $wpdb->kv = [];
-    $apply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($apply, $drivePolicy);
-    $applySelected->setValue($apply, [['triggers' => $triggers] + $driveAction]);
+    $selection = new \Duo\RebuildSelection($drivePolicy);
+    $selection->set_selected_actions([['triggers' => $triggers] + $driveAction]);
     $declaration = $channels === []
         ? ['scope' => 'entity']
         : ['scope' => 'entity', 'context' => $channels];
-    $applyNegotiated->setValue($apply, [
+    $selection->set_negotiated_providers([
         'providers' => [],
         'capabilities' => ['probe-cache' => ['flush' => $declaration]],
     ]);
-    return (array) $captureMethod->invokeArgs($apply, [$captureWork, $captureTree]);
+    $store = new \Duo\RegenerationContextStore(
+        $drivePolicy,
+        fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
+    );
+    return $store->capture_reparents($captureWork, $captureTree);
 };
 $captured = $captureWith(['reparents']);
 $check(count($captured) === 1
@@ -2790,25 +2819,26 @@ $wpdb->kv = [];
 // ======================================================================
 
 echo "\n== the capture behind the deletions channel: the same declared-consumer gate ==\n";
-$captureDeleteMethod = $applyClass->getMethod('capture_regen_delete_context');
 $captureDeleteWith = static function (array $channels, array $triggers = ['post:probe']) use (
-    $applyClass, $applyPolicy, $applySelected, $applyNegotiated, $captureDeleteMethod,
     $drivePolicy, $driveAction, $liveDeleted, &$wpdb
 ): array {
     $wpdb->kv = [];
-    $apply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($apply, $drivePolicy);
-    $applySelected->setValue($apply, [['triggers' => $triggers] + $driveAction]);
+    $selection = new \Duo\RebuildSelection($drivePolicy);
+    $selection->set_selected_actions([['triggers' => $triggers] + $driveAction]);
     $declaration = $channels === []
         ? ['scope' => 'entity']
         : ['scope' => 'entity', 'context' => $channels];
-    $applyNegotiated->setValue($apply, [
+    $selection->set_negotiated_providers([
         'providers' => [],
         'capabilities' => ['probe-cache' => ['flush' => $declaration]],
     ]);
-    return (array) $captureDeleteMethod->invokeArgs($apply, [[
+    $store = new \Duo\RegenerationContextStore(
+        $drivePolicy,
+        fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
+    );
+    return $store->capture_deletions([[
         ['type' => 'post', 'uuid' => $liveDeleted],
-    ]]);
+    ][0]]);
 };
 // wp_posts row for the tombstoned post: the inventory reads its post_type and
 // post_parent before delete_entity() removes it.
@@ -2989,17 +3019,30 @@ $sweepMarkers = [
     'regen_delete_context:' . $liveDeleted => $deleteMarkerValue,
     'regen_reparent_context:' . $moved => $reparentMarkerValue,
 ];
-$driveSweep = static function (array $sweepManifest, array $negotiated = []) use (
-    $applyClass, $applyPolicy, $applySelected, $applyNegotiated, $applyWarnings, $policyFor, $sweepMarkers, &$wpdb
+$driveSweep = static function (array $sweepManifest, array $negotiated = [], ?array $markers = null) use (
+    $policyFor, $sweepMarkers, &$wpdb
 ): string {
-    $wpdb->kv = $sweepMarkers;
-    $sweepApply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($sweepApply, $policyFor($sweepManifest));
-    $applySelected->setValue($sweepApply, []);
-    $applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => $negotiated]);
-    $applyWarnings->setValue($sweepApply, []);
-    $applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
-    return implode("\n", (array) $applyWarnings->getValue($sweepApply));
+    $wpdb->kv = $markers ?? $sweepMarkers;
+    $sweepPolicy = $policyFor($sweepManifest);
+    $selection = new \Duo\RebuildSelection($sweepPolicy);
+    $selection->set_selected_actions([]);
+    $selection->set_negotiated_providers(['providers' => [], 'capabilities' => $negotiated]);
+    $store = new \Duo\RegenerationContextStore(
+        $sweepPolicy,
+        fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface)
+    );
+    $regenerator = new \Duo\DependencyRegenerator(
+        $sweepPolicy,
+        $store,
+        fn(string $surface): bool => $selection->declares_entity_batch_for($surface),
+        fn(string $channel, string $surface): bool => $selection->declares_channel_for($channel, $surface),
+        fn(string $surface): bool => $selection->triggers_provider_action_for($surface),
+        fn(string $surface): bool => $selection->pinned_action_owns($surface),
+        static function (): void {}
+    );
+    $warnings = [];
+    $regenerator->run([], [], [], $warnings);
+    return implode("\n", $warnings);
 };
 $driveSweep($triggeredManifest);
 $check(($wpdb->kv['regen_pending:' . $moved] ?? null) === 'probe',
@@ -3045,15 +3088,10 @@ $check(!isset($wpdb->kv['regen_pending:' . $moved])
 
 $wpdb->kv = ['regen_delete_context:malformed-probe-uuid' => (string) json_encode(['kind' => 'delete'])];
 $sweptWarnings = '';
-$sweepApply = $applyClass->newInstanceWithoutConstructor();
-$applyPolicy->setValue($sweepApply, $policyFor($triggeredManifest));
-$applySelected->setValue($sweepApply, []);
-$applyNegotiated->setValue($sweepApply, ['providers' => [], 'capabilities' => []]);
-$applyWarnings->setValue($sweepApply, []);
-$applyClass->getMethod('regen_dependencies')->invokeArgs($sweepApply, [[], [], []]);
+$malformedWarnings = $driveSweep($triggeredManifest, [], $wpdb->kv);
 $check(!isset($wpdb->kv['regen_delete_context:malformed-probe-uuid'])
     && str_contains(
-        implode("\n", (array) $applyWarnings->getValue($sweepApply)),
+        $malformedWarnings,
         'regen_delete_context marker for post malformed-probe-uuid dropped: the stored receipt carries no '
         . 'post type or no captured local id'
     ),
@@ -3104,14 +3142,11 @@ echo "\n== outstanding receipts are legible in plan and status (independent revi
 // the same pass that read them. That is the point — and it is also what makes
 // them worth surfacing: a marker can now stand between a failure and its retry,
 // and an operator deciding "is this safe to promote" must be able to see it.
-$planProjectionMethod = $applyClass->getMethod('regeneration_debt_projection');
-$drivePlanProjection = static function (\Duo\Policy $projectionPolicy, ?array $negotiated = []) use (
-    $applyClass, $applyPolicy, $applyNegotiated, $planProjectionMethod
-): array {
-    $planApply = $applyClass->newInstanceWithoutConstructor();
-    $applyPolicy->setValue($planApply, $projectionPolicy);
-    $applyNegotiated->setValue($planApply, $negotiated);
-    return (array) $planProjectionMethod->invoke($planApply);
+$drivePlanProjection = static function (\Duo\Policy $projectionPolicy, ?array $negotiated = []): array {
+    $selection = new \Duo\RebuildSelection($projectionPolicy);
+    $selection->set_negotiated_providers($negotiated);
+    return (new \Duo\ApplyPlanEnvironment($projectionPolicy, $selection))
+        ->regeneration_debt_projection();
 };
 $wpdb->kv = $sweepMarkers + [
     'regen_delete_context:malformed' => (string) json_encode(['kind' => 'delete', 'post_type' => 'probe']),
@@ -3147,10 +3182,12 @@ $envManifest['options'] = [
     'm_present' => ['class' => 'env', 'required' => true],
 ];
 $envPolicy = $policyFor($envManifest);
-$applyPolicy->setValue($apply, $envPolicy);
 $wpdb->optionRows = ['m_present' => 'configured', 'z_optional' => ''];
 $wpdb->optionReadNames = [];
-$envFacade = $applyPrivate('env_missing_projection', []);
+$envFacade = (new \Duo\ApplyPlanEnvironment(
+    $envPolicy,
+    new \Duo\RebuildSelection($envPolicy)
+))->env_missing_projection();
 $check($envFacade === [
     'env_missing' => [
         ['name' => 'a_required', 'required' => true],
@@ -3165,7 +3202,6 @@ $check(
     $wpdb->optionReadNames === ['a_required', 'm_present', 'z_optional'],
     'the Apply facade reads every resolved env option in Policy order through the wpdb boundary'
 );
-$applyPolicy->setValue($apply, $policyFor($claimantManifest));
 $wpdb->optionRows = [];
 $wpdb->optionReadNames = [];
 

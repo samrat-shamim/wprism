@@ -433,13 +433,21 @@ require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Apply.php';
 
 $policy = \Duo\Policy::load(null, ['batch', 'legacy']);
-$applyReflection = new \ReflectionClass(\Duo\Apply::class);
-$apply = $applyReflection->newInstanceWithoutConstructor();
-$policyProperty = $applyReflection->getProperty('policy');
-$policyProperty->setValue($apply, $policy);
-$regen = $applyReflection->getMethod('regen_dependencies');
-$captureReparent = $applyReflection->getMethod('capture_regen_reparent_context');
-$captureDelete = $applyReflection->getMethod('capture_regen_delete_context');
+$apply = new \Duo\RegenerationContextStore(
+    $policy,
+    static fn(string $channel, string $surface): bool => false
+);
+$regen = new \Duo\DependencyRegenerator(
+    $policy,
+    $apply,
+    static fn(string $surface): bool => false,
+    static fn(string $channel, string $surface): bool => false,
+    static fn(string $surface): bool => false,
+    static fn(string $surface): bool => false,
+    static function (): void {}
+);
+$captureReparent = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_reparents');
+$captureDelete = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_deletions');
 $captureDeleteSource = implode("\n", array_slice(
     (array) file($captureDelete->getFileName(), FILE_IGNORE_NEW_LINES),
     $captureDelete->getStartLine() - 1,
@@ -463,8 +471,9 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
         $failures++;
     }
 };
-$invoke = static function (array $work, array $tree, array $deletions = []) use ($regen, $apply): void {
-    $regen->invoke($apply, $work, $tree, $deletions);
+$invoke = static function (array $work, array $tree, array $deletions = []) use ($regen): void {
+    $warnings = [];
+    $regen->run($work, $tree, $deletions, $warnings);
 };
 
 // This is a generic engine boundary. The declaration below uses unrelated
@@ -997,22 +1006,25 @@ $check($providerPolicy->regen_batch('duo_widget') === null
     && $providerPolicy->regen_batch('duo_widget_part') === null,
     'and its post types are claimed by no batch regenerator, which is what lets one dispatcher own their markers');
 
-$providerApply = $applyReflection->newInstanceWithoutConstructor();
-$policyProperty->setValue($providerApply, $providerPolicy);
-$selectedProperty = $applyReflection->getProperty('selectedActions');
-$negotiatedProperty = $applyReflection->getProperty('negotiatedProviders');
-$warningsProperty = $applyReflection->getProperty('warnings');
-$receiptsProperty = $applyReflection->getProperty('actionReceipts');
-$retryProperty = $applyReflection->getProperty('retryingIncompleteApply');
-$rebuildMethod = $applyReflection->getMethod('rebuild');
-$captureDeleteProvider = $applyReflection->getMethod('capture_regen_delete_context');
-$captureReparentProvider = $applyReflection->getMethod('capture_regen_reparent_context');
-$selectedProperty->setValue($providerApply, [$providerAction]);
-$negotiatedProperty->setValue($providerApply, [
+$providerSelection = new \Duo\RebuildSelection($providerPolicy);
+$providerSelection->set_selected_actions([$providerAction]);
+$providerNegotiation = [
     'providers' => ['fake-dispatch' => new FakeDispatchProvider()],
     'capabilities' => ['fake-dispatch' => ['rebuild' => FakeDispatchProvider::declaration()]],
-]);
-$retryProperty->setValue($providerApply, false);
+];
+$providerSelection->set_negotiated_providers($providerNegotiation);
+$providerApply = new \Duo\RegenerationContextStore(
+    $providerPolicy,
+    fn(string $channel, string $surface): bool =>
+        $providerSelection->declares_channel_for($channel, $surface)
+);
+$providerDispatcher = new \Duo\RebuildActionDispatcher(
+    $providerPolicy,
+    new \Duo\ProviderActionBatchBuilder($providerPolicy, \Duo\Snapshot::row_tables($providerPolicy)),
+    static function (): void {}
+);
+$captureDeleteProvider = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_deletions');
+$captureReparentProvider = new \ReflectionMethod(\Duo\RegenerationContextStore::class, 'capture_reparents');
 
 /**
  * One rebuild() pass. Returns the pass's own warnings/receipts plus whether it
@@ -1024,22 +1036,34 @@ $driveProvider = static function (
     array $regenContext = [],
     array $deleteWork = [],
     bool $withDeletes = false
-) use ($rebuildMethod, $providerApply, $warningsProperty, $receiptsProperty): array {
-    $warningsProperty->setValue($providerApply, []);
-    $receiptsProperty->setValue($providerApply, []);
+) use ($providerDispatcher, $providerApply, $providerSelection, $providerNegotiation): array {
+    $warnings = [];
+    $receipts = [];
     $error = '';
     try {
-        $rebuildMethod->invokeArgs(
-            $providerApply,
-            [[], $work, $tree, $regenContext, $deleteWork, $withDeletes, []]
+        $providerDispatcher->dispatch(
+            $providerSelection->selected_actions(),
+            $providerNegotiation,
+            $work,
+            $tree,
+            $withDeletes ? $deleteWork : [],
+            $regenContext,
+            $providerApply->durable_reparents(),
+            $providerApply->durable_deletions(),
+            false,
+            false,
+            null,
+            null,
+            $warnings,
+            $receipts
         );
     } catch (\Throwable $t) {
         $error = $t->getMessage();
     }
     return [
         'error' => $error,
-        'warnings' => implode("\n", (array) $warningsProperty->getValue($providerApply)),
-        'receipts' => (array) $receiptsProperty->getValue($providerApply),
+        'warnings' => implode("\n", $warnings),
+        'receipts' => $receipts,
     ];
 };
 
