@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/ReferenceScopeClassifier.php';
+
 /**
  * Structure-aware content rewriting via the official block parser:
  * - block attributes per the manifest block_attrs registry (typed paths),
@@ -35,12 +37,12 @@ namespace Duo;
  * dangling-reference semantics (spec/repo-format.md) — a scalar ref drops
  * the whole attribute key, an int[] ref drops just that element, both with
  * a warning naming the block/attribute/id. Unscoped queues onto
- * Tokens::$unscopedBlockRefs instead, for Capture::build()'s own batched
+ * Tokens::$unscopedBlockRefs instead, for CaptureCandidateBuilder's batched
  * loud-and-blocking gate (mirroring task #73's option-ref gate exactly) —
  * a real row of an in-scope type simply not minted YET on this build is
  * neither dangling nor unscoped and still falls through to the ordinary
  * drop (the same false-positive guard task #73's own mechanism needs: see
- * Capture::queue_or_warn_unscoped()'s docblock for why a fresh target's
+ * ReferenceScopeClassifier's docblock for why a fresh target's
  * own not-yet-minted default_category-shaped case must never abort). A raw
  * env-local id must never survive into canonical state either way —
  * Lint::scan_blocks()'s unrewritten_registered_ref finding is what catches
@@ -55,7 +57,7 @@ final class Blocks {
      *   post this content belongs to (e.g. "page 'about-us'"), named in any
      *   unscoped-ref violation queued during this call — Blocks.php itself
      *   only ever sees a content string, never the post row, so this is the
-     *   one piece of context the caller (Capture::build_post()) must supply
+     *   one piece of context the caller (PostCapture) must supply
      *   for the batched abort message to be as actionable as options' own.
      */
     public static function capture_rewrite(
@@ -138,7 +140,7 @@ final class Blocks {
                 // options exactly) — the drop-with-warning below happens
                 // either way (an unscoped ref is still dropped from THIS
                 // candidate value; the abort, if any, is a later batched
-                // gate in Capture::build(), the same posture options use).
+                // gate in CaptureCandidateBuilder, the same posture options use).
                 if ($isArray) {
                     $kept = [];
                     foreach ((array) $v as $i => $id) {
@@ -296,7 +298,7 @@ final class Blocks {
      * build()'s batched abort, or no-ops for any of the three reasons
      * Capture::queue_or_warn_unscoped() no-ops for options (see that
      * method's own docblock for the full reasoning, reproduced exactly
-     * here): the target is genuinely DANGLING (Capture::ref_target_type()
+     * here): the target is genuinely DANGLING (ReferenceScopeClassifier
      * found no real row at all), the target's type IS in policy scope but
      * this build simply hasn't minted it a uuid yet (a MINTING question,
      * not a POLICY question — checking id_to_token() alone can never tell
@@ -316,18 +318,9 @@ final class Blocks {
         string $kind,
         int $id
     ): void {
-        if ($force) {
-            return;
-        }
-        $targetType = Capture::ref_target_type($id, $kind);
+        $targetType = ReferenceScopeClassifier::classify($id, $kind, $force, $policy);
         if ($targetType === null) {
-            return; // dangling — the caller's own warn-and-drop already handled it
-        }
-        $inPolicyScope = $kind === 'term'
-            ? in_array($targetType, $policy->taxonomies(), true)
-            : in_array($targetType, $policy->post_types(), true);
-        if ($inPolicyScope) {
-            return; // real row, correctly scoped, just not minted on THIS build yet
+            return;
         }
         $tokens->unscopedBlockRefs[] = [
             'post' => $postLabel,

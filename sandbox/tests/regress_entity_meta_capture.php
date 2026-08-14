@@ -300,25 +300,20 @@ $check($trace === [
 ], 'secret refusal performs no codec work');
 
 $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-$check(is_string($captureSource)
-    && str_contains($captureSource, "require_once __DIR__ . '/EntityMetaCapture.php';"),
-    'Capture explicitly requires its extracted entity-meta collaborator');
-$check(is_string($captureSource)
-    && str_contains($captureSource, 'private function entity_meta_capture(): EntityMetaCapture')
-    && str_contains($captureSource, '$this->guard_secret($section, $key, $value, $rule, $context);')
-    && str_contains($captureSource, '$this->checkpoint_observation_read();')
-    && str_contains($captureSource, '$this->unclassified[] = $finding;'),
-    'Capture lazily binds the exact secret, observation, and unclassified side channels');
-foreach ([
-    'return $this->entity_meta_capture()->postMetaMap($postId);',
-    'return $this->entity_meta_capture()->postMetaByKey($postId);',
-    'return $this->entity_meta_capture()->termMetaMap($termId);',
-    'return $this->entity_meta_capture()->termMetaByKey($termId);',
-    'return $this->entity_meta_capture()->classifyValue(',
-] as $facade) {
-    $check(is_string($captureSource) && str_contains($captureSource, $facade),
-        "Capture retains thin historical facade: $facade");
-}
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
+$termCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/TermCapture.php');
+$check(is_string($candidateSource)
+    && str_contains($candidateSource, "require_once __DIR__ . '/EntityMetaCapture.php';"),
+    'candidate builder explicitly requires its extracted entity-meta collaborator');
+$check(is_string($candidateSource)
+    && str_contains($candidateSource, 'new EntityMetaCapture(')
+    && str_contains($candidateSource, '$this->safetyGates->guardSecret($section, $key, $value, $rule, $context);')
+    && str_contains($candidateSource, '$this->unclassified[] = $finding;'),
+    'candidate builder binds the exact secret and unclassified side channels');
+$check(is_string($termCaptureSource)
+    && str_contains($termCaptureSource, '$this->entityMetaCapture->termMetaByKey(')
+    && str_contains($termCaptureSource, '$this->entityMetaCapture->classifyValue('),
+    'the extracted term capturer directly consumes ordered term metadata classification');
 $check(is_string($captureSource)
     && !str_contains($captureSource, 'SELECT meta_key, meta_value FROM {$wpdb->postmeta}')
     && !str_contains($captureSource, 'SELECT meta_key, meta_value FROM {$wpdb->termmeta}')

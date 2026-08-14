@@ -607,7 +607,8 @@ check(
     'code baseline reserves an owned root before publishing its verified child'
 );
 $publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
-$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php')
+    . (string) file_get_contents(__DIR__ . '/../../agent/src/InitialCaptureBoundary.php');
 $liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
 check(
     str_contains($publishSource, 'public static function lock_new(')
@@ -758,7 +759,7 @@ check(
     'committed journal recovery verifies durable intent/receipt state before returning a truthful result'
 );
 check(
-    substr_count($captureSource, 'self::assert_no_interrupted_init($repoPath);') >= 2
+    substr_count($captureSource, 'InitialCaptureBoundary::assertNoInterruptedInit($repoPath);') >= 2
         && str_contains($captureSource, 'sealed init recovery journal exists')
         && str_contains($recoverySource, "hash_equals((string) (\$receipt['previous_sha256'] ?? ''), hash('sha256', ''))"),
     'ordinary capture cannot replace a retained initial receipt and committed recovery proves a first publication'
@@ -799,11 +800,11 @@ $preLockGate = strpos(
     "if (!\$initialBaseline && !file_exists(\$canonicalLock) && !is_link(\$canonicalLock)) {"
 );
 $lockAcquire = strpos($captureSource, '$lock = $publicationLock ?? Publish::lock($stateDir);');
-$postLockGate = strpos($captureSource, 'self::assert_no_interrupted_init($repoPath);', (int) $lockAcquire);
+$postLockGate = strpos($captureSource, 'InitialCaptureBoundary::assertNoInterruptedInit($repoPath);', (int) $lockAcquire);
 check(
     $preLockGate !== false && $lockAcquire !== false && $postLockGate !== false
         && $preLockGate < $lockAcquire && $lockAcquire < $postLockGate
-        && substr_count($captureSource, 'self::assert_no_interrupted_init($repoPath);') === 2,
+        && substr_count($captureSource, 'InitialCaptureBoundary::assertNoInterruptedInit($repoPath);') === 2,
     'the pre-lock init-recovery gate fires only where acquiring the lock would create it; a live race is answered by the lock itself'
 );
 $publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
@@ -1473,7 +1474,7 @@ check(
 // this exact marker cross-process; a run requesting neither seam writes no
 // marker. Pinned as an ordering, because the behaviour itself needs a
 // database: gate, then marker, then the wait branch, then the pause.
-$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php');
 $markerGate = strpos($captureSource, '&& (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {');
 $markerSet = strpos($captureSource, "Ledger::kv_set('capture_test_phase', 'locked');");
 $markerWait = strpos($captureSource, 'if ($waitForRelease) {');

@@ -10,9 +10,10 @@ require_once __DIR__ . '/Policy.php';
 /**
  * Owns capture's consistent-read transaction and replay-safety boundary.
  *
- * Candidate discovery and entity extraction remain in Capture, while durable
- * filesystem records and recovery remain in PublicationJournal. This service
- * owns the database snapshot around that work: path-specific storage-engine
+ * Candidate discovery and entity extraction live in CaptureCandidateBuilder,
+ * while durable filesystem publication and recovery live in their dedicated
+ * collaborators. This service owns the database snapshot around that work:
+ * path-specific storage-engine
  * validation, bounded retries before publication, the durable pre-COMMIT
  * phase transition, rollback, and fail-closed handling once COMMIT or the
  * filesystem swap makes replay unsafe.

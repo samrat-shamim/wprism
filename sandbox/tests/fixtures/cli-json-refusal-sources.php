@@ -4,8 +4,10 @@
 require __DIR__ . '/../../../agent/src/Ledger.php';
 require __DIR__ . '/../../../agent/src/Tokens.php';
 require __DIR__ . '/../../../agent/src/Capture.php';
+require_once __DIR__ . '/../../../agent/src/CaptureSafetyGates.php';
 
 use Duo\Capture;
+use Duo\CaptureSafetyGates;
 use Duo\Canon;
 use Duo\CommandRefusalException;
 use Duo\Tokens;
@@ -20,29 +22,31 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     $failures++;
 };
 
-$set = static function (object $object, string $property, mixed $value): void {
-    $ref = new ReflectionProperty($object, $property);
-    $ref->setValue($object, $value);
-};
-
-$newCapture = static function (array $captureValues = [], array $tokenValues = []) use ($set): Capture {
-    $capture = (new ReflectionClass(Capture::class))->newInstanceWithoutConstructor();
+$newGateFixture = static function (array $captureValues = [], array $tokenValues = []): array {
     $tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
     foreach ($tokenValues as $property => $value) {
         $tokens->$property = $value;
     }
-    $set($capture, 'repo', '/operator/private/repository');
-    $set($capture, 'tokens', $tokens);
-    foreach ($captureValues as $property => $value) {
-        $set($capture, $property, $value);
-    }
-    return $capture;
+    return [new CaptureSafetyGates('/operator/private/repository'), $tokens, $captureValues];
 };
 
-$invoke = static function (Capture $capture, string $method, array $arguments = []): ?CommandRefusalException {
+$invoke = static function (array $fixture, string $method, array $arguments = []): ?CommandRefusalException {
+    [$gates, $tokens, $values] = $fixture;
     try {
-        $ref = new ReflectionMethod(Capture::class, $method);
-        $ref->invokeArgs($capture, $arguments);
+        if ($method === 'assert_option_gates') {
+            $gates->assertOptions(
+                $values['unclassified'] ?? [],
+                $values['unscopedRefs'] ?? [],
+                $values['unscopedOptionNameRefs'] ?? [],
+                $tokens
+            );
+        } elseif ($method === 'assert_content_ref_gates') {
+            $gates->assertContentReferences($tokens);
+        } elseif ($method === 'assert_scope_gaps') {
+            $gates->assertScopeGaps($arguments[0] ?? []);
+        } else {
+            throw new RuntimeException("unknown gate fixture method $method");
+        }
     } catch (CommandRefusalException $e) {
         return $e;
     }
@@ -105,7 +109,7 @@ $cases = [
 ];
 
 foreach ($cases as $label => $case) {
-    $failure = $invoke($newCapture($case['capture'], $case['tokens']), $case['method']);
+    $failure = $invoke($newGateFixture($case['capture'], $case['tokens']), $case['method']);
     $payload = $failure?->payload() ?? [];
     $check($failure instanceof CommandRefusalException, "$label is a deliberate public refusal");
     $check(($payload['error'] ?? null) === $case['reason'], "$label has a finite source-owned reason");
@@ -116,7 +120,7 @@ foreach ($cases as $label => $case) {
 }
 
 $scopeFailure = $invoke(
-    $newCapture(),
+    $newGateFixture(),
     'assert_scope_gaps',
     [['post_type:landing' => ['entities' => 2]]]
 );

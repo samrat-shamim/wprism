@@ -804,7 +804,8 @@ try {
     ScopedStateOverlay::discard_state_view($badOptionOverlayState);
 }
 
-$captureSource = Canon::read_file("$root/agent/src/Capture.php");
+$captureSource = Canon::read_file("$root/agent/src/CapturePublicationWorkflow.php");
+$scopeProjectorSource = Canon::read_file("$root/agent/src/ScopedCaptureProjector.php");
 $finalAssociation = strpos($captureSource, 'ScopeContract::assert_associated($scopeContract, $currentSource, $currentPolicy);');
 $candidateCompile = strpos($captureSource, '$compiledCandidate = RepositoryCompiler::compile_staged(');
 $firstMediaWrite = strpos($captureSource, "foreach (\$candidate['media'] as \$file => \$source)");
@@ -821,7 +822,7 @@ check(str_contains($captureSource, 'if ($scopeContract === null && $intoRepo)')
     && str_contains($captureSource, 'scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'),
     'legacy output-only capture skips repo-media compilation while scoped --out refuses explicitly');
 $refreshExportSource = Canon::read_file("$root/agent/src/RefreshExport.php");
-check(str_contains($captureSource, "array_is_list(\$request['selectors'])")
+check(str_contains($scopeProjectorSource, "array_is_list(\$request['selectors'])")
     && str_contains($refreshExportSource, "array_is_list(\$request['selectors'])"),
     'compact capture and refresh requests require selector lists rather than accepting associative objects');
 

@@ -318,14 +318,17 @@ $check(
     'duplicate/invalid embedded identity state maps to the stable value-free observation precondition refusal'
 );
 $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$snapshotSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureSnapshotService.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
+$postCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/PostCapture.php');
 $mediaCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/MediaCapture.php');
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
-$captureStart = strpos((string) $captureSource, 'public static function snapshot_read_only(');
-$captureEnd = strpos((string) $captureSource, "\n    /**", (int) $captureStart + 1);
-$strictCapture = substr((string) $captureSource, (int) $captureStart, (int) $captureEnd - (int) $captureStart);
-$buildPostStart = strpos((string) $captureSource, 'private function build_post(');
-$buildPostEnd = strpos((string) $captureSource, "\n    /**", (int) $buildPostStart + 1);
-$buildPost = substr((string) $captureSource, (int) $buildPostStart, (int) $buildPostEnd - (int) $buildPostStart);
+$captureStart = strpos((string) $snapshotSource, 'public static function snapshotReadOnly(');
+$captureEnd = strpos((string) $snapshotSource, "\n    /**", (int) $captureStart + 1);
+$strictCapture = substr((string) $snapshotSource, (int) $captureStart, (int) $captureEnd - (int) $captureStart);
+$buildPostStart = strpos((string) $postCaptureSource, 'public function capture(');
+$buildPostEnd = strpos((string) $postCaptureSource, "\n    private function", (int) $buildPostStart + 1);
+$buildPost = substr((string) $postCaptureSource, (int) $buildPostStart, (int) $buildPostEnd - (int) $buildPostStart);
 $explainStart = strpos((string) $applySource, 'public static function explain(');
 $explainTail = substr((string) $applySource, (int) $explainStart + 1);
 preg_match(
@@ -339,8 +342,8 @@ $strictExplain = substr((string) $applySource, (int) $explainStart, (int) $expla
 $check(
     $captureStart !== false && $captureEnd !== false
         && str_contains($strictCapture, 'Ledger::assert_read_only_schema()')
-        && substr_count($strictCapture, 'assert_read_only_identity_precondition(') === 3
-        && str_contains($strictCapture, "true\n            );"),
+        && substr_count($strictCapture, 'assertReadOnlyIdentityPrecondition(') === 3
+        && str_contains($strictCapture, "true\n                );"),
     'explain capture asserts existing schema and normalizes every strict identity read'
 );
 foreach (['Ledger::ensure', 'prune_dead_map', 'repair_truncated_entity_types'] as $forbiddenCall) {
@@ -351,8 +354,9 @@ foreach (['Ledger::ensure', 'prune_dead_map', 'repair_truncated_entity_types'] a
 }
 $check(
     $buildPostStart !== false && $buildPostEnd !== false
-        && str_contains($captureSource, '$forceUnresolvedRefs,' . "\n" . '                $strictReadOnly')
-        && str_contains($buildPost, '$this->media_capture()->capture(')
+        && str_contains($candidateSource, '$strictReadOnly')
+        && str_contains($candidateSource, '$this->postCapture->capture(')
+        && str_contains($buildPost, '$this->mediaCapture->capture(')
         && str_contains($buildPost, '$strictReadOnly')
         && str_contains((string) $mediaCaptureSource, 'if (!$strictReadOnly) {')
         && str_contains((string) $mediaCaptureSource, "'duo_attachment_capture_source'")

@@ -14,14 +14,14 @@ require_once $root . '/agent/src/RefreshExport.php';
 require_once $root . '/agent/src/Snapshot.php';
 require_once $root . '/agent/src/Policy.php';
 require_once $root . '/agent/src/Tokens.php';
-require_once $root . '/agent/src/Capture.php';
+require_once $root . '/agent/src/ScopeDiscovery.php';
 
-use Duo\Capture;
 use Duo\Canon;
 use Duo\Ledger;
 use Duo\OptionState;
 use Duo\Policy;
 use Duo\RefreshExport;
+use Duo\ScopeDiscovery;
 use Duo\Snapshot;
 use Duo\Tokens;
 use Duo\Uuid;
@@ -155,25 +155,24 @@ check_re($wpdb->queries === 0, 'natural-key continuity check attempted a mutatio
 // plugin taxonomy can therefore be in policy scope without being registered.
 // Production truth must refuse that unknown relationship ownership rather
 // than returning a warning plus a silently incomplete P snapshot.
-$captureClass = new ReflectionClass(Capture::class);
-$capture = $captureClass->newInstanceWithoutConstructor();
 $policy = new Policy();
-$tokensClass = new ReflectionClass(Tokens::class);
-$tokens = $tokensClass->newInstanceWithoutConstructor();
-foreach (['policy' => $policy, 'tokens' => $tokens] as $property => $value) {
-    $slot = $captureClass->getProperty($property);
-    $slot->setValue($capture, $value);
-}
-$taxonomies = $captureClass->getMethod('taxes_by_object_type');
+$warnings = [];
+$scope = new ScopeDiscovery(
+    $policy,
+    null,
+    static function (string $warning) use (&$warnings): void {
+        $warnings[] = $warning;
+    }
+);
 try {
-    $taxonomies->invoke($capture, ['plugin_exact_taxonomy'], ['post'], true);
+    $scope->taxonomyOwnership(['plugin_exact_taxonomy'], ['post'], true);
     fail_re('strict export silently accepted an unregistered scoped plugin taxonomy');
 } catch (RuntimeException $e) {
     check_re(str_contains($e->getMessage(), 'refresh export refused')
         && str_contains($e->getMessage(), 'plugin-owned'),
         'unregistered scoped taxonomy refusal was not actionable');
 }
-check_re($tokens->warnings === [], 'strict taxonomy refusal degraded to a warning');
+check_re($warnings === [], 'strict taxonomy refusal degraded to a warning');
 
 try {
     Ledger::require_read_only_mapping($uuid, 'term', 'post', 7, 'contradictory fixture');

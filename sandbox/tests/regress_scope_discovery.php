@@ -286,112 +286,24 @@ namespace Duo {
     );
 
     $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-    $check(is_string($captureSource) && str_contains($captureSource, "require_once __DIR__ . '/ScopeDiscovery.php';"),
-        'Capture explicitly requires its extracted scope collaborator');
-    $check(is_string($captureSource) && str_contains($captureSource, '$this->scope_discovery()->discover(')
-        && str_contains($captureSource, '$this->assert_scope_gaps($gaps);'),
-        'the full capture build consumes the complete ScopeDiscovery result');
-
-    require_once __DIR__ . '/../../agent/src/Tokens.php';
-    require_once __DIR__ . '/../../agent/src/Capture.php';
-
-    $runtimePolicy = (new \ReflectionClass(Policy::class))->newInstanceWithoutConstructor();
-    $runtimePolicy->site = ['policy' => [
-        'post_types' => ['page', 'attachment'],
-        'taxonomies' => ['category', 'term_link', 'missing_link'],
-        'scope' => [
-            'post_type' => ['runtime_type' => ['class' => 'runtime']],
-            'taxonomy' => ['runtime_tax' => ['class' => 'runtime']],
-        ],
-    ]];
-    $runtimePolicy->manifests = [[
-        'name' => 'scope-discovery-runtime-fixture',
-        'post_types' => ['book' => ['class' => 'authored']],
-        'taxonomies' => [
-            'category' => ['class' => 'authored', 'object_keyspace' => 'post'],
-            'term_link' => ['class' => 'authored', 'object_keyspace' => 'term'],
-            'missing_link' => ['class' => 'authored', 'object_keyspace' => 'post'],
-            'genre' => ['class' => 'authored', 'object_keyspace' => 'post'],
-        ],
-    ]];
-    $runtimeTokens = (new \ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
-    $captureReflection = new \ReflectionClass(Capture::class);
-    $capture = $captureReflection->newInstanceWithoutConstructor();
-    $captureReflection->getProperty('policy')->setValue($capture, $runtimePolicy);
-    $captureReflection->getProperty('tokens')->setValue($capture, $runtimeTokens);
-    $captureReflection->getProperty('observationReadCheckpoint')->setValue(
-        $capture,
-        static function () use ($wpdb): void {
-            $wpdb->events[] = 'checkpoint';
-        }
-    );
-
-    $scopeDiscoveryFacade = $captureReflection->getMethod('scope_discovery');
-    $cachedDiscovery = $scopeDiscoveryFacade->invoke($capture);
-    $check(
-        $cachedDiscovery instanceof ScopeDiscovery
-            && $scopeDiscoveryFacade->invoke($capture) === $cachedDiscovery,
-        'Capture lazily constructs and caches one ScopeDiscovery collaborator'
-    );
-
-    $wpdb->queries = [];
-    $wpdb->events = [];
-    $facadeGaps = $captureReflection->getMethod('scope_gaps')->invoke($capture);
-    $check(
-        $facadeGaps === [
-            'post_type:book' => ['entities' => 3],
-            'taxonomy:genre' => ['entities' => 6],
-        ] && $wpdb->events === [
-            'query:post-gaps', 'checkpoint',
-            'query:taxonomy-gaps', 'checkpoint',
-        ],
-        'Capture scope_gaps facade executes the cached collaborator with bound read checkpoints'
-    );
-
-    $wpdb->queries = [];
-    $wpdb->events = [];
-    $facadePosts = $captureReflection->getMethod('scope_posts')->invoke($capture);
-    $check(
-        array_map(static fn(object $row): int => (int) $row->ID, $facadePosts) === [2, 9]
-            && $wpdb->events === ['query:posts', 'checkpoint'],
-        'Capture scope_posts facade executes the cached collaborator with an immediate checkpoint'
-    );
-
-    $wpdb->queries = [];
-    $wpdb->events = [];
-    $facadeTerms = $captureReflection->getMethod('scope_terms')->invoke($capture);
-    $check(
-        array_map(static fn(object $row): int => (int) $row->term_id, $facadeTerms) === [4, 11]
-            && $wpdb->events === ['query:terms', 'checkpoint'],
-        'Capture scope_terms facade executes the cached collaborator with an immediate checkpoint'
-    );
-
-    $taxonomyFacade = $captureReflection->getMethod('taxes_by_object_type');
-    $facadeOwnership = $taxonomyFacade->invoke(
-        $capture,
-        ['category', 'term_link', 'missing_link'],
-        ['page', 'attachment'],
-        false
-    );
-    $taxonomyFacade->invoke(
-        $capture,
-        ['category', 'term_link', 'missing_link'],
-        ['page', 'attachment'],
-        false
-    );
-    $check(
-        $facadeOwnership === [
-            'by_post_type' => ['page' => ['category'], 'attachment' => []],
-            'term_object' => ['term_link'],
-        ],
-        'Capture taxonomy facade preserves post and term relationship ownership'
-    );
-    $check(
-        count($runtimeTokens->warnings) === 2
-            && $runtimeTokens->warnings[0] === $runtimeTokens->warnings[1]
-            && str_contains($runtimeTokens->warnings[0], "taxonomy 'missing_link'"),
-        'the cached Capture collaborator keeps its warning callback bound across repeated facade calls'
-    );
+    $workflowSource = file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php');
+    $candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
+    $check(is_string($captureSource)
+        && str_contains($captureSource, "require_once __DIR__ . '/CapturePublicationWorkflow.php';")
+        && is_string($workflowSource)
+        && str_contains($workflowSource, "require_once __DIR__ . '/CaptureCandidateBuilder.php';")
+        && str_contains($workflowSource, '$c = new CaptureCandidateBuilder('),
+        'Capture explicitly delegates entity assembly to the candidate builder');
+    $check(is_string($candidateSource)
+        && str_contains($candidateSource, "require_once __DIR__ . '/ScopeDiscovery.php';")
+        && str_contains($candidateSource, '$this->scopeDiscovery = new ScopeDiscovery('),
+        'candidate builder explicitly owns one shared ScopeDiscovery collaborator');
+    $check(is_string($candidateSource)
+        && str_contains($candidateSource, '$scope = $this->scopeDiscovery->discover(')
+        && str_contains($candidateSource, '$this->safetyGates->assertScopeGaps($gaps);')
+        && str_contains($candidateSource, '$this->taxonomiesByPostType = $scope[\'by_post_type\'];')
+        && str_contains($candidateSource, '$this->termObjectTaxonomies = $scope[\'term_object\'];'),
+        'the full candidate build consumes the complete ScopeDiscovery result');
 
     if ($failures !== []) {
         fwrite(STDERR, "\n" . count($failures) . " scope-discovery assertion(s) failed\n");

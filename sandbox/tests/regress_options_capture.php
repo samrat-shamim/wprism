@@ -317,22 +317,27 @@ $check(
 );
 
 $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$workflowSource = file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
 $optionsSource = file_get_contents(__DIR__ . '/../../agent/src/OptionsCapture.php');
-$buildStart = strpos((string) $captureSource, 'private function build_options(');
-$buildEnd = strpos((string) $captureSource, "\n    /**", (int) $buildStart + 1);
-$buildBody = substr((string) $captureSource, (int) $buildStart, (int) $buildEnd - (int) $buildStart);
+$buildStart = strpos((string) $candidateSource, 'private function buildOptions(');
+$buildEnd = strpos((string) $candidateSource, "\n    private function", (int) $buildStart + 1);
+$buildBody = substr((string) $candidateSource, (int) $buildStart, (int) $buildEnd - (int) $buildStart);
 $check(
-    str_contains((string) $captureSource, "require_once __DIR__ . '/OptionsCapture.php';")
-        && str_contains((string) $captureSource, 'private ?OptionsCapture $optionsCapture = null;')
-        && str_contains((string) $captureSource, 'private function options_capture(): OptionsCapture'),
-    'Capture explicitly requires and lazily binds the extracted options collaborator'
+    str_contains((string) $captureSource, "require_once __DIR__ . '/CapturePublicationWorkflow.php';")
+        && str_contains((string) $workflowSource, "require_once __DIR__ . '/CaptureCandidateBuilder.php';")
+        && str_contains((string) $workflowSource, '$c = new CaptureCandidateBuilder(')
+        && str_contains((string) $candidateSource, "require_once __DIR__ . '/OptionsCapture.php';")
+        && str_contains((string) $candidateSource, 'private OptionsCapture $optionsCapture;')
+        && str_contains((string) $candidateSource, '$this->optionsCapture = new OptionsCapture('),
+    'Capture delegates candidate assembly and the builder binds the extracted options collaborator'
 );
 $check(
-    str_contains($buildBody, '$this->options_capture()->capture(')
-        && str_contains($buildBody, "array_merge(\n            \$this->unclassified")
+    str_contains($buildBody, '$this->optionsCapture->capture(')
+        && str_contains($buildBody, 'array_merge($this->unclassified')
         && !str_contains($buildBody, 'authored_options()')
         && !str_contains($buildBody, 'option_name_ref_match_details'),
-    'build_options is a thin adapter that merges result side channels before returning the document'
+    'candidate option assembly is a thin adapter that merges result side channels'
 );
 $check(
     substr_count((string) $optionsSource, 'SELECT option_name, option_value FROM {$wpdb->options}') === 1

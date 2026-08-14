@@ -275,18 +275,19 @@ $throws(
 );
 
 $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
 $check(
-    is_string($captureSource) && str_contains($captureSource, "require_once __DIR__ . '/UserMetaCapture.php';"),
-    'Capture explicitly requires its extracted user-meta collaborator'
+    is_string($candidateSource) && str_contains($candidateSource, "require_once __DIR__ . '/UserMetaCapture.php';"),
+    'candidate builder explicitly requires its extracted user-meta collaborator'
 );
 $check(
-    is_string($captureSource)
-        && str_contains($captureSource, 'private function user_meta_capture(): UserMetaCapture')
-        && str_contains($captureSource, '$this->guard_secret($section, $key, $value, $rule, $context);')
-        && str_contains($captureSource, '$this->guard_personal_data($key, $value, $rule, $login);')
-        && str_contains($captureSource, 'self::check_transient_db_error($where);')
-        && str_contains($captureSource, 'return $this->user_meta_capture()->capture($carriedLogins);'),
-    'Capture lazily binds exact secret, personal-data, and transient-read callbacks and keeps a thin historical entity facade'
+    is_string($candidateSource)
+        && str_contains($candidateSource, 'new UserMetaCapture(')
+        && str_contains($candidateSource, '$this->safetyGates->guardSecret($section, $key, $value, $rule, $context);')
+        && str_contains($candidateSource, '$this->safetyGates->guardPersonalData($key, $value, $rule, $login);')
+        && str_contains($candidateSource, 'CaptureTransaction::check_transient_db_error($where);')
+        && str_contains($candidateSource, '$this->userMetaCapture->capture($carriedUserLogins)'),
+    'candidate builder binds exact secret, personal-data, and transient-read callbacks'
 );
 $check(
     is_string($captureSource)

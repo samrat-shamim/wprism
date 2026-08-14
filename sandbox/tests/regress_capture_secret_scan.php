@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3214(a): Capture::guard_secret()'s authored post-meta and option call
+ * DUO-3214(a): CaptureSafetyGates::guardSecret()'s authored post-meta and option call
  * sites used to
  * gate the guard behind `is_string($v)` — an authored value that decoded to
  * an ARRAY (a plugin's serialized settings blob) got ZERO secret scanning
@@ -12,17 +12,12 @@
  * already proved in the wave-1 security subset, and both call sites no
  * longer gate the call on is_string().
  *
- * guard_secret() has zero WordPress dependency (pure PHP + Secrets::) and
- * is a PRIVATE instance method on a class whose constructor is ALSO
- * private (Capture's only public entry points are the static run()/
- * snapshot()/gate_scan() factories, none suited to a narrow unit test of
- * this one method) -- so this harness uses Reflection to construct a
- * Capture instance WITHOUT running its constructor (only $repo is ever
- * read by guard_secret() itself, set directly via ReflectionProperty) and
- * invoke the private method directly. This proves the CORE logic change in
+ * guardSecret() has zero WordPress dependency (pure PHP + Secrets::) and is
+ * public on the focused CaptureSafetyGates collaborator, so this harness
+ * invokes that collaborator directly. This proves the CORE logic change in
  * total isolation; the call-site wiring itself (that the extracted entity
  * and options capturers call guard_secret() unconditionally now) is a
- * live sandbox-pair proof instead, in the PR body -- Capture::build() is
+ * live sandbox-pair proof instead, in the PR body -- CaptureCandidateBuilder is
  * not designed to be offline-stubbable end-to-end the way agent/src/
  * Publish.php was for DUO-3213 (this file intentionally does not attempt
  * a FakeWpdb covering posts/terms/menus/options/tables; that is a much
@@ -33,7 +28,7 @@
  */
 
 require __DIR__ . '/../../agent/src/Secrets.php';
-require __DIR__ . '/../../agent/src/Capture.php';
+require __DIR__ . '/../../agent/src/CaptureSafetyGates.php';
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -57,17 +52,9 @@ function check(bool $cond, string $msg): void {
  *   guard_secret() returned normally (no secret found / allow_secret hit)
  */
 function invoke_guard_secret(string $section, string $key, $v, array $rule, string $context = ''): ?string {
-    // No setAccessible() calls: a no-op since PHP 8.1 (private members are
-    // directly Reflection-accessible since then) and deprecated outright
-    // in 8.5 — this repo's target runtimes span both.
-    $ref = new ReflectionClass(Duo\Capture::class);
-    $instance = $ref->newInstanceWithoutConstructor();
-    $repoProp = $ref->getProperty('repo');
-    $repoProp->setValue($instance, '/siterepo');
-
-    $method = $ref->getMethod('guard_secret');
+    $gates = new Duo\CaptureSafetyGates('/siterepo');
     try {
-        $method->invoke($instance, $section, $key, $v, $rule, $context);
+        $gates->guardSecret($section, $key, $v, $rule, $context);
         return null;
     } catch (\RuntimeException $e) {
         return $e->getMessage();

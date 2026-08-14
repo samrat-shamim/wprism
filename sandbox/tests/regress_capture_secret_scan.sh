@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Regression — DUO-3214(a): the authored post-meta and option call sites
-# used to gate Capture::guard_secret() behind `is_string($v)` — an authored
+# used to gate CaptureSafetyGates::guardSecret() behind `is_string($v)` — an authored
 # value that decoded to an ARRAY (a plugin's serialized settings blob) got
 # ZERO secret scanning in any downstream branch. guard_secret() now deep-
 # scans via Secrets::hard_match_deep() (widened from hard_match()) and
@@ -9,12 +9,11 @@
 # proved in the wave-1 security subset.
 #
 # Pure PHP, no docker, no WordPress bootstrap: regress_capture_secret_scan.php
-# uses Reflection to construct a Capture instance without running its
-# (private) constructor and invoke the (private) guard_secret() method
-# directly — the method itself has zero WordPress dependency. Proves the
+# invokes CaptureSafetyGates::guardSecret() directly — the method itself has
+# zero WordPress dependency. Proves the
 # core logic change in isolation; full end-to-end call-site behavior is
 # still proven separately via a live sandbox pair (see the PR body —
-# Capture::build() is not offline-stubbable end-to-end the way agent/src/
+# CaptureCandidateBuilder is not offline-stubbable end-to-end the way agent/src/
 # Publish.php was for DUO-3213).
 #
 # The PHP harness above deliberately does NOT prove the call sites are
@@ -74,7 +73,8 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check"
 php -l regress_capture_secret_scan.php >/dev/null || fail "regress_capture_secret_scan.php has a syntax error"
-php -l ../../agent/src/Capture.php >/dev/null || fail "agent/src/Capture.php has a syntax error"
+php -l ../../agent/src/CaptureCandidateBuilder.php >/dev/null || fail "agent/src/CaptureCandidateBuilder.php has a syntax error"
+php -l ../../agent/src/CaptureSafetyGates.php >/dev/null || fail "agent/src/CaptureSafetyGates.php has a syntax error"
 php -l ../../agent/src/OptionsCapture.php >/dev/null || fail "agent/src/OptionsCapture.php has a syntax error"
 php -l ../../agent/src/UserMetaCapture.php >/dev/null || fail "agent/src/UserMetaCapture.php has a syntax error"
 php -l ../../agent/src/EntityMetaCapture.php >/dev/null || fail "agent/src/EntityMetaCapture.php has a syntax error"
@@ -84,17 +84,17 @@ pass "no syntax errors"
 say "running the offline harness (guard_secret() widened to deep-scan arrays)"
 php regress_capture_secret_scan.php || fail "regress_capture_secret_scan.php reported failing checks (see output above)"
 
-say "call-site wiring: Capture binds every extracted security callback unconditionally"
-CAPTURE_SRC=../../agent/src/Capture.php
-mapfile -t CALL_LINES < <(grep -n '\$this->guard_secret(' "$CAPTURE_SRC")
-[ "${#CALL_LINES[@]}" -eq 3 ] || fail "expected exactly 3 Capture guard_secret() callback bindings (user meta, entity meta, options), got ${#CALL_LINES[@]} — a handoff was added or removed"
+say "call-site wiring: CaptureCandidateBuilder binds every extracted security callback unconditionally"
+CAPTURE_SRC=../../agent/src/CaptureCandidateBuilder.php
+mapfile -t CALL_LINES < <(grep -n '\$this->safetyGates->guardSecret(' "$CAPTURE_SRC")
+[ "${#CALL_LINES[@]}" -eq 3 ] || fail "expected exactly 3 CaptureCandidateBuilder guardSecret() callback bindings (user meta, entity meta, options), got ${#CALL_LINES[@]} — a handoff was added or removed"
 for entry in "${CALL_LINES[@]}"; do
   lineno="${entry%%:*}"
   start=$((lineno - 2))
   [ "$start" -lt 1 ] && start=1
   window=$(sed -n "${start},${lineno}p" "$CAPTURE_SRC")
   grep -q 'is_string(' <<<"$window" \
-    && fail "guard_secret() call at Capture.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
+    && fail "guardSecret() call at CaptureCandidateBuilder.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
 $window"
 done
 pass "all three extracted-capturer bindings have no nearby is_string() gate"
