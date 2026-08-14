@@ -2054,6 +2054,9 @@ $check(
 );
 $deleteGateAt = strpos($preparationSource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
 $preparedAt = strpos($applySource, '$prepared = $this->preparationCoordinator->prepare(');
+$freshActualContractAt = strpos($preparationSource, 'freshActual: $freshActual');
+$freshActualHandoffAt = strpos($applySource, '$freshActual = $prepared->freshActual;');
+$authoredStateAt = strpos($applySource, 'ScopedApply::authored_state(');
 $terminalArchiveAt = strpos($applySource, '$this->scopedWorkflow->terminalSessionToArchive->archive_terminal();');
 $archivedReplayLookupAt = strpos($applySource, 'ScopedApplySession::open_terminal_for_request(');
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
@@ -2091,6 +2094,13 @@ $check(
             'scoped apply selected live tombstones but --with-deletes was not supplied; '
         ),
     'known stale-scope, stale-terminal, and missing-delete scoped gates retain typed public refusals'
+);
+$check(
+    $freshActualContractAt !== false
+        && $freshActualHandoffAt !== false
+        && $authoredStateAt !== false
+        && $freshActualHandoffAt < $authoredStateAt,
+    'scoped preparation carries the fresh target snapshot through PreparedApply before authored-state validation'
 );
 $check(
     $terminalArchiveAt !== false

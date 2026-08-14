@@ -1100,6 +1100,7 @@ final class ApplyRequestCoordinator {
         $negotiation = $prepared->negotiation;
         $executeDeletes = $prepared->executeDeletes;
         $this->defaultAuthor = $prepared->defaultAuthor;
+        $freshActual = $prepared->freshActual;
 
         $performAuthoredTransaction = true;
         $authorIntent = null;

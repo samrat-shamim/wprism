@@ -12,6 +12,8 @@ final readonly class PreparedApply {
         public array $guardRepairUuids,
         public array $negotiation,
         public bool $executeDeletes,
-        public ?int $defaultAuthor
+        public ?int $defaultAuthor,
+        /** @var array<string,mixed>|null */
+        public ?array $freshActual
     ) {}
 }

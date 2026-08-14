@@ -271,6 +271,7 @@ final class ApplyPreparationCoordinator {
             }
         }
         $this->rebuildSelection->set_selected_actions($negotiatedSelectedActions);
+        $freshActual = null;
         if (!hash_equals(
             ApplyPlanner::plan_precondition_hash($plan),
             ApplyPlanner::plan_precondition_hash($freshPlan)
@@ -349,7 +350,8 @@ final class ApplyPreparationCoordinator {
             guardRepairUuids: $guardRepairUuids,
             negotiation: $negotiation,
             executeDeletes: $executeDeletes,
-            defaultAuthor: $defaultAuthor
+            defaultAuthor: $defaultAuthor,
+            freshActual: $freshActual
         );
     }
 
