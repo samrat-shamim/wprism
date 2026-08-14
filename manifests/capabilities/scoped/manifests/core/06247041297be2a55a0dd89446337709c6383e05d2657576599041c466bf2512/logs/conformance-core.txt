@@ -1,0 +1,644 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   593d8e43ede4c12fe8e29dc23259d4bcec5c521e (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 593d8e43ede4c12fe8e29dc23259d4bcec5c521e, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'certp263752': reset ==[0m
+[1;32mok: wp_certp2637521/wp_certp2637522 dropped + recreated empty; siterepo/certp263752{1,2} cleared in place and origin-certp263752.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/certp263752{1,2}, origin-certp263752.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up certp263752 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.certp263752{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9004) / conf2 (:9005), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   593d8e43ede4c12fe8e29dc23259d4bcec5c521e (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 593d8e43ede4c12fe8e29dc23259d4bcec5c521e, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'certp263752': databases ==[0m
+[1;32mok: wp_certp2637521, wp_certp2637522 exist[0m
+
+[1;36m== pair 'certp263752': site-repo directories ==[0m
+
+[1;36m== pair 'certp263752': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-certp263752_wp2 Creating
+ Volume duo-certp263752_wp2 Created
+ Volume duo-certp263752_wp1 Creating
+ Volume duo-certp263752_wp1 Created
+ Container duo-certp263752-wp2-1 Creating
+ Container duo-certp263752-wp1-1 Creating
+ Container duo-certp263752-wp2-1 Created
+ Container duo-certp263752-wp1-1 Created
+ Container duo-certp263752-wp2-1 Starting
+ Container duo-certp263752-wp1-1 Starting
+ Container duo-certp263752-wp1-1 Started
+ Container duo-certp263752-wp2-1 Started
+ Container duo-certp263752-cli2-1 Creating
+ Container duo-certp263752-cli1-1 Creating
+ Container duo-certp263752-cli1-1 Created
+ Container duo-certp263752-cli2-1 Created
+ Container duo-certp263752-cli2-1 Starting
+ Container duo-certp263752-cli1-1 Starting
+ Container duo-certp263752-cli1-1 Started
+ Container duo-certp263752-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'certp263752': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'certp263752': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.certp2637521.needs-install present — reset emptied wp_certp2637521, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-certp263752-cli1-run-87e30ab5e5ff Creating
+ Container duo-certp263752-cli1-run-87e30ab5e5ff Created
+Success: WordPress installed successfully.
+ Container duo-certp263752-cli1-run-d6fea6c179bc Creating
+ Container duo-certp263752-cli1-run-d6fea6c179bc Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263752-cli1-run-19f221086db9 Creating
+ Container duo-certp263752-cli1-run-19f221086db9 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli1-run-61936b7c99dc Creating
+ Container duo-certp263752-cli1-run-61936b7c99dc Created
+ Container duo-certp263752-cli1-run-c3b86808bd92 Creating
+ Container duo-certp263752-cli1-run-c3b86808bd92 Created
+ Container duo-certp263752-cli1-run-e426b58a0739 Creating
+ Container duo-certp263752-cli1-run-e426b58a0739 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263752-cli1-run-f6e6be709f47 Creating
+ Container duo-certp263752-cli1-run-f6e6be709f47 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9004)
+  side 2: siterepo/.certp2637522.needs-install present — reset emptied wp_certp2637522, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-certp263752-cli2-run-bd67d2317275 Creating
+ Container duo-certp263752-cli2-run-bd67d2317275 Created
+Success: WordPress installed successfully.
+ Container duo-certp263752-cli2-run-89a479f7a168 Creating
+ Container duo-certp263752-cli2-run-89a479f7a168 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263752-cli2-run-88d5e7512457 Creating
+ Container duo-certp263752-cli2-run-88d5e7512457 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli2-run-f3ee931c3456 Creating
+ Container duo-certp263752-cli2-run-f3ee931c3456 Created
+ Container duo-certp263752-cli2-run-f4050053094c Creating
+ Container duo-certp263752-cli2-run-f4050053094c Created
+ Container duo-certp263752-cli2-run-c6f6c04d7a81 Creating
+ Container duo-certp263752-cli2-run-c6f6c04d7a81 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263752-cli2-run-fdf86c405a4b Creating
+ Container duo-certp263752-cli2-run-fdf86c405a4b Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9005)
+
+[1;36m== pair 'certp263752' ready ==[0m
+  wp1: http://localhost:9004 (published on host port 9004)
+  wp2: http://localhost:9005 (published on host port 9005)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-certp263752 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-certp263752 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=certp263752 must stay exported, or pass -p duo-certp263752 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-certp263752-cli1-run-acc5ab188e73 Creating
+ Container duo-certp263752-cli1-run-acc5ab188e73 Created
+Success: Updated 'blogname' option.
+ Container duo-certp263752-cli1-run-7fe131a86baf Creating
+ Container duo-certp263752-cli1-run-7fe131a86baf Created
+Success: The site at 'http://localhost:9004' was emptied.
+ Container duo-certp263752-cli1-run-6a6c27b9f9ec Creating
+ Container duo-certp263752-cli1-run-6a6c27b9f9ec Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263752-cli1-run-4ba36d0a1106 Creating
+ Container duo-certp263752-cli1-run-4ba36d0a1106 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli1-run-dfb9f9da6328 Creating
+ Container duo-certp263752-cli1-run-dfb9f9da6328 Created
+ Container duo-certp263752-cli1-run-cb876b6a31b4 Creating
+ Container duo-certp263752-cli1-run-cb876b6a31b4 Created
+ Container duo-certp263752-cli1-run-5f6168824ff9 Creating
+ Container duo-certp263752-cli1-run-5f6168824ff9 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-certp263752-cli1-run-995fa247b060 Creating
+ Container duo-certp263752-cli1-run-995fa247b060 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli1-run-17857c8a9f47 Creating
+ Container duo-certp263752-cli1-run-17857c8a9f47 Created
+ Container duo-certp263752-cli1-run-28b902a5c1c2 Creating
+ Container duo-certp263752-cli1-run-28b902a5c1c2 Created
+env conf1 installed, role=author (core: 0 pinned plugins, 2 pinned themes)
+ Container duo-certp263752-cli2-run-d879589b7d4b Creating
+ Container duo-certp263752-cli2-run-d879589b7d4b Created
+Success: Updated 'blogname' option.
+ Container duo-certp263752-cli2-run-f5c0dd771641 Creating
+ Container duo-certp263752-cli2-run-f5c0dd771641 Created
+Success: The site at 'http://localhost:9005' was emptied.
+ Container duo-certp263752-cli2-run-037ef1177594 Creating
+ Container duo-certp263752-cli2-run-037ef1177594 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263752-cli2-run-35689958c836 Creating
+ Container duo-certp263752-cli2-run-35689958c836 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli2-run-d666a9f47e68 Creating
+ Container duo-certp263752-cli2-run-d666a9f47e68 Created
+ Container duo-certp263752-cli2-run-ae4350d90a5c Creating
+ Container duo-certp263752-cli2-run-ae4350d90a5c Created
+ Container duo-certp263752-cli2-run-9b0ec40e76b0 Creating
+ Container duo-certp263752-cli2-run-9b0ec40e76b0 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-certp263752-cli2-run-6dc7ca3271d5 Creating
+ Container duo-certp263752-cli2-run-6dc7ca3271d5 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli2-run-24b4ffbd3b17 Creating
+ Container duo-certp263752-cli2-run-24b4ffbd3b17 Created
+ Container duo-certp263752-cli2-run-6bc926389a5c Creating
+ Container duo-certp263752-cli2-run-6bc926389a5c Created
+env conf2 installed, role=target (core: 0 pinned plugins, 2 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/core.sh) ==[0m
+ Container duo-certp263752-cli1-run-e95726fbddf3 Creating
+ Container duo-certp263752-cli1-run-e95726fbddf3 Created
+ Container duo-certp263752-cli1-run-4dc798b08a37 Creating
+ Container duo-certp263752-cli1-run-4dc798b08a37 Created
+ Container duo-certp263752-cli1-run-b4f3fb6d202b Creating
+ Container duo-certp263752-cli1-run-b4f3fb6d202b Created
+ Container duo-certp263752-cli1-run-313891a11e8e Creating
+ Container duo-certp263752-cli1-run-313891a11e8e Created
+ Container duo-certp263752-cli1-run-c3ef5334ca61 Creating
+ Container duo-certp263752-cli1-run-c3ef5334ca61 Created
+ Container duo-certp263752-cli1-run-1030595de760 Creating
+ Container duo-certp263752-cli1-run-1030595de760 Created
+ Container duo-certp263752-cli1-run-cba902e4646e Creating
+ Container duo-certp263752-cli1-run-cba902e4646e Created
+ Container duo-certp263752-cli2-run-fd2ae3e17ba1 Creating
+ Container duo-certp263752-cli2-run-fd2ae3e17ba1 Created
+ Container duo-certp263752-cli1-run-b46e5819648a Creating
+ Container duo-certp263752-cli1-run-b46e5819648a Created
+ Container duo-certp263752-cli1-run-24ddd044cd13 Creating
+ Container duo-certp263752-cli1-run-24ddd044cd13 Created
+ Container duo-certp263752-cli1-run-bb5b9b178499 Creating
+ Container duo-certp263752-cli1-run-bb5b9b178499 Created
+ Container duo-certp263752-cli1-run-682513aa3e81 Creating
+ Container duo-certp263752-cli1-run-682513aa3e81 Created
+ Container duo-certp263752-cli1-run-44e798f9f590 Creating
+ Container duo-certp263752-cli1-run-44e798f9f590 Created
+ Container duo-certp263752-cli1-run-4a3f8f00a44b Creating
+ Container duo-certp263752-cli1-run-4a3f8f00a44b Created
+ Container duo-certp263752-cli1-run-e76e0b2bf655 Creating
+ Container duo-certp263752-cli1-run-e76e0b2bf655 Created
+ Container duo-certp263752-cli1-run-006b5fb8c280 Creating
+ Container duo-certp263752-cli1-run-006b5fb8c280 Created
+ Container duo-certp263752-cli1-run-808d0d12a99c Creating
+ Container duo-certp263752-cli1-run-808d0d12a99c Created
+Warning: The 'Twenty Twenty-One' theme is already active.
+ Container duo-certp263752-cli1-run-0a30b30cac09 Creating
+ Container duo-certp263752-cli1-run-0a30b30cac09 Created
+ Container duo-certp263752-cli1-run-e5070b72a045 Creating
+ Container duo-certp263752-cli1-run-e5070b72a045 Created
+ Container duo-certp263752-cli1-run-cecfe324e20d Creating
+ Container duo-certp263752-cli1-run-cecfe324e20d Created
+ Container duo-certp263752-cli1-run-d6298776280b Creating
+ Container duo-certp263752-cli1-run-d6298776280b Created
+ Container duo-certp263752-cli1-run-7dcb243df852 Creating
+ Container duo-certp263752-cli1-run-7dcb243df852 Created
+ Container duo-certp263752-cli1-run-7b35181e9719 Creating
+ Container duo-certp263752-cli1-run-7b35181e9719 Created
+core seed: news=2 home=1 att=6 hello=7 widget-menu=3 hierarchy=2/4,3/5 theme_mods: twentytwentyone(residue)+twentytwentyfive(active)
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-certp263752-cli1-run-842a8d7b1826 Creating
+ Container duo-certp263752-cli1-run-842a8d7b1826 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Success: captured 8 posts, 2 terms, 1 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-certp263752-cli1-run-6383486cb926 Creating
+ Container duo-certp263752-cli1-run-6383486cb926 Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-certp263752-cli1-run-f2d68e4443f3 Creating
+ Container duo-certp263752-cli1-run-f2d68e4443f3 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-certp263752-cli2-run-00c87591be75 Creating
+ Container duo-certp263752-cli2-run-00c87591be75 Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "8fd0fff8b1436fd392976b7c1c6352416cf42619bc46b3a60556bd73df0f5877",
+    "revision": "a2451edb46bde803350591fec8cfafac807148f0b7dd500395a6d007c726f8c5",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "activated": [],
+  "deactivated": [],
+  "theme_switched": "twentytwentyfive",
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "theme",
+      "theme": "twentytwentyfive",
+      "message": "stylesheet in state/options/core.json declares 'twentytwentyfive', and its code is installed, but this environment has theme 'twentytwentyone' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-e110ad052ccd1b160db1df9d0575cdcb",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-certp263752-cli2-run-1c4f8a956094 Creating
+ Container duo-certp263752-cli2-run-1c4f8a956094 Created
+ Container duo-certp263752-cli2-run-f8624ab124c2 Creating
+ Container duo-certp263752-cli2-run-f8624ab124c2 Created
+ Container duo-certp263752-cli2-run-b428f54ef6ed Creating
+ Container duo-certp263752-cli2-run-b428f54ef6ed Created
+[1;32mok: conf2 active plugins (none) and theme (template=twentytwentyfive, stylesheet=twentytwentyfive) match canonical — deploy alone did this[0m
+
+[1;36m== post-deploy conf2 fixup (conformance/postdeploy/core.sh) ==[0m
+ Container duo-certp263752-cli2-run-38409d50b17d Creating
+ Container duo-certp263752-cli2-run-38409d50b17d Created
+ Container duo-certp263752-cli2-run-94a5e2b320bf Creating
+ Container duo-certp263752-cli2-run-94a5e2b320bf Created
+ Container duo-certp263752-cli2-run-04e7fd7b87c0 Creating
+ Container duo-certp263752-cli2-run-04e7fd7b87c0 Created
+ Container duo-certp263752-cli2-run-4afa827a2ead Creating
+ Container duo-certp263752-cli2-run-4afa827a2ead Created
+ Container duo-certp263752-cli2-run-3d99360d8139 Creating
+ Container duo-certp263752-cli2-run-3d99360d8139 Created
+ Container duo-certp263752-cli2-run-a9e2d629d439 Creating
+ Container duo-certp263752-cli2-run-a9e2d629d439 Created
+ Container duo-certp263752-cli2-run-c9bb8bcf2b51 Creating
+ Container duo-certp263752-cli2-run-c9bb8bcf2b51 Created
+ Container duo-certp263752-cli2-run-7bec4089b873 Creating
+ Container duo-certp263752-cli2-run-7bec4089b873 Created
+ Container duo-certp263752-cli2-run-ffcf41197a5a Creating
+ Container duo-certp263752-cli2-run-ffcf41197a5a Created
+target hierarchy and colliding widget defaults seeded; ambiguous-key refusal verified
+[1;32mok: post-deploy fixup applied[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-certp263752-cli2-run-916fd8f7484c Creating
+ Container duo-certp263752-cli2-run-916fd8f7484c Created
+{
+  "artifact": {
+    "hash": "8fd0fff8b1436fd392976b7c1c6352416cf42619bc46b3a60556bd73df0f5877",
+    "revision": "a2451edb46bde803350591fec8cfafac807148f0b7dd500395a6d007c726f8c5",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "plan": {
+    "create": 6,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 5,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 5,
+    "adapter_dispositions": 1,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 13,
+  "drift": [],
+  "warnings": [
+    "adopted env post 3 as 019ffedf-6575-7f48-8787-18df5428d9f2 (posts/page/019ffedf-6575-7f48-8787-18df5428d9f2--branch-a.md)",
+    "adopted env post 1 as 019ffedf-6576-77b3-a712-00f15255c186 (posts/page/019ffedf-6576-77b3-a712-00f15255c186--branch-b.md)",
+    "adopted env post 4 as 019ffedf-6579-7921-891c-33820e49b3e9 (posts/page/019ffedf-6579-7921-891c-33820e49b3e9--shared-child.md)",
+    "adopted env post 2 as 019ffedf-657c-7a0d-b1e9-6decf2c45cf3 (posts/page/019ffedf-657c-7a0d-b1e9-6decf2c45cf3--shared-child.md)",
+    "adopted env term 1 as 019ffedf-657d-7ae9-93a8-973020a0abee (terms/category/019ffedf-657d-7ae9-93a8-973020a0abee--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 13,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-f8c1495c61b2cbf9d34df269de98d9de",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-certp263752-cli2-run-ba0fbc35e588 Creating
+ Container duo-certp263752-cli2-run-ba0fbc35e588 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/core.sh) ==[0m
+ Container duo-certp263752-cli2-run-bd31051b1b5c Creating
+ Container duo-certp263752-cli2-run-bd31051b1b5c Created
+[1;32mok: theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids[0m
+[1;32mok: conf2's own runtime-excluded sub-keys (sidebars_widgets, wp_classic_sidebars) survived the merge into the live blob untouched -- sub_keys apply is a merge, never a whole-value replace[0m
+[1;32mok: theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared[0m
+ Container duo-certp263752-cli2-run-8a09c959063b Creating
+ Container duo-certp263752-cli2-run-8a09c959063b Created
+[1;32mok: wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly[0m
+
+[1;36m== (DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean ==[0m
+ Container duo-certp263752-cli1-run-9e6817a712ae Creating
+ Container duo-certp263752-cli1-run-9e6817a712ae Created
+ Container duo-certp263752-cli1-run-489fcb826599 Creating
+ Container duo-certp263752-cli1-run-489fcb826599 Created
+ Container duo-certp263752-cli1-run-cd875f26f3ce Creating
+ Container duo-certp263752-cli1-run-cd875f26f3ce Created
+ Container duo-certp263752-cli1-run-a5f030c699d2 Creating
+ Container duo-certp263752-cli1-run-a5f030c699d2 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed[0m
+ Container duo-certp263752-cli1-run-97d5cc9cfe89 Creating
+ Container duo-certp263752-cli1-run-97d5cc9cfe89 Created
+ Container duo-certp263752-cli2-run-226374f3e095 Creating
+ Container duo-certp263752-cli2-run-226374f3e095 Created
+ Container duo-certp263752-cli1-run-ee48116bd3fd Creating
+ Container duo-certp263752-cli1-run-ee48116bd3fd Created
+ Container duo-certp263752-cli2-run-c70ba74b11d5 Creating
+ Container duo-certp263752-cli2-run-c70ba74b11d5 Created
+ Container duo-certp263752-cli1-run-f72bcd38ff7a Creating
+ Container duo-certp263752-cli1-run-f72bcd38ff7a Created
+ Container duo-certp263752-cli2-run-f0550e307be9 Creating
+ Container duo-certp263752-cli2-run-f0550e307be9 Created
+ Container duo-certp263752-cli2-run-286f7e900f3a Creating
+ Container duo-certp263752-cli2-run-286f7e900f3a Created
+ Container duo-certp263752-cli2-run-4816de5caf0f Creating
+ Container duo-certp263752-cli2-run-4816de5caf0f Created
+[1;32mok: block/text/nav-menu widgets use portable refs, ledger-only identity, free target counters, and replace target defaults[0m
+ Container duo-certp263752-cli1-run-fe1056f53ce9 Creating
+ Container duo-certp263752-cli1-run-fe1056f53ce9 Created
+ Container duo-certp263752-cli1-run-1aaf7c3a79e5 Creating
+ Container duo-certp263752-cli1-run-1aaf7c3a79e5 Created
+ Container duo-certp263752-cli1-run-7ae7f989ecb3 Creating
+ Container duo-certp263752-cli1-run-7ae7f989ecb3 Created
+ Container duo-certp263752-cli1-run-7919d52d3398 Creating
+ Container duo-certp263752-cli1-run-7919d52d3398 Created
+ Container duo-certp263752-cli1-run-282019baac0c Creating
+ Container duo-certp263752-cli1-run-282019baac0c Created
+ Container duo-certp263752-cli1-run-2702ead86b69 Creating
+ Container duo-certp263752-cli1-run-2702ead86b69 Created
+ Container duo-certp263752-cli1-run-da68bc247e45 Creating
+ Container duo-certp263752-cli1-run-da68bc247e45 Created
+ Container duo-certp263752-cli1-run-b5a6c4afe7d9 Creating
+ Container duo-certp263752-cli1-run-b5a6c4afe7d9 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically[0m
+ Container duo-certp263752-cli2-run-cda854e4136e Creating
+ Container duo-certp263752-cli2-run-cda854e4136e Created
+ Container duo-certp263752-cli2-run-9133c95369cd Creating
+ Container duo-certp263752-cli2-run-9133c95369cd Created
+ Container duo-certp263752-cli1-run-79ae2e42d561 Creating
+ Container duo-certp263752-cli1-run-79ae2e42d561 Created
+ Container duo-certp263752-cli1-run-25e02937eabc Creating
+ Container duo-certp263752-cli1-run-25e02937eabc Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-certp263752-cli2-run-ef24db1432b1 Creating
+ Container duo-certp263752-cli2-run-ef24db1432b1 Created
+ Container duo-certp263752-cli2-run-7da62db6b03b Creating
+ Container duo-certp263752-cli2-run-7da62db6b03b Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-certp263752-cli2-run-b72de81e4ed3 Creating
+ Container duo-certp263752-cli2-run-b72de81e4ed3 Created
+ Container duo-certp263752-cli2-run-7615b8878758 Creating
+ Container duo-certp263752-cli2-run-7615b8878758 Created
+ Container duo-certp263752-cli2-run-3f50e17f46d1 Creating
+ Container duo-certp263752-cli2-run-3f50e17f46d1 Created
+[1;32mok: public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)[0m
+ Container duo-certp263752-cli2-run-01fa579dea1b Creating
+ Container duo-certp263752-cli2-run-01fa579dea1b Created
+ Container duo-certp263752-cli2-run-85e73103e7c9 Creating
+ Container duo-certp263752-cli2-run-85e73103e7c9 Created
+ Container duo-certp263752-cli2-run-5a27e6942e0a Creating
+ Container duo-certp263752-cli2-run-5a27e6942e0a Created
+ Container duo-certp263752-cli2-run-937dfe8b57a4 Creating
+ Container duo-certp263752-cli2-run-937dfe8b57a4 Created
+ Container duo-certp263752-cli2-run-2afa7d53de37 Creating
+ Container duo-certp263752-cli2-run-2afa7d53de37 Created
+ Container duo-certp263752-cli2-run-6ea742e277bb Creating
+ Container duo-certp263752-cli2-run-6ea742e277bb Created
+[1;32mok: plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)[0m
+ Container duo-certp263752-cli1-run-803d8727fdbd Creating
+ Container duo-certp263752-cli1-run-803d8727fdbd Created
+ Container duo-certp263752-cli2-run-04edbdc16564 Creating
+ Container duo-certp263752-cli2-run-04edbdc16564 Created
+ Container duo-certp263752-cli2-run-4f522b1ad463 Creating
+ Container duo-certp263752-cli2-run-4f522b1ad463 Created
+ Container duo-certp263752-cli1-run-a24335691290 Creating
+ Container duo-certp263752-cli1-run-a24335691290 Created
+ Container duo-certp263752-cli1-run-53ce638654c1 Creating
+ Container duo-certp263752-cli1-run-53ce638654c1 Created
+ Container duo-certp263752-cli2-run-9449eba4ac2b Creating
+ Container duo-certp263752-cli2-run-9449eba4ac2b Created
+ Container duo-certp263752-cli2-run-4d5e814d58d6 Creating
+ Container duo-certp263752-cli2-run-4d5e814d58d6 Created
+ Container duo-certp263752-cli2-run-3b94f6fbeed0 Creating
+ Container duo-certp263752-cli2-run-3b94f6fbeed0 Created
+ Container duo-certp263752-cli2-run-a00650ca4176 Creating
+ Container duo-certp263752-cli2-run-a00650ca4176 Created
+[1;32mok: explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently[0m
+ Container duo-certp263752-cli1-run-ccc8ea741a89 Creating
+ Container duo-certp263752-cli1-run-ccc8ea741a89 Created
+ Container duo-certp263752-cli2-run-c060e08360e6 Creating
+ Container duo-certp263752-cli2-run-c060e08360e6 Created
+ Container duo-certp263752-cli2-run-38faa1314ee8 Creating
+ Container duo-certp263752-cli2-run-38faa1314ee8 Created
+ Container duo-certp263752-cli2-run-c70ea1686359 Creating
+ Container duo-certp263752-cli2-run-c70ea1686359 Created
+ Container duo-certp263752-cli1-run-e45ecf4bf1cb Creating
+ Container duo-certp263752-cli1-run-e45ecf4bf1cb Created
+ Container duo-certp263752-cli1-run-a7fda848b78c Creating
+ Container duo-certp263752-cli1-run-a7fda848b78c Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-certp263752-cli2-run-092396c3fbe7 Creating
+ Container duo-certp263752-cli2-run-092396c3fbe7 Created
+ Container duo-certp263752-cli2-run-241770d61fb2 Creating
+ Container duo-certp263752-cli2-run-241770d61fb2 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-certp263752-cli2-run-9d42522610e5 Creating
+ Container duo-certp263752-cli2-run-9d42522610e5 Created
+ Container duo-certp263752-cli2-run-8c2b8e9b3406 Creating
+ Container duo-certp263752-cli2-run-8c2b8e9b3406 Created
+ Container duo-certp263752-cli2-run-b4c38358c42e Creating
+ Container duo-certp263752-cli2-run-b4c38358c42e Created
+[1;32mok: guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation[0m
+ Container duo-certp263752-cli2-run-67ca47b591e0 Creating
+ Container duo-certp263752-cli2-run-67ca47b591e0 Created
+ Container duo-certp263752-cli2-run-a40e295674e9 Creating
+ Container duo-certp263752-cli2-run-a40e295674e9 Created
+ Container duo-certp263752-cli2-run-4c0062b55a30 Creating
+ Container duo-certp263752-cli2-run-4c0062b55a30 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-certp263752-cli2-run-6172ac9a3f62 Creating
+ Container duo-certp263752-cli2-run-6172ac9a3f62 Created
+ Container duo-certp263752-cli2-run-ceae3e3162e6 Creating
+ Container duo-certp263752-cli2-run-ceae3e3162e6 Created
+ Container duo-certp263752-cli2-run-236c73faa975 Creating
+ Container duo-certp263752-cli2-run-236c73faa975 Created
+[1;32mok: entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation[0m
+ Container duo-certp263752-cli2-run-eb1a447f44bf Creating
+ Container duo-certp263752-cli2-run-eb1a447f44bf Created
+ Container duo-certp263752-cli2-run-09a0ab8186a4 Creating
+ Container duo-certp263752-cli2-run-09a0ab8186a4 Created
+[1;32mok: delete-vs-local-edit conflicts; force-theirs is loud and revision children cascade exactly[0m
+ Container duo-certp263752-cli1-run-0320fe6137a6 Creating
+ Container duo-certp263752-cli1-run-0320fe6137a6 Created
+ Container duo-certp263752-cli1-run-e035b33e053d Creating
+ Container duo-certp263752-cli1-run-e035b33e053d Created
+ Container duo-certp263752-cli1-run-83593c54cd8b Creating
+ Container duo-certp263752-cli1-run-83593c54cd8b Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-certp263752-cli1-run-eceeec513899 Creating
+ Container duo-certp263752-cli1-run-eceeec513899 Created
+ Container duo-certp263752-cli1-run-34fb07578852 Creating
+ Container duo-certp263752-cli1-run-34fb07578852 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-certp263752-cli2-run-81bb687d05e2 Creating
+ Container duo-certp263752-cli2-run-81bb687d05e2 Created
+ Container duo-certp263752-cli2-run-169e494ebd16 Creating
+ Container duo-certp263752-cli2-run-169e494ebd16 Created
+ Container duo-certp263752-cli2-run-23095e905f56 Creating
+ Container duo-certp263752-cli2-run-23095e905f56 Created
+[1;32mok: delete-vs-branch-edit conflicts on the tombstone expected base[0m
+ Container duo-certp263752-cli1-run-d47df5fce18e Creating
+ Container duo-certp263752-cli1-run-d47df5fce18e Created
+ Container duo-certp263752-cli1-run-9b7e872f2147 Creating
+ Container duo-certp263752-cli1-run-9b7e872f2147 Created
+ Container duo-certp263752-cli1-run-06ea66f7ecbd Creating
+ Container duo-certp263752-cli1-run-06ea66f7ecbd Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-certp263752-cli2-run-b244f7935ca2 Creating
+ Container duo-certp263752-cli2-run-b244f7935ca2 Created
+ Container duo-certp263752-cli2-run-8d2e454af51c Creating
+ Container duo-certp263752-cli2-run-8d2e454af51c Created
+ Container duo-certp263752-cli2-run-56bf648b4bdc Creating
+ Container duo-certp263752-cli2-run-56bf648b4bdc Created
+ Container duo-certp263752-cli2-run-cbee4793edb7 Creating
+ Container duo-certp263752-cli2-run-cbee4793edb7 Created
+[1;32mok: missing reverse-reference guard infrastructure fails closed[0m
+ Container duo-certp263752-cli1-run-88415b88a0ad Creating
+ Container duo-certp263752-cli1-run-88415b88a0ad Created
+ Container duo-certp263752-cli1-run-cc95e159fcf6 Creating
+ Container duo-certp263752-cli1-run-cc95e159fcf6 Created
+ Container duo-certp263752-cli1-run-edec170bfc95 Creating
+ Container duo-certp263752-cli1-run-edec170bfc95 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-certp263752-cli2-run-9896ea5d3494 Creating
+ Container duo-certp263752-cli2-run-9896ea5d3494 Created
+ Container duo-certp263752-cli2-run-72dc2374c887 Creating
+ Container duo-certp263752-cli2-run-72dc2374c887 Created
+ Container duo-certp263752-cli2-run-f883457d80c2 Creating
+ Container duo-certp263752-cli2-run-f883457d80c2 Created
+ Container duo-certp263752-cli1-run-bf93757b72ec Creating
+ Container duo-certp263752-cli1-run-bf93757b72ec Created
+ Container duo-certp263752-cli1-run-da6635d5c03d Creating
+ Container duo-certp263752-cli1-run-da6635d5c03d Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-certp263752-cli2-run-d96e0cc48a8b Creating
+ Container duo-certp263752-cli2-run-d96e0cc48a8b Created
+ Container duo-certp263752-cli2-run-641ed6185e14 Creating
+ Container duo-certp263752-cli2-run-641ed6185e14 Created
+ Container duo-certp263752-cli2-run-afe19582e90b Creating
+ Container duo-certp263752-cli2-run-afe19582e90b Created
+ Container duo-certp263752-cli2-run-9cc8ff941429 Creating
+ Container duo-certp263752-cli2-run-9cc8ff941429 Created
+ Container duo-certp263752-cli2-run-19ad38d7a844 Creating
+ Container duo-certp263752-cli2-run-19ad38d7a844 Created
+ Container duo-certp263752-cli2-run-32bc6988fc9e Creating
+ Container duo-certp263752-cli2-run-32bc6988fc9e Created
+ Container duo-certp263752-cli2-run-af62400054a3 Creating
+ Container duo-certp263752-cli2-run-af62400054a3 Created
+ Container duo-certp263752-cli2-run-9204c9ac5019 Creating
+ Container duo-certp263752-cli2-run-9204c9ac5019 Created
+ Container duo-certp263752-cli2-run-3ff99fb9775d Creating
+ Container duo-certp263752-cli2-run-3ff99fb9775d Created
+[1;32mok: partial delete failure rolls the transaction back; retry completes exactly[0m
+ Container duo-certp263752-cli2-run-2c489326116c Creating
+ Container duo-certp263752-cli2-run-2c489326116c Created
+ Container duo-certp263752-cli2-run-98d9fc765ed1 Creating
+ Container duo-certp263752-cli2-run-98d9fc765ed1 Created
+[1;32mok: fresh and previously mapped targets make the same repository-level deletion decision[0m
+
+[1;32m✔ CONFORMANCE PASSED (core)[0m

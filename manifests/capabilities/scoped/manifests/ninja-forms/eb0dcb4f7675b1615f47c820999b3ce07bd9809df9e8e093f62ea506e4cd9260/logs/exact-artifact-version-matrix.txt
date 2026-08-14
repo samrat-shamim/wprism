@@ -1,0 +1,359 @@
+
+[1;36m== boot pair certp263754 (certp2637541 :9008 / certp2637542 :9009), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   593d8e43ede4c12fe8e29dc23259d4bcec5c521e (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 593d8e43ede4c12fe8e29dc23259d4bcec5c521e, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'certp263754': databases ==[0m
+[1;32mok: wp_certp2637541, wp_certp2637542 exist[0m
+
+[1;36m== pair 'certp263754': site-repo directories ==[0m
+
+[1;36m== pair 'certp263754': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-certp263754_wp1 Creating
+ Volume duo-certp263754_wp1 Created
+ Volume duo-certp263754_wp2 Creating
+ Volume duo-certp263754_wp2 Created
+ Container duo-certp263754-wp1-1 Creating
+ Container duo-certp263754-wp2-1 Creating
+ Container duo-certp263754-wp1-1 Created
+ Container duo-certp263754-wp2-1 Created
+ Container duo-certp263754-wp1-1 Starting
+ Container duo-certp263754-wp2-1 Starting
+ Container duo-certp263754-wp1-1 Started
+ Container duo-certp263754-wp2-1 Started
+ Container duo-certp263754-cli1-1 Creating
+ Container duo-certp263754-cli2-1 Creating
+ Container duo-certp263754-cli1-1 Created
+ Container duo-certp263754-cli2-1 Created
+ Container duo-certp263754-cli1-1 Starting
+ Container duo-certp263754-cli2-1 Starting
+ Container duo-certp263754-cli2-1 Started
+ Container duo-certp263754-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'certp263754': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'certp263754': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-certp263754-cli1-run-3d66a4c16df5 Creating
+ Container duo-certp263754-cli1-run-3d66a4c16df5 Created
+Success: WordPress installed successfully.
+ Container duo-certp263754-cli1-run-9f3dd1e7f988 Creating
+ Container duo-certp263754-cli1-run-9f3dd1e7f988 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263754-cli1-run-3d49a6a5156f Creating
+ Container duo-certp263754-cli1-run-3d49a6a5156f Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263754-cli1-run-31b40691f13d Creating
+ Container duo-certp263754-cli1-run-31b40691f13d Created
+ Container duo-certp263754-cli1-run-6c6d2b57bcfc Creating
+ Container duo-certp263754-cli1-run-6c6d2b57bcfc Created
+ Container duo-certp263754-cli1-run-677082930855 Creating
+ Container duo-certp263754-cli1-run-677082930855 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263754-cli1-run-c73a4be38e52 Creating
+ Container duo-certp263754-cli1-run-c73a4be38e52 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9008)
+ Container duo-certp263754-cli2-run-20a665757102 Creating
+ Container duo-certp263754-cli2-run-20a665757102 Created
+Success: WordPress installed successfully.
+ Container duo-certp263754-cli2-run-15ec55baeb23 Creating
+ Container duo-certp263754-cli2-run-15ec55baeb23 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263754-cli2-run-5115bde75d9b Creating
+ Container duo-certp263754-cli2-run-5115bde75d9b Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263754-cli2-run-73968e2c2620 Creating
+ Container duo-certp263754-cli2-run-73968e2c2620 Created
+ Container duo-certp263754-cli2-run-c2972e9ae70f Creating
+ Container duo-certp263754-cli2-run-c2972e9ae70f Created
+ Container duo-certp263754-cli2-run-97e970288300 Creating
+ Container duo-certp263754-cli2-run-97e970288300 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263754-cli2-run-81d6a4f64558 Creating
+ Container duo-certp263754-cli2-run-81d6a4f64558 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9009)
+
+[1;36m== pair 'certp263754' ready ==[0m
+  wp1: http://localhost:9008 (published on host port 9008)
+  wp2: http://localhost:9009 (published on host port 9009)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-certp263754 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-certp263754 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=certp263754 must stay exported, or pass -p duo-certp263754 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: ninja-forms 3.4.34.2 ==[0m
+ Container duo-certp263754-cli1-run-7a528d70376d Creating
+ Container duo-certp263754-cli1-run-7a528d70376d Created
+ Container duo-certp263754-cli1-run-682b7aeb6eb9 Creating
+ Container duo-certp263754-cli1-run-682b7aeb6eb9 Created
+ Container duo-certp263754-cli1-run-454b4e09e2a3 Creating
+ Container duo-certp263754-cli1-run-454b4e09e2a3 Created
+ Container duo-certp263754-cli1-run-a1daba92a89d Creating
+ Container duo-certp263754-cli1-run-a1daba92a89d Created
+ Container duo-certp263754-cli1-run-6682b7cd9a7c Creating
+ Container duo-certp263754-cli1-run-6682b7cd9a7c Created
+ Container duo-certp263754-cli1-run-d1b70fc35896 Creating
+ Container duo-certp263754-cli1-run-d1b70fc35896 Created
+ Container duo-certp263754-cli2-run-2aaf4f3490f3 Creating
+ Container duo-certp263754-cli2-run-2aaf4f3490f3 Created
+ Container duo-certp263754-cli2-run-9db094434431 Creating
+ Container duo-certp263754-cli2-run-9db094434431 Created
+ Container duo-certp263754-cli2-run-4939d2cf23d9 Creating
+ Container duo-certp263754-cli2-run-4939d2cf23d9 Created
+ Container duo-certp263754-cli2-run-d53eb553a729 Creating
+ Container duo-certp263754-cli2-run-d53eb553a729 Created
+ Container duo-certp263754-cli2-run-6cb6618126dd Creating
+ Container duo-certp263754-cli2-run-6cb6618126dd Created
+ Container duo-certp263754-cli2-run-d3e99dc0c95f Creating
+ Container duo-certp263754-cli2-run-d3e99dc0c95f Created
+
+[1;36m== fetch + verify ninja-forms 3.4.34.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-certp263754-cli1-run-b85ea74cbdca Creating
+ Container duo-certp263754-cli1-run-b85ea74cbdca Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.4.34.2 sha256=a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip
+ Container duo-certp263754-cli2-run-256adb1c7761 Creating
+ Container duo-certp263754-cli2-run-256adb1c7761 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.4.34.2 sha256=a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip[0m
+ Container duo-certp263754-cli1-run-2661a0d2fbe9 Creating
+ Container duo-certp263754-cli1-run-2661a0d2fbe9 Created
+ Container duo-certp263754-cli1-run-69a50588e01d Creating
+ Container duo-certp263754-cli1-run-69a50588e01d Created
+[1;32mok: side 1: ninja-forms 3.4.34.2 installed from verified artifact, active[0m
+ Container duo-certp263754-cli1-run-168462d340c8 Creating
+ Container duo-certp263754-cli1-run-168462d340c8 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-certp263754-cli1-run-fa0e08ded4fe Creating
+ Container duo-certp263754-cli1-run-fa0e08ded4fe Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-certp263754-cli1-run-4d1b7569bd86 Creating
+ Container duo-certp263754-cli1-run-4d1b7569bd86 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (ninja-forms 3.4.34.2)[0m
+ Container duo-certp263754-cli1-run-3a70480c0431 Creating
+ Container duo-certp263754-cli1-run-3a70480c0431 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-certp263754-cli2-run-0fb284e62e3e Creating
+ Container duo-certp263754-cli2-run-0fb284e62e3e Created
+ Container duo-certp263754-cli2-run-5c609780903d Creating
+ Container duo-certp263754-cli2-run-5c609780903d Created
+ Container duo-certp263754-cli2-run-c2842c10ad24 Creating
+ Container duo-certp263754-cli2-run-c2842c10ad24 Created
+activated: ninja-forms/ninja-forms.php
+Success: 1 activated, 0 deactivated
+Warning: deploy-window observation: http request attempted: http://localhost:9009/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=32c299274f
+Warning: deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons
+ Container duo-certp263754-cli2-run-6c0a248d101c Creating
+ Container duo-certp263754-cli2-run-6c0a248d101c Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-certp263754-cli2-run-148fd0a08e08 Creating
+ Container duo-certp263754-cli2-run-148fd0a08e08 Created
+Warning: adopted env term 1 as 019ffee5-8038-7e7c-b76d-4099d7acd1ac (terms/category/019ffee5-8038-7e7c-b76d-4099d7acd1ac--uncategorized.json)
+Warning: provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.106s, verified)
+Success: applied 31 entities (canary clean) — plan was: {"create":28,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (ninja-forms 3.4.34.2, canary clean)[0m
+ Container duo-certp263754-cli2-run-ecc52bf919b6 Creating
+ Container duo-certp263754-cli2-run-ecc52bf919b6 Created
+ Container duo-certp263754-cli2-run-6f440ce0c486 Creating
+ Container duo-certp263754-cli2-run-6f440ce0c486 Created
+[1;32mok: side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions[0m
+ Container duo-certp263754-cli2-run-79bbd51a4c82 Creating
+ Container duo-certp263754-cli2-run-79bbd51a4c82 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at ninja-forms 3.4.34.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: ninja-forms 3.14.11 ==[0m
+ Container duo-certp263754-cli1-run-15aeb71658d0 Creating
+ Container duo-certp263754-cli1-run-15aeb71658d0 Created
+ Container duo-certp263754-cli1-run-3ffa482384e1 Creating
+ Container duo-certp263754-cli1-run-3ffa482384e1 Created
+ Container duo-certp263754-cli1-run-2ee5b67be13d Creating
+ Container duo-certp263754-cli1-run-2ee5b67be13d Created
+ Container duo-certp263754-cli1-run-b7fb23e3985f Creating
+ Container duo-certp263754-cli1-run-b7fb23e3985f Created
+ Container duo-certp263754-cli1-run-9b5f74d187dd Creating
+ Container duo-certp263754-cli1-run-9b5f74d187dd Created
+ Container duo-certp263754-cli1-run-5908041790c0 Creating
+ Container duo-certp263754-cli1-run-5908041790c0 Created
+ Container duo-certp263754-cli2-run-4a6b49a522e9 Creating
+ Container duo-certp263754-cli2-run-4a6b49a522e9 Created
+ Container duo-certp263754-cli2-run-fd792e79ab58 Creating
+ Container duo-certp263754-cli2-run-fd792e79ab58 Created
+ Container duo-certp263754-cli2-run-a659db06ab97 Creating
+ Container duo-certp263754-cli2-run-a659db06ab97 Created
+ Container duo-certp263754-cli2-run-bfd21197fb94 Creating
+ Container duo-certp263754-cli2-run-bfd21197fb94 Created
+ Container duo-certp263754-cli2-run-32c47c016b7e Creating
+ Container duo-certp263754-cli2-run-32c47c016b7e Created
+ Container duo-certp263754-cli2-run-dde175686de6 Creating
+ Container duo-certp263754-cli2-run-dde175686de6 Created
+
+[1;36m== fetch + verify ninja-forms 3.14.11 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-certp263754-cli1-run-94d1b5a82073 Creating
+ Container duo-certp263754-cli1-run-94d1b5a82073 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-certp263754-cli2-run-3affab387a00 Creating
+ Container duo-certp263754-cli2-run-3affab387a00 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip[0m
+ Container duo-certp263754-cli1-run-96230bec3ec1 Creating
+ Container duo-certp263754-cli1-run-96230bec3ec1 Created
+ Container duo-certp263754-cli1-run-f41ed054a227 Creating
+ Container duo-certp263754-cli1-run-f41ed054a227 Created
+[1;32mok: side 1: ninja-forms 3.14.11 installed from verified artifact, active[0m
+ Container duo-certp263754-cli1-run-161d7a122603 Creating
+ Container duo-certp263754-cli1-run-161d7a122603 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-certp263754-cli1-run-04edd8f24e51 Creating
+ Container duo-certp263754-cli1-run-04edd8f24e51 Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-certp263754-cli1-run-154ccb34e75e Creating
+ Container duo-certp263754-cli1-run-154ccb34e75e Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (ninja-forms 3.14.11)[0m
+ Container duo-certp263754-cli1-run-b177d65c2f3b Creating
+ Container duo-certp263754-cli1-run-b177d65c2f3b Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-certp263754-cli2-run-f49073d88650 Creating
+ Container duo-certp263754-cli2-run-f49073d88650 Created
+ Container duo-certp263754-cli2-run-c3c3eb9309cd Creating
+ Container duo-certp263754-cli2-run-c3c3eb9309cd Created
+ Container duo-certp263754-cli2-run-f92266a8dedb Creating
+ Container duo-certp263754-cli2-run-f92266a8dedb Created
+activated: ninja-forms/ninja-forms.php
+Success: 1 activated, 0 deactivated
+Warning: deploy-window observation: http request attempted: http://localhost:9009/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=32c299274f
+Warning: deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons
+ Container duo-certp263754-cli2-run-a47859bfb117 Creating
+ Container duo-certp263754-cli2-run-a47859bfb117 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-certp263754-cli2-run-5a8c472e5b3b Creating
+ Container duo-certp263754-cli2-run-5a8c472e5b3b Created
+Warning: adopted env term 1 as 019ffee9-783c-7718-a119-8731e7224fd6 (terms/category/019ffee9-783c-7718-a119-8731e7224fd6--uncategorized.json)
+Warning: provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.021s, verified)
+Success: applied 31 entities (canary clean) — plan was: {"create":28,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (ninja-forms 3.14.11, canary clean)[0m
+ Container duo-certp263754-cli2-run-f92b9d917085 Creating
+ Container duo-certp263754-cli2-run-f92b9d917085 Created
+ Container duo-certp263754-cli2-run-09dca99915ff Creating
+ Container duo-certp263754-cli2-run-09dca99915ff Created
+[1;32mok: side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions[0m
+ Container duo-certp263754-cli2-run-6051ee4cf5e5 Creating
+ Container duo-certp263754-cli2-run-6051ee4cf5e5 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at ninja-forms 3.14.11 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted ==[0m
+ Container duo-certp263754-cli1-run-37083fb9e8a8 Creating
+ Container duo-certp263754-cli1-run-37083fb9e8a8 Created
+ Container duo-certp263754-cli1-run-584fa6258c00 Creating
+ Container duo-certp263754-cli1-run-584fa6258c00 Created
+ Container duo-certp263754-cli1-run-c9dedd618852 Creating
+ Container duo-certp263754-cli1-run-c9dedd618852 Created
+ Container duo-certp263754-cli1-run-202fdb904a79 Creating
+ Container duo-certp263754-cli1-run-202fdb904a79 Created
+ Container duo-certp263754-cli1-run-59686d679b5c Creating
+ Container duo-certp263754-cli1-run-59686d679b5c Created
+ Container duo-certp263754-cli1-run-ca2f94ee2c74 Creating
+ Container duo-certp263754-cli1-run-ca2f94ee2c74 Created
+ Container duo-certp263754-cli1-run-d56ca39641d2 Creating
+ Container duo-certp263754-cli1-run-d56ca39641d2 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-certp263754-cli1-run-abe99851c10e Creating
+ Container duo-certp263754-cli1-run-abe99851c10e Created
+ Container duo-certp263754-cli1-run-4575eee7d250 Creating
+ Container duo-certp263754-cli1-run-4575eee7d250 Created
+ Container duo-certp263754-cli1-run-1f46832a46d9 Creating
+ Container duo-certp263754-cli1-run-1f46832a46d9 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-certp263754-cli1-run-9f64bc714549 Creating
+ Container duo-certp263754-cli1-run-9f64bc714549 Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-certp263754-cli1-run-4f912867d152 Creating
+ Container duo-certp263754-cli1-run-4f912867d152 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-certp263754-cli1-run-aaaa7dd7bdfc Creating
+ Container duo-certp263754-cli1-run-aaaa7dd7bdfc Created
+ Container duo-certp263754-cli1-run-31e9d711a8c5 Creating
+ Container duo-certp263754-cli1-run-31e9d711a8c5 Created
+ Container duo-certp263754-cli1-run-9f52cb923972 Creating
+ Container duo-certp263754-cli1-run-9f52cb923972 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.3.21.4 sha256=54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.3.21.4-54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f.zip
+ Container duo-certp263754-cli1-run-75d5b5eece92 Creating
+ Container duo-certp263754-cli1-run-75d5b5eece92 Created
+ Container duo-certp263754-cli1-run-01708c96081c Creating
+ Container duo-certp263754-cli1-run-01708c96081c Created
+ Container duo-certp263754-cli1-run-13ec5e8227ca Creating
+ Container duo-certp263754-cli1-run-13ec5e8227ca Created
+Error: duo: deploy refused — code_mismatch:
+
+  - ninja-forms/ninja-forms.php 3.3.21.4 is active in this environment, outside the 'ninja-forms' manifest's declared version_range (>=3.4.34.2 <4.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'certp263754': destroy ==[0m
+ Container duo-certp263754-cli2-1 Stopping
+ Container duo-certp263754-wp1-1 Stopping
+ Container duo-certp263754-cli1-1 Stopping
+ Container duo-certp263754-wp2-1 Stopping
+ Container duo-certp263754-cli1-1 Stopped
+ Container duo-certp263754-cli1-1 Removing
+ Container duo-certp263754-cli2-1 Stopped
+ Container duo-certp263754-cli2-1 Removing
+ Container duo-certp263754-cli1-1 Removed
+ Container duo-certp263754-cli2-1 Removed
+ Container duo-certp263754-wp2-1 Stopped
+ Container duo-certp263754-wp2-1 Removing
+ Container duo-certp263754-wp1-1 Stopped
+ Container duo-certp263754-wp1-1 Removing
+ Container duo-certp263754-wp1-1 Removed
+ Container duo-certp263754-wp2-1 Removed
+ Volume duo-certp263754_wp2 Removing
+ Volume duo-certp263754_wp1 Removing
+ Volume duo-certp263754_wp1 Removed
+ Volume duo-certp263754_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_certp2637541/wp_certp2637542 dropped[0m
+  siterepo/certp263754{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed certp263754 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

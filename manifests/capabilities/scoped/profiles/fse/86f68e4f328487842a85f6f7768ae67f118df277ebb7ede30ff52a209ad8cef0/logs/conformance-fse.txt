@@ -1,0 +1,373 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   593d8e43ede4c12fe8e29dc23259d4bcec5c521e (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 593d8e43ede4c12fe8e29dc23259d4bcec5c521e, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'certp263758': reset ==[0m
+[1;32mok: wp_certp2637581/wp_certp2637582 dropped + recreated empty; siterepo/certp263758{1,2} cleared in place and origin-certp263758.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/certp263758{1,2}, origin-certp263758.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up certp263758 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.certp263758{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9016) / conf2 (:9017), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   593d8e43ede4c12fe8e29dc23259d4bcec5c521e (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 593d8e43ede4c12fe8e29dc23259d4bcec5c521e, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'certp263758': databases ==[0m
+[1;32mok: wp_certp2637581, wp_certp2637582 exist[0m
+
+[1;36m== pair 'certp263758': site-repo directories ==[0m
+
+[1;36m== pair 'certp263758': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-certp263758_wp1 Creating
+ Volume duo-certp263758_wp1 Created
+ Volume duo-certp263758_wp2 Creating
+ Volume duo-certp263758_wp2 Created
+ Container duo-certp263758-wp2-1 Creating
+ Container duo-certp263758-wp1-1 Creating
+ Container duo-certp263758-wp1-1 Created
+ Container duo-certp263758-wp2-1 Created
+ Container duo-certp263758-wp2-1 Starting
+ Container duo-certp263758-wp1-1 Starting
+ Container duo-certp263758-wp2-1 Started
+ Container duo-certp263758-wp1-1 Started
+ Container duo-certp263758-cli1-1 Creating
+ Container duo-certp263758-cli2-1 Creating
+ Container duo-certp263758-cli1-1 Created
+ Container duo-certp263758-cli2-1 Created
+ Container duo-certp263758-cli1-1 Starting
+ Container duo-certp263758-cli2-1 Starting
+ Container duo-certp263758-cli2-1 Started
+ Container duo-certp263758-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'certp263758': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'certp263758': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.certp2637581.needs-install present — reset emptied wp_certp2637581, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-certp263758-cli1-run-5c23f01860f5 Creating
+ Container duo-certp263758-cli1-run-5c23f01860f5 Created
+Success: WordPress installed successfully.
+ Container duo-certp263758-cli1-run-74e1949fa2fa Creating
+ Container duo-certp263758-cli1-run-74e1949fa2fa Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263758-cli1-run-cac94813b849 Creating
+ Container duo-certp263758-cli1-run-cac94813b849 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263758-cli1-run-397dab62172a Creating
+ Container duo-certp263758-cli1-run-397dab62172a Created
+ Container duo-certp263758-cli1-run-0c81628d9979 Creating
+ Container duo-certp263758-cli1-run-0c81628d9979 Created
+ Container duo-certp263758-cli1-run-5e0f02753697 Creating
+ Container duo-certp263758-cli1-run-5e0f02753697 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263758-cli1-run-6da82434f3f5 Creating
+ Container duo-certp263758-cli1-run-6da82434f3f5 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9016)
+  side 2: siterepo/.certp2637582.needs-install present — reset emptied wp_certp2637582, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-certp263758-cli2-run-e20439346a17 Creating
+ Container duo-certp263758-cli2-run-e20439346a17 Created
+Success: WordPress installed successfully.
+ Container duo-certp263758-cli2-run-25e276da1a52 Creating
+ Container duo-certp263758-cli2-run-25e276da1a52 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263758-cli2-run-548ad19fa999 Creating
+ Container duo-certp263758-cli2-run-548ad19fa999 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263758-cli2-run-c740b43f9375 Creating
+ Container duo-certp263758-cli2-run-c740b43f9375 Created
+ Container duo-certp263758-cli2-run-51540e87a0bd Creating
+ Container duo-certp263758-cli2-run-51540e87a0bd Created
+ Container duo-certp263758-cli2-run-b1a307b23d43 Creating
+ Container duo-certp263758-cli2-run-b1a307b23d43 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263758-cli2-run-42ca6d77017b Creating
+ Container duo-certp263758-cli2-run-42ca6d77017b Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9017)
+
+[1;36m== pair 'certp263758' ready ==[0m
+  wp1: http://localhost:9016 (published on host port 9016)
+  wp2: http://localhost:9017 (published on host port 9017)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-certp263758 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-certp263758 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=certp263758 must stay exported, or pass -p duo-certp263758 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-certp263758-cli1-run-6553d00ebc0c Creating
+ Container duo-certp263758-cli1-run-6553d00ebc0c Created
+Success: Updated 'blogname' option.
+ Container duo-certp263758-cli1-run-068b1d0a1f79 Creating
+ Container duo-certp263758-cli1-run-068b1d0a1f79 Created
+Success: The site at 'http://localhost:9016' was emptied.
+ Container duo-certp263758-cli1-run-7636896b8148 Creating
+ Container duo-certp263758-cli1-run-7636896b8148 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-certp263758-cli1-run-6e39e310f73b Creating
+ Container duo-certp263758-cli1-run-6e39e310f73b Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263758-cli1-run-39972a723b99 Creating
+ Container duo-certp263758-cli1-run-39972a723b99 Created
+ Container duo-certp263758-cli1-run-c4097056ed95 Creating
+ Container duo-certp263758-cli1-run-c4097056ed95 Created
+ Container duo-certp263758-cli1-run-72850f6d74b4 Creating
+ Container duo-certp263758-cli1-run-72850f6d74b4 Created
+Success: Switched to 'Twenty Twenty-Five' theme.
+env conf1 installed, role=author (fse: 0 pinned plugins, 1 pinned themes, setup=block-theme)
+ Container duo-certp263758-cli2-run-b9efab5deb18 Creating
+ Container duo-certp263758-cli2-run-b9efab5deb18 Created
+Success: Updated 'blogname' option.
+ Container duo-certp263758-cli2-run-5d54a169c6d7 Creating
+ Container duo-certp263758-cli2-run-5d54a169c6d7 Created
+Success: The site at 'http://localhost:9017' was emptied.
+ Container duo-certp263758-cli2-run-fc9c976ebfb2 Creating
+ Container duo-certp263758-cli2-run-fc9c976ebfb2 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-certp263758-cli2-run-a0d36713066a Creating
+ Container duo-certp263758-cli2-run-a0d36713066a Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263758-cli2-run-82b0932cd717 Creating
+ Container duo-certp263758-cli2-run-82b0932cd717 Created
+ Container duo-certp263758-cli2-run-cce3f3d56db1 Creating
+ Container duo-certp263758-cli2-run-cce3f3d56db1 Created
+env conf2 installed, role=target (fse: 0 pinned plugins, 1 pinned themes, setup=block-theme)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/fse.sh) ==[0m
+ Container duo-certp263758-cli1-run-7f5e8854bfd2 Creating
+ Container duo-certp263758-cli1-run-7f5e8854bfd2 Created
+ Container duo-certp263758-cli1-run-3407871d3043 Creating
+ Container duo-certp263758-cli1-run-3407871d3043 Created
+ Container duo-certp263758-cli1-run-c7b8d1d47bac Creating
+ Container duo-certp263758-cli1-run-c7b8d1d47bac Created
+ Container duo-certp263758-cli1-run-cb81d9a14a2a Creating
+ Container duo-certp263758-cli1-run-cb81d9a14a2a Created
+ Container duo-certp263758-cli1-run-cb2a33d5ca8a Creating
+ Container duo-certp263758-cli1-run-cb2a33d5ca8a Created
+ Container duo-certp263758-cli1-run-53e6d9c89098 Creating
+ Container duo-certp263758-cli1-run-53e6d9c89098 Created
+ Container duo-certp263758-cli1-run-96cb7b2fc938 Creating
+ Container duo-certp263758-cli1-run-96cb7b2fc938 Created
+ Container duo-certp263758-cli2-run-885d571ca686 Creating
+ Container duo-certp263758-cli2-run-885d571ca686 Created
+ Container duo-certp263758-cli1-run-e64675d451df Creating
+ Container duo-certp263758-cli1-run-e64675d451df Created
+ Container duo-certp263758-cli1-run-735d4df9dcda Creating
+ Container duo-certp263758-cli1-run-735d4df9dcda Created
+ Container duo-certp263758-cli1-run-69ec94f85e82 Creating
+ Container duo-certp263758-cli1-run-69ec94f85e82 Created
+ Container duo-certp263758-cli1-run-390c5275b8a8 Creating
+ Container duo-certp263758-cli1-run-390c5275b8a8 Created
+ Container duo-certp263758-cli1-run-a5f209dcfafc Creating
+ Container duo-certp263758-cli1-run-a5f209dcfafc Created
+Success: Added term.
+ Container duo-certp263758-cli1-run-c16be77b369e Creating
+ Container duo-certp263758-cli1-run-c16be77b369e Created
+Success: Updated custom field 'wp_pattern_sync_status'.
+ Container duo-certp263758-cli1-run-d9941c19dab5 Creating
+ Container duo-certp263758-cli1-run-d9941c19dab5 Created
+ Container duo-certp263758-cli1-run-b12c3786f9ff Creating
+ Container duo-certp263758-cli1-run-b12c3786f9ff Created
+ Container duo-certp263758-cli1-run-b8d30dde684f Creating
+ Container duo-certp263758-cli1-run-b8d30dde684f Created
+Success: Added term.
+ Container duo-certp263758-cli1-run-805f3af3a73f Creating
+ Container duo-certp263758-cli1-run-805f3af3a73f Created
+Success: Added term.
+ Container duo-certp263758-cli1-run-4be3a4a112b7 Creating
+ Container duo-certp263758-cli1-run-4be3a4a112b7 Created
+Success: Updated custom field 'origin'.
+ Container duo-certp263758-cli1-run-73e7a3cc395e Creating
+ Container duo-certp263758-cli1-run-73e7a3cc395e Created
+ Container duo-certp263758-cli1-run-3c835f497f91 Creating
+ Container duo-certp263758-cli1-run-3c835f497f91 Created
+Success: Added term.
+ Container duo-certp263758-cli1-run-0a00d9c58acf Creating
+ Container duo-certp263758-cli1-run-0a00d9c58acf Created
+Success: Updated custom field 'origin'.
+fse seed: about=1 contact=2 news=2 att=3 cta=4 nav=5 footer=6 home=7
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-certp263758-cli1-run-aade72694ad6 Creating
+ Container duo-certp263758-cli1-run-aade72694ad6 Created
+Success: captured 7 posts, 5 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-certp263758-cli1-run-bccc938a8f45 Creating
+ Container duo-certp263758-cli1-run-bccc938a8f45 Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-certp263758-cli1-run-36c198a80c12 Creating
+ Container duo-certp263758-cli1-run-36c198a80c12 Created
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-certp263758-cli2-run-61418ee528df Creating
+ Container duo-certp263758-cli2-run-61418ee528df Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "56b30393d89f22b23a0d15228f18530759033d9ede27f711e73f511d213b9c0e",
+    "revision": "32df89715b5a8f16fc57808c2bc6467188707473a5a40f63743833e9eb62a6b1",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "activated": [],
+  "deactivated": [],
+  "theme_switched": "twentytwentyfive",
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "theme",
+      "theme": "twentytwentyfive",
+      "message": "stylesheet in state/options/core.json declares 'twentytwentyfive', and its code is installed, but this environment has theme 'twentytwentyone' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-b015b8be86b0f0428e8c54b58d7c2fe7",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-certp263758-cli2-run-f7f3d0e291d5 Creating
+ Container duo-certp263758-cli2-run-f7f3d0e291d5 Created
+ Container duo-certp263758-cli2-run-cae7e13babe7 Creating
+ Container duo-certp263758-cli2-run-cae7e13babe7 Created
+ Container duo-certp263758-cli2-run-9f542567f328 Creating
+ Container duo-certp263758-cli2-run-9f542567f328 Created
+[1;32mok: conf2 active plugins (none) and theme (template=twentytwentyfive, stylesheet=twentytwentyfive) match canonical — deploy alone did this[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-certp263758-cli2-run-0ae74341b41c Creating
+ Container duo-certp263758-cli2-run-0ae74341b41c Created
+{
+  "artifact": {
+    "hash": "56b30393d89f22b23a0d15228f18530759033d9ede27f711e73f511d213b9c0e",
+    "revision": "32df89715b5a8f16fc57808c2bc6467188707473a5a40f63743833e9eb62a6b1",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "plan": {
+    "create": 11,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 1,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 5,
+    "adapter_dispositions": 1,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 14,
+  "drift": [],
+  "warnings": [
+    "adopted env term 1 as 019ffeee-1830-7869-9996-3766cfec3bf2 (terms/category/019ffeee-1830-7869-9996-3766cfec3bf2--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 14,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-daf9cbb8a7c5835159d7415d0d3c40cd",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-certp263758-cli2-run-7b6f63af3189 Creating
+ Container duo-certp263758-cli2-run-7b6f63af3189 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/fse.sh) ==[0m
+[1;32mok: conf2 renders its own nav (post/term/custom links), reusable-block image, and footer link — none point at conf1[0m
+
+[1;36m== guard: switch conf2 to a different bundled theme, plan must name both themes ==[0m
+ Container duo-certp263758-cli2-run-466364c797db Creating
+ Container duo-certp263758-cli2-run-466364c797db Created
+ Container duo-certp263758-cli2-run-75fdfe9f73b2 Creating
+ Container duo-certp263758-cli2-run-75fdfe9f73b2 Created
+[1;32mok: plan loudly warns: conf2 active theme 'twentytwentyfour' vs. captured 'twentytwentyfive', naming both templates[0m
+
+[1;36m== guard: restore conf2's active theme, plan must be warning-free again ==[0m
+ Container duo-certp263758-cli2-run-a500642a2f7d Creating
+ Container duo-certp263758-cli2-run-a500642a2f7d Created
+ Container duo-certp263758-cli2-run-b52db58d6712 Creating
+ Container duo-certp263758-cli2-run-b52db58d6712 Created
+[1;32mok: plan is warning-free again once conf2's active theme matches the captured wp_theme term[0m
+
+[1;32m✔ CONFORMANCE PASSED (fse)[0m

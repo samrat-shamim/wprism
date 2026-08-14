@@ -1,0 +1,202 @@
+
+[1;36m== pair-budget preflight ==[0m
+
+[1;36m== live sandbox pairs (duo-* compose projects, excluding duo-db) ==[0m
+  - certp263750
+  - certp263751
+  - certp263753
+  - certp263754
+  - certp263755
+  - certp263756
+  - certp263757
+
+[1;36m== stopped pairs (kept, zero footprint — resume with: pair.sh start <name>) ==[0m
+  - asub3233
+  - codexdc2799
+  - codexmaca3348s44core2
+  - codexmaca3348s44f2
+  - codexmaca3348s44r1
+  - conf
+  - wooattrdel
+
+[1;36m== shared db ==[0m
+  duo-shared-db: running (healthy)
+
+[1;36m== fresh pair certp263752 ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)
+ Container duo-shared-db Running
+
+[1;36m== pair 'certp263752': reset ==[0m
+[1;32mok: wp_certp2637521/wp_certp2637522 dropped + recreated empty; siterepo/certp263752{1,2} cleared in place and origin-certp263752.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/certp263752{1,2}, origin-certp263752.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up certp263752 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.certp263752{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'certp263752': databases ==[0m
+[1;32mok: wp_certp2637521, wp_certp2637522 exist[0m
+
+[1;36m== pair 'certp263752': site-repo directories ==[0m
+
+[1;36m== pair 'certp263752': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-certp263752_wp2 Creating
+ Volume duo-certp263752_wp2 Created
+ Volume duo-certp263752_wp1 Creating
+ Volume duo-certp263752_wp1 Created
+ Container duo-certp263752-wp2-1 Creating
+ Container duo-certp263752-wp1-1 Creating
+ Container duo-certp263752-wp1-1 Created
+ Container duo-certp263752-wp2-1 Created
+ Container duo-certp263752-wp2-1 Starting
+ Container duo-certp263752-wp1-1 Starting
+ Container duo-certp263752-wp2-1 Started
+ Container duo-certp263752-wp1-1 Started
+ Container duo-certp263752-cli2-1 Creating
+ Container duo-certp263752-cli1-1 Creating
+ Container duo-certp263752-cli1-1 Created
+ Container duo-certp263752-cli2-1 Created
+ Container duo-certp263752-cli2-1 Starting
+ Container duo-certp263752-cli1-1 Starting
+ Container duo-certp263752-cli2-1 Started
+ Container duo-certp263752-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'certp263752': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'certp263752': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.certp2637521.needs-install present — reset emptied wp_certp2637521, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-certp263752-cli1-run-20e25db2288f Creating
+ Container duo-certp263752-cli1-run-20e25db2288f Created
+Success: WordPress installed successfully.
+ Container duo-certp263752-cli1-run-5b4f528bd324 Creating
+ Container duo-certp263752-cli1-run-5b4f528bd324 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263752-cli1-run-f47cb708c4d0 Creating
+ Container duo-certp263752-cli1-run-f47cb708c4d0 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli1-run-2c5539474f52 Creating
+ Container duo-certp263752-cli1-run-2c5539474f52 Created
+ Container duo-certp263752-cli1-run-78b9f8221bfa Creating
+ Container duo-certp263752-cli1-run-78b9f8221bfa Created
+ Container duo-certp263752-cli1-run-9e687c06c4e0 Creating
+ Container duo-certp263752-cli1-run-9e687c06c4e0 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263752-cli1-run-fb07c05b8946 Creating
+ Container duo-certp263752-cli1-run-fb07c05b8946 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9004)
+  side 2: siterepo/.certp2637522.needs-install present — reset emptied wp_certp2637522, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-certp263752-cli2-run-e1db4900ec93 Creating
+ Container duo-certp263752-cli2-run-e1db4900ec93 Created
+Success: WordPress installed successfully.
+ Container duo-certp263752-cli2-run-970a5bb4ca3d Creating
+ Container duo-certp263752-cli2-run-970a5bb4ca3d Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263752-cli2-run-1347ce91bf04 Creating
+ Container duo-certp263752-cli2-run-1347ce91bf04 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263752-cli2-run-23ec58ccfa09 Creating
+ Container duo-certp263752-cli2-run-23ec58ccfa09 Created
+ Container duo-certp263752-cli2-run-905f836074e4 Creating
+ Container duo-certp263752-cli2-run-905f836074e4 Created
+ Container duo-certp263752-cli2-run-53791d474006 Creating
+ Container duo-certp263752-cli2-run-53791d474006 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263752-cli2-run-d845ffeb805e Creating
+ Container duo-certp263752-cli2-run-d845ffeb805e Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9005)
+
+[1;36m== pair 'certp263752' ready ==[0m
+  wp1: http://localhost:9004 (published on host port 9004)
+  wp2: http://localhost:9005 (published on host port 9005)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-certp263752 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-certp263752 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=certp263752 must stay exported, or pass -p duo-certp263752 and set WORDPRESS_DB_NAME/etc. yourself)
+
+[1;36m== convert side 1 to a real WordPress multisite ==[0m
+ Container duo-certp263752-cli1-run-2aab8bf02ed7 Creating
+ Container duo-certp263752-cli1-run-2aab8bf02ed7 Created
+ Container duo-certp263752-cli1-run-871abf2a9be0 Creating
+ Container duo-certp263752-cli1-run-871abf2a9be0 Created
+[1;32mok: WordPress reports multisite through its own runtime API[0m
+
+[1;36m== prepare an otherwise-valid core site repository and mutation canary ==[0m
+ Container duo-certp263752-cli1-run-c89b5a41c077 Creating
+ Container duo-certp263752-cli1-run-c89b5a41c077 Created
+
+[1;36m== ordinary product path must refuse loudly and publish nothing ==[0m
+ Container duo-certp263752-cli1-run-4ddf2de44138 Creating
+ Container duo-certp263752-cli1-run-4ddf2de44138 Created
+Error: duo: multisite is unsupported by the certified v1 contract; this command is single-site only and refuses before loading policy or mutating state
+ Container duo-certp263752-cli1-run-c8a8248fcd03 Creating
+ Container duo-certp263752-cli1-run-c8a8248fcd03 Created
+[1;32mok: multisite is an actionable non-zero refusal with zero repository/authored-state mutation[0m
+
+[1;32m✔ REGRESS_MULTISITE_REFUSAL PASSED[0m
+
+[1;36m== cleanup: destroy own disposable pair ==[0m
+
+[1;36m== pair 'certp263752': destroy ==[0m
+ Container duo-certp263752-cli2-1 Stopping
+ Container duo-certp263752-wp2-1 Stopping
+ Container duo-certp263752-wp1-1 Stopping
+ Container duo-certp263752-cli1-1 Stopping
+ Container duo-certp263752-cli2-1 Stopped
+ Container duo-certp263752-cli2-1 Removing
+ Container duo-certp263752-cli1-1 Stopped
+ Container duo-certp263752-cli1-1 Removing
+ Container duo-certp263752-cli1-1 Removed
+ Container duo-certp263752-cli2-1 Removed
+ Container duo-certp263752-wp2-1 Stopped
+ Container duo-certp263752-wp2-1 Removing
+ Container duo-certp263752-wp2-1 Removed
+ Container duo-certp263752-wp1-1 Stopped
+ Container duo-certp263752-wp1-1 Removing
+ Container duo-certp263752-wp1-1 Removed
+ Volume duo-certp263752_wp1 Removing
+ Volume duo-certp263752_wp2 Removing
+ Volume duo-certp263752_wp1 Removed
+ Volume duo-certp263752_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_certp2637521/wp_certp2637522 dropped[0m
+  siterepo/certp263752{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: certp263752 destroyed[0m

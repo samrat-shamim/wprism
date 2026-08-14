@@ -1,0 +1,307 @@
+
+[1;36m== boot pair certp263750 (certp2637501 :9000 / certp2637502 :9001), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    593d8e43ede4c12fe8e29dc23259d4bcec5c521e
+  invoked from:   <source-root>/sandbox
+  expected SHA:   593d8e43ede4c12fe8e29dc23259d4bcec5c521e (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 593d8e43ede4c12fe8e29dc23259d4bcec5c521e, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'certp263750': databases ==[0m
+[1;32mok: wp_certp2637501, wp_certp2637502 exist[0m
+
+[1;36m== pair 'certp263750': site-repo directories ==[0m
+
+[1;36m== pair 'certp263750': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-certp263750_wp2 Creating
+ Volume duo-certp263750_wp2 Created
+ Volume duo-certp263750_wp1 Creating
+ Volume duo-certp263750_wp1 Created
+ Container duo-certp263750-wp1-1 Creating
+ Container duo-certp263750-wp2-1 Creating
+ Container duo-certp263750-wp1-1 Created
+ Container duo-certp263750-wp2-1 Created
+ Container duo-certp263750-wp2-1 Starting
+ Container duo-certp263750-wp1-1 Starting
+ Container duo-certp263750-wp1-1 Started
+ Container duo-certp263750-wp2-1 Started
+ Container duo-certp263750-cli1-1 Creating
+ Container duo-certp263750-cli2-1 Creating
+ Container duo-certp263750-cli1-1 Created
+ Container duo-certp263750-cli2-1 Created
+ Container duo-certp263750-cli2-1 Starting
+ Container duo-certp263750-cli1-1 Starting
+ Container duo-certp263750-cli1-1 Started
+ Container duo-certp263750-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'certp263750': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'certp263750': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-certp263750-cli1-run-c369e6f196c3 Creating
+ Container duo-certp263750-cli1-run-c369e6f196c3 Created
+Success: WordPress installed successfully.
+ Container duo-certp263750-cli1-run-c6e5885ee85d Creating
+ Container duo-certp263750-cli1-run-c6e5885ee85d Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263750-cli1-run-8db3790242c9 Creating
+ Container duo-certp263750-cli1-run-8db3790242c9 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263750-cli1-run-390718b0e4a8 Creating
+ Container duo-certp263750-cli1-run-390718b0e4a8 Created
+ Container duo-certp263750-cli1-run-3e74845d4767 Creating
+ Container duo-certp263750-cli1-run-3e74845d4767 Created
+ Container duo-certp263750-cli1-run-ce6e35039a00 Creating
+ Container duo-certp263750-cli1-run-ce6e35039a00 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263750-cli1-run-1dcdc704ced8 Creating
+ Container duo-certp263750-cli1-run-1dcdc704ced8 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9000)
+ Container duo-certp263750-cli2-run-460efd36a929 Creating
+ Container duo-certp263750-cli2-run-460efd36a929 Created
+Success: WordPress installed successfully.
+ Container duo-certp263750-cli2-run-e3ac10dd2c21 Creating
+ Container duo-certp263750-cli2-run-e3ac10dd2c21 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-certp263750-cli2-run-bdebad72f0e5 Creating
+ Container duo-certp263750-cli2-run-bdebad72f0e5 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-certp263750-cli2-run-fce1c03c7609 Creating
+ Container duo-certp263750-cli2-run-fce1c03c7609 Created
+ Container duo-certp263750-cli2-run-556c07449bd2 Creating
+ Container duo-certp263750-cli2-run-556c07449bd2 Created
+ Container duo-certp263750-cli2-run-d0cb37382de7 Creating
+ Container duo-certp263750-cli2-run-d0cb37382de7 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-certp263750-cli2-run-95276c95ab79 Creating
+ Container duo-certp263750-cli2-run-95276c95ab79 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9001)
+
+[1;36m== pair 'certp263750' ready ==[0m
+  wp1: http://localhost:9000 (published on host port 9000)
+  wp2: http://localhost:9001 (published on host port 9001)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-certp263750 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-certp263750 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=certp263750 must stay exported, or pass -p duo-certp263750 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: acf 6.0.0 ==[0m
+ Container duo-certp263750-cli1-run-b48aacc29df3 Creating
+ Container duo-certp263750-cli1-run-b48aacc29df3 Created
+ Container duo-certp263750-cli1-run-53025415d3d4 Creating
+ Container duo-certp263750-cli1-run-53025415d3d4 Created
+ Container duo-certp263750-cli1-run-d03b53328fe5 Creating
+ Container duo-certp263750-cli1-run-d03b53328fe5 Created
+ Container duo-certp263750-cli1-run-cb968cff6abd Creating
+ Container duo-certp263750-cli1-run-cb968cff6abd Created
+ Container duo-certp263750-cli1-run-5d13b95d41bc Creating
+ Container duo-certp263750-cli1-run-5d13b95d41bc Created
+ Container duo-certp263750-cli1-run-7a73d175242f Creating
+ Container duo-certp263750-cli1-run-7a73d175242f Created
+ Container duo-certp263750-cli2-run-c82422911aca Creating
+ Container duo-certp263750-cli2-run-c82422911aca Created
+ Container duo-certp263750-cli2-run-714931da0bf9 Creating
+ Container duo-certp263750-cli2-run-714931da0bf9 Created
+ Container duo-certp263750-cli2-run-9e4314aad751 Creating
+ Container duo-certp263750-cli2-run-9e4314aad751 Created
+ Container duo-certp263750-cli2-run-c7165d227a57 Creating
+ Container duo-certp263750-cli2-run-c7165d227a57 Created
+ Container duo-certp263750-cli2-run-8daa32bbd2a6 Creating
+ Container duo-certp263750-cli2-run-8daa32bbd2a6 Created
+ Container duo-certp263750-cli2-run-b9ba7cdeb2c0 Creating
+ Container duo-certp263750-cli2-run-b9ba7cdeb2c0 Created
+
+[1;36m== fetch + verify acf 6.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-certp263750-cli1-run-ad09ac68862a Creating
+ Container duo-certp263750-cli1-run-ad09ac68862a Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.0.0 sha256=b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip
+ Container duo-certp263750-cli2-run-3a746a5df8d9 Creating
+ Container duo-certp263750-cli2-run-3a746a5df8d9 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.0.0 sha256=b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip[0m
+ Container duo-certp263750-cli1-run-6c9244742502 Creating
+ Container duo-certp263750-cli1-run-6c9244742502 Created
+ Container duo-certp263750-cli1-run-8b418c83e27c Creating
+ Container duo-certp263750-cli1-run-8b418c83e27c Created
+[1;32mok: side 1: acf 6.0.0 installed from verified artifact, active[0m
+ Container duo-certp263750-cli1-run-d3f9d54a3281 Creating
+ Container duo-certp263750-cli1-run-d3f9d54a3281 Created
+acf seed: {"group":1,"target":3,"content":4}
+ Container duo-certp263750-cli1-run-0a0a62423612 Creating
+ Container duo-certp263750-cli1-run-0a0a62423612 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (acf 6.0.0)[0m
+ Container duo-certp263750-cli1-run-c81263d18881 Creating
+ Container duo-certp263750-cli1-run-c81263d18881 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-certp263750-cli2-run-1d6d19f966e4 Creating
+ Container duo-certp263750-cli2-run-1d6d19f966e4 Created
+ Container duo-certp263750-cli2-run-2651448c756b Creating
+ Container duo-certp263750-cli2-run-2651448c756b Created
+ Container duo-certp263750-cli2-run-54a3126d4f1a Creating
+ Container duo-certp263750-cli2-run-54a3126d4f1a Created
+activated: advanced-custom-fields/acf.php
+Success: 1 activated, 0 deactivated
+ Container duo-certp263750-cli2-run-d55c9a2b448a Creating
+ Container duo-certp263750-cli2-run-d55c9a2b448a Created
+Warning: adopted env term 1 as 019ffee2-f493-74e0-87e9-0f792a204bc8 (terms/category/019ffee2-f493-74e0-87e9-0f792a204bc8--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":4,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":1}
+[1;32mok: deploy + apply succeeded on side 2 (acf 6.0.0, canary clean)[0m
+ Container duo-certp263750-cli2-run-8b1d684dd7bf Creating
+ Container duo-certp263750-cli2-run-8b1d684dd7bf Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at acf 6.0.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: acf 6.8.7 ==[0m
+ Container duo-certp263750-cli1-run-644fb29d9448 Creating
+ Container duo-certp263750-cli1-run-644fb29d9448 Created
+ Container duo-certp263750-cli1-run-d1f00af10233 Creating
+ Container duo-certp263750-cli1-run-d1f00af10233 Created
+ Container duo-certp263750-cli1-run-c3acaf19e8e7 Creating
+ Container duo-certp263750-cli1-run-c3acaf19e8e7 Created
+ Container duo-certp263750-cli1-run-68a471edcb11 Creating
+ Container duo-certp263750-cli1-run-68a471edcb11 Created
+ Container duo-certp263750-cli1-run-889410b982fa Creating
+ Container duo-certp263750-cli1-run-889410b982fa Created
+ Container duo-certp263750-cli1-run-916f68049403 Creating
+ Container duo-certp263750-cli1-run-916f68049403 Created
+ Container duo-certp263750-cli2-run-baf9ce35fe38 Creating
+ Container duo-certp263750-cli2-run-baf9ce35fe38 Created
+ Container duo-certp263750-cli2-run-4d34709e0696 Creating
+ Container duo-certp263750-cli2-run-4d34709e0696 Created
+ Container duo-certp263750-cli2-run-5a90aad417f1 Creating
+ Container duo-certp263750-cli2-run-5a90aad417f1 Created
+ Container duo-certp263750-cli2-run-fc69a0210c70 Creating
+ Container duo-certp263750-cli2-run-fc69a0210c70 Created
+ Container duo-certp263750-cli2-run-4dbca7166f39 Creating
+ Container duo-certp263750-cli2-run-4dbca7166f39 Created
+ Container duo-certp263750-cli2-run-9928b3f2c482 Creating
+ Container duo-certp263750-cli2-run-9928b3f2c482 Created
+
+[1;36m== fetch + verify acf 6.8.7 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-certp263750-cli1-run-f1295d9b758a Creating
+ Container duo-certp263750-cli1-run-f1295d9b758a Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-certp263750-cli2-run-b375549ccb20 Creating
+ Container duo-certp263750-cli2-run-b375549ccb20 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip[0m
+ Container duo-certp263750-cli1-run-83fa92142553 Creating
+ Container duo-certp263750-cli1-run-83fa92142553 Created
+ Container duo-certp263750-cli1-run-d2e849cb7142 Creating
+ Container duo-certp263750-cli1-run-d2e849cb7142 Created
+[1;32mok: side 1: acf 6.8.7 installed from verified artifact, active[0m
+ Container duo-certp263750-cli1-run-68257cff14a4 Creating
+ Container duo-certp263750-cli1-run-68257cff14a4 Created
+acf seed: {"group":1,"target":3,"content":4}
+ Container duo-certp263750-cli1-run-103d90a90501 Creating
+ Container duo-certp263750-cli1-run-103d90a90501 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (acf 6.8.7)[0m
+ Container duo-certp263750-cli1-run-82d0b34129f7 Creating
+ Container duo-certp263750-cli1-run-82d0b34129f7 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-certp263750-cli2-run-fe025143d109 Creating
+ Container duo-certp263750-cli2-run-fe025143d109 Created
+ Container duo-certp263750-cli2-run-feea79c862ef Creating
+ Container duo-certp263750-cli2-run-feea79c862ef Created
+ Container duo-certp263750-cli2-run-75b3fc90d734 Creating
+ Container duo-certp263750-cli2-run-75b3fc90d734 Created
+activated: advanced-custom-fields/acf.php
+Success: 1 activated, 0 deactivated
+ Container duo-certp263750-cli2-run-0fb90eee1c74 Creating
+ Container duo-certp263750-cli2-run-0fb90eee1c74 Created
+Warning: adopted env term 1 as 019ffee6-4889-7136-9d9e-dc2fab551c71 (terms/category/019ffee6-4889-7136-9d9e-dc2fab551c71--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":4,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (acf 6.8.7, canary clean)[0m
+ Container duo-certp263750-cli2-run-791620d96cc6 Creating
+ Container duo-certp263750-cli2-run-791620d96cc6 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at acf 6.8.7 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-certp263750-cli1-run-be5d727f3aef Creating
+ Container duo-certp263750-cli1-run-be5d727f3aef Created
+ Container duo-certp263750-cli1-run-bf0d1ce99422 Creating
+ Container duo-certp263750-cli1-run-bf0d1ce99422 Created
+ Container duo-certp263750-cli1-run-5d63b6275aec Creating
+ Container duo-certp263750-cli1-run-5d63b6275aec Created
+ Container duo-certp263750-cli1-run-8e3c766fa891 Creating
+ Container duo-certp263750-cli1-run-8e3c766fa891 Created
+ Container duo-certp263750-cli1-run-3eb3e51e28d8 Creating
+ Container duo-certp263750-cli1-run-3eb3e51e28d8 Created
+ Container duo-certp263750-cli1-run-8507553a5d5f Creating
+ Container duo-certp263750-cli1-run-8507553a5d5f Created
+ Container duo-certp263750-cli1-run-63d3fedbe4e0 Creating
+ Container duo-certp263750-cli1-run-63d3fedbe4e0 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=5.12.6 sha256=66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-5.12.6-66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6.zip
+ Container duo-certp263750-cli1-run-436d55aece80 Creating
+ Container duo-certp263750-cli1-run-436d55aece80 Created
+ Container duo-certp263750-cli1-run-67f839f47197 Creating
+ Container duo-certp263750-cli1-run-67f839f47197 Created
+ Container duo-certp263750-cli1-run-9f070410657e Creating
+ Container duo-certp263750-cli1-run-9f070410657e Created
+Success: captured 0 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-certp263750-cli1-run-201941e72ccb Creating
+ Container duo-certp263750-cli1-run-201941e72ccb Created
+Error: duo: deploy refused — code_mismatch:
+
+  - advanced-custom-fields/acf.php 5.12.6 is active in this environment, outside the 'acf' manifest's declared version_range (>=6.0.0 <7.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'certp263750': destroy ==[0m
+ Container duo-certp263750-wp2-1 Stopping
+ Container duo-certp263750-wp1-1 Stopping
+ Container duo-certp263750-cli1-1 Stopping
+ Container duo-certp263750-cli2-1 Stopping
+ Container duo-certp263750-cli2-1 Stopped
+ Container duo-certp263750-cli2-1 Removing
+ Container duo-certp263750-cli1-1 Stopped
+ Container duo-certp263750-cli1-1 Removing
+ Container duo-certp263750-cli2-1 Removed
+ Container duo-certp263750-cli1-1 Removed
+ Container duo-certp263750-wp2-1 Stopped
+ Container duo-certp263750-wp2-1 Removing
+ Container duo-certp263750-wp2-1 Removed
+ Container duo-certp263750-wp1-1 Stopped
+ Container duo-certp263750-wp1-1 Removing
+ Container duo-certp263750-wp1-1 Removed
+ Volume duo-certp263750_wp2 Removing
+ Volume duo-certp263750_wp1 Removing
+ Volume duo-certp263750_wp2 Removed
+ Volume duo-certp263750_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_certp2637501/wp_certp2637502 dropped[0m
+  siterepo/certp263750{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed certp263750 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m
