@@ -260,6 +260,7 @@ final class Providers {
         if ($runtime !== null) {
             return $runtime->available();
         }
+        self::loadDefaultRuntimeInspector();
         // Policy/registry validation intentionally loads without the live
         // WordPress adapter. Absence means "no target facts available", not a
         // class-loading error or a fabricated missing-plugin finding.
@@ -2827,10 +2828,20 @@ final class Providers {
         if ($runtime !== null) {
             return $runtime;
         }
+        self::loadDefaultRuntimeInspector();
         if (!class_exists(WordPressTargetRuntimeInspector::class)) {
             throw new \RuntimeException('duo: target runtime inspector adapter is not installed');
         }
         return new WordPressTargetRuntimeInspector();
+    }
+
+    /** Keep the WordPress adapter out of Policy's offline load graph while making live direct loading complete. */
+    private static function loadDefaultRuntimeInspector(): void {
+        if (!class_exists(WordPressTargetRuntimeInspector::class, false)
+            && defined('ABSPATH') && defined('WP_PLUGIN_DIR')
+            && function_exists('apply_filters') && function_exists('get_option')) {
+            require_once __DIR__ . '/WordPressTargetRuntimeInspector.php';
+        }
     }
 
     private static function problem(

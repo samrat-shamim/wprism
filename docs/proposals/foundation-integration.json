@@ -2,31 +2,36 @@
     "format": "duo-foundation-integration/v1",
     "foundation_ref": "refs/tags/refactor-foundation-2026-08-14",
     "integration_branch": "refs/heads/refactor/integration",
+    "worktree_root_env": "DUO_FOUNDATION_WORKTREE_ROOT",
+    "receipt": {
+        "format": "duo-foundation-fanout-receipt/v1",
+        "carrier": "annotated-foundation-tag"
+    },
     "worktrees": [
         {
             "thread": 1,
             "branch": "refs/heads/refactor/thread-1-engineering-platform",
-            "path": "/Users/shamim/Projects/duotronic/duo-wp-refactor-thread-1"
+            "worktree_suffix": "duo-wp-refactor-thread-1"
         },
         {
             "thread": 2,
             "branch": "refs/heads/refactor/thread-2-host-cli",
-            "path": "/Users/shamim/Projects/duotronic/duo-wp-refactor-thread-2"
+            "worktree_suffix": "duo-wp-refactor-thread-2"
         },
         {
             "thread": 3,
             "branch": "refs/heads/refactor/thread-3-wordpress-agent",
-            "path": "/Users/shamim/Projects/duotronic/duo-wp-refactor-thread-3"
+            "worktree_suffix": "duo-wp-refactor-thread-3"
         },
         {
             "thread": 4,
             "branch": "refs/heads/refactor/thread-4-capability-evidence",
-            "path": "/Users/shamim/Projects/duotronic/duo-wp-refactor-thread-4"
+            "worktree_suffix": "duo-wp-refactor-thread-4"
         },
         {
             "thread": 5,
             "branch": "refs/heads/refactor/thread-5-mutation-recovery",
-            "path": "/Users/shamim/Projects/duotronic/duo-wp-refactor-thread-5"
+            "worktree_suffix": "duo-wp-refactor-thread-5"
         }
     ],
     "platform_p0": {

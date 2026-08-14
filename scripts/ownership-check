@@ -82,6 +82,33 @@ function t5_agent_files(): array {
     ]);
 }
 
+/** @return list<array{prefix:string,owner:string}> */
+function new_prefix_assignments(): array {
+    return [
+        ['prefix'=>'agent/src/Agent/','owner'=>'thread-3'],['prefix'=>'agent/src/Capture/','owner'=>'thread-3'],
+        ['prefix'=>'agent/src/Repository/','owner'=>'thread-3'],['prefix'=>'agent/src/WordPress/','owner'=>'thread-3'],
+        ['prefix'=>'agent/src/Capability/','owner'=>'thread-4'],['prefix'=>'agent/src/Policy/','owner'=>'thread-4'],
+        ['prefix'=>'agent/src/Adapter/','owner'=>'thread-4'],['prefix'=>'agent/src/Provider/','owner'=>'thread-4'],
+        ['prefix'=>'agent/src/Evidence/','owner'=>'thread-4'],['prefix'=>'agent/src/Mutation/','owner'=>'thread-5'],
+        ['prefix'=>'agent/src/Promotion/','owner'=>'thread-5'],['prefix'=>'agent/src/Lifecycle/','owner'=>'thread-5'],
+        ['prefix'=>'cli/src/Application/','owner'=>'thread-2'],['prefix'=>'cli/src/Environment/','owner'=>'thread-2'],
+        ['prefix'=>'cli/src/Transport/','owner'=>'thread-2'],['prefix'=>'cli/src/Refresh/','owner'=>'thread-2'],
+        ['prefix'=>'cli/src/HostContracts/','owner'=>'thread-2'],
+        ['prefix'=>'cli/src/Adapter/','owner'=>'thread-4'],['prefix'=>'cli/src/ArtifactTrust/','owner'=>'thread-4'],
+        ['prefix'=>'cli/src/Mutation/','owner'=>'thread-5'],['prefix'=>'cli/src/Promotion/','owner'=>'thread-5'],
+        ['prefix'=>'cli/src/Recovery/','owner'=>'thread-5'],
+        ['prefix'=>'recovery/','owner'=>'thread-5'],
+        ['prefix'=>'docs/contracts/commands/host/','owner'=>'thread-2'],
+        ['prefix'=>'docs/contracts/commands/agent/','owner'=>'thread-3'],
+        ['prefix'=>'docs/contracts/commands/generated/','owner'=>'thread-1'],
+        ['prefix'=>'sandbox/catalog/fragments/engineering-platform/','owner'=>'thread-1'],
+        ['prefix'=>'sandbox/catalog/fragments/host-cli/','owner'=>'thread-2'],
+        ['prefix'=>'sandbox/catalog/fragments/wordpress-agent/','owner'=>'thread-3'],
+        ['prefix'=>'sandbox/catalog/fragments/capability-policy-evidence/','owner'=>'thread-4'],
+        ['prefix'=>'sandbox/catalog/fragments/mutation-recovery/','owner'=>'thread-5'],
+    ];
+}
+
 function semantic_test_owner(string $path): string {
     $name = strtolower(basename($path));
     $t4 = ['adapter','manifest','provider','capabilit','certif','evidence','policy','grammar','disposition','vocabulary','registry'];
@@ -99,6 +126,10 @@ function owner_for(string $path): string {
     static $t4Agent = null, $t5Agent = null;
     $t4Agent ??= array_fill_keys(t4_agent_files(), true);
     $t5Agent ??= array_fill_keys(t5_agent_files(), true);
+
+    foreach (new_prefix_assignments() as $row) {
+        if (str_starts_with($path, $row['prefix'])) return $row['owner'];
+    }
 
     if (str_starts_with($path, 'docs/contracts/commands/host/')) return 'thread-2';
     if (str_starts_with($path, 'docs/contracts/commands/agent/')) return 'thread-3';
@@ -172,29 +203,7 @@ if ($refresh) {
             'thread-5' => 'mutation, promotion, lifecycle and recovery',
         ],
         'files' => $files,
-        'new_prefixes' => [
-            ['prefix'=>'agent/src/Agent/','owner'=>'thread-3'],['prefix'=>'agent/src/Capture/','owner'=>'thread-3'],
-            ['prefix'=>'agent/src/Repository/','owner'=>'thread-3'],['prefix'=>'agent/src/WordPress/','owner'=>'thread-3'],
-            ['prefix'=>'agent/src/Capability/','owner'=>'thread-4'],['prefix'=>'agent/src/Policy/','owner'=>'thread-4'],
-            ['prefix'=>'agent/src/Adapter/','owner'=>'thread-4'],['prefix'=>'agent/src/Provider/','owner'=>'thread-4'],
-            ['prefix'=>'agent/src/Evidence/','owner'=>'thread-4'],['prefix'=>'agent/src/Mutation/','owner'=>'thread-5'],
-            ['prefix'=>'agent/src/Promotion/','owner'=>'thread-5'],['prefix'=>'agent/src/Lifecycle/','owner'=>'thread-5'],
-            ['prefix'=>'cli/src/Application/','owner'=>'thread-2'],['prefix'=>'cli/src/Environment/','owner'=>'thread-2'],
-            ['prefix'=>'cli/src/Transport/','owner'=>'thread-2'],['prefix'=>'cli/src/Refresh/','owner'=>'thread-2'],
-            ['prefix'=>'cli/src/HostContracts/','owner'=>'thread-2'],
-            ['prefix'=>'cli/src/Adapter/','owner'=>'thread-4'],['prefix'=>'cli/src/ArtifactTrust/','owner'=>'thread-4'],
-            ['prefix'=>'cli/src/Mutation/','owner'=>'thread-5'],['prefix'=>'cli/src/Promotion/','owner'=>'thread-5'],
-            ['prefix'=>'cli/src/Recovery/','owner'=>'thread-5'],['prefix'=>'cli/src/RecoveryProtocol/','owner'=>'thread-5'],
-            ['prefix'=>'recovery/','owner'=>'thread-5'],
-            ['prefix'=>'docs/contracts/commands/host/','owner'=>'thread-2'],
-            ['prefix'=>'docs/contracts/commands/agent/','owner'=>'thread-3'],
-            ['prefix'=>'docs/contracts/commands/generated/','owner'=>'thread-1'],
-            ['prefix'=>'sandbox/catalog/fragments/engineering-platform/','owner'=>'thread-1'],
-            ['prefix'=>'sandbox/catalog/fragments/host-cli/','owner'=>'thread-2'],
-            ['prefix'=>'sandbox/catalog/fragments/wordpress-agent/','owner'=>'thread-3'],
-            ['prefix'=>'sandbox/catalog/fragments/capability-policy-evidence/','owner'=>'thread-4'],
-            ['prefix'=>'sandbox/catalog/fragments/mutation-recovery/','owner'=>'thread-5'],
-        ],
+        'new_prefixes' => new_prefix_assignments(),
         'boundary_rules' => [
             ['from'=>'cli/**','to'=>'agent/**','rule'=>'wire-contract-only; existing source bridge is exception-listed'],
             ['from'=>'cli/**','to'=>'recovery/**','rule'=>'RecoveryProtocolCodec bytes only; no implementation import'],
@@ -213,6 +222,31 @@ if ($refresh) {
                 'source'=>'cli/src/RefreshPlan.php','target'=>'agent/src compatibility load graph',
                 'owner'=>'thread-2','rationale'=>'existing refresh/rebase compatibility bridge',
                 'removal_condition'=>'Thread 2 routes all target semantics through the agent gateway/built contract artifact',
+            ],
+            [
+                'source'=>'cli/src/Refresh.php','target'=>'agent/src/ScopeContract.php',
+                'owner'=>'thread-2','rationale'=>'existing refresh scope-contract compatibility bridge',
+                'removal_condition'=>'Thread 2 consumes the ratified host-safe repository contract package',
+            ],
+            [
+                'source'=>'cli/src/PassthroughCommand.php','target'=>'agent/src/{Canon,ScopeContract}.php',
+                'owner'=>'thread-2','rationale'=>'existing host passthrough compatibility bridge',
+                'removal_condition'=>'Thread 2 consumes the ratified host-safe canonical scope package',
+            ],
+            [
+                'source'=>'cli/src/AdapterCatalog.php','target'=>'agent/src compatibility classmap declared in source',
+                'owner'=>'thread-4','rationale'=>'existing offline adapter catalog compatibility bridge',
+                'removal_condition'=>'Thread 4 publishes the catalog through its host-safe artifact package',
+            ],
+            [
+                'source'=>'cli/src/AdapterDraft.php','target'=>'agent/src compatibility classmap declared in source',
+                'owner'=>'thread-4','rationale'=>'existing offline adapter draft compatibility bridge',
+                'removal_condition'=>'Thread 4 publishes the draft grammar through its host-safe artifact package',
+            ],
+            [
+                'source'=>'cli/src/ManifestValidate.php','target'=>'agent/src compatibility classmap declared in source',
+                'owner'=>'thread-4','rationale'=>'existing offline manifest-validation compatibility bridge',
+                'removal_condition'=>'Thread 4 publishes validation through its host-safe artifact package',
             ],
         ],
         'hot_files' => [
@@ -243,11 +277,6 @@ foreach ((array) ($ledger['files'] ?? []) as $row) {
     if (isset($assigned[$path])) ownership_fail("multiply owned path: $path");
     $assigned[$path] = $owner;
 }
-$tracked = tracked_files($root);
-$missing = array_values(array_diff($tracked, array_keys($assigned)));
-$stale = array_values(array_diff(array_keys($assigned), $tracked));
-if ($missing !== []) ownership_fail('unowned tracked path(s): ' . implode(', ', array_slice($missing, 0, 8)));
-if ($stale !== []) ownership_fail('ledger names untracked path(s): ' . implode(', ', array_slice($stale, 0, 8)));
 $prefixes = [];
 foreach ((array) ($ledger['new_prefixes'] ?? []) as $row) {
     $prefix = $row['prefix'] ?? null; $owner = $row['owner'] ?? null;
@@ -255,8 +284,46 @@ foreach ((array) ($ledger['new_prefixes'] ?? []) as $row) {
         || !is_string($owner) || !in_array($owner, $owners, true)) ownership_fail('invalid or duplicate new-prefix assignment');
     $prefixes[$prefix] = $owner;
 }
+$tracked = tracked_files($root);
+$stale = array_values(array_diff(array_keys($assigned), $tracked));
+if ($stale !== []) ownership_fail('ledger names untracked path(s): ' . implode(', ', array_slice($stale, 0, 8)));
+$effective = $assigned;
+foreach ($tracked as $path) {
+    $matches = [];
+    foreach ($prefixes as $prefix => $owner) {
+        if (str_starts_with($path, $prefix)) $matches[$prefix] = $owner;
+    }
+    if (count($matches) > 1) ownership_fail("tracked path matches multiple new-prefix owners: $path");
+    if (isset($assigned[$path])) {
+        if ($matches !== [] && $assigned[$path] !== reset($matches)) {
+            ownership_fail("explicit owner disagrees with exclusive prefix for $path");
+        }
+        continue;
+    }
+    if ($matches === []) ownership_fail("unowned tracked path outside every exclusive prefix: $path");
+    $effective[$path] = (string) reset($matches);
+}
 foreach (['boundary_rules','exceptions','hot_files','generated_outputs'] as $section) {
     if (!is_array($ledger[$section] ?? null) || $ledger[$section] === []) ownership_fail("$section is missing or empty");
+}
+foreach (['hot_files','generated_outputs'] as $section) {
+    foreach ($ledger[$section] as $row) {
+        $path = $row['path'] ?? null; $owner = $row['owner'] ?? null;
+        if (!is_string($path) || !isset($effective[$path]) || $effective[$path] !== $owner) {
+            ownership_fail("$section assignment disagrees with file ownership");
+        }
+    }
+}
+foreach ($ledger['boundary_rules'] as $row) {
+    $keys = array_keys((array) $row); sort($keys, SORT_STRING);
+    if ($keys !== ['from','rule','to'] || in_array('', array_map('trim', array_values($row)), true)) {
+        ownership_fail('boundary rule is malformed');
+    }
+}
+foreach ($ledger['exceptions'] as $row) {
+    $keys = array_keys((array) $row); sort($keys, SORT_STRING);
+    if ($keys !== ['owner','rationale','removal_condition','source','target']
+        || !in_array($row['owner'] ?? null, $owners, true)) ownership_fail('boundary exception is malformed');
 }
 echo 'ownership-check: ' . count($tracked) . ' tracked paths have exactly one owner; '
     . count($prefixes) . ' new-module prefixes are exclusive' . PHP_EOL;

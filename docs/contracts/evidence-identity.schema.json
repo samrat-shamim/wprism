@@ -7,10 +7,19 @@
   "required": ["format", "public", "secret_references", "keyed_bindings"],
   "properties": {
     "format": {"const": "duo-redacted-evidence-identity/v1"},
-    "public": {"type": "object", "additionalProperties": {"type": ["string", "integer", "boolean"]}},
+    "public": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platform_profile": {"type": "string", "pattern": "^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$"},
+        "runner_protocol": {"oneOf": [{"type": "integer", "minimum": 1, "maximum": 999999}, {"type": "string", "pattern": "^[1-9][0-9]{0,5}$"}]},
+        "toolchain_profile": {"type": "string", "pattern": "^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$"},
+        "harness_profile": {"type": "string", "pattern": "^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$"}
+      }
+    },
     "secret_references": {
       "type": "array",
-      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+      "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
       "uniqueItems": true
     },
     "keyed_bindings": {
@@ -27,5 +36,5 @@
       }
     }
   },
-  "description": "Credentials, raw secrets/PII, machine-local paths, raw low-entropy values, and unkeyed digests of low-entropy values are forbidden in every field."
+  "description": "Only reviewed profile identifiers are public. Credentials, raw secrets/PII, machine identity, paths, low-entropy values, and unkeyed digests belong only in reviewed references or domain-separated keyed bindings."
 }

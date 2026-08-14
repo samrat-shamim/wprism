@@ -131,6 +131,11 @@ final class Journal {
         }
     }
 
+    /** Suppress optional shutdown writes before a command-level safety quarantine refuses mutation. */
+    public static function suspend_for_refusal(): void {
+        self::suspend_for_observation();
+    }
+
     private static function table_of(string $sql, string $op): ?string {
         $pat = match ($op) {
             'INSERT', 'REPLACE' => '/^\s*(?:INSERT|REPLACE)\s+(?:IGNORE\s+)?INTO\s+`?([A-Za-z0-9_]+)`?/i',

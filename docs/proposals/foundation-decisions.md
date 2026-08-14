@@ -74,6 +74,14 @@ WordPress or agent implementation code. Closure v2 is approved by
 `docs/contracts/closure-v2.schema.json`; its redacted identity fields follow
 `docs/contracts/evidence-identity.schema.json`.
 
+The selection pin binds the family digest, target release-set digest, exact
+host artifact, host/agent/recovery protocol tuple, and Ed25519 review keys
+indexed by authority/key ID. The verifier authenticates a closed signed review
+envelope, binds its exact bytes into the target set, and proves that the
+projection pack names both that envelope and its reviewed payload. Adjacent
+manifests, unsigned identity claims, and an unused pin-record digest are never
+trust inputs.
+
 ## Exact revision and evidence merge ruling
 
 This refactor round uses the charter's explicit non-rewriting merge-policy

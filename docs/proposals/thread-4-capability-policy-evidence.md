@@ -348,6 +348,9 @@ review bundle contains only current reviewed authority input—reviewed
 disposition or applicable current platform certification record (never a target
 site attestation), immutable evidence identities, approving principal,
 provenance class, trust-root key ID, and exact payload bindings. The
+review payload is carried in a closed Ed25519-signed envelope; authority/key
+labels without a signature verified by the independently pinned public key
+confer no trust. The
 deterministic projection pack contains generated registry/docs/claim bytes and
 is always recomputed and byte-compared from its exact reviewed inputs before
 use. A packaged or signed projection remains a cache, never authority.

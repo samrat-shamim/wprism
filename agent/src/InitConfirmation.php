@@ -333,8 +333,7 @@ final class InitConfirmation {
                         $attemptRecord,
                         (string) $attemptPublication['published']
                     );
-                },
-                $mutation
+                }
             );
             $attemptRecord['phase'] = 'code-staged';
             $attemptRecord['owned']['code_stage'] = $stagedCode;
@@ -556,7 +555,8 @@ final class InitConfirmation {
                         $attemptRecord,
                         (string) $attemptPublication['published']
                     );
-                }
+                },
+                $mutation
             );
             $stateReserved = false;
             if (($capture['initial_publication_cleanup'] ?? null) !== 'clean') {

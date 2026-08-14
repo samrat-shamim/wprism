@@ -43,6 +43,51 @@ $candidateBuild = substr($candidate, (int) $buildStart, (int) $buildEnd - (int) 
 
 require_once "$root/agent/src/Capture.php";
 $captureReflection = new ReflectionClass(Duo\Capture::class);
+$workflowReflection = new ReflectionClass(Duo\CapturePublicationWorkflow::class);
+
+$mutationCalls = [];
+$mutation = new class($mutationCalls) implements Duo\CaptureMutationPort {
+    /** @var array<int,array<string,mixed>> */
+    public array $calls;
+
+    /** @param array<int,array<string,mixed>> $calls */
+    public function __construct(array &$calls) {
+        $this->calls =& $calls;
+    }
+
+    public function completeInitialCodeBaseline(string $repo, Duo\CompiledRepository $compiled): array {
+        $this->calls[] = ['method' => 'complete', 'repo' => $repo, 'compiled' => $compiled];
+        return ['enabled' => true, 'completed' => true, 'code_revision' => str_repeat('a', 64), 'files' => 1];
+    }
+
+    public function recordCodeVersions(Duo\Policy $policy): void {
+        $this->calls[] = ['method' => 'record', 'policy' => $policy];
+    }
+};
+$compiledProbe = (new ReflectionClass(Duo\CompiledRepository::class))->newInstanceWithoutConstructor();
+$policyProbe = (new ReflectionClass(Duo\Policy::class))->newInstanceWithoutConstructor();
+$completeProbe = $workflowReflection->getMethod('completeInitialCodeBaseline')->invoke(
+    null,
+    $mutation,
+    '/reviewed/repo',
+    $compiledProbe
+);
+$workflowReflection->getMethod('recordCodeVersions')->invoke(null, $mutation, $policyProbe);
+$check(
+    ($completeProbe['completed'] ?? false) === true
+        && array_column($mutationCalls, 'method') === ['complete', 'record']
+        && ($mutationCalls[0]['repo'] ?? null) === '/reviewed/repo'
+        && ($mutationCalls[0]['compiled'] ?? null) === $compiledProbe
+        && ($mutationCalls[1]['policy'] ?? null) === $policyProbe,
+    'publication mutation helpers invoke both methods on the injected port with exact collaborators'
+);
+$missingMutationRefused = false;
+try {
+    $workflowReflection->getMethod('recordCodeVersions')->invoke(null, null, $policyProbe);
+} catch (Throwable $failure) {
+    $missingMutationRefused = str_contains($failure->getMessage(), 'capture mutation bridge is unavailable');
+}
+$check($missingMutationRefused, 'publication mutation helpers fail closed when composition omitted the port');
 
 $check(substr_count($capture, "\n") + 1 <= 650, 'Capture stays a small command-facing façade');
 $check(!str_contains($capture, '$this->'), 'Capture has no per-build mutable instance state');
@@ -107,6 +152,7 @@ $expectedApi = [
         $parameter('forceUnresolvedRefs', 'bool', false, false),
         $parameter('scopeRequest', '?array', false),
         $parameter('hostEnvironment', '?string', false),
+        $parameter('mutation', '?Duo\\CaptureMutationPort', false),
     ]],
     'run_initial_baseline' => ['array', [
         $parameter('repo', 'string'),
@@ -115,6 +161,7 @@ $expectedApi = [
         $parameter('initialMediaIdentity', 'string'),
         $parameter('initialConfigIdentity', 'string'),
         $parameter('onPayloadReady', '?callable', false),
+        $parameter('mutation', '?Duo\\CaptureMutationPort', false),
     ]],
     'snapshot' => ['array', [
         $parameter('repo', 'string'),

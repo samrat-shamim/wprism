@@ -7,6 +7,14 @@ namespace Duo\Orchestrator;
 final class RedactedEvidenceIdentity {
     public const FORMAT = 'duo-redacted-evidence-identity/v1';
 
+    /** Reviewed public fields; all environment-specific identity belongs in a reference or keyed binding. */
+    private const PUBLIC_GRAMMAR = [
+        'platform_profile' => '/^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$/D',
+        'runner_protocol' => '/^[1-9][0-9]{0,5}$/D',
+        'toolchain_profile' => '/^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$/D',
+        'harness_profile' => '/^[a-z][a-z0-9]{1,15}-[a-z0-9][a-z0-9._-]{0,47}$/D',
+    ];
+
     /** @param array<string,mixed> $identity */
     public static function assertValid(array $identity): void {
         $keys = array_keys($identity); sort($keys, SORT_STRING);
@@ -18,41 +26,46 @@ final class RedactedEvidenceIdentity {
             throw new \RuntimeException('duo evidence: redacted identity is malformed');
         }
         foreach ($identity['public'] as $key => $value) {
-            if (!is_string($key) || preg_match('/^[a-z][a-z0-9._-]{0,63}$/D', $key) !== 1
-                || preg_match('/(?:secret|password|credential|token|path|email|phone|address|login|pii)/i', $key) === 1
-                || (!is_string($value) && !is_int($value) && !is_bool($value))
+            if (!is_string($key) || !isset(self::PUBLIC_GRAMMAR[$key])
+                || (!is_string($value) && !is_int($value))
+                || preg_match(self::PUBLIC_GRAMMAR[$key], (string) $value) !== 1
                 || (is_string($value) && self::looksSensitive($value))) {
-                throw new \RuntimeException('duo evidence: public identity contains a secret, PII, path, or unreviewed value');
+                throw new \RuntimeException('duo evidence: public identity contains an unreviewed field or value');
             }
         }
         $seen = [];
         foreach ($identity['secret_references'] as $reference) {
             if (!is_string($reference)
-                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._:\/-]{0,127}$/D', $reference) !== 1
+                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/D', $reference) !== 1
+                || self::looksSensitive($reference)
                 || isset($seen[$reference])) {
-                throw new \RuntimeException('duo evidence: secret reference id is malformed or duplicated');
+                throw new \RuntimeException('duo evidence: secret reference id is malformed, sensitive, or duplicated');
             }
             $seen[$reference] = true;
         }
+        $seenBindings = [];
         foreach ($identity['keyed_bindings'] as $binding) {
             if (!is_array($binding)) throw new \RuntimeException('duo evidence: keyed binding is malformed');
             $bindingKeys = array_keys($binding); sort($bindingKeys, SORT_STRING);
+            $bindingIdentity = is_string($binding['domain'] ?? null) && is_string($binding['key_id'] ?? null)
+                ? $binding['domain'] . ':' . $binding['key_id'] : '';
             if ($bindingKeys !== ['digest','domain','key_id']
-                || !is_string($binding['domain'] ?? null)
-                || preg_match('/^[a-z][a-z0-9._-]{2,63}$/D', $binding['domain']) !== 1
-                || !is_string($binding['key_id'] ?? null)
-                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', $binding['key_id']) !== 1
-                || !is_string($binding['digest'] ?? null)
-                || preg_match('/^hmac-sha256:[a-f0-9]{64}$/D', $binding['digest']) !== 1) {
-                throw new \RuntimeException('duo evidence: keyed binding must be domain-separated HMAC identity');
+                || preg_match('/^[a-z][a-z0-9._-]{2,63}$/D', (string) ($binding['domain'] ?? '')) !== 1
+                || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/D', (string) ($binding['key_id'] ?? '')) !== 1
+                || preg_match('/^hmac-sha256:[a-f0-9]{64}$/D', (string) ($binding['digest'] ?? '')) !== 1
+                || isset($seenBindings[$bindingIdentity])) {
+                throw new \RuntimeException('duo evidence: keyed binding must be unique domain-separated HMAC identity');
             }
+            $seenBindings[$bindingIdentity] = true;
         }
     }
 
     private static function looksSensitive(string $value): bool {
-        return str_starts_with($value, '/')
-            || preg_match('~(?:^|[\\/])(?:Users|home|var|tmp|srv)(?:[\\/]|$)~i', $value) === 1
-            || str_contains($value, '-----BEGIN')
+        return str_contains($value, '/') || str_contains($value, '\\') || str_contains($value, '@')
+            || str_contains($value, '://') || str_contains($value, '-----BEGIN')
+            || preg_match('/(?:^|[^A-Za-z0-9])(?:[A-Za-z0-9_-]+\.){2}[A-Za-z0-9_-]+(?:[^A-Za-z0-9]|$)/', $value) === 1
+            || filter_var($value, FILTER_VALIDATE_IP) !== false
+            || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iD', $value) === 1
             || preg_match('/(?:AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9]{20,}|sk_(?:live|test)_[A-Za-z0-9]+)/', $value) === 1;
     }
 }

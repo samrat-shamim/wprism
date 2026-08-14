@@ -117,9 +117,14 @@ foreach ((array) ($matrix['items'] ?? []) as $entry) {
 }
 if (array_keys($actual) !== array_keys($expected)) foundation_fail('acceptance matrix has a missing, extra, or reordered charter item');
 foreach ($expected as $id => $entry) {
-    if ($actual[$id]['source_item_sha256'] !== $entry['source_item_sha256']
-        || $actual[$id]['item'] !== $entry['item']
-        || $actual[$id]['owner'] !== $entry['owner']) foundation_fail("acceptance item $id is stale or misowned");
+    if ($actual[$id] !== $entry) {
+        foundation_fail("acceptance item $id differs from its complete generated verification mapping");
+    }
+    $artifact = $entry['expected_artifact'];
+    if ($entry['owner'] === 'thread-0'
+        && (!is_string($artifact) || $artifact === '' || !is_file($root . '/' . $artifact))) {
+        foundation_fail("acceptance item $id has no retained verification artifact: $artifact");
+    }
 }
 
 $required = [
@@ -150,15 +155,27 @@ if (!is_string($foundationRef) || preg_match('~^refs/tags/[A-Za-z0-9._/-]+$~D', 
     foundation_fail('foundation or integration ref is invalid');
 }
 $worktrees = (array) ($integration['worktrees'] ?? []);
-$seenThreads = []; $seenBranches = []; $seenPaths = [];
+$worktreeRootEnv = $integration['worktree_root_env'] ?? null;
+$receipt = $integration['receipt'] ?? null;
+if (!is_string($worktreeRootEnv) || preg_match('/^[A-Z][A-Z0-9_]{2,63}$/D', $worktreeRootEnv) !== 1
+    || !is_array($receipt) || $receipt !== [
+        'format' => 'duo-foundation-fanout-receipt/v1',
+        'carrier' => 'annotated-foundation-tag',
+    ]) foundation_fail('portable worktree-root or fan-out receipt contract is malformed');
+$worktreeRoot = getenv($worktreeRootEnv);
+if (!is_string($worktreeRoot) || $worktreeRoot === '') $worktreeRoot = dirname($root);
+if (!str_starts_with($worktreeRoot, '/')) foundation_fail("$worktreeRootEnv must name an absolute directory");
+$worktreeRoot = rtrim($worktreeRoot, '/');
+$seenThreads = []; $seenBranches = []; $seenSuffixes = [];
 foreach ($worktrees as $row) {
-    $thread = $row['thread'] ?? null; $branch = $row['branch'] ?? null; $path = $row['path'] ?? null;
+    $thread = $row['thread'] ?? null; $branch = $row['branch'] ?? null; $suffix = $row['worktree_suffix'] ?? null;
     if (!is_int($thread) || $thread < 1 || $thread > 5 || isset($seenThreads[$thread])
         || !is_string($branch) || preg_match('~^refs/heads/refactor/[A-Za-z0-9._/-]+$~D', $branch) !== 1
-        || isset($seenBranches[$branch]) || !is_string($path) || !str_starts_with($path, '/') || isset($seenPaths[$path])) {
+        || isset($seenBranches[$branch]) || !is_string($suffix)
+        || preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D', $suffix) !== 1 || isset($seenSuffixes[$suffix])) {
         foundation_fail('foundation worktree record is malformed or duplicated');
     }
-    $seenThreads[$thread] = true; $seenBranches[$branch] = true; $seenPaths[$path] = true;
+    $seenThreads[$thread] = true; $seenBranches[$branch] = true; $seenSuffixes[$suffix] = true;
 }
 ksort($seenThreads);
 if (array_keys($seenThreads) !== [1,2,3,4,5]) foundation_fail('foundation integration must declare exactly Threads 1-5');
@@ -181,6 +198,21 @@ function foundation_git(string $root, array $args): string {
 if (!$policyOnly) {
     $foundationCommit = foundation_git($root, ['rev-parse', '--verify', $foundationRef . '^{commit}']);
     if (preg_match('/^[a-f0-9]{40}$/D', $foundationCommit) !== 1) foundation_fail('foundation ref did not resolve to one commit');
+    if (foundation_git($root, ['cat-file', '-t', $foundationRef]) !== 'tag') {
+        foundation_fail('foundation receipt must be carried by an annotated tag');
+    }
+    $tagReceipt = foundation_git($root, ['for-each-ref', $foundationRef, '--format=%(contents)']);
+    $expectedReceiptLines = [
+        'duo-foundation-fanout-receipt/v1',
+        'foundation_commit=' . $foundationCommit,
+        'integration_branch=' . $integrationBranch,
+    ];
+    foreach ($worktrees as $row) $expectedReceiptLines[] = 'thread_' . $row['thread'] . '_branch=' . $row['branch'];
+    foreach ($expectedReceiptLines as $line) {
+        if (!in_array($line, preg_split('/\R/', $tagReceipt) ?: [], true)) {
+            foundation_fail("annotated foundation tag lacks receipt field: $line");
+        }
+    }
     $integrationHead = foundation_git($root, ['rev-parse', '--verify', $integrationBranch . '^{commit}']);
     if (foundation_git($root, ['merge-base', $foundationCommit, $integrationHead]) !== $foundationCommit) {
         foundation_fail('integration branch does not descend from the foundation commit');
@@ -206,7 +238,8 @@ if (!$policyOnly) {
         if ($requireUnadvanced && $threadHead !== $foundationCommit) {
             foundation_fail('thread branch advanced before the one-time fan-out receipt was verified: ' . $row['branch']);
         }
-        if (($actualWorktrees[$row['branch']] ?? null) !== $row['path'] || !is_dir($row['path'])) {
+        $expectedPath = $worktreeRoot . '/' . $row['worktree_suffix'];
+        if (($actualWorktrees[$row['branch']] ?? null) !== $expectedPath || !is_dir($expectedPath)) {
             foundation_fail('thread worktree is absent or attached to the wrong branch: ' . $row['branch']);
         }
     }

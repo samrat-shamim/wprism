@@ -302,7 +302,7 @@ final class CapturePublicationWorkflow {
                 $initialStateIdentity, $initialMediaIdentity, $initialConfigIdentity,
                 $lock, $initialBaseline, $scoped, $scopeContract,
                 $scopeSourceTreeSha256, $repoPath, $onInitialPayloadReady,
-                $hostEnvironment,
+                $hostEnvironment, $mutation,
                 &$publicationPhase
             ): array {
                 // All map/state mutations which can happen while deciding
@@ -546,10 +546,8 @@ final class CapturePublicationWorkflow {
                     $compiledCandidate = RepositoryCompiler::compile_staged($staging, $c->repo(), $c->policy());
                 }
                 if ($initialBaseline) {
-                    if ($mutation === null) {
-                        throw new \RuntimeException('duo: capture mutation bridge is unavailable');
-                    }
-                    $candidate['_initial_code_baseline'] = $mutation->completeInitialCodeBaseline(
+                    $candidate['_initial_code_baseline'] = self::completeInitialCodeBaseline(
+                        $mutation,
                         $repo,
                         $compiledCandidate
                     );
@@ -694,10 +692,7 @@ final class CapturePublicationWorkflow {
                             array_column($candidate['entities'], 'uuid'),
                             array_column($candidate['deletions'], 'uuid')
                         ));
-                        if ($mutation === null) {
-                            throw new \RuntimeException('duo: capture mutation bridge is unavailable');
-                        }
-                        $mutation->recordCodeVersions($c->policy());
+                        self::recordCodeVersions($mutation, $c->policy());
                     }
                 }
                 $intent = Publish::mark_commit_ready($stateDir, $intent, $initialBaseline);
@@ -915,6 +910,25 @@ final class CapturePublicationWorkflow {
             $summary['scope'] = $build['_scope'];
         }
         return $summary;
+    }
+
+    /** @return array{enabled:bool,completed:bool,code_revision:?string,files:int} */
+    private static function completeInitialCodeBaseline(
+        ?CaptureMutationPort $mutation,
+        string $repo,
+        CompiledRepository $compiled
+    ): array {
+        if ($mutation === null) {
+            throw new \RuntimeException('duo: capture mutation bridge is unavailable');
+        }
+        return $mutation->completeInitialCodeBaseline($repo, $compiled);
+    }
+
+    private static function recordCodeVersions(?CaptureMutationPort $mutation, Policy $policy): void {
+        if ($mutation === null) {
+            throw new \RuntimeException('duo: capture mutation bridge is unavailable');
+        }
+        $mutation->recordCodeVersions($policy);
     }
 
     private static function runInConsistentSnapshot(

@@ -5,7 +5,7 @@ namespace Duo;
 
 /** Same-directory durable replacement for authoritative single-file state. */
 final class AtomicFilePublisher {
-    public static function replace(string $path, string $bytes, int $mode = 0644): void {
+    public static function replace(string $path, string $bytes, int $mode = 0600): void {
         if ($path === '' || str_contains($path, "\0")) {
             throw new \RuntimeException('duo: atomic publication path is invalid');
         }
@@ -16,6 +16,11 @@ final class AtomicFilePublisher {
         if (is_link($path) || (file_exists($path) && !is_file($path))) {
             throw new \RuntimeException('duo: atomic publication destination is not a regular file');
         }
+        if ($mode < 0 || $mode > 0777) {
+            throw new \RuntimeException('duo: atomic publication mode is invalid');
+        }
+        $existingMode = file_exists($path) ? (fileperms($path) & 0777) : null;
+        $publishMode = $existingMode ?? $mode;
 
         $tmp = $dir . '/.' . basename($path) . '.duo-' . bin2hex(random_bytes(12)) . '.tmp';
         $handle = @fopen($tmp, 'x+b');
@@ -24,7 +29,9 @@ final class AtomicFilePublisher {
         }
         $published = false;
         try {
-            @chmod($tmp, $mode);
+            if (!chmod($tmp, $publishMode) || (fileperms($tmp) & 0777) !== $publishMode) {
+                throw new \RuntimeException('duo: atomic publication could not secure staging permissions');
+            }
             $offset = 0;
             $length = strlen($bytes);
             while ($offset < $length) {
@@ -47,6 +54,10 @@ final class AtomicFilePublisher {
                 throw new \RuntimeException('duo: atomic publication replacement failed');
             }
             $published = true;
+            clearstatcache(true, $path);
+            if ((fileperms($path) & 0777) !== $publishMode) {
+                throw new \RuntimeException('duo: atomic publication permissions changed during replacement');
+            }
 
             // Persist the directory entry when the platform supports syncing
             // directory handles. Some PHP/filesystem combinations reject the

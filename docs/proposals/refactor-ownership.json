@@ -3932,10 +3932,6 @@
             "owner": "thread-5"
         },
         {
-            "prefix": "cli/src/RecoveryProtocol/",
-            "owner": "thread-5"
-        },
-        {
             "prefix": "recovery/",
             "owner": "thread-5"
         },
@@ -4018,6 +4014,41 @@
             "owner": "thread-2",
             "rationale": "existing refresh/rebase compatibility bridge",
             "removal_condition": "Thread 2 routes all target semantics through the agent gateway/built contract artifact"
+        },
+        {
+            "source": "cli/src/Refresh.php",
+            "target": "agent/src/ScopeContract.php",
+            "owner": "thread-2",
+            "rationale": "existing refresh scope-contract compatibility bridge",
+            "removal_condition": "Thread 2 consumes the ratified host-safe repository contract package"
+        },
+        {
+            "source": "cli/src/PassthroughCommand.php",
+            "target": "agent/src/{Canon,ScopeContract}.php",
+            "owner": "thread-2",
+            "rationale": "existing host passthrough compatibility bridge",
+            "removal_condition": "Thread 2 consumes the ratified host-safe canonical scope package"
+        },
+        {
+            "source": "cli/src/AdapterCatalog.php",
+            "target": "agent/src compatibility classmap declared in source",
+            "owner": "thread-4",
+            "rationale": "existing offline adapter catalog compatibility bridge",
+            "removal_condition": "Thread 4 publishes the catalog through its host-safe artifact package"
+        },
+        {
+            "source": "cli/src/AdapterDraft.php",
+            "target": "agent/src compatibility classmap declared in source",
+            "owner": "thread-4",
+            "rationale": "existing offline adapter draft compatibility bridge",
+            "removal_condition": "Thread 4 publishes the draft grammar through its host-safe artifact package"
+        },
+        {
+            "source": "cli/src/ManifestValidate.php",
+            "target": "agent/src compatibility classmap declared in source",
+            "owner": "thread-4",
+            "rationale": "existing offline manifest-validation compatibility bridge",
+            "removal_condition": "Thread 4 publishes validation through its host-safe artifact package"
         }
     ],
     "hot_files": [

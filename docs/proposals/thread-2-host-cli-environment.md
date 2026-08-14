@@ -244,7 +244,7 @@ bundle outside the source checkout and must not fall back to source bytes.
 
 Ratify an immutable internal `ReleaseSelection` input with: composite bundle
 path, expected release-family digest, expected target release-set digest,
-trusted current-review authority/key IDs, and expected
+trusted current-review Ed25519 public keys indexed by authority/key IDs, and expected
 host/agent/recovery-protocol tuple. Thread 2 owns the input contract and injects
 it at `cli/duo` and owns the trusted-selection reader. Thread 1 owns only
 manifest format/assembly. Thread 0 owns the selection-pin schema/update policy,

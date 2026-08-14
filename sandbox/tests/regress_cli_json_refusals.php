@@ -153,9 +153,12 @@ namespace Duo {
      */
     final class Journal {
         public static ?\Throwable $failure = null;
+        public static int $refusalSuspensions = 0;
 
         /** adapter-observe must suspend before even its argument gates. */
         public static function suspend_for_observation(): void {}
+
+        public static function suspend_for_refusal(): void { self::$refusalSuspensions++; }
 
         public static function report(array $names): array {
             if (self::$failure !== null) {
@@ -340,6 +343,14 @@ namespace {
         check(($payload['message'] ?? null) === $expectedMessage, "$command refusal identifies its stable first gate");
         check(is_string($payload['remediation'] ?? null) && $payload['remediation'] !== '', "$command refusal carries remediation");
     }
+    check(\Duo\Journal::$refusalSuspensions === 2,
+        'capture and apply suspend the optional shutdown journal before their safety refusal');
+    $confirmedInit = invoke_json(static fn() => $cli->init([], [
+        'repo' => '/fixture', 'confirm' => 'sha256:' . str_repeat('a', 64), 'format' => 'json',
+    ]));
+    check(($confirmedInit['error'] ?? null) === 'portable_capture_safety_unqualified'
+        && \Duo\Journal::$refusalSuspensions === 3,
+        'confirmed init suspends the optional shutdown journal before its safety refusal');
 
     $scopeRoots = invoke_json(static fn() => $cli->scope([], [
         'repo' => '/fixture',

@@ -107,13 +107,15 @@ temporary filename.
 
 These results are from the final pre-commit tree. The one-time fan-out check is
 necessarily run after this record is committed and the tag, integration branch,
-and worktrees can exist; its successful output is bound by the foundation tag
-and is the receipt for `T0-GATE-10`.
+and worktrees can exist. Portable branch/suffix topology lives in
+`foundation-integration.json`; a configurable worktree root is local setup,
+not authority. The annotated foundation tag carries the machine-readable
+commit/ref receipt for `T0-GATE-10` and is published with the fan-out refs.
 
 | Verification | Result |
 |---|---|
 | `scripts/contracts-check` | PASS — public inventory, golden bytes, compatibility facades, trust pins, and boundary seams |
-| `scripts/ownership-check` | PASS — 958 tracked paths exactly once; 32 exclusive new-module prefixes |
+| `scripts/ownership-check` | PASS — 958 tracked paths exactly once; 31 non-overlapping exclusive new-module prefixes |
 | `scripts/foundation-check --policy-only` | PASS — all 48 charter acceptance items mapped and required artifacts present |
 | `git diff --check` | PASS |
 | PHP syntax over all `agent`, `cli`, and `recovery` PHP | PASS |
@@ -121,6 +123,7 @@ and is the receipt for `T0-GATE-10`.
 | focused Capture publication/crash recovery regression | PASS |
 | focused provider/runtime-inspection and command-refusal regressions | PASS |
 | focused host-contract, recovery-protocol/authority, adoption-rollback, deploy, Init, and scoped-session regressions | PASS |
+| PR review hardening: injected Capture mutation calls, signed artifact trust, closed redacted identity, permission-preserving atomic publication, live provider loading, recursive boundary enforcement, and portable fan-out topology | PASS — focused executable regressions and adversarial fixtures |
 | focused manifest-validation grammar/boot boundary | All non-authority semantic checks pass; 22 shipped-current assertions fail solely because every named v1 closure is intentionally stale |
 | `make --no-print-directory release-gate` after source changes | Expected FAIL in 1.48 s at the first stale subject, `manifests.acf`; branch is non-releasable |
 | `make --no-print-directory regress-offline-all` after source changes | Expected FAIL in 106.09 s at the first stale-current consumer, `regress_manifest_dispositions`; all preceding suites pass and no evidence is regenerated |

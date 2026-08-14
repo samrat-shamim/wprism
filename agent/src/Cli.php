@@ -688,6 +688,7 @@ final class Cli {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
             if (isset($assoc['confirm'])) {
+                Journal::suspend_for_refusal();
                 throw CommandRefusalException::portableCaptureUnqualified();
             }
             $result = isset($assoc['confirm'])
@@ -736,6 +737,7 @@ final class Cli {
      */
     public function capture($args, $assoc) {
         try {
+            Journal::suspend_for_refusal();
             throw CommandRefusalException::portableCaptureUnqualified();
             if (isset($assoc['scope-contract']) && isset($assoc['scope-request-b64'])) {
                 throw new \RuntimeException('duo: capture accepts one scope contract source');
@@ -1532,6 +1534,7 @@ final class Cli {
      */
     public function apply($args, $assoc) {
         try {
+            Journal::suspend_for_refusal();
             throw CommandRefusalException::qualificationHarnessRequired();
             $opts = [
                 'adopt_by_slug' => $assoc['adopt-by-slug'] ?? '',

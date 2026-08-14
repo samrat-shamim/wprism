@@ -1176,6 +1176,22 @@ $check(is_array($gate) && ($gate['declared'] ?? 0) === 1 && ($gate['problems'] ?
     . 'library load cannot manufacture findings about an environment it cannot see');
 @unlink($gateProbe);
 
+$liveLoadProbe = $dir . '/live-load-probe.php';
+file_put_contents($liveLoadProbe, "<?php\n"
+    . "define('ABSPATH', __DIR__ . '/wp/');\n"
+    . "define('WP_PLUGIN_DIR', __DIR__ . '/wp-content/plugins');\n"
+    . "function apply_filters(string \$hook, mixed \$value): mixed { return \$value; }\n"
+    . "function get_option(string \$name, mixed \$default = false): mixed { return \$default; }\n"
+    . 'require ' . var_export($root . '/agent/src/Providers.php', true) . ";\n"
+    . "echo Duo\\Providers::runtime_negotiation_available() ? 'available' : 'unavailable';\n");
+$liveLoadOut = [];
+exec(escapeshellarg(PHP_BINARY) . ' ' . escapeshellarg($liveLoadProbe) . ' 2>&1', $liveLoadOut, $liveLoadRc);
+$check(
+    $liveLoadRc === 0 && implode("\n", $liveLoadOut) === 'available',
+    'direct Providers loading in a live WordPress process lazily supplies its default runtime adapter'
+);
+@unlink($liveLoadProbe);
+
 // Both halves of the plan-time posture, on one fixture: apply throws the
 // packaging fault (asserted in this file's final group, unchanged), and the
 // reporting surface turns it into a row instead of dying on it.
