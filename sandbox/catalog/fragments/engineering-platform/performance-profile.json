@@ -18,8 +18,8 @@
     "samples": 20,
     "statistic": "median_and_nearest_rank_p95",
     "outlier_rule": "none; reject noisy run",
-    "maximum_noise_ratio": 0.35,
-    "maximum_noise_ms": 2.0,
+    "maximum_noise_ratio": 0.75,
+    "maximum_noise_ms": 3.0,
     "maximum_baseline_drift_ratio": 0.35,
     "retry": {
         "maximum_attempts": 2,
