@@ -55,6 +55,7 @@ cli/src/AdapterCatalog.php
 cli/src/AdapterDraft.php
 cli/src/AdapterObservation.php
 cli/src/ManifestValidate.php
+future cli/src/ArtifactTrust/**
 sandbox/conformance/entries/**
 sandbox/conformance/seeds/**
 sandbox/conformance/postdeploy/**
@@ -79,7 +80,6 @@ Its initial `agent/src` allowlist is:
 ActionProviderGrammar.php
 AdapterCertification.php
 AdapterContractGrammar.php
-AdapterObservation.php
 AdapterRegistry.php
 AdapterSources.php
 ArtifactPolicyIdentity.php
@@ -130,7 +130,10 @@ UserMetaGrammar.php
 WidgetTypeResolver.php
 ```
 
-Thread 3 alone wires agent commands. Thread 2 alone wires host commands.
+Thread 3 owns the agent-side `AdapterObservation.php` collector/WordPress
+adapter and alone wires agent commands. Thread 4 owns only the inert
+closed-observation-to-catalog projector behind its facade. Thread 2 alone wires
+host commands.
 Thread 5 consumes policy/provider facades and does not edit their implementation.
 Thread 1 owns test/conformance runner mechanics; Thread 4 owns the semantic
 conformance definitions and assertions for its subjects.
@@ -185,8 +188,10 @@ After Thread 0's safety disposition, add golden fixtures for:
   acceptance/rejection outcomes;
 - current version/disposition/evidence mismatch behavior.
 
-Fixtures distinguish reviewed declarations, generated evidence, dispositions,
+Fixtures distinguish reviewed declarations, evidence records, dispositions,
 and generated claims. A test or manifest cannot manufacture a certified claim.
+They also prove that a generated projection is rejected when its independently
+recomputed bytes differ, even if that projection was packaged or signed.
 
 ### 2. Policy pipeline
 
@@ -338,12 +343,33 @@ path, raw low-entropy value, or unkeyed digest of such a value; it binds
 reviewed secret-reference IDs or domain-separated keyed digests where
 necessary. Redaction and dictionary-guess resistance have adversarial fixtures.
 
-Publish signed evidence and deterministic generated claims as the detached
-authority pack defined by Thread 0. It names exact certified payload digests and
-does not live inside those payloads. Thread 1 places it in the detached
-release-set manifest and may carry that set in a composite install archive for
-atomic transfer, but neither the pack nor the release-set manifest can confer
-authority on itself.
+Publish two physically separate outputs defined by Thread 0. The detached
+review bundle contains only current reviewed authority input—reviewed
+disposition or applicable current platform certification record (never a target
+site attestation), immutable evidence identities, approving principal,
+provenance class, trust-root key ID, and exact payload bindings. The
+deterministic projection pack contains generated registry/docs/claim bytes and
+is always recomputed and byte-compared from its exact reviewed inputs before
+use. A packaged or signed projection remains a cache, never authority.
+
+Thread 1 installs those outputs under separate `overlay/review/**` and
+`overlay/projection/**` roots, outside immutable runtime/declaration payloads,
+and binds them in the target release set. Thread 4 exports the runtime lookup
+and verification facade for those roots plus a pure host-safe implementation
+under `cli/src/ArtifactTrust/**`. That implementation consumes only bytes and
+versioned contracts, imports no WordPress/agent code, and is packaged and
+closure-bound in the host artifact by Thread 1 for Thread 2 adoption. Ordinary
+build/test jobs never hold the approval signing key. Legacy third-party or
+harness signatures keep their literal provenance and cannot be relabeled as
+current-platform review. Neither bundle, projection, nor release manifest can
+confer authority on itself.
+
+Thread 4 owns an exact source-to-artifact classification fragment for every
+tracked file under `manifests/**`. Reviewed declarations may enter
+`payload/declarations/**`; dispositions/evidence enter only
+`overlay/review/**`; generated capability registry/claim bytes enter only
+`overlay/projection/**`. An unclassified file or membership in two classes
+fails both the ownership and distribution gates.
 
 Add a synthetic closure regression that changes one path under each deployed
 tree—agent, host CLI, recovery, generated loader/shared package, build
@@ -379,10 +405,15 @@ contracts. Agent/capture and mutation modules depend on these facades, not
 - Current-policy load/query facade and immutable normalized snapshot.
 - Inert native-action catalog/grammar facade consumed by policy loading.
 - Adapter catalog/source/provenance facade.
+- Inert closed-observation/catalog projector consumed by Thread 3's agent-side
+  collector.
 - Provider negotiation/execution facade.
 - Current capability projection and deterministic renderer.
 - Evidence dependency/impact report.
-- Semantic conformance subject catalog consumed by Thread 1's runner.
+- Pure host-safe review-bundle/projection verifier consumed by Thread 2's
+  `ReleaseSelection` path.
+- Thread 4-owned semantic conformance catalog/component-profile fragment,
+  consumed through Thread 1's validated generated aggregate.
 
 ## Constraints
 
@@ -414,8 +445,10 @@ At minimum, run catalog-selected suites for:
 - the complete offline corpus before integration.
 
 Use `make test-component COMPONENT=capability-policy-evidence` for the offline
-thread gate; live conformance/certification profiles remain separately
-classified and authority-controlled.
+thread gate. Thread 4 owns that catalog/component-profile fragment; Thread 1
+validates and aggregates it. Live conformance/certification profiles remain
+separately classified and authority-controlled and require all of Thread 0's
+provisioning/data/credential/egress/effect/output containment bindings.
 
 For fixed synthetic inputs, archived v1 bundle fixture bytes and verifier
 acceptance/rejection outcomes match their post-safety baseline. Closure v2 has

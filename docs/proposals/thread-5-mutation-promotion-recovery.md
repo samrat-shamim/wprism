@@ -222,6 +222,10 @@ Application services consume Thread 4's immutable policy/provider facades and
 Thread 3's repository/read-model facade. They do not access the internals of
 those modules.
 
+Thread 5 consumes Thread 3's pure scoped-option projection. Capture-facing cron
+suppression remains behind Thread 3's WordPress port; Thread 5 does not expose
+`ScopedApply`, `Canary`, or lifecycle implementations to Capture.
+
 Introduce database, clock, filesystem, and process ports only where they make
 an extracted stage independently testable. Existing `Db`/`Ledger` static APIs
 remain compatibility adapters until the foundation grants one writer; do not
@@ -307,7 +311,7 @@ verb in this round.
 
 ### 7. Recovery runtime decomposition
 
-Make `rollback-control.php` a small standalone composition/dispatch root over:
+Make `rollback-control.php` a standalone composition/dispatch-only root over:
 
 - protocol decoder/validator;
 - lock and durable state repository;
@@ -400,10 +404,21 @@ At minimum, run catalog-selected suites for:
 Per-slice development runs focused recovery regressions and a
 `make test-component COMPONENT=mutation-recovery` gate. Evidence-producing
 `certify-ssh-rollback` and subject certification run only against Thread 0's
-frozen candidate. Recovery/adoption/SSH verification must execute the built
-recovery artifact outside the checkout and declare unique resource IDs,
-disposable targets, cleanup-on-failure, and concurrency/resource locks in the
-test catalog.
+frozen candidate. Thread 5 owns the mutation-recovery catalog/component-profile
+fragment; Thread 1 validates and aggregates it. Recovery/adoption/SSH
+verification must execute the built recovery artifact outside the checkout and
+have the runner verify provisioning/target role, approved synthetic or
+minimized data, non-production credential realm, default-deny egress/effect
+policy, sandbox/no-effect proof, and enforced non-authorizing/non-adoptable
+output bindings against the separately issued authority record. Unique resource
+IDs, cleanup-on-failure, and concurrency/resource locks remain in the fragment.
+A `disposable` label alone cannot authorize execution; missing, stale, or
+mismatched proof refuses frozen-candidate or evidence-producing runs.
+
+Thread 5 contributes recovery/rollback suites to the post-evidence
+`release-validation` profile. They consume the retained exact
+release-family/target-set/composite bytes, perform no rebuild/signing/Git write,
+and must emit a passing receipt before merge or release.
 
 `make recovery-transition-check` validates the transition/fault matrix and
 fails on an unclassified, expired, or final-gate-forbidden deferral.
@@ -418,7 +433,9 @@ is frozen.
   named stages and side-effect ports.
 - Current plan/mutation-precondition decisions are produced once and only
   presented elsewhere.
-- Recovery's root file is a small composition/dispatch surface.
+- An architecture check permits Recovery's root file only protocol bootstrap,
+  dependency composition, dispatch, and terminal result emission; resource
+  strategy and state-transition bodies live behind the exported controller.
 - Current state transitions, hashes, receipts, and signatures are fixture- and
   fault-test compatible.
 - No authority, signature, writer-exclusion, or durable-side-effect transition

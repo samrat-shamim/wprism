@@ -8,7 +8,7 @@
 
 ## Goal
 
-Turn `cli/duo` into a small composition root and separate command parsing,
+Turn `cli/duo` into a composition-only root and separate command parsing,
 application orchestration, transport, environment lifecycle, and presentation.
 The host should depend on stable component facades and versioned target bytes,
 not reach into WordPress-agent implementation classes.
@@ -227,23 +227,41 @@ behind the single legacy bridge and characterize it.
 
 Separate artifact selection, target eligibility, transfer, install, version
 verification, and rollback into explicit steps. Consume Thread 1's verified
-release-set manifest, component payloads, and composite target-install archive
-rather than reconstructing source-tree membership locally.
+release-family and target release-set manifests, component payloads, and
+composite target-install archive rather than reconstructing source-tree
+membership locally.
 
 Preserve target paths, atomic swap/rollback protocol, compatibility checks,
 declared artifact contents, version proof, and public behavior. The agent,
-recovery runtime, reviewed declarations, and detached authority pack are one
-version-consistent install unit; adoption must never mix components from
-different manifests. Byte identity with the old source archive is not required
-after the approved generated-loader build change. Adoption must work from an
-explicit composite bundle outside the source checkout and must not fall back to
-source bytes.
+recovery runtime, immutable declarations, review bundle, and
+derived projection pack are one version-consistent target install unit;
+adoption must never mix components from different manifests. The target archive
+does not carry host bytes, but the host CLI must verify its own artifact digest
+and protocol tuple against the selected release family before mutation. Byte
+identity with the old source archive is not required after the approved
+generated-loader build change. Adoption must work from an explicit composite
+bundle outside the source checkout and must not fall back to source bytes.
 
-The caller supplies the expected release-set digest through the approved
-artifact-selection contract. Adoption verifies that digest, the release-set
-manifest, configured evidence/signing trust, every expected payload digest, and
-the actual bytes before staging. A manifest shipped beside a modified archive
-is not a trust anchor.
+Ratify an immutable internal `ReleaseSelection` input with: composite bundle
+path, expected release-family digest, expected target release-set digest,
+trusted current-review authority/key IDs, and expected
+host/agent/recovery-protocol tuple. Thread 2 owns the input contract and injects
+it at `cli/duo` and owns the trusted-selection reader. Thread 1 owns only
+manifest format/assembly. Thread 0 owns the selection-pin schema/update policy,
+and an approved release authority or operator-controlled configuration supplies
+the expected family digest outside the artifact producer's control. Trust is
+obtained from that non-co-located pin (or an explicit internal caller input),
+never inferred from a manifest beside the archive. Existing public options
+remain compatible; any new public selector needs the separately reviewed
+artifact-migration command-contract amendment.
+
+Adoption verifies the complete selection, review authority, every expected
+payload/overlay digest, recomputed projection agreement, and actual bytes
+before staging. It does so through Thread 4's pure host-safe artifact-trust
+verifier, packaged and closure-bound in the host artifact by Thread 1; host code
+does not import agent/WordPress implementation. A fixture modifies an archive
+and its adjacent manifests consistently and proves rejection because neither
+matches the independently pinned release family.
 
 ### 7. Host presentation boundary
 
@@ -264,9 +282,12 @@ top-level rendering and process exit behavior.
 - Git/worktree/process ports.
 - host output/presenter contract.
 - one documented legacy agent-contract bridge with a shrinking import list.
-- stable HostContracts consumed by Thread 5;
+- stable HostContracts consumed by Thread 5.
 - host composition for Thread 5's byte-compatible recovery protocol client,
   used to remove root imports of recovery internals.
+- internal `ReleaseSelection` trust input consumed at the composition root.
+- host-side reader for Thread 0's independently controlled release-selection
+  pin, consuming Thread 4's pure artifact-trust verifier.
 
 ## Constraints
 
@@ -292,11 +313,14 @@ At minimum, run the catalog-selected suites for:
 - refresh/rebase and field conflicts;
 - plan/promotion/rollback host integration supplied by Thread 5;
 - built-artifact adoption;
+- post-evidence release validation against the retained exact
+  release-family/target-set/composite bytes;
 - the complete offline corpus before integration.
 
 Use the common commands from Thread 1, including
 `make test-component COMPONENT=host-cli` and explicit catalog IDs for
-integration/conformance lanes.
+integration/conformance lanes. Thread 2 owns the host-cli catalog/component
+profile fragment; Thread 1 validates and aggregates it.
 
 Live/SSH suites run where the foundation impact map requires them. All command
 fixtures must pass against both the legacy root and the extracted root during
@@ -304,9 +328,16 @@ migration through a test-only composition selector. The same vector compares
 exit code, stdout, and stderr bytes. No production fallback flag selects the
 legacy root.
 
+Pre-evidence adoption uses Thread 1's explicitly non-authorizing candidate
+profile only. Final adoption proof comes solely from the post-evidence
+release-validation profile, which also exercises recovery/rollback on its
+independently authorized qualification target without rebuilding the artifact.
+
 ## Done means
 
-- `cli/duo` is a small composition root with no application workflow body.
+- An architecture check permits `cli/duo` to perform only compatibility guard,
+  composition, input handoff, and exit return; it has no workflow imports or
+  direct process/filesystem/network mutation.
 - Every existing command is registered explicitly and retains its contract.
 - Remote agent interaction passes through one gateway.
 - Direct agent-source imports are eliminated or isolated in one shrinking,

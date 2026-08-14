@@ -39,7 +39,8 @@ Thread 3 owns:
 
 - `agent/src/Cli.php` and agent-side command wiring;
 - Init, observation, pending/classification, coverage, and agent lint command
-  application services;
+  application services, including the agent-side `AdapterObservation.php`
+  command/collector and its WordPress adapter;
 - `Capture*.php`, `*Capture.php`, publication/publish collaborators, and
   capture safety orchestration;
 - `Snapshot.php` and WordPress read-model extraction;
@@ -130,7 +131,9 @@ Define narrow ports around behavior actually needed by this thread:
 - filesystem/path operations;
 - WordPress/plugin/theme inventory;
 - clock and identifier generation where nondeterminism exists;
-- WP-CLI output and progress.
+- WP-CLI output and progress;
+- Capture-facing cron suppression, exposed as a WordPress execution port rather
+  than a dependency on Thread 5's mutation canary.
 
 Wrap current static/global implementations rather than rewriting them at once.
 New application code receives ports through constructors or request-scoped
@@ -202,6 +205,12 @@ the Thread 3 code-contract leaf directly, never Thread 5's target-mutation
 facade. Capture-time code baseline/version effects cross a Thread 3-owned port;
 Thread 5 supplies the concrete adapter at the agent composition root.
 
+Pure scoped-option projection is also a Thread 3 scope/read-model leaf. Capture
+uses it directly and Thread 5 may consume it for mutation; Capture code never
+imports `ScopedApply`. Together with the cron-suppression port, the boundary
+check forbids every direct Capture-prefix dependency on Thread 5 mutation,
+promotion, canary, or lifecycle implementations.
+
 ### 6. Init, observation, and pending decomposition
 
 Continue the existing thin-facade work by isolating:
@@ -217,6 +226,11 @@ Continue the existing thin-facade work by isolating:
 Every probe declares whether loading WordPress/plugins or executing it can
 write caches, logs, cron, queues, or external effects. A method is not labeled
 read-only merely because Duo issues no direct SQL write.
+
+The adapter-observation collector owns Journal/Pending orchestration and all
+`$wpdb` access. It passes a closed inert observation document to Thread 4's
+catalog projector; the capability module never reaches back into WordPress or
+Capture infrastructure.
 
 Thread 0 resolves or quarantines known PII-coverage and experimental-mutation
 gaps before these paths are fixture-frozen. This thread preserves that safer
@@ -270,17 +284,26 @@ At minimum, run catalog-selected suites for:
 - the complete offline corpus before integration.
 
 Use `make test-component COMPONENT=wordpress-agent` for the offline component
-gate. Capture concurrency and consistent-snapshot suites are cataloged as
-authorized live integration: exact source SHA, disposable pair, unique resource
-IDs, cleanup-on-failure contract, and serialization/resource locks are
-mandatory. They never run as an unclassified offline default.
+gate. Thread 3 owns the wordpress-agent catalog/component-profile fragment;
+Thread 1 validates and aggregates it. Capture concurrency and
+consistent-snapshot suites are cataloged as authorized live integration only
+when the runner verifies exact source SHA and all provisioning, target-role,
+data, credential, egress/effect, sandbox/no-effect, and enforced
+non-authorizing/non-adoptable bindings against the separately issued authority
+record. Unique resource IDs, cleanup-on-failure, and serialization/resource
+locks remain mandatory. “Disposable” alone is not evidence of containment.
+Missing, stale, or mismatched proof refuses frozen-candidate or
+evidence-producing execution, and live suites never enter an unclassified
+offline default.
 
 Changes touching broad evidence inputs run the impact-selected conformance and
 certification suites during the final cutover.
 
 ## Done means
 
-- `Cli.php` is a small composition/registration root.
+- An architecture check permits `Cli.php` only WP-CLI registration,
+  composition, top-level refusal conversion, and presenter handoff; it has no
+  application workflow body or direct mutation dependency.
 - Capture is a readable coordinator over explicit, independently tested stages.
 - WordPress/global access is confined to named adapters for the refactored
   paths.

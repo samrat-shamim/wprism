@@ -1,6 +1,6 @@
 # Thread 0 — Refactor foundation and integration contract
 
-*Status: proposed for owner approval.*
+*Status: refactor-first sequencing approved 2026-08-14; execution charter proposed for merge.*
 
 *Round: behavior-preserving modularization before product enhancement.*
 
@@ -101,8 +101,11 @@ The target dependency rules are:
    are allowed only in its composition and infrastructure boundaries.
 4. Recovery remains standalone: it does not depend on WordPress, agent, or CLI
    implementation code.
-5. Manifests and generated evidence are inputs. They do not depend on runtime
-   implementations and cannot certify themselves.
+5. Reviewed declarations and review records are inputs. Generated claim
+   projections are derived caches: runtimes may use them only after
+   recomputing/comparing them against their reviewed inputs. Neither a
+   declaration, generated projection, nor packaged signature can certify
+   itself.
 6. Test and build tooling may depend on production modules; production modules
    never depend on test or development tooling.
 7. Existing CLI-to-agent source imports are compatibility debt. This round
@@ -243,13 +246,32 @@ components and normalized build definition, every deployed first-party runtime
 dependency (including recovery and generated loaders), and the exact test plan,
 harness, oracle, helper, PHP, WordPress, database, container-image, dependency,
 provider/configuration, environment-fingerprint, and execution-receipt
-identities on which the current evidence depends. The signed evidence and
-generated claim projection form a detached authority pack that names those
-payload digests; they are not embedded in the payload they certify. Archived v1
-records remain parseable and cryptographically verifiable for audit, but
-incomplete v1 closure cannot keep a claim current. New candidate claims use v2
-and require full recertification. If that migration is not approved, the dist
-cutover is deferred rather than shipping bytes outside evidence authority.
+identities on which the current evidence depends.
+
+Closure v2 physically separates four artifact classes even when their source
+files currently share `manifests/`: immutable declaration payloads, reviewed
+authority records, deterministic generated projections, and runtime payloads.
+The build installs them under distinct declared roots and an exact file ledger
+proves that no generated registry, documentation, disposition, attestation, or
+evidence record entered a declaration/runtime payload. Runtime lookup crosses a
+Thread 4 facade that verifies the reviewed record, recomputes the projection
+from exact declaration/evidence inputs, and byte-compares any packaged
+projection before using it as a cache.
+
+A detached **review bundle** names the certified payload digests and contains
+only reviewed authority input: the applicable reviewed disposition or current
+platform certification record (never a target site attestation), immutable
+evidence identities,
+approving principal, provenance class, trust-root key ID, and canonical
+payload bindings. A separate **projection pack** contains generated
+registry/docs/claim bytes. Packaging or signing a projection never grants it
+authority. Approval keys are unavailable to ordinary build/test jobs, and
+legacy third-party or harness signatures remain labeled as their actual
+provenance rather than becoming current-platform approval. Archived v1 records
+remain parseable and cryptographically verifiable for audit, but incomplete v1
+closure cannot keep a claim current. New candidate claims use v2 and require
+full recertification. If that migration is not approved, the dist cutover is
+deferred rather than shipping bytes outside evidence authority.
 
 Closure identities use one canonical redacted schema. Evidence and run receipts
 never serialize credentials, raw secrets/PII, machine-local paths, raw
@@ -271,9 +293,22 @@ The initial mandatory review covers:
 
 - Experimental/unproved Capture may not publish an operator's authoritative
   portable repository, regardless of environment. Apply/Delete may run only in
-  an independently proven isolated qualification/test harness whose outputs are
-  explicitly non-authorizing and cannot be adopted or promoted. Do not infer
-  safety from a mutable disposable flag.
+  an independently proven isolated qualification/test harness whose catalog
+  entry binds verified provisioning provenance and environment role, approved
+  synthetic or minimized data, non-production credential references,
+  default-deny egress/effect policy, and explicitly non-authorizing,
+  non-adoptable outputs. The entry carries requirement/reference IDs only; at
+  execution, the runner verifies them against a fresh, separately controlled
+  signed provisioning record and the actual target. That record binds target,
+  image/provisioning, environment role, data profile, credential realm,
+  network/effect controls, sandbox destinations, expiry, and issuer/key ID.
+  Its digest enters the run receipt. Provider/effect tests use sandbox
+  destinations or prove that no external effect can occur, and the release/
+  promotion trust boundary technically refuses qualification-output
+  provenance. Frozen-candidate and evidence-producing profiles refuse when any
+  proof is absent, stale, or mismatched. Resource uniqueness and cleanup are
+  still required, but neither they nor a mutable `disposable` flag prove
+  containment.
 - PII discovery coverage across every currently capturable certified or
   experimental surface, including forms, membership data, post/media/user
   metadata, options, and custom tables. Unknown sensitivity quarantines that
@@ -332,11 +367,20 @@ ownership is:
 | Host command-contract entries | Thread 2 |
 | Agent command-contract entries | Thread 3 |
 | Generated command-contract aggregate and validation tooling | Thread 1 |
+| `sandbox/catalog/fragments/engineering-platform/**` | Thread 1 |
+| `sandbox/catalog/fragments/host-cli/**` | Thread 2 |
+| `sandbox/catalog/fragments/wordpress-agent/**` | Thread 3 |
+| `sandbox/catalog/fragments/capability-policy-evidence/**` | Thread 4 |
+| `sandbox/catalog/fragments/mutation-recovery/**` | Thread 5 |
+| Test-catalog schema, validator, generated aggregate, and runner | Thread 1 |
+| Harness-approval schema, trust-root policy, and record acceptance rules | Thread 0; records are issued outside behavior-thread control |
+| Release-selection pin schema and update/acceptance policy | Thread 0; values are supplied outside the artifact producer |
+| `cli/src/ArtifactTrust/**` pure host-safe review/projection verifier | Thread 4; Thread 1 packages it, Thread 2 consumes it |
 | `scripts/foundation-check`, `scripts/ownership-check`, `scripts/contracts-check` | Thread 0 |
 | `scripts/evidence-impact`, `scripts/evidence-staleness-check` decision logic | Thread 4 |
 | `spec/repo-format.md` and other product-contract prose | Thread 0 unless explicitly delegated |
 | `sandbox/tests/**` semantic assertions and `sandbox/fixtures/**` semantic data | Thread owning the cataloged behavior |
-| Test catalog, runner, sharding, shared harness, compose/workspace infrastructure | Thread 1 |
+| Test runner, sharding, shared harness, compose/workspace infrastructure | Thread 1 |
 
 The execution charters provide initial allowlists for mixed directories.
 Thread 0 turns those into one exhaustive file ledger and resolves any overlap
@@ -350,6 +394,15 @@ composition roots allowed to instantiate concrete adapters. `contracts-check`
 rejects a concrete reverse edge or implementation import outside those roots.
 An exception names exact source/target prefixes, owner, rationale, and removal
 condition; a broad directory wildcard is not an architecture rule.
+Thread 0 exclusively owns the boundary-rule/exception schema and data plus the
+checker policy. Thread 1 owns analyzer dependencies/configuration, Make/CI
+invocation, and result presentation only.
+
+Behavior-owned test fragments contain content-addressed requirement/reference
+IDs, never literal authorization. Thread 0 owns the separately reviewed
+harness-approval schema and trust policy; an approved provisioner/current review
+authority issues the signed, expiring environment records outside the checkout.
+Thread 1's runner validates them but cannot issue them.
 
 ### F2a. Break current dependency cycles before fan-out
 
@@ -366,6 +419,16 @@ owners to be real:
   `RepositoryCompiler`, directly to that Thread 3 leaf rather than back through
   Thread 5's `Code` facade. Capture-time baseline/version effects use a Thread
   3-owned port implemented by Thread 5 at the agent composition root.
+- Keep the agent-side `AdapterObservation` command/collector and its WordPress
+  adapter in Thread 3. Extract only an inert closed-observation/catalog
+  projector behind a Thread 4 facade; capability code must not own or import
+  `Journal`, `Pending`, `$wpdb`, or Capture orchestration.
+- Remove every Capture-prefix dependency on Thread 5. Extract capture-facing
+  cron suppression behind a Thread 3 WordPress execution port and move pure
+  scoped-option projection into Thread 3's scope/read-model leaf; Thread 5 may
+  consume that leaf for mutation and may supply a concrete adapter only at the
+  composition root. `contracts-check` rejects direct Capture imports of
+  mutation, promotion, lifecycle, `Canary`, or `ScopedApply` implementations.
 - Remove `PinResolver`'s repository-compiler dependency: it calls Thread 4's
   artifact-policy identity facade directly, so repository compilation may
   consume that facade without forming a reverse cycle.
@@ -378,6 +441,11 @@ owners to be real:
 - Define and fixture a byte-compatible recovery protocol client boundary.
   Thread 5 owns its implementation; Thread 2 removes the direct
   `rollback-control.php` import during integration.
+- Ratify Thread 0's independently controlled release-selection pin and Thread
+  4's pure host-safe artifact-trust verifier before adoption work. The verifier
+  recomputes review/projection agreement from bytes without WordPress or agent
+  implementation imports; Thread 1 packages and closure-binds it in the host
+  artifact, and Thread 2 consumes it through `ReleaseSelection`.
 - Assign exclusive new-directory prefixes for platform, host, agent/repository,
   capability, mutation, and recovery modules. A new file belongs to its prefix
   owner, never to a catch-all rule.
@@ -443,14 +511,27 @@ intentionally stale, `evidence-staleness-check` passes only when the actual
 stale-subject set exactly equals the reviewed impact report and emits a
 machine-readable `non_releasable` result. It never makes `release-gate` pass.
 
+Thread 0 also owns
+`docs/proposals/refactor-acceptance.json`, the machine-readable refactor
+acceptance matrix. Every stable `Done` item in all six charters has an ID mapped
+to its verification command, owning CI/gate profile, expected artifact or
+receipt field, and pass condition. A genuinely qualitative decision is marked
+`review_only` and names the required reviewer role and recorded decision
+artifact.
+`foundation-check` rejects a missing, duplicate, or unmapped item; prose such
+as “small” or “compatible” is never the sole acceptance test.
+
 ### F5. Branch and integration protocol
 
 Use a long-lived `refactor/integration` branch based on the foundation commit.
 Create one worktree per execution thread. Do not run five agents against the
-same checkout. Thread 1 lands a minimal platform P0—test catalog/runner,
-contract-check wrappers, and the new-file loading convention—immediately after
-foundation. Threads 2–5 rebase onto that slice before changing production
-code; all five then continue in parallel.
+same checkout. Platform P0 is a pre-production mini-train: Thread 1 first lands
+the schema/validator/serial runner, contract-check wrappers, platform fragment,
+and new-file loading convention; Threads 2–5 then land test-only initial
+catalog/component-profile fragments under their exclusive prefixes; Thread 1
+finally generates/validates the aggregate and activates every nonempty gate.
+Threads 2–5 rebase onto that completed P0 before changing production code; all
+five then continue in parallel.
 
 Each thread delivers small reviewable slices and maintains:
 
@@ -464,18 +545,23 @@ Each thread delivers small reviewable slices and maintains:
 Development can be parallel, but integration is reader-before-writer and
 facade-first. The expected merge train is:
 
-1. Thread 1's platform P0 and dev-only test/tooling foundation.
-2. Thread 4's stable policy/capability facades and corrected source/recovery
+1. Thread 1's platform P0a schema/validator/serial-runner foundation.
+2. Threads 2–5's owner-authored test-only initial fragments, integrated
+   reader-before-writer without production edits.
+3. Thread 1's generated aggregate, nonempty-profile activation, and remaining
+   dev-only P0 wrappers.
+4. Thread 4's stable policy/capability facades and corrected source/recovery
    closure membership.
-3. Thread 3's agent/capture core and root extraction.
-4. Thread 5's mutation/recovery facades and modules.
-5. Thread 3's narrow `Cli.php` integration of Thread 5's exported handlers.
-6. Thread 1's artifact producer/layout, without claiming adoption proof yet.
-7. Thread 4's closure-v2 artifact/build binding against that frozen layout.
-8. Thread 2's host composition, artifact-consuming adoption, and cross-runtime
+5. Thread 3's agent/capture core and root extraction.
+6. Thread 5's mutation/recovery facades and modules.
+7. Thread 3's narrow `Cli.php` integration of Thread 5's exported handlers.
+8. Thread 1's artifact producer/layout, without claiming adoption proof yet.
+9. Thread 4's closure-v2 artifact/build binding against that frozen layout.
+10. Thread 2's host composition, artifact-consuming adoption, and cross-runtime
    wiring.
-9. Thread 1's final reproducibility, dist, loader, and adoption-from-dist gates.
-10. Thread 0's full verification and evidence recertification cutover.
+11. Thread 1's final payload/release-family reproducibility, loader, and
+    adoption-from-dist gates.
+12. Thread 0's full verification and evidence recertification cutover.
 
 If a branch needs another branch's new interface, it codes to the ratified
 interface fixture or waits for that narrow slice. It does not copy the
@@ -505,38 +591,51 @@ exception. Do not pretend a squash-produced SHA is the candidate that existing
 evidence reviewed.
 
 The evidence child must have the frozen candidate as its direct parent and may
-change only an approved evidence/claim-projection allowlist. The close gate
-verifies that relationship, the imported bundle revisions and certified
+change only the approved review-bundle/projection-pack source allowlist. The
+close gate verifies that relationship, the imported bundle revisions and
+certified
 payload digests, and the absence of runtime, declaration, build-definition, or
 other certified-payload changes. Both exact commit objects must remain
 reachable from fresh `main`.
 
 Evidence cannot recursively certify an archive containing itself. The frozen
-candidate produces content-addressed host and target runtime/declaration
-payloads. The evidence child adds a detached authority pack that binds those
-payload digests. A detached release-set manifest then binds the agent, recovery,
-reviewed declarations, and authority-pack components plus both source commits.
-A composite target-install archive may carry that verified set for one atomic
-install, but the release-set manifest is excluded from its own digest and is
-distribution integrity metadata, not a self-certifying input.
+candidate produces content-addressed host CLI, target runtime, and immutable
+declaration payloads. The evidence child adds a detached review bundle and
+deterministic projection pack; neither is inserted into or changes
+the payload it evaluates. A detached target release-set manifest binds the
+agent, recovery, declaration, review-bundle, and projection-pack components
+plus both source commits. A release-family manifest then cross-binds that
+target set to the exact host CLI artifact digest and the compatible
+host/agent/recovery protocol tuple. The target-install archive may omit host
+bytes, but the invoking CLI verifies its own artifact identity and protocol
+tuple against the caller-pinned release-family manifest before any target
+mutation. Neither manifest is a self-certifying input; each is excluded from
+its own digest.
 
 After all runtime changes stabilize:
 
 1. Freeze one reachable integration commit.
 2. Build and retain the exact content-addressed runtime/declaration payloads
    from that commit.
-3. Run the full offline, live, conformance, recovery, adoption, and failure
-   suites required by the impact report.
+3. Run the full offline, live, conformance, recovery, failure, and explicitly
+   non-authorizing candidate-adoption suites required by the impact report.
 4. Generate candidate evidence from that exact commit.
 5. Have the current evidence/disposition review authority review and import it
    in the direct evidence-only child.
-6. Assemble the detached release-set manifest and composite install archive
-   from the retained payload digests and detached authority pack. Run
-   release-gate and distribution smoke tests against those exact bytes; do not
-   rebuild the runtime from the evidence-child HEAD.
-7. Restart impact calculation if any runtime, declaration, build-definition, or
+6. Assemble the detached target release-set, release-family manifest, and
+   composite install archive from the retained payloads, reviewed bundle, and
+   projection pack. Run release-gate, release-family, assembly-reproducibility,
+   and read-only distribution smoke tests against those exact bytes; do not
+   rebuild the runtime from the evidence-child HEAD or mutate a target in the
+   evidence-child profile.
+7. Run the separate post-evidence release-validation profile against the
+   retained exact family/set/composite on an independently authorized
+   qualification target. It performs adoption and recovery/rollback but no
+   rebuild, signing, or Git write. Its receipt is required before merge/release.
+8. Restart the frozen-candidate/evidence cycle if release validation fails or if
+   any runtime, declaration, build-definition, or
    certified payload byte changes after the freeze. Only the reviewed detached
-   evidence/projection diff belongs in the child.
+   review-record/projection diff belongs in the child.
 
 Longer term, evidence closure should become dependency-bound so an unrelated
 tooling change does not invalidate every subject. Changing that authority is a
@@ -564,8 +663,10 @@ Threads 1–5 may fork only when:
   semantic-test, fixture, generated-output, and new-module prefix exactly once,
   and `scripts/ownership-check` passes;
 - the NativeActions, pure code-contract, target-runtime inspection,
-  HostContracts, and recovery protocol cycle-breaking seams are
-  fixture-compatible;
+  AdapterObservation, Capture cron/scoped-option, HostContracts, and recovery
+  protocol/release-selection/artifact-trust cycle-breaking seams are
+  fixture-compatible and
+  `contracts-check` sees no Capture-to-mutation implementation edge;
 - the current recovery omission is corrected or its affected claims are
   withdrawn, and the closure-v2 schema/input set is approved for the later
   artifact-binding slice;
@@ -573,6 +674,7 @@ Threads 1–5 may fork only when:
   separately documented;
 - the exact-revision certification/merge-policy ruling is approved;
 - hot-file and generated-file protocols are accepted;
+- every charter `Done` item is covered by the validated acceptance matrix;
 - the integration branch and five worktrees are created from one commit;
 - every known safety candidate has executable evidence, a minimal fix, or a
   loud quarantine, and only the resulting behavior is fixture-frozen;
