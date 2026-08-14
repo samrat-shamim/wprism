@@ -368,6 +368,52 @@ $check(
     'regeneration debt: projection is read-only and does not mutate the supplied marker snapshots'
 );
 
+// ----------------------------------------------- environment provisioning
+
+$envOptions = [
+    'z_optional' => ['class' => 'env', 'required' => false],
+    'a_required' => ['class' => 'env', 'required' => true],
+    'm_present' => ['class' => 'env', 'required' => true],
+    'empty_required' => ['class' => 'env', 'required' => true],
+];
+$envOptionsBefore = $envOptions;
+$envReads = [];
+$envValues = [
+    'z_optional' => '',
+    'a_required' => null,
+    'm_present' => 'configured',
+    'empty_required' => '',
+];
+$envProjection = ApplyPlanner::env_missing_projection(
+    $envOptions,
+    static function (string $name) use (&$envReads, $envValues): mixed {
+        $envReads[] = $name;
+        return $envValues[$name] ?? null;
+    }
+);
+$check(
+    $envProjection['env_missing'] === [
+        ['name' => 'z_optional', 'required' => false],
+        ['name' => 'a_required', 'required' => true],
+        ['name' => 'empty_required', 'required' => true],
+    ],
+    'env projection: absent and empty values are missing, while a non-empty value is present'
+);
+$check(
+    $envProjection['warnings'] === [
+        "env_missing: option 'a_required' is required and not yet provisioned on "
+            . "this environment — see 'wp duo env-set --name=a_required --stdin'",
+        "env_missing: option 'empty_required' is required and not yet provisioned on "
+            . "this environment — see 'wp duo env-set --name=empty_required --stdin'",
+    ],
+    'env projection: required warnings retain the exact plan/status vocabulary and declaration order'
+);
+$check(
+    $envReads === ['z_optional', 'a_required', 'm_present', 'empty_required']
+        && $envOptions === $envOptionsBefore,
+    'env projection: reads every declaration once, preserves order, and does not mutate rules'
+);
+
 // ---------------------------------------------------------- lifecycle_comparison_hash
 
 $transition = ['entity' => 'options/core', 'before_hash' => 'before123', 'after_hash' => 'after456'];
@@ -1103,6 +1149,16 @@ $check(
         && str_contains($applySource, '$this->regeneration_debt_projection()')
         && !str_contains($applySource, 'regen_context_plan_rows('),
     'regeneration debt: planner owns the complete read-only projection while Apply supplies Ledger/Policy boundaries'
+);
+$envBuildStart = strpos($applySource, '        // DUO-3232: env-bound value provisioning checklist.');
+$envBuildEnd = strpos($applySource, '        // DUO-3249:', $envBuildStart);
+$envBuildSection = substr($applySource, $envBuildStart, $envBuildEnd - $envBuildStart);
+$check(
+    preg_match('/public static function env_missing_projection\(/', $plannerSource) === 1
+        && preg_match('/private function env_missing_projection\([^}]*?return ApplyPlanner::env_missing_projection\(/s', $applySource) === 1
+        && str_contains($envBuildSection, '$this->env_missing_projection()')
+        && !str_contains($envBuildSection, 'foreach ($this->policy->env_options()'),
+    'env projection: planner owns missing rows and warnings while Apply keeps only Policy/wpdb boundary and plan threading'
 );
 $themeSectionStart = strpos($applySource, '    private function check_theme_mismatch(');
 $themeSectionEnd = strpos($applySource, "\n    // ----------------------------------------------------------------- apply", $themeSectionStart);

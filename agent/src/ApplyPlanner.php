@@ -1208,6 +1208,47 @@ final class ApplyPlanner {
     }
 
     /**
+     * Project the read-only checklist for manifest-declared environment
+     * options. Apply supplies the already-resolved Policy rules and the live
+     * option-value reader; the planner owns the missing-value semantics, row
+     * shape, declaration order, and required-option warning vocabulary.
+     *
+     * Missing deliberately means only an absent row or an empty string on
+     * this environment. The callback is invoked once for every declaration,
+     * including present optional values, and this method never writes through
+     * it or mutates the supplied rules.
+     *
+     * @param array<string,array> $envOptions
+     * @return array{env_missing:list<array{name:string,required:bool}>,warnings:list<string>}
+     */
+    public static function env_missing_projection(
+        array $envOptions,
+        \Closure $readOption
+    ): array {
+        $missing = [];
+        $warnings = [];
+
+        foreach ($envOptions as $name => $rule) {
+            $name = (string) $name;
+            $value = $readOption($name);
+            if ($value !== null && $value !== '') {
+                continue;
+            }
+            $required = (bool) ($rule['required'] ?? false);
+            $missing[] = ['name' => $name, 'required' => $required];
+            if ($required) {
+                $warnings[] = "env_missing: option '$name' is required and not yet provisioned on "
+                    . "this environment — see 'wp duo env-set --name=$name --stdin'";
+            }
+        }
+
+        return [
+            'env_missing' => $missing,
+            'warnings' => $warnings,
+        ];
+    }
+
+    /**
      * Project the warning emitted when an FSE entity is tagged for a captured
      * theme other than the target's active stylesheet. The active stylesheet
      * is supplied by Apply at its WordPress boundary; this projection itself

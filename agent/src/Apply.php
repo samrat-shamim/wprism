@@ -697,21 +697,10 @@ final class Apply {
         // source-vs-target checklist gets one by running `duo plan`
         // against both named environments and diffing the two
         // env_missing lists client-side — see cli/README.md).
-        global $wpdb;
-        $plan['env_missing'] = [];
-        foreach ($this->policy->env_options() as $name => $rule) {
-            $value = $wpdb->get_var($wpdb->prepare(
-                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-            ));
-            if ($value !== null && $value !== '') {
-                continue;
-            }
-            $required = (bool) ($rule['required'] ?? false);
-            $plan['env_missing'][] = ['name' => $name, 'required' => $required];
-            if ($required) {
-                $this->warnings[] = "env_missing: option '$name' is required and not yet provisioned on "
-                    . "this environment — see 'wp duo env-set --name=$name --stdin'";
-            }
+        $envMissing = $this->env_missing_projection();
+        $plan['env_missing'] = $envMissing['env_missing'];
+        foreach ($envMissing['warnings'] as $warning) {
+            $this->warnings[] = $warning;
         }
 
         // DUO-3249: loud, plan-visible half of Policy::rule_details()'s
@@ -4573,6 +4562,24 @@ final class Apply {
             fn(string $uuid): bool => Ledger::id_for($uuid, Ledger::KIND_POST) !== null,
             fn(string $postType): bool => $this->policy->regen_batch($postType) !== null
                 || $this->pinned_provider_action_triggers('post:' . $postType),
+        );
+    }
+
+    /**
+     * Thin engine-boundary facade over ApplyPlanner's read-only environment
+     * provisioning projection. Policy resolves the declared option rules;
+     * this boundary is the only part that knows how to read their live values
+     * from WordPress's options table. No value is written by plan production.
+     *
+     * @return array{env_missing:list<array{name:string,required:bool}>,warnings:list<string>}
+     */
+    private function env_missing_projection(): array {
+        global $wpdb;
+        return ApplyPlanner::env_missing_projection(
+            $this->policy->env_options(),
+            fn(string $name): mixed => $wpdb->get_var($wpdb->prepare(
+                "SELECT option_value FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
+            ))
         );
     }
 

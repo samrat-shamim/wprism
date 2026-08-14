@@ -2202,6 +2202,7 @@ require $root . '/agent/src/Apply.php';
 
 final class ProbeBatchWpdb {
     public string $prefix = 'wp_';
+    public string $options = 'wp_options';
     public string $posts = 'wp_posts';
     public string $term_taxonomy = 'wp_term_taxonomy';
     public string $last_error = '';
@@ -2211,6 +2212,10 @@ final class ProbeBatchWpdb {
     public array $postsRows = [];
     /** @var array<string,string> the duo_kv keyspace (markers) */
     public array $kv = [];
+    /** @var array<string,mixed> option name => stored value */
+    public array $optionRows = [];
+    /** @var list<string> */
+    public array $optionReadNames = [];
 
     public function prepare(string $query, ...$args): string {
         foreach ($args as $arg) {
@@ -2256,6 +2261,11 @@ final class ProbeBatchWpdb {
     }
 
     public function get_var(string $query): mixed {
+        if (preg_match("/SELECT option_value FROM wp_options WHERE option_name = '((?:[^'\\\\]|\\\\.)*)' LIMIT 1/", $query, $m)) {
+            $name = stripslashes($m[1]);
+            $this->optionReadNames[] = $name;
+            return array_key_exists($name, $this->optionRows) ? $this->optionRows[$name] : null;
+        }
         if (preg_match("/SELECT local_id FROM wp_duo_map WHERE uuid = '([^']+)' AND id_kind = '([^']+)'/", $query, $m)) {
             return $this->map[$m[1] . "\0" . $m[2]] ?? null;
         }
@@ -3121,6 +3131,36 @@ $check($noClaimantProjection['regen_context'] === []
     && $noClaimantProjection['regen_pending'] === [],
     'a receipt no pinned claimant owns is not surfaced either — the projection shows outstanding DEBT, never '
     . 'orphaned bookkeeping');
+
+echo "\n== env_missing is driven through Apply's real read-only boundary ==\n";
+$envManifest = $manifest;
+$envManifest['options'] = [
+    'z_optional' => ['class' => 'env', 'required' => false],
+    'a_required' => ['class' => 'env', 'required' => true],
+    'm_present' => ['class' => 'env', 'required' => true],
+];
+$envPolicy = $policyFor($envManifest);
+$applyPolicy->setValue($apply, $envPolicy);
+$wpdb->optionRows = ['m_present' => 'configured', 'z_optional' => ''];
+$wpdb->optionReadNames = [];
+$envFacade = $applyPrivate('env_missing_projection', []);
+$check($envFacade === [
+    'env_missing' => [
+        ['name' => 'a_required', 'required' => true],
+        ['name' => 'z_optional', 'required' => false],
+    ],
+    'warnings' => [
+        "env_missing: option 'a_required' is required and not yet provisioned on "
+            . "this environment — see 'wp duo env-set --name=a_required --stdin'",
+    ],
+], 'the real Apply facade combines Policy env declarations with live wp_options values');
+$check(
+    $wpdb->optionReadNames === ['a_required', 'm_present', 'z_optional'],
+    'the Apply facade reads every resolved env option in Policy order through the wpdb boundary'
+);
+$applyPolicy->setValue($apply, $policyFor($claimantManifest));
+$wpdb->optionRows = [];
+$wpdb->optionReadNames = [];
 
 // The projection is hashed into the promotion precondition BEFORE negotiation
 // (run()'s first plan) and after it (freshPlan), so it must be a pure function
