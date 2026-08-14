@@ -53,6 +53,9 @@ require_once __DIR__ . '/AttributeGrammar.php';
 // DUO-3348 slice 50: block/shortcode structural registry projection is pure
 // manifest work; Policy retains the public compatibility accessors below.
 require_once __DIR__ . '/ContentAttributeRuleResolver.php';
+// DUO-3348 slice 52: widget type registry/provenance is a pure manifest
+// projection; Policy retains its public facades for current callers.
+require_once __DIR__ . '/WidgetTypeResolver.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
@@ -1106,14 +1109,7 @@ final class Policy {
 
     /** Closed widget type registry. Last pinned manifest wins per type. */
     public function widget_types(): array {
-        $out = [];
-        foreach ($this->manifests as $manifest) {
-            foreach ((array) ($manifest['widgets'] ?? []) as $type => $rule) {
-                $out[(string) $type] = (array) $rule;
-            }
-        }
-        ksort($out, SORT_STRING);
-        return $out;
+        return $this->widget_type_resolver()->types();
     }
 
     /**
@@ -1124,15 +1120,12 @@ final class Policy {
      * @return array{rule:?array,source:?string}
      */
     public function widget_type_rule_details(string $type): array {
-        $rule = null;
-        $source = null;
-        foreach ($this->manifests as $manifest) {
-            if (isset($manifest['widgets'][$type]) && is_array($manifest['widgets'][$type])) {
-                $rule = $manifest['widgets'][$type];
-                $source = (string) ($manifest['name'] ?? '?');
-            }
-        }
-        return ['rule' => $rule, 'source' => $source];
+        return $this->widget_type_resolver()->details($type);
+    }
+
+    /** Fresh because manifests stay publicly mutable in offline fixtures. */
+    private function widget_type_resolver(): WidgetTypeResolver {
+        return new WidgetTypeResolver($this->manifests);
     }
 
     /** blockName => list of {path, kind, type} rules, merged across manifests. */
