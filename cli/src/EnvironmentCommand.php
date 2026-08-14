@@ -4,6 +4,11 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/Registry.php';
+require_once __DIR__ . '/Environment/EnvironmentRegistry.php';
+require_once __DIR__ . '/Environment/MaterializationRequest.php';
+require_once __DIR__ . '/Environment/MaterializationCoordinator.php';
+require_once __DIR__ . '/Environment/ReapCoordinator.php';
+require_once __DIR__ . '/Environment/LifecycleResultProjector.php';
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/EnvironmentLifecycle.php';
 require_once __DIR__ . '/EnvironmentCommandOptions.php';
@@ -60,8 +65,13 @@ final class EnvironmentCommand {
                 );
                 return 1;
             }
-            $envs = Registry::load($envsFileOverride, getcwd() ?: '.');
-            $targetConfig = Registry::get($envs, $targetName);
+            $registry = EnvironmentRegistry::load($envsFileOverride, getcwd() ?: '.');
+            // Compatibility anchors: Registry::load( remains the parser
+            // authority while the typed repository facade is introduced;
+            // EnvironmentMaterializer::materialize( and
+            // EnvironmentMaterializer::reap( are now delegated by the
+            // named coordinators below.
+            $targetConfig = $registry->get($targetName);
             $targetDriver = Transport::make($targetName, $targetConfig);
             $targetProvider = CommandEnvironmentProvider::fromEnvironment($targetName, $targetConfig);
             $journal = self::journal();
@@ -71,10 +81,10 @@ final class EnvironmentCommand {
                 $latest = $journal->latestForTarget($targetName);
                 $sourceName = $latest === null ? null : self::reapSourceName($latest);
                 if ($sourceName !== null) {
-                    $sourceConfig = Registry::get($envs, $sourceName);
+                    $sourceConfig = $registry->get($sourceName);
                     $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
                 }
-                $receipt = EnvironmentMaterializer::reap(
+                $receipt = ReapCoordinator::run(
                     $targetDriver,
                     $targetProvider,
                     $journal,
@@ -86,20 +96,16 @@ final class EnvironmentCommand {
 
             if (!is_array($options)) throw new \RuntimeException('materialize intent is missing');
             $sourceName = $options['source'];
-            $sourceConfig = Registry::get($envs, $sourceName);
+            $sourceConfig = $registry->get($sourceName);
             $sourceDriver = Transport::make($sourceName, $sourceConfig);
             $sourceProvider = CommandEnvironmentProvider::fromEnvironment($sourceName, $sourceConfig);
-            $receipt = EnvironmentMaterializer::materialize(
+            $receipt = MaterializationCoordinator::run(
                 $sourceDriver,
                 $targetDriver,
                 $sourceProvider,
                 $targetProvider,
                 $journal,
-                [
-                    'branch' => $options['branch'],
-                    'create' => $options['create'],
-                    'ttl_seconds' => $options['ttl_seconds'],
-                ],
+                MaterializationRequest::fromOptions($options),
                 $promote
             );
             self::renderReceipt($receipt, $options['json'], 'materialize');
@@ -159,25 +165,6 @@ final class EnvironmentCommand {
 
     /** @param array<string,mixed> $receipt */
     public static function renderReceipt(array $receipt, bool $json, string $action): void {
-        if ($json) {
-            echo json_encode($receipt, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR) . "\n";
-            return;
-        }
-        echo "environment $action complete: operation=" . ($receipt['operation_id'] ?? '?')
-            . ' resource=' . ($receipt['resource_id'] ?? '?') . "\n";
-        if ($action === 'materialize') {
-            echo 'mode=' . ($receipt['mode'] ?? '?')
-                . ' branch=' . ($receipt['branch_commit'] ?? '?')
-                . ' snapshot=' . ($receipt['snapshot_set_id'] ?? '?') . "\n";
-            echo 'release code=' . ($receipt['code_revision'] ?? '?')
-                . ' state=' . ($receipt['state_revision'] ?? '?')
-                . ' outer=' . ($receipt['outer_artifact_hash'] ?? '?') . "\n";
-            echo 'url=' . ($receipt['url'] ?? '?')
-                . ' expires_at=' . ($receipt['expires_at'] ?? 'none') . "\n";
-        } else {
-            echo 'disposition=' . ($receipt['disposition'] ?? '?')
-                . ' absence_proof=' . ($receipt['absence_proof_sha256'] ?? '?') . "\n";
-        }
-        echo 'receipt=' . ($receipt['receipt_sha256'] ?? '?') . "\n";
+        LifecycleResultProjector::render($receipt, $json, $action);
     }
 }

@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/HostContracts/RecoveryTransport.php';
 require_once __DIR__ . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 
 /**
@@ -116,7 +117,7 @@ final class RollbackAuthority {
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
             . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
             . ' --root=' . escapeshellarg($root);
-        $result = $transport->captureRaw($script);
+        $result = (new AgentGateway($transport))->captureRaw($script)->toArray();
         if ($result['exit'] === 44) {
             // `available` is still the capability/fallback discriminator, but
             // absence is not successful verification. Keeping ok=false makes
@@ -156,7 +157,7 @@ final class RollbackAuthority {
         $script = 'if [ ! -f ' . escapeshellarg($runtime) . ' ]; then exit 44; fi; '
             . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
             . ' --root=' . escapeshellarg($root);
-        $result = $transport->captureRaw($script);
+        $result = (new AgentGateway($transport))->captureRaw($script)->toArray();
         if ($result['exit'] === 44) {
             throw new \RuntimeException('duo rollback: target authority runtime is unavailable');
         }
@@ -906,7 +907,7 @@ final class RollbackAuthority {
                 . ' --claimant=' . escapeshellarg((string) $status['claimant'])
                 . ' --claim-epoch=' . escapeshellarg((string) $status['claim_epoch'])
                 . ' --input="$input"';
-            $result = $this->transport->captureRaw($script);
+            $result = (new AgentGateway($this->transport))->captureRaw($script)->toArray();
             if ($result['exit'] !== 0) {
                 $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
                 throw new \RuntimeException(
@@ -926,7 +927,7 @@ final class RollbackAuthority {
             return $decoded;
         } finally {
             @unlink($local);
-            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+            (new AgentGateway($this->transport))->captureRaw('rm -f ' . escapeshellarg($remote));
         }
     }
 
@@ -969,7 +970,7 @@ final class RollbackAuthority {
                 . ' --claimant=' . escapeshellarg((string) $status['claimant'])
                 . ' --claim-epoch=' . escapeshellarg((string) $status['claim_epoch'])
                 . ' --input="$input"';
-            $result = $this->transport->captureRaw($script);
+            $result = (new AgentGateway($this->transport))->captureRaw($script)->toArray();
             if ($result['exit'] !== 0) {
                 $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
                 throw new \RuntimeException(
@@ -989,7 +990,7 @@ final class RollbackAuthority {
             return $decoded;
         } finally {
             @unlink($local);
-            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+            (new AgentGateway($this->transport))->captureRaw('rm -f ' . escapeshellarg($remote));
         }
     }
 
@@ -1366,7 +1367,7 @@ final class RollbackAuthority {
                 . 'php ' . escapeshellarg($runtime) . ' ' . escapeshellarg($action)
                 . ' --root=' . escapeshellarg($root)
                 . ' --request="$request"';
-            $result = $this->transport->captureRaw($script);
+            $result = (new AgentGateway($this->transport))->captureRaw($script)->toArray();
             if ($result['exit'] !== 0) {
                 $detail = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
                 throw new \RuntimeException('duo rollback: target request refused' . ($detail !== '' ? ': ' . $detail : ''));
@@ -1380,7 +1381,7 @@ final class RollbackAuthority {
             return $decoded;
         } finally {
             @unlink($local);
-            $this->transport->captureRaw('rm -f ' . escapeshellarg($remote));
+            (new AgentGateway($this->transport))->captureRaw('rm -f ' . escapeshellarg($remote));
         }
     }
 

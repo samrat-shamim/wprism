@@ -4032,7 +4032,7 @@
     ],
     "exceptions": [
         {
-            "source": "cli/duo",
+            "source": "cli/src/Application/LegacyHost.php",
             "target": "agent/src/{Canon,Secrets,ReferenceGraph,ScopeClosure,CanonicalSurfaces,Deletion,ScopeContract}.php",
             "allowed_targets": [
                 "agent/src/Canon.php",

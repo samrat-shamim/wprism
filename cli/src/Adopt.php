@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /**
  * Bootstrap Duo onto a pre-existing WordPress target through an explicitly
@@ -90,15 +91,16 @@ final class Adopt {
                 );
             }
         } else {
-            $reachable = $transport->captureRaw('echo duo-reachable');
+            $gateway = new AgentGateway($transport);
+            $reachable = $gateway->captureRaw('echo duo-reachable')->toArray();
             if ($reachable['exit'] !== 0 || trim($reachable['stdout']) !== 'duo-reachable') {
                 return self::fromTransport('transport preflight', $reachable, $version);
             }
-            $wordpress = $transport->captureWp(['core', 'is-installed']);
+            $wordpress = $gateway->captureArgs(['core', 'is-installed'])->toArray();
             if ($wordpress['exit'] !== 0) {
                 return self::fromTransport('WordPress preflight', $wordpress, $version);
             }
-            $mu = $transport->captureWp(['eval', 'echo WPMU_PLUGIN_DIR;']);
+            $mu = $gateway->captureArgs(['eval', 'echo WPMU_PLUGIN_DIR;'])->toArray();
             $muDir = trim($mu['stdout']);
             if ($mu['exit'] !== 0 || $muDir === '' || $muDir[0] !== '/') {
                 return self::fromTransport('mu-plugin path discovery', $mu, $version);
@@ -135,7 +137,7 @@ final class Adopt {
                 $remoteArchiveIdentity = $transport->uploadedFileIdentity($upload);
             }
 
-            $install = $transport->captureRaw(self::installScript(
+            $install = (new AgentGateway($transport))->captureRaw(self::installScript(
                 $remoteArchive,
                 $muDir,
                 $transport->repoPath(),
@@ -144,16 +146,16 @@ final class Adopt {
                 $rollbackPublicKey,
                 $recoveryConfig,
                 $remoteArchiveIdentity
-            ));
+            ))->toArray();
             if ($install['exit'] !== 0) {
                 return self::fromTransport('remote install', $install, $version);
             }
             $swapped = true;
 
             $versionArgs = ['eval', 'echo defined("DUO_AGENT_VERSION") ? DUO_AGENT_VERSION : "duo-missing";'];
-            $remoteVersion = $transport->captureWp(
+            $remoteVersion = (new AgentGateway($transport))->captureArgs(
                 $isolatedLocal ? CodeDeploy::controlArgs($versionArgs) : $versionArgs
-            );
+            )->toArray();
             if ($remoteVersion['exit'] !== 0 || trim($remoteVersion['stdout']) !== $version) {
                 $remoteVersion['stderr'] .= ($remoteVersion['stderr'] !== '' ? "\n" : '')
                     . "installed agent version mismatch: expected $version, got '" . trim($remoteVersion['stdout']) . "'";
@@ -172,19 +174,19 @@ final class Adopt {
                     . 'catch (\\Throwable $e) { fwrite(STDERR, $e->getMessage()); exit(72); } '
                     . 'echo "duo-policy-ok";',
             ];
-            $policy = $transport->captureWp(
+            $policy = (new AgentGateway($transport))->captureArgs(
                 $isolatedLocal ? CodeDeploy::controlArgs($policyArgs) : $policyArgs
-            );
+            )->toArray();
             if ($policy['exit'] !== 0 || trim($policy['stdout']) !== 'duo-policy-ok') {
                 self::rollback($transport, $muDir, $transport->repoPath(), $token, $policy);
                 $swapped = false;
                 return self::fromTransport('policy verification', $policy, $version);
             }
 
-            $authority = $transport->captureRaw(
+            $authority = (new AgentGateway($transport))->captureRaw(
                 'php ' . escapeshellarg(rtrim($transport->repoPath(), '/') . '/.duo/control/recovery-runtime/rollback-control.php')
                 . ' status --root=' . escapeshellarg(rtrim($transport->repoPath(), '/') . '/.duo/control')
-            );
+            )->toArray();
             if ($authority['exit'] !== 0) {
                 self::rollback($transport, $muDir, $transport->repoPath(), $token, $authority);
                 $swapped = false;
@@ -209,7 +211,7 @@ final class Adopt {
                 }
             }
 
-            $commit = $transport->captureRaw(self::commitBarrierScript($muDir, $transport->repoPath(), $token));
+            $commit = (new AgentGateway($transport))->captureRaw(self::commitBarrierScript($muDir, $transport->repoPath(), $token))->toArray();
             if ($commit['exit'] !== 0) {
                 self::rollback($transport, $muDir, $transport->repoPath(), $token, $commit);
                 $swapped = false;
@@ -222,9 +224,9 @@ final class Adopt {
             $swapped = false;
 
             try {
-                $cleanup = $transport->captureRaw(
+                $cleanup = (new AgentGateway($transport))->captureRaw(
                     self::cleanupCommittedScript($muDir, $transport->repoPath(), $token)
-                );
+                )->toArray();
             } catch (\Throwable) {
                 $cleanup = ['exit' => 255, 'stdout' => '', 'stderr' => ''];
             }
@@ -253,7 +255,7 @@ final class Adopt {
                 // same fail-closed boundary as explicit verification errors.
                 try {
                     $rollbackFailure = self::rollbackFailure(
-                        $transport->captureRaw(self::rollbackScript($muDir, $transport->repoPath(), $token))
+                        (new AgentGateway($transport))->captureRaw(self::rollbackScript($muDir, $transport->repoPath(), $token))->toArray()
                     );
                 } catch (\Throwable $rollbackError) {
                     $detail = trim($rollbackError->getMessage());
@@ -269,7 +271,7 @@ final class Adopt {
                 if ($transport instanceof LocalTransport && is_string($remoteArchiveIdentity)) {
                     $transport->cleanupUploadedFile($remoteArchive, $remoteArchiveIdentity);
                 } elseif (!$transport instanceof LocalTransport) {
-                    $transport->captureRaw('rm -f ' . escapeshellarg($remoteArchive));
+                    (new AgentGateway($transport))->captureRaw('rm -f ' . escapeshellarg($remoteArchive));
                 }
             }
             if ($rollbackFailure !== null) {
@@ -617,7 +619,7 @@ final class Adopt {
         string $token,
         array &$original
     ): void {
-        $rollback = $transport->captureRaw(self::rollbackScript($muDir, $repo, $token));
+        $rollback = (new AgentGateway($transport))->captureRaw(self::rollbackScript($muDir, $repo, $token))->toArray();
         $failure = self::rollbackFailure($rollback);
         if ($failure === null) {
             return;

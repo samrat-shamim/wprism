@@ -2,6 +2,7 @@
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/Transport.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /**
  * `duo doctor <env>` — five checks, each gated on the previous one so a
@@ -12,12 +13,13 @@ require_once __DIR__ . '/Transport.php';
 final class Doctor {
     /** @return array{ok:bool, checks: list<array{label:string, ok:bool, detail:string, advisory?:bool}>} */
     public static function run(EnvironmentDriver $t, ?callable $wpArgs = null): array {
+        $gateway = new AgentGateway($t);
         $captureWp = static function (array $args) use ($t, $wpArgs): array {
-            return $t->captureWp($wpArgs === null ? $args : $wpArgs($args));
+            return (new AgentGateway($t))->captureArgs($wpArgs === null ? $args : $wpArgs($args))->toArray();
         };
         $checks = [];
 
-        $r = $t->captureRaw('echo duo-reachable');
+        $r = $gateway->captureRaw('echo duo-reachable')->toArray();
         $reachable = $r['exit'] === 0 && trim($r['stdout']) === 'duo-reachable';
         $checks[] = self::check('transport reachable', $reachable, $reachable ? '' : self::reason($r));
 
@@ -69,7 +71,7 @@ final class Doctor {
             $repoEsc = escapeshellarg($repo);
             $fileEsc = escapeshellarg(rtrim($repo, '/') . '/site.duo.json');
             $script = "[ -d $repoEsc ] && [ -f $fileEsc ] && echo duo-repo-ok || echo duo-repo-missing";
-            $r = $t->captureRaw($script);
+            $r = $gateway->captureRaw($script)->toArray();
             $out = trim($r['stdout']);
             $repoOk = $r['exit'] === 0 && $out === 'duo-repo-ok';
             $detail = $repoOk ? '' : ($out === 'duo-repo-missing' ? "$repo: path missing or no site.duo.json" : self::reason($r));
@@ -112,7 +114,7 @@ final class Doctor {
                 . '{ command -v git >/dev/null 2>&1 || { echo duo-nogit; exit 0; }; } && '
                 . 'git ls-files --error-unmatch .duo-env-values.json >/dev/null 2>&1 '
                 . '&& echo duo-tracked || echo duo-untracked';
-            $r = $t->captureRaw($script);
+            $r = $gateway->captureRaw($script)->toArray();
             $out = trim($r['stdout']);
             if ($out === 'duo-nogit') {
                 $checks[] = self::check(

@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentDriver.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 require_once dirname(__DIR__, 2) . '/agent/src/Canon.php';
 require_once dirname(__DIR__, 2) . '/agent/src/ScopeContract.php';
 
@@ -31,7 +32,7 @@ final class PassthroughCommand {
                 );
             }
         }
-        return $driver->streamWp(array_merge(['duo', $verb, '--repo=' . $driver->repoPath()], $extra));
+        return (new AgentGateway($driver))->stream($verb, $extra);
     }
 
     /**
@@ -198,7 +199,7 @@ final class PassthroughCommand {
         }
         try {
             $exitCode = self::streamWpInput(
-                $driver,
+                new AgentGateway($driver),
                 array_merge(['duo', 'env-set', '--repo=' . $driver->repoPath()], $extra),
                 $line,
                 $handoffActive
@@ -228,7 +229,7 @@ final class PassthroughCommand {
      * terminal—as stdin.
      */
     private static function streamWpInput(
-        EnvironmentDriver $driver,
+        AgentGateway $gateway,
         array $wpArgs,
         string $input,
         bool &$handoffActive
@@ -236,7 +237,7 @@ final class PassthroughCommand {
         // Resolve the target instruction while ordinary cancellation remains
         // available. The commit boundary begins immediately before spawn,
         // closing the async orphan window around proc_open itself.
-        $instruction = $driver->wpInstruction($wpArgs);
+        $instruction = $gateway->instruction($wpArgs);
         $handoffActive = true;
         $proc = proc_open(
             $instruction,
@@ -584,7 +585,7 @@ final class PassthroughCommand {
                 );
             }
         }
-        return $driver->streamWp(array_merge(['duo', $verb, '--repo=' . $driver->repoPath()], $forward));
+        return (new AgentGateway($driver))->stream($verb, $forward);
     }
 
     public static function hasJsonFlag(array $extra): bool {

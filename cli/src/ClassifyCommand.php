@@ -7,6 +7,7 @@ require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/PendingCommand.php';
 require_once __DIR__ . '/Triage.php';
 require_once __DIR__ . '/ClassificationBatch.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /** Host command handler for the pending-queue classification workflow. */
 final class ClassifyCommand {
@@ -133,7 +134,7 @@ final class ClassifyCommand {
             return 1;
         }
         $args = self::buildArgs($validated['decisions'], $validated['needAllowSecret']);
-        $exit = $driver->streamWp(array_merge(['duo', 'classify', '--repo=' . $driver->repoPath()], $args));
+        $exit = (new AgentGateway($driver))->stream('classify', $args);
         if ($exit !== 0) {
             return $exit;
         }
@@ -158,7 +159,7 @@ final class ClassifyCommand {
         $exit = 0;
         if ($result['decisions']) {
             $args = self::buildArgs($result['decisions'], $result['needAllowSecret']);
-            $exit = $driver->streamWp(array_merge(['duo', 'classify', '--repo=' . $driver->repoPath()], $args));
+            $exit = (new AgentGateway($driver))->stream('classify', $args);
         }
         printf("\n%d classified, %d skipped.\n", $result['classified'], $result['skipped']);
         return $exit;
@@ -182,7 +183,7 @@ final class ClassifyCommand {
         $exit = 0;
         if ($decisions) {
             $args = self::buildArgs($decisions, false);
-            $exit = $driver->streamWp(array_merge(['duo', 'classify', '--repo=' . $driver->repoPath()], $args));
+            $exit = (new AgentGateway($driver))->stream('classify', $args);
         } else {
             echo "no proposals to accept\n";
         }

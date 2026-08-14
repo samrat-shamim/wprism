@@ -1,0 +1,2681 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * duo — host-agnostic multi-environment orchestrator.
+ *
+ * Git stays git; this wraps the per-environment `wp duo capture|plan|apply`
+ * agent commands (agent/src/Cli.php) over local/docker/ssh transports, plus
+ * `envs`/`doctor`/`status` conveniences. Dependency-free PHP 8+ — no
+ * composer, no WordPress required on the machine running `duo` itself.
+ *
+ * See cli/README.md for the environment registry format.
+ */
+
+require dirname(__DIR__) . '/Registry.php';
+require dirname(__DIR__) . '/EnvironmentDriver.php';
+require dirname(__DIR__) . '/EnvironmentLifecycle.php';
+require dirname(__DIR__) . '/CommandOutput.php';
+require dirname(__DIR__) . '/EnvironmentCommandPreflight.php';
+require dirname(__DIR__) . '/PassthroughCommand.php';
+require dirname(__DIR__) . '/PromoteCommand.php';
+require dirname(__DIR__) . '/CaptureCommand.php';
+require dirname(__DIR__) . '/EnvironmentCommandOptions.php';
+require dirname(__DIR__) . '/DriverCapabilitiesCommand.php';
+require dirname(__DIR__) . '/Transport.php';
+require dirname(__DIR__) . '/LocalTransport.php';
+require dirname(__DIR__) . '/DockerTransport.php';
+require dirname(__DIR__) . '/SshTransport.php';
+require dirname(__DIR__) . '/EnvironmentCommand.php';
+require dirname(__DIR__) . '/EnvironmentListCommand.php';
+require dirname(__DIR__) . '/RecoveryProtocol/RecoveryProtocolCodec.php';
+require dirname(__DIR__) . '/RollbackAuthority.php';
+require dirname(__DIR__) . '/VerifiedRollbackProfile.php';
+require dirname(__DIR__) . '/ScopedRollbackProfile.php';
+require dirname(__DIR__) . '/BootstrapEligibility.php';
+require dirname(__DIR__) . '/Adopt.php';
+require dirname(__DIR__) . '/Init.php';
+require dirname(__DIR__) . '/InitCommand.php';
+require dirname(__DIR__) . '/Doctor.php';
+require dirname(__DIR__) . '/DoctorCommand.php';
+require dirname(__DIR__) . '/CodeDeploy.php';
+require dirname(__DIR__) . '/DeployCommand.php';
+require dirname(__DIR__) . '/AdoptCommand.php';
+require dirname(__DIR__) . '/ScopeCommand.php';
+require dirname(__DIR__) . '/PlanContract.php';
+require dirname(__DIR__) . '/PlanSummary.php';
+require dirname(__DIR__) . '/PlanView.php';
+require dirname(__DIR__) . '/Pending.php';
+require dirname(__DIR__) . '/PendingCommand.php';
+require dirname(__DIR__) . '/StatusCommand.php';
+require dirname(__DIR__) . '/Triage.php';
+require dirname(__DIR__) . '/ClassificationBatch.php';
+require dirname(__DIR__) . '/ClassifyCommand.php';
+require dirname(__DIR__) . '/ManifestValidate.php';
+require dirname(__DIR__) . '/AdapterDraft.php';
+require dirname(__DIR__) . '/AdapterCatalog.php';
+require dirname(__DIR__) . '/AdapterObservation.php';
+// RefreshPlan lands as a separately-reviewable semantic layer. Keep this
+// host shell loadable while that contract is unavailable; Refresh itself
+// fails closed with an actionable diagnostic before any candidate ref exists.
+if (is_file(dirname(__DIR__) . '/RefreshPlan.php')) {
+    require dirname(__DIR__) . '/RefreshPlan.php';
+}
+require dirname(__DIR__) . '/Refresh.php';
+require dirname(__DIR__) . '/RefreshCommand.php';
+require dirname(__DIR__) . '/RebaseCommand.php';
+require_once dirname(__DIR__) . '/Environment/AgentGateway.php';
+// Pure immutable-contract validation for host-local --scope-contract files.
+// These classes perform no WordPress bootstrap or target access here.
+require_once dirname(__DIR__, 3) . '/agent/src/Canon.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Secrets.php';
+require_once dirname(__DIR__, 3) . '/agent/src/ReferenceGraph.php';
+require_once dirname(__DIR__, 3) . '/agent/src/ScopeClosure.php';
+require_once dirname(__DIR__, 3) . '/agent/src/CanonicalSurfaces.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Deletion.php';
+require_once dirname(__DIR__, 3) . '/agent/src/ScopeContract.php';
+
+use Duo\Orchestrator\InitCommand;
+use Duo\Orchestrator\CodeDeploy;
+use Duo\Orchestrator\DeployCommand;
+use Duo\Orchestrator\ScopeCommand;
+use Duo\Orchestrator\DriverCapabilityReport;
+use Duo\Orchestrator\EnvironmentDriver;
+use Duo\Orchestrator\EnvironmentLifecycleJournal;
+use Duo\Orchestrator\PendingCommand;
+use Duo\Orchestrator\ClassifyCommand;
+use Duo\Orchestrator\StatusCommand;
+use Duo\Orchestrator\PlanContract;
+use Duo\Orchestrator\PlanSummary;
+use Duo\Orchestrator\PlanView;
+use Duo\Orchestrator\PlanViewException;
+use Duo\Orchestrator\RollbackAuthority;
+use Duo\Orchestrator\VerifiedRollbackProfile;
+use Duo\Orchestrator\ScopedRollbackProfile;
+use Duo\Orchestrator\ManifestValidate;
+use Duo\Orchestrator\AdapterDraft;
+use Duo\Orchestrator\AdapterCatalog;
+use Duo\Orchestrator\AdapterObservation;
+use Duo\Orchestrator\Triage;
+use Duo\Orchestrator\ClassificationBatch;
+use Duo\Orchestrator\CommandOutput;
+use Duo\Orchestrator\EnvironmentCommandPreflight;
+use Duo\Orchestrator\PassthroughCommand;
+use Duo\Orchestrator\PromoteCommand;
+use Duo\Orchestrator\CaptureCommand;
+use Duo\Orchestrator\EnvironmentCommandOptions;
+use Duo\Orchestrator\EnvironmentCommand;
+use Duo\Orchestrator\DriverCapabilitiesCommand;
+use Duo\Orchestrator\EnvironmentListCommand;
+use Duo\Orchestrator\DoctorCommand;
+use Duo\Orchestrator\AdoptCommand;
+use Duo\Orchestrator\Refresh;
+use Duo\Orchestrator\RefreshCommand;
+use Duo\Orchestrator\RebaseCommand;
+use Duo\Orchestrator\RefreshFieldResolutionCancelled;
+use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
+use Duo\Orchestrator\AgentGateway;
+
+function legacy_gateway(EnvironmentDriver $driver): AgentGateway {
+    return new AgentGateway($driver);
+}
+
+function duo_usage(): string {
+    return <<<TXT
+duo — host-agnostic orchestrator for Duo environments
+
+Git stays git: `duo` wraps the per-environment `wp duo …` agent commands
+over local/docker/ssh transports and adds cross-environment ergonomics.
+
+Usage:
+  duo envs
+  duo env materialize <env> --from <production-env> --branch <ref> [--create] [--ttl <seconds>]
+  duo env reap <env>
+  duo manifest-validate <manifests-dir> [--manifest=<name>[,...]]
+                        [--pins=<name>[,...]|--all] [--site=<site-repo>]
+                        [--no-code] [--format=json]
+  duo manifest-validate --emit-schema
+  duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
+                    [--evidence=<live-evidence.json>] [--format=json] [--check-proposals]
+  duo adapter list [--repo=<site-repo>] [--format=json]
+  duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
+  duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter-observe <env> [--out=<local-file>|--format=json]
+  duo doctor <env>
+  duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
+  duo adopt  <env>
+  duo init   <env> [--yes]
+  duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
+  duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
+  duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
+  duo lint    <env> [extra wp-cli flags...]
+  duo plan    <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
+  duo explain <env> <bucket>:<entity-key> [--format=json] [plan flags...]
+  duo apply   <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
+  duo deploy  <env> [--force-code-mismatch] [--force-code-drift]
+  duo env-set <env> --name=<name> (--value=<value> | --stdin)
+  duo promote <env> [--scope-contract=<local-path>] [--with-deletes] [--format=json]
+  duo pending <env>
+  duo classify <env> [--accept-proposals|--export-batch=<path>|--apply-batch=<path>]
+  duo coverage <env> [--format=json]
+  duo scope    <env> --roots=<selectors> [--contract] [--format=json]
+  duo refresh <production-env> --production-ref=<ref> [--scope-contract=<local-path>] [--field-diff --format=json]
+  duo rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<local-path>] [--field-resolution=<local-path>|--interactive]
+  duo rebase <production-env> --abort=<run-id>
+  duo -h | --help
+
+Verbs:
+  env materialize         Materialize a branch environment from one coherent
+    <env> --from=<prod>   provider-owned production DB/media snapshot. The
+    --branch=<ref>        semantic B/P/W rebase remains separate from physical
+    [--create]            restore, then the existing code/lifecycle/state
+    [--ttl=<seconds>]     promotion path converges the candidate. Attach is the
+                          default; --create is explicit and requires exact
+                          create+destroy receipt capabilities. Optional TTL is
+                          provider-owned and identity/lease fenced.
+  env reap <env>          Destroy a created target or detach an attached one
+                          only through its explicit provider capability and an
+                          exact resource/lease/ownership compare-and-reap.
+                          Repeated reap is idempotent; stale identity refuses.
+  envs                    List environments from site.duo.json + .duo-envs.json
+                          (overlay wins per env name), with transport summaries.
+  manifest-validate       Adapter-authoring aid: run the engine's REAL manifest
+    <manifests-dir>       validators over a directory of manifests with no
+    [--manifest=<names>]  WordPress, no database, and no environment. Each
+    [--pins=<names>]      manifest is loaded on its own (so every verdict shows
+    [--all]               in one run), then the requested pin set is co-loaded
+    [--site=<site-repo>]  so the cross-manifest guards run too; --manifest
+    [--no-code]           narrows what is checked individually, --pins/--all the
+    [--format=json]       co-loaded set (default: every manifest in the dir).
+    [--emit-schema]       Engine messages carry their own exact coordinates and
+                          are surfaced verbatim; a per-manifest row carries the
+                          manifest's file path, the pin-set row the paths of
+                          everything co-loaded. --site names a duo SITE REPO
+                          (the directory holding site.duo.json) and validates
+                          against its policy half too — two guards (ref/token/
+                          ledger kinds, conflicting option rules) read site
+                          policy as input, so without it a manifest valid on its
+                          real site can be refused here; such a refusal is
+                          annotated as possibly site-resolvable rather than
+                          rewritten. TRUST: point this only at a manifests dir
+                          you trust as much as the agent's own — a declared
+                          interpreter/regenerator is resolved, which LOADS that
+                          PHP (top level + constructor). --no-code skips that
+                          code half for a first look at an untrusted package;
+                          every declaration is still checked and the skip is
+                          reported, never silent. Checks that genuinely need a
+                          live target, the missing site half, and a skipped code
+                          half are listed as `deferred` on EVERY run — silence
+                          never means verified.
+                          --emit-schema prints the machine-readable grammar
+                          document instead, read from the engine's own closed
+                          vocabularies at emission time (with a `coverage` note
+                          stating what it does NOT publish). Exit 0 all valid,
+                          1 any invalid, 2 usage/IO.
+  adapter-draft           Safe adapter-DRAFT generator: reuses policy-to-manifest's
+    <site-repo>           facts core (Policy::export_manifest) and adds OFFLINE
+    --name=<n>            proposers over the site repo's captured state/**, emitting
+    [--match=<regex>]     grammar-shaped CANDIDATES a human ratifies by hand. Facts
+    [--evidence=<file>]   land in real classification sections; proposals and
+    [--format=json]       unsupported surfaces nest INERT under a `_draft` sidecar
+    [--check-proposals]   (trigger keys renamed so no validator mis-collects them),
+                          each carrying status/confidence/evidence/questions. Every
+                          fact needing a live target (column types, real PK, id
+                          resolution, natural-key uniqueness) stays a proposal with a
+                          question; --evidence is the deferred live seam, accepted and
+                          ignored in this offline slice. --check-proposals lifts each
+                          candidate into a throwaway manifest and runs the REAL
+                          validators, writing nothing live. WordPress-free, no
+                          environment, no transport; the generator never applies or
+                          promotes a proposal and never emits PHP.
+  adapter list            The installed adapter catalog, from the two sources
+    [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
+    [--format=json]       manifest library and, with --repo, that site
+                          repository's own adapters/ overlay. One row per
+                          adapter — name, source, derived trust tier and the
+                          exact declaration that produced it, reviewed
+                          disposition status or `uncertified`, and an isolated
+                          grammar verdict from the REAL loader. No environment,
+                          no transport, no WordPress.
+                          The engine has a THIRD source — one duo-adapter.json
+                          at the root of each active plugin that bundles one —
+                          which lives in WP_PLUGIN_DIR and is therefore only
+                          reachable on the target: run
+                          `wp duo adapter-survey [--repo=<path>]` there. Every
+                          run prints a `sources` block marking each of the three
+                          scanned or not scanned, so an empty result is never
+                          mistaken for "nothing is installed".
+  adapter inspect <name>  One adapter in full: the list row plus its reviewed
+    [--repo=<site-repo>]  disposition entry, its generated registry claim
+    [--format=json]       (digest, supported versions, operations, surfaces,
+                          explicit unsupported boundaries, evidence bundle), the
+                          providers it requires with the capabilities each must
+                          advertise, and its verification facts — evidence
+                          status, plugin_execution status, and each cited test
+                          resolved against the bundle's own verdict. Facts only;
+                          there is no verification score.
+  adapter doctor          list, plus every readiness blocker for this
+    [--repo=<site-repo>]  repository's pins (with --repo) and every installed
+    [--format=json]       file the engine refuses to load — a shadowed adapter,
+                          an ambiguous identity, a case-confusable name, a
+                          symlink, a nested or near-miss .json, a reserved name
+                          — each as a ROW carrying the engine's own message, its
+                          code, its remediation, and which source it is about
+                          plus whether it refused that whole source or one
+                          adapter. Adapters that are installed and NOT loaded
+                          (a plugin bundling a name a reviewed adapter already
+                          answers to) print too, and deliberately never change
+                          the exit code: that is precedence working, not a
+                          fault. This is the one command
+                          that reports those states instead of dying on them,
+                          which is the point: it is what an operator can still
+                          run when the repository is in one. Offline-honest —
+                          it never claims a live verdict, and names what it did
+                          not check.
+                          All three: exit 0 healthy, 1 anything surfaced,
+                          2 usage/IO. Every run, passing or failing, ends with
+                          the `deferred` list — the checks needing a live
+                          target, the manifest-shipped PHP it deliberately does
+                          not load, and the cross-manifest guards that belong to
+                          a pin set.
+  adapter-observe <env>   Ask exactly one configured target for its closed,
+    [--out=<local-file>]  value-redacted adapter proposal-evidence document.
+    [--format=json]       The host supplies only that environment's configured
+                          target repo_path, validates every field/order and the
+                          canonical observation hash before output, and never
+                          accepts a host-local --repo. --out creates one local
+                          evidence file atomically and never overwrites it.
+                          This is non-authorizing evidence, not draft evidence,
+                          certification, registry publication, or an apply
+                          claim. Normal target plugin/provider registration and
+                          readiness negotiation remain enabled; their third-
+                          party callbacks can have side effects, while Duo
+                          itself invokes no provider action or explicit mutation
+                          after observer entry.
+  doctor <env>            Check transport reachability, WordPress install, the
+                          duo agent, and repo_path/site.duo.json. Non-zero exit
+                          on any failing check.
+  driver-capabilities     Negotiate the host driver's closed, versioned
+    <env>                  capability report before contacting the target.
+    [--operation=<flow>]   Defaults to attach. Unsupported requirements are
+    [--format=json]        explicit and non-zero; destructive operations are
+                          never silently emulated.
+  adopt <env>             Bootstrap this checkout's agent + manifests and a
+                          seed site repo onto an SSH target or an explicitly
+                          authorized machine-local target. Local adoption first
+                          proves a read-only safe topology; both paths verify
+                          the exact agent version, policy load, rollback
+                          authority, and doctor checks before transaction
+                          commit. Existing site.duo.json is retained.
+  init <env>              Discover an existing authenticated local/docker/SSH
+                          target and print a content-addressed proposal before
+                          writing anything. Unsupported active extensions,
+                          incompatible adapters, multisite, unavailable media,
+                          or an owned repository block initialization loudly.
+                          On confirmation, write separate content-addressed
+                          code and canonical state/media baselines, then prove
+                          the selected managed scope clean. This does not
+                          fabricate a promotion rollback checkpoint.
+    --yes                 Confirm the displayed proposal non-interactively.
+  status <env>            Run `wp duo plan --format=json` and print counts per
+                          plan bucket (incl. deletion conflicts,
+                          code_mismatch, and code_drift), drift paths,
+                          blocked deletes, code findings, and any
+                          plan-level warnings. Non-zero exit ("not safe to
+                          promote") if the plan has any conflict, deletion
+                          conflict, collision, code_mismatch, code_drift,
+                          blocked delete,
+                          a required env_missing entry (`duo env-set <env>
+                          --name=<name> --stdin` to provision it), or ordinary
+                          state drift.
+                          Apply refuses code_drift unless --force-code-drift;
+                          ordinary state drift is the one case apply does not
+                          refuse on, but status still reports it as not clean.
+                          With an explicit comma-separated --category,
+                          --action, --entity, or canonical --limit=1..200,
+                          status forwards the same request to one agent plan
+                          snapshot, verifies its additive value-free plan view,
+                          itemizes only matching ordinary rows (default/max
+                          200), and retains every safety/global diagnostic.
+                          See cli/src/PlanSummary.php's decision-matrix
+                          comment. Underlying plan failure/unparseable JSON is
+                          also non-zero. Warnings alone never flip this.
+  capabilities <env>      Evaluate the evidence-bound generated registry for
+                          this exact target/revision/operation/surface. Reports
+                          plugin execution separately from branchable authored
+                          state and explains every blocker. --format=json
+                          returns the agent's canonical verdict.
+  capture <env> [...]     `wp duo capture --repo=<repo_path> [...]`. A local
+    --scope-contract=<p>  canonical duo-scope-contract/v1 file is validated
+                          by the real engine parser, then transported as its
+                          normalized selectors + scope_hash; the target
+                          recompiles and verifies the complete contract before
+                          any target DDL/DML.
+  lint <env> [...]        `wp duo lint --repo=<repo_path> [...]`. Scan captured
+                          canonical state for suspicious unrewritten references
+                          through the configured environment transport. Read-only;
+                          output streams live; the agent exit code is preserved.
+  plan <env> [...]        `wp duo plan --repo=<repo_path> [...]`. Optional
+    --scope-contract=<p>  local scope evidence is validated and forwarded only
+                          as compact selectors + scope_hash; scoped planning is
+                          strict observation and performs no repair/write.
+  explain <env> <selector>
+    [--format=json]       Rebuild the current plan under a strict observation
+                          boundary, then trace one entity row from canonical
+                          source through its winning policy/manifest rules,
+                          declared dependency edges, exact rebuild surfaces,
+                          structured native/provider declarations, and the
+                          convergence verifier. Selector is
+                          `<bucket>:<entity-key>` from plan JSON. Canonical
+                          values, target-local ids, provider arguments, and
+                          private exception detail are never returned.
+  apply <env> [...]       `wp duo apply --repo=<repo_path> [...]`. Optional
+    --scope-contract=<p>  local scope evidence mints a separate target/lease-
+                          bound authority and crash-safe scoped session; it
+                          never becomes promote/code/rollback authority.
+                          Extra flags (e.g. --adopt-by-slug=terms
+                          --default-author=admin, --with-deletes) are forwarded
+                          verbatim. Output streams live; exit code is the agent's.
+  deploy <env> [...]      Compile once into the target's operational .duo/
+                          directory, then (when the artifact declares code)
+                          stage code -> retire lifecycle -> activate in a fresh
+                          process -> finalize code
+                          under one target lease. With no code descriptor it
+                          retains the established lifecycle-only deploy path.
+  env-set <env>           `wp duo env-set --repo=<repo_path> --name=<name>
+    --name=<name>         (--value=<value> | --stdin)`. Provisions one
+    (--value=<v>|--stdin)   manifest-declared class="env" option on <env> —
+                          see `duo status`'s env_missing checklist for what
+                          still needs a value. Interactive --stdin masks the
+                          local terminal before Docker/SSH passthrough and is
+                          never logged; piped input stays non-interactive
+                          (deliberately not named --prompt, which wp-cli
+                          reserves as its own global flag); --value lands
+                          in shell history like any other flag. Refuses any
+                          name not declared class="env" by the loaded policy.
+  promote <env> [...]     Compile once. A production SSH target with the
+                          complete verified_rollback capability prepares a
+                          signed provider-backed claim and converges to
+                          committed or verified rolled_back. Other targets
+                          warn and use the operator-directed artifact-bound
+                          lease + database checkpoint, then run code stage ->
+                          lifecycle retire -> fresh-process activate -> code
+                          finalize -> apply (or
+                          lifecycle retire -> activate -> apply for a repository
+                          with no code descriptor) against one immutable artifact and one
+                          target-DB lease. Stops at the first failed phase and
+                          prints recovery guidance. The checkpoint contains the
+                          temporary lease row; recovery requires external writer
+                          exclusion, then abort -> begin -> import -> final abort.
+                          After a code-phase failure, code must be reconciled/restored before database import.
+                          Apply flags are forwarded verbatim. Lifecycle deploy
+                          also receives code compatibility flags and the same
+                          unresolved-reference snapshot policy. Repository,
+                          artifact/hash, materialization, handoff, and lease
+                          flags are owned by promote and rejected from caller input.
+  pending <env>           List the review queue (`wp duo pending --format=json`)
+                          as a table: section:key, proposal, evidence, ref-hint,
+                          and a prominent SECRET flag where present. Exit 0 with
+                          "review queue is empty" when there's nothing to triage.
+  pending <env>
+    --format=json         Raw passthrough of the agent's own JSON (same
+                          precedent as `duo plan --format=json`), instead of
+                          the rendered table.
+  classify <env>          Interactive triage of the review queue, reading
+                          decisions from stdin (pipe-friendly — no /dev/tty):
+                          per item, Enter accepts its proposal (when one
+                          exists); a/r/e/d/m explicitly set
+                          authored/runtime/env/derived/managed; s skips; q
+                          quits and applies whatever was already decided. An
+                          authored decision on a secret-flagged item always
+                          requires typing "allow" first — Enter alone can
+                          never author a secret. An authored decision with a
+                          ref-hint offers a y/N prompt to attach `ref=<kind>`.
+                          All decisions batch into one `wp duo classify --set=...`
+                          call at the end; its output streams live and its
+                          exit code propagates. Prints "N classified, M
+                          skipped" as a final summary line.
+  classify <env>
+    --accept-proposals    Non-interactive: accepts every item that has a
+                          proposal, except secret-flagged items proposed
+                          "authored" (those are skipped loudly — they need a
+                          human). Exit 0 if the queue was empty or fully
+                          handled; non-zero if any secret-authored items had
+                          to be skipped.
+    --export-batch=<path> Write a value-redacted, queue-bound review artifact.
+                          Refuses to overwrite an existing path. Fill every
+                          decisions[].class, then apply the same artifact.
+    --apply-batch=<path>  Apply a fully-reviewed batch only when its env and
+                          pending-queue SHA-256 still match. Stale or partial
+                          batches refuse before any remote policy write.
+  coverage <env>          Names and counts what this site actually has versus
+                          what Duo can see (options, custom tables) —
+                          deliberately NOT a gate: never blocks capture/plan/
+                          apply, never appears in `pending`'s queue, purely
+                          additive visibility for an operator deciding how
+                          much of a site is really under management.
+  coverage <env>
+    --format=json         Raw passthrough of the agent's own JSON (same
+                          precedent as `duo plan --format=json`), instead of
+                          the rendered summary.
+  scope <env>             Resolves a bounded set of entities from explicit
+                          roots and previews what it would carry: the roots,
+                          everything pulled in by a declared dependency edge
+                          (each row naming the edge responsible), inbound
+                          references left out, and how much unrelated state
+                          is excluded. Read-only — it captures, promotes, and
+                          deletes nothing. Unrelated to site.duo.json's
+                          `policy.scope`, which classifies whole post types
+                          and taxonomies rather than selecting entities.
+    --roots=<selectors>   Comma-separated. post:<uuid>, term:<uuid>,
+                          table:<table>:<uuid>, menu:<slug>, sidebar:<id>,
+                          user-meta:<login>, options,
+                          path:<state-relative-path>, or `all` for the whole
+                          revision. A root that does not resolve is refused,
+                          never silently dropped.
+    --format=json         Raw passthrough of the agent's own JSON.
+    --contract            Emit canonical `duo-scope-contract/v1` immutable
+                          read-only evidence rather than the legacy preview.
+                          The host runs scope through the isolated control
+                          plane, so plugins, themes, and normal MU code are
+                          not booted before this target-independent compile.
+  refresh <production-env> --production-ref=<ref> [--scope-contract=<p>] [--field-diff [--format=json]]
+                          Fetches only a read-only live production export and
+                          writes an immutable semantic B/P/W plan locally.
+                          The Git ref verifies code topology; it never stands
+                          in for production database truth.
+    --field-diff          Emit a value-free, non-authorizing field-level
+                          change diff. Optional --format=json emits that
+                          same closed diff object.
+  rebase <production-env> --production-ref=<ref> --new-branch=<name> [--scope-contract=<p>] [--field-resolution=<p>|--interactive]
+                          Builds a candidate only in a disposable local
+                          worktree, then atomically creates a new branch after
+                          semantic state validation. Source branch is untouched.
+    --field-resolution=<p>
+                          Supplies canonical local automation input; it does
+                          not reveal source values.
+    --interactive         TTY-only local reveal: shows a bounded sanitized
+                          record label beside closed selectors, then chooses
+                          branch or production. Labels are never written to
+                          JSON, a diff, resolution, run, or receipt. It is
+                          mutually exclusive with legacy --strategy/--resolve;
+                          q or EOF cancels before candidate worktree, branch,
+                          or ref creation. Use --field-resolution for pipes.
+  rebase <production-env> --abort=<run-id>
+                          Removes only the retained candidate worktree named
+                          by an interrupted run journal.
+
+Global flags:
+  --envs-file=<path>      Explicitly trust and load the machine-local overlay
+                          registry at <path> instead of auto-discovering an
+                          untracked .duo-envs.json at the site/Git root.
+  -h, --help              Show this help.
+
+Environment registry ('envs' key, in site.duo.json and/or .duo-envs.json):
+  {"envs": {
+    "e1":    {"transport": "docker", "compose_file": "sandbox/docker-compose.yml",
+              "profile": "spikee", "service": "cli-e1", "repo_path": "/siterepo"},
+    "stage": {"transport": "ssh", "host": "deploy@stage.example.com",
+              "wp_path": "/var/www/html", "repo_path": "/srv/site"},
+    "dev":   {"transport": "local", "wp_path": "/var/www/html",
+              "repo_path": "/home/me/site"}
+  }}
+
+Environment names must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}; names that
+look like options or contain whitespace/control bytes are refused.
+
+site.duo.json is found at the current Git worktree root (search starts at the
+current directory); its auto-discovered .duo-envs.json must sit beside it. A
+nested registry/overlay is refused. The overlay replaces same-named entries
+entirely — no per-key merge. See cli/README.md for the full contract, transport
+requirements, and the explicit --envs-file trust override.
+TXT;
+}
+
+/** @return never */
+function duo_fail(string $message, int $code = 1) {
+    CommandOutput::fail($message, $code);
+}
+
+/** The host owns JSON refusals for commands it preflights locally. */
+function wants_agent_refusal_json(string $verb, array $extra): bool {
+    return CommandOutput::wantsAgentRefusalJson($verb, $extra);
+}
+
+/** Emit the same stable envelope as the target agent without exposing host exception text. */
+function render_agent_refusal_json(
+    string $command,
+    string $reasonCode,
+    string $message,
+    string $remediation,
+    array $diagnostics = []
+): int {
+    return CommandOutput::renderRefusalJson($command, $reasonCode, $message, $remediation, $diagnostics);
+}
+
+function legacy_main(array $argv): int {
+    array_shift($argv); // script path
+
+    $envsFileOverride = null;
+    $showHelp = false;
+    $rest = [];
+    foreach ($argv as $a) {
+        if ($a === '-h' || $a === '--help') {
+            $showHelp = true;
+        } elseif (str_starts_with($a, '--envs-file=')) {
+            $envsFileOverride = substr($a, strlen('--envs-file='));
+        } else {
+            $rest[] = $a;
+        }
+    }
+
+    if ($showHelp) {
+        echo duo_usage() . "\n";
+        return 0;
+    }
+    if (count($rest) === 0) {
+        echo duo_usage() . "\n";
+        return 1;
+    }
+
+    $verb = array_shift($rest);
+    if ($verb === 'envs') {
+        return cmd_envs($envsFileOverride);
+    }
+    if ($verb === 'env') {
+        return cmd_environment($rest, $envsFileOverride);
+    }
+
+    // No environment, no transport, no registry: this one reads manifest files
+    // on this machine and drives the engine's own offline validators over them.
+    if ($verb === 'manifest-validate') {
+        return ManifestValidate::run($rest);
+    }
+
+    // Same shape, same reason (DUO-3325): the safe adapter-DRAFT generator reuses
+    // policy-to-manifest's facts core (Policy::export_manifest) and adds offline
+    // proposers over a site repo's captured state/**, emitting inert `_draft`
+    // candidates a human ratifies by hand. WordPress-free, no environment, no
+    // transport — it observes files on this machine and writes nothing live.
+    if ($verb === 'adapter-draft') {
+        return AdapterDraft::run($rest);
+    }
+
+    // Same shape, same reason (DUO-3339): the adapter catalog reports what is
+    // installed on THIS machine and where it came from. It sits beside
+    // manifest-validate rather than in the environment-bound vocabulary deliberately — the
+    // operator most likely to run `duo adapter doctor` is the one whose
+    // repository is in a state that makes every environment-bound command
+    // refuse, and requiring an <env> would put the answer behind the problem.
+    if ($verb === 'adapter') {
+        return AdapterCatalog::run($rest);
+    }
+
+    if (!EnvironmentCommandPreflight::requiresEnvironment($verb)) {
+        fwrite(STDERR, "duo: unknown verb '$verb'\n\n" . duo_usage() . "\n");
+        return 1;
+    }
+    if (count($rest) < 1 || str_starts_with((string) $rest[0], '--')) {
+        if (wants_agent_refusal_json($verb, $rest)) {
+            return render_agent_refusal_json(
+                $verb,
+                'invalid_arguments',
+                "an environment argument is required for $verb",
+                "supply a trusted <env> before the JSON flags and rerun $verb"
+            );
+        }
+        duo_fail("'$verb' requires an <env> argument");
+    }
+    $envName = array_shift($rest);
+    $extra = $rest;
+    $scopeWireRefusal = reject_scope_wire_flag($verb, $extra);
+    if ($scopeWireRefusal !== null) {
+        return $scopeWireRefusal;
+    }
+    $scopeVerbRefusal = reject_unsupported_scope_contract($verb, $extra);
+    if ($scopeVerbRefusal !== null) {
+        return $scopeVerbRefusal;
+    }
+    $jsonRefusal = wants_agent_refusal_json($verb, $extra);
+
+    try {
+        $transport = EnvironmentCommandPreflight::resolveTransport($envsFileOverride, getcwd() ?: '.', $envName);
+    } catch (\Throwable $e) {
+        if ($jsonRefusal) {
+            return render_agent_refusal_json(
+                $verb,
+                'host_preflight_failed',
+                'the host could not resolve a trusted environment driver for this command',
+                'check the environment name and trusted registry, then retry the command'
+            );
+        }
+        throw $e;
+    }
+
+    if ($verb === 'driver-capabilities') {
+        return cmd_driver_capabilities($transport, $extra);
+    }
+
+    try {
+        $driverReport = EnvironmentCommandPreflight::capabilityReport($transport, $verb);
+    } catch (\Throwable $e) {
+        if ($jsonRefusal) {
+            return render_agent_refusal_json(
+                $verb,
+                'driver_preflight_failed',
+                'the environment driver could not produce a valid capability report',
+                'repair the driver configuration or implementation, then retry the command'
+            );
+        }
+        fwrite(STDERR, "duo: driver preflight: {$e->getMessage()}\n");
+        return 1;
+    }
+    if (!$driverReport->ready()) {
+        if ($jsonRefusal) {
+            $diagnostics = array_map(
+                static fn(array $blocker): array => [
+                    'code' => 'driver_capability_missing',
+                    'capability' => (string) $blocker['capability'],
+                    'state' => (string) $blocker['state'],
+                    'message' => 'the required driver capability is unsupported',
+                    'remediation' => (string) $blocker['remediation'],
+                ],
+                $driverReport->blockers()
+            );
+            return render_agent_refusal_json(
+                $verb,
+                'driver_unsupported',
+                'the environment driver does not support this command',
+                'resolve every capability diagnostic, then retry the command',
+                $diagnostics
+            );
+        }
+        render_driver_blockers($driverReport);
+        return 1;
+    }
+
+    return match ($verb) {
+        'doctor' => cmd_doctor($transport),
+        'adopt' => cmd_adopt($transport, $extra),
+        'init' => cmd_init($transport, $extra, $envsFileOverride),
+        'status' => cmd_status($transport, $extra, $envsFileOverride),
+        'adapter-observe' => cmd_adapter_observe($transport, $extra),
+        'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough($transport, $verb, $extra),
+        'env-set' => PassthroughCommand::runEnvSet($transport, $extra),
+        'capture' => cmd_capture($transport, $extra, $envsFileOverride),
+        'scope' => cmd_scope($transport, $extra),
+        'deploy' => cmd_deploy($transport, $extra),
+        'promote' => cmd_promote($transport, $extra),
+        'pending' => cmd_pending($transport, $extra),
+        'classify' => cmd_classify($transport, $extra),
+        'refresh' => cmd_refresh($transport, $extra),
+        'rebase' => cmd_rebase($transport, $extra),
+    };
+}
+
+/** One target call, closed response validation, optional create-only evidence. */
+function cmd_adapter_observe(EnvironmentDriver $driver, array $extra): int {
+    return AdapterObservation::run($driver, $extra);
+}
+
+/** The one canonical report drives both human and JSON output/exit status. */
+function cmd_driver_capabilities(EnvironmentDriver $driver, array $extra): int {
+    return DriverCapabilitiesCommand::run($driver, $extra);
+}
+
+function render_driver_blockers(DriverCapabilityReport $report): void {
+    $body = $report->toArray();
+    fwrite(
+        STDERR,
+        "duo: driver preflight blocked '{$body['operation']}' for environment "
+        . "'{$body['driver']['environment']}' ({$body['driver']['id']})\n"
+    );
+    foreach ($report->blockers() as $blocker) {
+        fwrite(STDERR, "  {$blocker['capability']}: {$blocker['reason']}\n");
+        fwrite(STDERR, "    remediation: {$blocker['remediation']}\n");
+    }
+    fwrite(STDERR, "  report: {$body['digest']}\n");
+}
+
+/** @return array{source:string,branch:string,create:bool,ttl_seconds:int,json:bool} */
+function environment_materialize_flags(array $args): array {
+    return EnvironmentCommandOptions::materialize($args);
+}
+
+/**
+ * Resolve the source provider only when pre-target cleanup can still need it.
+ * A completed immutable snapshot or an acquired/acquiring target has no
+ * source session for `reap` to abort.
+ *
+ * @param array{run:array<string,mixed>,events:list<array<string,mixed>>} $latest
+ */
+function environment_reap_source_name(array $latest): ?string {
+    return EnvironmentCommand::reapSourceName($latest);
+}
+
+function environment_reap_flags(array $args): bool {
+    return EnvironmentCommandOptions::reap($args);
+}
+
+function environment_lifecycle_journal(): EnvironmentLifecycleJournal {
+    return EnvironmentCommand::journal();
+}
+
+/** @param array<string,mixed> $receipt */
+function render_environment_receipt(array $receipt, bool $json, string $action): void {
+    EnvironmentCommand::renderReceipt($receipt, $json, $action);
+}
+
+function cmd_refresh(EnvironmentDriver $t, array $extra): int {
+    return RefreshCommand::run($t, $extra);
+}
+
+function cmd_rebase(EnvironmentDriver $t, array $extra): int {
+    return RebaseCommand::run($t, $extra);
+}
+
+function cmd_envs(?string $envsFileOverride): int {
+    return EnvironmentListCommand::run($envsFileOverride, getcwd() ?: '.');
+}
+
+function cmd_doctor(EnvironmentDriver $t): int {
+    return DoctorCommand::run($t);
+}
+
+function cmd_adopt(EnvironmentDriver $t, array $extra): int {
+    return AdoptCommand::run($t, $extra, dirname(__DIR__, 3));
+}
+
+/** @param list<string> $extra */
+function cmd_status(EnvironmentDriver $t, array $extra = [], ?string $envsFileOverride = null): int {
+    return StatusCommand::run(
+        $t,
+        $extra,
+        static function (string $code, string $message, string $remediation): void {
+            render_plan_view_refusal($code, $message, $remediation);
+        },
+        static function (array $refusal): void {
+            render_command_refusal_human($refusal);
+        },
+        static function (EnvironmentDriver $driver): bool {
+            return render_rollback_authority_status($driver);
+        },
+        $envsFileOverride
+    );
+}
+
+/** Keep status's host-only failures structured, bounded, and value-free. */
+function render_plan_view_refusal(string $code, string $message, string $remediation): void {
+    fwrite(STDERR, "[$code] $message\n");
+    fwrite(STDERR, "remedy: $remediation\n");
+}
+
+/** Render the public fields from a v1 machine refusal without dumping JSON. */
+function render_command_refusal_human(array $refusal): void {
+    $code = (string) ($refusal['reason_code'] ?? $refusal['error'] ?? 'command_refused');
+    $message = trim((string) ($refusal['message'] ?? 'command refused'));
+    fwrite(STDERR, "[$code] $message\n");
+    foreach ((array) ($refusal['diagnostics'] ?? []) as $diagnostic) {
+        if (!is_array($diagnostic)) {
+            continue;
+        }
+        $diagnosticCode = (string) ($diagnostic['code'] ?? $code);
+        $where = '';
+        foreach (['surface', 'path', 'table', 'capability', 'key'] as $field) {
+            if (isset($diagnostic[$field]) && is_scalar($diagnostic[$field])) {
+                $where = ' ' . $field . '=' . (string) $diagnostic[$field];
+                break;
+            }
+        }
+        $diagnosticMessage = trim((string) ($diagnostic['message'] ?? 'blocking diagnostic'));
+        fwrite(STDERR, "  - [$diagnosticCode]$where: $diagnosticMessage\n");
+        $diagnosticRemediation = trim((string) ($diagnostic['remediation'] ?? ''));
+        if ($diagnosticRemediation !== '') {
+            fwrite(STDERR, "    remedy: $diagnosticRemediation\n");
+        }
+    }
+    $remediation = trim((string) ($refusal['remediation'] ?? ''));
+    if ($remediation !== '') {
+        fwrite(STDERR, "remedy: $remediation\n");
+    }
+    if (($refusal['details_redacted'] ?? false) === true) {
+        fwrite(STDERR, "details: redacted from machine output; inspect private operator evidence\n");
+    }
+}
+
+/** Review and confirm the target agent's content-addressed first-run plan. */
+function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {
+    return InitCommand::run(
+        $t,
+        $extra,
+        static function (array $refusal): void {
+            render_command_refusal_human($refusal);
+        },
+        static fn(EnvironmentDriver $driver): int => cmd_status($driver, [], $envsFileOverride),
+        static fn(): mixed => fgets(STDIN)
+    );
+}
+/** Render externally verified rollback authority state for SSH targets. */
+function render_rollback_authority_status(EnvironmentDriver $t): bool {
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        return true;
+    }
+    $status = RollbackAuthority::status($t);
+    if (($status['available'] ?? false) !== true) {
+        echo "[WARN] rollback authority: unavailable (manual recovery only)\n";
+        return true;
+    }
+    if (($status['ok'] ?? false) !== true) {
+        $detail = trim((string) ($status['error'] ?? 'verification failed'));
+        echo "[FAIL] rollback authority: invalid — $detail\n";
+        return false;
+    }
+    if (($status['active'] ?? false) !== true) {
+        echo "[PASS] rollback authority: ready (no active generation)\n";
+        return true;
+    }
+    $state = (string) ($status['state'] ?? 'unknown');
+    $generation = (int) ($status['generation'] ?? 0);
+    $receipt = (string) ($status['receipt_id'] ?? 'unknown');
+    if (!empty($status['terminal'])) {
+        echo "[PASS] rollback authority: generation $generation $state receipt=$receipt\n";
+        return true;
+    }
+    echo "[FAIL] rollback authority: generation $generation $state receipt=$receipt (recovery required)\n";
+    return false;
+}
+
+/** Refuse a new SSH mutation while external authority is corrupt or nonterminal. */
+function rollback_authority_fence(EnvironmentDriver $t, string $verb): bool {
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        return true;
+    }
+    $status = RollbackAuthority::status($t);
+    if (($status['available'] ?? false) !== true) {
+        return true;
+    }
+    if (($status['ok'] ?? false) !== true) {
+        $detail = trim((string) ($status['error'] ?? 'verification failed'));
+        fwrite(STDERR, "duo: $verb: rollback authority is invalid; refusing target mutation: $detail\n");
+        return false;
+    }
+    if (($status['active'] ?? false) === true && empty($status['terminal'])) {
+        fwrite(
+            STDERR,
+            "duo: $verb: rollback generation {$status['generation']} is still {$status['state']}; recovery must reach committed or rolled_back first\n"
+        );
+        return false;
+    }
+    return true;
+}
+
+function cmd_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
+    return PassthroughCommand::run($t, $verb, $extra);
+}
+
+/** @return bool */
+function has_json_flag(array $extra): bool {
+    return PassthroughCommand::hasJsonFlag($extra);
+}
+
+/** @return bool */
+function is_scope_request_wire_flag(string $arg): bool {
+    return PassthroughCommand::isScopeRequestWireFlag($arg);
+}
+
+/** @return bool */
+function is_scope_contract_flag(string $arg): bool {
+    return PassthroughCommand::isScopeContractFlag($arg);
+}
+
+/**
+ * Host callers may not inject the target-side compact request. The host
+ * generates it only after validating a local ScopeContract, so a malformed
+ * or reserved value is refused before any transport command is launched.
+ */
+function reject_scope_wire_flag(string $verb, array $extra): ?int {
+    foreach ($extra as $arg) {
+        if (!is_string($arg) || !is_scope_request_wire_flag($arg)) {
+            continue;
+        }
+        return scope_wire_refusal(
+            $verb,
+            $extra,
+            'invalid_arguments',
+            "$verb received an orchestrator-reserved scope argument",
+            'remove the internal scope argument and supply only --scope-contract=<local-path>'
+        );
+    }
+    return null;
+}
+
+/** Refuse a local scope path anywhere the host does not own scope semantics. */
+function reject_unsupported_scope_contract(string $verb, array $extra): ?int {
+    if (in_array($verb, ['capture', 'plan', 'apply', 'promote', 'refresh', 'rebase'], true)) {
+        return null;
+    }
+    foreach ($extra as $arg) {
+        if (!is_string($arg) || !is_scope_contract_flag($arg)) {
+            continue;
+        }
+        return scope_wire_refusal(
+            $verb,
+            $extra,
+            'invalid_arguments',
+            "$verb does not support scoped contracts",
+            'use --scope-contract only with capture, plan, apply, promote, refresh, or rebase'
+        );
+    }
+    return null;
+}
+
+function scope_wire_refusal(
+    string $verb,
+    array $extra,
+    string $reasonCode,
+    string $message,
+    string $remediation
+): int {
+    return PassthroughCommand::scopeWireRefusal($verb, $extra, $reasonCode, $message, $remediation);
+}
+
+/** Plan-view flags index a complete detailed plan, never duo-scoped-plan/v1. */
+function is_plan_view_flag(string $arg): bool {
+    return PassthroughCommand::isPlanViewFlag($arg);
+}
+
+/** Validate a local contract and forward only the canonical compact request. */
+function cmd_scoped_passthrough(EnvironmentDriver $t, string $verb, array $extra): int {
+    return PassthroughCommand::runScoped($t, $verb, $extra);
+}
+
+/** Validate a host-local scope contract, then forward only its compact proof. */
+function cmd_capture(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {
+    return CaptureCommand::run($t, $extra, $envsFileOverride);
+}
+
+/**
+ * Real engine schema validation for a host-local immutable contract. The
+ * target still recompiles and recomputes it; this helper only prevents a bad
+ * local envelope from crossing the transport boundary.
+ *
+ * @return array{contract:array<string,mixed>,request_b64:string}
+ */
+function read_scope_contract_input(string $path): array {
+    return PassthroughCommand::readScopeContractInput($path);
+}
+
+/**
+ * Scope is read-only evidence, so it must not rely on ordinary plugin/theme
+ * bootstrap being benign. The control-plane bootstrap loads only the protected
+ * Duo agent and marks DUO_CONTROL_PLANE before `wp duo scope` reaches Cli;
+ * this is also what makes --contract's no-target-contact promise truthful.
+ * Other passthrough verbs deliberately retain their established bootstrap.
+ */
+function cmd_scope(EnvironmentDriver $t, array $extra): int {
+    return ScopeCommand::run($t, $extra);
+}
+
+/** One generated owner identifies every target-side phase of a host run. */
+function orchestrator_run_id(): string {
+    return gmdate('Ymd-His') . '-' . bin2hex(random_bytes(16));
+}
+
+/** Arguments only the orchestrator can truthfully own. */
+function is_orchestrator_internal_flag(string $arg): bool {
+    foreach (['--repo', '--compiled', '--artifact-hash', '--promotion-owner', '--promotion-hold', '--materializing-code', '--state-handoff', '--lifecycle-phase'] as $flag) {
+        if ($arg === $flag || str_starts_with($arg, $flag . '=')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Emit both distinct streams of a captured transport failure. */
+function print_transport_detail(array $result): void {
+    CommandOutput::renderTransportDetail($result);
+}
+
+/**
+ * Acquire ephemeral target PHP/WordPress evidence for the exact frozen code
+ * revision. This is read-only and must complete before promotion-begin; a
+ * failure therefore has no lease/checkpoint cleanup to perform.
+ */
+function code_runtime_preflight(
+    EnvironmentDriver $t,
+    string $verb,
+    string $repo,
+    string $artifact,
+    string $artifactHash,
+    array $compiledSummary
+): ?int {
+    return DeployCommand::runtimePreflight($t, $verb, $repo, $artifact, $artifactHash, $compiledSummary);
+}
+
+/**
+ * Host-level code deploy. Unlike promote it deliberately does not create a
+ * database checkpoint: it owns only the immutable artifact plus the code
+ * stage/lifecycle/finalize sequence. Operators who need the coupled DB
+ * checkpoint use `duo promote`.
+ */
+function cmd_deploy(EnvironmentDriver $t, array $extra): int {
+    return DeployCommand::run(
+        $t,
+        $extra,
+        static fn(array $args): ?int => reject_unsupported_scope_contract('deploy', $args),
+        static fn(EnvironmentDriver $driver): bool => rollback_authority_fence($driver, 'deploy'),
+        static fn(): string => orchestrator_run_id(),
+        static function (EnvironmentDriver $driver, array $begin, string $owner, string $artifactHash): void {
+            compensate_uncertain_begin($driver, $begin, $owner, $artifactHash, 'deploy');
+        },
+        static fn(EnvironmentDriver $driver, string $owner, string $artifactHash): bool => promotion_abort($driver, $owner, $artifactHash)
+    );
+}
+
+/**
+ * Normal public promotion entry point.
+ *
+ * Keep the historical integer exit-code surface for `duo promote`; the
+ * environment materializer uses cmd_promote_frozen() below so it can bind the
+ * operation to the artifact it already compiled.
+ */
+function cmd_promote(EnvironmentDriver $t, array $extra): int {
+    return PromoteCommand::run(
+        $t,
+        $extra,
+        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote_scoped($driver, $args),
+        static fn(EnvironmentDriver $driver, array $args, ?array $frozen): array|int => cmd_promote_internal($driver, $args, $frozen)
+    );
+}
+
+/**
+ * Public scoped promotion is a separate SSH-only protocol. It never enters
+ * ordinary promotion's code/lifecycle/upload path. The signed controller
+ * generation holds a v2 all-database-writer exclusion and encrypted full-DB
+ * checkpoint only for this promotion window; failure restores and verifies
+ * that prior DB before reopening traffic. Once committed, no later rollback
+ * is exposed because unrelated writes may resume.
+ */
+function cmd_promote_scoped(EnvironmentDriver $t, array $extra): int {
+    $contractPath = null;
+    $withDeletes = false;
+    $json = false;
+    foreach ($extra as $arg) {
+        if (!is_string($arg) || is_scope_request_wire_flag((string) $arg)) {
+            return scope_wire_refusal(
+                'promote', $extra, 'invalid_arguments',
+                'promote received a malformed or orchestrator-reserved scoped argument',
+                'supply exactly one --scope-contract=<local-path> with optional --with-deletes and --format=json'
+            );
+        }
+        if ($arg === '--with-deletes') {
+            if ($withDeletes) {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received duplicate --with-deletes',
+                    'supply --with-deletes at most once'
+                );
+            }
+            $withDeletes = true;
+            continue;
+        }
+        if ($arg === '--format=json' || $arg === '--json') {
+            if ($json) {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received duplicate JSON output flags',
+                    'supply exactly one --format=json'
+                );
+            }
+            $json = true;
+            continue;
+        }
+        if ($arg === '--scope-contract' || (str_starts_with($arg, '--scope-contract')
+            && !str_starts_with($arg, '--scope-contract='))) {
+            return scope_wire_refusal(
+                'promote', $extra, 'invalid_arguments', 'promote received a malformed scope contract flag',
+                'supply exactly one --scope-contract=<local-path>'
+            );
+        }
+        if (str_starts_with($arg, '--scope-contract=')) {
+            if ($contractPath !== null) {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received more than one scope contract',
+                    'supply exactly one --scope-contract=<local-path>'
+                );
+            }
+            $contractPath = substr($arg, strlen('--scope-contract='));
+            if ($contractPath === '') {
+                return scope_wire_refusal(
+                    'promote', $extra, 'invalid_arguments', 'promote received an empty scope contract path',
+                    'supply one readable canonical contract with --scope-contract=<local-path>'
+                );
+            }
+            continue;
+        }
+        return scope_wire_refusal(
+            'promote', $extra, 'invalid_arguments', 'scoped promote received an unsupported argument',
+            'remove force/apply flags; the scoped promotion profile accepts only --with-deletes and --format=json'
+        );
+    }
+    if ($contractPath === null) {
+        return scope_wire_refusal(
+            'promote', $extra, 'invalid_arguments', 'scoped promote has no scope contract',
+            'supply exactly one --scope-contract=<local-path>'
+        );
+    }
+    try {
+        $scopeInput = read_scope_contract_input($contractPath);
+    } catch (\Throwable $_failure) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scope_contract_invalid',
+            'the local scope contract is malformed, tampered, or unsupported',
+            'generate a fresh contract with duo scope --contract and retry promote'
+        );
+    }
+    if (!$t instanceof \Duo\Orchestrator\SshTransport) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scoped_promotion_unavailable',
+            'scoped promotion requires the SSH verified recovery profile',
+            'use scoped apply for local/docker targets or configure an SSH target with signed checkpoint recovery'
+        );
+    }
+
+    $contract = $scopeInput['contract'];
+    $scopeHash = (string) $contract['scope_hash'];
+    $sourceArtifact = (string) $contract['source']['artifact_hash'];
+    $repo = rtrim($t->repoPath(), '/');
+    $artifact = $repo . '/.duo/artifacts/scoped-promote-' . $sourceArtifact . '.json';
+    $mkdir = legacy_gateway($t)->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)))->toArray();
+    if (($mkdir['exit'] ?? 1) !== 0) {
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, 'scoped_promotion_artifact_unavailable',
+                'the target scoped artifact staging boundary is unavailable',
+                'inspect private operator logs, repair target artifact storage, and retry'
+            );
+        }
+        fwrite(STDERR, "duo: scoped promote: could not create the target artifact directory\n");
+        print_transport_detail($mkdir);
+        return (int) (($mkdir['exit'] ?? 1) ?: 1);
+    }
+
+    echo $json ? '' : "scoped promote phase: compile\n";
+    $compile = CodeDeploy::compile($t, $repo, $artifact);
+    if (($compile['exit'] ?? 1) !== 0 || !is_array($compile['summary'] ?? null)) {
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, 'scoped_promotion_compile_failed',
+                'the target could not compile the scoped source artifact',
+                'inspect private operator logs, repair source/policy compilation, and retry'
+            );
+        }
+        fwrite(STDERR, "duo: scoped promote: compile failed before exclusion/checkpoint\n");
+        print_transport_detail($compile);
+        return (int) (($compile['exit'] ?? 1) ?: 1);
+    }
+    $artifactHash = (string) ($compile['summary']['artifact_hash'] ?? '');
+    if (!hash_equals($sourceArtifact, $artifactHash)) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scope_contract_stale',
+            'the scope contract is not bound to the current compiled source artifact',
+            'generate a fresh scope contract from the current source revision and retry promote'
+        );
+    }
+    if (CodeDeploy::dispositionBlockers($compile['summary']) !== []) {
+        return scope_wire_refusal(
+            'promote', $extra, 'adapter_not_certified',
+            'the scoped artifact selects an adapter without current certified disposition',
+            'repair adapter certification and regenerate the scope contract before retrying'
+        );
+    }
+
+    $planArgs = [
+        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $artifact,
+        '--scope-request-b64=' . $scopeInput['request_b64'], '--scoped-promotion', '--format=json',
+    ];
+    $planResult = legacy_gateway($t)->captureArgs($planArgs)->toArray();
+    if (($planResult['exit'] ?? 1) !== 0) {
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, 'scoped_promotion_plan_refused',
+                'the target refused the strict scoped plan before checkpoint claim',
+                'inspect private operator logs, reconcile the scoped target preconditions, and retry'
+            );
+        }
+        fwrite(STDERR, "duo: scoped promote: target plan refused before exclusion/checkpoint\n");
+        print_transport_detail($planResult);
+        return (int) (($planResult['exit'] ?? 1) ?: 1);
+    }
+    try {
+        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+        scoped_promotion_assert_plan($plan, $scopeHash, $artifactHash);
+        $selection = ScopedRollbackProfile::select($t, $plan, $scopeHash, $withDeletes);
+        if (($selection['automatic'] ?? false) !== true) {
+            throw new \RuntimeException((string) ($selection['reason'] ?? 'checkpoint-only recovery unavailable'));
+        }
+    } catch (\Throwable $failure) {
+        return scope_wire_refusal(
+            'promote', $extra, 'scoped_promotion_preflight_failed',
+            'the scoped target plan is not eligible for exclusive-window checkpoint recovery',
+            'inspect private operator logs, repair the recovery/profile precondition or narrow the scope, then retry'
+        );
+    }
+
+    $owner = 'scoped-' . hash('sha256', $scopeHash . "\0" . $artifactHash);
+    $profile = new ScopedRollbackProfile($t);
+    $claimed = false;
+    $sealAttempted = false;
+    try {
+        echo $json ? '' : "scoped promote phase: rollback-claim\n";
+        $claim = $profile->claim($plan, $scopeHash, $owner, $owner, null, $withDeletes);
+        $claimed = true;
+        $status = (array) ($claim['status'] ?? []);
+        $receiptHash = (string) ($claim['receipt_payload_sha256'] ?? '');
+        if (preg_match('/^[a-f0-9]{64}$/D', $receiptHash) !== 1) {
+            throw new \RuntimeException('scoped rollback claim returned no immutable receipt payload hash');
+        }
+
+        if (in_array((string) ($status['state'] ?? ''), [
+            'rollback_pending', 'rolling_back', 'verifying_prior', 'rolled_back',
+        ], true)) {
+            $profile->rollback();
+            throw new \RuntimeException('the prior scoped promotion was rolled back; retry to start a new generation');
+        }
+        // `verifying_new` is the durable forward-only boundary: the target
+        // accepted the exact scoped Apply terminal receipt before the
+        // controller published it, and the first seal event can survive a
+        // response/process loss on its own.  Target begin deliberately does
+        // not trust that nonterminal state, so finish the second signed seal
+        // transition before asking it to recreate the receipt-bound handoff.
+        // In particular, never route this state through the ordinary
+        // pre-fresh-verification rollback catch below: that would restore an
+        // already fresh-verified Apply solely because the first response was lost.
+        if ((string) ($status['state'] ?? '') === 'verifying_new') {
+            $sealAttempted = true;
+            $status = $profile->sealCommit();
+        } else {
+            $status = $profile->startPromotion();
+        }
+
+        echo $json ? '' : "scoped promote phase: promotion-begin-scoped\n";
+        $begin = legacy_gateway($t)->captureArgs(CodeDeploy::beginScopedArgs(
+            $owner,
+            $artifactHash,
+            $receiptHash,
+            $scopeHash
+        ))->toArray();
+        if (($begin['exit'] ?? 1) !== 0) {
+            if (!$json) {
+                print_transport_detail($begin);
+            }
+            throw new \RuntimeException('target scoped promotion session could not begin or resume');
+        }
+
+        // Refresh the provider reservation immediately before a nonterminal
+        // blocking target apply. A committed-but-held generation is an exact
+        // terminal replay used only to retire the target handoff and release
+        // the exclusion; terminal chains cannot accept a keepalive event.
+        if ((string) ($status['state'] ?? '') !== 'committed') {
+            $profile->keepalive();
+        }
+
+        echo $json ? '' : "scoped promote phase: apply\n";
+        $applyArgs = [
+            'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+            '--scope-request-b64=' . $scopeInput['request_b64'],
+            '--promotion-owner=' . $owner, '--artifact-hash=' . $artifactHash,
+            '--scoped-promotion-receipt=' . $receiptHash, '--format=json',
+        ];
+        if ($withDeletes) {
+            $applyArgs[] = '--with-deletes';
+        }
+        $applyResult = legacy_gateway($t)->captureArgs($applyArgs)->toArray();
+        if (($applyResult['exit'] ?? 1) !== 0) {
+            if (!$json) {
+                print_transport_detail($applyResult);
+            }
+            throw new \RuntimeException('target scoped apply failed under the signed rollback generation');
+        }
+        $summary = json_decode(trim((string) ($applyResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+        $terminal = scoped_promotion_terminal_receipt($summary);
+
+        // Normal Apply releases this already; terminal lost-response replay
+        // returns before acquiring it. Exact abort makes both paths converge
+        // before the external generation can publish committed/reopen traffic.
+        if (!promotion_abort($t, $owner, $artifactHash, !$json)) {
+            throw new \RuntimeException('target promotion lease release could not be verified');
+        }
+        $profile->recordScopedApply($terminal);
+
+        // Seal the successful signed generation while the independent
+        // all-database-writer exclusion remains held.  A controller restart
+        // can now re-create/recover the receipt-bound target handoff and replay
+        // the archived terminal Apply result without authoring a second time.
+        $sealAttempted = true;
+        $committed = $profile->sealCommit();
+        $completeTarget = legacy_gateway($t)->captureArgs(
+            CodeDeploy::completeScopedArgs($owner, $artifactHash, $receiptHash, $scopeHash)
+        )->toArray();
+        if (($completeTarget['exit'] ?? 1) !== 0) {
+            if (!$json) {
+                print_transport_detail($completeTarget);
+            }
+            throw new \RuntimeException('target scoped promotion session completion could not be verified');
+        }
+        $committed = $profile->release();
+        $result = [
+            'format' => 'duo-scoped-promotion-result/v1',
+            'artifact_hash' => $artifactHash,
+            'scope_hash' => $scopeHash,
+            'generation' => (int) ($committed['generation'] ?? 0),
+            'receipt_id' => (string) ($committed['receipt_id'] ?? ''),
+            'state' => (string) ($committed['state'] ?? ''),
+            'scoped_apply' => $summary,
+            'rollback' => [
+                'format' => (string) ($committed['receipt_format'] ?? ''),
+                'automatic_window_closed' => true,
+                'later_rollback_supported' => false,
+            ],
+        ];
+        if ($json) {
+            echo json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+        } else {
+            echo "scoped promote complete: generation {$result['generation']} committed; "
+                . "traffic exclusion released (automatic rollback was closed by fresh verification)\n";
+        }
+        return 0;
+    } catch (\Throwable $failure) {
+        if (!$json) {
+            fwrite(STDERR, "duo: scoped promote: {$failure->getMessage()}\n");
+        }
+        promotion_abort($t, $owner, $artifactHash, !$json);
+        $publicReason = 'scoped_promotion_recovery_required';
+        $publicMessage = 'the scoped promotion did not complete its signed checkpoint protocol';
+        $publicRemediation = 'inspect private operator logs and resume the exact signed generation before another promotion';
+        if ($claimed) {
+            try {
+                $recoveryStatus = $profile->status();
+                // The first successful seal transition is not terminal, but
+                // it is already a proven fresh-world boundary: it follows
+                // exact completed scoped_apply evidence and can proceed only
+                // to committed.  Do not restore that world merely because a
+                // controller lost the transition response or a later target
+                // completion response.  Both states resume through the
+                // committed target replay/complete/release path.
+                if (in_array((string) ($recoveryStatus['state'] ?? ''), [
+                    'verifying_new', 'committed',
+                ], true)) {
+                    if (!$json) {
+                        fwrite(
+                            STDERR,
+                            'duo: scoped promote: the signed generation has accepted fresh-world evidence but target cleanup/exclusion release is incomplete or uncertain; retry this exact scoped promote to finish without reauthoring state' . "\n"
+                        );
+                    }
+                    $publicReason = 'scoped_promotion_completion_pending';
+                    $publicMessage = 'the signed scoped generation has accepted fresh-world evidence but target cleanup or exclusion release is incomplete';
+                    $publicRemediation = 'retry this exact scoped promote to finish without reauthoring target state';
+                    if ($json) {
+                        return scope_wire_refusal(
+                            'promote', $extra, $publicReason, $publicMessage, $publicRemediation
+                        );
+                    }
+                    return 1;
+                }
+                $rolledBack = $profile->rollback();
+                if (!$json) {
+                    fwrite(
+                        STDERR,
+                        'duo: scoped promote: prior database verified; generation '
+                        . (int) ($rolledBack['generation'] ?? 0) . " rolled_back and exclusion released\n"
+                    );
+                }
+                $publicReason = 'scoped_promotion_rolled_back';
+                $publicMessage = 'the scoped promotion failed before durable fresh-world verification '
+                    . 'and the prior database was restored and verified';
+                $publicRemediation = 'inspect private operator logs, repair the failed target boundary, and retry as a new generation';
+            } catch (\Throwable $rollbackFailure) {
+                $boundary = $sealAttempted
+                    ? 'fresh-verification/commit status is uncertain; automatic rollback was not guessed'
+                    : 'signed recovery remains nonterminal with exclusion held';
+                if (!$json) {
+                    fwrite(
+                        STDERR,
+                        'duo: scoped promote: ' . $boundary . ': '
+                        . $rollbackFailure->getMessage() . "\n"
+                    );
+                }
+            }
+        }
+        if ($json) {
+            return scope_wire_refusal(
+                'promote', $extra, $publicReason, $publicMessage, $publicRemediation
+            );
+        }
+        return 1;
+    }
+}
+
+/** @param mixed $plan */
+function scoped_promotion_assert_plan(mixed $plan, string $scopeHash, string $artifactHash): void {
+    if (!is_array($plan)
+        || ($plan['format'] ?? null) !== 'duo-scoped-plan/v1'
+        || !hash_equals($scopeHash, (string) ($plan['scope']['scope_hash'] ?? ''))
+        || !hash_equals($artifactHash, (string) ($plan['scope']['source_artifact_hash'] ?? ''))) {
+        throw new \RuntimeException('target returned a malformed or differently-bound scoped plan');
+    }
+    foreach (['code_mismatch', 'code_drift', 'incomplete_apply', 'incomplete_lifecycle', 'regen_pending', 'regen_context'] as $key) {
+        if ((array) ($plan[$key] ?? []) !== []) {
+            throw new \RuntimeException("target scoped plan retains blocking $key evidence");
+        }
+    }
+    if ((array) ($plan['selected_actions'] ?? []) !== []
+        || (array) ($plan['provider_problems'] ?? []) !== []) {
+        throw new \RuntimeException('target scoped plan selects provider/native actions or unresolved providers');
+    }
+    foreach ((array) ($plan['selected_surfaces'] ?? []) as $surface) {
+        $surface = (string) $surface;
+        if (!str_starts_with($surface, 'option:')
+            && !str_starts_with($surface, 'table:')
+            && !in_array($surface, ['entity:sidebar', 'entity:user-meta'], true)) {
+            throw new \RuntimeException("target scoped plan selects unsupported derived surface '$surface'");
+        }
+    }
+}
+
+/** @param mixed $summary @return array<string,mixed> */
+function scoped_promotion_terminal_receipt(mixed $summary): array {
+    if (!is_array($summary)
+        || ($summary['format'] ?? null) !== 'duo-scoped-apply-result/v1'
+        || !is_array($summary['scoped_receipt'] ?? null)) {
+        throw new \RuntimeException('target returned no canonical scoped terminal receipt');
+    }
+    $receipt = $summary['scoped_receipt'];
+    $keys = array_keys($receipt);
+    sort($keys, SORT_STRING);
+    if ($keys !== [
+        'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash', 'phase',
+        'protected_ledger_map_hash', 'receipts_hash', 'selected_ledger_map_hash',
+        'session_id', 'terminal_hash',
+    ] || ($receipt['phase'] ?? null) !== 'complete') {
+        throw new \RuntimeException('target returned a malformed scoped terminal receipt schema');
+    }
+    foreach ([
+        'authority_hash', 'convergence_hash', 'intents_hash', 'lease_hash',
+        'protected_ledger_map_hash', 'receipts_hash', 'selected_ledger_map_hash', 'terminal_hash',
+    ] as $key) {
+        if (preg_match('/^[a-f0-9]{64}$/D', (string) ($receipt[$key] ?? '')) !== 1) {
+            throw new \RuntimeException("target scoped terminal receipt has invalid $key");
+        }
+    }
+    $withoutHash = $receipt;
+    unset($withoutHash['terminal_hash']);
+    if (!hash_equals(
+        (string) $receipt['terminal_hash'],
+        hash('sha256', \Duo\Canon::encode($withoutHash))
+    )) {
+        throw new \RuntimeException('target scoped terminal receipt hash does not verify');
+    }
+    return $receipt;
+}
+
+/**
+ * Promote one already-compiled materialization artifact.
+ *
+ * This is an additive host-shell contract for EnvironmentMaterializer. The
+ * caller owns the operation journal and supplies one deterministic identity:
+ *
+ *   {
+ *     "operation_id": "<journal operation>",
+ *     "promotion_owner": "duo-env-promotion-<operation_id>",
+ *     "artifact_path": "<repo>/.duo/artifacts/materialize-<operation_id>.json",
+ *     "checkpoint_path": "<repo>/.duo/checkpoints/materialize-<operation_id>.sql",
+ *     "compiled_summary": { ... exact `duo compile --format=json` result ... }
+ *   }
+ *
+ * On success the result is the lifecycle's canonical
+ * duo-branch-environment-promotion-receipt/v1 object.
+ * On failure it returns the same non-zero integer used by cmd_promote(), after
+ * printing the existing recovery guidance. No compile is performed here.
+ *
+ * @param array<string,mixed> $context
+ * @return array<string,mixed>|int
+ */
+function cmd_promote_frozen(EnvironmentDriver $t, array $context, array $extra = []): array|int {
+    return cmd_promote_internal($t, $extra, $context);
+}
+
+/**
+ * Promotion's fail-closed state machine. It first binds the target lease to
+ * the compiled outer artifact, then takes the DB checkpoint under that lease.
+ * It keeps the hook-firing lifecycle window distinct from apply's canary, now
+ * with an optional code stage and finalize around those lifecycle phases. An
+ * artifact with no code descriptor still retires and activates in separate
+ * processes, then applies state without materializing code.
+ *
+ * A non-null frozen context is deliberately only an input boundary: all target
+ * phases still use the same generic CodeDeploy/agent commands as ordinary
+ * promotion. In particular, this function never interprets plugin names or
+ * descriptor fields.
+ *
+ * @param ?array<string,mixed> $frozenContext
+ * @return array<string,mixed>|int
+ */
+function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozenContext): array|int {
+    foreach ($extra as $arg) {
+        if (is_string($arg) && is_scope_contract_flag($arg)) {
+            return scope_wire_refusal(
+                'promote', $extra, 'invalid_arguments',
+                'the ordinary/frozen promotion path cannot consume a scope contract',
+                'invoke public `duo promote <env> --scope-contract=<local-path>` so the separate signed scoped profile is selected'
+            );
+        }
+    }
+    $scopeRefusal = reject_unsupported_scope_contract('promote', $extra);
+    if ($scopeRefusal !== null) {
+        return $scopeRefusal;
+    }
+    foreach ($extra as $arg) {
+        if (is_orchestrator_internal_flag($arg)) {
+            fwrite(STDERR, "duo: promote owns its repository, compiled artifact/hash, code-materialization, and target lease flags; remove '$arg'\n");
+            return 1;
+        }
+    }
+    if (!rollback_authority_fence($t, 'promote')) {
+        return 1;
+    }
+
+    $repo = rtrim($t->repoPath(), '/');
+    $frozen = $frozenContext === null ? null : normalize_frozen_promotion_context($frozenContext, $repo);
+    $runId = $frozen['promotion_owner'] ?? orchestrator_run_id();
+    $duoDir = $repo . '/.duo';
+    $artifact = $frozen['artifact_path'] ?? "$duoDir/artifacts/promote-$runId.json";
+    $checkpoint = $frozen['checkpoint_path'] ?? "$duoDir/checkpoints/promote-$runId.sql";
+    if ($frozen === null) {
+        $mkdir = legacy_gateway($t)->captureRaw(
+            'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
+        )->toArray();
+        if ($mkdir['exit'] !== 0) {
+            fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
+            print_transport_detail($mkdir);
+            return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+        }
+    }
+
+    if ($frozen !== null) {
+        $compile = [
+            'exit' => 0,
+            'stdout' => '',
+            'stderr' => '',
+            'summary' => $frozen['compiled_summary'],
+        ];
+        echo "promote phase: compile (frozen artifact)\n";
+    } else {
+        echo "promote phase: compile\n";
+        $compile = CodeDeploy::compile($t, $repo, $artifact);
+        if ($compile['exit'] !== 0) {
+            fwrite(STDERR, "duo: promote: compile failed; no checkpoint or target mutation occurred\n");
+            print_transport_detail($compile);
+            return $compile['exit'] !== 0 ? $compile['exit'] : 1;
+        }
+        if ($compile['summary'] === null) {
+            fwrite(STDERR, "duo: promote: compile returned no valid artifact hash; no checkpoint or target mutation occurred\n");
+            return 1;
+        }
+    }
+    $dispositionBlockers = CodeDeploy::dispositionBlockers($compile['summary']);
+    if ($dispositionBlockers) {
+        foreach ($dispositionBlockers as $row) {
+            fwrite(STDERR, "duo: promote: adapter {$row['name']} is {$row['status']}: {$row['reason']}\n");
+        }
+        fwrite(STDERR, "duo: promote: refusing before promotion-begin/checkpoint; only certified adapters may enter promotion\n");
+        return 1;
+    }
+    $artifactHash = (string) $compile['summary']['artifact_hash'];
+    $codeEnabled = CodeDeploy::enabled($compile['summary']);
+    $runtimePreflightDone = !$codeEnabled;
+    if ($frozen !== null) {
+        try {
+            frozen_promotion_assert_no_symlinks($t, $repo, $frozen);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: frozen promotion path inspection failed: {$e->getMessage()}\n");
+            return 1;
+        }
+    }
+    if ($frozen === null && $codeEnabled) {
+        $preflightExit = code_runtime_preflight(
+            $t,
+            'promote',
+            $repo,
+            $artifact,
+            $artifactHash,
+            $compile['summary']
+        );
+        if ($preflightExit !== null) {
+            return $preflightExit;
+        }
+        $runtimePreflightDone = true;
+    }
+
+    if ($t instanceof \Duo\Orchestrator\SshTransport) {
+        try {
+            $selection = VerifiedRollbackProfile::select($t, $compile['summary']);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, 'duo: promote: verified rollback preflight failed; refusing before promotion-begin: '
+                . $e->getMessage() . "\n");
+            return 1;
+        }
+        if ($selection['automatic']) {
+            if ($frozen !== null) {
+                try {
+                    $verifiedReceipt = frozen_promotion_verified_reconcile($t, $repo, $frozen);
+                    if ($verifiedReceipt !== null) {
+                        echo "promote resume: verified frozen provider commit\n";
+                        return $verifiedReceipt;
+                    }
+                } catch (\Throwable $e) {
+                    fwrite(STDERR, "duo: promote: verified frozen promotion reconciliation failed: {$e->getMessage()}\n");
+                    return 1;
+                }
+            }
+            if (!$runtimePreflightDone) {
+                $preflightExit = code_runtime_preflight(
+                    $t,
+                    'promote',
+                    $repo,
+                    $artifact,
+                    $artifactHash,
+                    $compile['summary']
+                );
+                if ($preflightExit !== null) {
+                    return $preflightExit;
+                }
+                $runtimePreflightDone = true;
+            }
+            // The external exclusion provider must be able to reconcile an
+            // interrupted prepare from a fresh process. Bind its claimant and
+            // the WordPress promotion lease to the immutable artifact instead
+            // of the temporary artifact filename's random invocation id.
+            $verifiedRunId = $frozen['promotion_owner'] ?? ('verified-' . $artifactHash);
+            $verifiedResult = cmd_promote_verified(
+                $t,
+                $compile['summary'],
+                $repo,
+                $artifact,
+                $verifiedRunId,
+                $artifactHash,
+                $extra,
+                $frozen
+            );
+            return $verifiedResult;
+        }
+        fwrite(
+            STDERR,
+            "duo: promote: WARN automatic verified rollback unavailable ({$selection['reason']}); "
+            . "using operator-directed checkpoint/recovery\n"
+        );
+    }
+
+    if ($frozen !== null) {
+        // A completed materialization can lose the controller response after
+        // target apply has released its lease. Verify exact target evidence
+        // before attempting any new begin/checkpoint/phase calls. An existing
+        // empty checkpoint is evidence of an interrupted export, not an
+        // absent checkpoint that this operation may overwrite.
+        try {
+            if (frozen_promotion_checkpoint_state($t, $frozen['checkpoint_path']) === 'invalid') {
+                throw new \RuntimeException('frozen promotion checkpoint exists but is empty or truncated');
+            }
+            // Receipt publication is a separate crash edge from target apply.
+            // Before beginning any new lease/checkpoint/phase, reconcile the
+            // exact frozen artifact through the target's read-only plan path.
+            // A clean exact plan proves the prior apply converged even when
+            // the controller lost the response before its receipt write.
+            $recoveredReceipt = frozen_promotion_reconcile($t, $repo, $frozen);
+            if ($recoveredReceipt !== null) {
+                echo "promote resume: reconciled frozen artifact after receipt publication loss\n";
+                return $recoveredReceipt;
+            }
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: frozen promotion receipt is invalid; refusing retry: {$e->getMessage()}\n");
+            return 1;
+        }
+        if (!$runtimePreflightDone) {
+            $preflightExit = code_runtime_preflight(
+                $t,
+                'promote',
+                $repo,
+                $artifact,
+                $artifactHash,
+                $compile['summary']
+            );
+            if ($preflightExit !== null) {
+                return $preflightExit;
+            }
+            $runtimePreflightDone = true;
+        }
+        $mkdir = legacy_gateway($t)->captureRaw(
+            'mkdir -p ' . escapeshellarg(dirname($artifact)) . ' ' . escapeshellarg(dirname($checkpoint))
+        )->toArray();
+        if ($mkdir['exit'] !== 0) {
+            fwrite(STDERR, "duo: promote: could not create target checkpoint directories\n");
+            print_transport_detail($mkdir);
+            return $mkdir['exit'] !== 0 ? $mkdir['exit'] : 1;
+        }
+    }
+
+    if (!$runtimePreflightDone) {
+        fwrite(STDERR, "duo: promote: code runtime preflight was not completed; refusing before promotion-begin/checkpoint\n");
+        return 1;
+    }
+
+    echo "promote phase: promotion-begin\n";
+    $begin = legacy_gateway($t)->captureArgs(CodeDeploy::beginArgs($runId, $artifactHash))->toArray();
+    if ($begin['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: promotion-begin failed; checkpoint, deploy, and apply were not started\n");
+        print_transport_detail($begin);
+        compensate_uncertain_begin($t, $begin, $runId, $artifactHash, 'promote');
+        return $begin['exit'] !== 0 ? $begin['exit'] : 1;
+    }
+
+    echo "promote phase: checkpoint\n";
+    $export = $frozen === null
+        ? legacy_gateway($t)->captureArgs(['db', 'export', $checkpoint, '--porcelain'])->toArray()
+        : frozen_promotion_checkpoint($t, $frozen);
+    if ($export['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: database checkpoint failed; deploy/apply were not started\n");
+        print_transport_detail($export);
+        $clean = promotion_abort($t, $runId, $artifactHash);
+        if ($clean) {
+            fwrite(STDERR, "duo: promote: promotion lease cleanup confirmed; no usable checkpoint was produced\n");
+        }
+        return $export['exit'] !== 0 ? $export['exit'] : 1;
+    }
+    if ($frozen !== null) {
+        try {
+            $frozen['_checkpoint_hash'] = frozen_promotion_hash($t, $checkpoint);
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: frozen checkpoint readback failed: {$e->getMessage()}\n");
+            return promote_failed($t, 'checkpoint', 1, $checkpoint, false, $runId, $artifactHash);
+        }
+    }
+    echo "database checkpoint: $checkpoint\n";
+
+    $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
+        return $arg === '--force-code-mismatch'
+            || $arg === '--force-code-drift'
+            || $arg === '--force-unresolved-refs'
+            || str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=');
+    }));
+
+    if ($codeEnabled) {
+        echo "promote phase: code-stage\n";
+        $stage = legacy_gateway($t)->streamArgs(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
+        if ($stage !== 0) {
+            return promote_failed($t, 'code-stage', $stage, $checkpoint, true, $runId, $artifactHash);
+        }
+    }
+
+    echo "promote phase: lifecycle-retire\n";
+    $retire = legacy_gateway($t)->streamArgs(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, true, 'retire', $deployExtra
+    ));
+    if ($retire !== 0) {
+        return promote_failed($t, 'lifecycle-retire', $retire, $checkpoint, $codeEnabled, $runId, $artifactHash);
+    }
+
+    echo "promote phase: lifecycle-activate\n";
+    $activate = legacy_gateway($t)->streamArgs(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, true, 'activate', $deployExtra
+    ));
+    if ($activate !== 0) {
+        return promote_failed($t, 'lifecycle-activate', $activate, $checkpoint, $codeEnabled, $runId, $artifactHash);
+    }
+
+    if ($codeEnabled) {
+        echo "promote phase: code-finalize\n";
+        $finalize = legacy_gateway($t)->streamArgs(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, true));
+        if ($finalize !== 0) {
+            return promote_failed($t, 'code-finalize', $finalize, $checkpoint, true, $runId, $artifactHash);
+        }
+    }
+
+    echo "promote phase: apply\n";
+    if ($frozen === null) {
+        $apply = legacy_gateway($t)->streamArgs(array_merge(
+            [
+                'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+                '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+            ],
+            $extra
+        ));
+        if ($apply !== 0) {
+            return promote_failed($t, 'apply', $apply, $checkpoint, $codeEnabled, $runId, $artifactHash);
+        }
+
+        echo $codeEnabled
+            ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize -> apply\n"
+            : "promote complete: lifecycle-retire -> lifecycle-activate -> apply\n";
+        echo "database checkpoint retained: $checkpoint\n";
+        return 0;
+    }
+
+    // The lifecycle materializer needs a machine-readable result bound to
+    // the same frozen artifact and owner. Keep normal promote's streaming
+    // output/exit behavior above unchanged.
+    $applyResult = legacy_gateway($t)->captureArgs(array_merge(
+        [
+            'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+            '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+            '--format=json',
+        ],
+        $extra
+    ))->toArray();
+    if (($applyResult['exit'] ?? 1) !== 0) {
+        print_transport_detail($applyResult);
+        return promote_failed(
+            $t,
+            'apply',
+            ($applyResult['exit'] ?? 1) !== 0 ? (int) $applyResult['exit'] : 1,
+            $checkpoint,
+            $codeEnabled,
+            $runId,
+            $artifactHash
+        );
+    }
+    try {
+        $applySummary = json_decode(trim((string) ($applyResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+        if (!is_array($applySummary)) {
+            throw new \RuntimeException('apply returned a non-object JSON result');
+        }
+        $receipt = frozen_promotion_receipt(
+            $frozen,
+            $artifactHash,
+            $checkpoint,
+            $applySummary,
+            frozen_promotion_code_revision($compile['summary'])
+        );
+    } catch (\Throwable $e) {
+        fwrite(STDERR, "duo: promote: apply receipt could not be verified or retained: {$e->getMessage()}\n");
+        return 1;
+    }
+    echo $codeEnabled
+        ? "promote complete: code-stage -> lifecycle-retire -> lifecycle-activate -> code-finalize -> apply\n"
+        : "promote complete: lifecycle-retire -> lifecycle-activate -> apply\n";
+    echo "database checkpoint retained: $checkpoint\n";
+    return $receipt;
+}
+
+/**
+ * Normalize the additive frozen-promotion callback contract.
+ *
+ * The lifecycle journal supplies one operation-scoped identity and the exact
+ * compile summary already produced by EnvironmentMaterializer. Normal callers
+ * never enter this boundary and retain cmd_promote()'s integer exit contract.
+ *
+ * @param array<string,mixed> $context
+ * @return array<string,mixed>
+ */
+function normalize_frozen_promotion_context(array $context, string $repo): array {
+    $expectedKeys = ['artifact_path', 'checkpoint_path', 'compiled_summary', 'operation_id', 'promotion_owner'];
+    $actualKeys = array_keys($context);
+    sort($actualKeys, SORT_STRING);
+    sort($expectedKeys, SORT_STRING);
+    if ($actualKeys !== $expectedKeys) {
+        throw new \InvalidArgumentException('frozen promotion context must contain exactly its five lifecycle fields');
+    }
+    $operationId = $context['operation_id'];
+    $owner = $context['promotion_owner'];
+    $artifact = $context['artifact_path'];
+    $checkpoint = $context['checkpoint_path'];
+    $summary = $context['compiled_summary'];
+    if (!is_string($operationId) || preg_match('/^[0-9]{8}-[0-9]{6}-[a-f0-9]{24}$/D', $operationId) !== 1
+        || !is_string($owner) || preg_match('/^[A-Za-z0-9._:-]{8,128}$/D', $owner) !== 1
+        || !is_string($artifact) || !is_string($checkpoint)
+        || !is_array($summary) || array_is_list($summary)) {
+        throw new \InvalidArgumentException('frozen promotion context is malformed');
+    }
+    $expectedArtifact = rtrim($repo, '/') . '/.duo/artifacts/materialize-' . $operationId . '.json';
+    $expectedCheckpoint = rtrim($repo, '/') . '/.duo/checkpoints/materialize-' . $operationId . '.sql';
+    if ($artifact !== $expectedArtifact || $checkpoint !== $expectedCheckpoint) {
+        throw new \InvalidArgumentException('frozen promotion artifact/checkpoint paths are not operation-canonical');
+    }
+    $artifact = frozen_promotion_path($artifact, $repo, 'artifact');
+    $checkpoint = frozen_promotion_path($checkpoint, $repo, 'checkpoint');
+    if ($artifact === $checkpoint) {
+        throw new \InvalidArgumentException('frozen promotion artifact and checkpoint must differ');
+    }
+    if (!CodeDeploy::validArtifactHash($summary)
+        || !is_string($summary['revision_hash'] ?? null)
+        || preg_match('/^[a-f0-9]{64}$/D', (string) $summary['revision_hash']) !== 1) {
+        throw new \InvalidArgumentException('frozen promotion summary has no valid artifact/state identity');
+    }
+    if (isset($summary['code']) && $summary['code'] !== []
+        && (!is_array($summary['code']) || !is_string($summary['code']['code_revision'] ?? null)
+            || preg_match('/^[a-f0-9]{64}$/D', (string) $summary['code']['code_revision']) !== 1)) {
+        throw new \InvalidArgumentException('frozen promotion summary has an invalid code revision');
+    }
+    if ($owner !== 'duo-env-promotion-' . $operationId) {
+        throw new \InvalidArgumentException('frozen promotion owner must be the deterministic operation owner');
+    }
+    return [
+        'operation_id' => $operationId,
+        'promotion_owner' => $owner,
+        'artifact_path' => $artifact,
+        'checkpoint_path' => $checkpoint,
+        'compiled_summary' => $summary,
+    ];
+}
+
+/** Keep every lifecycle-owned target path below the target repository's .duo directory. */
+function frozen_promotion_path(string $path, string $repo, string $label): string {
+    $duo = rtrim($repo, '/') . '/.duo';
+    $prefix = $duo . '/';
+    if ($path === '' || $path[0] !== '/' || !str_starts_with($path, $prefix)) {
+        throw new \InvalidArgumentException("frozen promotion $label path must be below target /.duo");
+    }
+    $relative = substr($path, strlen($prefix));
+    if ($relative === '' || str_contains($relative, "\0") || str_contains($relative, '//')) {
+        throw new \InvalidArgumentException("frozen promotion $label path is malformed");
+    }
+    foreach (explode('/', $relative) as $part) {
+        if ($part === '' || $part === '.' || $part === '..') {
+            throw new \InvalidArgumentException("frozen promotion $label path is malformed");
+        }
+    }
+    return $path;
+}
+
+/** @return array{exit:int,stdout:string,stderr:string} */
+function frozen_promotion_raw(EnvironmentDriver $driver, string $script): array {
+    $result = legacy_gateway($driver)->captureRaw($script)->toArray();
+    return [
+        'exit' => (int) ($result['exit'] ?? 1),
+        'stdout' => (string) ($result['stdout'] ?? ''),
+        'stderr' => (string) ($result['stderr'] ?? ''),
+    ];
+}
+
+/** Refuse target-side symlink evidence before following a frozen path. */
+function frozen_promotion_assert_no_symlinks(EnvironmentDriver $driver, string $repo, array $context): void {
+    $paths = [
+        rtrim($repo, '/') . '/.duo',
+        dirname($context['artifact_path']),
+        $context['artifact_path'],
+        dirname($context['checkpoint_path']),
+        $context['checkpoint_path'],
+    ];
+    foreach (array_values(array_unique($paths)) as $path) {
+        $result = frozen_promotion_raw($driver, 'test -L ' . escapeshellarg($path));
+        if ($result['exit'] === 0) {
+            throw new \RuntimeException("frozen promotion path is a symbolic link: $path");
+        }
+        if ($result['exit'] !== 1) {
+            throw new \RuntimeException('could not inspect frozen promotion path type');
+        }
+    }
+}
+
+function frozen_promotion_present(EnvironmentDriver $driver, string $path, string $test = '-e'): bool {
+    $result = frozen_promotion_raw($driver, 'test ' . $test . ' ' . escapeshellarg($path));
+    if ($result['exit'] === 0) return true;
+    if ($result['exit'] === 1) return false;
+    throw new \RuntimeException('could not inspect frozen promotion checkpoint');
+}
+
+/** @return 'absent'|'complete'|'invalid' */
+function frozen_promotion_checkpoint_state(EnvironmentDriver $driver, string $path): string {
+    if (!frozen_promotion_present($driver, $path, '-e')) return 'absent';
+    if (!frozen_promotion_present($driver, $path, '-f')
+        || !frozen_promotion_present($driver, $path, '-s')) {
+        return 'invalid';
+    }
+    return 'complete';
+}
+
+/** Hash target bytes through PHP, which is available on every supported target. */
+function frozen_promotion_hash(EnvironmentDriver $driver, string $path): string {
+    $program = 'if (!is_file($argv[1])) { exit(1); } '
+        . '$hash = hash_file("sha256", $argv[1]); '
+        . 'if (!is_string($hash)) { exit(1); } echo $hash, PHP_EOL;';
+    $result = frozen_promotion_raw(
+        $driver,
+        'php -r ' . escapeshellarg($program) . ' -- ' . escapeshellarg($path)
+    );
+    $hash = trim($result['stdout']);
+    if ($result['exit'] !== 0 || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1) {
+        throw new \RuntimeException('frozen promotion checkpoint hash is unavailable');
+    }
+    return $hash;
+}
+
+/** Verify the target artifact's content address before synthesizing recovery. */
+function frozen_promotion_artifact_hash(EnvironmentDriver $driver, string $path): string {
+    $program = <<<'PHP'
+$path = (string) ($argv[1] ?? '');
+$bytes = $path !== '' ? @file_get_contents($path) : false;
+if (!is_string($bytes)) { exit(1); }
+try {
+    $artifact = json_decode($bytes, true, 512, JSON_THROW_ON_ERROR);
+} catch (\Throwable $e) {
+    exit(1);
+}
+if (!is_array($artifact) || array_is_list($artifact) || !is_string($artifact['artifact_hash'] ?? null)) {
+    exit(1);
+}
+$expected = $artifact['artifact_hash'];
+unset($artifact['artifact_hash']);
+$normalize = static function (mixed $value) use (&$normalize): mixed {
+    if (!is_array($value)) { return $value; }
+    if (!array_is_list($value)) { ksort($value, SORT_STRING); }
+    foreach ($value as $key => $child) { $value[$key] = $normalize($child); }
+    return $value;
+};
+try {
+    $canonical = json_encode(
+        $normalize($artifact),
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
+    ) . "\n";
+} catch (\Throwable $e) {
+    exit(1);
+}
+$actual = hash('sha256', $canonical);
+if (!hash_equals($expected, $actual)) { exit(1); }
+echo $actual, PHP_EOL;
+PHP;
+    $result = frozen_promotion_raw(
+        $driver,
+        'php -r ' . escapeshellarg($program) . ' -- ' . escapeshellarg($path)
+    );
+    $hash = trim($result['stdout']);
+    if ($result['exit'] !== 0 || preg_match('/^[a-f0-9]{64}$/D', $hash) !== 1) {
+        throw new \RuntimeException('frozen promotion artifact hash is unavailable');
+    }
+    return $hash;
+}
+
+/**
+ * Prepare one deterministic checkpoint. The temporary export is renamed only
+ * after WP-CLI confirms success, so a retry never treats a partial export as
+ * the original pre-promotion dump.
+ *
+ * @return array{exit:int,stdout:string,stderr:string}
+ */
+function frozen_promotion_checkpoint(EnvironmentDriver $driver, array $context): array {
+    $checkpoint = $context['checkpoint_path'];
+    $state = frozen_promotion_checkpoint_state($driver, $checkpoint);
+    if ($state === 'complete') {
+        return ['exit' => 0, 'stdout' => 'reused frozen checkpoint' . "\n", 'stderr' => ''];
+    }
+    if ($state === 'invalid') {
+        return [
+            'exit' => 1,
+            'stdout' => '',
+            'stderr' => 'frozen promotion checkpoint exists but is empty or truncated; refusing overwrite',
+        ];
+    }
+    $temporary = $checkpoint . '.tmp';
+    frozen_promotion_raw($driver, 'rm -f -- ' . escapeshellarg($temporary));
+    $export = legacy_gateway($driver)->captureArgs(['db', 'export', $temporary, '--porcelain'])->toArray();
+    if (($export['exit'] ?? 1) !== 0) {
+        frozen_promotion_raw($driver, 'rm -f -- ' . escapeshellarg($temporary));
+        return [
+            'exit' => (int) ($export['exit'] ?? 1),
+            'stdout' => (string) ($export['stdout'] ?? ''),
+            'stderr' => (string) ($export['stderr'] ?? ''),
+        ];
+    }
+    $moved = frozen_promotion_raw(
+        $driver,
+        'mv -f -- ' . escapeshellarg($temporary) . ' ' . escapeshellarg($checkpoint)
+    );
+    if ($moved['exit'] !== 0) return $moved;
+    if (frozen_promotion_checkpoint_state($driver, $checkpoint) !== 'complete') {
+        return [
+            'exit' => 1,
+            'stdout' => '',
+            'stderr' => 'frozen promotion checkpoint export completed without a regular non-empty file',
+        ];
+    }
+    return [
+        'exit' => 0,
+        'stdout' => (string) ($export['stdout'] ?? ''),
+        'stderr' => (string) ($export['stderr'] ?? ''),
+    ];
+}
+
+/**
+ * Read the target's exact compiled plan and answer whether it converged.
+ *
+ * Both reconciliation paths below synthesize a receipt from this one answer,
+ * so they share one contract check rather than two copies that could drift
+ * apart. An unobtainable or undecodable plan stays a plain "not reconciled"
+ * (false): the operation has proven nothing and falls through to its ordinary
+ * fail-closed promotion attempt. A plan that IS valid JSON but is not a
+ * complete agent envelope is different in kind — PlanSummary::render()
+ * tolerates partial fixtures, so `{}` would render clean and mint a receipt
+ * for a promotion nobody verified. That is a refusal, loud and typed, never a
+ * fall-through (DUO-3384).
+ */
+function frozen_promotion_converged(
+    EnvironmentDriver $driver,
+    string $repo,
+    array $context,
+    string $surface
+): bool {
+    $planResult = legacy_gateway($driver)->captureArgs([
+        'duo', 'plan', '--repo=' . $repo, '--compiled=' . $context['artifact_path'], '--format=json',
+    ])->toArray();
+    if (($planResult['exit'] ?? 1) !== 0) return false;
+    try {
+        $plan = json_decode(trim((string) ($planResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+    } catch (\Throwable $e) {
+        return false;
+    }
+    return PlanSummary::render(PlanContract::requireComplete($plan, $surface))['ok'];
+}
+
+/** @return ?array<string,mixed> */
+function frozen_promotion_reconcile(EnvironmentDriver $driver, string $repo, array &$context): ?array {
+    if (($context['_checkpoint_provider'] ?? null) !== null
+        || frozen_promotion_checkpoint_state($driver, $context['checkpoint_path']) !== 'complete') {
+        return null;
+    }
+    $summary = $context['compiled_summary'];
+    if (frozen_promotion_artifact_hash($driver, $context['artifact_path']) !== $summary['artifact_hash']) {
+        throw new \RuntimeException('target frozen artifact does not match the compiled summary');
+    }
+    if (!frozen_promotion_converged($driver, $repo, $context, 'frozen promotion reconciliation')) return null;
+    $context['_checkpoint_hash'] = frozen_promotion_hash($driver, $context['checkpoint_path']);
+    return frozen_promotion_receipt(
+        $context,
+        (string) $summary['artifact_hash'],
+        $context['checkpoint_path'],
+        [
+            'artifact' => [
+                'hash' => $summary['artifact_hash'],
+                'revision' => $summary['revision_hash'],
+            ],
+        ],
+        frozen_promotion_code_revision($summary)
+    );
+}
+
+/**
+ * Reconcile a terminal verified-provider commit before trying another claim.
+ * The provider's checkpoint digest and exact compiled clean plan are the only
+ * target evidence needed to synthesize the same lifecycle receipt.
+ *
+ * @return ?array<string,mixed>
+ */
+function frozen_promotion_verified_reconcile(
+    \Duo\Orchestrator\SshTransport $driver,
+    string $repo,
+    array &$context
+): ?array {
+    $status = RollbackAuthority::status($driver);
+    if (($status['active'] ?? false) !== true
+        || ($status['state'] ?? '') !== 'committed'
+        || ($status['artifact_hash'] ?? null) !== ($context['compiled_summary']['artifact_hash'] ?? null)
+        || ($status['owner'] ?? null) !== $context['promotion_owner']) {
+        return null;
+    }
+    $checkpointHash = (string) ($status['checkpoint_sha256'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}$/D', $checkpointHash) !== 1) {
+        throw new \RuntimeException('verified rollback status has no checkpoint identity');
+    }
+    $summary = $context['compiled_summary'];
+    if (frozen_promotion_artifact_hash($driver, $context['artifact_path']) !== $summary['artifact_hash']) {
+        throw new \RuntimeException('target frozen artifact does not match the compiled summary');
+    }
+    if (!frozen_promotion_converged($driver, $repo, $context, 'verified frozen promotion reconciliation')) {
+        return null;
+    }
+    $context['_checkpoint_hash'] = $checkpointHash;
+    return frozen_promotion_receipt(
+        $context,
+        (string) $summary['artifact_hash'],
+        $context['checkpoint_path'],
+        [
+            'artifact' => [
+                'hash' => $summary['artifact_hash'],
+                'revision' => $summary['revision_hash'],
+            ],
+        ],
+        frozen_promotion_code_revision($summary)
+    );
+}
+
+/**
+ * Build the exact receipt lifecycle journals. The receipt deliberately has a
+ * minimal locked schema so a response-loss retry can synthesize byte-for-byte
+ * equivalent evidence from the frozen artifact, checkpoint, and clean plan.
+ *
+ * @param array<string,mixed> $context
+ * @param array<string,mixed> $applySummary
+ * @return array<string,mixed>
+ */
+function frozen_promotion_receipt(
+    array $context,
+    string $artifactHash,
+    string $checkpoint,
+    array $applySummary,
+    ?string $codeRevision
+): array {
+    $summary = $context['compiled_summary'];
+    $stateRevision = (string) $summary['revision_hash'];
+    if ($artifactHash !== $summary['artifact_hash'] || $checkpoint !== $context['checkpoint_path']
+        || !is_array($applySummary['artifact'] ?? null)
+        || ($applySummary['artifact']['hash'] ?? null) !== $artifactHash
+        || ($applySummary['artifact']['revision'] ?? null) !== $stateRevision) {
+        throw new \RuntimeException('apply receipt does not match the frozen artifact/release');
+    }
+    $checkpointHash = (string) ($context['_checkpoint_hash'] ?? '');
+    if (preg_match('/^[a-f0-9]{64}$/D', $checkpointHash) !== 1) {
+        throw new \RuntimeException('frozen promotion checkpoint identity is unavailable');
+    }
+    $expectedCode = frozen_promotion_code_revision($summary);
+    if ($codeRevision !== $expectedCode) {
+        throw new \RuntimeException('frozen promotion code revision does not match the compiled summary');
+    }
+    $receipt = [
+        'artifact_hash' => $artifactHash,
+        'checkpoint_identity' => $checkpointHash,
+        'code_revision' => $codeRevision,
+        'format' => 'duo-branch-environment-promotion-receipt/v1',
+        'operation_id' => $context['operation_id'],
+        'owner' => $context['promotion_owner'],
+        'state_revision' => $stateRevision,
+        'status' => 'completed',
+    ];
+    $receipt['receipt_sha256'] = hash('sha256', frozen_promotion_canonical($receipt));
+    return $receipt;
+}
+
+/** Return the nullable code identity without converting state-only to ''. */
+function frozen_promotion_code_revision(array $summary): ?string {
+    if (!CodeDeploy::enabled($summary)) return null;
+    return (string) $summary['code']['code_revision'];
+}
+
+function frozen_promotion_canonical(mixed $value): string {
+    return \Duo\Orchestrator\EnvironmentLifecycleCanon::encode($value);
+}
+/**
+ * Provider-backed SSH promotion. The external receipt/checkpoint is prepared
+ * before the target's database lease or code pointer can change. Every failure
+ * after `promoting` attempts exact signed rollback and never falls through to
+ * the operator-directed database-dump path.
+ */
+function cmd_promote_verified(
+    \Duo\Orchestrator\SshTransport $t,
+    array $plan,
+    string $repo,
+    string $artifact,
+    string $runId,
+    string $artifactHash,
+    array $extra,
+    ?array $frozenContext = null
+): array|int {
+    $profile = new VerifiedRollbackProfile($t);
+    $codeSelected = false;
+    $uploadsApplied = false;
+    $effectsTouched = false;
+    $claimReceipt = null;
+
+    echo "promote profile: automatic verified rollback\n";
+    echo "promote phase: rollback-claim\n";
+    try {
+        $claim = $profile->claim($plan, $runId, $runId);
+        if (($claim['status']['state'] ?? '') !== 'prepared') {
+            throw new \RuntimeException('target did not publish the prepared receipt');
+        }
+        $claimReceipt = is_array($claim['receipt'] ?? null) ? $claim['receipt'] : null;
+        if ($frozenContext !== null) {
+            $checkpointHash = (string) ($claimReceipt['checkpoint_sha256'] ?? '');
+            if (preg_match('/^[a-f0-9]{64}$/D', $checkpointHash) !== 1) {
+                throw new \RuntimeException('verified rollback claim has no checkpoint identity');
+            }
+            $frozenContext['_checkpoint_hash'] = $checkpointHash;
+            $frozenContext['_checkpoint_provider'] = 'verified-rollback';
+        }
+        $profile->startPromotion();
+    } catch (\Throwable $e) {
+        fwrite(
+            STDERR,
+            "duo: promote: verified rollback preparation failed before WordPress mutation: {$e->getMessage()}\n"
+        );
+        fwrite(
+            STDERR,
+            "duo: promote: do not use the operator-directed path; retry the exact promotion to reconcile any held preparation reservation\n"
+        );
+        return 1;
+    }
+
+    echo "promote phase: promotion-begin\n";
+    $begin = legacy_gateway($t)->captureArgs(CodeDeploy::beginArgs($runId, $artifactHash))->toArray();
+    if ($begin['exit'] !== 0) {
+        fwrite(STDERR, "duo: promote: promotion-begin failed under verified rollback\n");
+        print_transport_detail($begin);
+        return promote_verified_failed(
+            $profile,
+            'promotion-begin',
+            $begin['exit'] !== 0 ? $begin['exit'] : 1,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+
+    echo "promote phase: code-release-select\n";
+    // The provider may switch the pointer and lose the SSH response. From the
+    // moment the call starts, rollback must conservatively reconcile code.
+    $codeSelected = true;
+    try {
+        $profile->selectCode();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile,
+            'code-release-select',
+            $e,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+
+    // The verified provider selects the immutable desired release. Code-stage
+    // then binds the agent's existing lifecycle/ledger handoff to those exact
+    // already-verified bytes; it is no longer the recovery authority.
+    echo "promote phase: code-stage\n";
+    $stage = legacy_gateway($t)->streamArgs(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
+    if ($stage !== 0) {
+        return promote_verified_failed(
+            $profile, 'code-stage', $stage, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+    try {
+        $profile->keepalive();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile, 'rollback-keepalive', $e, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    $deployExtra = array_values(array_filter($extra, static function (string $arg): bool {
+        return $arg === '--force-code-mismatch'
+            || $arg === '--force-code-drift'
+            || $arg === '--force-unresolved-refs'
+            || str_starts_with($arg, '--force-code-mismatch=')
+            || str_starts_with($arg, '--force-code-drift=')
+            || str_starts_with($arg, '--force-unresolved-refs=');
+    }));
+
+    echo "promote phase: lifecycle-retire\n";
+    $effectsTouched = true;
+    $retire = legacy_gateway($t)->streamArgs(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, true, true, 'retire', $deployExtra
+    ));
+    if ($retire !== 0) {
+        return promote_verified_failed(
+            $profile, 'lifecycle-retire', $retire, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+    try {
+        $profile->keepalive();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile, 'rollback-keepalive', $e, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    echo "promote phase: lifecycle-activate\n";
+    $activate = legacy_gateway($t)->streamArgs(CodeDeploy::lifecycleArgs(
+        $repo, $artifact, $runId, $artifactHash, true, true, true, 'activate', $deployExtra
+    ));
+    if ($activate !== 0) {
+        return promote_verified_failed(
+            $profile, 'lifecycle-activate', $activate, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    echo "promote phase: code-finalize\n";
+    $finalize = legacy_gateway($t)->streamArgs(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, true));
+    if ($finalize !== 0) {
+        return promote_verified_failed(
+            $profile, 'code-finalize', $finalize, $effectsTouched, $uploadsApplied, $codeSelected
+        );
+    }
+
+    echo "promote phase: upload-provider-apply\n";
+    // Publication and controller acknowledgement are separate crash edges.
+    // Treat an attempted call as possibly mutated so restore is never skipped.
+    $uploadsApplied = true;
+    try {
+        $profile->applyUploads();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile,
+            'upload-provider-apply',
+            $e,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+
+    echo "promote phase: apply\n";
+    if ($frozenContext === null) {
+        $apply = legacy_gateway($t)->streamArgs(array_merge(
+            [
+                'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+                '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+            ],
+            $extra
+        ));
+        if ($apply !== 0) {
+            return promote_verified_failed(
+                $profile, 'apply', $apply, $effectsTouched, $uploadsApplied, $codeSelected
+            );
+        }
+    } else {
+        $applyResult = legacy_gateway($t)->captureArgs(array_merge(
+            [
+                'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
+                '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
+                '--format=json',
+            ],
+            $extra
+        ))->toArray();
+        if (($applyResult['exit'] ?? 1) !== 0) {
+            print_transport_detail($applyResult);
+            return promote_verified_failed(
+                $profile,
+                'apply',
+                ($applyResult['exit'] ?? 1) !== 0 ? (int) $applyResult['exit'] : 1,
+                $effectsTouched,
+                $uploadsApplied,
+                $codeSelected
+            );
+        }
+        try {
+            $applySummary = json_decode(trim((string) ($applyResult['stdout'] ?? '')), true, 512, JSON_THROW_ON_ERROR);
+            if (!is_array($applySummary)) {
+                throw new \RuntimeException('apply returned a non-object JSON result');
+            }
+            $receipt = frozen_promotion_receipt(
+                $frozenContext,
+                $artifactHash,
+                $frozenContext['checkpoint_path'],
+                $applySummary,
+                frozen_promotion_code_revision($plan)
+            );
+        } catch (\Throwable $e) {
+            fwrite(STDERR, "duo: promote: verified apply receipt could not be constructed: {$e->getMessage()}\n");
+            return promote_verified_failed(
+                $profile, 'apply-receipt', 1, $effectsTouched, $uploadsApplied, $codeSelected
+            );
+        }
+    }
+
+    try {
+        $profile->commit();
+    } catch (\Throwable $e) {
+        return promote_verified_exception(
+            $profile,
+            'new-world-verification-publication',
+            $e,
+            $effectsTouched,
+            $uploadsApplied,
+            $codeSelected
+        );
+    }
+    if ($frozenContext !== null) {
+        return $receipt;
+    }
+    echo "promote complete: verified committed receipt; traffic exclusion released\n";
+    return 0;
+}
+
+function promote_verified_exception(
+    VerifiedRollbackProfile $profile,
+    string $phase,
+    \Throwable $error,
+    bool $effectsTouched,
+    bool $uploadsApplied,
+    bool $codeSelected
+): int {
+    fwrite(STDERR, "duo: promote: $phase failed under verified rollback: {$error->getMessage()}\n");
+    return promote_verified_failed(
+        $profile, $phase, 1, $effectsTouched, $uploadsApplied, $codeSelected
+    );
+}
+
+function promote_verified_failed(
+    VerifiedRollbackProfile $profile,
+    string $phase,
+    int $exit,
+    bool $effectsTouched,
+    bool $uploadsApplied,
+    bool $codeSelected
+): int {
+    fwrite(STDERR, "duo: promote: $phase failed; entering signed verified rollback\n");
+    try {
+        $status = $profile->rollback($effectsTouched, $uploadsApplied, $codeSelected);
+        fwrite(
+            STDERR,
+            "duo: promote: prior world verified; rollback generation {$status['generation']} is rolled_back and exclusion is released\n"
+        );
+    } catch (\Throwable $rollbackError) {
+        fwrite(
+            STDERR,
+            "duo: promote: automatic rollback remains nonterminal with traffic excluded: {$rollbackError->getMessage()}\n"
+        );
+        fwrite(STDERR, "duo: promote: resume the active signed generation; do not start operator-directed recovery\n");
+    }
+    return $exit !== 0 ? $exit : 1;
+}
+
+/**
+ * Best-effort host compensation after any post-begin failure. The agent's
+ * mutating phases release on their own failures too, so success here includes
+ * a matching lease that is already absent. A mismatching owner/hash remains a
+ * hard warning: never erase another promotion's lock to make this run look
+ * clean.
+ */
+function promotion_abort(
+    EnvironmentDriver $t,
+    string $owner,
+    string $artifactHash,
+    bool $emitDetails = true
+): bool {
+    $abort = legacy_gateway($t)->captureArgs(CodeDeploy::abortArgs($owner, $artifactHash))->toArray();
+    if ($abort['exit'] === 0) {
+        return true;
+    }
+    if ($emitDetails) {
+        fwrite(STDERR, "duo: promote: promotion lease cleanup could not be confirmed\n");
+        print_transport_detail($abort);
+        fwrite(STDERR, "retry lease cleanup with: " . legacy_gateway($t)->instruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    }
+    return false;
+}
+
+/** Compensate only an ambiguous begin; a named live contender is definitive. */
+function compensate_uncertain_begin(
+    EnvironmentDriver $t,
+    array $begin,
+    string $owner,
+    string $artifactHash,
+    string $verb
+): void {
+    $detail = (string) ($begin['stdout'] ?? '') . "\n" . (string) ($begin['stderr'] ?? '');
+    if (str_contains($detail, 'promotion lock held by')
+        || str_contains($detail, 'unresolved lifecycle attempt blocks a new promotion session')) {
+        fwrite(STDERR, "duo: $verb: target reported a definite protected session; no cleanup was attempted\n");
+        return;
+    }
+    fwrite(STDERR, "duo: $verb: begin outcome is uncertain; attempting exact owner/artifact cleanup\n");
+    promotion_abort($t, $owner, $artifactHash);
+}
+
+/** Print row repair for a dump containing its lease; external exclusion is required. */
+function print_promotion_recovery(
+    EnvironmentDriver $t,
+    string $checkpoint,
+    bool $codeMayHaveChanged,
+    string $owner,
+    string $artifactHash
+): void {
+    fwrite(STDERR, "database checkpoint: $checkpoint\n");
+    if ($codeMayHaveChanged) {
+        fwrite(
+            STDERR,
+            "duo: promote: code may be staged or partially finalized; first reconcile or restore code to a known pre-promotion revision.\n"
+        );
+    }
+    fwrite(
+        STDERR,
+        "duo: promote: this checkpoint contains its temporary promotion lease row. "
+        . "A database import can replace that row, so first establish external maintenance/exclusion "
+        . "that prevents every Duo writer for the full recovery window. The commands below repair the row; "
+        . "they are not a substitute for that exclusion. Then run in this order:\n"
+    );
+    fwrite(STDERR, "  1. " . legacy_gateway($t)->instruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, "  2. " . legacy_gateway($t)->instruction(CodeDeploy::beginArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, "  3. " . legacy_gateway($t)->instruction(CodeDeploy::recoveryDbImportArgs($checkpoint)) . "\n");
+    fwrite(STDERR, "  4. " . legacy_gateway($t)->instruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, "duo: promote: run step 4 even if the database import fails.\n");
+}
+
+function promote_failed(
+    EnvironmentDriver $t,
+    string $phase,
+    int $exit,
+    string $checkpoint,
+    bool $codeMayHaveChanged,
+    string $owner,
+    string $artifactHash
+): int {
+    fwrite(STDERR, "duo: promote: $phase failed (exit $exit); later phases were not run\n");
+    if (promotion_abort($t, $owner, $artifactHash)) {
+        fwrite(STDERR, "duo: promote: promotion lease cleanup confirmed\n");
+        print_promotion_recovery($t, $checkpoint, $codeMayHaveChanged, $owner, $artifactHash);
+    } else {
+        fwrite(STDERR, "duo: promote: do not begin checkpoint recovery until the exact lease cleanup command above succeeds. Expiry lets a different promotion owner recover the target; it does not authorize this checkpoint restore.\n");
+    }
+    return $exit !== 0 ? $exit : 1;
+}
+
+function cmd_pending(EnvironmentDriver $t, array $extra): int {
+    return PendingCommand::run($t, $extra, static function (array $refusal): void {
+        render_command_refusal_human($refusal);
+    });
+}
+
+function cmd_classify(EnvironmentDriver $t, array $extra): int {
+    return ClassifyCommand::run($t, $extra, static function (array $refusal): void {
+        render_command_refusal_human($refusal);
+    });
+}

@@ -7,6 +7,7 @@ require_once __DIR__ . '/HostContracts/TargetInvocation.php';
 require_once __DIR__ . '/EnvironmentDriver.php'; // compatibility load for direct consumers
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/CodeDeploy.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /**
  * Host command boundary for standalone immutable-artifact deployment.
@@ -44,9 +45,10 @@ final class DeployCommand {
         if (!$rollbackFence($transport)) return 1;
 
         $repo = rtrim($transport->repoPath(), '/');
+        $gateway = new AgentGateway($transport);
         $runId = $runIdFactory();
         $artifact = "$repo/.duo/artifacts/deploy-$runId.json";
-        $mkdir = $transport->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)));
+        $mkdir = $gateway->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifact)))->toArray();
         if ($mkdir['exit'] !== 0) {
             fwrite(STDERR, "duo: deploy: could not create target artifact directory\n");
             CommandOutput::renderTransportDetail($mkdir);
@@ -80,7 +82,7 @@ final class DeployCommand {
             if ($preflightExit !== null) return $preflightExit;
         }
         echo "deploy phase: promotion-begin\n";
-        $begin = $transport->captureWp(CodeDeploy::beginArgs($runId, $artifactHash));
+        $begin = $gateway->captureArgs(CodeDeploy::beginArgs($runId, $artifactHash))->toArray();
         if ($begin['exit'] !== 0) {
             fwrite(STDERR, "duo: deploy: promotion-begin failed; lifecycle and code materialization were not started\n");
             CommandOutput::renderTransportDetail($begin);
@@ -90,7 +92,7 @@ final class DeployCommand {
 
         if ($codeEnabled) {
             echo "deploy phase: code-stage\n";
-            $stage = $transport->streamWp(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
+            $stage = $gateway->streamArgs(CodeDeploy::stageArgs($repo, $artifact, $runId, $artifactHash));
             if ($stage !== 0) {
                 fwrite(STDERR, "duo: deploy: code-stage failed (exit $stage); lifecycle phases and code-finalize were not run\n");
                 $abort($transport, $runId, $artifactHash);
@@ -99,7 +101,7 @@ final class DeployCommand {
         }
 
         echo "deploy phase: lifecycle-retire\n";
-        $retire = $transport->streamWp(CodeDeploy::lifecycleArgs(
+        $retire = $gateway->streamArgs(CodeDeploy::lifecycleArgs(
             $repo, $artifact, $runId, $artifactHash, true, $codeEnabled, false, 'retire', $deployExtra
         ));
         if ($retire !== 0) {
@@ -109,7 +111,7 @@ final class DeployCommand {
         }
 
         echo "deploy phase: lifecycle-activate\n";
-        $activate = $transport->streamWp(CodeDeploy::lifecycleArgs(
+        $activate = $gateway->streamArgs(CodeDeploy::lifecycleArgs(
             $repo, $artifact, $runId, $artifactHash, $codeEnabled, $codeEnabled, false, 'activate', $deployExtra
         ));
         if ($activate !== 0) {
@@ -120,7 +122,7 @@ final class DeployCommand {
 
         if ($codeEnabled) {
             echo "deploy phase: code-finalize\n";
-            $finalize = $transport->streamWp(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
+            $finalize = $gateway->streamArgs(CodeDeploy::finalizeArgs($repo, $artifact, $runId, $artifactHash, false));
             if ($finalize !== 0) {
                 fwrite(STDERR, "duo: deploy: code-finalize failed (exit $finalize); later phases were not run\n");
                 $abort($transport, $runId, $artifactHash);

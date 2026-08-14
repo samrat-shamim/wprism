@@ -7,6 +7,7 @@ require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/PlanView.php';
 require_once __DIR__ . '/PlanContract.php';
 require_once __DIR__ . '/PlanSummary.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /** Host command handler for plan-backed status rendering and readiness. */
 final class StatusCommand {
@@ -30,27 +31,27 @@ final class StatusCommand {
             $renderAuthority($driver);
             return 1;
         }
-        $planArgs = ['duo', 'plan', '--repo=' . $driver->repoPath()];
+        $planArgs = [];
         if ($viewRequest !== null) {
             $planArgs = array_merge($planArgs, PlanView::agentArgs($viewRequest));
         }
         $planArgs[] = '--format=json';
-        $result = $driver->captureWp($planArgs);
-        if ($result['exit'] !== 0) {
-            fwrite(STDERR, "duo: status: failed to fetch plan for '{$driver->name()}' (exit {$result['exit']})\n");
-            $refusal = json_decode(trim($result['stdout']), true);
+        $result = (new AgentGateway($driver))->capture('plan', $planArgs);
+        if ($result->exit !== 0) {
+            fwrite(STDERR, "duo: status: failed to fetch plan for '{$driver->name()}' (exit {$result->exit})\n");
+            $refusal = json_decode(trim($result->stdout), true);
             if (is_array($refusal) && ($refusal['format'] ?? null) === 'duo-command-refusal/v1') {
                 $renderCommandRefusal($refusal);
             } else {
-                $message = trim($result['stderr'] !== '' ? $result['stderr'] : $result['stdout']);
+                $message = trim($result->stderr !== '' ? $result->stderr : $result->stdout);
                 if ($message !== '') {
                     fwrite(STDERR, $message . "\n");
                 }
             }
             $renderAuthority($driver);
-            return $result['exit'] !== 0 ? $result['exit'] : 1;
+            return $result->exit !== 0 ? $result->exit : 1;
         }
-        $plan = json_decode(trim($result['stdout']), true);
+        $plan = json_decode(trim($result->stdout), true);
         if (!is_array($plan)) {
             fwrite(STDERR, "duo: status: could not parse plan JSON for '{$driver->name()}'\n");
             $renderAuthority($driver);

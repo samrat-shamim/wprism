@@ -1,6 +1,8 @@
 <?php
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/Environment/AgentGateway.php';
+
 /**
  * An init phase the target answered with the common v1 refusal envelope.
  *
@@ -137,7 +139,7 @@ final class Init {
 
     /** @return array<string,mixed> */
     private static function request(EnvironmentDriver $transport, array $args, string $phase): array {
-        $result = $transport->captureWp($args);
+        $result = (new AgentGateway($transport))->captureArgs($args)->toArray();
         if ($result['exit'] !== 0) {
             $label = "duo init $phase failed for '{$transport->name()}' (exit {$result['exit']})";
             // DUO-3421: the agent answers a refusal with the common envelope on

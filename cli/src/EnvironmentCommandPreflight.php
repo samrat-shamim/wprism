@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/Environment/EnvironmentRegistry.php';
+
 /** Target-free registry, transport, and capability preflight for host commands. */
 final class EnvironmentCommandPreflight {
     /** @var list<string> */
@@ -22,8 +24,8 @@ final class EnvironmentCommandPreflight {
     }
 
     public static function resolveTransport(?string $envsFileOverride, string $startDir, string $environment): Transport {
-        $envs = Registry::load($envsFileOverride, $startDir);
-        return Transport::make($environment, Registry::get($envs, $environment));
+        $registry = EnvironmentRegistry::load($envsFileOverride, $startDir);
+        return Transport::make($environment, $registry->get($environment));
     }
 
     public static function capabilityReport(EnvironmentDriver $driver, string $operation): DriverCapabilityReport {

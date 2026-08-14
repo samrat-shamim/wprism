@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 2) . '/agent/src/ScopeContract.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /** Explicit non-error terminal for `duo rebase --interactive` cancellation. */
 final class RefreshFieldResolutionCancelled extends \RuntimeException {}
@@ -452,7 +453,7 @@ final class Refresh {
             }
             $wpArgs[] = '--scope-request-b64=' . base64_encode(\Duo\Canon::encode($request));
         }
-        $result = $transport->captureWp(CodeDeploy::controlArgs($wpArgs));
+        $result = (new AgentGateway($transport))->captureArgs(CodeDeploy::controlArgs($wpArgs))->toArray();
         if (($result['exit'] ?? 1) !== 0) {
             throw new \RuntimeException('refresh-export failed for production environment ' . $transport->name()
                 . ': ' . self::transportReason($result));
@@ -528,7 +529,7 @@ final class Refresh {
             // the production ref has different bytes.
             . ' && git -C ' . $repo
             . ' ls-files --others --ignored --exclude-standard -- site.duo.json state media code manifests';
-        $result = $transport->captureRaw($script);
+        $result = (new AgentGateway($transport))->captureRaw($script)->toArray();
         if (($result['exit'] ?? 1) !== 0) {
             throw new \RuntimeException('cannot verify production target Git HEAD: ' . self::transportReason($result));
         }

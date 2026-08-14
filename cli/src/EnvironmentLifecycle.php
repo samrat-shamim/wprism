@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/Environment/AgentGateway.php';
+
 /**
  * Optional host-owned lifecycle provider for branch environments.
  *
@@ -883,6 +885,7 @@ final class EnvironmentMaterializer {
         array $options,
         callable $promote
     ): array {
+        $targetGateway = new AgentGateway($targetDriver);
         $optionKeys = array_keys($options);
         sort($optionKeys, SORT_STRING);
         if ($optionKeys !== ['branch', 'create', 'ttl_seconds']
@@ -1215,7 +1218,7 @@ final class EnvironmentMaterializer {
             $artifactPath = rtrim($targetDriver->repoPath(), '/') . '/.duo/artifacts/materialize-' . $operationId . '.json';
             $compiledPhase = self::phaseData($journal, $operationId, 'release-compiled');
             if ($compiledPhase === null) {
-                $mkdir = $targetDriver->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifactPath)));
+                $mkdir = $targetGateway->captureRaw('mkdir -p ' . escapeshellarg(dirname($artifactPath)))->toArray();
                 if (($mkdir['exit'] ?? 1) !== 0) throw new \RuntimeException('could not create target materialization artifact directory');
                 $compiled = CodeDeploy::compile($targetDriver, $targetDriver->repoPath(), $artifactPath);
                 if (($compiled['exit'] ?? 1) !== 0 || !is_array($compiled['summary'] ?? null)) throw new \RuntimeException('branch candidate did not compile on the target');
@@ -1257,7 +1260,7 @@ final class EnvironmentMaterializer {
                 self::recordPhase($journal, $operationId, 'release-verified', $release);
             }
             if (self::phaseData($journal, $operationId, 'release-converged') === null) {
-                $planResult = $targetDriver->captureWp(['duo', 'plan', '--repo=' . $targetDriver->repoPath(), '--format=json']);
+                $planResult = $targetGateway->captureArgs(['duo', 'plan', '--repo=' . $targetDriver->repoPath(), '--format=json'])->toArray();
                 if (($planResult['exit'] ?? 1) !== 0) throw new \RuntimeException('could not verify branch environment convergence');
                 $finalPlan = json_decode(trim((string) $planResult['stdout']), true);
                 // PlanSummary::render() tolerates partial fixtures, so a bare
@@ -1747,9 +1750,9 @@ final class EnvironmentMaterializer {
     }
 
     private static function productionCommit(EnvironmentDriver $source): string {
-        $result = $source->captureRaw(
+        $result = (new AgentGateway($source))->captureRaw(
             'git -C ' . escapeshellarg($source->repoPath()) . ' rev-parse --verify HEAD^{commit}'
-        );
+        )->toArray();
         $commit = trim((string) ($result['stdout'] ?? ''));
         if (($result['exit'] ?? 1) !== 0 || preg_match('/^[a-f0-9]{40}(?:[a-f0-9]{24})?$/D', $commit) !== 1) {
             throw new \RuntimeException('could not verify production environment Git commit');
