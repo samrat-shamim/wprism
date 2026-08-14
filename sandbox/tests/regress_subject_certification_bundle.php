@@ -40,8 +40,18 @@ function run(array $command): array {
     $json = json_decode(trim($out), true);
     return ['exit' => $exit, 'out' => $out, 'err' => $err, 'json' => is_array($json) ? $json : null];
 }
-function write_json(string $path, array $value): void {
+function write_json(string $path, mixed $value): void {
     file_put_contents($path, json_encode($value, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+}
+function reset_subject_evidence(string $repo): void {
+    write_json($repo . '/manifests/capabilities/evidence.json', [
+        'format' => 'duo-capability-evidence/v2',
+        'records' => (object) [],
+    ]);
+    $generated = run([PHP_BINARY, $repo . '/scripts/capability-registry.php', 'generate']);
+    if ($generated['exit'] !== 0) {
+        throw new RuntimeException('could not reset isolated subject evidence: ' . trim($generated['err']));
+    }
 }
 function load_registry(string $repo): array {
     $code = <<<'PHP'
@@ -250,6 +260,7 @@ foreach ([
     }
     copy($source . '/' . $relative, $clean . '/' . $relative);
 }
+reset_subject_evidence($clean);
 $import = is_string($bundle) ? run([PHP_BINARY, $clean . '/scripts/capability-registry.php', 'import-subject-bundle', $bundle]) : ['exit' => 1, 'json' => null];
 check($import['exit'] === 0, 'current scoped bundle imports without requiring its provenance SHA to equal HEAD' . ($import['exit'] === 0 ? '' : ': ' . trim((string) ($import['err'] ?? 'missing bundle'))));
 $generate = run([PHP_BINARY, $clean . '/scripts/capability-registry.php', 'generate']);
@@ -297,6 +308,7 @@ foreach ([
     if (!is_dir(dirname($profileRepo . '/' . $relative))) mkdir(dirname($profileRepo . '/' . $relative), 0777, true);
     copy($source . '/' . $relative, $profileRepo . '/' . $relative);
 }
+reset_subject_evidence($profileRepo);
 $profileEvidenceDir = "$root/profile-evidence";
 mkdir($profileEvidenceDir, 0777, true);
 $profileResult = "$profileEvidenceDir/conformance-fse.result.json";

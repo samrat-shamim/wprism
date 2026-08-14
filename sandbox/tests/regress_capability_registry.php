@@ -40,6 +40,20 @@ function reason_codes(array $report): array {
     return array_values(array_unique(array_column($report['blockers'] ?? [], 'code')));
 }
 
+function candidate_snapshot(array $registry): array {
+    foreach (['manifests', 'profiles'] as $section) {
+        foreach ($registry[$section] as &$claim) {
+            $claim['evidence']['bundle_digest'] = null;
+            $claim['evidence']['closure_digest'] = null;
+            $claim['evidence']['git_revision'] = null;
+            $claim['evidence']['status'] = 'candidate';
+            $claim['evidence']['subject_digest'] = null;
+        }
+        unset($claim);
+    }
+    return $registry;
+}
+
 $repo = realpath(__DIR__ . '/../..');
 $dir = $repo . '/manifests';
 $dispositions = ManifestDispositions::load($dir);
@@ -51,7 +65,7 @@ foreach (glob($dir . '/*.json') ?: [] as $file) {
     }
 }
 $loadedRegistry = CapabilityRegistry::load($dir, $dispositions, array_values($manifests));
-$candidateFixture = $loadedRegistry->data();
+$candidateFixture = candidate_snapshot($loadedRegistry->data());
 $candidateBootstrapRegistry = CapabilityRegistry::from_snapshot(
     $candidateFixture,
     $dispositions,

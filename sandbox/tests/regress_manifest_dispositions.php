@@ -189,6 +189,11 @@ Canon::write_file($fixture . '/dispositions.json', Canon::encode($coreRegistry))
 $coreCapabilities = $capabilityRegistry->data();
 $coreCapabilities['manifests'] = ['core' => $coreCapabilities['manifests']['core']];
 $coreCapabilities['profiles'] = [];
+$coreCapabilities['manifests']['core']['evidence']['bundle_digest'] = null;
+$coreCapabilities['manifests']['core']['evidence']['closure_digest'] = null;
+$coreCapabilities['manifests']['core']['evidence']['git_revision'] = null;
+$coreCapabilities['manifests']['core']['evidence']['status'] = 'candidate';
+$coreCapabilities['manifests']['core']['evidence']['subject_digest'] = null;
 $coreCapabilities['generated_from']['dispositions_sha256'] = hash_file('sha256', $fixture . '/dispositions.json');
 Canon::write_file($fixture . '/capabilities/registry.json', Canon::encode($coreCapabilities));
 putenv("DUO_MANIFESTS_DIR=$fixture");
