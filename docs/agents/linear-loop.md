@@ -237,8 +237,11 @@ branch or edit files before this passes.
     Unaffected subjects remain current. `php scripts/capability-registry.php check` is the release
     gate and requires a current record for every certified subject. A new WP
     extension joins by adding its manifest, disposition, conformance entry (or
-    `sandbox/certification/tests/<test-id>.sh`), and artifacts; no central
-    certification allowlist or dispatch switch is edited.
+    `sandbox/certification/tests/<test-id>.sh` or
+    `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no
+    central certification allowlist or dispatch switch is edited. The shared
+    artifact file is projected by plugin slug, so new-extension rows do not
+    stale existing subject evidence.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
     affected adapter surface(s) — never a silent skip, and never the

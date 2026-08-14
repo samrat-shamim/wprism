@@ -129,6 +129,218 @@ final class ScopedCertificationBundle {
     }
 
     /**
+     * Derive the complete source closure for one subject from conventions.
+     *
+     * This is the single closure-membership authority used by the runner,
+     * builder, importer, and full-source runtime verifier. A certificate may
+     * supply hashes, but it never gets to choose which files are authoritative.
+     * The shared artifact lock is intentionally absent: the signed `artifacts`
+     * projection binds only this manifest's plugin rows, so adding another
+     * extension cannot expire unrelated subjects.
+     *
+     * @param list<string> $requiredTests
+     * @return list<string>
+     */
+    public static function subjectInputPaths(
+        string $root,
+        string $kind,
+        string $name,
+        array $manifest,
+        array $requiredTests
+    ): array {
+        self::subjectKey($kind, $name);
+        $root = realpath($root);
+        if ($root === false || !is_dir($root) || is_link($root)) {
+            throw new \RuntimeException('duo: certification source root is absent or unsafe');
+        }
+        $manifestName = $kind === 'manifest' ? $name : ($manifest['name'] ?? null);
+        if (!is_string($manifestName) || preg_match('/^[a-z][a-z0-9-]*$/D', $manifestName) !== 1) {
+            throw new \RuntimeException('duo: certification subject manifest identity is malformed');
+        }
+        $tests = self::stringList($requiredTests, 'required scoped certification tests', false);
+        foreach ($tests as $test) {
+            if (preg_match('/^[a-z][a-z0-9-]*$/D', $test) !== 1) {
+                throw new \RuntimeException("duo: certification test id '$test' is not a canonical slug");
+            }
+        }
+
+        $paths = [];
+        $add = static function (string $relative, bool $required = true) use ($root, &$paths): void {
+            if ($relative === '' || str_starts_with($relative, '/') || str_contains($relative, "\0")
+                || str_contains($relative, '\\') || str_contains($relative, '//') || str_ends_with($relative, '/')
+                || in_array('.', explode('/', $relative), true) || in_array('..', explode('/', $relative), true)) {
+                throw new \RuntimeException("duo: certification input path is unsafe: $relative");
+            }
+            $absolute = $root . '/' . $relative;
+            if (!is_file($absolute)) {
+                if ($required) {
+                    throw new \RuntimeException("duo: certification input is absent: $relative");
+                }
+                return;
+            }
+            if (is_link($absolute)) {
+                throw new \RuntimeException("duo: certification input is a symbolic link: $relative");
+            }
+            $paths[$relative] = true;
+        };
+        $addTree = static function (string $relative, bool $required = true) use ($root, &$paths, $add): void {
+            $absolute = $root . '/' . $relative;
+            if (!is_dir($absolute)) {
+                if ($required) {
+                    throw new \RuntimeException("duo: certification input directory is absent: $relative");
+                }
+                return;
+            }
+            if (is_link($absolute)) {
+                throw new \RuntimeException("duo: certification input directory is a symbolic link: $relative");
+            }
+            $iterator = new \RecursiveIteratorIterator(
+                new \RecursiveDirectoryIterator($absolute, \FilesystemIterator::SKIP_DOTS),
+                \RecursiveIteratorIterator::LEAVES_ONLY
+            );
+            foreach ($iterator as $file) {
+                if ($file->isLink()) {
+                    throw new \RuntimeException('duo: certification input tree contains a symbolic link: '
+                        . substr($file->getPathname(), strlen($root) + 1));
+                }
+                if (!$file->isFile()) {
+                    continue;
+                }
+                $path = substr($file->getPathname(), strlen($root) + 1);
+                $add($path);
+            }
+        };
+
+        foreach (['agent', 'cli', 'sandbox/bin'] as $tree) {
+            $addTree($tree);
+        }
+        foreach ([
+            'Makefile',
+            'docs/compatibility-baseline.json',
+            'sandbox/conformance/asserts.sh',
+            'sandbox/conformance/run.sh',
+            'sandbox/db.yml',
+            'sandbox/init-cli.Dockerfile',
+            'sandbox/tests/certify_subject_bundle.sh',
+            'scripts/capability-registry.php',
+        ] as $path) {
+            $add($path);
+        }
+        foreach (glob($root . '/sandbox/lib/pair_*.sh') ?: [] as $path) {
+            $add(substr($path, strlen($root) + 1));
+        }
+        foreach (glob($root . '/sandbox/pair*.yml') ?: [] as $path) {
+            $add(substr($path, strlen($root) + 1));
+        }
+
+        $add("manifests/$manifestName.json");
+        $add("sandbox/conformance/entries/$name.json", false);
+        foreach (['seeds', 'postdeploy', 'checks'] as $hook) {
+            $add("sandbox/conformance/$hook/$name.sh", false);
+        }
+
+        foreach ($tests as $test) {
+            if ($test === "conformance-$name") {
+                continue;
+            }
+            if ($test === 'exact-artifact-version-matrix' && $kind === 'manifest') {
+                $driver = "sandbox/certification/version-matrix/$name.sh";
+                if (is_file($root . '/' . $driver)) {
+                    if (!is_executable($root . '/' . $driver)) {
+                        throw new \RuntimeException("duo: version-matrix driver is not executable: $driver");
+                    }
+                    $add($driver);
+                    $addTree("sandbox/certification/version-matrix/$name", false);
+                } else {
+                    $add('sandbox/tests/certify_version_matrix.sh');
+                }
+                continue;
+            }
+            if ($test === 'multisite-refusal' && $kind === 'manifest' && $name === 'core') {
+                $add('sandbox/tests/regress_multisite_refusal.sh');
+                continue;
+            }
+            $custom = "sandbox/certification/tests/$test.sh";
+            $add($custom);
+            if (!is_executable($root . '/' . $custom)) {
+                throw new \RuntimeException("duo: custom certification test is not executable: $custom");
+            }
+            $addTree("sandbox/certification/tests/$test", false);
+        }
+
+        $interpreter = $manifest['interpreter'] ?? null;
+        if (is_string($interpreter) && $interpreter !== '') {
+            $add("manifests/interpreters/$interpreter.php");
+        }
+        foreach ($manifest['providers'] ?? [] as $provider) {
+            if (is_array($provider) && ($provider['source'] ?? null) === 'manifest'
+                && is_string($provider['id'] ?? null) && $provider['id'] !== '') {
+                $add('manifests/providers/' . $provider['id'] . '.php');
+            }
+        }
+        foreach ($manifest['post_types'] ?? [] as $postType) {
+            $regenerator = is_array($postType) ? ($postType['regen_dependency']['regenerator'] ?? null) : null;
+            if (is_string($regenerator) && $regenerator !== '') {
+                $add("manifests/regenerators/$regenerator.php");
+            }
+        }
+
+        $out = array_keys($paths);
+        sort($out, SORT_STRING);
+        if ($out === []) {
+            throw new \RuntimeException('duo: certification subject closure is empty');
+        }
+        return $out;
+    }
+
+    /** @param list<string> $paths @return list<array{path:string,sha256:string,size:int}> */
+    public static function currentInputsForPaths(string $root, array $paths): array {
+        $out = [];
+        foreach ($paths as $path) {
+            if (!is_string($path)) {
+                throw new \RuntimeException('duo: certification input path must be a string');
+            }
+            $out[] = self::fileAsset($root, $path);
+        }
+        return self::normalizeInputs($out, 'current subject input projection');
+    }
+
+    /**
+     * Prove that the recorded closure bytes existed at the named source
+     * commit. Later unrelated commits remain allowed because the comparison is
+     * restricted to the canonical subject path set.
+     */
+    public static function assertGitRevisionInputs(string $root, array $bundle): void {
+        self::validate($bundle);
+        if (!file_exists(rtrim($root, '/') . '/.git')) {
+            throw new \RuntimeException('duo: certification source has no Git identity');
+        }
+        $paths = array_map(
+            static fn(array $input): string => (string) ($input['path'] ?? ''),
+            $bundle['closure']['inputs']
+        );
+        $command = array_merge(
+            ['git', '-C', $root, 'diff', '--quiet', (string) $bundle['git_revision'], '--'],
+            $paths
+        );
+        $pipes = [];
+        $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+        if (!is_resource($process)) {
+            throw new \RuntimeException('duo: could not verify certification Git revision');
+        }
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        $exit = proc_close($process);
+        if ($exit !== 0) {
+            throw new \RuntimeException('duo: certification closure does not match git revision '
+                . $bundle['git_revision'] . ($stderr === '' ? '' : ': ' . trim($stderr))
+                . ($stdout === '' ? '' : ': ' . trim($stdout)));
+        }
+    }
+
+    /**
      * A record is not evidence until every cited result, diff, and log is
      * present at the published content-addressed location and agrees with the
      * descriptor it signed.  Descriptor hashes alone deliberately do not

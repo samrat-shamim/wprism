@@ -12,6 +12,7 @@ declare(strict_types=1);
  * capability-registry importer remains the sole publication boundary.
  *
  * Usage:
+ *   php sandbox/bin/subject-certification-bundle.php inputs <manifest|profile> <name> <repo-root>
  *   php sandbox/bin/subject-certification-bundle.php build <spec.json> <out-dir>
  *   php sandbox/bin/subject-certification-bundle.php verify <bundle-dir|bundle.json> <repo-root>
  */
@@ -181,6 +182,57 @@ function adapter_bundle_current_inputs(string $root, array $recorded): array {
     return adapter_bundle_inputs($root, array_map(static fn(array $input): string => (string) ($input['path'] ?? ''), $recorded));
 }
 
+/** @return array{exit:int,out:string,err:string} */
+function adapter_bundle_git(string $root, array $args): array {
+    $pipes = [];
+    $command = array_merge(['git', '-C', $root], $args);
+    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('could not execute git for exact-source verification');
+    }
+    $out = (string) stream_get_contents($pipes[1]);
+    $err = (string) stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return ['exit' => proc_close($process), 'out' => $out, 'err' => $err];
+}
+
+function adapter_bundle_assert_exact_source(string $root, string $revision): void {
+    $head = adapter_bundle_git($root, ['rev-parse', '--verify', 'HEAD^{commit}']);
+    if ($head['exit'] !== 0 || !hash_equals($revision, trim($head['out']))) {
+        throw new RuntimeException('git_revision must equal the repository HEAD used to build evidence');
+    }
+    $status = adapter_bundle_git($root, ['status', '--porcelain=v1', '--untracked-files=all']);
+    if ($status['exit'] !== 0 || trim($status['out']) !== '') {
+        throw new RuntimeException('subject bundle build requires a clean exact-source checkout');
+    }
+}
+
+function adapter_bundle_inputs_command(string $kind, string $name, string $root): never {
+    try {
+        $root = realpath($root);
+        if ($root === false || !is_dir($root)) {
+            throw new RuntimeException('repository root is invalid');
+        }
+        $subject = adapter_bundle_subject($root, $kind, $name);
+        $paths = ScopedCertificationBundle::subjectInputPaths(
+            $root,
+            $kind,
+            $name,
+            $subject['manifest'],
+            $subject['claim']['evidence']['tests'] ?? []
+        );
+        adapter_bundle_emit([
+            'format' => ScopedCertificationBundle::FORMAT,
+            'inputs' => $paths,
+            'subject' => ScopedCertificationBundle::subjectKey($kind, $name),
+        ], 0);
+    } catch (Throwable $e) {
+        fwrite(STDERR, 'adapter certification bundle inputs failed: ' . $e->getMessage() . "\n");
+        adapter_bundle_emit(['format' => ScopedCertificationBundle::FORMAT, 'reason' => 'input_projection_error'], 1);
+    }
+}
+
 function adapter_bundle_copy(string $source, string $destination): void {
     if (!is_file($source) || is_link($source)) {
         throw new RuntimeException("test evidence is absent or unsafe: $source");
@@ -267,6 +319,7 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
             || !is_string($revision) || preg_match('/^[0-9a-f]{40}$/D', $revision) !== 1) {
             throw new RuntimeException('created_at or git_revision is malformed');
         }
+        adapter_bundle_assert_exact_source($root, $revision);
         $hatches = $spec['force_hatches'] ?? [];
         if (!is_array($hatches) || !array_is_list($hatches)
             || ($hatches !== [] && $hatches !== [ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH])) {
@@ -280,7 +333,17 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
         if (!mkdir($stage, 0777, true)) {
             throw new RuntimeException('could not create bundle staging directory');
         }
+        $expectedPaths = ScopedCertificationBundle::subjectInputPaths(
+            $root,
+            $kind,
+            $name,
+            $subject['manifest'],
+            $subject['claim']['evidence']['tests'] ?? []
+        );
         $inputs = adapter_bundle_inputs($root, $spec['bound_inputs'] ?? null);
+        if (array_column($inputs, 'path') !== $expectedPaths) {
+            throw new RuntimeException('bound_inputs do not equal the canonical subject closure');
+        }
         $tests = adapter_bundle_tests($spec['tests'] ?? [], $stage);
         $subjectDigest = CapabilityRegistry::subject_digest(
             $kind,
@@ -313,6 +376,17 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
         ];
         $bundle['bundle_digest'] = ScopedCertificationBundle::digest($bundle);
         ScopedCertificationBundle::validate($bundle);
+        ScopedCertificationBundle::assertCurrent(
+            $bundle,
+            $kind,
+            $name,
+            $subjectDigest,
+            adapter_bundle_platform($root),
+            $inputs,
+            $subject['claim']['evidence']['tests'] ?? [],
+            $subject['claim'],
+            adapter_bundle_artifacts($root, $subject['manifest'])
+        );
         file_put_contents("$stage/bundle.json", Canon::encode($bundle));
         $final = "$outputRoot/{$bundle['bundle_digest']}";
         if (file_exists($final)) {
@@ -368,13 +442,21 @@ function adapter_bundle_verify(string $input, string $root): never {
         $name = (string) $bundle['subject']['name'];
         $subject = adapter_bundle_subject($root, $kind, $name);
         $actualDigest = CapabilityRegistry::subject_digest($kind, $name, $subject['manifest'], $subject['claim'], $subject['dir']);
+        $expectedPaths = ScopedCertificationBundle::subjectInputPaths(
+            $root,
+            $kind,
+            $name,
+            $subject['manifest'],
+            $subject['claim']['evidence']['tests'] ?? []
+        );
+        ScopedCertificationBundle::assertGitRevisionInputs($root, $bundle);
         ScopedCertificationBundle::assertCurrent(
             $bundle,
             $kind,
             $name,
             $actualDigest,
             adapter_bundle_platform($root),
-            adapter_bundle_current_inputs($root, $bundle['closure']['inputs']),
+            ScopedCertificationBundle::currentInputsForPaths($root, $expectedPaths),
             $subject['claim']['evidence']['tests'] ?? [],
             $subject['claim'],
             adapter_bundle_artifacts($root, $subject['manifest'])
@@ -393,13 +475,16 @@ function adapter_bundle_verify(string $input, string $root): never {
 
 try {
     $command = $argv[1] ?? '';
+    if ($command === 'inputs' && isset($argv[2], $argv[3], $argv[4])) {
+        adapter_bundle_inputs_command($argv[2], $argv[3], $argv[4]);
+    }
     if ($command === 'build' && isset($argv[2], $argv[3])) {
         adapter_bundle_build($argv[2], $argv[3]);
     }
     if ($command === 'verify' && isset($argv[2], $argv[3])) {
         adapter_bundle_verify($argv[2], $argv[3]);
     }
-    throw new RuntimeException('usage: subject-certification-bundle.php build <spec.json> <out-dir> | verify <bundle> <repo-root>');
+    throw new RuntimeException('usage: subject-certification-bundle.php inputs <kind> <name> <repo-root> | build <spec.json> <out-dir> | verify <bundle> <repo-root>');
 } catch (Throwable $e) {
     fwrite(STDERR, 'adapter certification bundle: ' . $e->getMessage() . "\n");
     exit(1);

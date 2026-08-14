@@ -414,10 +414,25 @@ were confirmed still running, untouched, throughout.
 `SUBJECT=profiles.<name>` certifies one profile. The runner reads that subject's
 required test IDs from `manifests/dispositions.json`. By convention,
 `conformance-<name>` uses the matching conformance entry,
-`exact-artifact-version-matrix` uses the manifest's artifact-lock entries, and
-`multisite-refusal` belongs to core. Any other ID is discovered as an executable
-`sandbox/certification/tests/<id>.sh`. This convention is the extension point:
-adding a WP extension does not require editing a central subject list or switch.
+`exact-artifact-version-matrix` uses an executable
+`sandbox/certification/version-matrix/<name>.sh` when present (the currently
+shipped adapters retain their established built-in matrix fixtures), and
+`multisite-refusal` belongs to core. Any other canonical ID is discovered as
+an executable `sandbox/certification/tests/<id>.sh`. This convention is the
+extension point: adding a WP extension does not require editing a central
+subject list or switch. The standalone matrix command is also subject-only:
+`make certify-version-matrix MANIFEST=<name>`; there is no all-manifests mode.
+
+Custom and per-extension matrix drivers receive these environment variables:
+`DUO_CERT_TEST_ID`, `DUO_CERT_SUBJECT`, `DUO_CERT_MANIFEST`, `DUO_CERT_SOURCE_SHA`,
+`DUO_CERT_PAIR`, `DUO_CERT_PORT1`, `DUO_CERT_PORT2`, `DUO_CERT_RESULT`, and
+`DUO_CERT_DIFF`. Standard output/error becomes the non-empty evidence log. On
+success the driver must exit zero, write `DUO_CERT_RESULT` as JSON containing
+the exact test ID, `"verdict":"pass"`, and `"exit_code":0`, and write
+`DUO_CERT_DIFF` as JSON containing `"status":"clean"`. Helpers belong under
+`sandbox/certification/tests/<id>/` or
+`sandbox/certification/version-matrix/<name>/`; every file there joins that
+subject's canonical closure.
 
 Each run owns one disposable pair, destroys it after every attempted test, and
 publishes a content-addressed `duo-subject-certification-bundle/v1` directory
@@ -427,7 +442,9 @@ under `CERT_SUBJECT_OUT` (default
 force-hatch ledger, named results/diffs/logs, Git revision, and the conservative
 source closure for that lane. Core and profile subjects may legitimately have
 no plugin artifacts. A changed bound input expires that record without affecting
-another subject.
+another subject. Artifact-lock currentness is compared through the signed rows
+for the selected plugin only, so adding a different plugin does not expire
+existing subjects.
 
 The builder/verifier emits one JSON verdict and can be invoked directly:
 

@@ -140,6 +140,18 @@ check(
     ($data['manifests']['paid-memberships-pro']['evidence']['tests'] ?? null) === ['conformance-paid-memberships-pro'],
     'PMPro conformance is bundle-bound while its disposition remains experimental'
 );
+$unsafeTestClaim = $data['manifests']['core'];
+$unsafeTestClaim['evidence']['tests'] = ['../escape'];
+expect_throw(
+    fn() => ManifestDispositions::validate_external_entry(
+        'core',
+        $unsafeTestClaim,
+        $manifestsByName['core'],
+        ManifestDispositions::EVIDENCE_SCHEMA
+    ),
+    'lacks current bundle evidence',
+    'certification test IDs reject path traversal at disposition load time'
+);
 $corePolicy = Policy::load(null, ['core']);
 $coreBlockers = $corePolicy->adapter_readiness_blockers();
 if (($capabilityRegistry->data()['manifests']['core']['evidence']['status'] ?? null) === 'current') {

@@ -459,6 +459,51 @@ final class CapabilityRegistry {
         }
         unset($row);
 
+        // Profiles are independently certified subjects, not evidence aliases
+        // for their parent manifest. Evaluate a profile only when its explicit
+        // surface is selected; an expired FSE record must block profile:fse
+        // without contaminating unrelated core operations.
+        $profileRows = [];
+        foreach ($this->profiles() as $profile) {
+            $profileName = (string) ($profile['name'] ?? '?');
+            $profileSurface = 'profile:' . $profileName;
+            $profileReasons = [];
+            if ($surface === $profileSurface) {
+                if (($profile['status'] ?? null) !== 'certified') {
+                    $profileReasons[] = self::reason(
+                        'profile_not_certified',
+                        "profile '$profileName' is " . ($profile['status'] ?? 'unsupported') . ', not certified'
+                    );
+                }
+                if (($profile['evidence']['status'] ?? null) !== 'current') {
+                    $profileReasons[] = self::reason(
+                        'profile_evidence_not_current',
+                        "profile '$profileName' certification evidence is not current"
+                    );
+                }
+            }
+            $profile['evidence_scope'] = 'subject_record';
+            if ($surface === $profileSurface) {
+                $profile['verdict'] = [
+                    'status' => $profileReasons === [] ? 'certified' : 'blocked',
+                    'reasons' => $profileReasons,
+                ];
+            }
+            $profileRows[] = $profile;
+            foreach ($profileReasons as $reason) {
+                $blockers[] = [
+                    'name' => $profileSurface,
+                    'status' => 'blocked',
+                    'code' => $reason['code'],
+                    'reason' => $reason['message'],
+                    'remediation' => (string) ($reason['remediation'] ?? ''),
+                    'source' => AdapterSources::SHIPPED,
+                    'trust_tier' => 'registry',
+                    'certification' => 'registry',
+                ];
+            }
+        }
+
         $report = [
             'schema_version' => self::FORMAT,
             'registry_sha256' => hash('sha256', Canon::encode($this->data)),
@@ -473,7 +518,7 @@ final class CapabilityRegistry {
             'ready' => $blockers === [],
             'blockers' => $blockers,
             'manifests' => $rows,
-            'profiles' => $this->profiles(),
+            'profiles' => $profileRows,
         ];
         $report['evidence_scope'] = 'per_subject';
         return $report;
@@ -908,7 +953,15 @@ final class CapabilityRegistry {
         $fullSource = is_file($root . '/Makefile') && !is_link($root . '/Makefile')
             && is_dir($root . '/agent') && !is_link($root . '/agent');
         if ($fullSource) {
-            $boundInputs = ScopedCertificationBundle::currentInputs($root, $record['closure']['inputs']);
+            $paths = ScopedCertificationBundle::subjectInputPaths(
+                $root,
+                $kind,
+                $name,
+                $manifest,
+                $claim['evidence']['tests'] ?? []
+            );
+            ScopedCertificationBundle::assertGitRevisionInputs($root, $record);
+            $boundInputs = ScopedCertificationBundle::currentInputsForPaths($root, $paths);
             $artifacts = self::scopedArtifacts($root, $manifest);
         } else {
             // The deployed extension carries agent/ and manifests/, but not

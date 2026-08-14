@@ -47,21 +47,15 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${VMATRIX_PAIR:-vmatrix}"
 PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
-# A scoped adapter renewal must not spend an hour re-running unrelated
-# manifests.  The full matrix stays the default; this deliberately narrow
-# mode retains WooCommerce's admitted boundary and its below-range refusal.
-VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-all}"
-case "$VMATRIX_MANIFEST" in
-  all) ;;
-  *)
-    [[ "$VMATRIX_MANIFEST" =~ ^[a-z][a-z0-9-]*$ ]] \
-      || fail "VMATRIX_MANIFEST must be all or a canonical manifest name (got '$VMATRIX_MANIFEST')"
-    jq -e --arg name "$VMATRIX_MANIFEST" \
-      '.manifests[$name].evidence.tests | index("exact-artifact-version-matrix") != null' \
-      ../manifests/dispositions.json >/dev/null \
-      || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
-    ;;
-esac
+# One invocation is one subject. Repository-wide aggregation would recreate
+# the coupling that subject-scoped certification removes.
+VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
+[[ "$VMATRIX_MANIFEST" =~ ^[a-z][a-z0-9-]*$ ]] \
+  || fail "VMATRIX_MANIFEST must name one canonical manifest"
+jq -e --arg name "$VMATRIX_MANIFEST" \
+  '.manifests[$name].evidence.tests | index("exact-artifact-version-matrix") != null' \
+  ../manifests/dispositions.json >/dev/null \
+  || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
 VMATRIX_CASES=0
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
@@ -475,7 +469,7 @@ run_elementor_command() {
   return "$rc"
 }
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = acf ]; then
+if [ "$VMATRIX_MANIFEST" = acf ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for ACF_VERSION in 6.0.0 6.8.7; do
   say "boundary: acf $ACF_VERSION"
@@ -551,7 +545,7 @@ EOF
 done
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
+if [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for NINJA_VERSION in 3.4.34.2 3.14.11; do
   say "boundary: ninja-forms $NINJA_VERSION"
@@ -622,7 +616,7 @@ EOF
 done
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = elementor ]; then
+if [ "$VMATRIX_MANIFEST" = elementor ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
   say "boundary: elementor $ELEMENTOR_VERSION"
@@ -705,7 +699,7 @@ $ELEMENTOR_WARNING_MATCHES"
 done
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
+if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for CF7_VERSION in 6.0.1 6.1.6; do
   say "boundary: contact-form-7 $CF7_VERSION"
@@ -809,7 +803,7 @@ EOF
 done
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = polylang ]; then
+if [ "$VMATRIX_MANIFEST" = polylang ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for POLYLANG_VERSION in 3.5 3.8.6; do
   say "boundary: polylang $POLYLANG_VERSION"
@@ -883,7 +877,7 @@ fi
 # WooCommerce 11.0.0 is currently both the declared minimum and the newest
 # stable release below 12.0.0. Certify it once: repeating the same artifact
 # under two labels would add runtime without adding evidence.
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = woocommerce ]; then
+if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for WOO_VERSION in 11.0.0; do
   say "boundary: woocommerce $WOO_VERSION (only stable in-range release; min == max-practical)"
@@ -959,7 +953,7 @@ fi
 # first release admitted by the manifest's exact 28.0 minimum, and 28.2 is
 # the newest release below 29.0.0. Exercise both exact
 # artifacts; a current-slug install would prove neither boundary.
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = yoast ]; then
+if [ "$VMATRIX_MANIFEST" = yoast ]; then
 VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for YOAST_VERSION in 28.0 28.2; do
   say "boundary: wordpress-seo $YOAST_VERSION"
@@ -1042,7 +1036,7 @@ fi
 # unless --force-code-mismatch is passed. This only needs `duo deploy`
 # (code-only reconciliation), not a full capture/apply round-trip — the
 # refusal fires before any target mutation is attempted.
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = acf ]; then
+if [ "$VMATRIX_MANIFEST" = acf ]; then
 say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1096,7 +1090,7 @@ printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
+if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
 say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1143,7 +1137,7 @@ printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = elementor ]; then
+if [ "$VMATRIX_MANIFEST" = elementor ]; then
 say "negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1190,7 +1184,7 @@ printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: elementor 3.35.9 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
+if [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
 say "negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1250,7 +1244,7 @@ printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = polylang ]; then
+if [ "$VMATRIX_MANIFEST" = polylang ]; then
 say "negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1309,7 +1303,7 @@ pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 
 
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = woocommerce ]; then
+if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
 say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1369,7 +1363,7 @@ printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
 fi
 
-if [ "$VMATRIX_MANIFEST" = all ] || [ "$VMATRIX_MANIFEST" = yoast ]; then
+if [ "$VMATRIX_MANIFEST" = yoast ]; then
 say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories

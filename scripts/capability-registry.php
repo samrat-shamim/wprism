@@ -127,8 +127,21 @@ function cap_subject_artifacts(string $repo, array $manifest): array {
 }
 
 /** @return list<array{path:string,sha256:string,size:int}> */
-function cap_scoped_current_inputs(string $repo, array $recorded): array {
-    return ScopedCertificationBundle::currentInputs($repo, $recorded);
+function cap_scoped_current_inputs(
+    string $repo,
+    string $kind,
+    string $name,
+    array $manifest,
+    array $claim
+): array {
+    $paths = ScopedCertificationBundle::subjectInputPaths(
+        $repo,
+        $kind,
+        $name,
+        $manifest,
+        $claim['evidence']['tests'] ?? []
+    );
+    return ScopedCertificationBundle::currentInputsForPaths($repo, $paths);
 }
 
 /** @return array{record:array,current:bool} */
@@ -145,13 +158,14 @@ function cap_scoped_record(
     ScopedCertificationBundle::validate($record, "scoped certification '$subjectKey'");
     try {
         ScopedCertificationBundle::assertEvidenceAssets($record, $bundleDir);
+        ScopedCertificationBundle::assertGitRevisionInputs($repo, $record);
         ScopedCertificationBundle::assertCurrent(
             $record,
             $kind,
             $name,
             CapabilityRegistry::subject_digest($kind, $name, $manifest, $claim, $repo . '/manifests'),
             cap_platform($repo),
-            cap_scoped_current_inputs($repo, $record['closure']['inputs']),
+            cap_scoped_current_inputs($repo, $kind, $name, $manifest, $claim),
             $claim['evidence']['tests'] ?? [],
             $claim,
             cap_subject_artifacts($repo, $manifest)
@@ -329,13 +343,16 @@ function cap_scoped_claim_evidence(array $record, bool $current, string $kind, s
     if (($record['subject']['kind'] ?? null) !== $kind || ($record['subject']['name'] ?? null) !== $name) {
         throw new RuntimeException("scoped evidence entry '$subjectKey' has a different subject");
     }
+    if (!$current) {
+        return cap_candidate_claim_evidence($kind, $name, $tests);
+    }
     return [
         'bundle_digest' => $record['bundle_digest'],
         'bundle_schema' => ScopedCertificationBundle::FORMAT,
         'closure_digest' => $record['closure']['digest'],
         'force_hatches' => $record['force_hatches'],
         'git_revision' => $record['git_revision'],
-        'status' => $current ? 'current' : 'candidate',
+        'status' => 'current',
         'subject' => $subjectKey,
         'subject_digest' => $record['subject_digest'],
         'tests' => $tests,

@@ -661,8 +661,13 @@ certifier allowlist to update:
    `manifests/dispositions.json`.
 2. Add `sandbox/conformance/entries/<name>.json` plus any matching
    `seeds/<name>.sh`, `checks/<name>.sh`, or `postdeploy/<name>.sh` hooks.
-   A nonstandard certification test is simply an executable
-   `sandbox/certification/tests/<test-id>.sh` named by the disposition.
+   A nonstandard certification test is an executable
+   `sandbox/certification/tests/<test-id>.sh` named by the disposition. An
+   extension-specific exact-artifact driver lives at
+   `sandbox/certification/version-matrix/<name>.sh`; neither convention
+   requires a central dispatcher edit. Put driver-only helpers under the
+   matching extension or test-ID directory so the closure projector binds
+   them automatically.
 3. For a plugin manifest, add its typed versions and SHA-256 values to
    `sandbox/conformance/artifacts.lock.json`. Core/profile subjects need no
    plugin artifact entry.

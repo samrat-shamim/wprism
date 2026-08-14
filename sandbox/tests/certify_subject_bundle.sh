@@ -27,6 +27,10 @@ MANIFEST=$(jq -r --arg kind "$KIND" --arg name "$NAME" \
 [ -f "../manifests/$MANIFEST.json" ] || fail "subject manifest '$MANIFEST' is absent"
 mapfile -t REQUIRED_TESTS < <(jq -r '.evidence.tests[]?' <<<"$CLAIM")
 [ "${#REQUIRED_TESTS[@]}" -gt 0 ] || fail "subject '$SUBJECT_KEY' declares no certification tests"
+for TEST_ID in "${REQUIRED_TESTS[@]}"; do
+  [[ "$TEST_ID" =~ ^[a-z][a-z0-9-]*$ ]] \
+    || fail "subject '$SUBJECT_KEY' declares noncanonical certification test id '$TEST_ID'"
+done
 
 PAIR="${CERT_SUBJECT_PAIR:-subjectcert}"
 PORT1="${CERT_SUBJECT_PORT1:-8920}"
@@ -49,8 +53,13 @@ REPO_ROOT=$(cd .. && pwd -P)
 export DUO_SOURCE_ROOT="$REPO_ROOT"
 SOURCE_SHA=$(git -C "$REPO_ROOT" rev-parse --verify HEAD^{commit}) \
   || fail "subject certification requires a Git checkout"
-[ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ] \
-  || fail "subject certification requires a clean exact-source checkout"
+assert_exact_source() {
+  [ "$(git -C "$REPO_ROOT" rev-parse --verify HEAD^{commit})" = "$SOURCE_SHA" ] \
+    || fail "subject certification source HEAD changed during the run"
+  [ -z "$(git -C "$REPO_ROOT" status --porcelain=v1 --untracked-files=all)" ] \
+    || fail "subject certification requires a clean exact-source checkout"
+}
+assert_exact_source
 WORK_ROOT=$(mktemp -d /tmp/duo-subject-cert-run.XXXXXX)
 cleanup() {
   bash bin/pair.sh destroy "$PAIR" >/dev/null 2>&1 || true
@@ -72,12 +81,12 @@ pass "builder, exact-source checkout, and shared-pair inventory are ready"
 
 normalize_log() {
   local log="$1"
+  php -r '$path=$argv[1]; $file=$argv[2]; $bytes=file_get_contents($file); if ($bytes === false || file_put_contents($file, str_replace($path, "<source-root>", $bytes)) === false) exit(1);' "$REPO_ROOT" "$log"
   sed -i.bak -E 's/[[:space:]]+$//' "$log"
   rm -f -- "$log.bak"
 }
 
 TEST_SPECS='[]'
-CUSTOM_TEST_PATHS=()
 for TEST_ID in "${REQUIRED_TESTS[@]}"; do
   LOG="$WORK_ROOT/$TEST_ID.log"
   RESULT="$WORK_ROOT/$TEST_ID.result.json"
@@ -108,20 +117,35 @@ for TEST_ID in "${REQUIRED_TESTS[@]}"; do
       && jq -e '.status == "clean"' "$DIFF" >/dev/null \
       || REASON=command_failed
   elif [ "$TEST_ID" = exact-artifact-version-matrix ] && [ "$KIND" = manifest ]; then
-    set +e
-    DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA" \
-      VMATRIX_MANIFEST="$NAME" VMATRIX_PAIR="$PAIR" VMATRIX_PORT1="$PORT1" VMATRIX_PORT2="$PORT2" \
-      bash tests/certify_version_matrix.sh >"$LOG" 2>&1
-    RC=$?
-    set -e
-    [ "$RC" -eq 0 ] && grep -qF '✔ CERTIFY_VERSION_MATRIX PASSED' "$LOG" || REASON=command_failed
-    jq -n --arg test "$TEST_ID" \
-      --arg verdict "$([ "$REASON" = passed ] && printf pass || printf fail)" \
-      --arg reason "$REASON" --argjson exit_code "$RC" --arg subject "$SUBJECT_KEY" \
-      '{schema_version:1,test:$test,verdict:$verdict,exit_code:$exit_code,reason:$reason,subject:$subject,
-        assertions:["declared_artifacts_digest_verified","admitted_boundaries_round_trip","below_range_refused"]}' >"$RESULT"
-    jq -n --arg status "$([ "$REASON" = passed ] && printf clean || printf unknown)" --arg manifest "$NAME" \
-      '{status:$status,manifest:$manifest,diffs:["in-range-recapture"],negative_controls:["below-range-refused"]}' >"$DIFF"
+    MATRIX_DRIVER="certification/version-matrix/$NAME.sh"
+    if [ -x "$MATRIX_DRIVER" ]; then
+      set +e
+      DUO_CERT_TEST_ID="$TEST_ID" DUO_CERT_SUBJECT="$SUBJECT_KEY" DUO_CERT_MANIFEST="$MANIFEST" DUO_CERT_SOURCE_SHA="$SOURCE_SHA" \
+        DUO_CERT_PAIR="$PAIR" DUO_CERT_PORT1="$PORT1" DUO_CERT_PORT2="$PORT2" \
+        DUO_CERT_RESULT="$RESULT" DUO_CERT_DIFF="$DIFF" \
+        bash "$MATRIX_DRIVER" >"$LOG" 2>&1
+      RC=$?
+      set -e
+      [ "$RC" -eq 0 ] \
+        && jq -e --arg id "$TEST_ID" '.test == $id and .verdict == "pass" and .exit_code == 0' "$RESULT" >/dev/null \
+        && jq -e '.status == "clean"' "$DIFF" >/dev/null \
+        || REASON=command_failed
+    else
+      set +e
+      DUO_EXPECTED_SOURCE_SHA="$SOURCE_SHA" \
+        VMATRIX_MANIFEST="$NAME" VMATRIX_PAIR="$PAIR" VMATRIX_PORT1="$PORT1" VMATRIX_PORT2="$PORT2" \
+        bash tests/certify_version_matrix.sh >"$LOG" 2>&1
+      RC=$?
+      set -e
+      [ "$RC" -eq 0 ] && grep -qF '✔ CERTIFY_VERSION_MATRIX PASSED' "$LOG" || REASON=command_failed
+      jq -n --arg test "$TEST_ID" \
+        --arg verdict "$([ "$REASON" = passed ] && printf pass || printf fail)" \
+        --arg reason "$REASON" --argjson exit_code "$RC" --arg subject "$SUBJECT_KEY" \
+        '{schema_version:1,test:$test,verdict:$verdict,exit_code:$exit_code,reason:$reason,subject:$subject,
+          assertions:["declared_artifacts_digest_verified","admitted_boundaries_round_trip","below_range_refused"]}' >"$RESULT"
+      jq -n --arg status "$([ "$REASON" = passed ] && printf clean || printf unknown)" --arg manifest "$NAME" \
+        '{status:$status,manifest:$manifest,diffs:["in-range-recapture"],negative_controls:["below-range-refused"]}' >"$DIFF"
+    fi
   elif [ "$TEST_ID" = multisite-refusal ] && [ "$SUBJECT_KEY" = manifests.core ]; then
     set +e
     MULTISITE_PAIR="$PAIR" MULTISITE_PORT1="$PORT1" MULTISITE_PORT2="$PORT2" \
@@ -137,9 +161,8 @@ for TEST_ID in "${REQUIRED_TESTS[@]}"; do
     jq -n --arg status "$([ "$REASON" = passed ] && printf clean || printf unknown)" \
       '{status:$status,outcome:"no_mutation",checked:["site.duo.json","state","capture-staging","capture-backup","wordpress-option-canary"]}' >"$DIFF"
   elif [ -x "certification/tests/$TEST_ID.sh" ]; then
-    CUSTOM_TEST_PATHS+=("sandbox/certification/tests/$TEST_ID.sh")
     set +e
-    DUO_CERT_SUBJECT="$SUBJECT_KEY" DUO_CERT_MANIFEST="$MANIFEST" DUO_CERT_SOURCE_SHA="$SOURCE_SHA" \
+    DUO_CERT_TEST_ID="$TEST_ID" DUO_CERT_SUBJECT="$SUBJECT_KEY" DUO_CERT_MANIFEST="$MANIFEST" DUO_CERT_SOURCE_SHA="$SOURCE_SHA" \
       DUO_CERT_PAIR="$PAIR" DUO_CERT_PORT1="$PORT1" DUO_CERT_PORT2="$PORT2" \
       DUO_CERT_RESULT="$RESULT" DUO_CERT_DIFF="$DIFF" \
       bash "certification/tests/$TEST_ID.sh" >"$LOG" 2>&1
@@ -163,26 +186,9 @@ for TEST_ID in "${REQUIRED_TESTS[@]}"; do
   pass "$TEST_ID passed and its pair was destroyed"
 done
 
-SUBJECT_PATHS=$(jq -r '
-  (.interpreter? // empty | "manifests/interpreters/" + . + ".php"),
-  (.providers[]? | select(.source == "manifest") | "manifests/providers/" + .id + ".php"),
-  (.post_types[]?.regen_dependency.regenerator? // empty | "manifests/regenerators/" + . + ".php")
-' "../manifests/$MANIFEST.json")
-BOUND_INPUTS=$({
-  git -C "$REPO_ROOT" ls-files agent cli sandbox/bin \
-    sandbox/conformance/run.sh sandbox/conformance/asserts.sh sandbox/conformance/artifacts.lock.json \
-    sandbox/lib/pair_*.sh sandbox/tests/certify_subject_bundle.sh sandbox/tests/certify_version_matrix.sh \
-    sandbox/tests/regress_multisite_refusal.sh sandbox/pair.yml sandbox/pair.http.yml sandbox/pair.artifacts.yml \
-    sandbox/pair.wordpress-offline.yml sandbox/db.yml sandbox/init-cli.Dockerfile \
-    scripts/capability-registry.php docs/compatibility-baseline.json Makefile
-  printf '%s\n' "manifests/$MANIFEST.json"
-  [ -f "conformance/entries/$NAME.json" ] && printf '%s\n' "sandbox/conformance/entries/$NAME.json"
-  for HOOK in seeds postdeploy checks; do
-    [ -f "conformance/$HOOK/$NAME.sh" ] && printf '%s\n' "sandbox/conformance/$HOOK/$NAME.sh"
-  done
-  printf '%s\n' "${CUSTOM_TEST_PATHS[@]}"
-  printf '%s\n' "$SUBJECT_PATHS"
-} | sed '/^$/d' | LC_ALL=C sort -u | jq -R . | jq -s .)
+assert_exact_source
+BOUND_INPUTS=$(php bin/subject-certification-bundle.php inputs "$KIND" "$NAME" "$REPO_ROOT" | jq -ce '.inputs') \
+  || fail "could not derive the canonical subject closure"
 FORCE_HATCHES=$(pair_force_hatch_json) \
   || fail "certification force-hatch ledger is missing, malformed, or contains an unreviewed hatch"
 SPEC="$WORK_ROOT/$KIND-$NAME.spec.json"
@@ -198,6 +204,7 @@ BUNDLE=$(jq -r '.bundle // empty' <<<"$BUILD")
 [ -n "$BUNDLE" ] && [ -d "$BUNDLE" ] || fail "builder did not return a content-addressed subject bundle"
 php bin/subject-certification-bundle.php verify "$BUNDLE" "$REPO_ROOT" >/dev/null \
   || fail "new subject bundle did not verify against current bytes"
+assert_exact_source
 printf '%s\n' "$BUILD"
 pass "$SUBJECT_KEY certificate is verified: $BUNDLE"
 if [ "$FORCE_HATCHES" = '[]' ]; then
