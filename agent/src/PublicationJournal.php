@@ -965,11 +965,11 @@ class PublicationJournal {
      * fresh-process rollback: the whole strict first-publication recovery path
      * could only ever refuse. A proven, complete rollback then surfaced as
      * "init refused at an unclassified safety gate" with a retained journal
-     * and lock, because Init::confirm()'s compensation could not prove an
-     * artifact that had never changed.
+     * and lock, because InitConfirmation::run()'s compensation could not prove
+     * an artifact that had never changed.
      *
      * Both siblings already compared canonically before this — the proposal-
-     * time gate (Init::interrupted_attempt_manual_recovery_reason()'s
+     * time gate (InitRecovery::interrupted_attempt_manual_recovery_reason()'s
      * $manifestMismatch) and the file-level twin (remove_owned_file_initial()
      * below) — so this was the same-commit asymmetry family as DUO-3421's
      * git_empty_identity drift: the read-only gate advertised a confirmable
@@ -1839,7 +1839,7 @@ PHP;
      * DUO-3427: the read-only twin of the removal authority below, for the
      * proposal-time gate.
      *
-     * `Init::interrupted_attempt_manual_recovery_reason()` refused EVERY
+     * `InitRecovery::interrupted_attempt_manual_recovery_reason()` refused EVERY
      * `state.capture-{intent,receipt}.tmp.*` entry by name — the exact
      * "swept by name pattern" the authority's own docblock rejects — while
      * the authority resolves any temp that is a hard link to its sealed next
@@ -2508,7 +2508,7 @@ PHP;
  *     ('parent path unavailable', and truncation routed through the existing
  *     'fresh file write failed') are additive only.
  *
- * Only the high-volume staging walks (Init::capture_code and
+ * Only the high-volume staging walks (InitCodeBaseline::capture and
  * Publish::write_entities_fresh) route through one helper each. The single-op
  * callers keep run_bound_operation's per-spawn path unchanged.
  */

@@ -23,7 +23,7 @@ require_once __DIR__ . '/../../agent/src/ManifestDispositions.php';
 require_once __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require_once __DIR__ . '/../../agent/src/Policy.php';
 require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require_once __DIR__ . '/../../agent/src/Init.php';
+require_once __DIR__ . '/../../agent/src/InitPlanner.php';
 require_once __DIR__ . '/../../agent/src/AdapterCertification.php';
 require_once __DIR__ . '/../../agent/src/Deploy.php';
 require_once __DIR__ . '/../../agent/src/Providers.php';
@@ -79,7 +79,7 @@ require_once __DIR__ . '/../../agent/src/Cli.php';
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
 use Duo\Canon;
-use Duo\Init;
+use Duo\InitPlanner;
 use Duo\Policy;
 use Duo\Providers;
 use Duo\RepositoryCompiler;
@@ -1469,7 +1469,7 @@ try {
             === 'third_party_signed',
         'the exact {name,source:site,digest} pin elevates only that signed adapter to certified readiness'
     );
-    $loadInitSelection = new ReflectionMethod(Init::class, 'load_selected_policy');
+    $loadInitSelection = new ReflectionMethod(InitPlanner::class, 'load_selected_policy');
     [$initPolicy, $initPins] = $loadInitSelection->invoke(null, ['site-demo'], $site);
     $initReport = $initPolicy->capability_report(['operation' => 'capture']);
     cert_check(
