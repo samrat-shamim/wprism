@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "elementor"],
+    "plugins": [{"slug": "elementor", "version": "4.2.2"}],
+    "post_types": ["post", "page", "attachment", "elementor_library"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "elementor"
+}

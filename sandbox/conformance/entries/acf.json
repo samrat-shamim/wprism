@@ -1,0 +1,9 @@
+{
+  "entry": {
+    "pin": ["core", "acf"],
+    "plugins": [{"slug": "advanced-custom-fields", "version": "6.8.7"}],
+    "post_types": ["post", "page", "attachment", "acf-field-group", "acf-field"],
+    "taxonomies": ["category", "post_tag"]
+  },
+  "manifest": "acf"
+}

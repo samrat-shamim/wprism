@@ -44,7 +44,7 @@ Verdicts:
 | `certify_deletion_matrix.sh` | A forced Ninja Forms parent deletion left guard-survivor rows as an unresolved finding requiring manual cleanup. | DUO-3328/PR #128 narrowed the honest shipped-schema contract: indexed child-row deletion and attached-metadata cascades remain supported, while unindexed `nf3_forms` parent guards cannot provide the required lock boundary. Source capture and hand-authored plan/apply now refuse the parent intent atomically, so the orphan-recovery premise no longer arises. | `prior-reconciled` |
 | `certify_merge.sh`, `spike_b_merge.sh` | A preserved target-local Team edit merely emitted a generic drift message while the rest of the merge could be treated as complete. | Current apply performs mandatory fresh-process canonical verification, fails closed on the exact Team hash mismatch, leaves an `incomplete_apply` retry marker, and clears it only after capture-first recovery verifies cleanly. Both full live flows passed. | `aged-flip` |
 | `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The DUO-3225 offline option inventory is complete for the exact WooCommerce 11.0.0 full-shop fixture. | A clean post-rebase R1-B run found five namespace-owned options with no exact classification. DUO-3303/PR #118 classified all five exact authored options plus the later `wc_pending_batch_processes` runtime row, extended the inventory regression, passed exact-commit Woo conformance, and completed the full R1-B blocker stack. | `prior-reconciled` |
-| `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The reconciled WooCommerce 11.0.0 option inventory remained complete after the exact-reference certification workflow landed. | The next clean full-shop capture found `woocommerce_hooked_blocks_version` and `woocommerce_pickup_location_settings`. DUO-3311/PR #127 classified both as exact authored, reference-free options, extended the inventory regression, passed the full latest-main R1-B stack with no unclassified Woo namespace rows, and certified the exact standalone commit. | `prior-reconciled` |
+| `regress_woocommerce_contract.php`, `grind_r1b_shop.sh` | The reconciled WooCommerce 11.0.0 option inventory remained complete after its prior certification workflow landed. | The next clean full-shop capture found `woocommerce_hooked_blocks_version` and `woocommerce_pickup_location_settings`. DUO-3311/PR #127 classified both as exact authored, reference-free options, extended the inventory regression, passed the full latest-main R1-B stack with no unclassified Woo namespace rows, and certified the exact standalone commit. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | The first apply leaves Polylang language relationships as drift and a retry/content change repairs them. | DUO-3280 is asserted on the single first apply; the no-op reapply must have zero drift. The later content update now proves ordinary preservation, not repair. | `prior-reconciled` |
 | `regress_option_subkeys.sh` | Deep lint catches IDs below language-slug keys in `nav_menus`. | The script explicitly does not assert this; the existing blind spot is filed as DUO-3241. | `unclear-escalate` |
 | `regress_option_ref_scope.sh` | In-scope-but-unminted references behave like ordinary dangling IDs. | The current script asserts the real scope-aware refusal/non-minting snapshot contract; reconciled in PR #51 (`926518c`). | `prior-reconciled` |
@@ -95,7 +95,7 @@ with more specific or mixed verdicts are detailed in the ledger above.
 | `certify_adversarial_matrix.sh` | Certification contract: adversarial matrix. No unresolved gap characterization. | `current` |
 | `certify_deletion_matrix.sh` | Certification contract: deletion matrix. No unresolved gap characterization. | `current` |
 | `certify_merge.sh` | Mandatory post-apply verification and retry-marker reconciliation; see the gap ledger. | `aged-flip` |
-| `certify_reference_bundle.sh` | Certification contract: reference bundle. No unresolved gap characterization. | `current` |
+| `certify_subject_bundle.sh` | Certification contract: one manifest or profile subject. No unresolved gap characterization. | `current` |
 | `certify_ssh_adoption_roundtrip.sh` | Certification contract: ssh adoption roundtrip. No unresolved gap characterization. | `current` |
 | `certify_ssh_rollback.sh` | Certification contract: ssh rollback. No unresolved gap characterization. | `current` |
 | `certify_version_matrix.sh` | Certification contract: version matrix. No unresolved gap characterization. | `current` |
@@ -265,11 +265,11 @@ with more specific or mixed verdicts are detailed in the ledger above.
   menu-item metadata, option reconciliation and reference scope, snapshot
   metadata, TEC regeneration, user metadata, widgets, Woo attribute deletion,
   `pa_*` attributes, shipping zones, coverage, and status truth.
-- Exact WooCommerce conformance and reference-bundle certification passed for
+- Exact WooCommerce conformance and subject-scoped certification passed for
   the last certified source revision `fed287fc73072c4b183ee3b209de5564366708d2`
   (digest `7636c32a4b68f4e0eaa4e47eb7187323b0e00e6b4b5e5d8a9edbfb4c92e64595`).
   On the audited `d2a83a1` baseline, `php scripts/capability-registry.php check`
-  correctly reports that bundle expired after #126/#128 changed bound inputs;
+  correctly reports that evidence expired after #126/#128 changed bound inputs;
   DUO-3306 owns the fresh live recertification and import. This fixture-only
   branch neither changes those inputs nor manufactures replacement evidence.
 - `make regress-offline-all`: 64 offline suites green.

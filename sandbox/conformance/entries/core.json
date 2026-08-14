@@ -1,0 +1,13 @@
+{
+  "entry": {
+    "pin": ["core"],
+    "plugins": [],
+    "post_types": ["post", "page", "attachment", "custom_css"],
+    "taxonomies": ["category", "post_tag"],
+    "themes": [
+      {"slug": "twentytwentyone", "version": "2.8"},
+      {"slug": "twentytwentyfive", "version": "1.5"}
+    ]
+  },
+  "manifest": "core"
+}

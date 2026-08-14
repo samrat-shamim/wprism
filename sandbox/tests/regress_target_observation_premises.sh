@@ -247,8 +247,6 @@ grep -Fq 'SELECT uuid FROM wp_duo_map WHERE uuid' tests/certify_adversarial_matr
   || fail "the expected-empty identity-map setup predicate disappeared from the explicit exemption inventory"
 grep -Fq 'git -C siterepo/certmatrix1 status --porcelain -- state' tests/certify_adversarial_matrix.sh \
   || fail "the adversarial clean-repository observation exemption lost its direct git status evidence"
-grep -Fq 'environment_collection_failed' tests/certify_reference_bundle.sh \
-  || fail "the reference-bundle environment collection empty-output exemption disappeared"
 version_matrix="tests/certify_version_matrix.sh"
 [ "$(grep -Fc 'require_fixture_values INSTALLED_2' "$version_matrix")" -eq 7 ] \
   || fail "version-matrix target plugin-version premises must cover all seven certified plugin loops"

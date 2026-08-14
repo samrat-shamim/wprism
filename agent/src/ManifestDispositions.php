@@ -22,7 +22,7 @@ final class ManifestDispositions {
      */
     public const STATUS_UNCOVERED = 'uncovered';
     public const UNCOVERED_REASON = 'no reviewed disposition entry — a manifest cannot certify itself merely by existing beside the agent';
-    public const BUNDLE_SCHEMA = 'duo-certification-bundle/v1';
+    public const EVIDENCE_SCHEMA = 'duo-subject-certification-bundle/v1';
 
     private array $data;
 
@@ -97,13 +97,18 @@ final class ManifestDispositions {
      * narrow helper keeps section, version, capability, and evidence grammar
      * identical instead of growing a second long-lived validator beside it.
      */
-    public static function validate_external_entry(string $name, array $entry, array $manifest): void {
+    public static function validate_external_entry(
+        string $name,
+        array $entry,
+        array $manifest,
+        string $evidenceSchema
+    ): void {
         if ($name === '' || ($entry['status'] ?? null) !== 'certified') {
             throw new \RuntimeException(
                 "duo: external manifest disposition '$name' must be a certified entry"
             );
         }
-        self::validate_entry($name, $entry, $manifest);
+        self::validate_entry($name, $entry, $manifest, $evidenceSchema);
     }
 
     /** @return list<array{name:string,status:string,reason:string}> */
@@ -224,14 +229,19 @@ final class ManifestDispositions {
                 || $profile['supported_versions'] === []
                 || !is_array($profile['scope'] ?? null) || array_is_list($profile['scope'])
                 || !is_array($profile['evidence'] ?? null)
-                || ($profile['evidence']['bundle_schema'] ?? null) !== self::BUNDLE_SCHEMA
-                || !self::string_list($profile['evidence']['tests'] ?? null, false)) {
+                || ($profile['evidence']['bundle_schema'] ?? null) !== self::EVIDENCE_SCHEMA
+                || !self::string_list($profile['evidence']['tests'] ?? null, false, true)) {
                 throw new \RuntimeException("duo: manifest disposition profile '$name' is malformed");
             }
         }
     }
 
-    private static function validate_entry(string $name, $entry, array $manifest): void {
+    private static function validate_entry(
+        string $name,
+        $entry,
+        array $manifest,
+        string $evidenceSchema = self::EVIDENCE_SCHEMA
+    ): void {
         if (!is_array($entry) || array_is_list($entry)) {
             throw new \RuntimeException("duo: manifest disposition '$name' must be an object");
         }
@@ -318,8 +328,8 @@ final class ManifestDispositions {
         $evidence = $entry['evidence'] ?? null;
         if ($status === 'certified') {
             if (!is_array($evidence) || array_is_list($evidence)
-                || ($evidence['bundle_schema'] ?? null) !== self::BUNDLE_SCHEMA
-                || !self::string_list($evidence['tests'] ?? null, false)) {
+                || ($evidence['bundle_schema'] ?? null) !== $evidenceSchema
+                || !self::string_list($evidence['tests'] ?? null, false, true)) {
                 throw new \RuntimeException("duo: certified manifest disposition '$name' lacks current bundle evidence");
             }
             $plugin = $manifest['plugin'] ?? null;
@@ -335,12 +345,13 @@ final class ManifestDispositions {
         }
     }
 
-    private static function string_list($value, bool $allowEmpty = true): bool {
+    private static function string_list($value, bool $allowEmpty = true, bool $canonicalSlugs = false): bool {
         if (!is_array($value) || !array_is_list($value) || (!$allowEmpty && $value === [])) {
             return false;
         }
         foreach ($value as $item) {
-            if (!is_string($item) || $item === '') {
+            if (!is_string($item) || $item === ''
+                || ($canonicalSlugs && preg_match('/^[a-z][a-z0-9-]*$/D', $item) !== 1)) {
                 return false;
             }
         }

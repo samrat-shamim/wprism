@@ -40,6 +40,20 @@ function reason_codes(array $report): array {
     return array_values(array_unique(array_column($report['blockers'] ?? [], 'code')));
 }
 
+function candidate_snapshot(array $registry): array {
+    foreach (['manifests', 'profiles'] as $section) {
+        foreach ($registry[$section] as &$claim) {
+            $claim['evidence']['bundle_digest'] = null;
+            $claim['evidence']['closure_digest'] = null;
+            $claim['evidence']['git_revision'] = null;
+            $claim['evidence']['status'] = 'candidate';
+            $claim['evidence']['subject_digest'] = null;
+        }
+        unset($claim);
+    }
+    return $registry;
+}
+
 $repo = realpath(__DIR__ . '/../..');
 $dir = $repo . '/manifests';
 $dispositions = ManifestDispositions::load($dir);
@@ -51,20 +65,7 @@ foreach (glob($dir . '/*.json') ?: [] as $file) {
     }
 }
 $loadedRegistry = CapabilityRegistry::load($dir, $dispositions, array_values($manifests));
-$candidateFixture = $loadedRegistry->data();
-$candidateFixture['evidence']['status'] = 'candidate';
-$candidateFixture['evidence']['tests'] = array_values(array_filter(
-    $candidateFixture['evidence']['tests'],
-    fn(array $test): bool => ($test['id'] ?? null) !== 'conformance-acf'
-));
-foreach ($candidateFixture['manifests'] as &$claim) {
-    $claim['evidence']['status'] = 'candidate';
-}
-unset($claim);
-foreach ($candidateFixture['profiles'] as &$profile) {
-    $profile['evidence']['status'] = 'candidate';
-}
-unset($profile);
+$candidateFixture = candidate_snapshot($loadedRegistry->data());
 $candidateBootstrapRegistry = CapabilityRegistry::from_snapshot(
     $candidateFixture,
     $dispositions,
@@ -76,55 +77,52 @@ check(
     in_array('evidence_not_current', reason_codes($candidateBootstrap), true),
     'candidate registry can load new future evidence IDs but remains promotion-blocking'
 );
-$currentFixture['evidence']['status'] = 'current';
-$currentFixture['evidence']['tests'] = array_map(
-    fn(string $id): array => ['id' => $id, 'verdict' => 'pass'],
-    [
-        'conformance-acf',
-        'conformance-contact-form-7',
-        'conformance-core',
-        'conformance-elementor',
-        'conformance-fse',
-        'conformance-ninja-forms',
-        'conformance-paid-memberships-pro',
-        'conformance-polylang',
-        'conformance-woocommerce',
-        'conformance-yoast',
-        'exact-artifact-version-matrix',
-        'multisite-refusal',
-    ]
-);
-foreach ($currentFixture['manifests'] as &$claim) {
+foreach ($currentFixture['manifests'] as $name => &$claim) {
+    $claim['evidence']['bundle_digest'] = hash('sha256', "bundle:manifests.$name");
+    $claim['evidence']['closure_digest'] = hash('sha256', "closure:manifests.$name");
+    $claim['evidence']['git_revision'] = str_repeat('0', 40);
     $claim['evidence']['status'] = 'current';
+    $claim['evidence']['subject_digest'] = $claim['adapter_digest'];
 }
 unset($claim);
-foreach ($currentFixture['profiles'] as &$profile) {
+foreach ($currentFixture['profiles'] as $name => &$profile) {
+    $profile['evidence']['bundle_digest'] = hash('sha256', "bundle:profiles.$name");
+    $profile['evidence']['closure_digest'] = hash('sha256', "closure:profiles.$name");
+    $profile['evidence']['git_revision'] = str_repeat('0', 40);
     $profile['evidence']['status'] = 'current';
+    $profile['evidence']['subject_digest'] = $profile['subject_digest'];
 }
 unset($profile);
 $registry = CapabilityRegistry::from_snapshot($currentFixture, $dispositions, array_values($manifests));
 
-echo "\n== per-manifest scoped certification ==\n";
+echo "\n== per-subject certification ==\n";
 $scopedFixture = $currentFixture;
-$scopedFixture['evidence']['status'] = 'candidate';
 foreach ($scopedFixture['manifests'] as &$claim) {
+    $claim['evidence']['bundle_digest'] = null;
+    $claim['evidence']['closure_digest'] = null;
+    $claim['evidence']['git_revision'] = null;
     $claim['evidence']['status'] = 'candidate';
+    $claim['evidence']['subject_digest'] = null;
 }
 unset($claim);
 foreach ($scopedFixture['profiles'] as &$profile) {
+    $profile['evidence']['bundle_digest'] = null;
+    $profile['evidence']['closure_digest'] = null;
+    $profile['evidence']['git_revision'] = null;
     $profile['evidence']['status'] = 'candidate';
+    $profile['evidence']['subject_digest'] = null;
 }
 unset($profile);
 $scopedWoo = &$scopedFixture['manifests']['woocommerce'];
 $scopedWoo['evidence'] = [
-    'adapter_digest' => $scopedWoo['adapter_digest'],
     'bundle_digest' => str_repeat('c', 64),
-    'bundle_schema' => 'duo-adapter-certification-bundle/v1',
+    'bundle_schema' => 'duo-subject-certification-bundle/v1',
     'closure_digest' => str_repeat('d', 64),
     'force_hatches' => [],
     'git_revision' => str_repeat('0', 40),
     'status' => 'current',
-    'subject' => 'woocommerce',
+    'subject' => 'manifests.woocommerce',
+    'subject_digest' => $scopedWoo['adapter_digest'],
     'tests' => $dispositions->entry('woocommerce')['evidence']['tests'],
 ];
 unset($scopedWoo);
@@ -139,12 +137,12 @@ $scopedTarget['plugins'] = ['woocommerce/woocommerce.php' => '11.0.0'];
 $scopedReport = $scopedRegistry->report([$manifests['woocommerce']], [
     'operation' => 'apply', 'revision' => str_repeat('f', 40),
 ], $scopedTarget);
-check($scopedReport['ready'] === true, 'a current Woo scoped record remains certifying when global evidence is candidate');
+check($scopedReport['ready'] === true, 'a current Woo subject record remains certifying while other evidence is candidate');
 check(
-    ($scopedReport['evidence_scope'] ?? null) === 'per_manifest'
+    ($scopedReport['evidence_scope'] ?? null) === 'per_subject'
     && array_key_exists('evidence', $scopedReport) && $scopedReport['evidence'] === null
-    && ($scopedReport['manifests'][0]['evidence_scope'] ?? null) === 'scoped_adapter',
-    'a scoped report exposes its per-manifest evidence authority instead of a misleading global field'
+    && ($scopedReport['manifests'][0]['evidence_scope'] ?? null) === 'subject_record',
+    'a report exposes per-subject evidence authority without a shared evidence field'
 );
 check(!in_array('revision_not_certified', reason_codes($scopedReport), true), 'unbound Git revision does not expire a current scoped Woo record');
 $mixedScoped = $scopedRegistry->report([$manifests['woocommerce'], $manifests['acf']], ['operation' => 'apply'], $scopedTarget);
@@ -152,24 +150,54 @@ check(
     in_array('evidence_not_current', reason_codes($mixedScoped), true)
     && ($mixedScoped['manifests'][0]['evidence']['status'] ?? null) === 'current'
     && ($mixedScoped['manifests'][1]['evidence']['status'] ?? null) === 'candidate',
-    'one scoped current record never upgrades an unrelated adapter or fallbacks to global evidence'
+    'one current subject record never upgrades an unrelated adapter'
 );
 
 $missingCurrentEvidence = $currentFixture;
-$missingCurrentEvidence['evidence']['tests'] = array_values(array_filter(
-    $missingCurrentEvidence['evidence']['tests'],
-    fn(array $test): bool => ($test['id'] ?? null) !== 'conformance-acf'
-));
-check_throws(
-    fn() => CapabilityRegistry::from_snapshot($missingCurrentEvidence, $dispositions, array_values($manifests)),
-    "certified claim 'acf' cites absent or non-passing evidence 'conformance-acf'",
-    'current registry still refuses a certified claim whose named evidence is absent'
+$missingCurrentEvidence['manifests']['acf']['evidence'] = $candidateFixture['manifests']['acf']['evidence'];
+$missingRegistry = CapabilityRegistry::from_snapshot($missingCurrentEvidence, $dispositions, array_values($manifests));
+$missingReport = $missingRegistry->report([$manifests['acf']], ['operation' => 'promote']);
+check(
+    in_array('evidence_not_current', reason_codes($missingReport), true),
+    'a missing ACF record blocks ACF without invalidating the registry or another subject'
+);
+$candidateProfileFixture = $currentFixture;
+$candidateProfileFixture['profiles']['fse']['evidence'] = $candidateFixture['profiles']['fse']['evidence'];
+$candidateProfileRegistry = CapabilityRegistry::from_snapshot(
+    $candidateProfileFixture,
+    $dispositions,
+    array_values($manifests)
+);
+$coreTarget = $scopedTarget;
+$coreTarget['active_plugins'] = [];
+$coreTarget['plugins'] = [];
+$candidateProfileReport = $candidateProfileRegistry->report(
+    [$manifests['core']],
+    ['operation' => 'capture', 'surface' => 'profile:fse'],
+    $coreTarget
+);
+check(
+    $candidateProfileReport['ready'] === false
+    && in_array('profile_evidence_not_current', reason_codes($candidateProfileReport), true)
+    && ($candidateProfileReport['manifests'][0]['evidence']['status'] ?? null) === 'current'
+    && ($candidateProfileReport['profiles'][0]['verdict']['status'] ?? null) === 'blocked',
+    'candidate FSE evidence blocks profile:fse while the independent core record remains current'
+);
+$unrelatedCoreReport = $candidateProfileRegistry->report(
+    [$manifests['core']],
+    ['operation' => 'capture', 'surface' => 'options.blogname'],
+    $coreTarget
+);
+check(
+    $unrelatedCoreReport['ready'] === true
+    && !in_array('profile_evidence_not_current', reason_codes($unrelatedCoreReport), true),
+    'candidate FSE evidence does not contaminate an unrelated core surface'
 );
 $forgedCandidate = $candidateFixture;
 $forgedCandidate['manifests']['acf']['evidence']['status'] = 'current';
 check_throws(
     fn() => CapabilityRegistry::from_snapshot($forgedCandidate, $dispositions, array_values($manifests)),
-    "evidence binding for 'acf' is malformed",
+    "current evidence binding for 'acf' is malformed",
     'candidate registry cannot forge one claim-level evidence status to current'
 );
 
@@ -215,17 +243,7 @@ check($unsupported['ready'] === false, 'explicit WooCommerce product deletion bo
 check(in_array('surface_explicitly_unsupported', reason_codes($unsupported), true), 'unsupported verdict names the exact registry reason');
 
 echo "\n== expired evidence ==\n";
-$candidate = $registry->data();
-$candidate['evidence']['status'] = 'candidate';
-foreach ($candidate['manifests'] as &$claim) {
-    $claim['evidence']['status'] = 'candidate';
-}
-unset($claim);
-foreach ($candidate['profiles'] as &$profile) {
-    $profile['evidence']['status'] = 'candidate';
-}
-unset($profile);
-$candidateRegistry = CapabilityRegistry::from_snapshot($candidate, $dispositions, array_values($manifests));
+$candidateRegistry = CapabilityRegistry::from_snapshot($candidateFixture, $dispositions, array_values($manifests));
 $expired = $candidateRegistry->report([$manifests['core']], ['operation' => 'promote'], $target);
 check(in_array('evidence_not_current', reason_codes($expired), true), 'candidate/expired evidence never grants a certified verdict');
 
@@ -246,11 +264,14 @@ $revision = $registry->report([$manifests['core']], [
     'operation' => 'promote',
     'revision' => str_repeat('0', 40),
 ], $target);
-check(in_array('revision_not_certified', reason_codes($revision), true), 'a different platform revision cannot borrow current evidence');
+check(!in_array('revision_not_certified', reason_codes($revision), true), 'subject closure currentness does not depend on an unrelated Git revision');
 $document = (string) file_get_contents($repo . '/docs/capabilities.md');
 $readme = (string) file_get_contents($repo . '/README.md');
-$digest = (string) $registry->data()['evidence']['bundle_digest'];
-check(str_contains($document, $digest) && str_contains($readme, $digest), 'README and generated compatibility document cite the same exact bundle');
+check(
+    str_contains($document, 'Every row names its own independently current evidence record')
+    && str_contains($readme, 'independently scoped per manifest and profile'),
+    'README and generated capability document describe the same per-subject authority model'
+);
 check(!str_contains($document, 'Lifecycle phases: .'), 'generated docs never emit an empty lifecycle sentence');
 check(str_contains($document, 'Lifecycle phases: none declared.'), 'generated docs name an intentionally empty lifecycle contract');
 $coreEvidence = $registry->data()['manifests']['core']['evidence']['tests'] ?? [];

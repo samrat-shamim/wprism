@@ -152,8 +152,8 @@ library_digest() { # library_digest <dir>
 # The claim is DUO-3336's, and DUO-3336's title is per-init: an existing site
 # initializes inside fifteen minutes. It was implemented as a whole-SUITE
 # stopwatch -- `$SECONDS` captured at script start, compared to 900 once on the
-# last line -- and then exported into the reference bundle as a certified
-# member of `init_golden_assertions`. Those are not the same measurement and
+# last line -- and then exported as a certified assertion. Those are not the
+# same measurement and
 # they do not even have the same subject: this suite installs WooCommerce,
 # plants a 5000-row risk fixture, and drives roughly twenty injected-failure
 # confirmations with about eighteen full code stagings between them, so the
@@ -253,8 +253,9 @@ assert_init_plan() {
 # with a lease timeout that named none of that.
 #
 # So the pair mounts a hermetic library instead: the shipped manifests byte for
-# byte, with ONLY the attestation re-sealed against this working tree, exactly
-# as re-certifying it would derive it (sandbox/tests/certification_fixture.php,
+# byte, with independent subject records re-sealed against this working tree,
+# exactly as subject certification would derive them
+# (sandbox/tests/certification_fixture.php,
 # shared with regress_adapter_sources.php's DUO-3379 fixture). Every proposal
 # then sees current evidence regardless of where the live tree sits in its
 # certification cycle, and the product's own expired-evidence refusal is left
@@ -276,9 +277,8 @@ HERMETIC_MANIFESTS=$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT
   || fail "fixture manufacture failed: could not seal a hermetic certification library under $HERMETIC_ROOT"
 [ "$HERMETIC_MANIFESTS" = "$HERMETIC_ROOT/manifests" ] \
   || fail "fixture manufacture failed: sealed library landed at $HERMETIC_MANIFESTS, not under this run's owned scratch"
-jq -e '.evidence.status == "current"
-  and ([.manifests[].evidence.status] | unique) == ["current"]
-  and ([.profiles[].evidence.status] | unique) == ["current"]' \
+jq -e '([.manifests[] | select(.status == "certified") | .evidence.status] | all(. == "current"))
+  and ([.profiles[] | select(.status == "certified") | .evidence.status] | all(. == "current"))' \
   "$HERMETIC_MANIFESTS/capabilities/registry.json" >/dev/null \
   || fail "fixture manufacture failed: the sealed registry does not read current evidence"
 diff -r -x capabilities "$REPO_ROOT/manifests" "$HERMETIC_MANIFESTS" >/dev/null \

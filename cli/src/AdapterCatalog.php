@@ -556,7 +556,7 @@ final class AdapterCatalog {
             }
             if ($registry !== null) {
                 $out['claim'] = $registry->claim($name);
-                $out['verification'] = self::verification($out['claim'], $registry->data());
+                $out['verification'] = self::verification($out['claim']);
             }
         }
 
@@ -597,32 +597,25 @@ final class AdapterCatalog {
     }
 
     /**
-     * The evidence facts behind a claim, joined to the bundle's own verdicts.
-     *
-     * A citation naming a test the imported bundle does not carry resolves to
-     * `absent` rather than being dropped: `CapabilityRegistry::validate()`
-     * already refuses that combination while evidence is `current`, so seeing
-     * it here means the evidence is `candidate` — the re-certification
-     * bootstrap — and an operator reading a claim mid-cycle is entitled to
-     * know which of its citations are not yet backed.
+     * The evidence facts behind one claim. A current subject record has already
+     * had every cited test's passing result and durable assets revalidated by
+     * CapabilityRegistry; a candidate record has no authorizing verdict.
      *
      * @return array<string,mixed>
      */
-    private static function verification(?array $claim, array $registry): array {
-        $verdicts = [];
-        foreach ($registry['evidence']['tests'] ?? [] as $test) {
-            if (is_array($test) && is_string($test['id'] ?? null)) {
-                $verdicts[$test['id']] = (string) ($test['verdict'] ?? 'unknown');
-            }
-        }
+    private static function verification(?array $claim): array {
+        $evidenceStatus = isset($claim['evidence']['status'])
+            ? (string) $claim['evidence']['status']
+            : null;
         $tests = [];
         foreach ($claim['evidence']['tests'] ?? [] as $cited) {
-            $tests[] = ['id' => (string) $cited, 'verdict' => $verdicts[(string) $cited] ?? 'absent'];
+            $tests[] = [
+                'id' => (string) $cited,
+                'verdict' => $evidenceStatus === 'current' ? 'pass' : 'absent',
+            ];
         }
         return [
-            'evidence_status' => isset($registry['evidence']['status'])
-                ? (string) $registry['evidence']['status']
-                : null,
+            'evidence_status' => $evidenceStatus,
             'plugin_execution_status' => isset($claim['plugin_execution']['status'])
                 ? (string) $claim['plugin_execution']['status']
                 : null,

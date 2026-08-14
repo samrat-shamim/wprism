@@ -95,7 +95,7 @@ final class PlanSummary {
     /**
      * @param list<string> $viewCategories empty preserves the legacy full
      *   category summary; an explicit filtered status supplies its canonical
-     *   requested subset while all readiness/global evidence remains full.
+     *   requested subset while all readiness evidence remains full.
      * @param ?string $environment When status supplies its environment name,
      *   render host-side remediation. Null preserves target-side advice for
      *   callers that do not own an environment registry.

@@ -47,14 +47,16 @@ command -v jq >/dev/null || fail "jq required"
 PAIR="${VMATRIX_PAIR:-vmatrix}"
 PORT1="${VMATRIX_PORT1:-8870}"
 PORT2="${VMATRIX_PORT2:-8871}"
-# A scoped adapter renewal must not spend an hour re-running unrelated
-# manifests.  The full matrix stays the default; this deliberately narrow
-# mode retains WooCommerce's admitted boundary and its below-range refusal.
-VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-all}"
-case "$VMATRIX_MANIFEST" in
-  all|woocommerce) ;;
-  *) fail "VMATRIX_MANIFEST must be all or woocommerce (got '$VMATRIX_MANIFEST')" ;;
-esac
+# One invocation is one subject. Repository-wide aggregation would recreate
+# the coupling that subject-scoped certification removes.
+VMATRIX_MANIFEST="${VMATRIX_MANIFEST:-}"
+[[ "$VMATRIX_MANIFEST" =~ ^[a-z][a-z0-9-]*$ ]] \
+  || fail "VMATRIX_MANIFEST must name one canonical manifest"
+jq -e --arg name "$VMATRIX_MANIFEST" \
+  '.manifests[$name].evidence.tests | index("exact-artifact-version-matrix") != null' \
+  ../manifests/dispositions.json >/dev/null \
+  || fail "manifest '$VMATRIX_MANIFEST' does not declare exact-artifact-version-matrix evidence"
+VMATRIX_CASES=0
 WORDPRESS_OFFLINE="${DUO_WORDPRESS_ORG_OFFLINE:-0}"
 case "$WORDPRESS_OFFLINE" in
   0|1) ;;
@@ -69,6 +71,8 @@ if [ "$WORDPRESS_OFFLINE" = 1 ]; then
 fi
 export DUO_ARTIFACT_OFFLINE="$WORDPRESS_OFFLINE"
 PAIR_COMPOSE_STRING="${PAIR_COMPOSE[*]}"
+VMATRIX_APPLY_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-apply.${PAIR}.XXXXXX")
+trap 'rm -f -- "$VMATRIX_APPLY_LOG"' EXIT
 wp1() { "${PAIR_COMPOSE[@]}" run --rm -T cli1 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 wp2() { "${PAIR_COMPOSE[@]}" run --rm -T cli2 sh -c 'umask 000; exec wp "$@"' sh "$@"; }
 GIT1=(git -C "siterepo/${PAIR}1" -c user.name=duo-vmatrix1 -c user.email=vmatrix1@example.test)
@@ -467,7 +471,8 @@ run_elementor_command() {
   return "$rc"
 }
 
-if [ "$VMATRIX_MANIFEST" = all ]; then
+if [ "$VMATRIX_MANIFEST" = acf ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for ACF_VERSION in 6.0.0 6.8.7; do
   say "boundary: acf $ACF_VERSION"
 
@@ -530,8 +535,8 @@ EOF
   # captured state's own entities of the same name — the same known,
   # expected pattern every other grind/certify pair script in this repo
   # already handles the identical way (grind_r3b_events.sh, grind_r1b_shop.sh).
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at acf $ACF_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at acf $ACF_VERSION"
   pass "deploy + apply succeeded on side 2 (acf $ACF_VERSION, canary clean)"
 
   wp2 duo capture --repo=/siterepo --out="/siterepo/.tmp-final"
@@ -540,7 +545,10 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at acf $ACF_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at acf $ACF_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
+fi
 
+if [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for NINJA_VERSION in 3.4.34.2 3.14.11; do
   say "boundary: ninja-forms $NINJA_VERSION"
 
@@ -596,8 +604,8 @@ EOF
   wp2 duo deploy --repo=/siterepo
   postdeploy_ninja_forms_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at ninja-forms $NINJA_VERSION"
   pass "deploy + apply succeeded on side 2 (ninja-forms $NINJA_VERSION, canary clean)"
 
   check_ninja_forms_boundary_content
@@ -608,7 +616,10 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at ninja-forms $NINJA_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at ninja-forms $NINJA_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
+fi
 
+if [ "$VMATRIX_MANIFEST" = elementor ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for ELEMENTOR_VERSION in 4.0.0 4.2.2; do
   say "boundary: elementor $ELEMENTOR_VERSION"
   ELEMENTOR_STDERR_LOG=$(mktemp "${TMPDIR:-/tmp}/duo-vmatrix-elementor.XXXXXX")
@@ -666,8 +677,8 @@ EOF
 
   run_elementor_command wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
+  run_elementor_command wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at elementor $ELEMENTOR_VERSION"
   pass "deploy + apply succeeded on side 2 (elementor $ELEMENTOR_VERSION, canary clean)"
 
   run_elementor_command check_elementor_content
@@ -688,7 +699,10 @@ $ELEMENTOR_WARNING_MATCHES"
   fi
   rm -f "$ELEMENTOR_STDERR_LOG"
 done
+fi
 
+if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for CF7_VERSION in 6.0.1 6.1.6; do
   say "boundary: contact-form-7 $CF7_VERSION"
 
@@ -758,8 +772,8 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at contact-form-7 $CF7_VERSION"
   pass "deploy + apply succeeded on side 2 (contact-form-7 $CF7_VERSION, canary clean)"
 
   # CF7 derives its post_name from the title/version-specific save path; use
@@ -789,7 +803,10 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at contact-form-7 $CF7_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at contact-form-7 $CF7_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
+fi
 
+if [ "$VMATRIX_MANIFEST" = polylang ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for POLYLANG_VERSION in 3.5 3.8.6; do
   say "boundary: polylang $POLYLANG_VERSION"
 
@@ -844,8 +861,8 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at polylang $POLYLANG_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at polylang $POLYLANG_VERSION"
   pass "deploy + apply succeeded on side 2 (polylang $POLYLANG_VERSION, canary clean)"
 
   check_polylang_content
@@ -857,12 +874,13 @@ EOF
   pass "byte-identical recapture at polylang $POLYLANG_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
 
-# End the non-Woo fast path immediately before Woo's independent boundary.
-fi # VMATRIX_MANIFEST=all (non-Woo admitted boundaries)
+fi
 
 # WooCommerce 11.0.0 is currently both the declared minimum and the newest
 # stable release below 12.0.0. Certify it once: repeating the same artifact
 # under two labels would add runtime without adding evidence.
+if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for WOO_VERSION in 11.0.0; do
   say "boundary: woocommerce $WOO_VERSION (only stable in-range release; min == max-practical)"
 
@@ -919,8 +937,8 @@ EOF
   wp2 duo deploy --repo=/siterepo
   postdeploy_woocommerce_content
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at woocommerce $WOO_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at woocommerce $WOO_VERSION"
   pass "deploy + apply succeeded on side 2 (woocommerce $WOO_VERSION, HPOS, canary clean)"
 
   check_woocommerce_content
@@ -931,12 +949,14 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at woocommerce $WOO_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at woocommerce $WOO_VERSION — the only currently available in-range boundary is proven without duplicate execution"
 done
+fi
 
 # Yoast's published 28.x line has two real stable boundaries: 28.0 is the
 # first release admitted by the manifest's exact 28.0 minimum, and 28.2 is
 # the newest release below 29.0.0. Exercise both exact
 # artifacts; a current-slug install would prove neither boundary.
-if [ "$VMATRIX_MANIFEST" = all ]; then
+if [ "$VMATRIX_MANIFEST" = yoast ]; then
+VMATRIX_CASES=$((VMATRIX_CASES + 1))
 for YOAST_VERSION in 28.0 28.2; do
   say "boundary: wordpress-seo $YOAST_VERSION"
 
@@ -991,8 +1011,8 @@ EOF
 
   wp2 duo deploy --repo=/siterepo
   REV=$(git -C "siterepo/${PAIR}2" rev-parse HEAD)
-  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee /tmp/vmatrix_apply.txt
-  grep -q 'canary clean' /tmp/vmatrix_apply.txt || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
+  wp2 duo apply --repo=/siterepo --adopt-by-slug=terms,posts --default-author=admin --revision="$REV" | tee "$VMATRIX_APPLY_LOG"
+  grep -q 'canary clean' "$VMATRIX_APPLY_LOG" || fail "apply canary not clean at wordpress-seo $YOAST_VERSION"
   pass "deploy + apply succeeded on side 2 (wordpress-seo $YOAST_VERSION, canary clean)"
 
   check_yoast_content
@@ -1003,6 +1023,7 @@ EOF
   [ -z "$DIFF_OUT" ] || fail "byte-identity broken at wordpress-seo $YOAST_VERSION: $DIFF_OUT"
   pass "byte-identical recapture at wordpress-seo $YOAST_VERSION — the manifest's own declared version_range boundary is proven, not just its currently-installed version"
 done
+fi
 
 # Team-lead's own requirement: the loop above proves every IN-RANGE boundary
 # certifies — it does not by itself prove the pin is honest, i.e. that an
@@ -1017,6 +1038,7 @@ done
 # unless --force-code-mismatch is passed. This only needs `duo deploy`
 # (code-only reconciliation), not a full capture/apply round-trip — the
 # refusal fires before any target mutation is attempted.
+if [ "$VMATRIX_MANIFEST" = acf ]; then
 say "negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1068,7 +1090,9 @@ grep -q "advanced-custom-fields/acf.php" <<<"$DEPLOY_OUT" || fail "refusal did n
 grep -q "5.12.6" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+fi
 
+if [ "$VMATRIX_MANIFEST" = contact-form-7 ]; then
 say "negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1113,7 +1137,9 @@ grep -q "contact-form-7/wp-contact-form-7.php" <<<"$DEPLOY_OUT" || fail "refusal
 grep -q "5.9.8" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+fi
 
+if [ "$VMATRIX_MANIFEST" = elementor ]; then
 say "negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1158,7 +1184,9 @@ grep -q "elementor/elementor.php" <<<"$DEPLOY_OUT" || fail "refusal did not name
 grep -q "3.35.9" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: elementor 3.35.9 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+fi
 
+if [ "$VMATRIX_MANIFEST" = ninja-forms ]; then
 say "negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1216,7 +1244,9 @@ grep -q "ninja-forms/ninja-forms.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "3.3.21.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
+fi
 
+if [ "$VMATRIX_MANIFEST" = polylang ]; then
 say "negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1273,8 +1303,9 @@ grep -q "3.4.5" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-inst
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative"
 
-fi # VMATRIX_MANIFEST=all (all non-Woo positive boundaries and refusals)
+fi
 
+if [ "$VMATRIX_MANIFEST" = woocommerce ]; then
 say "negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1332,8 +1363,9 @@ grep -q "woocommerce/woocommerce.php" <<<"$DEPLOY_OUT" || fail "refusal did not 
 grep -q "10.9.4" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
+fi
 
-if [ "$VMATRIX_MANIFEST" = all ]; then
+if [ "$VMATRIX_MANIFEST" = yoast ]; then
 say "negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted"
 reset_env wp1
 reset_case_repositories
@@ -1389,7 +1421,10 @@ grep -q "wordpress-seo/wp-seo.php" <<<"$DEPLOY_OUT" || fail "refusal did not nam
 grep -q "27.9" <<<"$DEPLOY_OUT" || fail "refusal did not name the actually-installed version (got: $DEPLOY_OUT)"
 printf '%s\n' "$DEPLOY_OUT"
 pass "confirmed: wordpress-seo 27.9 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative"
-fi # VMATRIX_MANIFEST=all (Yoast refusal)
+fi
+
+[ "$VMATRIX_CASES" -gt 0 ] \
+  || fail "no exact-artifact matrix fixture is implemented for '$VMATRIX_MANIFEST'"
 
 say "cleanup"
 bash bin/pair.sh destroy "$PAIR"

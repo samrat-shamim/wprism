@@ -42,9 +42,7 @@
 # - `up` performs the host-budget check before creating any pair database or
 #   site-repo state. A new pair over the dynamic CPU/RAM budget is refused;
 #   `DUO_PAIR_BUDGET_OVERRIDE=1` is the explicit escape hatch. `list` surfaces
-#   the same budget warning for pairs already up. The one exception is the
-#   pair named by a HELD host certification lock, which is already budgeted
-#   for the length of that bundle — see certbundle_reserved_pair() below.
+#   the same budget warning for pairs already up.
 #
 # - `up`/`reset`/`start` print the agent/manifests bind-mount source they
 #   will actually use (path + HEAD) before doing anything, and refuse if
@@ -92,6 +90,10 @@ source "lib/pair_db.sh"
 [ -r "lib/pair_compose.sh" ] || fail "pair compose library is missing: lib/pair_compose.sh (the launcher cannot safely build compose invocations or query compose state)"
 # shellcheck source=../lib/pair_compose.sh
 source "lib/pair_compose.sh"
+
+[ -r "lib/pair_lease.sh" ] || fail "pair lease library is missing: lib/pair_lease.sh (parallel evidence lanes cannot reserve names/ports safely)"
+# shellcheck source=../lib/pair_lease.sh
+source "lib/pair_lease.sh"
 
 [ -r "lib/pair_readiness.sh" ] || fail "pair readiness library is missing: lib/pair_readiness.sh (the launcher cannot safely verify pair, mount, and database readiness)"
 # shellcheck source=../lib/pair_readiness.sh
@@ -248,7 +250,7 @@ recovery: run \"pair.sh up $name <port1> <port2> [same flags you originally used
 # left exported in someone's shell.
 assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-dir]
   local subcommand="$1" baked="${2:-}"
-  local canonical source_root actual expected dirt dirt_err origin=""
+  local canonical selected source_root actual expected dirt dirt_err origin=""
 
   # An unresolvable canonical root is NOT this function's failure to report
   # while the gate is off: `reset` never needed git at all (it only touches
@@ -261,15 +263,17 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   # this refusal instead of its codebind one. With the gate ON it is fatal:
   # a run that demands an exact source cannot proceed without identifying it.
   canonical="$(canonical_root)" || canonical=""
-  # DUO-3277's canonical bind root stays exactly what pair_compose_configure() exports
-  # and writes to sandbox/.env. A baked source only ever changes what this
-  # gate VERIFIES, never what any later compose call mounts.
+  selected="$(pair_identity_source_root)" || selected=""
+  # The canonical root remains the shared budget-lock identity. The selected
+  # source controls only agent/manifests mounts and is normally canonical;
+  # evidence lanes may explicitly select their clean linked worktree.
   [ -n "$canonical" ] && PAIR_CANONICAL_ROOT="$canonical"
+  [ -n "$selected" ] && PAIR_SOURCE_ROOT="$selected"
 
-  source_root="$canonical"
-  if [ -n "$baked" ] && [ "$baked" != "$canonical/agent" ]; then
+  source_root="$selected"
+  if [ -n "$baked" ] && [ "$baked" != "$selected/agent" ]; then
     source_root="$(dirname "$baked")"
-    origin=" (baked into this pair's existing containers at create time; this checkout's canonical root is $canonical)"
+    origin=" (baked into this pair's existing containers at create time; the selected source root is $selected)"
   fi
   if [ -n "$source_root" ]; then
     actual="$(git -C "$source_root" rev-parse --verify HEAD 2>/dev/null)" || actual=""
@@ -304,7 +308,7 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   [[ "$expected" =~ ^[0-9a-f]{7,40}$ ]] \
     || fail "DUO_EXPECTED_SOURCE_SHA must be a 7-40 character hex commit SHA (got '${DUO_EXPECTED_SOURCE_SHA}') -- take it from \`git rev-parse HEAD\` in the checkout whose bytes this evidence is about; refusing before any pair mutation rather than guessing what was meant"
   [ -n "$source_root" ] \
-    || fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- the agent/manifests bind-mount source cannot be identified, so DUO_EXPECTED_SOURCE_SHA=$expected cannot be honored; refusing before any pair mutation"
+    || fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be the exact physical path of a worktree from this repository; DUO_EXPECTED_SOURCE_SHA=$expected cannot be honored"
   [ -n "$actual" ] \
     || fail "candidate-source gate is set (DUO_EXPECTED_SOURCE_SHA=$expected) but the mounted source has no resolvable HEAD: $source_root -- refusing before any pair mutation"
   if [ "${actual:0:${#expected}}" != "$expected" ]; then
@@ -313,11 +317,10 @@ assert_candidate_source() { # assert_candidate_source <subcommand> [baked-agent-
   actual mounted source:              ${source_root}/{agent,manifests}${origin}
   actual mounted source HEAD:         $actual
   this pair.sh copy is running from:  $(pwd)
-This is DUO-3277's canonical bind working as designed and DUO-3377's evidence hazard: agent/manifests always resolve to the CANONICAL checkout (git's own common-dir), so a live run launched from an issue worktree executes the canonical checkout's bytes, not your branch's.
-remedy: produce this evidence from a standalone clone of the candidate at that exact commit --
-  git clone --branch <branch> $canonical /path/to/duo-wp-live-<issue>
-  cd /path/to/duo-wp-live-<issue> && DUO_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
-or, if the canonical checkout genuinely IS the intended source, set DUO_EXPECTED_SOURCE_SHA=$actual (or leave it unset for a run that is not candidate-bound)"
+By default persistent pairs mount the canonical checkout. For evidence from a
+linked worktree, explicitly select that exact physical worktree:
+  DUO_SOURCE_ROOT=\$(pwd -P) DUO_EXPECTED_SOURCE_SHA=\$(git rev-parse HEAD) bash sandbox/bin/pair.sh $subcommand ...
+Otherwise set DUO_EXPECTED_SOURCE_SHA=$actual only if the canonical checkout genuinely is the intended source."
   fi
   # The right commit says nothing about the two directories being PRESENT:
   # `git status -- <pathspec>` reports nothing at all for a path that does not
@@ -465,117 +468,8 @@ pair_budget() {
   printf '%s\n' "$budget"
 }
 
-# DUO-3396: the pair a HELD host certification lock names is already budgeted.
-#
-# sandbox/tests/certify_reference_bundle.sh holds the per-host certification
-# lock (DUO-3382) for one whole ~50-minute run, but it destroys and recreates
-# ONE pair -- the pair it recorded in that lock -- once per leg. Every recreate
-# re-enters the reservation below, so the default 14-leg bundle asks the host
-# for its own pair thirteen times (every leg but the offline init-contract one;
-# DUO-3427/DUO-3428 returned legs 13-14 to the certified set), and a leg that
-# lands after other agents have filled the
-# budget in between is refused ("refusing to bring up new pair ... over
-# budget"), which ends the bundle in an immutable FAIL verdict after the legs
-# it had already earned (observed live: leg 6, ~25 minutes of green burned).
-# Actual DUO_PAIR_BUDGET_OVERRIDE use is recorded through the scoped and
-# reference certifiers' private ledger, so a forced run never falsely claims
-# force_hatches:[]. Availability alone records nothing. Such a bundle remains
-# auditable but cannot be published as a current capability claim; the
-# reservation below is still preferred for an unforced certifier.
-#
-# The slot was committed when the bundle started and the lock is the thing that
-# says it still is, so while that lock is held the recorded pair counts as
-# already budgeted. Two properties carry it, and BOTH fail open toward the
-# ordinary refusal -- no record, an unreadable record, a different name, a lock
-# nobody holds, or no way to ask: the budget then applies exactly as it did
-# before this existed.
-#
-#   Exact name, never a pattern. The recorded name is compared literally; no
-#   prefix, no glob, no `case`. DUO-3382 holds the same discipline for the same
-#   reason (docs/agents/linear-loop.md's field note): a pattern matches
-#   whatever merely CONTAINS the string, including every other agent's pair.
-#
-#   Held right now, decided by the kernel. holder.json is DUO-3382's NAMING
-#   record, not its lock: it is written after the lock is taken, and a crashed
-#   run's record outlives it until the next acquirer sweeps it. Trusting its
-#   existence would hand a dead bundle a permanent reservation on this host --
-#   a phantom that nothing would ever clear. So the question "is it held" goes
-#   to the flock(2) itself, which the kernel drops the instant its holder stops
-#   existing: an acquire that SUCCEEDS is proof that nobody held it.
-#
-# This is the read side of that lock and nothing else. It never creates the
-# rendezvous, never writes or removes the record, and never keeps the
-# descriptor. CERT_BUNDLE_LOCK_DIR is honored so the offline regression can
-# drive a private rendezvous exactly as the bundle's own suite does, and the
-# default is the same fixed literal certify_reference_bundle.sh commits to --
-# both sides must name one path or there is nothing to be exempt from.
-CERT_BUNDLE_LOCK_DIR="${CERT_BUNDLE_LOCK_DIR:-/tmp/duo-certbundle.lock}"
-
-certbundle_lock_held() { # certbundle_lock_held <lock-file>; 0 = somebody holds it
-  # SHARED (flock -s / LOCK_SH), not exclusive, and dropped the moment it is
-  # taken. Two of these probes can race -- separate checkouts reserve against
-  # separate budget locks -- and an exclusive probe would read its own twin as
-  # "a bundle holds this" and grant a reservation nobody owns. A shared probe
-  # can only ever be excluded by the bundle's own exclusive hold, which is the
-  # single fact being asked about.
-  #
-  # The descriptor is read-only: this side must not create or truncate anything
-  # in a rendezvous it does not own (flock(2) is indifferent to the open mode;
-  # `9>` would truncate the very file the bundle's helper is holding). Only
-  # flock's documented could-not-acquire status (1) is remapped to the "held"
-  # signal 3; a usage error, a missing fd, an unsupported filesystem, a failed
-  # redirection, or an flock that cannot run at all lands on any OTHER status
-  # -- and every other status is doubt, not a holder (the python backend below
-  # has the same shape: only BlockingIOError is a holder).
-  local lock_file="$1" rc=0
-  if command -v flock >/dev/null 2>&1; then
-    ( s=0; flock -s -n 9 || s=$?   # `|| s=` keeps errexit from eating the status
-      [ "$s" -eq 0 ] && exit 0     # we took it -- nobody held it
-      [ "$s" -eq 1 ] && exit 3     # flock(1)'s could-not-acquire -- a holder has it
-      exit 4                       # anything else is a tool failure, not a holder
-    ) 9<"$lock_file" 2>/dev/null || rc=$?
-  elif command -v python3 >/dev/null 2>&1; then
-    # The same fcntl.flock fallback pair.sh's own budget lock and the bundle
-    # both document for macOS/BSD hosts with no util-linux flock(1). Both
-    # backends are flock(2) on one file, so they interoperate.
-    python3 -c '
-import fcntl, sys
-handle = open(sys.argv[1])
-try:
-    fcntl.flock(handle, fcntl.LOCK_SH | fcntl.LOCK_NB)
-except BlockingIOError:
-    raise SystemExit(3)
-raise SystemExit(0)
-' "$lock_file" 2>/dev/null || rc=$?
-  else
-    return 1
-  fi
-  # Explicit returns: `set -e` is only suspended for a function called in a
-  # condition, and this one must be safe to call anywhere.
-  case "$rc" in
-    3) return 0 ;;   # could not take it -- a live holder has it
-    *) return 1 ;;   # 0 = we just took it, so nobody did; anything else = doubt
-  esac
-}
-
-certbundle_reserved_pair() { # certbundle_reserved_pair <candidate>; 0 = pre-budgeted
-  local candidate="$1" lock_file="$CERT_BUNDLE_LOCK_DIR/lock" recorded
-  local holder_file="$CERT_BUNDLE_LOCK_DIR/holder.json"
-  [ -n "$candidate" ] || return 1
-  [ -f "$holder_file" ] && [ -f "$lock_file" ] || return 1
-  # jq, the same reader certify_reference_bundle.sh's own
-  # certbundle_lock_read_holder() uses, and already required by pair_compose_live_pairs()
-  # above. A record that is absent, malformed, or carries a non-string pair is
-  # simply not a reservation.
-  recorded="$(jq -r 'if (.pair | type) == "string" then .pair else empty end' \
-    "$holder_file" 2>/dev/null)" || return 1
-  [ "$recorded" = "$candidate" ] || return 1
-  certbundle_lock_held "$lock_file" || return 1
-  return 0
-}
-
 reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
-  local candidate="$1" root live budget live_count candidate_live=0 total
+  local candidate="$1" root live reserved budget live_count reserved_count candidate_admitted=0 total pair
   if ! root="$(canonical_root)"; then
     fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- pair budget reservation cannot be shared safely"
   fi
@@ -587,35 +481,42 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
     fail "could not enumerate live pair Compose projects; refusing without a verified budget"
   fi
   PAIR_BUDGET_LIVE_PAIRS="$live"
+  reserved="$(pair_lease_reserved_pairs)"
+  PAIR_BUDGET_RESERVED_PAIRS="$reserved"
   if ! budget="$(pair_budget)"; then
     budget_lock_release
     fail "could not query Docker host capacity; refusing without a verified budget"
   fi
 
   live_count="$(printf '%s\n' "$live" | awk 'NF {n++} END {print n+0}')"
-  if [ -n "$candidate" ] && printf '%s\n' "$live" | grep -Fqx -- "$candidate"; then
-    candidate_live=1
+  reserved_count=0
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    if ! printf '%s\n' "$live" | grep -Fqx -- "$pair"; then
+      reserved_count=$((reserved_count + 1))
+    fi
+  done <<<"$reserved"
+  PAIR_BUDGET_LIMIT="$budget"
+  PAIR_BUDGET_LIVE_COUNT="$live_count"
+  PAIR_BUDGET_RESERVED_COUNT="$reserved_count"
+  PAIR_BUDGET_AVAILABLE=$((budget - live_count - reserved_count))
+  [ "$PAIR_BUDGET_AVAILABLE" -ge 0 ] || PAIR_BUDGET_AVAILABLE=0
+  if [ -n "$candidate" ] && {
+    printf '%s\n' "$live" | grep -Fqx -- "$candidate" \
+      || printf '%s\n' "$reserved" | grep -Fqx -- "$candidate";
+  }; then
+    candidate_admitted=1
   fi
-  total="$live_count"
-  [ "$candidate_live" -eq 1 ] || total=$((total + 1))
+  total=$((live_count + reserved_count))
+  [ -z "$candidate" ] || [ "$candidate_admitted" -eq 1 ] || total=$((total + 1))
 
   if [ "$total" -gt "$budget" ]; then
     warn ""
-    warn "!! ${live_count} running pairs (budget for this host: ${budget} — 2 pairs per docker core, RAM-guarded; see pair_budget())"
+    warn "!! ${live_count} running + ${reserved_count} reserved pairs (budget for this host: ${budget} — 2 pairs per docker core, RAM-guarded; see pair_budget())"
     warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
-    if [ -n "$candidate" ] && [ "$candidate_live" -eq 0 ]; then
-      # Asked only here, in the branch that would otherwise refuse: an
-      # in-budget `up` never reads the rendezvous at all, and the exemption
-      # can only ever turn a refusal into the bring-up the certification lock
-      # already reserved. Ahead of the override, and not interchangeable with
-      # it: a slot that was RESERVED must be reported as reserved even when an
-      # operator also happens to have the hatch set, or the run's own log says
-      # its budget was forced when it was not (see this section's header on
-      # what the bundle does and does not record today).
-      if certbundle_reserved_pair "$candidate"; then
-        warn "!! '$candidate' is the pair recorded by the HELD host certification lock ($CERT_BUNDLE_LOCK_DIR) — already budgeted for that run (DUO-3396), bringing it up at ${total}/${budget}"
-      elif [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
+    if [ -n "$candidate" ] && [ "$candidate_admitted" -eq 0 ]; then
+      if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         # Presence is permission, not evidence of use.  Record only here,
         # after both the in-budget and held-reservation paths have failed to
         # admit the candidate.  A configured certification ledger that cannot
@@ -691,6 +592,7 @@ cmd_up() {
   # pre-creation live-pair list and over-commit the host.
   arm_budget_up_cleanup
   reserve_pair_budget "$name"
+  pair_lease_assert_access "$name" "$port1" "$port2"
 
   # Resolve the canonical bind sources before any shared DB or pair-directory
   # mutation. A copied/non-Git launcher must fail closed without leaving
@@ -729,10 +631,9 @@ cmd_up() {
   fi
 
   say "pair '$name': web containers up"
-  # DUO-3277: agent/manifests bind-mount sources always resolve against
-  # the canonical checkout (see pair_compose_configure()/canonical_root()), never
-  # wherever this script itself was invoked from -- if that resolved
-  # differently than whatever config an EXISTING container for this pair
+  # Persistent callers resolve agent/manifests against the canonical checkout;
+  # exact evidence callers may explicitly select their linked worktree with
+  # DUO_SOURCE_ROOT. If that source differs from whatever config an EXISTING pair
   # was created with (e.g. a pair `up`'d from a worktree before this fix,
   # or from a different worktree than last time), compose's own standard
   # config-drift detection recreates it here automatically, on volumes
@@ -797,13 +698,19 @@ cmd_up() {
 }
 
 cmd_reset() {
-  local name="${1:?usage: pair.sh reset <name>}"
+  local name="${1:?usage: pair.sh reset <name>}" lease_locked=0
   validate_name "$name"
   # DUO-3377: reset is a mutation (DROP/CREATE of both databases, plus the
   # site-repo clear below) and is what every conformance sweep runs FIRST, so
   # the gate has to sit ahead of pair_siterepo_refuse_codebind_reset's Docker
   # queries too, since the source question is answerable without them.
   assert_candidate_source reset
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
   pair_siterepo_refuse_codebind_reset "$name"
   # Refuse before DROP/CREATE if uid-33 descendants cannot be returned to the
   # host process that clears them. The helper preserves both bind-root inodes.
@@ -826,6 +733,7 @@ cmd_reset() {
   pair_siterepo_clear_root "siterepo/${name}2"
   rm -rf -- "siterepo/origin-${name}.git"
   pair_siterepo_prepare_roots "$name"
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "wp_${name}1/wp_${name}2 dropped + recreated empty; siterepo/${name}{1,2} cleared in place and origin-${name}.git removed"
   echo "  reset covers: both databases (DROP/CREATE) and the site-repo contents"
   echo "  (siterepo/${name}{1,2}, origin-${name}.git). The two ordinary site-repo"
@@ -848,12 +756,19 @@ cmd_stop() {
   # verb the LINEAR-LOOP resource-lifecycle rule wants while an agent is
   # polling/waiting/blocked rather than actively executing against the
   # pair (docs/agents/linear-loop.md).
-  local name="${1:?usage: pair.sh stop <name>}"
+  local name="${1:?usage: pair.sh stop <name>}" lease_locked=0
   validate_name "$name"
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
   say "pair '$name': stop (free RAM/CPU; containers, volumes, databases all kept)"
   pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" stop
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "stopped — resume with: pair.sh start $name"
 }
 
@@ -871,7 +786,8 @@ cmd_start() {
   # own output tells you to run) must still install unconditionally. A marker
   # is therefore not "stale at start" in any sequence this script can produce;
   # it is simply not `start`'s business.
-  local name="${1:?usage: pair.sh start <name>}"
+  local name="${1:?usage: pair.sh start <name>}" bound_ports
+  local -a requested_ports=()
   validate_name "$name"
   # DUO-3377: `start` resumes containers with the bind-mount sources baked in
   # at CREATE time (see this file's own check_dead_mounts comment), so the
@@ -886,6 +802,12 @@ cmd_start() {
   assert_candidate_source start "$PAIR_BAKED_AGENT_SRC"
   arm_budget_up_cleanup
   reserve_pair_budget "$name"
+  bound_ports="$(pair_compose_pair_bound_ports "$name")" \
+    || fail "could not read pair '$name' persisted host ports before start"
+  if [ -n "$bound_ports" ]; then
+    mapfile -t requested_ports <<<"$bound_ports"
+  fi
+  pair_lease_assert_access "$name" "${requested_ports[@]}"
   # Keep the existing resume contract: the shared MariaDB must be healthy
   # before a stopped pair is started. The reservation is already held, so a
   # concurrent up/start cannot over-commit while this prerequisite runs.
@@ -901,8 +823,14 @@ cmd_start() {
 }
 
 cmd_destroy() {
-  local name="${1:?usage: pair.sh destroy <name>}"
+  local name="${1:?usage: pair.sh destroy <name>}" lease_locked=0
   validate_name "$name"
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
 
   say "pair '$name': destroy"
   # Cleanup callers remove the pair roots after destroy. Return uid-33 capture
@@ -924,6 +852,7 @@ cmd_destroy() {
   # makes reset hazardous — live containers and surviving volumes spanning the
   # DROP — simply cannot arise here.
   pair_bootstrap_clear_needs_install_markers "$name"
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "containers + webroot volumes removed; wp_${name}1/wp_${name}2 dropped"
   echo "  siterepo/${name}{1,2} left on disk untouched — remove by hand if you want it gone too."
 }
@@ -958,6 +887,45 @@ cmd_list() {
   else
     echo "  ${DB_CONTAINER}: not running"
   fi
+}
+
+cmd_capacity() {
+  local pairs reserved budget live_count reserved_count available
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  pairs="$PAIR_BUDGET_LIVE_PAIRS"
+  budget="$PAIR_BUDGET_LIMIT"
+  live_count="$PAIR_BUDGET_LIVE_COUNT"
+  reserved="$PAIR_BUDGET_RESERVED_PAIRS"
+  reserved_count="$PAIR_BUDGET_RESERVED_COUNT"
+  available="$PAIR_BUDGET_AVAILABLE"
+  disarm_budget_up_cleanup
+  jq -n --arg pairs "$pairs" --arg reserved "$reserved" --argjson budget "$budget" \
+    --argjson live "$live_count" --argjson reserved_count "$reserved_count" --argjson available "$available" \
+    '{schema_version:1,budget:$budget,live:$live,reserved:$reserved_count,available:$available,
+      pairs:($pairs | split("\n") | map(select(length > 0))),
+      reserved_pairs:($reserved | split("\n") | map(select(length > 0)))}'
+}
+
+cmd_lease_batch_acquire() {
+  local token="${1:?lease-batch-acquire needs token}" owner_pid="${2:?lease-batch-acquire needs owner PID}"
+  local owner_start="${3:?lease-batch-acquire needs owner start identity}"; shift 3
+  local -a requests=("$@")
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  [ $(( ${#requests[@]} / 3 )) -le "$PAIR_BUDGET_AVAILABLE" ] \
+    || fail "pair lease batch requests $((${#requests[@]} / 3)) slots but only $PAIR_BUDGET_AVAILABLE are available"
+  pair_lease_acquire_batch "$token" "$owner_pid" "$owner_start" "${requests[@]}"
+  disarm_budget_up_cleanup
+}
+
+cmd_lease_batch_release() {
+  local token="${1:?lease-batch-release needs token}"
+  [ "$#" -eq 1 ] || fail "lease-batch-release accepts exactly one token"
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  pair_lease_release_token "$token"
+  disarm_budget_up_cleanup
 }
 
 usage() {
@@ -1018,6 +986,9 @@ usage:
   list     Show live pairs, stopped pairs, and the shared db's status;
            warns if crowded.
 
+  capacity Print the locked host pair budget, live count, available slots,
+           and live pair names as machine-readable JSON.
+
 Names: lowercase letters/digits only, starting with a letter (no
 hyphens/underscores) — used bare as both a MySQL database-name fragment
 and a docker compose project suffix.
@@ -1030,24 +1001,19 @@ Environment:
            drop/create, site-repo write, or container create/start —
            unless that source is exactly this commit with no uncommitted
            agent/manifests changes. Bind every live evidence run with it
-           (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`): mounts
-           always resolve to the CANONICAL checkout (DUO-3277), so a run
-           launched from an issue worktree otherwise silently exercises
-           the canonical checkout's code. Unset = unchanged behavior.
+           (`DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)`). Without an
+           explicit source override, mounts resolve to the canonical checkout.
+           Unset = unchanged behavior.
            stop/destroy/list are deliberately ungated (teardown, not
            evidence). sandbox/conformance/run.sh passes it through as
            CONF_EXPECTED_SOURCE_SHA.
+  DUO_SOURCE_ROOT=<absolute physical worktree path>
+           Select this repository worktree as the agent/manifests mount source.
+           The path must be the exact top-level physical path and share this
+           repository's git common directory. Evidence runners set it together
+           with DUO_EXPECTED_SOURCE_SHA; ordinary persistent pairs leave it unset.
   DUO_PAIR_BUDGET_OVERRIDE=1
            bring a pair up/start it even when the host budget is exceeded.
-  CERT_BUNDLE_LOCK_DIR=<dir>
-           DUO-3382's host certification rendezvous, default
-           /tmp/duo-certbundle.lock, READ ONLY here. While that lock is
-           held, the exact pair name its holder.json records is already
-           budgeted (DUO-3396: a bundle destroys and recreates that one
-           pair per leg for ~50 minutes and must not lose the slot it
-           reserved). Nothing else is exempt, and a released or crashed
-           holder's record grants nothing — the flock, not the record,
-           decides. Set it only in step with the bundle itself.
 USAGE
 }
 
@@ -1059,6 +1025,9 @@ case "${1:-}" in
   start)   shift; cmd_start "$@" ;;
   destroy) shift; cmd_destroy "$@" ;;
   list)    shift; cmd_list "$@" ;;
+  capacity) shift; cmd_capacity "$@" ;;
+  lease-batch-acquire) shift; cmd_lease_batch_acquire "$@" ;;
+  lease-batch-release) shift; cmd_lease_batch_release "$@" ;;
   -h|--help|"") usage ;;
   *) echo "unknown subcommand '$1'" >&2; usage >&2; exit 1 ;;
 esac

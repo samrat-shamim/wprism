@@ -25,7 +25,7 @@
  * copy whose certification evidence certified_library() re-seals against the
  * working tree, because the checked-in attestation legitimately expires on
  * any branch that edits a certification-bound input and takes every certified
- * claim with it until the final reference bundle is imported. See that
+ * claim with it until the affected subject records are imported. See that
  * function for the full rationale, the fixture group for the proof that the
  * re-seal is genuinely current for these bytes, and the fail-closed group for
  * the proof that expired, stale, and malformed evidence still refuse.
@@ -213,8 +213,8 @@ function bundle_digest(array $bundle): string {
  * Why this exists (DUO-3379). The checked-in evidence attestation binds the
  * exact bytes of every certification-bound repository input, so a branch that
  * legitimately edits one — engine source, the Makefile, a shipped manifest —
- * carries EXPIRED evidence until the protocol's final reference bundle is
- * imported, and the regenerated registry reads `candidate` until then. The
+ * carries EXPIRED evidence until that subject is certified and imported, and
+ * the regenerated registry reads `candidate` until then. The
  * runtime then attaches the evidence_not_current blocker to every claim,
  * certified ones included. Assertions here about a certified shipped adapter
  * would therefore pass or fail on where in the certification cycle the branch
@@ -270,10 +270,12 @@ putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // ======================================================================
 echo "\n== the certification fixture is the shipped library, re-sealed against this tree ==\n";
 // ======================================================================
-$shippedBundle = Canon::decode(Canon::read_file("$realManifests/capabilities/evidence.json"))['bundle'];
+$fixtureEvidence = Canon::decode(Canon::read_file("$shippedDir/capabilities/evidence.json"));
+$shippedBundle = $fixtureEvidence['records']['manifests.acf']['bundle'] ?? null;
 check(
-    hash_equals((string) $shippedBundle['bundle_digest'], bundle_digest($shippedBundle)),
-    "the harness re-seals bundles on the shipped hash basis — recomputing the shipped bundle's identity reproduces its own recorded digest"
+    is_array($shippedBundle)
+        && hash_equals((string) $shippedBundle['bundle_digest'], bundle_digest($shippedBundle)),
+    "the harness re-seals subject records on the production hash basis — recomputing one record's identity reproduces its digest"
 );
 // Everything the library is, except the capabilities/ attestation the fixture
 // exists to re-seal: manifests, the reviewed dispositions, and every file the
@@ -319,7 +321,13 @@ check(
 // gate's own expiry predicate over the fixture attestation and require it to
 // find nothing. If a future edit reduced this fixture to "declare it current",
 // this check is what fails.
-$fixtureBound = Canon::decode(Canon::read_file("$shippedDir/capabilities/evidence.json"))['bundle']['bound_inputs'];
+$fixtureRecords = Canon::decode(Canon::read_file("$shippedDir/capabilities/evidence.json"))['records'] ?? [];
+$fixtureBound = [];
+foreach ($fixtureRecords as $record) {
+    foreach (($record['bundle']['closure']['inputs'] ?? []) as $input) {
+        $fixtureBound[(string) ($input['path'] ?? '')] = $input;
+    }
+}
 $expiredInputs = [];
 foreach ($fixtureBound as $input) {
     $file = dirname(__DIR__, 2) . '/' . (string) $input['path'];
@@ -331,8 +339,8 @@ foreach ($fixtureBound as $input) {
 }
 check(
     $expiredInputs === [] && count($fixtureBound) > 1,
-    'the fixture attestation binds ' . count($fixtureBound)
-    . ' repository inputs and every one of them matches this working tree byte for byte'
+    'the fixture subject records bind ' . count($fixtureBound)
+    . ' unique repository inputs and every one matches this working tree byte for byte'
     . ($expiredInputs === [] ? '' : ' (expired: ' . implode(', ', $expiredInputs) . ')')
 );
 
@@ -413,14 +421,14 @@ check(
     'the shipped row names its own source and defers certification to the reviewed registry'
 );
 check(
-    ($overlayReport['evidence_scope'] ?? null) === 'per_manifest'
+    ($overlayReport['evidence_scope'] ?? null) === 'per_subject'
     && $overlayReport['evidence'] === null
     && $overlayReport['platform'] === null
     && ($overlayReport['query']['revision'] ?? null) === null,
-    'a mixed-source report exposes no misleading global evidence/platform/revision authority'
+    'a mixed-source report exposes no misleading aggregate evidence/platform/revision authority'
 );
 check(
-    ($coreRow['evidence_scope'] ?? null) === 'shipped_registry'
+    ($coreRow['evidence_scope'] ?? null) === 'subject_record'
     && ($siteRow['evidence_scope'] ?? null) === 'none'
     && is_array($coreRow['evidence'] ?? null)
     && ($siteRow['evidence'] ?? null) === [],
@@ -510,7 +518,7 @@ check(
     'the same command still reports the shipped adapter as certified, labelled with its own source'
 );
 check(
-    str_contains($capabilityText, 'evidence: per manifest (see each adapter)')
+    str_contains($capabilityText, 'evidence: per subject (see each manifest/profile)')
     && !str_contains($capabilityText, "\nevidence bundle:"),
     'mixed-source text output points to per-adapter evidence instead of printing the shipped bundle as a global footer'
 );
@@ -526,10 +534,13 @@ echo "\n== the certified verdict above is earned: expired, stale, or malformed e
 
 $expiredLibrary = library_variant(function (string $dir): void {
     edit_json("$dir/capabilities/registry.json", function (array $registry): array {
-        $registry['evidence']['status'] = 'candidate';
         foreach (['manifests', 'profiles'] as $section) {
             foreach ($registry[$section] as $name => $claim) {
+                $claim['evidence']['bundle_digest'] = null;
+                $claim['evidence']['closure_digest'] = null;
+                $claim['evidence']['git_revision'] = null;
                 $claim['evidence']['status'] = 'candidate';
+                $claim['evidence']['subject_digest'] = null;
                 $registry[$section][$name] = $claim;
             }
         }
@@ -583,28 +594,14 @@ expect_throw(
 );
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
     edit_json("$dir/capabilities/registry.json", function (array $registry): array {
-        $registry['evidence']['tests'] = array_values(array_filter(
-            $registry['evidence']['tests'],
-            fn(array $test): bool => ($test['id'] ?? null) !== 'conformance-core'
-        ));
+        $registry['manifests']['core']['evidence']['status'] = 'ratified';
         return $registry;
     });
 }));
 expect_throw(
     fn() => Policy::load(fresh_site(['core'])),
-    "certified claim 'core' cites absent or non-passing evidence 'conformance-core'",
-    'a CURRENT registry whose certified claim cites evidence its bundle does not carry is refused outright — currency is not a licence to skip citations'
-);
-putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
-    edit_json("$dir/capabilities/registry.json", function (array $registry): array {
-        $registry['evidence']['status'] = 'ratified';
-        return $registry;
-    });
-}));
-expect_throw(
-    fn() => Policy::load(fresh_site(['core'])),
-    'no content-addressed certification evidence record',
-    'an evidence status outside the ratified current/candidate vocabulary is refused, not read as a fourth kind of currency'
+    "evidence binding for 'core' is malformed",
+    'a subject evidence status outside current/candidate is refused, not read as a third kind of currency'
 );
 putenv('DUO_MANIFESTS_DIR=' . library_variant(function (string $dir): void {
     edit_json("$dir/core.json", function (array $manifest): array {
@@ -1449,11 +1446,11 @@ foreach ($plainReport['manifests'] ?? [] as $row) {
     }
 }
 check(
-    ($plainReport['evidence_scope'] ?? null) === 'per_manifest'
+    ($plainReport['evidence_scope'] ?? null) === 'per_subject'
     && ($plainReport['evidence'] ?? null) === null
     && is_array($plainReport['platform'] ?? null)
-    && ($plainRows['core']['evidence_scope'] ?? null) === 'shipped_registry'
-    && ($plainRows['woocommerce']['evidence_scope'] ?? null) === 'scoped_adapter'
+    && ($plainRows['core']['evidence_scope'] ?? null) === 'subject_record'
+    && ($plainRows['woocommerce']['evidence_scope'] ?? null) === 'subject_record'
     && (($plainRows['woocommerce']['evidence']['status'] ?? null) === 'current'),
     'a shipped-only report exposes each claim authority when its Woo evidence is scoped'
 );

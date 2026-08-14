@@ -3,7 +3,7 @@
  * Offline (no docker, no WordPress bootstrap) regression for DUO-3422:
  * capture record readback must survive a STALE filesystem stat.
  *
- * The bug: a clean reference certification failed Contact Form 7's second
+ * The bug: a clean Contact Form 7 certification run failed its second
  * output-only capture with
  *   "capture recovery found a non-file intent record boundary
  *    /siterepo/.tmp-state2.capture-intent"

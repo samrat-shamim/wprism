@@ -201,11 +201,12 @@ RUN_ID="${PREFIX}-${SOURCE_SHA:0:12}-$$-${RANDOM}${RANDOM}"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt.XXXXXX")"
 trap cleanup EXIT
 
-# The shipped capability attestation is intentionally candidate/expired on a
-# tree that has not yet imported its reference bundle.  The product must keep
+# The shipped capability records are intentionally candidate/expired on a
+# tree that has not yet imported current subject evidence. The product must keep
 # refusing such a target; this live fixture manufactures the same byte-for-byte
-# manifest library with only its attestation re-sealed against this exact clean
-# checkout, just as the init certification fixture does.  Manufacture happens
+# manifest library with an independently current record for each certified
+# subject, sealed against this exact clean checkout just as the init fixture
+# does. Manufacture happens
 # before Docker so a broken premise cannot be reported as a target failure.
 HERMETIC_ROOT="$TMP/hermetic-certification"
 HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROOT")" \
@@ -214,7 +215,7 @@ HERMETIC_MANIFESTS="$(php sandbox/tests/certification_fixture.php "$HERMETIC_ROO
   || fail "hermetic certification fixture returned an unexpected manifests path"
 HERMETIC_CAPABILITIES_ARCHIVE="$TMP/hermetic-capabilities.tar"
 tar -C "$HERMETIC_MANIFESTS" -cf "$HERMETIC_CAPABILITIES_ARCHIVE" capabilities \
-  || fail "could not archive the hermetic current-evidence capability projection"
+  || fail "could not archive the hermetic independent subject evidence"
 
 DIAG_DIR="$(mktemp -d "${TMPDIR:-/tmp}/${PREFIX}-ssh-adopt-diagnostics.XXXXXX")"
 chmod 0700 "$DIAG_DIR"
@@ -520,13 +521,13 @@ grep -q 'refusing symlink destination: /var/www/html/wp-content/mu-plugins/manif
 ssh_fixture 'cd /var/www/html/wp-content/mu-plugins && rm manifests && mv manifests-real manifests'
 pass "unsafe destination is a loud failure with agent and site policy unchanged"
 
-say "install the hermetic current-evidence capability projection for scoped promotion"
+say "install hermetic independently current subject evidence for scoped promotion"
 REMOTE_CAPABILITIES_ARCHIVE="/tmp/${PREFIX}-hermetic-capabilities-${RUN_ID}.tar"
 scp -F "$TMP/ssh_config" "$HERMETIC_CAPABILITIES_ARCHIVE" \
   "duo-adopt-fixture:${REMOTE_CAPABILITIES_ARCHIVE}" >/dev/null
 ssh_fixture "rm -rf /var/www/html/wp-content/mu-plugins/manifests/capabilities && mkdir -p /var/www/html/wp-content/mu-plugins/manifests && tar -C /var/www/html/wp-content/mu-plugins/manifests -xf '$REMOTE_CAPABILITIES_ARCHIVE' && rm -f '$REMOTE_CAPABILITIES_ARCHIVE'"
-if ! ssh_fixture 'php -r '\''$p="/var/www/html/wp-content/mu-plugins/manifests/capabilities/registry.json"; $r=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); exit(($r["evidence"]["status"]??null)==="current" ? 0 : 1);'\'''; then
-  fail "target did not install the hermetic current-evidence capability projection"
+if ! ssh_fixture 'php -r '\''$p="/var/www/html/wp-content/mu-plugins/manifests/capabilities/registry.json"; $r=json_decode(file_get_contents($p),true,512,JSON_THROW_ON_ERROR); foreach(["manifests","profiles"] as $s){foreach(($r[$s]??[]) as $v){if(($v["status"]??null)==="certified"&&($v["evidence"]["status"]??null)!=="current")exit(1);}} exit(0);'\'''; then
+  fail "target did not install independently current evidence for every certified subject"
 fi
 pass "target capability evidence is current without weakening the product certification gate"
 

@@ -26,13 +26,6 @@ trap 'rm -rf "$TMP"' EXIT
 # has no symlink alias and no trailing slash to begin with.
 TMP="$(cd "$TMP" && pwd -P)"
 ORIGINAL_PATH="$PATH"
-# DUO-3396: pair.sh's budget refusal now consults the host certification
-# rendezvous (read-only) to see whether the candidate is the pair a HELD
-# certification lock reserved. Point it at a path under this suite's own
-# scratch that is never created, so these cases decide against a fixture
-# instead of against whatever bundle happens to be running on this host.
-export CERT_BUNDLE_LOCK_DIR="$TMP/no-certbundle-rendezvous"
-
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
@@ -446,6 +439,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_force_hatch.sh" "$bin_dir/../lib/pair_force_hatch.sh"
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
+  cp "$ROOT/sandbox/lib/pair_lease.sh" "$bin_dir/../lib/pair_lease.sh"
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
   cp "$ROOT/sandbox/lib/pair_bootstrap.sh" "$bin_dir/../lib/pair_bootstrap.sh"
   cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"
@@ -1376,7 +1370,7 @@ run_reset_codebind_refusal_case() {
     fail "$label unexpectedly reset a codebind-mounted pair"
   fi
   grep -q "codebind mount" "$output" \
-    || fail "$label did not identify the nested codebind mount"
+    || { cat "$output" >&2; fail "$label did not identify the nested codebind mount"; }
   inode_after="$(inode_of "$nested")"
   [ "$inode_before" = "$inode_after" ] || fail "$label changed the nested codebind inode"
   [ -f "$nested/marker.php" ] || fail "$label deleted content from the nested codebind source"
@@ -1973,7 +1967,7 @@ run_destroy_clears_marker_case() {
 say "bash syntax checks"
 bash -n "$ROOT/sandbox/bin/pair.sh" "$ROOT/sandbox/lib/pair_identity.sh" "$ROOT/sandbox/lib/pair_force_hatch.sh" "$ROOT/sandbox/lib/pair_db.sh" \
   "$ROOT/sandbox/lib/pair_compose.sh" "$ROOT/sandbox/lib/pair_readiness.sh" "$ROOT/sandbox/lib/pair_bootstrap.sh" \
-  "$ROOT/sandbox/lib/pair_siterepo.sh" \
+  "$ROOT/sandbox/lib/pair_siterepo.sh" "$ROOT/sandbox/lib/pair_lease.sh" \
   "$ROOT/sandbox/tests/regress_pair_bootstrap_unit.sh"
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_readiness.sh"' \
   'pair launcher no longer loads its readiness library'
@@ -2158,3 +2152,5 @@ say "DUO-3412: destroy clears this pair's needs-install markers"
 run_destroy_clears_marker_case
 
 printf '\n\033[1;32m✔ REGRESS_PAIR_BOOTSTRAP_UNIT PASSED\033[0m\n'
+assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_lease.sh"' \
+  'pair launcher sources the pair-lease boundary'

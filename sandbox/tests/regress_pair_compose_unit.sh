@@ -3,10 +3,10 @@
 #
 # pair_compose_configure() (build the docker compose argv, export/persist the
 # canonical bind-mount source) is already exercised for real by
-# regress_pair_bootstrap_unit.sh/regress_pair_candidate_source.sh/
-# regress_certbundle_lock.sh, which run the shipped pair.sh's own
+# regress_pair_bootstrap_unit.sh/regress_pair_candidate_source.sh, which run
+# the shipped pair.sh's own
 # up/stop/start/destroy against a fake docker. This suite covers what those
-# three don't: the jq filtering logic inside pair_compose_live_pairs()/
+# two don't: the jq filtering logic inside pair_compose_live_pairs()/
 # pair_compose_stopped_pairs() — the exact rules deciding which `docker
 # compose ls` rows are a Duo pair at all — fed synthetic `compose ls
 # --format json` output directly, no real docker or pair lifecycle involved.
@@ -39,6 +39,20 @@ if [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
     exit 1
   fi
   printf '%s' "${DUO_PAIR_TEST_COMPOSE_LS?}"
+  exit 0
+fi
+if [ "${1:-}" = inspect ] && [ "${2:-}" = --format ]; then
+  case "${4:-}" in
+    "duo-${DUO_PAIR_TEST_INSPECT_PAIR:-missing}-wp1-1") printf '%s\n' "${DUO_PAIR_TEST_INSPECT_PORT1:-}" ;;
+    "duo-${DUO_PAIR_TEST_INSPECT_PAIR:-missing}-wp2-1") printf '%s\n' "${DUO_PAIR_TEST_INSPECT_PORT2:-}" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = ps ] && [ "${2:-}" = -a ]; then
+  if [ -n "${DUO_PAIR_TEST_INSPECT_PAIR:-}" ]; then
+    printf 'duo-%s-wp1-1\nduo-%s-wp2-1\n' "$DUO_PAIR_TEST_INSPECT_PAIR" "$DUO_PAIR_TEST_INSPECT_PAIR"
+  fi
   exit 0
 fi
 printf 'FAKE-DOCKER-SENTINEL: %s\n' "$*" >&2
@@ -82,6 +96,18 @@ expected="$(printf 'duo-up\nduo-down' | sed 's/^duo-//' | sort)"
 got="$(pair_compose_stopped_pairs)"
 [ "$got" = "down" ] || fail "expected only 'down' (Status has no 'running'), got: $got"
 pass "stopped_pairs' Status filter is independent of live_pairs' own (status-blind) query"
+
+say "stopped container bindings remain visible even though no listener exists"
+export DUO_PAIR_TEST_COMPOSE_LS='[
+  {"Name":"duo-down","Status":"exited(2)","ConfigFiles":"/repo/sandbox/pair.yml"},
+  {"Name":"duo-headless","Status":"exited(2)","ConfigFiles":"/repo/sandbox/pair.yml"}
+]'
+export DUO_PAIR_TEST_INSPECT_PAIR=down DUO_PAIR_TEST_INSPECT_PORT1=9300 DUO_PAIR_TEST_INSPECT_PORT2=9301
+got="$(pair_compose_all_bound_ports)"
+[ "$got" = $'down\t9300\ndown\t9301' ] \
+  || fail "expected stopped pair bindings plus a successful no-port headless project, got: $got"
+unset DUO_PAIR_TEST_INSPECT_PAIR DUO_PAIR_TEST_INSPECT_PORT1 DUO_PAIR_TEST_INSPECT_PORT2
+pass "lease preflight can enumerate persisted ports from stopped web containers"
 
 say "rows with a missing or wrong-typed ConfigFiles/Name are excluded, not fatal"
 export DUO_PAIR_TEST_COMPOSE_LS='[

@@ -455,8 +455,9 @@ check(
 );
 $citedVerdicts = array_values(array_unique(array_column($adapter['verification']['tests'] ?? [], 'verdict')));
 check(
-    ($adapter['verification']['tests'] ?? []) !== [] && $citedVerdicts !== ['absent'],
-    'and each named test citation resolved against the bundle\'s OWN verdict rather than asserted (verdicts: '
+    ($adapter['verification']['tests'] ?? []) !== []
+        && $citedVerdicts === [(($adapter['verification']['evidence_status'] ?? null) === 'current' ? 'pass' : 'absent')],
+    'and each named citation reflects whether its own subject record is current (verdicts: '
     . implode(', ', $citedVerdicts) . ')'
 );
 check(
@@ -762,12 +763,21 @@ $missingAdapterDigest = \Duo\CapabilityRegistry::adapter_digest(
     $missingProviderLibrary
 );
 $missingRegistry['manifests']['woocommerce']['adapter_digest'] = $missingAdapterDigest;
-// The scoped Woo certificate binds the manifest-shipped provider.  Removing
-// that file makes its evidence candidate in this isolated doctor fixture;
-// otherwise the runtime loader correctly stops at the stale current claim
-// before the catalog can report the provider-specific blocker under test.
-$missingRegistry['manifests']['woocommerce']['evidence']['status'] = 'candidate';
-$missingRegistry['manifests']['woocommerce']['evidence']['adapter_digest'] = $missingAdapterDigest;
+// This scratch directory is an intentionally incomplete shipped-library
+// fixture, not either supported full-source or deployed-agent layout. Keep
+// every copied claim candidate so unrelated current scoped records do not try
+// to verify target-installed agent files that this fixture never copied. The
+// Woo row is then free to exercise only the missing-provider blocker below.
+foreach (['manifests', 'profiles'] as $section) {
+    foreach ($missingRegistry[$section] as &$missingClaim) {
+        $missingClaim['evidence']['bundle_digest'] = null;
+        $missingClaim['evidence']['closure_digest'] = null;
+        $missingClaim['evidence']['git_revision'] = null;
+        $missingClaim['evidence']['status'] = 'candidate';
+        $missingClaim['evidence']['subject_digest'] = null;
+    }
+    unset($missingClaim);
+}
 Canon::write_file(
     $missingProviderLibrary . '/capabilities/registry.json',
     Canon::encode($missingRegistry)
@@ -789,7 +799,8 @@ check(
     && ($missingProviderBlockers[0]['manifest'] ?? null) === 'woocommerce',
     'adapter doctor reports an absent manifest-shipped provider as a structured blocker without loading provider PHP '
     . '(exit ' . $missingProviderDoctor['exit'] . '; codes: '
-    . implode(', ', array_column($missingProviderReport['blockers'] ?? [], 'code')) . ')'
+    . implode(', ', array_column($missingProviderReport['blockers'] ?? [], 'code')) . '; reasons: '
+    . implode(' | ', array_column($missingProviderReport['blockers'] ?? [], 'reason')) . ')'
 );
 
 $brokenList = report(duo(['list', '--repo=' . $refusalCases['shadows_shipped'], '--format=json']));

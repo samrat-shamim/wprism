@@ -10,7 +10,7 @@
 #
 # Expects its caller to have already defined a fail() function and to have
 # sourced lib/pair_identity.sh first (pair_compose_configure() calls
-# pair_identity_canonical_root() directly) -- the same inherited-environment
+# pair_identity_source_root() directly) -- the same inherited-environment
 # convention pair_budget_lock.sh/pair_db.sh already established for this
 # file family.
 
@@ -31,12 +31,12 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # Exported HERE, the one place every subcommand already funnels through,
   # rather than duplicated at each call site (caught live: the first
   # version of this fix only set them in cmd_up and `stop` broke instantly).
-  local root="${PAIR_CANONICAL_ROOT:-}"
+  local root="${PAIR_SOURCE_ROOT:-}"
   if [ -z "$root" ]; then
-    if ! root="$(pair_identity_canonical_root)"; then
-      fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- DUO_AGENT_SRC/DUO_MANIFESTS_SRC cannot be computed"
+    if ! root="$(pair_identity_source_root)"; then
+      fail "could not resolve a safe source checkout via git -- DUO_SOURCE_ROOT must be an exact physical worktree of this repository"
     fi
-    PAIR_CANONICAL_ROOT="$root"
+    PAIR_SOURCE_ROOT="$root"
   fi
   export DUO_AGENT_SRC="$root/agent" DUO_MANIFESTS_SRC="$root/manifests"
 
@@ -65,8 +65,9 @@ pair_compose_configure() { # pair_compose_configure <name> [overlay-file ...]
   # caller with zero changes to any of them. Overwritten (never appended)
   # so a stale value can never survive a worktree/checkout change; safe
   # under concurrent pair.sh invocations against the same checkout too,
-  # since canonical_root() is a pure function of the checkout, not the pair
-  # name -- any two concurrent writers here always agree on the value.
+  # Each worktree has its own sandbox/.env, so concurrent worktree writers do
+  # not share this file. Callers in one worktree always agree on its selected
+  # source root.
   printf 'DUO_AGENT_SRC=%s\nDUO_MANIFESTS_SRC=%s\n' "$DUO_AGENT_SRC" "$DUO_MANIFESTS_SRC" > .env
 }
 
@@ -109,4 +110,56 @@ pair_compose_stopped_pairs() { # pair_compose_stopped_pairs — one stopped pair
       | .Name[4:]
     end
   '
+}
+
+pair_compose_all_pairs() { # pair_compose_all_pairs — one live/stopped pair name per line
+  local json
+  json="$(docker compose ls -a --format json 2>/dev/null)" || return 1
+  [ -n "$json" ] || return 1
+  printf '%s\n' "$json" | jq -r '
+    if type != "array" then error("compose ls did not return an array")
+    else .[]
+      | select((.ConfigFiles // "") | type == "string")
+      | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
+      | select((.Name // "") | type == "string")
+      | select((.Name // "") | startswith("duo-"))
+      | .Name[4:]
+    end
+  '
+}
+
+pair_compose_pair_bound_ports() { # pair_compose_pair_bound_ports <name> — persisted host ports, including stopped containers
+  local name="$1" container containers observed port ports=''
+  containers="$(docker ps -a \
+    --filter "label=com.docker.compose.project=duo-${name}" \
+    --format '{{.Names}}' 2>/dev/null)" || return 1
+  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+    # A partially-created or headless pair may have no web container or no
+    # bindings. A present container's persisted HostConfig remains readable
+    # while stopped, unlike a listener-only probe.
+    printf '%s\n' "$containers" | grep -Fqx -- "$container" || continue
+    observed="$(docker inspect --format \
+      '{{range $port, $bindings := .HostConfig.PortBindings}}{{range $bindings}}{{println .HostPort}}{{end}}{{end}}' \
+      "$container" 2>/dev/null)" || return 1
+    while IFS= read -r port; do
+      [ -n "$port" ] || continue
+      [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] \
+        || return 1
+      ports+="$port"$'\n'
+    done <<<"$observed"
+  done
+  printf '%s' "$ports" | sort -nu
+}
+
+pair_compose_all_bound_ports() { # pair_compose_all_bound_ports — <pair><tab><port>, live or stopped
+  local pairs pair ports port
+  pairs="$(pair_compose_all_pairs)" || return 1
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    ports="$(pair_compose_pair_bound_ports "$pair")" || return 1
+    while IFS= read -r port; do
+      [ -n "$port" ] && printf '%s\t%s\n' "$pair" "$port"
+    done <<<"$ports"
+  done <<<"$pairs"
+  return 0
 }

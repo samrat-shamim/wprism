@@ -1,0 +1,456 @@
+
+[1;36m== boot pair pr454t7 (pr454t71 :9614 / pr454t72 :9615), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    c30c1976342e7bf9e5aea0b7711986beb0108410
+  invoked from:   <source-root>/sandbox
+  expected SHA:   c30c1976342e7bf9e5aea0b7711986beb0108410 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly c30c1976342e7bf9e5aea0b7711986beb0108410, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'pr454t7': databases ==[0m
+[1;32mok: wp_pr454t71, wp_pr454t72 exist[0m
+
+[1;36m== pair 'pr454t7': site-repo directories ==[0m
+
+[1;36m== pair 'pr454t7': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-pr454t7_wp1 Creating
+ Volume duo-pr454t7_wp1 Created
+ Volume duo-pr454t7_wp2 Creating
+ Volume duo-pr454t7_wp2 Created
+ Container duo-pr454t7-wp2-1 Creating
+ Container duo-pr454t7-wp1-1 Creating
+ Container duo-pr454t7-wp1-1 Created
+ Container duo-pr454t7-wp2-1 Created
+ Container duo-pr454t7-wp2-1 Starting
+ Container duo-pr454t7-wp1-1 Starting
+ Container duo-pr454t7-wp1-1 Started
+ Container duo-pr454t7-wp2-1 Started
+ Container duo-pr454t7-cli1-1 Creating
+ Container duo-pr454t7-cli2-1 Creating
+ Container duo-pr454t7-cli1-1 Created
+ Container duo-pr454t7-cli2-1 Created
+ Container duo-pr454t7-cli2-1 Starting
+ Container duo-pr454t7-cli1-1 Starting
+ Container duo-pr454t7-cli1-1 Started
+ Container duo-pr454t7-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'pr454t7': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'pr454t7': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-pr454t7-cli1-run-d9d2c0d33a99 Creating
+ Container duo-pr454t7-cli1-run-d9d2c0d33a99 Created
+Success: WordPress installed successfully.
+ Container duo-pr454t7-cli1-run-7a9f98f39ab0 Creating
+ Container duo-pr454t7-cli1-run-7a9f98f39ab0 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-pr454t7-cli1-run-8fdff5408d4f Creating
+ Container duo-pr454t7-cli1-run-8fdff5408d4f Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-pr454t7-cli1-run-6833cae04dfe Creating
+ Container duo-pr454t7-cli1-run-6833cae04dfe Created
+ Container duo-pr454t7-cli1-run-399ae29f2709 Creating
+ Container duo-pr454t7-cli1-run-399ae29f2709 Created
+ Container duo-pr454t7-cli1-run-81459849d8f4 Creating
+ Container duo-pr454t7-cli1-run-81459849d8f4 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-pr454t7-cli1-run-4501927d8676 Creating
+ Container duo-pr454t7-cli1-run-4501927d8676 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9614)
+ Container duo-pr454t7-cli2-run-eca13671da17 Creating
+ Container duo-pr454t7-cli2-run-eca13671da17 Created
+Success: WordPress installed successfully.
+ Container duo-pr454t7-cli2-run-0e87da26a689 Creating
+ Container duo-pr454t7-cli2-run-0e87da26a689 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-pr454t7-cli2-run-832a3ddc9a4a Creating
+ Container duo-pr454t7-cli2-run-832a3ddc9a4a Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-pr454t7-cli2-run-2581ffc3a3c9 Creating
+ Container duo-pr454t7-cli2-run-2581ffc3a3c9 Created
+ Container duo-pr454t7-cli2-run-d3c34cd82600 Creating
+ Container duo-pr454t7-cli2-run-d3c34cd82600 Created
+ Container duo-pr454t7-cli2-run-5f965ea1ae66 Creating
+ Container duo-pr454t7-cli2-run-5f965ea1ae66 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-pr454t7-cli2-run-8b0921b06b24 Creating
+ Container duo-pr454t7-cli2-run-8b0921b06b24 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9615)
+
+[1;36m== pair 'pr454t7' ready ==[0m
+  wp1: http://localhost:9614 (published on host port 9614)
+  wp2: http://localhost:9615 (published on host port 9615)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-pr454t7 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-pr454t7 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=pr454t7 must stay exported, or pass -p duo-pr454t7 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: wordpress-seo 28.0 ==[0m
+ Container duo-pr454t7-cli1-run-89cb6be45d4b Creating
+ Container duo-pr454t7-cli1-run-89cb6be45d4b Created
+ Container duo-pr454t7-cli1-run-c8fa7c8d3d7b Creating
+ Container duo-pr454t7-cli1-run-c8fa7c8d3d7b Created
+ Container duo-pr454t7-cli1-run-c7a0ce24b1f8 Creating
+ Container duo-pr454t7-cli1-run-c7a0ce24b1f8 Created
+ Container duo-pr454t7-cli1-run-6c945a4e961e Creating
+ Container duo-pr454t7-cli1-run-6c945a4e961e Created
+ Container duo-pr454t7-cli1-run-e6f8a49aba60 Creating
+ Container duo-pr454t7-cli1-run-e6f8a49aba60 Created
+ Container duo-pr454t7-cli1-run-a48554984781 Creating
+ Container duo-pr454t7-cli1-run-a48554984781 Created
+ Container duo-pr454t7-cli2-run-3cd4c9db7ab4 Creating
+ Container duo-pr454t7-cli2-run-3cd4c9db7ab4 Created
+ Container duo-pr454t7-cli2-run-26fb0429977e Creating
+ Container duo-pr454t7-cli2-run-26fb0429977e Created
+ Container duo-pr454t7-cli2-run-3249511193f4 Creating
+ Container duo-pr454t7-cli2-run-3249511193f4 Created
+ Container duo-pr454t7-cli2-run-4bdc55573f6d Creating
+ Container duo-pr454t7-cli2-run-4bdc55573f6d Created
+ Container duo-pr454t7-cli2-run-0156fe8998a5 Creating
+ Container duo-pr454t7-cli2-run-0156fe8998a5 Created
+ Container duo-pr454t7-cli2-run-6250845a157b Creating
+ Container duo-pr454t7-cli2-run-6250845a157b Created
+
+[1;36m== fetch + verify wordpress-seo 28.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-pr454t7-cli1-run-4dc405c8ddaf Creating
+ Container duo-pr454t7-cli1-run-4dc405c8ddaf Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.0 sha256=348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip
+ Container duo-pr454t7-cli2-run-fb5236c421e8 Creating
+ Container duo-pr454t7-cli2-run-fb5236c421e8 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.0 sha256=348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip[0m
+ Container duo-pr454t7-cli1-run-836ecc110643 Creating
+ Container duo-pr454t7-cli1-run-836ecc110643 Created
+ Container duo-pr454t7-cli1-run-abe2a96629f1 Creating
+ Container duo-pr454t7-cli1-run-abe2a96629f1 Created
+[1;32mok: side 1: wordpress-seo 28.0 installed from verified artifact, active[0m
+ Container duo-pr454t7-cli1-run-8408db70f217 Creating
+ Container duo-pr454t7-cli1-run-8408db70f217 Created
+ Container duo-pr454t7-cli1-run-0cf0a6faaa4c Creating
+ Container duo-pr454t7-cli1-run-0cf0a6faaa4c Created
+ Container duo-pr454t7-cli1-run-f3022d5ac097 Creating
+ Container duo-pr454t7-cli1-run-f3022d5ac097 Created
+ Container duo-pr454t7-cli1-run-5cd4e752466f Creating
+ Container duo-pr454t7-cli1-run-5cd4e752466f Created
+Success: Added term.
+ Container duo-pr454t7-cli1-run-e9ef253aa848 Creating
+ Container duo-pr454t7-cli1-run-e9ef253aa848 Created
+Success: Added term.
+ Container duo-pr454t7-cli1-run-40be53041208 Creating
+ Container duo-pr454t7-cli1-run-40be53041208 Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-pr454t7-cli1-run-842f66618b55 Creating
+ Container duo-pr454t7-cli1-run-842f66618b55 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-pr454t7-cli1-run-3d23cb0eac5d Creating
+ Container duo-pr454t7-cli1-run-3d23cb0eac5d Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-pr454t7-cli1-run-781276dd139f Creating
+ Container duo-pr454t7-cli1-run-781276dd139f Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-pr454t7-cli1-run-fff6cc2bf645 Creating
+ Container duo-pr454t7-cli1-run-fff6cc2bf645 Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-pr454t7-cli1-run-21fab4d8700d Creating
+ Container duo-pr454t7-cli1-run-21fab4d8700d Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-pr454t7-cli1-run-10fa7f6bfade Creating
+ Container duo-pr454t7-cli1-run-10fa7f6bfade Created
+ Container duo-pr454t7-cli2-run-c0b91cca5ec1 Creating
+ Container duo-pr454t7-cli2-run-c0b91cca5ec1 Created
+ Container duo-pr454t7-cli1-run-90cbffb935ab Creating
+ Container duo-pr454t7-cli1-run-90cbffb935ab Created
+ Container duo-pr454t7-cli1-run-87c9fa710887 Creating
+ Container duo-pr454t7-cli1-run-87c9fa710887 Created
+taxonomy meta set for term 2
+ Container duo-pr454t7-cli1-run-51dccd1564ab Creating
+ Container duo-pr454t7-cli1-run-51dccd1564ab Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+ Container duo-pr454t7-cli1-run-c76c84503404 Creating
+ Container duo-pr454t7-cli1-run-c76c84503404 Created
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: captured on side 1 (wordpress-seo 28.0)[0m
+ Container duo-pr454t7-cli1-run-7a5878c9a04e Creating
+ Container duo-pr454t7-cli1-run-7a5878c9a04e Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-pr454t7-cli2-run-6a0d20365bf5 Creating
+ Container duo-pr454t7-cli2-run-6a0d20365bf5 Created
+ Container duo-pr454t7-cli2-run-9f8dd8f90c83 Creating
+ Container duo-pr454t7-cli2-run-9f8dd8f90c83 Created
+ Container duo-pr454t7-cli2-run-4e51899b5ef1 Creating
+ Container duo-pr454t7-cli2-run-4e51899b5ef1 Created
+activated: wordpress-seo/wp-seo.php
+Success: 1 activated, 0 deactivated
+ Container duo-pr454t7-cli2-run-bacd660e96a0 Creating
+ Container duo-pr454t7-cli2-run-bacd660e96a0 Created
+Warning: adopted env term 1 as 019fff34-611a-75a7-948c-1455cc0c87b6 (terms/category/019fff34-611a-75a7-948c-1455cc0c87b6--uncategorized.json)
+Warning: provider capability fired: yoast-index@1.0.0 reindex (0.617s, verified)
+Success: applied 10 entities (canary clean) — plan was: {"create":7,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (wordpress-seo 28.0, canary clean)[0m
+conf2 Yoast API resolution: Conformance Primary|yes|yes|yes|yes
+[1;32mok: conf2 resolves primary-category, per-term OG image, and site-wide logo/default-image refs via Yoast's own runtime APIs, all using conf2's own local ids[0m
+conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees
+[1;32mok: conf2's live front-end rendering carries the authored Yoast SEO title/description with no fatal marker or conf1 host leak[0m
+ Container duo-pr454t7-cli2-run-3f91ab2ed097 Creating
+ Container duo-pr454t7-cli2-run-3f91ab2ed097 Created
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at wordpress-seo 28.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: wordpress-seo 28.2 ==[0m
+ Container duo-pr454t7-cli1-run-32678163db83 Creating
+ Container duo-pr454t7-cli1-run-32678163db83 Created
+ Container duo-pr454t7-cli1-run-02b7a989317b Creating
+ Container duo-pr454t7-cli1-run-02b7a989317b Created
+ Container duo-pr454t7-cli1-run-213178132864 Creating
+ Container duo-pr454t7-cli1-run-213178132864 Created
+ Container duo-pr454t7-cli1-run-4314d47b16cc Creating
+ Container duo-pr454t7-cli1-run-4314d47b16cc Created
+ Container duo-pr454t7-cli1-run-054aeec9ff37 Creating
+ Container duo-pr454t7-cli1-run-054aeec9ff37 Created
+ Container duo-pr454t7-cli1-run-af72a1888065 Creating
+ Container duo-pr454t7-cli1-run-af72a1888065 Created
+ Container duo-pr454t7-cli2-run-54de0a3349fe Creating
+ Container duo-pr454t7-cli2-run-54de0a3349fe Created
+ Container duo-pr454t7-cli2-run-3c3183c91289 Creating
+ Container duo-pr454t7-cli2-run-3c3183c91289 Created
+ Container duo-pr454t7-cli2-run-a4b11b8b2ac0 Creating
+ Container duo-pr454t7-cli2-run-a4b11b8b2ac0 Created
+ Container duo-pr454t7-cli2-run-6f68c94362a9 Creating
+ Container duo-pr454t7-cli2-run-6f68c94362a9 Created
+ Container duo-pr454t7-cli2-run-5d6d67b6e0e1 Creating
+ Container duo-pr454t7-cli2-run-5d6d67b6e0e1 Created
+ Container duo-pr454t7-cli2-run-a4e636eae88e Creating
+ Container duo-pr454t7-cli2-run-a4e636eae88e Created
+
+[1;36m== fetch + verify wordpress-seo 28.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-pr454t7-cli1-run-320245c5a5ba Creating
+ Container duo-pr454t7-cli1-run-320245c5a5ba Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.2 sha256=f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip
+ Container duo-pr454t7-cli2-run-d30b99fbf2a6 Creating
+ Container duo-pr454t7-cli2-run-d30b99fbf2a6 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.2 sha256=f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip[0m
+ Container duo-pr454t7-cli1-run-c9e9ae4c225c Creating
+ Container duo-pr454t7-cli1-run-c9e9ae4c225c Created
+ Container duo-pr454t7-cli1-run-6283d0c35f1c Creating
+ Container duo-pr454t7-cli1-run-6283d0c35f1c Created
+[1;32mok: side 1: wordpress-seo 28.2 installed from verified artifact, active[0m
+ Container duo-pr454t7-cli1-run-fa6d69616689 Creating
+ Container duo-pr454t7-cli1-run-fa6d69616689 Created
+ Container duo-pr454t7-cli1-run-3154bc7358fd Creating
+ Container duo-pr454t7-cli1-run-3154bc7358fd Created
+ Container duo-pr454t7-cli1-run-bc1da866a935 Creating
+ Container duo-pr454t7-cli1-run-bc1da866a935 Created
+ Container duo-pr454t7-cli1-run-b8c92525c41b Creating
+ Container duo-pr454t7-cli1-run-b8c92525c41b Created
+Success: Added term.
+ Container duo-pr454t7-cli1-run-e45d79d3772a Creating
+ Container duo-pr454t7-cli1-run-e45d79d3772a Created
+Success: Added term.
+ Container duo-pr454t7-cli1-run-20e6d7ae4f1b Creating
+ Container duo-pr454t7-cli1-run-20e6d7ae4f1b Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-pr454t7-cli1-run-429f71a42f58 Creating
+ Container duo-pr454t7-cli1-run-429f71a42f58 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-pr454t7-cli1-run-33b24535b9e9 Creating
+ Container duo-pr454t7-cli1-run-33b24535b9e9 Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-pr454t7-cli1-run-bfb4b6d2fe63 Creating
+ Container duo-pr454t7-cli1-run-bfb4b6d2fe63 Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-pr454t7-cli1-run-40dcb9b76cbe Creating
+ Container duo-pr454t7-cli1-run-40dcb9b76cbe Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-pr454t7-cli1-run-e3596e8c26ce Creating
+ Container duo-pr454t7-cli1-run-e3596e8c26ce Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-pr454t7-cli1-run-ff20e2c71413 Creating
+ Container duo-pr454t7-cli1-run-ff20e2c71413 Created
+ Container duo-pr454t7-cli2-run-2f25a7b857a8 Creating
+ Container duo-pr454t7-cli2-run-2f25a7b857a8 Created
+ Container duo-pr454t7-cli1-run-318527f78cc2 Creating
+ Container duo-pr454t7-cli1-run-318527f78cc2 Created
+ Container duo-pr454t7-cli1-run-5c44a30f65c7 Creating
+ Container duo-pr454t7-cli1-run-5c44a30f65c7 Created
+taxonomy meta set for term 2
+ Container duo-pr454t7-cli1-run-1dc3da0a8751 Creating
+ Container duo-pr454t7-cli1-run-1dc3da0a8751 Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+ Container duo-pr454t7-cli1-run-a6b9d021cd4c Creating
+ Container duo-pr454t7-cli1-run-a6b9d021cd4c Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (wordpress-seo 28.2)[0m
+ Container duo-pr454t7-cli1-run-b3b61b9f6b78 Creating
+ Container duo-pr454t7-cli1-run-b3b61b9f6b78 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-pr454t7-cli2-run-3309d53a2e37 Creating
+ Container duo-pr454t7-cli2-run-3309d53a2e37 Created
+ Container duo-pr454t7-cli2-run-432dfa57fb17 Creating
+ Container duo-pr454t7-cli2-run-432dfa57fb17 Created
+ Container duo-pr454t7-cli2-run-ef392c47dd6f Creating
+ Container duo-pr454t7-cli2-run-ef392c47dd6f Created
+activated: wordpress-seo/wp-seo.php
+Success: 1 activated, 0 deactivated
+ Container duo-pr454t7-cli2-run-bb69ef8ff76e Creating
+ Container duo-pr454t7-cli2-run-bb69ef8ff76e Created
+Warning: adopted env term 1 as 019fff38-6885-7f4f-9e54-de7a478fab8b (terms/category/019fff38-6885-7f4f-9e54-de7a478fab8b--uncategorized.json)
+Warning: provider capability fired: yoast-index@1.0.0 reindex (0.491s, verified)
+Success: applied 10 entities (canary clean) — plan was: {"create":7,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (wordpress-seo 28.2, canary clean)[0m
+conf2 Yoast API resolution: Conformance Primary|yes|yes|yes|yes
+[1;32mok: conf2 resolves primary-category, per-term OG image, and site-wide logo/default-image refs via Yoast's own runtime APIs, all using conf2's own local ids[0m
+conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees
+[1;32mok: conf2's live front-end rendering carries the authored Yoast SEO title/description with no fatal marker or conf1 host leak[0m
+ Container duo-pr454t7-cli2-run-c9a4fb030af8 Creating
+ Container duo-pr454t7-cli2-run-c9a4fb030af8 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at wordpress-seo 28.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-pr454t7-cli1-run-4419d29db89d Creating
+ Container duo-pr454t7-cli1-run-4419d29db89d Created
+ Container duo-pr454t7-cli1-run-73d0f5da82e1 Creating
+ Container duo-pr454t7-cli1-run-73d0f5da82e1 Created
+ Container duo-pr454t7-cli1-run-3aaca42edce7 Creating
+ Container duo-pr454t7-cli1-run-3aaca42edce7 Created
+ Container duo-pr454t7-cli1-run-77f053376b07 Creating
+ Container duo-pr454t7-cli1-run-77f053376b07 Created
+ Container duo-pr454t7-cli1-run-9c0a0f6bdd11 Creating
+ Container duo-pr454t7-cli1-run-9c0a0f6bdd11 Created
+ Container duo-pr454t7-cli1-run-0777446ce272 Creating
+ Container duo-pr454t7-cli1-run-0777446ce272 Created
+ Container duo-pr454t7-cli1-run-9a4a94cbe8b1 Creating
+ Container duo-pr454t7-cli1-run-9a4a94cbe8b1 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.0 sha256=348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip
+ Container duo-pr454t7-cli1-run-7f41676e7d70 Creating
+ Container duo-pr454t7-cli1-run-7f41676e7d70 Created
+ Container duo-pr454t7-cli1-run-e623befdf31f Creating
+ Container duo-pr454t7-cli1-run-e623befdf31f Created
+ Container duo-pr454t7-cli1-run-4a946db9d249 Creating
+ Container duo-pr454t7-cli1-run-4a946db9d249 Created
+ Container duo-pr454t7-cli1-run-d0fe5a4e5020 Creating
+ Container duo-pr454t7-cli1-run-d0fe5a4e5020 Created
+ Container duo-pr454t7-cli1-run-022fcdd71966 Creating
+ Container duo-pr454t7-cli1-run-022fcdd71966 Created
+ Container duo-pr454t7-cli1-run-29e47955be65 Creating
+ Container duo-pr454t7-cli1-run-29e47955be65 Created
+Success: Added term.
+ Container duo-pr454t7-cli1-run-ca16d4d30e63 Creating
+ Container duo-pr454t7-cli1-run-ca16d4d30e63 Created
+Success: Added term.
+ Container duo-pr454t7-cli1-run-763f5a35c536 Creating
+ Container duo-pr454t7-cli1-run-763f5a35c536 Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-pr454t7-cli1-run-5e28f46c2bf6 Creating
+ Container duo-pr454t7-cli1-run-5e28f46c2bf6 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-pr454t7-cli1-run-4e6b91d9df45 Creating
+ Container duo-pr454t7-cli1-run-4e6b91d9df45 Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-pr454t7-cli1-run-4d35dc21e308 Creating
+ Container duo-pr454t7-cli1-run-4d35dc21e308 Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-pr454t7-cli1-run-2c38b21bb63f Creating
+ Container duo-pr454t7-cli1-run-2c38b21bb63f Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-pr454t7-cli1-run-66a7cbfcd0fd Creating
+ Container duo-pr454t7-cli1-run-66a7cbfcd0fd Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-pr454t7-cli1-run-3d613593f213 Creating
+ Container duo-pr454t7-cli1-run-3d613593f213 Created
+ Container duo-pr454t7-cli2-run-3e2800bf3629 Creating
+ Container duo-pr454t7-cli2-run-3e2800bf3629 Created
+ Container duo-pr454t7-cli1-run-b4626a60f8bf Creating
+ Container duo-pr454t7-cli1-run-b4626a60f8bf Created
+ Container duo-pr454t7-cli1-run-8d876ea18353 Creating
+ Container duo-pr454t7-cli1-run-8d876ea18353 Created
+taxonomy meta set for term 2
+ Container duo-pr454t7-cli1-run-ef09d8eac328 Creating
+ Container duo-pr454t7-cli1-run-ef09d8eac328 Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+ Container duo-pr454t7-cli1-run-436fc1992508 Creating
+ Container duo-pr454t7-cli1-run-436fc1992508 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+ Container duo-pr454t7-cli1-run-da6952cfeb08 Creating
+ Container duo-pr454t7-cli1-run-da6952cfeb08 Created
+ Container duo-pr454t7-cli1-run-46e9cf82679e Creating
+ Container duo-pr454t7-cli1-run-46e9cf82679e Created
+ Container duo-pr454t7-cli1-run-9edd7d448ff4 Creating
+ Container duo-pr454t7-cli1-run-9edd7d448ff4 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=27.9 sha256=eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-27.9-eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052.zip
+ Container duo-pr454t7-cli1-run-5d07424a6bef Creating
+ Container duo-pr454t7-cli1-run-5d07424a6bef Created
+ Container duo-pr454t7-cli1-run-9ae5bc9953be Creating
+ Container duo-pr454t7-cli1-run-9ae5bc9953be Created
+ Container duo-pr454t7-cli1-run-3171bf2d0bc2 Creating
+ Container duo-pr454t7-cli1-run-3171bf2d0bc2 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - wordpress-seo/wp-seo.php 27.9 is active in this environment, outside the 'yoast' manifest's declared version_range (>=28.0 <29.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: wordpress-seo 27.9 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'pr454t7': destroy ==[0m
+ Container duo-pr454t7-wp1-1 Stopping
+ Container duo-pr454t7-cli2-1 Stopping
+ Container duo-pr454t7-cli1-1 Stopping
+ Container duo-pr454t7-wp2-1 Stopping
+ Container duo-pr454t7-cli1-1 Stopped
+ Container duo-pr454t7-cli1-1 Removing
+ Container duo-pr454t7-cli2-1 Stopped
+ Container duo-pr454t7-cli2-1 Removing
+ Container duo-pr454t7-cli2-1 Removed
+ Container duo-pr454t7-cli1-1 Removed
+ Container duo-pr454t7-wp2-1 Stopped
+ Container duo-pr454t7-wp2-1 Removing
+ Container duo-pr454t7-wp2-1 Removed
+ Container duo-pr454t7-wp1-1 Stopped
+ Container duo-pr454t7-wp1-1 Removing
+ Container duo-pr454t7-wp1-1 Removed
+ Volume duo-pr454t7_wp2 Removing
+ Volume duo-pr454t7_wp1 Removing
+ Volume duo-pr454t7_wp2 Removed
+ Volume duo-pr454t7_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_pr454t71/wp_pr454t72 dropped[0m
+  siterepo/pr454t7{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed pr454t7 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

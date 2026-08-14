@@ -115,11 +115,8 @@ Sandbox discipline (see `docs/sandbox.md`):
   never set it unless the dispatch prompt explicitly says so. Check
   `pair.sh list` before every `up`; a pair with no suite actively running
   against it does not qualify — stop it (Release when idle, below). One
-  exemption: the pair recorded by a HELD host certification lock is already
-  budgeted — a bundle destroys and recreates that one pair per leg across
-  ~50 minutes and must not lose the slot it reserved mid-run (DUO-3396).
-  The name is matched exactly; a crashed bundle's leftover record grants
-  nothing.
+  exemption exists for certification: each subject run owns an ordinary
+  disposable pair and releases it after its declared tests.
 - **Release when idle:** whenever you are not actively executing against
   your pair — polling Linear, waiting on a human/review, blocked, writing
   code or docs for more than ~15 minutes — `pair.sh stop <name>` (frees all
@@ -174,7 +171,7 @@ branch or edit files before this passes.
    candidate freeze `C+B` is recorded, rebase the interrupted branch onto
    `origin/main` — never reset it to `origin/main`, which would discard the
    earlier work; after that rebase, pushes need `--force-with-lease`. If a
-   freeze is recorded, resume and review/bundle the exact frozen `C` instead;
+   freeze is recorded, resume and review/certify the exact frozen `C` instead;
    a required bound-input update must use the explicit break-and-repeat rule
    in the ordering section above, not an automatic rebase on re-entry.
 2. Fix the **root cause** within the pinned architecture — no quick fixes,
@@ -232,23 +229,32 @@ branch or edit files before this passes.
     3) of the ONE relevant manifest — not the matrix.
   - **A live-pair `regress-*` suite** runs only when the diff touches the
     mechanism its own header names — not by habit.
-  - **The reference certification bundle** (`make certify-reference-bundle`) is
-    a per-issue gate ONLY when manifest/adapter **digest** bytes changed (the
-    edits above): those digests are what Policy load-time validation binds, so a
-    stale registry refuses at runtime. (The ATTESTATION additionally binds ~120
-    other inputs — engine/cli/spec/harness bytes, `manifests/capabilities/evidence.json`
-    — that such changes expire WITHOUT a runtime refusal; refreshing that is
-    batched maintenance, `php scripts/capability-registry.php check` and refresh
-    on reported expiry, not a per-issue gate — the ratified scoping decision this
-    records, not an oversight.) Otherwise the bundle is the operator's
-    release-time certification — and because every certification-byte issue
-    re-runs it anyway, the full matrix already keeps a rolling cadence at no
-    added per-issue cost. It is NOT a per-issue gate and is never run "to be
-    safe."
+  - **Subject certification is independent.** When a certified manifest or
+    profile's digest-bound bytes change, run only its declared tests with
+    `make certify-subject-bundle SUBJECT=manifests.<name>` or
+    `SUBJECT=profiles.<name>`, then import that one record with
+    `php scripts/capability-registry.php import-subject-bundle <bundle-dir>`.
+    Unaffected subjects remain current. `php scripts/capability-registry.php check` is the release
+    gate and requires a current record for every certified subject. A new WP
+    extension joins by adding its manifest, disposition, conformance entry (or
+    `sandbox/certification/tests/<test-id>.sh` or
+    `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no central
+    certification allowlist or dispatch switch is edited. The shared
+    artifact file is projected to the exact bootstrap theme, conformance-entry
+    plugins/themes, and matrix boundaries used by that subject, including each
+    selected archive root, so unrelated
+    new-extension rows do not stale existing evidence while changed exercised
+    artifacts do. When several
+    subjects need renewal, `make certify-subjects-parallel` schedules their
+    independent lanes on host-wide leased pairs/ports up to the locked free host
+    capacity and emits an `index.json`. Import none of those bundles until all
+    lanes finish, or the shared exact-source checkout becomes dirty underneath
+    the remaining runs.
   - **Safety floor:** an engine change you genuinely cannot bound to specific
     surfaces gets a small representative SUBSET — `core` plus the richest
     affected adapter surface(s) — never a silent skip, and never the
-    bundle-as-guess. Unknown → conservative subset, and say so in the PR.
+    unrelated certification-as-guess. Unknown → conservative subset, and say
+    so in the PR.
 - **Reproduce the mechanism offline first — the highest-leverage habit, and
   what keeps "one sweep" reasonably safe.** Where the mechanism admits one, a
   deterministic, mutation-proven offline reproduction of the exact failure
@@ -270,68 +276,34 @@ branch or edit files before this passes.
   `CONF_EXPECTED_SOURCE_SHA=...`, which `run.sh` exports as that) and any
   other source — wrong commit, or uncommitted `agent`/`manifests` bytes —
   refuses BEFORE the budget reservation, the database drop/create, and any
-  container start. The remedy the refusal names is the one the bundle already
-  uses: a standalone clone at the candidate HEAD (`git clone --branch
-  {branch} {canonical} ../duo-wp-live-DUO-XXXX`), run from there.
+  container start. Run from a clean issue worktree at the candidate HEAD and
+  make the live harness mount that exact worktree; never move the canonical
+  checkout to make a test pass.
   `stop`/`destroy`/`list` are deliberately ungated — cleanup must never be
   blocked by a variable left exported in your shell.
-- **Ordering: freeze the reviewed candidate before bundle certification.**
-  The terminal sequence is: `rebase once → final independent review of exact
-  C over B → record/freeze C+B → bundle at C → deterministic import/generate
-  child E → merge`. The initial independent review still happens before the
-  bundle work; the final review is the exact-head readback immediately before
-  the freeze. Land every finding before that freeze — a single manifest-byte
-  fix from review moves a digest and invalidates a running bundle wholesale
-  (cost a full restart on DUO-3338).
-
-  Record candidate `C`, base `B`, and the bundle bound-input closure in the PR
-  before launch. Once `C+B` is recorded, do not rebase merely because
-  unrelated `main` commits land after the freeze. Merge the frozen PR if
-  GitHub still reports it clean/mergeable and no direct or conflicting
-  semantic overlap is found. The only allowed post-freeze source-branch
-  commit is deterministic bundle import/generation output (plus an
-  evidence-pointer-only PR body update).
-
-  If a required bound-input change must enter this PR, explicitly break the
-  freeze, preserve the immutable old bundle as historical evidence, nominate
-  one new candidate, and repeat the final review/bundle sequence once. Never
-  silently relabel old evidence current. Unbound changes can proceed without
-  invalidating the frozen candidate; document the range proof. This freeze
-  rule does not weaken exact-source binding, bundle import validation,
-  force-hatch refusal, independent review, or the close-gate proof below.
-
-  The bundle remains the last evidence-producing step. It refuses linked
-  worktrees and dirty trees: run it from a clean standalone clone at the
-  branch's exact `C` (the `duo-wp-cert-<issue>` pattern), never from your
-  issue worktree, with `CERT_BUNDLE_PAIR`/`CERT_BUNDLE_PORT1`/
-  `CERT_BUNDLE_PORT2` allocated from your `PORT_BASE` (its defaults —
-  `certbundle`, 8880/8881 — collide on a shared host). It also serializes
-  itself host-wide: a second launch refuses by naming the holder, or with
-  `CERT_BUNDLE_WAIT=1` polls until the lock frees and takes it then (a
-  bounded poll, not a queue). Never clear the way by killing — see the
-  pattern-kill field note below (DUO-3382). "The independent review" here is
-  the dispatch protocol's pre-merge review-only subagent pass in its own
-  checkout, recorded in the PR. Sequence (maximal — the live/sweep/bundle
-  steps each apply only per Evidence scoping's minimal set): implement →
-  offline-all → targeted live suites → targeted sweeps → review → fixes +
-  registry regenerate → rebase once → final independent review of exact C over
-  B → freeze C+B → bundle at C (clean clone) → deterministic import/generate
-  child E → merge promptly (Close gate order unchanged).
+- **Ordering: freeze the reviewed candidate before subject certification.**
+  Work in the issue worktree, land every review finding, record candidate `C`
+  and base `B`, then certify only the affected subjects from a clean checkout
+  of exact `C`. Import each verified record and regenerate the registry as the
+  only post-certification source change. A later change to one subject's bound
+  inputs expires only that subject; repeat that subject's run and never relabel
+  old evidence current. The maximal sequence is: implement → offline-all →
+  targeted live suites → targeted sweeps → review/fixes → rebase once → final
+  review of `C` over `B` → subject runs at `C` → deterministic record imports
+  and registry generation → merge promptly.
 - **Registry regenerate after ANY manifest/provider/regenerator byte change**
   (`php scripts/capability-registry.php generate`, candidate state) before
   running anything live — interpreter, manifest-sourced provider, and (since
   DUO-3360) regenerator file bytes are all digest-bound into adapter identity,
   so a stale registry refuses every `duo` command (observed live, twice, on
   DUO-3338).
-- **Keep the standalone sweeps for changed manifests even though the
-  bundle re-runs them**: a sweep failure costs a ~2-minute re-run; the
-  same failure discovered inside the bundle costs the whole bundle.
-  Sweeps are discovery; the bundle is evidence generation.
+- **Keep the standalone sweeps for changed manifests even though subject
+  certification re-runs them**: sweeps are fast discovery; the subject run is
+  durable evidence generation.
 - **Cost yardstick (2026-08-09, this host):** offline-all ~5 min; one
   live-pair suite 6–15 min (pair boot ~2–3 min of that); one conformance
-  sweep ~2–3 min; full bundle ~50–70 min. A worst-case blast radius
-  (engine + six manifests, DUO-3338) is ~2 h serial; a typical bounded
-  issue is 15–25 min.
+  sweep ~2–3 min. A subject run pays only for the tests declared by that
+  manifest or profile; there is no repository-wide certification suite.
 
 ## Close gate (strict order)
 
@@ -407,20 +379,11 @@ DUO refs where given.
   `pgrep -f "^[b]ash sandbox/conformance/run.sh"`. The character class can't
   match its own literal; the anchor excludes wrapper shells that merely
   embed the string.
-- **Kill only a PID your own launcher recorded — never by pattern.** A
-  `pkill -f certify_reference_bundle` preamble matched three OTHER agents'
-  runs — parent and wrapper both — orphaning each and destroying its work
-  root (~40 min lost per victim, none of them the intended target;
-  DUO-3382). A pattern cannot tell your run from anyone else's, and `-f`
-  widens it to every wrapper that merely quotes the string. "Don't start a
-  second one" is the tool's job, not the process table's:
-  `certify_reference_bundle.sh` takes a per-host flock
-  (`/tmp/duo-certbundle.lock`) BEFORE its preflight, which the KERNEL
-  releases when its holder stops existing — no corpse, no staleness rule, nothing to
-  clean by hand — and `CERT_BUNDLE_WAIT=1` waits for it (bounded poll, 90 min
-  default, no ordering). Killing a bundle to free its lock achieves nothing the kernel
-  wouldn't. Proven offline by `sandbox/tests/regress_certbundle_lock.sh`, both
-  backends.
+- **Kill only a PID your own launcher recorded — never by pattern.** A broad
+  `pkill -f` can match other agents' parent and wrapper processes as well as
+  yours, orphaning their runs and deleting their work. A pattern cannot prove
+  ownership; record the exact child PID when launching a long test and stop
+  only that process (DUO-3382).
 - **Posting content to any API from a shell:** never build the payload
   inside a double-quoted argument — double quotes do NOT suppress backticks
   or `$var` (backtick code spans in comment text got EXECUTED and blanked;
@@ -481,12 +444,11 @@ DUO refs where given.
   live in `sandbox/conformance/asserts.sh`, the shared fragment BOTH
   hook-sourcing harnesses load (`conformance/run.sh`, which `export -f`s
   them to its child hooks, and `certify_version_matrix.sh` — a helper added
-  to only one harness kills the other at bundle leg 12 with `command not
+  to only one harness kills the other when it reaches that test with `command not
   found`, DUO-3408); the wiring is enforced by
   `sandbox/tests/regress_conformance_asserts.sh`.
-- **CLOSED (DUO-3277):** the "bring pairs up only from the canonical
-  checkout, never a worktree" discipline is now tooling-enforced —
-  `pair.sh up` resolves the `agent`/`manifests` bind mounts via git's own
-  common-dir from any invocation point, and `start` loudly names a dead
-  mount source with its exact recovery. Kept as one note for why this once
-  required operator discipline.
+- **CLOSED (DUO-3277):** `pair.sh up` defaults to the canonical checkout but
+  accepts an exact related worktree through `DUO_SOURCE_ROOT`; the source must
+  share the Git common directory and satisfy `DUO_EXPECTED_SOURCE_SHA` before
+  any mutation. `start` still names a dead mount source with its exact
+  recovery.

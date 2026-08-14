@@ -1,0 +1,326 @@
+
+[1;36m== boot pair pr454t1 (pr454t11 :9602 / pr454t12 :9603), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    c30c1976342e7bf9e5aea0b7711986beb0108410
+  invoked from:   <source-root>/sandbox
+  expected SHA:   c30c1976342e7bf9e5aea0b7711986beb0108410 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly c30c1976342e7bf9e5aea0b7711986beb0108410, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'pr454t1': databases ==[0m
+[1;32mok: wp_pr454t11, wp_pr454t12 exist[0m
+
+[1;36m== pair 'pr454t1': site-repo directories ==[0m
+
+[1;36m== pair 'pr454t1': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-pr454t1_wp1 Creating
+ Volume duo-pr454t1_wp1 Created
+ Volume duo-pr454t1_wp2 Creating
+ Volume duo-pr454t1_wp2 Created
+ Container duo-pr454t1-wp2-1 Creating
+ Container duo-pr454t1-wp1-1 Creating
+ Container duo-pr454t1-wp2-1 Created
+ Container duo-pr454t1-wp1-1 Created
+ Container duo-pr454t1-wp1-1 Starting
+ Container duo-pr454t1-wp2-1 Starting
+ Container duo-pr454t1-wp2-1 Started
+ Container duo-pr454t1-wp1-1 Started
+ Container duo-pr454t1-cli2-1 Creating
+ Container duo-pr454t1-cli1-1 Creating
+ Container duo-pr454t1-cli2-1 Created
+ Container duo-pr454t1-cli1-1 Created
+ Container duo-pr454t1-cli2-1 Starting
+ Container duo-pr454t1-cli1-1 Starting
+ Container duo-pr454t1-cli2-1 Started
+ Container duo-pr454t1-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'pr454t1': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'pr454t1': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-pr454t1-cli1-run-778bba48c235 Creating
+ Container duo-pr454t1-cli1-run-778bba48c235 Created
+Success: WordPress installed successfully.
+ Container duo-pr454t1-cli1-run-ab1d6cfecd91 Creating
+ Container duo-pr454t1-cli1-run-ab1d6cfecd91 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-pr454t1-cli1-run-00d0929dbb14 Creating
+ Container duo-pr454t1-cli1-run-00d0929dbb14 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-pr454t1-cli1-run-5a9239699176 Creating
+ Container duo-pr454t1-cli1-run-5a9239699176 Created
+ Container duo-pr454t1-cli1-run-b3e8006b0efb Creating
+ Container duo-pr454t1-cli1-run-b3e8006b0efb Created
+ Container duo-pr454t1-cli1-run-36528804a0d8 Creating
+ Container duo-pr454t1-cli1-run-36528804a0d8 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-pr454t1-cli1-run-8ab85bfaeedd Creating
+ Container duo-pr454t1-cli1-run-8ab85bfaeedd Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9602)
+ Container duo-pr454t1-cli2-run-c346b08abb1c Creating
+ Container duo-pr454t1-cli2-run-c346b08abb1c Created
+Success: WordPress installed successfully.
+ Container duo-pr454t1-cli2-run-3491cc1e634a Creating
+ Container duo-pr454t1-cli2-run-3491cc1e634a Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-pr454t1-cli2-run-5233301402ee Creating
+ Container duo-pr454t1-cli2-run-5233301402ee Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-pr454t1-cli2-run-e1e37c9a38c2 Creating
+ Container duo-pr454t1-cli2-run-e1e37c9a38c2 Created
+ Container duo-pr454t1-cli2-run-b409afbdd3e5 Creating
+ Container duo-pr454t1-cli2-run-b409afbdd3e5 Created
+ Container duo-pr454t1-cli2-run-398d53afdbfd Creating
+ Container duo-pr454t1-cli2-run-398d53afdbfd Created
+Success: Updated 'permalink_structure' option.
+ Container duo-pr454t1-cli2-run-1b86d3a9e21c Creating
+ Container duo-pr454t1-cli2-run-1b86d3a9e21c Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9603)
+
+[1;36m== pair 'pr454t1' ready ==[0m
+  wp1: http://localhost:9602 (published on host port 9602)
+  wp2: http://localhost:9603 (published on host port 9603)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-pr454t1 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-pr454t1 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=pr454t1 must stay exported, or pass -p duo-pr454t1 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: contact-form-7 6.0.1 ==[0m
+ Container duo-pr454t1-cli1-run-10d321a073bf Creating
+ Container duo-pr454t1-cli1-run-10d321a073bf Created
+ Container duo-pr454t1-cli1-run-6b04dd877868 Creating
+ Container duo-pr454t1-cli1-run-6b04dd877868 Created
+ Container duo-pr454t1-cli1-run-1ea6c9fbc07e Creating
+ Container duo-pr454t1-cli1-run-1ea6c9fbc07e Created
+ Container duo-pr454t1-cli1-run-e680118616a2 Creating
+ Container duo-pr454t1-cli1-run-e680118616a2 Created
+ Container duo-pr454t1-cli1-run-64884e48895d Creating
+ Container duo-pr454t1-cli1-run-64884e48895d Created
+ Container duo-pr454t1-cli1-run-8eb549d04e9a Creating
+ Container duo-pr454t1-cli1-run-8eb549d04e9a Created
+ Container duo-pr454t1-cli2-run-f37e93111bc1 Creating
+ Container duo-pr454t1-cli2-run-f37e93111bc1 Created
+ Container duo-pr454t1-cli2-run-2eea854c5119 Creating
+ Container duo-pr454t1-cli2-run-2eea854c5119 Created
+ Container duo-pr454t1-cli2-run-8152c5909920 Creating
+ Container duo-pr454t1-cli2-run-8152c5909920 Created
+ Container duo-pr454t1-cli2-run-321106d8a1ef Creating
+ Container duo-pr454t1-cli2-run-321106d8a1ef Created
+ Container duo-pr454t1-cli2-run-d6b672330439 Creating
+ Container duo-pr454t1-cli2-run-d6b672330439 Created
+ Container duo-pr454t1-cli2-run-2277cbfc4206 Creating
+ Container duo-pr454t1-cli2-run-2277cbfc4206 Created
+
+[1;36m== fetch + verify contact-form-7 6.0.1 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-pr454t1-cli1-run-29f183f40dcd Creating
+ Container duo-pr454t1-cli1-run-29f183f40dcd Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.0.1 sha256=23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6 source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip
+ Container duo-pr454t1-cli2-run-8a66a28aecc2 Creating
+ Container duo-pr454t1-cli2-run-8a66a28aecc2 Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.0.1 sha256=23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6 source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip[0m
+ Container duo-pr454t1-cli1-run-c118524311c4 Creating
+ Container duo-pr454t1-cli1-run-c118524311c4 Created
+ Container duo-pr454t1-cli1-run-21a4dd470fd6 Creating
+ Container duo-pr454t1-cli1-run-21a4dd470fd6 Created
+[1;32mok: side 1: contact-form-7 6.0.1 installed from verified artifact, active[0m
+ Container duo-pr454t1-cli1-run-abfe6e565430 Creating
+ Container duo-pr454t1-cli1-run-abfe6e565430 Created
+cf7 seed: {"form":2,"page":3,"shortcode":"[contact-form-7 id=\"c89f7da\" title=\"Version Matrix Contact Form\"]","old_id":3199001,"legacy_page":4,"legacy_shortcode":"[contact-form 3199001 \"Version Matrix Contact Form\"]"}
+ Container duo-pr454t1-cli1-run-c01fd6cf0c4f Creating
+ Container duo-pr454t1-cli1-run-c01fd6cf0c4f Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (contact-form-7 6.0.1)[0m
+[1;32mok: capture: contact-form-7 6.0.1 canonicalized legacy positional shortcode 3199001[0m
+ Container duo-pr454t1-cli1-run-4f6cc324bd5a Creating
+ Container duo-pr454t1-cli1-run-4f6cc324bd5a Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-pr454t1-cli2-run-55525cb0486a Creating
+ Container duo-pr454t1-cli2-run-55525cb0486a Created
+ Container duo-pr454t1-cli2-run-176f8fff1762 Creating
+ Container duo-pr454t1-cli2-run-176f8fff1762 Created
+ Container duo-pr454t1-cli2-run-c7b8d1255453 Creating
+ Container duo-pr454t1-cli2-run-c7b8d1255453 Created
+activated: contact-form-7/wp-contact-form-7.php
+Success: 1 activated, 0 deactivated
+ Container duo-pr454t1-cli2-run-5aaf8db7d645 Creating
+ Container duo-pr454t1-cli2-run-5aaf8db7d645 Created
+Warning: adopted env post 1 as 019fff32-665a-791b-bfd8-5f7fdff72ce3 (posts/wpcf7_contact_form/019fff32-665a-791b-bfd8-5f7fdff72ce3--contact-form-1.md)
+Warning: adopted env term 1 as 019fff32-666c-77b7-b296-e7a9221fe270 (terms/category/019fff32-666c-77b7-b296-e7a9221fe270--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":3,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":2,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (contact-form-7 6.0.1, canary clean)[0m
+ Container duo-pr454t1-cli2-run-ec01a3a5ddc7 Creating
+ Container duo-pr454t1-cli2-run-ec01a3a5ddc7 Created
+ Container duo-pr454t1-cli2-run-64592846e9cf Creating
+ Container duo-pr454t1-cli2-run-64592846e9cf Created
+ Container duo-pr454t1-cli2-run-7df3b043d475 Creating
+ Container duo-pr454t1-cli2-run-7df3b043d475 Created
+[1;32mok: target: contact-form-7 6.0.1 legacy positional shortcode resolves to target form 2[0m
+ Container duo-pr454t1-cli2-run-5f4ce0f96d62 Creating
+ Container duo-pr454t1-cli2-run-5f4ce0f96d62 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at contact-form-7 6.0.1 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: contact-form-7 6.1.6 ==[0m
+ Container duo-pr454t1-cli1-run-d2f4b9292c81 Creating
+ Container duo-pr454t1-cli1-run-d2f4b9292c81 Created
+ Container duo-pr454t1-cli1-run-7be25e519698 Creating
+ Container duo-pr454t1-cli1-run-7be25e519698 Created
+ Container duo-pr454t1-cli1-run-dbf56104ad69 Creating
+ Container duo-pr454t1-cli1-run-dbf56104ad69 Created
+ Container duo-pr454t1-cli1-run-de0376a2b033 Creating
+ Container duo-pr454t1-cli1-run-de0376a2b033 Created
+ Container duo-pr454t1-cli1-run-e1466f69e102 Creating
+ Container duo-pr454t1-cli1-run-e1466f69e102 Created
+ Container duo-pr454t1-cli1-run-96d4157e45c2 Creating
+ Container duo-pr454t1-cli1-run-96d4157e45c2 Created
+ Container duo-pr454t1-cli2-run-09c1f079eb3d Creating
+ Container duo-pr454t1-cli2-run-09c1f079eb3d Created
+ Container duo-pr454t1-cli2-run-0cc9e23bb7a6 Creating
+ Container duo-pr454t1-cli2-run-0cc9e23bb7a6 Created
+ Container duo-pr454t1-cli2-run-14c62c6d05f3 Creating
+ Container duo-pr454t1-cli2-run-14c62c6d05f3 Created
+ Container duo-pr454t1-cli2-run-da57522356da Creating
+ Container duo-pr454t1-cli2-run-da57522356da Created
+ Container duo-pr454t1-cli2-run-a130f3abad5a Creating
+ Container duo-pr454t1-cli2-run-a130f3abad5a Created
+ Container duo-pr454t1-cli2-run-3942cf5e73fe Creating
+ Container duo-pr454t1-cli2-run-3942cf5e73fe Created
+
+[1;36m== fetch + verify contact-form-7 6.1.6 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-pr454t1-cli1-run-9264168e33fb Creating
+ Container duo-pr454t1-cli1-run-9264168e33fb Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.1.6 sha256=e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip
+ Container duo-pr454t1-cli2-run-8ec496701822 Creating
+ Container duo-pr454t1-cli2-run-8ec496701822 Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.1.6 sha256=e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip[0m
+ Container duo-pr454t1-cli1-run-c88b447a6815 Creating
+ Container duo-pr454t1-cli1-run-c88b447a6815 Created
+ Container duo-pr454t1-cli1-run-499a81969eb0 Creating
+ Container duo-pr454t1-cli1-run-499a81969eb0 Created
+[1;32mok: side 1: contact-form-7 6.1.6 installed from verified artifact, active[0m
+ Container duo-pr454t1-cli1-run-5aace991bbbf Creating
+ Container duo-pr454t1-cli1-run-5aace991bbbf Created
+cf7 seed: {"form":1,"page":2,"shortcode":"[contact-form-7 id=\"89fbd8d\" title=\"Version Matrix Contact Form\"]","old_id":3199001,"legacy_page":3,"legacy_shortcode":"[contact-form 3199001 \"Version Matrix Contact Form\"]"}
+ Container duo-pr454t1-cli1-run-8c3f426a721a Creating
+ Container duo-pr454t1-cli1-run-8c3f426a721a Created
+Success: captured 3 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (contact-form-7 6.1.6)[0m
+[1;32mok: capture: contact-form-7 6.1.6 canonicalized legacy positional shortcode 3199001[0m
+ Container duo-pr454t1-cli1-run-0fe319a39139 Creating
+ Container duo-pr454t1-cli1-run-0fe319a39139 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-pr454t1-cli2-run-d987dcb3d962 Creating
+ Container duo-pr454t1-cli2-run-d987dcb3d962 Created
+ Container duo-pr454t1-cli2-run-38f511f67fef Creating
+ Container duo-pr454t1-cli2-run-38f511f67fef Created
+ Container duo-pr454t1-cli2-run-9d33dbe8893e Creating
+ Container duo-pr454t1-cli2-run-9d33dbe8893e Created
+activated: contact-form-7/wp-contact-form-7.php
+Success: 1 activated, 0 deactivated
+ Container duo-pr454t1-cli2-run-579a4097f89a Creating
+ Container duo-pr454t1-cli2-run-579a4097f89a Created
+Warning: adopted env term 1 as 019fff35-56e5-7957-a3f3-eb008946b811 (terms/category/019fff35-56e5-7957-a3f3-eb008946b811--uncategorized.json)
+Success: applied 6 entities (canary clean) — plan was: {"create":3,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (contact-form-7 6.1.6, canary clean)[0m
+ Container duo-pr454t1-cli2-run-ce5616c02411 Creating
+ Container duo-pr454t1-cli2-run-ce5616c02411 Created
+ Container duo-pr454t1-cli2-run-7e10ee2b69ee Creating
+ Container duo-pr454t1-cli2-run-7e10ee2b69ee Created
+ Container duo-pr454t1-cli2-run-27d092bddcf9 Creating
+ Container duo-pr454t1-cli2-run-27d092bddcf9 Created
+[1;32mok: target: contact-form-7 6.1.6 legacy positional shortcode resolves to target form 1[0m
+ Container duo-pr454t1-cli2-run-d18bf325dff0 Creating
+ Container duo-pr454t1-cli2-run-d18bf325dff0 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 3 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at contact-form-7 6.1.6 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-pr454t1-cli1-run-7a3dc4557a02 Creating
+ Container duo-pr454t1-cli1-run-7a3dc4557a02 Created
+ Container duo-pr454t1-cli1-run-35813680c9bb Creating
+ Container duo-pr454t1-cli1-run-35813680c9bb Created
+ Container duo-pr454t1-cli1-run-cb5e5ab3d1c8 Creating
+ Container duo-pr454t1-cli1-run-cb5e5ab3d1c8 Created
+ Container duo-pr454t1-cli1-run-e5b5de69cf24 Creating
+ Container duo-pr454t1-cli1-run-e5b5de69cf24 Created
+ Container duo-pr454t1-cli1-run-971bc731a50e Creating
+ Container duo-pr454t1-cli1-run-971bc731a50e Created
+ Container duo-pr454t1-cli1-run-13243be29dae Creating
+ Container duo-pr454t1-cli1-run-13243be29dae Created
+ Container duo-pr454t1-cli1-run-addcfd1b4f39 Creating
+ Container duo-pr454t1-cli1-run-addcfd1b4f39 Created
+artifact-cache: kind=plugin slug=contact-form-7 version=5.9.8 sha256=357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4 source=cache-hit path=/artifacts-cache/plugin-contact-form-7-5.9.8-357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4.zip
+ Container duo-pr454t1-cli1-run-b285d3ef7c65 Creating
+ Container duo-pr454t1-cli1-run-b285d3ef7c65 Created
+ Container duo-pr454t1-cli1-run-444b47adf014 Creating
+ Container duo-pr454t1-cli1-run-444b47adf014 Created
+ Container duo-pr454t1-cli1-run-6c7ce5764af8 Creating
+ Container duo-pr454t1-cli1-run-6c7ce5764af8 Created
+Success: captured 0 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-pr454t1-cli1-run-84535b3927fa Creating
+ Container duo-pr454t1-cli1-run-84535b3927fa Created
+Error: duo: deploy refused — code_mismatch:
+
+  - contact-form-7/wp-contact-form-7.php 5.9.8 is active in this environment, outside the 'contact-form-7' manifest's declared version_range (>=6.0.0 <7.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'pr454t1': destroy ==[0m
+ Container duo-pr454t1-wp2-1 Stopping
+ Container duo-pr454t1-cli2-1 Stopping
+ Container duo-pr454t1-wp1-1 Stopping
+ Container duo-pr454t1-cli1-1 Stopping
+ Container duo-pr454t1-cli1-1 Stopped
+ Container duo-pr454t1-cli1-1 Removing
+ Container duo-pr454t1-cli2-1 Stopped
+ Container duo-pr454t1-cli2-1 Removing
+ Container duo-pr454t1-cli2-1 Removed
+ Container duo-pr454t1-cli1-1 Removed
+ Container duo-pr454t1-wp2-1 Stopped
+ Container duo-pr454t1-wp2-1 Removing
+ Container duo-pr454t1-wp2-1 Removed
+ Container duo-pr454t1-wp1-1 Stopped
+ Container duo-pr454t1-wp1-1 Removing
+ Container duo-pr454t1-wp1-1 Removed
+ Volume duo-pr454t1_wp2 Removing
+ Volume duo-pr454t1_wp1 Removing
+ Volume duo-pr454t1_wp1 Removed
+ Volume duo-pr454t1_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_pr454t11/wp_pr454t12 dropped[0m
+  siterepo/pr454t1{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed pr454t1 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

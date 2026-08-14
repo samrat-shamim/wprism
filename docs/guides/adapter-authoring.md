@@ -635,10 +635,11 @@ with no manifest, is a loud load failure — and classifies each `certified`,
 sections, operations, lifecycle phases, deletion semantics, explicit
 unsupported behavior, and every table whose default keyspace is authored.
 
-Certified entries cite named tests in the certification bundle, and the bundle
-refuses a certified evidence reference that is not present in that run. So a
-`certified` claim requires all of: a current evidence bundle, byte-matched
-plugin and version-range facts, and a passing named test.
+Each certified manifest and profile cites named tests in its own
+`duo-subject-certification-bundle/v1` record. A record can authorize exactly
+one `manifests.<name>` or `profiles.<name>` claim, and its subject digest,
+artifact boundary, and passing tests must match that claim. Missing or stale
+evidence blocks only that subject.
 
 `manifests/capabilities/registry.json` and
 [docs/capabilities.md](../capabilities.md) are the **generated** projection of
@@ -650,6 +651,51 @@ separation exists to prevent.
 Capability *reduction* is a legitimate outcome of this process. Behavior that
 works but cannot be proven is removed and refused rather than shipped
 under-proven.
+
+### Adding a WordPress extension
+
+An extension is data- and convention-discovered; there is no registry or
+certifier allowlist to update:
+
+1. Add `manifests/<name>.json` and its exact entry in
+   `manifests/dispositions.json`.
+2. Add `sandbox/conformance/entries/<name>.json` plus any matching
+   `seeds/<name>.sh`, `checks/<name>.sh`, or `postdeploy/<name>.sh` hooks.
+   A nonstandard certification test is an executable
+   `sandbox/certification/tests/<test-id>.sh` named by the disposition. An
+   extension-specific exact-artifact driver lives at
+   `sandbox/certification/version-matrix/<name>.sh`; neither convention
+   requires a central dispatcher edit. Put driver-only helpers under the
+   matching extension or test-ID directory so the closure projector binds
+   them automatically.
+3. Add every typed plugin/theme version and SHA-256 used by the conformance
+   entry or exact-version matrix to `sandbox/conformance/artifacts.lock.json`.
+   The projector also binds the standard bootstrap theme automatically.
+4. Generate the candidate projection, exercise the subject, and publish only
+   that subject's verified record:
+
+   ```sh
+   php scripts/capability-registry.php generate
+   make certify-subject-bundle SUBJECT=manifests.<name>
+   php scripts/capability-registry.php import-subject-bundle <bundle-dir>
+   php scripts/capability-registry.php generate
+   php scripts/capability-registry.php check
+   ```
+
+Profiles use the same flow with `SUBJECT=profiles.<name>`. The import path is
+derived from `{kind,name,digest}`, so an extension never edits an evidence
+pointer for another subject.
+
+For several independent new or changed extensions, run
+`make certify-subjects-parallel` (optionally `JOBS=<n>` or
+`SUBJECTS="manifests.one manifests.two"`). It allocates collision-free pairs,
+ports, logs, and bundle roots from the currently available host capacity under
+host-wide name/port leases; interruption kills each lane's full process group
+before its owned pair is destroyed. Leases also exclude stopped Compose port
+bindings and ordinary lifecycle commands; a two-phase launcher handshake keeps
+the certifier blocked until its process group is registered. The
+batch `index.json` is the import manifest; import its bundle paths only after
+the whole batch completes so every lane observes the same clean source commit.
 
 ## Site-installed adapters and external certification
 
@@ -667,7 +713,8 @@ Without a certificate, the adapter is usable for plan/apply but is visibly
 `uncertified`; readiness and host promotion remain blocked. Certification is a
 separate reviewer operation:
 
-1. Produce a passing `duo-certification-bundle/v1` whose bound inputs contain
+1. Produce a passing `duo-site-adapter-certification-bundle/v1` scoped exactly
+   to `{"kind":"site_adapter","name":"<name>"}` whose bound inputs contain
    exactly the raw `adapters/<name>.json` bytes and whose ratification contains
    exactly one certified disposition for that name.
 2. Install the reviewer's public-key record under the agent-owned

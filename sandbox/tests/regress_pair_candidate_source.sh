@@ -50,7 +50,6 @@ ORIGINAL_PATH="$PATH"
 # certification lock reserved. Point it at a path under this suite's own
 # scratch that is never created, so these cases decide against a fixture
 # instead of against whatever bundle happens to be running on this host.
-export CERT_BUNDLE_LOCK_DIR="$TMP/no-certbundle-rendezvous"
 
 say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
@@ -91,6 +90,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_force_hatch.sh" "$bin_dir/../lib/pair_force_hatch.sh"
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
+  cp "$ROOT/sandbox/lib/pair_lease.sh" "$bin_dir/../lib/pair_lease.sh"
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
   cp "$ROOT/sandbox/lib/pair_bootstrap.sh" "$bin_dir/../lib/pair_bootstrap.sh"
   cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"
@@ -256,6 +256,7 @@ run_pair() { # run_pair <expected-sha-or-empty> <subcommand> [args...]
        DUO_PAIR_TEST_CONTAINERS="${CONTAINERS:-}" \
        DUO_PAIR_TEST_LIVE_FILE="${LIVE_FILE:-}" \
        DUO_PAIR_TEST_CPU=8 DUO_PAIR_TEST_MEM=8589934592 \
+       DUO_SOURCE_ROOT="${SOURCE_OVERRIDE:-}" \
        DUO_EXPECTED_SOURCE_SHA="$expected" \
        bash "$WORKTREE/sandbox/bin/pair.sh" "$@" ) >"$OUTPUT" 2>&1
 }
@@ -313,10 +314,30 @@ run_mismatch_refusal_case() {
     "$label did not print the actual mounted source HEAD"
   assert_file_contains "$OUTPUT" "actual mounted source:              $CANONICAL/{agent,manifests}" \
     "$label did not print the actual mounted source path"
-  assert_file_contains "$OUTPUT" "git clone --branch <branch> $CANONICAL" \
-    "$label did not name the standalone-clone remedy"
+  assert_file_contains "$OUTPUT" 'DUO_SOURCE_ROOT=$(pwd -P) DUO_EXPECTED_SOURCE_SHA=$(git rev-parse HEAD)' \
+    "$label did not name the linked-worktree source remedy"
   assert_no_pair_mutation "$label" "$CASE_ROOT" "$pair"
   pass "$label: a stale canonical source cannot yield candidate evidence, green or red"
+}
+
+run_worktree_source_case() {
+  local label=worktree_source pair=worktreesrc
+  build_fixture "$label"
+
+  SOURCE_OVERRIDE="$WORKTREE" run_pair "$SHA_CANDIDATE" up "$pair" 9911 9912 --headless \
+    || { cat "$OUTPUT" >&2; fail "$label refused the exact clean candidate worktree"; }
+
+  assert_file_contains "$OUTPUT" "mounted source: $WORKTREE/{agent,manifests}" \
+    "$label did not report the selected worktree"
+  assert_file_contains "$OUTPUT" "source HEAD:    $SHA_CANDIDATE" \
+    "$label did not report the candidate worktree HEAD"
+  assert_file_contains "$LOG" "env[DUO_AGENT_SRC]=$WORKTREE/agent" \
+    "$label did not mount the candidate worktree agent"
+  assert_file_contains "$LOG" "env[DUO_MANIFESTS_SRC]=$WORKTREE/manifests" \
+    "$label did not mount the candidate worktree manifests"
+  assert_file_lacks "$LOG" "env[DUO_AGENT_SRC]=$CANONICAL/agent" \
+    "$label silently fell back to the canonical checkout"
+  pass "$label: an explicit exact worktree is mounted and verified without moving the canonical checkout"
 }
 
 run_expected_match_case() {
@@ -564,7 +585,7 @@ run_non_git_copy_case() {
        DUO_EXPECTED_SOURCE_SHA=0123456789abcdef0123456789abcdef01234567 \
        bash "$case_root/sandbox/bin/pair.sh" reset "$pair" ) >"$output" 2>&1 \
     && { cat "$output" >&2; fail "$label: a gated reset proceeded against an unidentifiable source"; }
-  assert_file_contains "$output" 'cannot be identified' \
+  assert_file_contains "$output" 'could not resolve a safe source checkout via git' \
     "$label did not refuse a gated run against an unidentifiable source"
   pass "$label: the ungated path adds no failure mode; the gated path still refuses closed"
 }
@@ -632,6 +653,8 @@ assert_file_contains "$ROOT/sandbox/bin/pair.sh" 'source "lib/pair_identity.sh"'
   'pair launcher no longer loads its pair-identity library'
 assert_file_contains "$ROOT/sandbox/lib/pair_identity.sh" 'pair_identity_canonical_root()' \
   'pair-identity library no longer owns canonical checkout resolution'
+assert_file_contains "$ROOT/sandbox/lib/pair_identity.sh" 'pair_identity_source_root()' \
+  'pair-identity library no longer owns safe worktree source selection'
 assert_file_contains "$ROOT/sandbox/lib/pair_identity.sh" 'pair_identity_validate_name()' \
   'pair-identity library no longer owns safe pair namespace validation'
 assert_file_contains "$ROOT/sandbox/bin/pair.sh" '  pair_identity_canonical_root' \
@@ -645,6 +668,9 @@ run_unset_gate_documents_stale_source_case
 
 say "expected candidate SHA vs stale canonical mount: refusal before any mutation"
 run_mismatch_refusal_case
+
+say "explicit candidate worktree source: exact linked-worktree bytes are mounted"
+run_worktree_source_case
 
 say "expected SHA equal to the mounted source: proceeds"
 run_expected_match_case

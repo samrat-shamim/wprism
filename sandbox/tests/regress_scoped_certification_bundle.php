@@ -1,5 +1,5 @@
 <?php
-/** DUO-3450: one-manifest certification currentness is closed and isolated. */
+/** One-subject certification currentness is closed and isolated. */
 declare(strict_types=1);
 
 require __DIR__ . '/../../agent/src/ScopedCertificationBundle.php';
@@ -39,8 +39,9 @@ function scoped_bundle(array $overrides = []): array {
     $log = asset('logs/woo-conformance.txt', 'log');
     $disposition = ['status' => 'certified'];
     $bundle = [
-        'adapter_digest' => str_repeat('a', 64),
         'artifacts' => [[
+            'archive_root' => null,
+            'kind' => 'plugin',
             'name' => 'woocommerce',
             'role' => 'certified-boundary',
             'sha256' => str_repeat('d', 64),
@@ -56,11 +57,13 @@ function scoped_bundle(array $overrides = []): array {
         'git_revision' => str_repeat('b', 40),
         'platform' => ['agent_version' => '0.5.0', 'wordpress' => '7.0.2'],
         'ratification' => [
-            'disposition' => $disposition,
-            'manifest' => 'woocommerce',
+            'claim' => $disposition,
+            'kind' => 'manifest',
+            'name' => 'woocommerce',
             'sha256' => hash('sha256', Canon::encode($disposition)),
         ],
-        'subject' => ['manifest' => 'woocommerce'],
+        'subject' => ['kind' => 'manifest', 'name' => 'woocommerce'],
+        'subject_digest' => str_repeat('a', 64),
         'verdict' => 'pass',
         'tests' => [[
             'diff' => $diff,
@@ -155,38 +158,39 @@ $valid = ScopedCertificationBundle::validate($bundle);
 check($valid['format'] === ScopedCertificationBundle::FORMAT, 'valid scoped bundle uses the separate v1 schema');
 $current = ScopedCertificationBundle::assertCurrent(
     $bundle,
+    'manifest',
     'woocommerce',
     str_repeat('a', 64),
     ['agent_version' => '0.5.0', 'wordpress' => '7.0.2'],
     $bundle['closure']['inputs'],
     ['woo-conformance'],
-    $bundle['ratification']['disposition'],
+    $bundle['ratification']['claim'],
     $bundle['artifacts']
 );
 check($current['status'] === 'current', 'exact subject, adapter digest, platform, closure, and citations are current');
 
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'acf', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
-), 'subject or adapter digest', 'cross-manifest subject cannot borrow scoped evidence');
+    $bundle, 'manifest', 'acf', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['claim'], $bundle['artifacts']
+), 'subject identity', 'cross-manifest subject cannot borrow scoped evidence');
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('d', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
-), 'subject or adapter digest', 'different adapter digest cannot borrow scoped evidence');
+    $bundle, 'manifest', 'woocommerce', str_repeat('d', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['claim'], $bundle['artifacts']
+), 'subject identity', 'different subject digest cannot borrow scoped evidence');
 
 $changedInput = $bundle['closure']['inputs'];
 $changedInput[0]['sha256'] = str_repeat('e', 64);
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $changedInput, ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
+    $bundle, 'manifest', 'woocommerce', str_repeat('a', 64), $bundle['platform'], $changedInput, ['woo-conformance'], $bundle['ratification']['claim'], $bundle['artifacts']
 ), 'closure is not current', 'bound engine mutation expires only this scoped record');
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('a', 64), ['agent_version' => '0.5.0', 'wordpress' => '7.0.3'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $bundle['artifacts']
+    $bundle, 'manifest', 'woocommerce', str_repeat('a', 64), ['agent_version' => '0.5.0', 'wordpress' => '7.0.3'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['claim'], $bundle['artifacts']
 ), 'platform boundary is not current', 'platform mutation expires the scoped record');
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], ['status' => 'experimental'], $bundle['artifacts']
+    $bundle, 'manifest', 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], ['status' => 'experimental'], $bundle['artifacts']
 ), 'ratification fragment is not current', 'a changed reviewed disposition cannot borrow prior scoped evidence');
 $changedArtifacts = $bundle['artifacts'];
 $changedArtifacts[0]['sha256'] = str_repeat('e', 64);
 expect_refusal(fn() => ScopedCertificationBundle::assertCurrent(
-    $bundle, 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['disposition'], $changedArtifacts
+    $bundle, 'manifest', 'woocommerce', str_repeat('a', 64), $bundle['platform'], $bundle['closure']['inputs'], ['woo-conformance'], $bundle['ratification']['claim'], $changedArtifacts
 ), 'artifacts are not current', 'a changed exact artifact boundary expires scoped evidence');
 $forced = ScopedCertificationBundle::validate(scoped_bundle([
     'force_hatches' => [ScopedCertificationBundle::PAIR_BUDGET_OVERRIDE_HATCH],
@@ -250,7 +254,7 @@ try {
         'the real split deployed layout loads a current scoped record without host-only certification files'
     );
     $runtimeEvidence = Canon::decode(Canon::read_file($runtimeManifests . '/capabilities/evidence.json'));
-    $runtimeInputs = $runtimeEvidence['scoped']['woocommerce']['bundle']['closure']['inputs'] ?? [];
+    $runtimeInputs = $runtimeEvidence['records']['manifests.woocommerce']['bundle']['closure']['inputs'] ?? [];
     $loaderInput = null;
     $agentInput = null;
     $manifestInput = null;
