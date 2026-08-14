@@ -440,11 +440,11 @@ under `CERT_SUBJECT_OUT` (default
 `/tmp/duo-subject-certification-bundles`). The record contains the exact
 `{kind,name}` subject, subject digest, ratification hash, artifact boundaries,
 force-hatch ledger, named results/diffs/logs, Git revision, and the conservative
-source closure for that lane. Core and profile subjects may legitimately have
-no plugin artifacts. A changed bound input expires that record without affecting
-another subject. Artifact-lock currentness is compared through the signed rows
-for the selected plugin only, so adding a different plugin does not expire
-existing subjects.
+source closure for that lane. A changed bound input expires that record without
+affecting another subject. Artifact-lock currentness is compared through the
+exact shared bootstrap theme, entry-declared plugin/theme rows, and matrix
+boundaries used by the subject, so adding an unrelated extension does not
+expire existing subjects while changing an exercised artifact does.
 
 The builder/verifier emits one JSON verdict and can be invoked directly:
 
@@ -470,8 +470,12 @@ subjects remain non-promoting without forcing unrelated test work.
 Independent subjects can be certified concurrently with
 `make certify-subjects-parallel`. The batch runner discovers every certified
 manifest/profile from dispositions, reads `pair.sh capacity` under the shared
-admission lock, and assigns each lane a unique pair, port pair, log, and bundle
-directory. Legs within one subject remain serial. `JOBS=<n>`,
+admission lock, atomically leases collision-free pair names and host ports, and
+assigns each lane its own process group, log, and bundle directory. A stopped
+pair, retained site root, another batch lease, or listening port refuses before
+reset can drop data. Interrupt cleanup terminates the complete lane process
+group before destroying only its leased pairs. Legs within one subject remain
+serial, and worker slots are reused by later waves. `JOBS=<n>`,
 `PORT_BASE=<even-port>`, `PAIR_PREFIX=<lowercase-name>`, `OUT=<directory>`, and
 `SUBJECTS="manifests.acf profiles.fse"` narrow or place a run. Requested
 parallelism above current free capacity refuses rather than forcing an

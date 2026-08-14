@@ -91,6 +91,10 @@ source "lib/pair_db.sh"
 # shellcheck source=../lib/pair_compose.sh
 source "lib/pair_compose.sh"
 
+[ -r "lib/pair_lease.sh" ] || fail "pair lease library is missing: lib/pair_lease.sh (parallel evidence lanes cannot reserve names/ports safely)"
+# shellcheck source=../lib/pair_lease.sh
+source "lib/pair_lease.sh"
+
 [ -r "lib/pair_readiness.sh" ] || fail "pair readiness library is missing: lib/pair_readiness.sh (the launcher cannot safely verify pair, mount, and database readiness)"
 # shellcheck source=../lib/pair_readiness.sh
 source "lib/pair_readiness.sh"
@@ -465,7 +469,7 @@ pair_budget() {
 }
 
 reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
-  local candidate="$1" root live budget live_count candidate_live=0 total
+  local candidate="$1" root live reserved budget live_count reserved_count candidate_admitted=0 total pair
   if ! root="$(canonical_root)"; then
     fail "could not resolve this repo's canonical checkout via git (not a git repository?) -- pair budget reservation cannot be shared safely"
   fi
@@ -477,28 +481,41 @@ reserve_pair_budget() { # reserve_pair_budget <candidate>; leaves lock held
     fail "could not enumerate live pair Compose projects; refusing without a verified budget"
   fi
   PAIR_BUDGET_LIVE_PAIRS="$live"
+  reserved="$(pair_lease_reserved_pairs)"
+  PAIR_BUDGET_RESERVED_PAIRS="$reserved"
   if ! budget="$(pair_budget)"; then
     budget_lock_release
     fail "could not query Docker host capacity; refusing without a verified budget"
   fi
 
   live_count="$(printf '%s\n' "$live" | awk 'NF {n++} END {print n+0}')"
+  reserved_count=0
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    if ! printf '%s\n' "$live" | grep -Fqx -- "$pair"; then
+      reserved_count=$((reserved_count + 1))
+    fi
+  done <<<"$reserved"
   PAIR_BUDGET_LIMIT="$budget"
   PAIR_BUDGET_LIVE_COUNT="$live_count"
-  PAIR_BUDGET_AVAILABLE=$((budget - live_count))
+  PAIR_BUDGET_RESERVED_COUNT="$reserved_count"
+  PAIR_BUDGET_AVAILABLE=$((budget - live_count - reserved_count))
   [ "$PAIR_BUDGET_AVAILABLE" -ge 0 ] || PAIR_BUDGET_AVAILABLE=0
-  if [ -n "$candidate" ] && printf '%s\n' "$live" | grep -Fqx -- "$candidate"; then
-    candidate_live=1
+  if [ -n "$candidate" ] && {
+    printf '%s\n' "$live" | grep -Fqx -- "$candidate" \
+      || printf '%s\n' "$reserved" | grep -Fqx -- "$candidate";
+  }; then
+    candidate_admitted=1
   fi
-  total="$live_count"
-  [ -z "$candidate" ] || [ "$candidate_live" -eq 1 ] || total=$((total + 1))
+  total=$((live_count + reserved_count))
+  [ -z "$candidate" ] || [ "$candidate_admitted" -eq 1 ] || total=$((total + 1))
 
   if [ "$total" -gt "$budget" ]; then
     warn ""
-    warn "!! ${live_count} running pairs (budget for this host: ${budget} — 2 pairs per docker core, RAM-guarded; see pair_budget())"
+    warn "!! ${live_count} running + ${reserved_count} reserved pairs (budget for this host: ${budget} — 2 pairs per docker core, RAM-guarded; see pair_budget())"
     warn "!! pairs: $(printf '%s' "$live" | tr '\n' ' ')"
     warn "!! stop pairs you're not actively using (pair.sh stop <name>) or destroy finished ones"
-    if [ -n "$candidate" ] && [ "$candidate_live" -eq 0 ]; then
+    if [ -n "$candidate" ] && [ "$candidate_admitted" -eq 0 ]; then
       if [ "${DUO_PAIR_BUDGET_OVERRIDE:-0}" = "1" ]; then
         # Presence is permission, not evidence of use.  Record only here,
         # after both the in-budget and held-reservation paths have failed to
@@ -575,6 +592,7 @@ cmd_up() {
   # pre-creation live-pair list and over-commit the host.
   arm_budget_up_cleanup
   reserve_pair_budget "$name"
+  pair_lease_assert_access "$name" "$port1" "$port2"
 
   # Resolve the canonical bind sources before any shared DB or pair-directory
   # mutation. A copied/non-Git launcher must fail closed without leaving
@@ -680,13 +698,19 @@ cmd_up() {
 }
 
 cmd_reset() {
-  local name="${1:?usage: pair.sh reset <name>}"
+  local name="${1:?usage: pair.sh reset <name>}" lease_locked=0
   validate_name "$name"
   # DUO-3377: reset is a mutation (DROP/CREATE of both databases, plus the
   # site-repo clear below) and is what every conformance sweep runs FIRST, so
   # the gate has to sit ahead of pair_siterepo_refuse_codebind_reset's Docker
   # queries too, since the source question is answerable without them.
   assert_candidate_source reset
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
   pair_siterepo_refuse_codebind_reset "$name"
   # Refuse before DROP/CREATE if uid-33 descendants cannot be returned to the
   # host process that clears them. The helper preserves both bind-root inodes.
@@ -709,6 +733,7 @@ cmd_reset() {
   pair_siterepo_clear_root "siterepo/${name}2"
   rm -rf -- "siterepo/origin-${name}.git"
   pair_siterepo_prepare_roots "$name"
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "wp_${name}1/wp_${name}2 dropped + recreated empty; siterepo/${name}{1,2} cleared in place and origin-${name}.git removed"
   echo "  reset covers: both databases (DROP/CREATE) and the site-repo contents"
   echo "  (siterepo/${name}{1,2}, origin-${name}.git). The two ordinary site-repo"
@@ -784,8 +809,14 @@ cmd_start() {
 }
 
 cmd_destroy() {
-  local name="${1:?usage: pair.sh destroy <name>}"
+  local name="${1:?usage: pair.sh destroy <name>}" lease_locked=0
   validate_name "$name"
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
 
   say "pair '$name': destroy"
   # Cleanup callers remove the pair roots after destroy. Return uid-33 capture
@@ -807,6 +838,7 @@ cmd_destroy() {
   # makes reset hazardous — live containers and surviving volumes spanning the
   # DROP — simply cannot arise here.
   pair_bootstrap_clear_needs_install_markers "$name"
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "containers + webroot volumes removed; wp_${name}1/wp_${name}2 dropped"
   echo "  siterepo/${name}{1,2} left on disk untouched — remove by hand if you want it gone too."
 }
@@ -844,18 +876,42 @@ cmd_list() {
 }
 
 cmd_capacity() {
-  local pairs budget live_count available
+  local pairs reserved budget live_count reserved_count available
   arm_budget_up_cleanup
   reserve_pair_budget ""
   pairs="$PAIR_BUDGET_LIVE_PAIRS"
   budget="$PAIR_BUDGET_LIMIT"
   live_count="$PAIR_BUDGET_LIVE_COUNT"
+  reserved="$PAIR_BUDGET_RESERVED_PAIRS"
+  reserved_count="$PAIR_BUDGET_RESERVED_COUNT"
   available="$PAIR_BUDGET_AVAILABLE"
   disarm_budget_up_cleanup
-  jq -n --arg pairs "$pairs" --argjson budget "$budget" \
-    --argjson live "$live_count" --argjson available "$available" \
-    '{schema_version:1,budget:$budget,live:$live,available:$available,
-      pairs:($pairs | split("\n") | map(select(length > 0)))}'
+  jq -n --arg pairs "$pairs" --arg reserved "$reserved" --argjson budget "$budget" \
+    --argjson live "$live_count" --argjson reserved_count "$reserved_count" --argjson available "$available" \
+    '{schema_version:1,budget:$budget,live:$live,reserved:$reserved_count,available:$available,
+      pairs:($pairs | split("\n") | map(select(length > 0))),
+      reserved_pairs:($reserved | split("\n") | map(select(length > 0)))}'
+}
+
+cmd_lease_batch_acquire() {
+  local token="${1:?lease-batch-acquire needs token}" owner_pid="${2:?lease-batch-acquire needs owner PID}"
+  local owner_start="${3:?lease-batch-acquire needs owner start identity}"; shift 3
+  local -a requests=("$@")
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  [ $(( ${#requests[@]} / 3 )) -le "$PAIR_BUDGET_AVAILABLE" ] \
+    || fail "pair lease batch requests $((${#requests[@]} / 3)) slots but only $PAIR_BUDGET_AVAILABLE are available"
+  pair_lease_acquire_batch "$token" "$owner_pid" "$owner_start" "${requests[@]}"
+  disarm_budget_up_cleanup
+}
+
+cmd_lease_batch_release() {
+  local token="${1:?lease-batch-release needs token}"
+  [ "$#" -eq 1 ] || fail "lease-batch-release accepts exactly one token"
+  arm_budget_up_cleanup
+  reserve_pair_budget ""
+  pair_lease_release_token "$token"
+  disarm_budget_up_cleanup
 }
 
 usage() {
@@ -956,6 +1012,8 @@ case "${1:-}" in
   destroy) shift; cmd_destroy "$@" ;;
   list)    shift; cmd_list "$@" ;;
   capacity) shift; cmd_capacity "$@" ;;
+  lease-batch-acquire) shift; cmd_lease_batch_acquire "$@" ;;
+  lease-batch-release) shift; cmd_lease_batch_release "$@" ;;
   -h|--help|"") usage ;;
   *) echo "unknown subcommand '$1'" >&2; usage >&2; exit 1 ;;
 esac

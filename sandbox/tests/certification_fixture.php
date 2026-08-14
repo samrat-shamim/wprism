@@ -127,41 +127,6 @@ function duo_cert_input(string $root, string $relative): array {
     return ['path' => $relative, 'sha256' => $digest, 'size' => $size];
 }
 
-/** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
-function duo_cert_scoped_artifacts(string $repo, array $manifest): array {
-    $plugin = $manifest['plugin'] ?? null;
-    if (!is_string($plugin) || !str_contains($plugin, '/')) {
-        return [];
-    }
-    $slug = strstr($plugin, '/', true);
-    $lock = Canon::decode(Canon::read_file("$repo/sandbox/conformance/artifacts.lock.json"));
-    $entries = is_array($lock) ? ($lock['plugins'][$slug] ?? null) : null;
-    if (!is_array($entries) || array_is_list($entries)) {
-        throw new RuntimeException("certification fixture manufacture failed: '$slug' has no artifact lock entries");
-    }
-    $out = [];
-    foreach ($entries as $version => $entry) {
-        if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
-            continue;
-        }
-        $out[] = [
-            'name' => $slug,
-            'role' => $entry['role'],
-            'sha256' => $entry['sha256'],
-            'url' => $entry['url'],
-            'version' => (string) $version,
-        ];
-    }
-    usort($out, static fn(array $a, array $b): int => strcmp(
-        $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
-        $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
-    ));
-    if ($out === []) {
-        throw new RuntimeException("certification fixture manufacture failed: '$slug' has no admitted artifacts");
-    }
-    return $out;
-}
-
 /** @return array{path:string,sha256:string,size:int} */
 function duo_cert_asset(string $path, string $relative): array {
     $digest = hash_file('sha256', $path);
@@ -229,7 +194,7 @@ function duo_cert_make_subject_record(
     $inputPaths = ScopedCertificationBundle::subjectInputPaths($fixtureRoot, $kind, $name, $manifest, $tests);
     $inputs = array_map(fn(string $path): array => duo_cert_input($fixtureRoot, $path), $inputPaths);
     $bundle = [
-        'artifacts' => duo_cert_scoped_artifacts($repo, $manifest),
+        'artifacts' => ScopedCertificationBundle::subjectArtifacts($repo, $kind, $name, $manifest, $tests),
         'bundle_digest' => str_repeat('0', 64),
         'claims' => [$subjectKey => array_values($tests)],
         'closure' => ['digest' => ScopedCertificationBundle::closureDigest($inputs), 'inputs' => $inputs],

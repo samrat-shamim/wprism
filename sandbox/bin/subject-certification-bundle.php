@@ -123,39 +123,15 @@ function adapter_bundle_platform(string $root): array {
     ];
 }
 
-/** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
-function adapter_bundle_artifacts(string $root, array $manifest): array {
-    $plugin = $manifest['plugin'] ?? null;
-    if (!is_string($plugin) || !str_contains($plugin, '/')) {
-        return [];
-    }
-    $slug = strstr($plugin, '/', true);
-    $lock = adapter_bundle_read(rtrim($root, '/') . '/sandbox/conformance/artifacts.lock.json');
-    $entries = $lock['plugins'][$slug] ?? null;
-    if (!is_array($entries) || array_is_list($entries)) {
-        throw new RuntimeException("no typed artifact lock entries exist for '$slug'");
-    }
-    $out = [];
-    foreach ($entries as $version => $entry) {
-        if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
-            continue;
-        }
-        $out[] = [
-            'name' => $slug,
-            'role' => $entry['role'],
-            'sha256' => $entry['sha256'] ?? null,
-            'url' => $entry['url'] ?? null,
-            'version' => (string) $version,
-        ];
-    }
-    if ($out === []) {
-        throw new RuntimeException("no certified/refusal artifact boundaries exist for '$slug'");
-    }
-    usort($out, static fn(array $a, array $b): int => strcmp(
-        $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
-        $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
-    ));
-    return $out;
+/** @return list<array{kind:string,name:string,role:string,sha256:string,url:string,version:string}> */
+function adapter_bundle_artifacts(string $root, array $subject): array {
+    return ScopedCertificationBundle::subjectArtifacts(
+        $root,
+        $subject['kind'],
+        $subject['name'],
+        $subject['manifest'],
+        $subject['claim']['evidence']['tests'] ?? []
+    );
 }
 
 /** @return list<array{path:string,sha256:string,size:int}> */
@@ -354,7 +330,7 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
         );
         $subjectKey = ScopedCertificationBundle::subjectKey($kind, $name);
         $bundle = [
-            'artifacts' => adapter_bundle_artifacts($root, $subject['manifest']),
+            'artifacts' => adapter_bundle_artifacts($root, $subject),
             'bundle_digest' => str_repeat('0', 64),
             'claims' => [$subjectKey => array_column($tests, 'id')],
             'closure' => ['digest' => ScopedCertificationBundle::closureDigest($inputs), 'inputs' => $inputs],
@@ -385,7 +361,7 @@ function adapter_bundle_build(string $specPath, string $outputRoot): never {
             $inputs,
             $subject['claim']['evidence']['tests'] ?? [],
             $subject['claim'],
-            adapter_bundle_artifacts($root, $subject['manifest'])
+            adapter_bundle_artifacts($root, $subject)
         );
         file_put_contents("$stage/bundle.json", Canon::encode($bundle));
         $final = "$outputRoot/{$bundle['bundle_digest']}";
@@ -459,7 +435,7 @@ function adapter_bundle_verify(string $input, string $root): never {
             ScopedCertificationBundle::currentInputsForPaths($root, $expectedPaths),
             $subject['claim']['evidence']['tests'] ?? [],
             $subject['claim'],
-            adapter_bundle_artifacts($root, $subject['manifest'])
+            adapter_bundle_artifacts($root, $subject)
         );
         adapter_bundle_emit([
             'bundle_digest' => $bundle['bundle_digest'],

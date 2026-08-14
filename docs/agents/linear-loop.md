@@ -240,10 +240,12 @@ branch or edit files before this passes.
     `sandbox/certification/tests/<test-id>.sh` or
     `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no
     central certification allowlist or dispatch switch is edited. The shared
-    artifact file is projected by plugin slug, so new-extension rows do not
-    stale existing subject evidence. When several
+    artifact file is projected to the exact bootstrap theme, conformance-entry
+    plugins/themes, and matrix boundaries used by that subject, so unrelated
+    new-extension rows do not stale existing evidence while changed exercised
+    artifacts do. When several
     subjects need renewal, `make certify-subjects-parallel` schedules their
-    independent lanes on unique pairs/ports up to the locked free host
+    independent lanes on host-wide leased pairs/ports up to the locked free host
     capacity and emits an `index.json`. Import none of those bundles until all
     lanes finish, or the shared exact-source checkout becomes dirty underneath
     the remaining runs.

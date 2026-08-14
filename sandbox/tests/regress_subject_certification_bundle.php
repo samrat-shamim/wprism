@@ -90,6 +90,8 @@ PHP;
 }
 
 $source = realpath(__DIR__ . '/../..');
+require_once $source . '/agent/src/Canon.php';
+require_once $source . '/agent/src/ScopedCertificationBundle.php';
 $entry = json_decode((string) file_get_contents($source . '/sandbox/conformance/entries/woocommerce.json'), true);
 $globalEntry = json_decode((string) file_get_contents($source . '/sandbox/conformance/manifests.json'), true)['woocommerce'] ?? null;
 check(
@@ -177,6 +179,42 @@ check(
 $verified = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 1, 'json' => null, 'err' => 'missing bundle'];
 check($verified['exit'] === 0 && ($verified['json']['verdict'] ?? null) === 'valid', 'fresh scoped bundle immediately verifies against exact current inputs');
 
+$untrackedPath = $repo . '/agent/untracked-certification-input.php';
+file_put_contents($untrackedPath, "<?php\n// convention-discovered but absent from the claimed commit\n");
+$untrackedProjection = run([PHP_BINARY, $builder, 'inputs', 'manifest', 'woocommerce', $repo]);
+$forged = is_string($bundle) ? json_decode((string) file_get_contents($bundle . '/bundle.json'), true) : null;
+if (is_array($forged) && is_array($untrackedProjection['json']['inputs'] ?? null)) {
+    $forged['closure']['inputs'] = $untrackedProjection['json']['inputs'];
+    $forged['closure']['digest'] = Duo\ScopedCertificationBundle::closureDigest($forged['closure']['inputs']);
+    $forged['bundle_digest'] = Duo\ScopedCertificationBundle::digest($forged);
+    $forgedDir = "$root/untracked-forgery/{$forged['bundle_digest']}";
+    copy_tree($bundle, $forgedDir);
+    file_put_contents($forgedDir . '/bundle.json', Duo\Canon::encode($forged));
+    $untrackedVerify = run([PHP_BINARY, $builder, 'verify', $forgedDir, $repo]);
+} else {
+    $untrackedVerify = ['exit' => 0, 'err' => 'could not manufacture untracked closure'];
+}
+check(
+    $untrackedVerify['exit'] !== 0 && str_contains($untrackedVerify['err'], 'absent from Git revision'),
+    'verification rejects a canonical current input that never existed in the claimed commit'
+        . ($untrackedVerify['exit'] === 0 ? '' : ': ' . trim((string) $untrackedVerify['err']))
+);
+unlink($untrackedPath);
+
+$externalMatrix = "$root/external-version-matrix";
+mkdir($externalMatrix, 0777, true);
+file_put_contents($externalMatrix . '/woocommerce.sh', "#!/usr/bin/env bash\nexit 0\n");
+chmod($externalMatrix . '/woocommerce.sh', 0755);
+mkdir($repo . '/sandbox/certification', 0777, true);
+symlink($externalMatrix, $repo . '/sandbox/certification/version-matrix');
+$symlinkProjection = run([PHP_BINARY, $builder, 'inputs', 'manifest', 'woocommerce', $repo]);
+check(
+    $symlinkProjection['exit'] !== 0 && str_contains($symlinkProjection['err'], 'symbolic-link component'),
+    'closure discovery rejects a convention driver reached through a symlinked ancestor'
+);
+unlink($repo . '/sandbox/certification/version-matrix');
+rmdir($repo . '/sandbox/certification');
+
 $incompleteSpec = $spec;
 $incompleteSpec['bound_inputs'] = ['agent/duo.php'];
 $incompleteSpecPath = "$root/incomplete.spec.json";
@@ -202,6 +240,16 @@ $unrelatedArtifact = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $
 check(
     $unrelatedArtifact['exit'] === 0,
     'adding another plugin artifact projection does not expire Woo evidence'
+);
+file_put_contents($artifactLockPath, $artifactLockBytes);
+
+$artifactLock = json_decode($artifactLockBytes, true);
+$artifactLock['themes']['twentytwentyone']['2.8']['sha256'] = str_repeat('b', 64);
+write_json($artifactLockPath, $artifactLock);
+$changedBootstrapTheme = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 0];
+check(
+    $changedBootstrapTheme['exit'] !== 0 && str_contains($changedBootstrapTheme['err'], 'artifacts are not current'),
+    'changing the shared bootstrap theme expires Woo evidence while unrelated lock rows remain isolated'
 );
 file_put_contents($artifactLockPath, $artifactLockBytes);
 
@@ -407,6 +455,13 @@ $profileSpecPath = "$root/profile.spec.json";
 write_json($profileSpecPath, $profileSpec);
 $profileBuilt = run([PHP_BINARY, $builder, 'build', $profileSpecPath, "$root/profile-bundles"]);
 $profileBundle = $profileBuilt['json']['bundle'] ?? null;
+$profileBundleJson = is_string($profileBundle) && is_file($profileBundle . '/bundle.json')
+    ? json_decode((string) file_get_contents($profileBundle . '/bundle.json'), true) : null;
+$profileArtifactIds = [];
+foreach (($profileBundleJson['artifacts'] ?? []) as $artifact) {
+    $profileArtifactIds[] = ($artifact['kind'] ?? '') . ':' . ($artifact['name'] ?? '') . '@' . ($artifact['version'] ?? '');
+}
+sort($profileArtifactIds, SORT_STRING);
 $profileImport = is_string($profileBundle)
     ? run([PHP_BINARY, $profileRepo . '/scripts/capability-registry.php', 'import-subject-bundle', $profileBundle])
     : ['exit' => 1, 'err' => 'missing profile bundle'];
@@ -425,6 +480,11 @@ check(
         !== ($profileRegistry['manifests']['core']['evidence']['bundle_digest'] ?? null),
     'FSE can become current without lending evidence to or borrowing evidence from core'
         . ($profileBuilt['exit'] === 0 ? '' : ': ' . trim((string) ($profileBuilt['err'] ?? 'build failed')))
+);
+check(
+    in_array('theme:twentytwentyone@2.8', $profileArtifactIds, true)
+    && in_array('theme:twentytwentyfive@1.5', $profileArtifactIds, true),
+    'FSE evidence binds both its shared bootstrap theme and entry-declared block theme'
 );
 
 echo "\n== manifest-driven unknown extension onboarding ==\n";

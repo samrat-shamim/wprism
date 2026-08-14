@@ -53,6 +53,9 @@ REPO_ROOT=$(cd .. && pwd -P)
 export DUO_SOURCE_ROOT="$REPO_ROOT"
 SOURCE_SHA=$(git -C "$REPO_ROOT" rev-parse --verify HEAD^{commit}) \
   || fail "subject certification requires a Git checkout"
+if [ -n "${CERT_SUBJECT_EXPECTED_SHA:-}" ] && [ "$SOURCE_SHA" != "$CERT_SUBJECT_EXPECTED_SHA" ]; then
+  fail "subject certification source $SOURCE_SHA does not match batch source $CERT_SUBJECT_EXPECTED_SHA"
+fi
 assert_exact_source() {
   [ "$(git -C "$REPO_ROOT" rev-parse --verify HEAD^{commit})" = "$SOURCE_SHA" ] \
     || fail "subject certification source HEAD changed during the run"

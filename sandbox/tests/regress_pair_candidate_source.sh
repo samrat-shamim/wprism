@@ -90,6 +90,7 @@ copy_pair_launcher() { # copy_pair_launcher <sandbox-bin-dir>
   cp "$ROOT/sandbox/lib/pair_force_hatch.sh" "$bin_dir/../lib/pair_force_hatch.sh"
   cp "$ROOT/sandbox/lib/pair_db.sh" "$bin_dir/../lib/pair_db.sh"
   cp "$ROOT/sandbox/lib/pair_compose.sh" "$bin_dir/../lib/pair_compose.sh"
+  cp "$ROOT/sandbox/lib/pair_lease.sh" "$bin_dir/../lib/pair_lease.sh"
   cp "$ROOT/sandbox/lib/pair_readiness.sh" "$bin_dir/../lib/pair_readiness.sh"
   cp "$ROOT/sandbox/lib/pair_bootstrap.sh" "$bin_dir/../lib/pair_bootstrap.sh"
   cp "$ROOT/sandbox/lib/pair_siterepo.sh" "$bin_dir/../lib/pair_siterepo.sh"

@@ -962,7 +962,13 @@ final class CapabilityRegistry {
             );
             ScopedCertificationBundle::assertGitRevisionInputs($root, $record);
             $boundInputs = ScopedCertificationBundle::currentInputsForPaths($root, $paths);
-            $artifacts = self::scopedArtifacts($root, $manifest);
+            $artifacts = ScopedCertificationBundle::subjectArtifacts(
+                $root,
+                $kind,
+                $name,
+                $manifest,
+                $claim['evidence']['tests'] ?? []
+            );
         } else {
             // The deployed extension carries agent/ and manifests/, but not
             // host-only Makefile, CLI, or conformance-harness inputs. The
@@ -985,38 +991,4 @@ final class CapabilityRegistry {
         );
     }
 
-    /** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
-    private static function scopedArtifacts(string $root, array $manifest): array {
-        $plugin = $manifest['plugin'] ?? null;
-        if (!is_string($plugin) || !str_contains($plugin, '/')) {
-            return [];
-        }
-        $slug = strstr($plugin, '/', true);
-        $lock = Canon::decode(Canon::read_file($root . '/sandbox/conformance/artifacts.lock.json'));
-        $entries = is_array($lock) ? ($lock['plugins'][$slug] ?? null) : null;
-        if (!is_array($entries) || array_is_list($entries)) {
-            throw new \RuntimeException("duo: scoped certification has no typed artifact entries for '$slug'");
-        }
-        $out = [];
-        foreach ($entries as $version => $entry) {
-            if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
-                continue;
-            }
-            $out[] = [
-                'name' => $slug,
-                'role' => $entry['role'],
-                'sha256' => $entry['sha256'] ?? null,
-                'url' => $entry['url'] ?? null,
-                'version' => (string) $version,
-            ];
-        }
-        usort($out, static fn(array $a, array $b): int => strcmp(
-            $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
-            $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
-        ));
-        if ($out === []) {
-            throw new \RuntimeException("duo: scoped certification has no certified/refusal artifact boundary for '$slug'");
-        }
-        return $out;
-    }
 }

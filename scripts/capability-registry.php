@@ -91,39 +91,15 @@ function cap_platform(string $repo): array {
     ];
 }
 
-/** @return list<array{name:string,role:string,sha256:string,url:string,version:string}> */
-function cap_subject_artifacts(string $repo, array $manifest): array {
-    $plugin = $manifest['plugin'] ?? null;
-    if (!is_string($plugin) || !str_contains($plugin, '/')) {
-        return [];
-    }
-    $slug = strstr($plugin, '/', true);
-    $lock = cap_read_json($repo . '/sandbox/conformance/artifacts.lock.json');
-    $entries = $lock['plugins'][$slug] ?? null;
-    if (!is_array($entries) || array_is_list($entries)) {
-        throw new RuntimeException("scoped certification has no typed artifact lock entries for '$slug'");
-    }
-    $out = [];
-    foreach ($entries as $version => $entry) {
-        if (!is_array($entry) || !in_array($entry['role'] ?? null, ['certified-boundary', 'refusal-fixture'], true)) {
-            continue;
-        }
-        $out[] = [
-            'name' => $slug,
-            'role' => $entry['role'],
-            'sha256' => $entry['sha256'] ?? null,
-            'url' => $entry['url'] ?? null,
-            'version' => (string) $version,
-        ];
-    }
-    usort($out, static fn(array $a, array $b): int => strcmp(
-        $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
-        $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
-    ));
-    if ($out === []) {
-        throw new RuntimeException("scoped certification has no certified/refusal artifact boundary for '$slug'");
-    }
-    return $out;
+/** @return list<array{kind:string,name:string,role:string,sha256:string,url:string,version:string}> */
+function cap_subject_artifacts(string $repo, string $kind, string $name, array $manifest, array $claim): array {
+    return ScopedCertificationBundle::subjectArtifacts(
+        $repo,
+        $kind,
+        $name,
+        $manifest,
+        $claim['evidence']['tests'] ?? []
+    );
 }
 
 /** @return list<array{path:string,sha256:string,size:int}> */
@@ -168,7 +144,7 @@ function cap_scoped_record(
             cap_scoped_current_inputs($repo, $kind, $name, $manifest, $claim),
             $claim['evidence']['tests'] ?? [],
             $claim,
-            cap_subject_artifacts($repo, $manifest)
+            cap_subject_artifacts($repo, $kind, $name, $manifest, $claim)
         );
         return ['record' => $record, 'current' => true];
     } catch (RuntimeException $e) {

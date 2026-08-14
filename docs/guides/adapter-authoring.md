@@ -668,9 +668,9 @@ certifier allowlist to update:
    requires a central dispatcher edit. Put driver-only helpers under the
    matching extension or test-ID directory so the closure projector binds
    them automatically.
-3. For a plugin manifest, add its typed versions and SHA-256 values to
-   `sandbox/conformance/artifacts.lock.json`. Core/profile subjects need no
-   plugin artifact entry.
+3. Add every typed plugin/theme version and SHA-256 used by the conformance
+   entry or exact-version matrix to `sandbox/conformance/artifacts.lock.json`.
+   The projector also binds the standard bootstrap theme automatically.
 4. Generate the candidate projection, exercise the subject, and publish only
    that subject's verified record:
 
@@ -689,7 +689,9 @@ pointer for another subject.
 For several independent new or changed extensions, run
 `make certify-subjects-parallel` (optionally `JOBS=<n>` or
 `SUBJECTS="manifests.one manifests.two"`). It allocates collision-free pairs,
-ports, logs, and bundle roots from the currently available host capacity. The
+ports, logs, and bundle roots from the currently available host capacity under
+host-wide name/port leases; interruption kills each lane's full process group
+before its owned pair is destroyed. The
 batch `index.json` is the import manifest; import its bundle paths only after
 the whole batch completes so every lane observes the same clean source commit.
 

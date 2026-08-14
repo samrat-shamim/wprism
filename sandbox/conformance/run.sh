@@ -122,7 +122,7 @@ SETUP=$(echo "$ENTRY" | jq -r '.setup // ""')
 
 # A caller that is assembling certification evidence can ask every manifest
 # run to export the same named/importable bundle fragment. The full stdout /
-# stderr log remains the caller's responsibility (the reference certifier
+# stderr log remains the caller's responsibility (the subject-certification runner
 # captures it without hiding it from operators); this harness owns the
 # machine verdict and clean-diff records because only it knows whether the
 # complete deploy/apply/recapture path reached its final acceptance point.

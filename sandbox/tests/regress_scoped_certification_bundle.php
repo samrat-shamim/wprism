@@ -40,6 +40,7 @@ function scoped_bundle(array $overrides = []): array {
     $disposition = ['status' => 'certified'];
     $bundle = [
         'artifacts' => [[
+            'kind' => 'plugin',
             'name' => 'woocommerce',
             'role' => 'certified-boundary',
             'sha256' => str_repeat('d', 64),

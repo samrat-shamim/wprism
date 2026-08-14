@@ -111,3 +111,19 @@ pair_compose_stopped_pairs() { # pair_compose_stopped_pairs — one stopped pair
     end
   '
 }
+
+pair_compose_all_pairs() { # pair_compose_all_pairs — one live/stopped pair name per line
+  local json
+  json="$(docker compose ls -a --format json 2>/dev/null)" || return 1
+  [ -n "$json" ] || return 1
+  printf '%s\n' "$json" | jq -r '
+    if type != "array" then error("compose ls did not return an array")
+    else .[]
+      | select((.ConfigFiles // "") | type == "string")
+      | select((.ConfigFiles // "") | test("/pair\\.yml(,|$)"))
+      | select((.Name // "") | type == "string")
+      | select((.Name // "") | startswith("duo-"))
+      | .Name[4:]
+    end
+  '
+}
