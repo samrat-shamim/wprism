@@ -15,6 +15,7 @@ require_once __DIR__ . '/UserMetaCapture.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/MenuCapture.php';
 require_once __DIR__ . '/MediaCapture.php';
+require_once __DIR__ . '/OptionsCapture.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /**
@@ -51,12 +52,13 @@ final class Capture {
     private ?EntityMetaCapture $entityMetaCapture = null;
     private ?MenuCapture $menuCapture = null;
     private ?MediaCapture $mediaCapture = null;
+    private ?OptionsCapture $optionsCapture = null;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
      *  authored, ref-typed OPTION values whose target row is real but out
-     *  of policy scope — task #73's loud-and-blocking gate; see
-     *  option_ref_tokens()/queue_or_warn_unscoped(). */
+     *  of policy scope — task #73's loud-and-blocking gate; populated by
+     *  the options capturer and enforced by this orchestrator. */
     private array $unscopedRefs = [];
     /** @var array<int, array{option:string, id_kind:string, id:int}>
      *  option_name_refs (task #93) rows whose embedded id names a row that
@@ -215,6 +217,26 @@ final class Capture {
             $this->mediaCapture = new MediaCapture();
         }
         return $this->mediaCapture;
+    }
+
+    /** Lazily bind option reads and canonical encoding to Capture's gates. */
+    private function options_capture(): OptionsCapture {
+        if ($this->optionsCapture === null) {
+            $this->optionsCapture = new OptionsCapture(
+                $this->policy,
+                $this->tokens,
+                function (string $section, string $key, $value, array $rule): void {
+                    $this->guard_secret($section, $key, $value, $rule);
+                },
+                function (int $id, string $kind, bool $force): ?string {
+                    return self::classify_unscoped_ref($id, $kind, $force, $this->policy);
+                },
+                static function (Policy $policy, string $kind, int $id): bool {
+                    return Snapshot::row_exists_for_kind($policy, $kind, $id);
+                }
+            );
+        }
+        return $this->optionsCapture;
     }
 
     /**
@@ -3055,47 +3077,6 @@ final class Capture {
         return $this->user_meta_capture()->capture($carriedLogins);
     }
 
-    /**
-     * Shared scalar/structured capture dispatch for one option-shaped VALUE
-     * given its RULE (class/ref/json_refs/key_refs) — the same four-way
-     * branch build_options()' ordinary per-option loop always used, factored
-     * out so a sub_keys (DUO-3233) NAMED sub-key gets it too: a sub-key's
-     * rule is a whole option rule at one nesting level down (the same
-     * json_refs/key_refs/ref/plain-string vocabulary, nothing new), so this
-     * is a correctness statement as much as a de-duplication — a sub-key
-     * MUST behave exactly like an option, or "narrowing option ownership to
-     * sub-key ownership" (DUO-3211's review comment) would be a different,
-     * weaker mechanism wearing the same manifest vocabulary.
-     *
-     * $ctx is a human label for warnings only (e.g. "polylang.nav_menus"),
-     * never parsed back — option_ref_tokens()'s own $name param is reused
-     * unchanged for this, so its existing dangling/unscoped messages read
-     * naturally for a sub-key too ("option polylang.nav_menus: ...").
-     *
-     * The explicit included bit is load-bearing: PHP null is a legitimate
-     * option value (`N;` on the SQL wire), while a scalar ref that resolves
-     * to nothing means "omit this record." Returning bare null used to
-     * conflate those two states and made the null-like matrix lossy.
-     *
-     * @return array{included:bool,value:mixed}
-     */
-    private function capture_value(string $ctx, $v, array $rule, bool $forceUnresolvedRefs): array {
-        if (!empty($rule['json_refs']) || !empty($rule['key_refs'])) {
-            $decoded = StructuredValue::decode($v, $rule, "option $ctx");
-            return ['included' => true, 'value' => $this->tokens->struct_capture(
-                $decoded, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null
-            )];
-        }
-        if (!empty($rule['ref'])) {
-            $captured = $this->option_ref_tokens($ctx, $v, $rule['ref'], $forceUnresolvedRefs);
-            return ['included' => $captured !== null, 'value' => $captured];
-        }
-        if (is_string($v)) {
-            return ['included' => true, 'value' => $this->tokens->tokenize_text($v)];
-        }
-        return ['included' => true, 'value' => $v];
-    }
-
     private function build_options(
         bool $mint,
         bool $forceUnresolvedRefs = false,
@@ -3104,341 +3085,27 @@ final class Capture {
         bool $bindMissingDynamicDesired = false,
         bool $strictReadOnly = false
     ): array {
-        $out = [];
-        $processed = [];
-        $liveCanonicalNames = [];
-        foreach ($this->policy->authored_options() as $name => $rule) {
-            $processed[$name] = true;
-            $row = $this->read_option_row($name);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$name] = true;
-            $v = PlainData::decode($row['option_value'], "option $name");
-            PlainData::assert($v, "option $name");
-            // DUO-3214: unconditional — see the identical comment in
-            // build_post()'s post_meta loop above.
-            $this->guard_secret('options', $name, $v, $rule);
-            $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
-            if (!$captured['included']) {
-                continue;
-            }
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-            $out[$name] = OptionState::present($captured['value'], $row['autoload']);
-        }
-
-        // Journal-independent discovery for manifest-owned option
-        // namespaces. A full name scan happens at capture time, so options
-        // created before agent activation and writes made while journaling
-        // is disabled are still seen. Namespace ownership and value
-        // classification are separate declarations: a claimed name with no
-        // exact/pattern rule is queued as unknown; an authored pattern is a
-        // real dynamic-family capture rule, not merely a lookup fallback.
-        $allOptionValues = $this->all_options_map();
-        foreach (array_keys($allOptionValues) as $name) {
-            $owner = $this->policy->option_namespace($name);
-            if ($owner === null) {
-                continue;
-            }
-            $rule = $this->policy->owned_option_rule_via_interpreter($name, $allOptionValues);
-            if (isset($processed[$name]) || $this->policy->match_option_name_ref($name) !== null) {
-                continue;
-            }
-            if ($rule === null) {
-                $this->unclassified[] = "options:$name (owner candidate {$owner['owner']}; namespace matched without a classification)";
-                continue;
-            }
-            $processed[$name] = true;
-            if (($rule['class'] ?? '') !== 'authored' || !empty($rule['sub_keys'])) {
-                continue;
-            }
-            $row = $this->read_option_row($name);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$name] = true;
-            $v = PlainData::decode($row['option_value'], "option $name");
-            PlainData::assert($v, "option $name");
-            // DUO-3214: unconditional — see the identical comment in
-            // build_post()'s post_meta loop above. This call site auto-
-            // merged past the DUO-3211 rebase's own conflict marker without
-            // being flagged (the surrounding lines changed enough on both
-            // sides that git's 3-way merge considered this one already
-            // resolved) — caught by re-auditing every guard_secret() call
-            // site after the rebase rather than trusting the single
-            // flagged conflict, not by a failing test.
-            $this->guard_secret('options', $name, $v, $rule);
-            $captured = $this->capture_value($name, $v, $rule, $forceUnresolvedRefs);
-            if ($captured['included']) {
-                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-                $out[$name] = OptionState::present($captured['value'], $row['autoload']);
-            }
-        }
-
-        // sub_keys (DUO-3233): NAMED sub-keys of one option blob classified
-        // independently — capture SOME keys of a blob, exclude the rest.
-        // Distinct from authored_options() above (a WHOLE option's class)
-        // and from option_name_refs below (options discovered by NAME
-        // pattern): a sub_keys option is discovered by its own EXACT name
-        // (Policy::sub_keyed_options(), same enumeration shape as
-        // authored_options()), but only the DECLARED subset of the live
-        // value's own top-level keys is ever read into canonical state —
-        // the undeclared remainder (Polylang's force_lang/rewrite/
-        // first_activation/version, Yoast's first_activated_on/version, …)
-        // never enters state/ and is never touched at apply (see
-        // Apply::apply_option_sub_keys()'s merge-into-live-blob path). This
-        // is the capability manifests/polylang.json's own notes long
-        // documented as missing — see Policy::sub_keyed_options()'s
-        // docblock for the full history.
-        foreach ($this->policy->sub_keyed_options() as $name => $rule) {
-            $this->capture_option_sub_keys($name, $rule, $forceUnresolvedRefs, $liveCanonicalNames, $out);
-        }
-
-        // dynamic_options (DUO-3264, fork A): the SAME sub_keys-shaped
-        // capture as the loop immediately above, against a COMPUTED option
-        // name instead of an exactly-declared one -- theme_mods_<active
-        // stylesheet> is the proven case (manifests/core.json's own
-        // declaration + note has the full empirical grounding). Only ONE
-        // resolved name is ever read here; every OTHER live option name
-        // sharing the same prefix (a theme_mods_* row for a theme that is
-        // not currently active) is simply never looked at by this loop --
-        // not a separate exclusion step, a structural non-effect of only
-        // ever computing the one currently-resolved name. See
-        // Policy::is_dynamic_option_residue() for the queryable form of
-        // that same fact, available to a future caller that needs to
-        // recognize such a row explicitly (none does yet in this codebase).
-        foreach ($this->policy->dynamic_options() as $key => $decl) {
-            $resolvedValue = match ($decl['resolver']) {
-                'active_stylesheet' => array_key_exists('active_stylesheet', $dynamicResolverValues)
-                    ? (string) $dynamicResolverValues['active_stylesheet']
-                    : (string) get_option('stylesheet'),
-                default => throw new \RuntimeException(
-                    "duo: dynamic_options.$key declares unsupported resolver '{$decl['resolver']}'"
-                ),
-            };
-            $resolved = $this->policy->resolve_dynamic_option($key, $resolvedValue);
-            if ($resolved === null) {
-                continue;
-            }
-            $this->capture_option_sub_keys(
-                $resolved['name'],
-                ['sub_keys' => $resolved['sub_keys'], 'autoload' => $resolved['autoload']],
-                $forceUnresolvedRefs,
-                $liveCanonicalNames,
-                $out
-            );
-        }
-
-        // option_name_refs (task #93): options discovered by NAME PATTERN
-        // — Policy::authored_options() above is exact-whitelist only and
-        // never finds these rows at all (r1b-shop.md's own finding:
-        // WooCommerce's woocommerce_<method_id>_<instance_id>_settings
-        // rows are otherwise invisible to capture). One full option-NAME
-        // scan (names only, not values — cheap, and this runs once per
-        // capture, not per-option), tested against every declared pattern;
-        // $forceUnresolvedRefs reuses task #73's exact escape hatch rather
-        // than inventing a second flag.
-        // The complete option_name_ref_rules() declaration set is resolved
-        // once per concrete live name below; do not reintroduce per-rule
-        // first/last-match loops here.
-        foreach (array_keys($allOptionValues) as $name) {
-            // Resolve every declared option-name rule through the shared
-            // Policy matcher, even runtime/derived rules which this capture
-            // path will not emit. That is what makes cross-kind and
-            // cross-class overlaps fail closed instead of being hidden by a
-            // first/last declaration choice.
-            $details = $this->policy->option_name_ref_match_details((string) $name);
-            if ($details === null || ($details['rule']['class'] ?? '') !== 'authored') {
-                continue; // runtime-classified families are discovered, never captured
-            }
-            $rule = $details['rule'];
-            $m = $details['matches'];
-            $rawId = $m['id'][0] ?? null;
-            $id = Policy::strict_positive_local_id($rawId);
-            if ($id === null) {
-                throw new \RuntimeException(
-                    "duo: option '$name' captures an invalid local id in option_name_refs; refusing capture"
-                );
-            }
-            $offset = (int) $m['id'][1];
-            $length = strlen((string) $m['id'][0]);
-                $token = $this->tokens->id_to_token($id, $rule['id_kind']);
-                if ($token === null) {
-                    // task #73's dangling-vs-unscoped distinction, mirrored
-                    // onto table id_kinds — but GATED on $mint === true,
-                    // which #73's OWN original mechanism never needed to do
-                    // (post_type/taxonomy scope is a fact about a FIXED core
-                    // table, checkable regardless of minting state; a
-                    // custom table's very identity is only knowable via its
-                    // OWN declaration, so "declared" and "in policy scope"
-                    // are not analogous the same way). Reproduced directly,
-                    // not just reasoned about: calling Capture::snapshot()
-                    // (mint=false — Apply::build_plan()'s own drift-check
-                    // path) against a genuinely-declared table's row that
-                    // simply hadn't been through a real `duo capture` yet
-                    // threw this gate. This IS the same design rule as
-                    // queue_or_warn_unscoped()'s own documented false
-                    // positive below (default_category on a never-captured
-                    // fresh install — "id_to_token()'s success is a MINTING
-                    // check, not a POLICY check" — caught empirically
-                    // running THAT task's own core-manifest conformance
-                    // validation) — one rule, two instances: an unresolved
-                    // ref on a non-minting snapshot is never, by itself,
-                    // proof of a scope gap, only of "hasn't been captured
-                    // through Duo yet." The reason mint=true never
-                    // legitimately reaches this branch at all: Snapshot::
-                    // capture() (called earlier in the SAME build(), before
-                    // build_options() runs) already mints EVERY row of
-                    // every DECLARED table unconditionally — so for
-                    // mint=true, row_exists_for_kind() returning true
-                    // alongside a failed id_to_token() would be a genuine
-                    // invariant violation, worth flagging loudly; for
-                    // mint=false it is the ordinary, expected shape of
-                    // "hasn't been captured through Duo yet" and must fall
-                    // through to the same warn-and-drop dangling gets.
-                    if (($mint || $strictReadOnly) && !$forceUnresolvedRefs
-                        && Snapshot::row_exists_for_kind($this->policy, $rule['id_kind'], $id)) {
-                        $this->unscopedOptionNameRefs[] = ['option' => $name, 'id_kind' => $rule['id_kind'], 'id' => $id];
-                    } else {
-                        $this->tokens->warnings[] = "option $name: unmapped {$rule['id_kind']} id $id dropped (option_name_refs)";
-                    }
-                    continue;
-                }
-                $key = substr_replace($name, $token, $offset, $length);
-                $row = $this->read_option_row($name);
-                if ($row === null) {
-                    continue;
-                }
-                $liveCanonicalNames[$key] = true;
-                $v = PlainData::decode($row['option_value'], "option $name");
-                PlainData::assert($v, "option $name");
-                // Deep secret scan, not the shallow is_string() guard the
-                // ordinary options loop above uses: this value is typically
-                // an ARRAY (a settings blob — title/cost/tax_status for
-                // flat_rate), and Secrets::hard_match_deep() is what
-                // actually recurses into it (a plain is_string() check
-                // would silently never scan an array's own string leaves —
-                // caught during this task's own design review before any
-                // code shipped; see Snapshot::guard_secret()'s identical
-                // reasoning for typed-snapshot table/attached-meta values).
-                if (empty($rule['allow_secret'])) {
-                    $secretLabel = Secrets::hard_match_deep($v);
-                    if ($secretLabel !== null) {
-                        throw new \RuntimeException(
-                            "duo: secret guard tripped — option '$name' looks like a $secretLabel but is classified "
-                            . "authored (option_name_refs); refusing to capture it into state/.\n"
-                            . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-                            . 'If this is a false positive, declare "allow_secret": true on its option_name_refs rule.'
-                        );
-                    }
-                }
-                // Unconditional struct_capture (not gated on json_refs/
-                // key_refs being non-empty, unlike the ordinary options
-                // loop above): this is what gives an array-shaped settings
-                // blob "plain authored + normal URL tokenization" on every
-                // string leaf with zero per-method-id special-casing —
-                // struct_capture() tokenizes leaves regardless of whether
-                // $jsonRefs/$keyRefs are empty. Deliberately NOT the same
-                // default as the ordinary authored_options() loop above
-                // (which leaves an array value untouched unless json_refs/
-                // key_refs is declared) — changing THAT loop's default
-                // risks already-shipped manifests; this is a new, narrower
-                // path with its own default, scoped only to option_name_
-                // refs-discovered rows.
-                $v = $this->tokens->struct_capture($v, $rule['json_refs'] ?? [], $rule['key_refs'] ?? null);
-                OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-                $out[$key] = OptionState::present($v, $row['autoload']);
-        }
-
-        // docs/proposals/code-half.md §3.1: active_plugins/template/
-        // stylesheet are core-manifest options classified 'managed', not
-        // 'authored' — bespoke read here, alongside (not through) the
-        // authored_options()-driven loop above, because Apply must
-        // reconcile them via activate_plugin()/switch_theme() (Deploy.php),
-        // never the generic direct-SQL options path a raw write here would
-        // otherwise feed. Plain portable strings — no ref-tokenization (that
-        // cross-environment stability IS the invariant), no secret guard
-        // (never secrets). Unconditional, matching the existing 'managed'
-        // post_meta precedent (_menu_item_*/_wp_attached_file): bespoke
-        // capture code that runs regardless of which manifests are pinned,
-        // the same way those fields do.
-        foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
-            $row = $this->read_option_row($managedOption);
-            if ($row === null) {
-                continue;
-            }
-            $liveCanonicalNames[$managedOption] = true;
-            $v = PlainData::decode($row['option_value'], "option $managedOption");
-            PlainData::assert($v, "option $managedOption");
-            $v = $managedOption === 'active_plugins'
-                ? array_values(array_map('strval', (array) $v))
-                : (string) $v;
-            $rule = $this->policy->option_rule($managedOption) ?? [];
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$managedOption'");
-            $out[$managedOption] = OptionState::present($v, $row['autoload']);
-        }
-        // DUO-3263: an interpreter-classified option's shadow pointer is
-        // atomically removed alongside its value (empirically confirmed for
-        // ACF: delete_field() leaves no orphaned _options_<name> row), so
-        // the live map above can no longer answer "was this authored" for
-        // a name that just went missing. The PREVIOUS capture's own
-        // document still carries it (the shadow key is its own captured
-        // 'present' record, same as the value) — built lazily, only if a
-        // non-ref-token name actually needs it below.
-        $previousOptionValues = null;
-        foreach ($previousDocument === null ? [] : OptionState::records($previousDocument) as $name => $record) {
-            // DUO-3292: the lifecycle-only resolver override above may
-            // deliberately inspect a desired dynamic row while it is still inactive on
-            // the target. When that row is absent, or exists with none of
-            // its authored sub-keys populated, bind the missing canonical
-            // record to the exact frozen desired value. The existing deploy
-            // gate can then permit switch_theme() to initialize the row and
-            // Apply to merge the frozen sub-keys, while a pre-existing row
-            // changed to any non-desired value remains fail-closed. Ordinary
-            // capture never enables this: inactive dynamic rows remain
-            // uncaptured environment-local residue.
-            $bindDynamic = $bindMissingDynamicDesired
-                && ($record['state'] ?? null) === 'present'
-                && $this->policy->dynamic_option_rule_for_prefix((string) $name) !== null
-                && !isset($out[$name]);
-            if ($bindDynamic) {
-                $out[$name] = OptionState::deleted($record);
-                continue;
-            }
-            if (isset($out[$name]) || isset($liveCanonicalNames[$name])) {
-                continue; // still live (possibly omitted because a ref dropped) or replaced by a present record
-            }
-            if ($record['state'] === 'deleted') {
-                $out[$name] = $record; // absence converges: preserve the durable intent byte-for-byte
-                continue;
-            }
-            $details = str_contains((string) $name, '{{')
-                ? $this->policy->canonical_option_name_ref_details((string) $name)
-                : $this->policy->option_rule_details_for_option(
-                    (string) $name,
-                    $previousOptionValues ??= OptionState::values($previousDocument)
-                );
-            $rule = $details['rule'] ?? [];
-            if ($record['state'] === 'present'
-                && ($rule['class'] ?? null) === 'authored' && empty($rule['sub_keys'])) {
-                $out[$name] = OptionState::deleted($record, !empty($rule['deletion_witness']));
-            } else {
-                $out[$name] = OptionState::absent();
-            }
-        }
-        $required = array_fill_keys(array_keys($this->policy->authored_options()), true);
-        $required += array_fill_keys(array_keys($this->policy->sub_keyed_options()), true);
-        foreach (['active_plugins', 'template', 'stylesheet'] as $managedOption) {
-            if (($this->policy->option_rule($managedOption)['class'] ?? null) === 'managed') {
-                $required[$managedOption] = true;
-            }
-        }
-        foreach ($required as $name => $_) {
-            if (!isset($out[$name])) {
-                $out[$name] = OptionState::absent();
-            }
-        }
-        return OptionState::document($out);
+        $result = $this->options_capture()->capture(
+            $mint,
+            $forceUnresolvedRefs,
+            $previousDocument,
+            $dynamicResolverValues,
+            $bindMissingDynamicDesired,
+            $strictReadOnly
+        );
+        $this->unclassified = array_merge(
+            $this->unclassified,
+            $result['unclassified']
+        );
+        $this->unscopedRefs = array_merge(
+            $this->unscopedRefs,
+            $result['unscoped_refs']
+        );
+        $this->unscopedOptionNameRefs = array_merge(
+            $this->unscopedOptionNameRefs,
+            $result['unscoped_option_name_refs']
+        );
+        return $result['document'];
     }
 
     /**
@@ -3454,120 +3121,6 @@ final class Capture {
     }
 
     /**
-     * Shared per-sub-key capture loop for BOTH Policy::sub_keyed_options()
-     * (DUO-3233, exactly-named blobs — polylang/wpseo) and
-     * Policy::dynamic_options() (DUO-3264, a blob whose own NAME is
-     * computed, e.g. theme_mods_<active stylesheet>) — the two differ only
-     * in how $name itself was found; once found, capturing named,
-     * authored, live-populated sub-keys through the same guard_secret()/
-     * capture_value() path every other authored value uses is identical
-     * either way, so this is the one place that logic lives. $rule needs
-     * only 'sub_keys' and (when anything gets captured) 'autoload' —
-     * sub_keyed_options()'s own return shape already has both;
-     * dynamic_options callers synthesize the same small shape from
-     * Policy::resolve_dynamic_option()'s own return.
-     *
-     * @param array<string,bool> $liveCanonicalNames
-     * @param array<string,mixed> $out
-     */
-    private function capture_option_sub_keys(
-        string $name,
-        array $rule,
-        bool $forceUnresolvedRefs,
-        array &$liveCanonicalNames,
-        array &$out
-    ): void {
-        $subKeys = $rule['sub_keys'] ?? [];
-        $row = $this->read_option_row($name);
-        if ($row === null) {
-            return; // option doesn't exist live at all -- nothing to carve a sub-key out of
-        }
-        $liveCanonicalNames[$name] = true;
-        $live = PlainData::decode($row['option_value'], "option $name");
-        PlainData::assert($live, "option $name");
-        if (!is_array($live)) {
-            throw new \RuntimeException(
-                "duo: option '$name' declares sub_keys but its live value is not array-shaped (got "
-                . get_debug_type($live) . ') — sub_keys assumes the option decodes to a plain '
-                . 'PHP-serialized map (an associative array keyed by sub-key name), not a scalar or object'
-            );
-        }
-        $captured = [];
-        foreach ($subKeys as $subKey => $subRule) {
-            if (($subRule['class'] ?? '') !== 'authored') {
-                continue; // declared (documents intent) but not authored -- never captured, mirrors option_name_refs' own precedent
-            }
-            if (!array_key_exists($subKey, $live)) {
-                continue; // this environment's live blob simply doesn't have this sub-key populated yet -- nothing to capture
-            }
-            $subVal = $live[$subKey];
-            $ctx = "$name.$subKey";
-            if (is_string($subVal)) {
-                $this->guard_secret('options', $ctx, $subVal, $subRule);
-            } elseif (empty($subRule['allow_secret'])) {
-                // Array-shaped sub-key value: deep scan, deliberately
-                // NOT the is_string()-gated shallow guard_secret() call
-                // above -- the same reasoning option_name_refs' own
-                // Secrets::hard_match_deep() call already documents.
-                // (DUO-3214 has since widened guard_secret() itself to
-                // deep-scan unconditionally, closing task #127 -- this
-                // call site predates that fix and is left as its own
-                // implementation rather than folded into guard_secret()
-                // as part of that unrelated rebase, to avoid changing
-                // this rule's tested error message as a side effect.)
-                $secretLabel = Secrets::hard_match_deep($subVal);
-                if ($secretLabel !== null) {
-                    throw new \RuntimeException(
-                        "duo: secret guard tripped — option '$ctx' looks like a $secretLabel but is classified "
-                        . "authored (sub_keys); refusing to capture it into state/.\n"
-                        . "If this is really a secret, reclassify it runtime/derived/env instead of authored.\n"
-                        . 'If this is a false positive, declare "allow_secret": true on its sub_keys rule.'
-                    );
-                }
-            }
-            $capturedValue = $this->capture_value($ctx, $subVal, $subRule, $forceUnresolvedRefs);
-            if ($capturedValue['included']) {
-                $captured[$subKey] = $capturedValue['value'];
-            }
-        }
-        if ($captured) {
-            OptionState::assert_rule_autoload($rule, $row['autoload'], "option '$name'");
-            $out[$name] = OptionState::present($captured, $row['autoload']);
-        }
-    }
-
-    /** @return ?array{option_value:string,autoload:string} */
-    private function read_option_row(string $name): ?array {
-        global $wpdb;
-        $row = $wpdb->get_row($wpdb->prepare(
-            "SELECT option_value, autoload FROM {$wpdb->options} WHERE option_name = %s LIMIT 1", $name
-        ), ARRAY_A);
-        if (!is_array($row)) {
-            return null;
-        }
-        return ['option_value' => (string) $row['option_value'], 'autoload' => (string) $row['autoload']];
-    }
-
-    /** All live options as a name => raw value map — the candidate set
-     *  option_name_refs patterns test against (task #93), and (DUO-3263)
-     *  the sibling-lookup context a namespace-owned option's interpreter
-     *  hook needs (a shadow-key pointer, exactly like post/term meta's
-     *  $allMeta). One full scan per capture, not per-pattern/per-option:
-     *  cheap (option_name is indexed), and Policy::rule()'s existing
-     *  pattern-fallback loop already sets the precedent of testing a
-     *  candidate against every declared pattern in PHP rather than pushing
-     *  regex evaluation into SQL. */
-    private function all_options_map(): array {
-        global $wpdb;
-        $rows = $wpdb->get_results("SELECT option_name, option_value FROM {$wpdb->options}", ARRAY_A) ?: [];
-        $out = [];
-        foreach ($rows as $row) {
-            $out[(string) $row['option_name']] = (string) $row['option_value'];
-        }
-        return $out;
-    }
-
-    /**
      * Secret guard (DESIGN.md 3.1 "Secret guard"): a hard-pattern match on an
      * authored value aborts capture — naming the key, the label, and the
      * escape hatch (a rule may declare "allow_secret": true, in site policy
@@ -3576,15 +3129,15 @@ final class Capture {
      * abort, not the batched loud-and-blocking classification gate.
      *
      * DUO-3214: $v is untyped (was `string $v`) and this now calls
-     * Secrets::hard_match_deep(), not hard_match() — both call sites used to
-     * gate their call behind `is_string($v)`, so an authored post_meta/
+     * Secrets::hard_match_deep(), not hard_match() — authored call sites used
+     * to gate their call behind `is_string($v)`, so an authored post_meta/
      * option value that decoded to an ARRAY (a plugin's serialized settings
      * blob) got ZERO secret scanning in any branch downstream, unlike
      * Snapshot::guard_secret() (typed-snapshot columns/attached-meta) and
      * the option_name_refs inline scan (both already deep-scanning since
      * the wave-1 security subset — see their own docblocks for the
-     * identical reasoning). Widening the method and dropping the gate at
-     * both call sites reuses that same proven mechanism instead of a third
+     * identical reasoning). Widening the method and dropping the call-site
+     * gates reuses that same proven mechanism instead of a third
      * reimplementation. PlainData::assert() already ran on $v before every call
      * site reaches this (it throws on any PHP object anywhere in the
      * structure), so hard_match_deep()'s array/string/other-scalar walk
@@ -3663,104 +3216,6 @@ final class Capture {
             ]],
             $operatorMessage
         );
-    }
-
-    /**
-     * Options must never propagate env-local numeric ids: unmapped ref => skip
-     * key. Id 0 is WordPress's ordinary "unset" for these options (fresh sites
-     * have page_on_front=0 etc.) — skipped silently, not warned as dangling.
-     *
-     * Task #73: an unmapped id is either DANGLING (no such row exists at
-     * all — the target was deleted, or never existed; e.g. a stale
-     * wp_page_for_privacy_policy after its page was removed) or UNSCOPED
-     * (the row genuinely exists but its post_type/taxonomy was never added
-     * to policy scope, so it was never minted a uuid — e.g.
-     * elementor_active_kit when elementor_library isn't in
-     * policy.post_types). Dangling keeps today's exact warn-and-drop
-     * behavior (spec'd, correct, must not regress). Unscoped is a policy
-     * gap a human can actually fix, so it queues into $this->unscopedRefs
-     * for build()'s loud-and-blocking gate instead of silently vanishing
-     * — unless $forceUnresolvedRefs (--force-unresolved-refs) asks for the
-     * old best-effort drop explicitly. Array-ref elements get the exact
-     * same per-element treatment as the scalar case (acceptance criterion
-     * 3 — scalar and array refs must not diverge in severity).
-     */
-    private function option_ref_tokens(string $name, $value, string $ref, bool $forceUnresolvedRefs = false) {
-        if (str_ends_with($ref, '[]')) {
-            $kind = substr($ref, 0, -2);
-            $ok = [];
-            foreach ((array) $value as $v) {
-                $id = (int) $v;
-                if ($id === 0) {
-                    continue;
-                }
-                $tok = $this->tokens->id_to_token($id, $kind);
-                if ($tok === null) {
-                    if (!$this->queue_or_warn_unscoped($name, $kind, $id, $forceUnresolvedRefs)) {
-                        $this->tokens->warnings[] = "option $name: unmanaged $kind id $v dropped";
-                    }
-                    continue;
-                }
-                $ok[] = $tok;
-            }
-            return $ok;
-        }
-        $id = (int) $value;
-        if ($id === 0) {
-            return null;
-        }
-        $tok = $this->tokens->id_to_token($id, $ref);
-        if ($tok === null) {
-            if (!$this->queue_or_warn_unscoped($name, $ref, $id, $forceUnresolvedRefs)) {
-                $this->tokens->warnings[] = "option $name: unmanaged $ref id $id — key skipped";
-            }
-            return null;
-        }
-        return $tok;
-    }
-
-    /**
-     * Shared dangling-vs-unscoped triage for option_ref_tokens()'s scalar
-     * and array branches. Returns true when the violation was queued as
-     * UNSCOPED (caller must NOT also emit its own warning — build()'s gate
-     * reports this instead) or false when the caller should fall through
-     * to its ordinary warn-and-drop, for any of three reasons:
-     *   - the target is genuinely DANGLING (ref_target_type() found no
-     *     real row at all — out of scope for this task, spec'd, unchanged);
-     *   - the target's type IS already in policy scope, but THIS build
-     *     simply hasn't minted it a uuid yet — Capture::snapshot()'s
-     *     non-minting mode (plan/apply's drift check against a target
-     *     environment before its own first capture) fails id_to_token()
-     *     for EVERY not-yet-minted entity regardless of scope, so that
-     *     alone can never be the unscoped signal: checking id_to_token()'s
-     *     success is a MINTING check, not a POLICY check, and conflating
-     *     the two would hard-abort `duo apply` on essentially any fresh
-     *     target site using core.json's default_category (caught
-     *     empirically running this task's own core-manifest conformance
-     *     validation — a fresh install's own term_id 1 "Uncategorized" is
-     *     unminted-but-in-scope, not unscoped, the first time anything
-     *     snapshots it). Scope is decided ONLY by policy membership below,
-     *     the same source of truth build_post()'s own meta gate uses,
-     *     never by whether identity happens to exist yet on this build;
-     *   - $forceUnresolvedRefs explicitly asked for the old best-effort
-     *     behavior regardless of which of the above this is.
-     */
-    private function queue_or_warn_unscoped(string $option, string $kind, int $id, bool $force): bool {
-        if ($force) {
-            return false;
-        }
-        $targetType = self::ref_target_type($id, $kind);
-        if ($targetType === null) {
-            return false; // dangling — caller's normal warn-and-drop handles it
-        }
-        $inPolicyScope = $kind === 'term'
-            ? in_array($targetType, $this->policy->taxonomies(), true)
-            : in_array($targetType, $this->policy->post_types(), true);
-        if ($inPolicyScope) {
-            return false; // real row, correctly scoped, just not minted on THIS build yet
-        }
-        $this->unscopedRefs[] = ['option' => $option, 'kind' => $kind, 'id' => $id, 'target_type' => $targetType];
-        return true;
     }
 
     /**

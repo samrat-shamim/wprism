@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# Regression — DUO-3214(a): Capture::guard_secret()'s two call sites
-# (build_post()'s authored post_meta loop, build_options()'s authored-
-# options loop) used to gate the call behind `is_string($v)` — an authored
+# Regression — DUO-3214(a): the authored post-meta and option call sites
+# used to gate Capture::guard_secret() behind `is_string($v)` — an authored
 # value that decoded to an ARRAY (a plugin's serialized settings blob) got
 # ZERO secret scanning in any downstream branch. guard_secret() now deep-
 # scans via Secrets::hard_match_deep() (widened from hard_match()) and
@@ -29,9 +28,10 @@
 # the rebase. This suite's own PHP harness did not and could not have
 # caught it (it never reads Capture.php's call sites at all). The check
 # below closes that specific gap: a plain grep-level scan of Capture.php,
-# EntityMetaCapture.php, and UserMetaCapture.php, asserting each security
-# callback's unconditional call sites (post/term meta, both authored-options
-# loops, and user_meta -- DUO-3268's later addition, extracted by DUO-3349)
+# OptionsCapture.php, EntityMetaCapture.php, and UserMetaCapture.php,
+# asserting each security callback's unconditional call sites (post/term
+# meta, both authored-options loops, and user_meta -- DUO-3268's later
+# addition, extracted by DUO-3349)
 # has no is_string() gate in the two
 # lines immediately before it, and that
 # the one DELIBERATE exception (the sub_keys loop's hand-rolled is_string/
@@ -75,6 +75,7 @@ command -v php >/dev/null || fail "php required on PATH"
 say "php -l syntax check"
 php -l regress_capture_secret_scan.php >/dev/null || fail "regress_capture_secret_scan.php has a syntax error"
 php -l ../../agent/src/Capture.php >/dev/null || fail "agent/src/Capture.php has a syntax error"
+php -l ../../agent/src/OptionsCapture.php >/dev/null || fail "agent/src/OptionsCapture.php has a syntax error"
 php -l ../../agent/src/UserMetaCapture.php >/dev/null || fail "agent/src/UserMetaCapture.php has a syntax error"
 php -l ../../agent/src/EntityMetaCapture.php >/dev/null || fail "agent/src/EntityMetaCapture.php has a syntax error"
 php -l ../../agent/src/Secrets.php >/dev/null || fail "agent/src/Secrets.php has a syntax error"
@@ -83,23 +84,12 @@ pass "no syntax errors"
 say "running the offline harness (guard_secret() widened to deep-scan arrays)"
 php regress_capture_secret_scan.php || fail "regress_capture_secret_scan.php reported failing checks (see output above)"
 
-say "call-site wiring: guard_secret()'s real call sites in Capture.php, not just the method itself"
+say "call-site wiring: Capture binds every extracted security callback unconditionally"
 CAPTURE_SRC=../../agent/src/Capture.php
 mapfile -t CALL_LINES < <(grep -n '\$this->guard_secret(' "$CAPTURE_SRC")
-UNCONDITIONAL=()
-EXCEPTION=()
+[ "${#CALL_LINES[@]}" -eq 3 ] || fail "expected exactly 3 Capture guard_secret() callback bindings (user meta, entity meta, options), got ${#CALL_LINES[@]} — a handoff was added or removed"
 for entry in "${CALL_LINES[@]}"; do
   lineno="${entry%%:*}"
-  content="${entry#*:}"
-  if grep -q '\$subVal' <<<"$content"; then
-    EXCEPTION+=("$lineno")
-  else
-    UNCONDITIONAL+=("$lineno")
-  fi
-done
-[ "${#UNCONDITIONAL[@]}" -eq 4 ] || fail "expected exactly 4 unconditional guard_secret() call sites in Capture.php (the UserMetaCapture and EntityMetaCapture callback bindings plus both authored-options loops), got ${#UNCONDITIONAL[@]}: ${UNCONDITIONAL[*]:-none} — a call site was added or removed; update this check deliberately if that's intended, don't just widen the count"
-[ "${#EXCEPTION[@]}" -eq 1 ] || fail "expected exactly 1 deliberate sub_keys-shaped exception, got ${#EXCEPTION[@]}: ${EXCEPTION[*]:-none}"
-for lineno in "${UNCONDITIONAL[@]}"; do
   start=$((lineno - 2))
   [ "$start" -lt 1 ] && start=1
   window=$(sed -n "${start},${lineno}p" "$CAPTURE_SRC")
@@ -107,14 +97,39 @@ for lineno in "${UNCONDITIONAL[@]}"; do
     && fail "guard_secret() call at Capture.php:$lineno appears gated by a nearby is_string() check -- this is the exact shape of the DUO-3211-rebase silent reversion (see this script's header); widened deep scanning would silently stop applying to array-shaped values again:
 $window"
 done
-pass "both extracted-capturer bindings plus both direct options guard_secret call sites (lines ${UNCONDITIONAL[*]}) have no nearby is_string() gate"
-exc_line="${EXCEPTION[0]}"
-prev_line=$(sed -n "$((exc_line - 1))p" "$CAPTURE_SRC")
+pass "all three extracted-capturer bindings have no nearby is_string() gate"
+
+say "call-site wiring: OptionsCapture keeps both unconditional option guards and the sub-key split"
+OPTIONS_SRC=../../agent/src/OptionsCapture.php
+mapfile -t OPTION_CALL_LINES < <(grep -n '(\$this->guardSecret)(' "$OPTIONS_SRC")
+OPTION_UNCONDITIONAL=()
+OPTION_EXCEPTION=()
+for entry in "${OPTION_CALL_LINES[@]}"; do
+  lineno="${entry%%:*}"
+  content="${entry#*:}"
+  if grep -q '\$subVal' <<<"$content"; then
+    OPTION_EXCEPTION+=("$lineno")
+  else
+    OPTION_UNCONDITIONAL+=("$lineno")
+  fi
+done
+[ "${#OPTION_UNCONDITIONAL[@]}" -eq 2 ] || fail "expected exactly 2 unconditional authored-option secret callbacks, got ${#OPTION_UNCONDITIONAL[@]}: ${OPTION_UNCONDITIONAL[*]:-none}"
+[ "${#OPTION_EXCEPTION[@]}" -eq 1 ] || fail "expected exactly 1 deliberate sub_keys-shaped exception, got ${#OPTION_EXCEPTION[@]}: ${OPTION_EXCEPTION[*]:-none}"
+for lineno in "${OPTION_UNCONDITIONAL[@]}"; do
+  start=$((lineno - 2))
+  [ "$start" -lt 1 ] && start=1
+  window=$(sed -n "${start},${lineno}p" "$OPTIONS_SRC")
+  grep -q 'is_string(' <<<"$window" \
+    && fail "option secret callback at OptionsCapture.php:$lineno appears gated by a nearby is_string() check:\n$window"
+done
+pass "both authored-option callbacks are unconditional"
+exc_line="${OPTION_EXCEPTION[0]}"
+prev_line=$(sed -n "$((exc_line - 1))p" "$OPTIONS_SRC")
 grep -q 'is_string(\$subVal)' <<<"$prev_line" \
-  || fail "expected the sub_keys exception at Capture.php:$exc_line to be immediately preceded by is_string(\$subVal) -- got: $prev_line"
-after_window=$(sed -n "${exc_line},$((exc_line + 15))p" "$CAPTURE_SRC")
+  || fail "expected the sub_keys exception at OptionsCapture.php:$exc_line to be immediately preceded by is_string(\$subVal) -- got: $prev_line"
+after_window=$(sed -n "${exc_line},$((exc_line + 15))p" "$OPTIONS_SRC")
 grep -q 'hard_match_deep(\$subVal)' <<<"$after_window" \
-  || fail "expected Secrets::hard_match_deep(\$subVal) within 15 lines after the sub_keys exception at Capture.php:$exc_line -- its own array-scan branch may have been silently deleted, leaving sub_keys array-shaped secrets unscanned"
+  || fail "expected Secrets::hard_match_deep(\$subVal) within 15 lines after the sub_keys exception at OptionsCapture.php:$exc_line -- its own array-scan branch may have been silently deleted"
 pass "the one deliberate sub_keys exception (line $exc_line) still has both halves of its is_string()/hard_match_deep() split intact"
 
 USER_META_SRC=../../agent/src/UserMetaCapture.php

@@ -149,7 +149,7 @@ final class StateHandoffVerifier {
                 continue;
             }
             $desiredRecord = $desired[$name] ?? null;
-            // On a first activation Capture::build_options(previous desired)
+            // On a first activation OptionsCapture::capture(previous desired)
             // represents a missing exact authored row as a deleted tombstone
             // whose expected_hash is the hash of the frozen desired present
             // record. The hook may then create an ordinary default (present),
