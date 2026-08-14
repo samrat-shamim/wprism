@@ -649,7 +649,7 @@ $check($orphanRejected, 'apply-direction token resolution rejects the pruned cus
 // 2b. Capture's own options-only builder must reject a malformed local-id
 // spelling even when a legacy manifest regex is broad. Keep the owning table
 // out of this synthetic policy so Snapshot's preservation prune is skipped;
-// this isolates the Capture::build_options() consumer rather than merely
+// this isolates the OptionsCapture consumer rather than merely
 // re-testing Snapshot's live scan.
 $captureMalformedPolicy = $policy(false);
 $captureMalformedPolicy->manifests[0]['option_name_refs'] = [[

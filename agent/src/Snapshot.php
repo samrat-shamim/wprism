@@ -1366,7 +1366,7 @@ final class Snapshot {
     /**
      * Does a live row exist for (id_kind, local_id), independent of whether
      * it has been minted a uuid yet? Task #93's option_name_refs discovery
-     * (Capture::build_options()) needs this to distinguish DANGLING (no
+     * (OptionsCapture::capture()) needs this to distinguish DANGLING (no
      * such row exists anywhere — the #73 dangling class, warn+drop) from
      * UNSCOPED (the row genuinely exists in its declared table but was
      * never minted — e.g. the owning table isn't itself pinned as

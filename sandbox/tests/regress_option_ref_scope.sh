@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Regression — task #73: Capture::option_ref_tokens() must distinguish
+# Regression — task #73: OptionsCapture's option-ref path must distinguish
 # DANGLING (the target id doesn't exist as a row anywhere — deleted, or
 # never existed) from UNSCOPED (the target row genuinely exists, but its
 # post_type/taxonomy was never added to policy scope, so it was never
@@ -137,7 +137,7 @@ OUT1B=$(wp1 duo capture --repo="$REPO" --out="$OUT" --force-unresolved-refs 2>&1
 echo "$OUT1B"
 grep -qi "success" <<<"$OUT1B" || fail "expected --force-unresolved-refs to let capture succeed (got: $OUT1B)"
 # NOT has()|not: wp_page_for_privacy_policy is policy-declared authored
-# (manifests/core.json), so Capture::build_options()'s own $required pass
+# (manifests/core.json), so OptionsCapture::capture()'s own $required pass
 # (independent of any previous-document reconciliation -- confirmed by
 # reading it directly) ALWAYS gives it a record, even when its ref drops.
 # A scalar ref's option_ref_tokens() returns null on drop (unlike an

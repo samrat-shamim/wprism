@@ -148,8 +148,8 @@ PROBE_METHOD_UUID=$(wp1 eval "echo \\Duo\\Ledger::uuid_for($PROBE_INSTANCE_ID, '
 say "(4c) ALIVENESS: the option itself -- not just the table row -- is captured under its TOKENIZED name, proving option_name_refs' own discovery loop actually ran"
 # DUO-3257 finding: 4b's ledger-mint check alone does NOT prove this. Table
 # row minting happens unconditionally in Snapshot::capture() (runs before
-# build_options() in the same build(), mints every row of every declared
-# table regardless of build_options()'s own option_name_refs loop). A
+# OptionsCapture in the same build(), mints every row of every declared
+# table regardless of the options capturer's own option_name_refs loop). A
 # regression that silently zeroes out THAT loop specifically (confirmed
 # live: a stray variable-name mismatch introduced by an unrelated DUO-3263
 # refactor did exactly this, undetected since this file's own conformance
