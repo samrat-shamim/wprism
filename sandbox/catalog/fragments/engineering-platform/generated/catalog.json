@@ -4323,6 +4323,17 @@
         },
         {
             "kind": "make_target",
+            "name": "ci-build-dist-check",
+            "role": "helper",
+            "suite_ids": [
+                "platform-candidate-build",
+                "platform-loader-contract",
+                "platform-payload-dist",
+                "platform-performance-smoke"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "cli-smoke",
             "role": "suite",
             "suite_ids": [
@@ -7982,7 +7993,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:e4355c24c8b60d28fddb63fd5e48a5f39d8d500e14edcd44759837e1d4705a58"
+            "sha256": "sha256:522e57d5768c7699f80e2fe1fbd81b87d28a1e97d3234c3633a1c7bb7b53acd7"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",

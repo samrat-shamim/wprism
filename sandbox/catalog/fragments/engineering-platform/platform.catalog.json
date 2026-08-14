@@ -681,6 +681,17 @@
         },
         {
             "kind": "make_target",
+            "name": "ci-build-dist-check",
+            "role": "helper",
+            "suite_ids": [
+                "platform-candidate-build",
+                "platform-loader-contract",
+                "platform-payload-dist",
+                "platform-performance-smoke"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "loader-check",
             "role": "suite",
             "suite_ids": [

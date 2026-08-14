@@ -16,6 +16,7 @@ $command = $argv[1] ?? null;
 $approval = null;
 $result = null;
 $releaseFamilyDigest = null;
+$releaseFamily = null;
 foreach (array_slice($argv, 2) as $argument) {
     if (str_starts_with($argument, '--approval=')) {
         $approval = substr($argument, strlen('--approval='));
@@ -24,8 +25,7 @@ foreach (array_slice($argv, 2) as $argument) {
     } elseif (str_starts_with($argument, '--result=')) {
         $result = substr($argument, strlen('--result='));
     } elseif (str_starts_with($argument, '--release-family=')) {
-        // Compatibility input: validation is bound by the independently
-        // verified digest, never by co-location or a path alone.
+        $releaseFamily = substr($argument, strlen('--release-family='));
     } else {
         fwrite(STDERR, "qualification: unknown argument: $argument\n");
         exit(2);
@@ -40,8 +40,12 @@ if ($mode === null || $approval === null || $approval === '' || $result === null
     fwrite(STDERR, "qualification: command, --approval, and --result are required\n");
     exit(2);
 }
+if ($mode === 'release_validation' && ($releaseFamily === null || $releaseFamily === '')) {
+    fwrite(STDERR, "qualification: release-validation requires --release-family\n");
+    exit(2);
+}
 try {
-    $receipt = (new Qualification($root))->run($mode, $approval, $releaseFamilyDigest);
+    $receipt = (new Qualification($root))->run($mode, $approval, $releaseFamilyDigest, $releaseFamily);
     if (preg_match('~^artifacts/(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$~D', $result) !== 1 || str_contains($result, '..')) {
         throw new CatalogException('qualification result path must be artifacts-relative');
     }

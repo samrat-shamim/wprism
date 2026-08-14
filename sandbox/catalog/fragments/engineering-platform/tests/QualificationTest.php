@@ -57,7 +57,7 @@ ksort($document, SORT_STRING);
 file_put_contents($output, json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n");
 PHP
             . "\n", 0700);
-        $this->authority($artifact, $artifactBytes, $script);
+        $this->authority($artifact, $artifactBytes, $script, 'candidate_adoption');
 
         $receipt = (new Qualification(dirname(__DIR__, 5)))->run('candidate_adoption', $this->temporary);
 
@@ -70,8 +70,60 @@ PHP
         self::assertSame('pass', $operations['rollback'] ?? null);
     }
 
-    private function authority(string $artifact, string $artifactBytes, string $script): void
+    public function testReleaseValidationConsumesTheExactRetainedFamilyArtifact(): void
     {
+        $artifact = $this->temporary . '/target-install.tar';
+        $artifactBytes = DeterministicArchive::encode([
+            ['path' => 'payload/agent/fixture.php', 'bytes' => "<?php\n", 'mode' => 0644],
+        ]);
+        $this->writeBytes($artifact, $artifactBytes, 0600);
+        $familyBytes = $this->canonical(['format' => 'duo-release-family/v1', 'fixture' => true]) . "\n";
+        $this->writeBytes($this->temporary . '/release-family.json', $familyBytes, 0600);
+        $familyDigest = $this->digest($familyBytes);
+        $script = $this->temporary . '/observe-release.php';
+        $this->writeBytes($script, <<<'PHP'
+#!/usr/bin/env php
+<?php
+$artifact = (string) getenv('DUO_QUALIFICATION_ARTIFACT');
+$output = (string) getenv('DUO_QUALIFICATION_OBSERVATION');
+$mode = (string) getenv('DUO_QUALIFICATION_MODE');
+$family = (string) getenv('DUO_QUALIFICATION_RELEASE_FAMILY_SHA256');
+$document = [
+    'artifact_sha256' => 'sha256:' . hash_file('sha256', $artifact),
+    'format' => 'duo-qualification-observation/v1',
+    'mode' => $mode,
+    'non_adoptable_enforced' => false,
+    'operations' => ['adoption' => 'pass', 'recovery' => 'pass', 'rollback' => 'pass', 'swap' => 'pass', 'transfer' => 'pass'],
+    'release_family_sha256' => $family,
+    'rollback_restored' => true,
+    'source_checkout_fallback' => false,
+    'target_mutated' => true,
+];
+ksort($document, SORT_STRING);
+file_put_contents($output, json_encode($document, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR) . "\n");
+PHP
+            . "\n", 0700);
+        $this->authority($artifact, $artifactBytes, $script, 'release_validation');
+
+        $receipt = (new Qualification(dirname(__DIR__, 5)))->run(
+            'release_validation',
+            $this->temporary,
+            $familyDigest,
+            $this->temporary,
+        );
+
+        self::assertSame('pass', $receipt['state']);
+        self::assertSame('independent_qualification', $receipt['authority']);
+        self::assertSame($familyDigest, $receipt['release_family_sha256']);
+        self::assertSame($this->digest($artifactBytes), $receipt['artifact_sha256']);
+    }
+
+    private function authority(
+        string $artifact,
+        string $artifactBytes,
+        string $script,
+        string $mode,
+    ): void {
         $identity = [
             'credential_realm' => 'non_production',
             'data_profile' => 'approved_synthetic',
@@ -125,7 +177,7 @@ PHP
             'artifact_path' => $artifact,
             'artifact_sha256' => $this->digest($artifactBytes),
             'format' => 'duo-qualification-command/v1',
-            'mode' => 'candidate_adoption',
+            'mode' => $mode,
             'timeout_seconds' => 10,
         ];
         $this->writeBytes($this->temporary . '/command.json', $this->canonical($command) . "\n", 0600);

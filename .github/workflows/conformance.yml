@@ -211,10 +211,8 @@ jobs:
           tools: composer:v2
           coverage: none
       - run: composer install --no-interaction --prefer-dist --no-progress
-      - run: make build
-      - run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=build-dist --result=artifacts/test-results/ci/build-dist.json -- make payload-dist-check
-      - run: make loader-check
-      - run: make perf-smoke
+      - name: Bind build, dist, loader and smoke completion to one result
+        run: php sandbox/catalog/fragments/engineering-platform/command-result.php --id=build-dist --result=artifacts/test-results/ci/build-dist.json -- make ci-build-dist-check
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: receipt-build-dist

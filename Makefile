@@ -1967,7 +1967,7 @@ regress-duo-init:
 .PHONY: build payload-dist-check payload-reproducibility-check candidate-adoption-check
 .PHONY: release-family-check assembly-reproducibility-check release-validation
 .PHONY: final-integration-close-gate
-.PHONY: loader-check perf-smoke perf-budget
+.PHONY: ci-build-dist-check loader-check perf-smoke perf-budget
 
 THREAD1_PLATFORM_DIR := sandbox/catalog/fragments/engineering-platform
 OFFLINE_SHARDS ?= 4
@@ -2082,6 +2082,14 @@ audit:
 build:
 	@php $(THREAD1_PLATFORM_DIR)/build.php build --output=artifacts/dist
 
+# One explicit CI composition point so the aggregate receipt cannot pass when
+# build, dist verification, loader behavior, or the smoke harness is absent.
+ci-build-dist-check:
+	@php $(THREAD1_PLATFORM_DIR)/build.php build --output=artifacts/dist
+	@php $(THREAD1_PLATFORM_DIR)/build.php payload-dist-check --output=artifacts/dist --result=artifacts/test-results/payload-dist/result.json
+	@php $(THREAD1_PLATFORM_DIR)/loader-check.php --result=artifacts/test-results/loader/result.json
+	@php $(THREAD1_PLATFORM_DIR)/performance.php smoke --result=artifacts/test-results/performance/smoke.json
+
 payload-dist-check:
 	@php $(THREAD1_PLATFORM_DIR)/build.php payload-dist-check --output=artifacts/dist --result=artifacts/test-results/payload-dist/result.json
 
@@ -2113,4 +2121,4 @@ perf-budget:
 	@php $(THREAD1_PLATFORM_DIR)/performance.php budget --result=artifacts/test-results/performance/budget.json
 
 check: format-check lint static-analysis foundation-check ownership-check contracts-check \
-	guide-check developer-command-check catalog-check verify-generated
+	guide-check canonical-contract-check recovery-transition-check developer-command-check catalog-check verify-generated

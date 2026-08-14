@@ -80,7 +80,10 @@ After `make bootstrap-dev`, `make check` is offline. It runs formatting, PHP
 syntax and static analysis, catalog/schema and generated-byte validation,
 ShellCheck/shfmt over the explicit ratchet in `quality-scope.json`, actionlint
 over every workflow, and the read-only foundation/ownership/contract/guide
-checks. Network advisory work is separate: `make audit` returns clean (0),
+checks plus the canonical-contract and recovery-transition owner exports. An
+absent owner export reports unavailable (69) from its wrapper and makes
+`make check` fail; it is not skipped.
+Network advisory work is separate: `make audit` returns clean (0),
 policy failure (1), or unavailable (2), and unavailable is never normalized to
 success.
 

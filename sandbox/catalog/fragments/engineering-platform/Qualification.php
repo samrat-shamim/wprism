@@ -10,8 +10,12 @@ final class Qualification
     public function __construct(private readonly string $root) {}
 
     /** @return array<string,mixed> */
-    public function run(string $mode, string $authorityDirectory, ?string $expectedReleaseFamilyDigest = null): array
-    {
+    public function run(
+        string $mode,
+        string $authorityDirectory,
+        ?string $expectedReleaseFamilyDigest = null,
+        ?string $releaseFamilyPath = null,
+    ): array {
         if (!in_array($mode, ['candidate_adoption', 'release_validation'], true)) {
             throw new CatalogException('qualification mode is invalid');
         }
@@ -66,6 +70,30 @@ final class Qualification
                 || preg_match('/^sha256:[a-f0-9]{64}$/D', $expectedReleaseFamilyDigest) !== 1)) {
             throw new CatalogException('release validation requires the verified release-family digest');
         }
+        $releaseFamilyManifestDigest = null;
+        if ($mode === 'release_validation') {
+            if (!is_string($releaseFamilyPath) || $releaseFamilyPath === '') {
+                throw new CatalogException('release validation requires the retained release-family directory');
+            }
+            $releaseFamily = $this->externalDirectory($releaseFamilyPath);
+            $releaseFamilyMode = fileperms($releaseFamily);
+            if (!is_int($releaseFamilyMode) || ($releaseFamilyMode & 0022) !== 0) {
+                throw new CatalogException('retained release-family directory must not be group/world writable');
+            }
+            $familyBytes = $this->externalBytes($releaseFamily . '/release-family.json', 'retained release-family manifest');
+            $releaseFamilyManifestDigest = $this->digest($familyBytes);
+            if (!hash_equals($expectedReleaseFamilyDigest, $releaseFamilyManifestDigest)) {
+                throw new CatalogException('retained release-family manifest disagrees with the independently verified digest');
+            }
+            $expectedArtifact = realpath($releaseFamily . '/target-install.tar');
+            $actualArtifact = realpath($artifactPath);
+            if (!is_string($expectedArtifact) || !is_string($actualArtifact)
+                || !hash_equals($expectedArtifact, $actualArtifact)) {
+                throw new CatalogException('release validation command does not consume the retained family target-install archive');
+            }
+        } elseif ($releaseFamilyPath !== null || $expectedReleaseFamilyDigest !== null) {
+            throw new CatalogException('candidate qualification must not accept release-family authority inputs');
+        }
 
         $temporary = sys_get_temp_dir() . '/duo-qualification-' . bin2hex(random_bytes(8));
         if (!mkdir($temporary, 0700)) {
@@ -87,6 +115,7 @@ final class Qualification
             'DUO_QUALIFICATION_ARTIFACT' => $artifactPath,
             'DUO_QUALIFICATION_OBSERVATION' => $observationPath,
             'DUO_QUALIFICATION_MODE' => $mode,
+            'DUO_QUALIFICATION_RELEASE_FAMILY_SHA256' => $expectedReleaseFamilyDigest ?? '',
         ];
         foreach ($harness['environment'] as $name => $value) {
             $environment[$name] = $value;
@@ -142,7 +171,7 @@ final class Qualification
                 'authority' => $mode === 'candidate_adoption' ? 'non_authorizing' : 'independent_qualification',
                 'adoptability' => $mode === 'candidate_adoption' ? 'forbidden' : 'retained_exact_release_only',
                 'artifact_sha256' => $this->digest($artifactBytes),
-                'release_family_sha256' => $expectedReleaseFamilyDigest,
+                'release_family_sha256' => $releaseFamilyManifestDigest,
                 'command_sha256' => $this->digest($commandBytes),
                 'executable_sha256' => $this->fileDigest($executableReal),
                 'timeout_tool_sha256' => $this->fileDigest($timeoutTool),
