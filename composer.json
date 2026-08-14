@@ -4,6 +4,7 @@
   "type": "project",
   "license": "proprietary",
   "require-dev": {
+    "deptrac/deptrac": "^4.7.1",
     "friendsofphp/php-cs-fixer": "^3.95",
     "phpstan/phpstan": "^2.1",
     "phpunit/phpunit": "^11.5"
@@ -16,6 +17,7 @@
     "sort-packages": true
   },
   "scripts": {
+    "architecture": "deptrac --config-file=sandbox/catalog/fragments/engineering-platform/deptrac.yaml --no-cache --no-interaction",
     "format-check": "php-cs-fixer check --diff --using-cache=no",
     "static": "phpstan analyse --no-progress",
     "test-unit": "phpunit --colors=never"

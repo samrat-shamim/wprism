@@ -13,7 +13,10 @@ foundation ownership ledger. It contains:
 - `generated/catalog.json`: the deterministic complete P0 aggregate;
 - `delegate-check.php`: fail-closed delegation to behavior-owner checks;
 - `Doctor.php`, `doctor.php`, and `bootstrap-receipt.php`: read-only diagnosis
-  and the explicit development-bootstrap receipt; and
+  and the explicit development-bootstrap receipt;
+- `deptrac.yaml`: the baseline-free production/development dependency boundary;
+- `Hygiene.php` and `hygiene.php`: tracked artifact, credential, and workflow
+  pin checks; and
 - self-tests plus PHPUnit coverage for validation failures.
 
 The complete aggregate is generated only after every sibling owner fragment

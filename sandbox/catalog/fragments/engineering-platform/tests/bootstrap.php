@@ -26,3 +26,4 @@ require_once dirname(__DIR__) . '/Selection.php';
 require_once dirname(__DIR__) . '/ShardPlan.php';
 require_once dirname(__DIR__) . '/Toolchain.php';
 require_once dirname(__DIR__) . '/Quality.php';
+require_once dirname(__DIR__) . '/Hygiene.php';

@@ -1962,7 +1962,7 @@ regress-duo-init:
 .PHONY: doctor bootstrap-dev foundation-check ownership-check contracts-check guide-check
 .PHONY: canonical-contract-check recovery-transition-check evidence-impact evidence-staleness-check
 .PHONY: catalog-fragment-check catalog-check platform-p0-bootstrap platform-p0 test-component thread-1-gate
-.PHONY: test-unit test-offline format-check static-analysis lint verify-generated check
+.PHONY: test-unit test-offline format-check static-analysis architecture-check hygiene-check lint verify-generated check
 .PHONY: developer-command-check test-changed test-integration test-conformance audit
 .PHONY: build payload-dist-check payload-reproducibility-check candidate-adoption-check
 .PHONY: release-family-check assembly-reproducibility-check release-validation
@@ -2073,6 +2073,12 @@ format-check:
 static-analysis:
 	@vendor/bin/phpstan analyse --no-progress
 
+architecture-check:
+	@composer architecture --no-interaction
+
+hygiene-check:
+	@php $(THREAD1_PLATFORM_DIR)/hygiene.php
+
 lint:
 	@php $(THREAD1_PLATFORM_DIR)/lint.php
 
@@ -2120,5 +2126,5 @@ perf-smoke:
 perf-budget:
 	@php $(THREAD1_PLATFORM_DIR)/performance.php budget --result=artifacts/test-results/performance/budget.json
 
-check: format-check lint static-analysis foundation-check ownership-check contracts-check \
+check: format-check lint static-analysis architecture-check hygiene-check foundation-check ownership-check contracts-check \
 	guide-check canonical-contract-check recovery-transition-check developer-command-check catalog-check verify-generated

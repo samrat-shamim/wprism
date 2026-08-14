@@ -47,4 +47,25 @@ final class AuditTest extends TestCase
         self::assertStringNotContainsString('secret-value', $result['message']);
         self::assertStringNotContainsString('/private/path', $result['message']);
     }
+
+    public function testControlledDependencyUpdatesArePolicyFailure(): void
+    {
+        $result = Audit::classifyUpdates(0, json_encode([
+            'locked' => [
+                ['name' => 'vendor/tool', 'version' => '1.0.0', 'latest' => '1.1.0'],
+            ],
+        ], JSON_THROW_ON_ERROR), '');
+
+        self::assertSame('policy_failure', $result['state']);
+        self::assertSame([
+            ['name' => 'vendor/tool', 'current' => '1.0.0', 'latest' => '1.1.0'],
+        ], $result['updates']);
+        self::assertSame('unavailable', Audit::combinedState(['clean', 'unavailable', 'policy_failure']));
+    }
+
+    public function testCurrentDependencyResponseIsClean(): void
+    {
+        self::assertSame('clean', Audit::classifyUpdates(0, '{"locked":[]}', '')['state']);
+        self::assertSame('unavailable', Audit::classifyUpdates(2, '', 'network error')['state']);
+    }
 }

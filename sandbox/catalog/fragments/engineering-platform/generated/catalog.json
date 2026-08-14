@@ -139,6 +139,14 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/Hygiene.php",
+            "role": "helper",
+            "suite_ids": [
+                "platform-hygiene"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/Loader.php",
             "role": "helper",
             "suite_ids": [
@@ -338,6 +346,14 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/deptrac.yaml",
+            "role": "fixture",
+            "suite_ids": [
+                "platform-architecture-boundary"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/developer-command.schema.json",
             "role": "fixture",
             "suite_ids": [
@@ -378,6 +394,14 @@
             "suite_ids": [
                 "platform-catalog-self-test",
                 "platform-generated-agreement"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/hygiene.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-hygiene"
             ]
         },
         {
@@ -630,6 +654,14 @@
         {
             "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/tests/HarnessApprovalTest.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-catalog-unit"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/tests/HygieneTest.php",
             "role": "suite",
             "suite_ids": [
                 "platform-catalog-unit"
@@ -4187,6 +4219,14 @@
         },
         {
             "kind": "make_target",
+            "name": "architecture-check",
+            "role": "suite",
+            "suite_ids": [
+                "platform-architecture-boundary"
+            ]
+        },
+        {
+            "kind": "make_target",
             "name": "assembly-reproducibility-check",
             "role": "diagnostic",
             "suite_ids": [
@@ -4515,6 +4555,14 @@
             "role": "suite",
             "suite_ids": [
                 "platform-guide-contract"
+            ]
+        },
+        {
+            "kind": "make_target",
+            "name": "hygiene-check",
+            "role": "suite",
+            "suite_ids": [
+                "platform-hygiene"
             ]
         },
         {
@@ -7137,6 +7185,7 @@
                 "legacy-regress-woocommerce-product-lookups",
                 "legacy-regress-woocommerce-product-lookups-fake",
                 "legacy-regress-woocommerce-regen-engine",
+                "platform-architecture-boundary",
                 "platform-candidate-build",
                 "platform-catalog-complete",
                 "platform-catalog-self-test",
@@ -7149,6 +7198,7 @@
                 "platform-foundation-policy",
                 "platform-generated-agreement",
                 "platform-guide-contract",
+                "platform-hygiene",
                 "platform-lint",
                 "platform-loader-contract",
                 "platform-ownership-policy",
@@ -7628,6 +7678,7 @@
             "id": "platform-p0",
             "owner": "thread-1",
             "suite_ids": [
+                "platform-architecture-boundary",
                 "platform-catalog-complete",
                 "platform-catalog-self-test",
                 "platform-catalog-unit",
@@ -7638,6 +7689,7 @@
                 "platform-foundation-policy",
                 "platform-generated-agreement",
                 "platform-guide-contract",
+                "platform-hygiene",
                 "platform-lint",
                 "platform-ownership-policy",
                 "platform-static-analysis"
@@ -7755,6 +7807,7 @@
                 "legacy-regress-woocommerce-product-lookups",
                 "legacy-regress-woocommerce-product-lookups-fake",
                 "legacy-regress-woocommerce-regen-engine",
+                "platform-architecture-boundary",
                 "platform-candidate-build",
                 "platform-catalog-complete",
                 "platform-catalog-self-test",
@@ -7767,6 +7820,7 @@
                 "platform-foundation-policy",
                 "platform-generated-agreement",
                 "platform-guide-contract",
+                "platform-hygiene",
                 "platform-lint",
                 "platform-loader-contract",
                 "platform-ownership-policy",
@@ -7993,7 +8047,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:522e57d5768c7699f80e2fe1fbd81b87d28a1e97d3234c3633a1c7bb7b53acd7"
+            "sha256": "sha256:797eb9db7b098db93e2dc4afcadced9898db077ce9a90b1e10e543e2d8ffc377"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",
@@ -19500,6 +19554,43 @@
         },
         {
             "command": [
+                "composer",
+                "architecture",
+                "--no-interaction"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "agent/src/**",
+                "cli/src/**",
+                "composer.json",
+                "composer.lock",
+                "recovery/**",
+                "sandbox/catalog/fragments/engineering-platform/**"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [
+                "composer.lock",
+                "sandbox/catalog/fragments/engineering-platform/deptrac.yaml"
+            ],
+            "evidence_role": "none",
+            "expected_outputs": [],
+            "id": "platform-architecture-boundary",
+            "layer": "architecture",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "composer",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 120,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
                 "php",
                 "sandbox/catalog/fragments/engineering-platform/build.php",
                 "build",
@@ -20001,6 +20092,34 @@
         },
         {
             "command": [
+                "php",
+                "sandbox/catalog/fragments/engineering-platform/hygiene.php"
+            ],
+            "covered_contracts": [],
+            "covered_paths": [
+                "**"
+            ],
+            "environment_class": "offline",
+            "evidence_inputs": [],
+            "evidence_role": "none",
+            "expected_outputs": [],
+            "id": "platform-hygiene",
+            "layer": "architecture",
+            "owner": "thread-1",
+            "parallel_safe": true,
+            "required_review_gate": null,
+            "required_services": [],
+            "required_tools": [
+                "git",
+                "php"
+            ],
+            "resource_locks": [],
+            "temporary_directory": "unique",
+            "timeout_seconds": 30,
+            "workspace_mode": "read_only"
+        },
+        {
+            "command": [
                 "make",
                 "--no-print-directory",
                 "lint"
@@ -20008,11 +20127,15 @@
             "covered_contracts": [],
             "covered_paths": [
                 ".github/workflows/**",
+                "composer.json",
+                "composer.lock",
                 "sandbox/catalog/fragments/engineering-platform/**",
                 "sandbox/tests/check_guide_commands.sh"
             ],
             "environment_class": "offline",
-            "evidence_inputs": [],
+            "evidence_inputs": [
+                "composer.lock"
+            ],
             "evidence_role": "none",
             "expected_outputs": [],
             "id": "platform-lint",
@@ -20022,6 +20145,7 @@
             "required_review_gate": null,
             "required_services": [],
             "required_tools": [
+                "composer",
                 "git",
                 "make",
                 "php"

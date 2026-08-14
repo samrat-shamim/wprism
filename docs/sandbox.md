@@ -79,13 +79,23 @@ entrypoint through a one-off loader exception.
 After `make bootstrap-dev`, `make check` is offline. It runs formatting, PHP
 syntax and static analysis, catalog/schema and generated-byte validation,
 ShellCheck/shfmt over the explicit ratchet in `quality-scope.json`, actionlint
-over every workflow, and the read-only foundation/ownership/contract/guide
-checks plus the canonical-contract and recovery-transition owner exports. An
-absent owner export reports unavailable (69) from its wrapper and makes
-`make check` fail; it is not skipped.
+over every workflow, Composer lock validation, and Deptrac 4.7.1 with no
+architecture baseline. The boundary policy forbids the host, agent, and
+recovery runtime layers from importing development-platform code; Thread 1 may
+consume only the two release-verification contracts exported by the host.
+`make hygiene-check` rejects tracked dependency/build/cache trees,
+credential-bearing file names, recognized credential material in governed
+platform/workflow sources, and third-party Actions not pinned to a full commit
+SHA. The gate also runs the read-only foundation/ownership/contract/guide checks
+plus the canonical-contract and recovery-transition owner exports. An absent
+owner export reports unavailable (69) from its wrapper and makes `make check`
+fail; it is not skipped.
 Network advisory work is separate: `make audit` returns clean (0),
 policy failure (1), or unavailable (2), and unavailable is never normalized to
-success.
+success. The network receipt combines Composer advisories and direct locked
+dependency updates with registry resolution of every digest-pinned performance
+image tag; an available update or a tag/digest disagreement is a reviewed
+supply-chain policy failure, while a provider or Docker failure is unavailable.
 
 The catalog is the execution authority. Common entrypoints are:
 

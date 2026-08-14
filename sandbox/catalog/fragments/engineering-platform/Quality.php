@@ -53,6 +53,7 @@ final class Quality
     public function run(): void
     {
         $tools = $this->tools();
+        $this->command(['composer', 'validate', '--strict', '--no-check-publish']);
         foreach ($this->platformPhpFiles() as $path) {
             $this->command(['php', '-l', $path]);
         }
@@ -163,6 +164,8 @@ final class Quality
             $pipes,
             $this->root,
             [
+                'COMPOSER_NO_INTERACTION' => '1',
+                'HOME' => $this->homeDirectory(),
                 'PATH' => $this->root . '/artifacts/bootstrap-dev/bin:' . (string) getenv('PATH'),
                 'LC_ALL' => 'C',
                 'TZ' => 'UTC',
@@ -183,5 +186,14 @@ final class Quality
             throw new CatalogException('quality command failed: ' . implode(' ', $argv) . ($message === '' ? '' : "\n" . $message));
         }
         return $capture ? $stdout : '';
+    }
+
+    private function homeDirectory(): string
+    {
+        $home = getenv('HOME');
+        if (!is_string($home) || $home === '' || $home[0] !== '/') {
+            throw new CatalogException('HOME must be an absolute path for Composer validation');
+        }
+        return $home;
     }
 }
