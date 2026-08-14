@@ -603,10 +603,10 @@ PHP;
 
     private function containerRss(): int
     {
-        $output = $this->capture(['docker', 'top', $this->wordpressContainer, '-eo', 'rss,comm']);
+        $output = $this->capture(['docker', 'top', $this->wordpressContainer, '-eo', 'pid,rss,comm']);
         $rss = 0;
         foreach (explode("\n", trim($output)) as $line) {
-            if (preg_match('/^\s*([0-9]+)\s+/', $line, $match) === 1) {
+            if (preg_match('/^\s*[0-9]+\s+([0-9]+)\s+/', $line, $match) === 1) {
                 $rss += (int) $match[1];
             }
         }
