@@ -19,7 +19,6 @@ clean checkout:
 make doctor
 make bootstrap-dev
 make platform-p0
-make test-component COMPONENT=engineering-platform
 ```
 
 `doctor` is read-only and reports required and profile-specific optional tools.
@@ -31,11 +30,20 @@ or CI outputs and are not source.
 Platform P0 catalog sources live below `sandbox/catalog/fragments/`. Each
 behavior thread owns only its ledger-assigned fragment directory. Thread 1 owns
 the schema, fail-closed validator, generated aggregate, serial runner, and the
-`engineering-platform` fragment. `catalog-fragment-check` validates this first
-train slice; `catalog-check` and `thread-1-gate` require the complete
-multi-owner aggregate and deliberately fail until all owner-authored fragments
-are present. No missing, empty, or unknown suite selection is treated as a
-pass.
+`engineering-platform` fragment. The complete P0 aggregate contains 328 suites,
+including exact compatibility profiles for all 218 legacy offline targets and
+46 legacy live targets. `platform-p0`, `test-component`, `catalog-check`, and
+`thread-1-gate` require that complete aggregate. The narrower
+`platform-p0-bootstrap` remains an explicitly non-authorizing diagnostic. No
+missing, empty, unknown, or stale suite selection is treated as a pass. Every
+receipt records whether it came from a complete catalog or a partial owner
+view, so bootstrap evidence cannot be mistaken for a gate result.
+
+Thread 1 exposes stable wrappers for canonical, recovery-transition, evidence-
+impact, and evidence-staleness checks, but their decision logic remains owned
+by Threads 3, 5, and 4 respectively. Until an owner-controlled executable
+lands, the wrapper exits with unavailable status 69 and a catalog run records
+`infra_error`; it never substitutes a legacy check or synthesizes success.
 
 New engineering-platform PHP files use `strict_types`, one class per file, and
 the `Duo\EngineeringPlatform` namespace. Executable entrypoints load only their
@@ -43,6 +51,13 @@ explicit class files; production entrypoints never load Composer or this
 development tree. New behavioral tests belong to their behavior owner's
 fragment and must declare isolation, timeout, resources, evidence role, and
 expected outputs before entering a gate.
+
+New production PHP modules follow the composition handoff: the behavior owner
+exports a declarative module/command map, and Thread 1 consumes that map in the
+generated loader. Behavior branches do not add ad hoc `require` statements to
+production bootstraps. Until the generated-loader cutover lands, a new module
+may be cataloged and unit-tested but must not be made reachable from a runtime
+entrypoint through a one-off loader exception.
 
 ## The model
 
