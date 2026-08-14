@@ -13,6 +13,7 @@ require_once __DIR__ . '/ScopeDiscovery.php';
 require_once __DIR__ . '/UserMetaCapture.php';
 require_once __DIR__ . '/EntityMetaCapture.php';
 require_once __DIR__ . '/MenuCapture.php';
+require_once __DIR__ . '/MediaCapture.php';
 require_once __DIR__ . '/ScopedApply.php';
 
 /**
@@ -48,6 +49,7 @@ final class Capture {
     private ?UserMetaCapture $userMetaCapture = null;
     private ?EntityMetaCapture $entityMetaCapture = null;
     private ?MenuCapture $menuCapture = null;
+    private ?MediaCapture $mediaCapture = null;
     /** @var string[] */
     private array $unclassified = [];
     /** @var array<int, array{option:string, kind:string, id:int, target_type:string}>
@@ -204,6 +206,14 @@ final class Capture {
             );
         }
         return $this->menuCapture;
+    }
+
+    /** Lazily bind attachment source observation to this capture build. */
+    private function media_capture(): MediaCapture {
+        if ($this->mediaCapture === null) {
+            $this->mediaCapture = new MediaCapture();
+        }
+        return $this->mediaCapture;
     }
 
     /**
@@ -2897,89 +2907,15 @@ final class Capture {
 
         $mediaRef = null;
         if ($isAttachment) {
-            if (!$attachedFile) {
-                throw new \RuntimeException("duo: attachment $id has no _wp_attached_file");
-            }
-            $up = wp_upload_dir(null, false);
-            $localPath = trailingslashit($up['basedir']) . $attachedFile;
-            $source = is_file($localPath) ? ['path' => $localPath] : null;
-
-            /**
-             * Lets an offload adapter supply attachment bytes without
-             * requiring a persistent local uploads copy. The strict result
-             * contract is exactly one of:
-             *
-             *   ['path' => '/readable/materialized/file']
-             *   ['bytes' => $rawBytes]
-             *
-             * The ordinary local upload path is the default when present,
-             * so providers may leave it alone, replace it with a temporary
-             * materialization, or return bytes from their own API.
-             */
-            if (!$strictReadOnly) {
-                $source = apply_filters(
-                    'duo_attachment_capture_source',
-                    $source,
-                    $id,
-                    (string) $attachedFile,
-                    $localPath
-                );
-            } elseif ($source === null) {
-                throw CommandRefusalException::explainObservationPrecondition(
-                    new \RuntimeException(
-                        'duo: strict attachment observation has no local media source; '
-                        . 'the external offload hook is deliberately not invoked by explain'
-                    )
-                );
-            }
-            if ($source === null) {
-                throw new \RuntimeException(
-                    "duo: attachment $id file '$attachedFile' is not present locally and no offload provider"
-                    . ' supplied bytes via duo_attachment_capture_source; capture cannot proceed for this attachment'
-                );
-            }
-            if (!is_array($source)) {
-                throw new \RuntimeException(
-                    "duo: attachment $id offload provider returned an invalid duo_attachment_capture_source value;"
-                    . " expected exactly ['path' => <readable path>] or ['bytes' => <raw bytes>]"
-                );
-            }
-            $hasPath = array_key_exists('path', $source);
-            $hasBytes = array_key_exists('bytes', $source);
-            if ($hasPath === $hasBytes) {
-                throw new \RuntimeException(
-                    "duo: attachment $id offload provider returned an invalid duo_attachment_capture_source value;"
-                    . " expected exactly one of 'path' or 'bytes'"
-                );
-            }
-            if ($hasPath) {
-                if (!is_string($source['path']) || $source['path'] === ''
-                    || !is_file($source['path']) || !is_readable($source['path'])) {
-                    throw new \RuntimeException(
-                        "duo: attachment $id offload provider path is not a readable file"
-                    );
-                }
-                $sha = hash_file('sha256', $source['path']);
-                if ($sha === false) {
-                    throw new \RuntimeException(
-                        "duo: attachment $id offload provider path could not be hashed"
-                    );
-                }
-            } else {
-                if (!is_string($source['bytes'])) {
-                    throw new \RuntimeException(
-                        "duo: attachment $id offload provider bytes must be a string"
-                    );
-                }
-                $sha = hash('sha256', $source['bytes']);
-            }
-            $ext = pathinfo($attachedFile, PATHINFO_EXTENSION);
-            $mediaFile = $sha . ($ext ? ".$ext" : '');
-            $front['file'] = $attachedFile;
-            $front['media'] = $mediaFile;
-            $front['mime'] = $p->post_mime_type;
-            $front['alt'] = $alt;
-            $mediaRef = [$mediaFile, $source];
+            $attachment = $this->media_capture()->capture(
+                $id,
+                $attachedFile,
+                (string) $p->post_mime_type,
+                $alt,
+                $strictReadOnly
+            );
+            $front += $attachment['front'];
+            $mediaRef = $attachment['media_ref'];
         }
 
         // Secret guard on bodies: loud warning, never an abort — people
