@@ -2630,14 +2630,26 @@ $wpdb->kv = [];
 // transaction, convergence recapture), so its two threading edges into this
 // pass are asserted against its own source — the idiom
 // regress_woocommerce_regen_engine.php uses for the same class of claim.
-// Reverting either line in Apply.php fails exactly one of these two checks.
+// Isolate the coordinator's actual private run() source so an unrelated
+// constructor, comment, or dead helper cannot satisfy these named mappings.
 $runSource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
+$runMethodStart = strpos($runSource, 'private function run(');
+$rebuildRequestStart = strpos($runSource, 'new RebuildRequest(', (int) $runMethodStart);
+$rebuildRequestEnd = strpos($runSource, "\n            ),\n            \$this->warnings", (int) $rebuildRequestStart);
+$rebuildRequestSource = substr(
+    $runSource,
+    (int) $rebuildRequestStart,
+    (int) $rebuildRequestEnd - (int) $rebuildRequestStart
+);
 $check(
-    str_contains($runSource, 'new RebuildRequest(')
-        && str_contains($runSource, 'deleteWork: $deleteWork,')
-        && str_contains($runSource, "absentTombstones: \$plan['deleted'],")
-        && str_contains($runSource, 'withDeletes: $executeDeletes,')
-        && str_contains($runSource, 'suppressScopedExternalEffects: $scopedPromotion,'),
+    $runMethodStart !== false
+        && $rebuildRequestStart !== false
+        && $rebuildRequestEnd !== false
+        && str_contains($rebuildRequestSource, 'deleteWork: $deleteWork,')
+        && str_contains($rebuildRequestSource, "absentTombstones: \$plan['deleted'],")
+        && str_contains($rebuildRequestSource, 'withDeletes: $executeDeletes,')
+        && str_contains($rebuildRequestSource, 'retryingIncompleteApply: $this->retryingIncompleteApply,')
+        && str_contains($rebuildRequestSource, 'suppressScopedExternalEffects: $scopedPromotion,'),
     "run() hands the rebuild pass this run's tombstones, the with_deletes gate, and the already-absent set — never "
     . 'the wider set the pre-mutation selection projected surfaces from; scoped promotion also retains its '
     . 'checkpoint-only external-effects profile');
