@@ -2028,6 +2028,18 @@ $check(
 // four recovery/isolation threading edges in its bounded run()/rebuild()
 // source. The protocol seams they call are exercised dynamically above.
 $applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
+$batchBuilderSource = (string) file_get_contents($root . '/agent/src/ProviderActionBatchBuilder.php');
+$scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/ScopedApplyCoordinator.php');
+$actionDispatcherSource = (string) file_get_contents($root . '/agent/src/RebuildActionDispatcher.php');
+$actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/RebuildActionNegotiator.php');
+$ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/ApplyLedgerFinalizer.php');
+$check(
+    str_contains(
+        preg_replace('/\s+/', ' ', $ledgerFinalizerSource),
+        '!empty($requestedRevision) ? $requestedRevision : $compiled->revision_hash()'
+    ),
+    'ordinary ledger finalization preserves the legacy empty revision fallback, including string zero'
+);
 $legacyScopedGuardAt = strpos(
     $applySource,
     'PromotionLock::scoped_session_id($promotionOwner, $promotionArtifact);'
@@ -2040,10 +2052,7 @@ $check(
     $legacyScopedGuardAt !== false
         && $promotionAcquireAt !== false
         && $legacyScopedGuardAt < $promotionAcquireAt
-        && str_contains(
-            $applySource,
-            '$sessionId = PromotionLock::scoped_session_id($this->promotionOwner, $this->promotionArtifact);'
-        ),
+        && str_contains($scopedCoordinatorSource, '$sessionId = PromotionLock::scoped_session_id('),
     'scoped continuations refuse legacy generations before lease renewal and authority seals only random generations'
 );
 $deleteGateAt = strpos($applySource, 'scoped apply selected live tombstones but --with-deletes was not supplied');
@@ -2098,28 +2107,28 @@ $check(
     'public apply resolves an exact archived scope/source terminal before rotating or minting a new authority'
 );
 $check(
-    substr_count($applySource, 'NativeActions::reconcile_scoped(') === 2
-        && substr_count($applySource, 'Providers::reconcile_scoped(') === 2
-        && substr_count($applySource, 'ScopedApplySession::require_reviewed_effect_receipt(') === 2,
+    substr_count($actionDispatcherSource, 'NativeActions::reconcile_scoped(') === 2
+        && substr_count($actionDispatcherSource, 'Providers::reconcile_scoped(') === 2
+        && substr_count($actionDispatcherSource, 'ScopedApplySession::require_reviewed_effect_receipt(') === 2,
     'both no-receipt and existing-receipt native/provider paths reconcile before trusting completion'
 );
 $check(
     str_contains($applySource, '$durableReparents = $scoped ? []')
         && str_contains($applySource, '$durableDeletions = $scoped ? []')
         && str_contains($applySource, 'if (!$scoped) {' . "\n" . '            $this->regen_dependencies(')
-        && str_contains($applySource, 'Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) : []'),
+        && str_contains($batchBuilderSource, 'Ledger::kv_prefix(self::REGEN_PENDING_PREFIX) : []'),
     'scoped rebuild neither consumes nor sweeps the generic regen retry/context keyspaces'
 );
 $check(
-    str_contains($applySource, "foreach (['deletions', 'reparents'] as \$channel)")
-        && str_contains($applySource, "provider channel '\$channel'")
-        && str_contains($applySource, 'durable environment-local recovery input'),
+    str_contains($actionNegotiatorSource, "foreach (['deletions', 'reparents'] as \$channel)")
+        && str_contains($actionNegotiatorSource, "provider channel '\$channel'")
+        && str_contains($actionNegotiatorSource, 'durable environment-local recovery input'),
     'scoped preflight refuses provider context channels whose local-id payload cannot be reconstructed after a crash'
 );
 $codeWitnessCheckAt = strpos($applySource, "'duo:scoped-code-witness-changed'");
 $sessionBeginAt = strpos($applySource, 'ScopedApplySession::begin(');
 $check(
-    substr_count($applySource, 'ScopedApply::code_witness_hash(') === 2
+    substr_count($applySource . $scopedCoordinatorSource, 'ScopedApply::code_witness_hash(') === 2
         && $codeWitnessCheckAt !== false
         && $sessionBeginAt !== false
         && $codeWitnessCheckAt < $sessionBeginAt,

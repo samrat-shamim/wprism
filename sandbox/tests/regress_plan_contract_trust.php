@@ -564,13 +564,15 @@ pct_ok($contract::requireComplete(pct_plan(), 'unit surface') === pct_plan(),
 
 // ------------------------------------------- emitter/validator drift (pin)
 //
-// The required list is not a taste judgement: it is what agent/src/Apply.php
-// emits. build_plan()'s initializer plus every whole-bucket assignment or
-// append in that file, plus plan()'s own `warnings`, must equal the contract
+// The required list is not a taste judgement: it is what Apply::plan() plus
+// ApplyPlanBuilder::build() emit. The builder initializer plus every whole-
+// bucket assignment or append, and plan()'s own `warnings`, must equal the contract
 // exactly — an emitter that grows a bucket without teaching the validator
 // about it would silently widen what a promotion receipt is allowed to trust.
 $applySource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/Apply.php');
 if (!is_string($applySource)) pct_fail('could not read the plan emitter');
+$builderSource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/ApplyPlanBuilder.php');
+if (!is_string($builderSource)) pct_fail('could not read the plan builder');
 // The derivation is bounded to plan() + build_plan(): those two methods are
 // the wire emitter. A $plan local elsewhere in the file (e.g. run() holds
 // build_plan()'s result and could grow decorations of its own) must NOT
@@ -584,8 +586,8 @@ if ($planIdx === false || $buildIdx === false || $buildIdx !== $planIdx + 1) {
     pct_fail('plan()/build_plan() moved or separated; the drift pin cannot bound the emitter region');
 }
 $emitStart = $methodDecls[0][$planIdx][1];
-$emitEnd = isset($methodDecls[0][$buildIdx + 1]) ? $methodDecls[0][$buildIdx + 1][1] : strlen($applySource);
-$emitterRegion = substr($applySource, $emitStart, $emitEnd - $emitStart);
+$emitterRegion = substr($applySource, $emitStart, $methodDecls[0][$buildIdx][1] - $emitStart)
+    . "\n" . $builderSource;
 $initializerAt = strpos($emitterRegion, '$plan = [');
 $initializerEnd = $initializerAt === false ? false : strpos($emitterRegion, "\n        ];", $initializerAt);
 if ($initializerAt === false || $initializerEnd === false) {

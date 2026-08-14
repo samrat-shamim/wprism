@@ -2312,6 +2312,7 @@ $applyClass = new \ReflectionClass(\Duo\Apply::class);
 $apply = $applyClass->newInstanceWithoutConstructor();
 $applyPolicy = $applyClass->getProperty('policy');
 $applyPolicy->setValue($apply, $policyFor($manifest));
+$batchBuilder = new \Duo\ProviderActionBatchBuilder($policyFor($manifest), []);
 $applyRetry = $applyClass->getProperty('retryingIncompleteApply');
 // No setAccessible(): reflection reaches a private directly from PHP 8.1, and
 // the engine already requires 8.1 or newer (array_is_list()). Calling it would
@@ -2353,7 +2354,7 @@ $deletionRow = static function (
         'child_ids' => $childIds,
     ];
 };
-$deletions = $applyPrivate('action_deletions', [$batchAction, $deleteWork]);
+$deletions = $batchBuilder->action_deletions($batchAction, $deleteWork);
 $check($deletions === [
     $deletionRow('post:probe', $liveDeleted, 41, 'probe'),
     $deletionRow('post:probe', $forgottenDeleted, 0, 'probe'),
@@ -2384,7 +2385,7 @@ $regenContext = [
     ['kind' => 'reparent', 'uuid' => $otherAdapters, 'id' => 77, 'post_type' => 'somebody_else',
      'old_parent_id' => 1, 'new_parent_id' => 2, 'root_ids' => [1, 2]],
 ];
-$reparents = $applyPrivate('action_reparents', [$batchAction, $regenContext]);
+$reparents = $batchBuilder->action_reparents($batchAction, $regenContext);
 $check($reparents === [
     ['kind' => 'post:probe', 'uuid' => $moved, 'id' => 204, 'root_id' => 201,
      'old_parent_id' => 202, 'new_parent_id' => 203],
@@ -2399,26 +2400,34 @@ $check(count(array_filter($reparents, static fn(array $r): bool => $r['uuid'] ==
     'a delete-kind receipt riding in the same context list is not mistaken for a reparent');
 
 $applyRetry->setValue($apply, false);
-$context = $applyPrivate('action_context', [
+$context = $batchBuilder->action_context(
     $batchAction,
     ['scope' => 'entity', 'context' => ['deletions']],
     $deleteWork,
-    $regenContext,
-]);
+    $regenContext
+);
 $check(array_keys($context) === ['deletions'] && $context['deletions'] === $deletions,
     'only the declared channel is assembled — an undeclared one costs no work and delivers nothing');
-$check($applyPrivate('action_context', [$batchAction, ['scope' => 'entity'], $deleteWork, $regenContext]) === [],
+$check($batchBuilder->action_context($batchAction, ['scope' => 'entity'], $deleteWork, $regenContext) === [],
     'a capability declaring no context assembles nothing at all (the pre-DUO-3369 path)');
 $applyRetry->setValue($apply, true);
-$check($applyPrivate('action_context', [$batchAction, ['scope' => 'entity', 'context' => ['retry']], [], []])
+$check($batchBuilder->action_context(
+        $batchAction,
+        ['scope' => 'entity', 'context' => ['retry']],
+        [],
+        [],
+        [],
+        [],
+        true
+    )
     === ['retry' => true],
     "the retry channel reports the apply_in_progress marker this run's selection already consulted");
-$check($applyPrivate('action_context', [
+$check($batchBuilder->action_context(
         $batchAction,
         ['scope' => 'entity', 'context' => ['always_on_write']],
         [],
-        [],
-    ]) === ['always_on_write' => true],
+        []
+    ) === ['always_on_write' => true],
     'always_on_write is assembled as the flag it is — true because it was declared, not because anything happened');
 
 echo "\n== the empty-batch skip: narrowed, not loosened ==\n";
@@ -2427,7 +2436,7 @@ $withDeletions = ['scope' => 'entity', 'context' => ['deletions']];
 $alwaysOn = ['scope' => 'entity', 'context' => ['deletions', 'always_on_write']];
 $alwaysOnAlone = ['scope' => 'entity', 'context' => ['always_on_write']];
 $hasWork = static fn(array $declaration, array $entities, array $channels): bool =>
-    (bool) $applyPrivate('action_batch_has_work', [$declaration, $entities, $channels]);
+    $batchBuilder->action_batch_has_work($declaration, $entities, $channels);
 $check($hasWork($noChannels, [], []) === false,
     'the DUO-3338 skip survives verbatim: a channel-less capability with an empty entity batch is still skipped');
 $check($hasWork($noChannels, [['kind' => 'post:probe', 'id' => 7]], []) === true,
@@ -2676,38 +2685,36 @@ $check(
 // same public list and persists only a hash-bound outer receipt in its closed
 // recovery session. These pins keep either path from acquiring a second raw
 // provider-value sink or a host re-renderer.
-$receiptLines = array_values(array_filter(
-    (array) file($root . '/agent/src/Apply.php', FILE_IGNORE_NEW_LINES),
-    static fn(string $line): bool => str_contains($line, 'actionReceipts')
-));
+$applyReceiptLines = (array) file($root . '/agent/src/Apply.php', FILE_IGNORE_NEW_LINES);
+$dispatcherReceiptLines = (array) file($root . '/agent/src/RebuildActionDispatcher.php', FILE_IGNORE_NEW_LINES);
 $check(
-    count($receiptLines) === 8
-    && count(array_filter(
-        $receiptLines,
+    count(array_filter(
+        $applyReceiptLines,
         static fn(string $line): bool => str_contains($line, 'private array $actionReceipts = [];')
     )) === 1
     && count(array_filter(
-        $receiptLines,
-        static fn(string $line): bool => str_contains($line, '$this->actionReceipts[] = [')
+        $dispatcherReceiptLines,
+        static fn(string $line): bool => str_contains($line, '$actionReceipts[] = [')
     )) === 3
     && count(array_filter(
-        $receiptLines,
-        static fn(string $line): bool => str_contains($line, '$this->actionReceipts[] = $this->scoped_public_action_receipt(')
+        $dispatcherReceiptLines,
+        static fn(string $line): bool => str_contains($line, '$actionReceipts[] = ScopedApplyCoordinator::public_action_receipt(')
     )) === 3
     && count(array_filter(
-        $receiptLines,
+        $applyReceiptLines,
         static fn(string $line): bool => str_contains($line, "'actions' => \$this->actionReceipts,")
     )) === 1,
     'Apply holds public receipts in exactly one in-memory list: three legacy bounded projections and three scoped '
     . 'hash-only projections, returned once; no durable scoped record keeps provider before/after values'
 );
-$scopedReceiptMethodStart = strpos($applySource, 'private function scoped_public_action_receipt(');
+$scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/ScopedApplyCoordinator.php');
+$scopedReceiptMethodStart = strpos($scopedCoordinatorSource, 'public static function public_action_receipt(');
 $scopedReceiptMethodEnd = $scopedReceiptMethodStart === false
     ? false
-    : strpos($applySource, "\n    /** @return array<string,mixed>|null */", $scopedReceiptMethodStart);
+    : strpos($scopedCoordinatorSource, "\n    public static function receipt_at(", $scopedReceiptMethodStart);
 $scopedReceiptMethod = ($scopedReceiptMethodStart === false || $scopedReceiptMethodEnd === false)
     ? ''
-    : substr($applySource, $scopedReceiptMethodStart, $scopedReceiptMethodEnd - $scopedReceiptMethodStart);
+    : substr($scopedCoordinatorSource, $scopedReceiptMethodStart, $scopedReceiptMethodEnd - $scopedReceiptMethodStart);
 $check(
     $scopedReceiptMethod !== ''
     && str_contains($scopedReceiptMethod, "'operation_hash' =>")
@@ -3212,7 +3219,7 @@ $check((\Duo\Orchestrator\PlanSummary::render($statusPlan)['ok'] ?? null) === tr
 // against its own source — the idiom this suite already uses for run()'s
 // threading. Without it, deleting the call site while keeping the method passes
 // every behavioural check in this section (proven: that mutation survived).
-$buildPlanMethod = $applyClass->getMethod('build_plan');
+$buildPlanMethod = (new ReflectionClass(\Duo\ApplyPlanBuilder::class))->getMethod('build');
 $buildPlanSource = implode("\n", array_slice(
     (array) file((string) $buildPlanMethod->getFileName(), FILE_IGNORE_NEW_LINES),
     $buildPlanMethod->getStartLine() - 1,
@@ -3221,7 +3228,7 @@ $buildPlanSource = implode("\n", array_slice(
 $check((bool) preg_match(
     "/\\\$regenDebt\\s*=\\s*\\\$this->regeneration_debt_projection\\(\\);/",
     $buildPlanSource
-), 'build_plan() actually invokes the Apply boundary facade for the shared debt projection — the plan a human reads is the one those checks '
+), 'ApplyPlanBuilder actually invokes the Apply boundary facade for the shared debt projection — the plan a human reads is the one those checks '
     . 'just exercised');
 $check((bool) preg_match(
     "/foreach \\(\\\$regenDebt\\['warnings'\\] as \\\$warning\\) \\{\\s*\\\$this->warnings\\[\\] = \\\$warning;/",

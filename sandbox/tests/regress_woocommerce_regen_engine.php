@@ -1273,15 +1273,11 @@ $check(!isset($wpdb->kv['regen_reparent_context:' . $widgetMoved])
 // args), so the engine brackets the whole invocation instead. Asserted against
 // the source because an offline Apply carries no lease identity, which is the
 // same idiom this suite uses for run()'s own threading.
-$rebuildSource = implode("\n", array_slice(
-    (array) file((string) $rebuildMethod->getFileName(), FILE_IGNORE_NEW_LINES),
-    $rebuildMethod->getStartLine() - 1,
-    $rebuildMethod->getEndLine() - $rebuildMethod->getStartLine() + 1
-));
+$rebuildSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RebuildActionDispatcher.php');
 $check((bool) preg_match(
-    '/\$this->renew_provider_lease\(\);\s*\$receipt = Providers::invoke\(/',
+    '/\(\$this->renewLease\)\(\);\s*\$receipt = Providers::invoke\(/',
     $rebuildSource
-) && (bool) preg_match('/\);\s*\$this->renew_provider_lease\(\);/', $rebuildSource),
+) && (bool) preg_match('/\);\s*\(\$this->renewLease\)\(\);/', $rebuildSource),
     'the promotion lease is renewed immediately before and after the opaque provider call');
 $check(($GLOBALS['woo_engine_cache_flushes'] ?? 0) > 0,
     'and the drive above is the real rebuild() pass, object-cache flush included');

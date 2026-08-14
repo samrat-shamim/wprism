@@ -587,11 +587,11 @@ check(str_contains((string) file_get_contents($root . '/agent/src/Providers.php'
 // deleted fresh-process assertion with the invariant that now carries its
 // job: if the flush disappears, this fails, and whoever removes it must
 // re-argue the execution-context question on purpose.
-$applySource = (string) file_get_contents($root . '/agent/src/Apply.php');
-check(str_contains($applySource, "Db::checkpoint('rebuild object cache (pre-action)')")
+$actionDispatcherSource = (string) file_get_contents($root . '/agent/src/RebuildActionDispatcher.php');
+check(str_contains($actionDispatcherSource, "Db::checkpoint('rebuild object cache (pre-action)')")
     && preg_match(
         "/rebuild object cache \\(pre-action\\)'.{0,200}wp_cache_flush\\(\\)/s",
-        $applySource
+        $actionDispatcherSource
     ) === 1,
     'the in-process action loop is preceded by the compensating object-cache flush (fresh-process successor invariant)');
 

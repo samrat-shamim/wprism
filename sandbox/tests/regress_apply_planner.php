@@ -20,6 +20,7 @@ require_once __DIR__ . '/../../agent/src/Ledger.php';
 require_once __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\ApplyPlanner;
+use Duo\ApplyPlanBuilder;
 use Duo\Canon;
 use Duo\OptionState;
 use Duo\Policy;
@@ -738,23 +739,33 @@ final class ApplyPlannerRawTableLedgerWpdb {
 
 $rawTableLedgerWpdb = new ApplyPlannerRawTableLedgerWpdb();
 $GLOBALS['wpdb'] = $rawTableLedgerWpdb;
-$applyReflection = new ReflectionClass(\Duo\Apply::class);
-$applyForRawTt = $applyReflection->newInstanceWithoutConstructor();
-$applyReflection->getProperty('policy')->setValue($applyForRawTt, new Policy());
-$applyReflection->getProperty('snapshotRowTablesCache')->setValue($applyForRawTt, [
+$rawTtPlanner = new ApplyPlanner(
+    new Policy(),
+    [
     'tt_rooms' => [
         'id_kind' => 'tt',
         'identity' => ['mode' => 'natural_key', 'column' => 'code'],
     ],
-]);
+    ],
+    static fn(string $uuid, string $kind): ?int => null,
+    static fn(string $uuid, string $kind): ?int => \Duo\Ledger::id_for($uuid, $kind)
+);
+$builderReflection = new ReflectionClass(ApplyPlanBuilder::class);
+$builderForRawTt = $builderReflection->newInstanceWithoutConstructor();
+$builderReflection->getProperty('planner')->setValue($builderForRawTt, $rawTtPlanner);
 $rawTtUuid = 'f2e8bd3d-8c9e-5f4a-9b79-c872f4e8414c';
-$rawTtRow = [];
+$rawTtRow = ['annotations' => ['existing plan note']];
 $rawTtArgs = [&$rawTtRow, $rawTtUuid, 'tt_rooms', ['columns' => ['code' => 'renamed-room']], null];
-$applyReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($applyForRawTt, $rawTtArgs);
+$builderReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($builderForRawTt, $rawTtArgs);
+$builderReflection->getMethod('annotate_natural_key_continuity')->invokeArgs($builderForRawTt, $rawTtArgs);
 $check($rawTtRow['annotations'] === [
+    'existing plan note',
     'tt_rooms row renamed-room: renamed since first capture (uuid retained via ledger)',
-], 'Apply preserves a declared raw tt ledger kind for natural-key continuity');
-$check($rawTableLedgerWpdb->ledgerLookups === [[$rawTtUuid, 'tt']], 'Apply sends literal declared tt to Ledger unchanged');
+], 'ApplyPlanBuilder preserves and deduplicates natural-key continuity on the rendered annotations field');
+$check(
+    $rawTableLedgerWpdb->ledgerLookups === [[$rawTtUuid, 'tt'], [$rawTtUuid, 'tt']],
+    'ApplyPlanBuilder sends literal declared tt to Ledger unchanged'
+);
 
 // ----------------------------------------------------------- work projection
 
@@ -1101,18 +1112,19 @@ $check(
 );
 
 $applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$builderSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanBuilder.php');
 $plannerSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanner.php');
 $check(
     !preg_match('/private function find_collision\(/', $applySource),
     'collision planner: Apply no longer owns the collision implementation'
 );
 $check(
-    str_contains($applySource, '$this->apply_planner()->find_collision($e, $tree, $collisionCache);'),
-    'collision planner: build_plan delegates through the planner collaborator'
+    str_contains($builderSource, '$this->apply_planner()->find_collision($e, $tree, $collisionCache);'),
+    'collision planner: the plan builder delegates through the planner collaborator'
 );
 $check(
-    str_contains($applySource, '$this->apply_planner()->option_rebuild_names($e[\'data\'], $envE);'),
-    'option projection: build_plan delegates rebuild-name selection through the planner collaborator'
+    str_contains($builderSource, '$this->apply_planner()->option_rebuild_names($e[\'data\'], $envE);'),
+    'option projection: the plan builder delegates rebuild-name selection through the planner collaborator'
 );
 $check(
     preg_match('/public function find_collision\(/', $plannerSource) === 1,
@@ -1140,19 +1152,21 @@ $check(
 $check(
     preg_match('/public function natural_key_continuity_annotations\(/', $plannerSource) === 1
         && preg_match('/private function annotate_natural_key_continuity\(.*?apply_planner\(\)->natural_key_continuity_annotations\(/s', $applySource) === 1
+        && preg_match('/private function annotate_natural_key_continuity\(.*?natural_key_continuity_annotations\(.*?\$row\[\'annotations\'\]\[\]/s', $builderSource) === 1
+        && !str_contains($builderSource, "\$row['identity_notes']")
         && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
-    'natural-key annotation: planner owns the projection while Apply keeps the plan-row compatibility facade'
+    'natural-key annotation: planner owns the projection and the builder preserves the rendered plan-row field'
 );
 $check(
     preg_match('/public static function regeneration_debt_projection\(/', $plannerSource) === 1
         && preg_match('/private function regeneration_debt_projection\([^}]*?return ApplyPlanner::regeneration_debt_projection\(/s', $applySource) === 1
-        && str_contains($applySource, '$this->regeneration_debt_projection()')
+        && str_contains($builderSource, '$this->regeneration_debt_projection()')
         && !str_contains($applySource, 'regen_context_plan_rows('),
     'regeneration debt: planner owns the complete read-only projection while Apply supplies Ledger/Policy boundaries'
 );
-$envBuildStart = strpos($applySource, '        // DUO-3232: env-bound value provisioning checklist.');
-$envBuildEnd = strpos($applySource, '        // DUO-3249:', $envBuildStart);
-$envBuildSection = substr($applySource, $envBuildStart, $envBuildEnd - $envBuildStart);
+$envBuildStart = strpos($builderSource, '        // DUO-3232: env-bound value provisioning checklist.');
+$envBuildEnd = strpos($builderSource, '        // DUO-3249:', $envBuildStart);
+$envBuildSection = substr($builderSource, $envBuildStart, $envBuildEnd - $envBuildStart);
 $check(
     preg_match('/public static function env_missing_projection\(/', $plannerSource) === 1
         && preg_match('/private function env_missing_projection\([^}]*?return ApplyPlanner::env_missing_projection\(/s', $applySource) === 1
@@ -1173,9 +1187,9 @@ $check(
         && preg_match('/public static function theme_mismatch_warnings\(/', $plannerSource) === 1,
     'theme mismatch: Apply keeps the WordPress input/facade while planner owns warning projection'
 );
-$deletionSectionStart = strpos($applySource, '        // Absence is not deletion authority.');
-$deletionSectionEnd = strpos($applySource, '        // Runtime reverse references are target facts');
-$deletionSection = substr($applySource, $deletionSectionStart, $deletionSectionEnd - $deletionSectionStart);
+$deletionSectionStart = strpos($builderSource, '        // Absence is not deletion authority.');
+$deletionSectionEnd = strpos($builderSource, '        // Runtime reverse references are target facts');
+$deletionSection = substr($builderSource, $deletionSectionStart, $deletionSectionEnd - $deletionSectionStart);
 $check(
     str_contains($deletionSection, '$this->apply_planner()->classify_deletion(')
         && !str_contains($deletionSection, 'hash_equals(')
@@ -1184,9 +1198,9 @@ $check(
         && preg_match('/public static function classify_deletion\(/', $plannerSource) === 1,
     'deletion comparison: Apply delegates tombstone classification while planner owns all three-way branches'
 );
-$comparisonSectionStart = strpos($applySource, "            if (\$envE !== null) {\n                \$comparison =");
-$comparisonSectionEnd = strpos($applySource, '            $coll = $this->apply_planner()->find_collision(', $comparisonSectionStart);
-$comparisonSection = substr($applySource, $comparisonSectionStart, $comparisonSectionEnd - $comparisonSectionStart);
+$comparisonSectionStart = strpos($builderSource, "            if (\$envE !== null) {\n                \$comparison =");
+$comparisonSectionEnd = strpos($builderSource, '            $coll = $this->apply_planner()->find_collision(', $comparisonSectionStart);
+$comparisonSection = substr($builderSource, $comparisonSectionStart, $comparisonSectionEnd - $comparisonSectionStart);
 $check(
     str_contains($comparisonSection, '$this->apply_planner()->classify_observed(')
         && !str_contains($comparisonSection, 'repository_and_target_changed_since_base')
@@ -1195,9 +1209,9 @@ $check(
         && preg_match('/public static function classify_observed\(/', $plannerSource) === 1,
     'observed comparison: Apply delegates four-way hash classification while planner owns its conflict evidence'
 );
-$optionSectionStart = strpos($applySource, "            if (\$uuid === 'options/core' && \$envE !== null) {");
-$optionSectionEnd = strpos($applySource, "            if (\$envE !== null) {", $optionSectionStart);
-$optionSection = substr($applySource, $optionSectionStart, $optionSectionEnd - $optionSectionStart);
+$optionSectionStart = strpos($builderSource, "            if (\$uuid === 'options/core' && \$envE !== null) {");
+$optionSectionEnd = strpos($builderSource, "            if (\$envE !== null) {", $optionSectionStart);
+$optionSection = substr($builderSource, $optionSectionStart, $optionSectionEnd - $optionSectionStart);
 $check(
     str_contains($optionSection, 'ApplyPlanner::classify_option_deletions(')
         && !str_contains($optionSection, 'option_delete_and_target_changed_since_base')
@@ -1206,9 +1220,9 @@ $check(
         && preg_match('/public static function classify_option_deletions\(/', $plannerSource) === 1,
     'option deletion projection: Apply delegates deletion-intent comparison while the planner owns its conflict evidence'
 );
-$sidebarSectionStart = strpos($applySource, "            if (\$e['type'] === SidebarState::ENTITY_TYPE && \$envE !== null) {");
-$sidebarSectionEnd = strpos($applySource, "            if (\$e['type'] === 'user-meta' && \$envE === null) {", $sidebarSectionStart);
-$sidebarSection = substr($applySource, $sidebarSectionStart, $sidebarSectionEnd - $sidebarSectionStart);
+$sidebarSectionStart = strpos($builderSource, "            if (\$e['type'] === SidebarState::ENTITY_TYPE && \$envE !== null) {");
+$sidebarSectionEnd = strpos($builderSource, "            if (\$e['type'] === 'user-meta' && \$envE === null) {", $sidebarSectionStart);
+$sidebarSection = substr($builderSource, $sidebarSectionStart, $sidebarSectionEnd - $sidebarSectionStart);
 $check(
     str_contains($sidebarSection, '$this->apply_planner()->project_sidebar_deletes(')
         && !str_contains($sidebarSection, 'Ledger::id_for')
