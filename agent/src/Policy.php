@@ -56,6 +56,9 @@ require_once __DIR__ . '/ContentAttributeRuleResolver.php';
 // DUO-3348 slice 52: widget type registry/provenance is a pure manifest
 // projection; Policy retains its public facades for current callers.
 require_once __DIR__ . '/WidgetTypeResolver.php';
+// DUO-3348 slice 53: effective table declarations and attached-meta lookup
+// are pure raw declaration projection; grammar and graph validation stay put.
+require_once __DIR__ . '/TableDeclarationResolver.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
@@ -791,7 +794,7 @@ final class Policy {
     }
 
     public function table_rule(string $unprefixedTable): ?array {
-        return $this->declared_table_details($unprefixedTable)['rule'];
+        return $this->table_declaration_resolver()->details($unprefixedTable)['rule'];
     }
 
     /**
@@ -804,19 +807,7 @@ final class Policy {
      * @return array{rule:?array, source:?string}
      */
     public function declared_table_details(string $name): array {
-        $rule = null;
-        $source = null;
-        foreach ($this->manifests as $m) {
-            if (isset($m['tables'][$name])) {
-                $rule = $m['tables'][$name];
-                $source = (string) ($m['name'] ?? '?');
-            }
-        }
-        if (isset($this->site['policy']['tables'][$name])) {
-            $rule = $this->site['policy']['tables'][$name];
-            $source = 'site.duo.json';
-        }
-        return ['rule' => $rule, 'source' => $source];
+        return $this->table_declaration_resolver()->details($name);
     }
 
     /**
@@ -1065,16 +1056,7 @@ final class Policy {
      * authored_options()'s shape for the tables section.
      */
     public function declared_tables(): array {
-        $out = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['tables'] ?? [] as $name => $r) {
-                $out[$name] = $r;
-            }
-        }
-        foreach ($this->site['policy']['tables'] ?? [] as $name => $r) {
-            $out[$name] = $r;
-        }
-        return $out;
+        return $this->table_declaration_resolver()->tables();
     }
 
     /**
@@ -1098,13 +1080,12 @@ final class Policy {
 
     /** @return ?array{name:string,rule:array} effective EAV sidecar for one row table */
     public function attached_meta_table_for_owner(string $ownerTable): ?array {
-        foreach ($this->declared_tables() as $name => $rule) {
-            if (($rule['class'] ?? '') === 'authored_snapshot_meta'
-                && (string) ($rule['attached_to']['table'] ?? '') === $ownerTable) {
-                return ['name' => (string) $name, 'rule' => $rule];
-            }
-        }
-        return null;
+        return $this->table_declaration_resolver()->attached_meta_table_for_owner($ownerTable);
+    }
+
+    /** Fresh because site and manifests stay publicly mutable in offline fixtures. */
+    private function table_declaration_resolver(): TableDeclarationResolver {
+        return new TableDeclarationResolver($this->site, $this->manifests);
     }
 
     /** Closed widget type registry. Last pinned manifest wins per type. */
