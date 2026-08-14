@@ -1,0 +1,10 @@
+parameters:
+    level: max
+    paths:
+        - sandbox/catalog/fragments/engineering-platform
+    excludePaths:
+        analyse:
+            - sandbox/catalog/fragments/engineering-platform/generated (?)
+    tmpDir: artifacts/phpstan
+    reportUnmatchedIgnoredErrors: true
+    treatPhpDocTypesAsCertain: true

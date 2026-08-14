@@ -1,0 +1,23 @@
+{
+  "name": "duotronic/duo-development",
+  "description": "Development-only tooling for Duo; no Composer package is shipped at runtime.",
+  "type": "project",
+  "license": "proprietary",
+  "require-dev": {
+    "friendsofphp/php-cs-fixer": "^3.95",
+    "phpstan/phpstan": "^2.1",
+    "phpunit/phpunit": "^11.5"
+  },
+  "config": {
+    "allow-plugins": false,
+    "platform": {
+      "php": "8.2.0"
+    },
+    "sort-packages": true
+  },
+  "scripts": {
+    "format-check": "php-cs-fixer check --diff --using-cache=no",
+    "static": "phpstan analyse --no-progress",
+    "test-unit": "phpunit --colors=never"
+  }
+}
