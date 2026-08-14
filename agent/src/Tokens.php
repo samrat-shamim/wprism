@@ -285,7 +285,7 @@ final class Tokens {
      * return: drop-with-warning (options, meta, block attrs, key_refs),
      * throw (post_parent, menu item object refs, Snapshot.php's structural
      * table refs), or queue as a policy-scope violation for a batched abort
-     * (Capture::option_ref_tokens()'s unscoped path). A single message
+     * (OptionsCapture's option-ref path). A single message
      * emitted HERE used to claim the value was "left as-is" — true for
      * none of those outcomes (every drop path actually drops the value;
      * every throw path aborts the whole capture) — and every caller that
@@ -508,7 +508,7 @@ final class Tokens {
      * $value=0/''/null at a json_refs path is left untouched, never warned:
      * WordPress's/plugins' own "unset" convention for an id field (fresh
      * installs, unconfigured optional fields like Yoast's per-term
-     * og-image) — same treatment Capture::option_ref_tokens() already
+     * og-image) — same treatment OptionsCapture's option-ref path already
      * gives whole-option id 0.
      */
     public function struct_capture($value, array $jsonRefs, ?array $keyRefs) {

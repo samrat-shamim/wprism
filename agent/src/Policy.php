@@ -1376,7 +1376,7 @@ final class Policy {
      * row's own pk). Pure manifest merge (flat concatenated list, manifest
      * pin order then declaration order — same first-match-wins semantics
      * as the PATTERN_KEYS fallback loop in rule() above); the live
-     * wp_options NAME scan this declares is Capture::build_options()'s job,
+     * wp_options NAME scan this declares is OptionsCapture::capture()'s job,
      * not this accessor's — mirrors declared_tables()/block_attr_rules()'s
      * existing split between "what did manifests declare" (pure, here) and
      * "what do we do about it against a live environment" (the DB-touching
@@ -1385,7 +1385,7 @@ final class Policy {
      * A DELIBERATE sibling of option_patterns, not a variant of it:
      * option_patterns is consulted only to CLASSIFY a key some other
      * enumeration already produced (Policy::rule()'s fallback loop);
-     * Capture::build_options() is exact-whitelist-only and NEVER consults
+     * OptionsCapture::capture()'s exact authored loop is whitelist-only and NEVER consults
      * option_patterns for DISCOVERY (confirmed by reading it — r1b-shop.md's
      * own finding). option_name_refs entries drive their OWN discovery scan
      * because these rows are otherwise invisible to every existing option

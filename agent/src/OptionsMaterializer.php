@@ -245,7 +245,7 @@ final class OptionsMaterializer {
      * this match arm about it now fails loudly, at the first manifest that
      * declares it, naming the missing engine step.
      *
-     * The match is deliberately a second copy of Capture::build_options()'s,
+     * The match is deliberately a second copy of OptionsCapture::capture()'s,
      * not a shared helper: Policy.php is WordPress-free by design (it loads
      * in RepositoryCompiler's pure offline pass), so the one place that could
      * host a shared implementation is the one place that may not call
@@ -271,7 +271,7 @@ final class OptionsMaterializer {
     }
 
     /**
-     * Shared apply-direction dispatch, the mirror of Capture::capture_value()
+     * Shared apply-direction dispatch, the mirror of OptionsCapture's value codec
      * — factored out for the identical reason: a sub_keys (DUO-3233) NAMED
      * sub-key's rule is a whole option rule at one nesting level down, so it
      * gets json_refs/key_refs/ref/plain-string detokenization for free, with

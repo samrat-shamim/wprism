@@ -1,8 +1,8 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3214(a): Capture::guard_secret()'s two call sites (build_post()'s
- * authored post_meta loop, build_options()'s authored-options loop) used to
+ * DUO-3214(a): Capture::guard_secret()'s authored post-meta and option call
+ * sites used to
  * gate the guard behind `is_string($v)` — an authored value that decoded to
  * an ARRAY (a plugin's serialized settings blob) got ZERO secret scanning
  * in any downstream branch (decode_structured()/Tokens::struct_capture()
@@ -20,8 +20,8 @@
  * Capture instance WITHOUT running its constructor (only $repo is ever
  * read by guard_secret() itself, set directly via ReflectionProperty) and
  * invoke the private method directly. This proves the CORE logic change in
- * total isolation; the call-site wiring itself (that build_post()/
- * build_options() really do call guard_secret() unconditionally now) is a
+ * total isolation; the call-site wiring itself (that the extracted entity
+ * and options capturers call guard_secret() unconditionally now) is a
  * live sandbox-pair proof instead, in the PR body -- Capture::build() is
  * not designed to be offline-stubbable end-to-end the way agent/src/
  * Publish.php was for DUO-3213 (this file intentionally does not attempt
