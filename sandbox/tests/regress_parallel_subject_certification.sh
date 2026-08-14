@@ -168,6 +168,33 @@ git -C "$REPO" checkout -- manifests/dispositions.json
   || fail "mixed-source batch published an index"
 pass "source drift across waves refuses before index publication"
 
+FAIL_PYTHON_BIN="$TMP/fail-python-bin"
+mkdir -p "$FAIL_PYTHON_BIN"
+cat >"$FAIL_PYTHON_BIN/python3" <<'SH'
+#!/usr/bin/env bash
+exit 37
+SH
+chmod +x "$FAIL_PYTHON_BIN/python3"
+cert_lines_before="$(wc -l <"$CERT_LOG" | tr -d ' ')"
+pair_lines_before="$(wc -l <"$PAIR_LOG" | tr -d ' ')"
+if env "${common_env[@]}" PATH="$FAIL_PYTHON_BIN:$PATH" \
+  CERT_PARALLEL_JOBS=1 CERT_PARALLEL_OUT="$TMP/launcher-failure" \
+  CERT_PARALLEL_SUBJECTS='manifests.acf' \
+  bash "$REPO/sandbox/tests/certify_subjects_parallel.sh" \
+  >"$TMP/launcher-failure.out" 2>"$TMP/launcher-failure.err"; then
+  fail "a launcher that exited before readiness made the batch look successful"
+fi
+grep -q 'parallel certification interrupted' "$TMP/launcher-failure.err" \
+  || fail "launcher failure did not report batch cleanup"
+[ "$(wc -l <"$CERT_LOG" | tr -d ' ')" = "$cert_lines_before" ] \
+  || fail "launcher failure ran the certifier without a ready process group"
+[ -z "$(find "$TMP/launcher-failure" -name index.json -type f -print -quit)" ] \
+  || fail "launcher failure published a certification index"
+tail -n "+$((pair_lines_before + 1))" "$PAIR_LOG" | grep -q '^destroy ptest0$' \
+  && tail -n "+$((pair_lines_before + 1))" "$PAIR_LOG" | grep -q '^lease-batch-release ' \
+  || fail "launcher failure did not destroy its exact leased pair and release leases"
+pass "a launcher failure before readiness is nonzero, runs no certifier, and cleans its leased pair"
+
 cert_lines_before="$(wc -l <"$CERT_LOG" | tr -d ' ')"
 env "${common_env[@]}" CERT_PARALLEL_JOBS=1 CERT_PARALLEL_OUT="$TMP/pre-setsid-signal" \
   CERT_PARALLEL_SUBJECTS='manifests.acf' CERT_PARALLEL_PRE_SETSID_DELAY=1 \

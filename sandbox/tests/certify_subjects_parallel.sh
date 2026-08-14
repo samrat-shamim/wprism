@@ -209,6 +209,7 @@ for ((wave=0; wave<${#SUBJECTS[@]}; wave+=JOBS)); do
     pending_signal=0
     trap 'pending_signal=130' INT
     trap 'pending_signal=143' TERM
+    ACTIVE_PAIRS+=("$pair")
     CERT_PARALLEL_PRE_SETSID_DELAY="$PRE_SETSID_DELAY" python3 -c '
 import os
 import sys
@@ -242,13 +243,14 @@ os.execvp(sys.argv[3], sys.argv[3:])
       wait "$lane_pid" >/dev/null 2>&1 || true
       trap 'abort_batch 130' INT
       trap 'abort_batch 143' TERM
-      abort_batch "${pending_signal:-1}"
+      failure_status="$pending_signal"
+      [ "$failure_status" -ne 0 ] || failure_status=1
+      abort_batch "$failure_status"
     fi
     [ "$REGISTRATION_DELAY" = 0 ] || sleep "$REGISTRATION_DELAY" || true
     wave_pids+=("$lane_pid")
     wave_subjects+=("$subject")
     ACTIVE_PIDS+=("$lane_pid")
-    ACTIVE_PAIRS+=("$pair")
     trap 'abort_batch 130' INT
     trap 'abort_batch 143' TERM
     [ "$pending_signal" -eq 0 ] || abort_batch "$pending_signal"
