@@ -1,0 +1,106 @@
+<?php
+namespace Duo;
+
+/**
+ * Pure selection of one exact or pattern-backed Policy classification rule.
+ *
+ * The resolver receives the loaded site/manifests and Policy's narrow
+ * source-level autoload normalizer, rather than loading Policy or touching a
+ * WordPress surface. Policy keeps its established public query facade; this
+ * class owns only the core-yields-to-plugin and pattern fallback precedence.
+ */
+final class PolicyRuleResolver {
+    /**
+     * Pattern-fallback declaration arrays keyed by their classified section.
+     *
+     * `option_patterns` predates this map; `meta_patterns` serves both post
+     * and term meta. Exact meta rules have never been post-type-scoped, so a
+     * fallback cannot introduce that new axis: a key name is either safe to
+     * classify everywhere it occurs, or it is not. Taxonomy patterns remain a
+     * different scope-discovery contract, not a key-classification fallback.
+     *
+     * @var array<string,string>
+     */
+    private const PATTERN_KEYS = [
+        'options' => 'option_patterns',
+        'post_meta' => 'meta_patterns',
+        'term_meta' => 'meta_patterns',
+    ];
+
+    /**
+     * @param array<string,mixed> $site
+     * @param list<array<string,mixed>> $manifests
+     * @param \Closure(array<string,mixed>, array<string,mixed>):array<string,mixed> $withOptionAutoload
+     */
+    public function __construct(
+        private array $site,
+        private array $manifests,
+        private \Closure $withOptionAutoload
+    ) {}
+
+    /** @return array<string,string> */
+    public static function pattern_keys(): array {
+        return self::PATTERN_KEYS;
+    }
+
+    /**
+     * Resolve one rule together with the declaration that won. Source is
+     * load-bearing authorization evidence, not display-only metadata.
+     *
+     * A non-core declaration of a core name always wins regardless of pin
+     * order; among non-core declarations, the first pin still wins. This is
+     * the deliberate core-schema → plugin-refinement layer from DUO-3249, not
+     * a general later-pin-wins rule. CrossManifestGuards separately rejects
+     * contradictory non-core declarations, so this selection never hides a
+     * competing policy decision.
+     *
+     * @return array{rule:?array,source:?string}
+     */
+    public function details(string $section, string $name): array {
+        $sitePolicy = $this->site['policy'][$section][$name] ?? null;
+        if ($sitePolicy !== null) {
+            return [
+                'rule' => $section === 'options'
+                    ? ($this->withOptionAutoload)($sitePolicy, $this->site['policy'] ?? [])
+                    : $sitePolicy,
+                'source' => 'site.duo.json',
+            ];
+        }
+        $coreMatch = null;
+        foreach ($this->manifests as $manifest) {
+            if (!isset($manifest[$section][$name])) {
+                continue;
+            }
+            $found = [
+                'rule' => $section === 'options'
+                    ? ($this->withOptionAutoload)($manifest[$section][$name], $manifest)
+                    : $manifest[$section][$name],
+                'source' => (string) ($manifest['name'] ?? '?'),
+            ];
+            if ($found['source'] === 'core') {
+                $coreMatch = $found; // keep scanning: a non-core declaration still outranks core
+                continue;
+            }
+            return $found;
+        }
+        if ($coreMatch !== null) {
+            return $coreMatch;
+        }
+        $patternKey = self::PATTERN_KEYS[$section] ?? null;
+        if ($patternKey !== null) {
+            foreach ($this->manifests as $manifest) {
+                foreach ($manifest[$patternKey] ?? [] as $pattern) {
+                    if (preg_match('/' . $pattern['match'] . '/', $name)) {
+                        return [
+                            'rule' => $section === 'options'
+                                ? ($this->withOptionAutoload)(array_diff_key($pattern, ['match' => true]), $manifest)
+                                : array_diff_key($pattern, ['match' => true]),
+                            'source' => (string) ($manifest['name'] ?? '?'),
+                        ];
+                    }
+                }
+            }
+        }
+        return ['rule' => null, 'source' => null];
+    }
+}

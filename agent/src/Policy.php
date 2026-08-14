@@ -59,6 +59,9 @@ require_once __DIR__ . '/WidgetTypeResolver.php';
 // DUO-3348 slice 53: effective table declarations and attached-meta lookup
 // are pure raw declaration projection; grammar and graph validation stay put.
 require_once __DIR__ . '/TableDeclarationResolver.php';
+// DUO-3348 slice 54: exact/pattern classification rule selection remains pure
+// manifest work; Policy keeps the public facades and source-autoload port.
+require_once __DIR__ . '/PolicyRuleResolver.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
@@ -609,111 +612,18 @@ final class Policy {
         return is_array($code) ? $code : null;
     }
 
-    /**
-     * Pattern-fallback manifest arrays, keyed by the section they apply to.
-     * `option_patterns` predates this map (kept as its original name for
-     * backward compat with shipped manifests, e.g. core.json's
-     * `^_transient_` rule); `meta_patterns` is new (task #11 wave 2 /
-     * docs/frontier/elementor.md's finding: "post_meta/term_meta
-     * classification has no pattern-matching escape hatch" — Elementor's
-     * `_elementor_migrations_state_<hash>` is exactly the versioned-suffix
-     * shape that needs it). Deliberately NOT post-type-scoped, unlike the
-     * report's own suggestion: exact-match post_meta/term_meta rules
-     * already aren't post-type-scoped in this engine (Policy::rule() has
-     * never taken a post type), so a pattern fallback that suddenly needed
-     * one would be a new, inconsistent axis rather than "mirroring
-     * option_patterns" — a meta key name is either safe to classify by
-     * pattern everywhere it appears, or it isn't; a plugin's own key-naming
-     * convention already makes collisions with an unrelated plugin's keys
-     * exceedingly unlikely, the same trust the exact-match case already
-     * extends. term_meta gets the same fallback for free, at zero extra
-     * cost, since it shares this one lookup path.
-     *
-     * @var array<string, string>
-     */
-    private const PATTERN_KEYS = [
-        'options' => 'option_patterns',
-        'post_meta' => 'meta_patterns',
-        'term_meta' => 'meta_patterns',
-    ];
-
-    /**
-     * Resolve a policy rule together with the declaration that won. Apply's
-     * repository authorization gate needs the source as evidence: a refusal
-     * that only says "runtime" but not whether site.duo.json or which pinned
-     * manifest made that decision is not actionable enough to repair safely.
-     *
-     * DUO-3249: a NON-core manifest's own declaration of a name ALSO
-     * declared by the core manifest always outranks core's, regardless of
-     * relative pin order. This is not a general "later pin wins" rule (see
-     * the loop below — among two or more NON-core manifests declaring the
-     * same name, the FIRST one in pin order still wins, completely
-     * unchanged from before this fix; that remaining ambiguity is a
-     * separate, undecided question, DUO-3255, deliberately not touched
-     * here). It specifically encodes DESIGN.md §3.1's own numbered
-     * precedence order — "1. Core schema rules" then "2. Plugin manifests"
-     * — as an actual load-bearing precedence rather than merely descriptive
-     * prose: every shipped site.duo.json pins `core` FIRST (grep-verified,
-     * not assumed), so a plain first-pin-order walk would have let core's
-     * own declaration win over ANY later plugin manifest's deliberate
-     * reclassification of the same option, every single time, silently —
-     * exactly backwards from "layer 2 refines layer 1", and exactly what
-     * left Polylang's per-language `default_category` divergence
-     * undetected until live grind evidence forced the question (DUO-3249).
-     * A plugin manifest reclassifying a core option is therefore always
-     * loud and deliberate by construction (it only ever WINS, never
-     * silently collides) — `Policy::active_reclassifications()` is what
-     * makes it plan-visible too, so "loud" extends to runtime output, not
-     * just load-time precedence.
-     *
-     * @return array{rule:?array, source:?string}
-     */
+    /** @return array{rule:?array, source:?string} Policy's compatibility facade over PolicyRuleResolver. */
     private function rule_details(string $section, string $name): array {
-        $sitePolicy = $this->site['policy'][$section][$name] ?? null;
-        if ($sitePolicy !== null) {
-            return [
-                'rule' => $section === 'options'
-                    ? self::with_option_autoload($sitePolicy, $this->site['policy'] ?? [])
-                    : $sitePolicy,
-                'source' => 'site.duo.json',
-            ];
-        }
-        $coreMatch = null;
-        foreach ($this->manifests as $m) {
-            if (!isset($m[$section][$name])) {
-                continue;
-            }
-            $found = [
-                'rule' => $section === 'options'
-                    ? self::with_option_autoload($m[$section][$name], $m)
-                    : $m[$section][$name],
-                'source' => (string) ($m['name'] ?? '?'),
-            ];
-            if ($found['source'] === 'core') {
-                $coreMatch = $found; // keep scanning: a non-core manifest's own declaration still outranks this
-                continue;
-            }
-            return $found;
-        }
-        if ($coreMatch !== null) {
-            return $coreMatch;
-        }
-        $patternKey = self::PATTERN_KEYS[$section] ?? null;
-        if ($patternKey !== null) {
-            foreach ($this->manifests as $m) {
-                foreach ($m[$patternKey] ?? [] as $pat) {
-                    if (preg_match('/' . $pat['match'] . '/', $name)) {
-                        return [
-                            'rule' => $section === 'options'
-                                ? self::with_option_autoload(array_diff_key($pat, ['match' => true]), $m)
-                                : array_diff_key($pat, ['match' => true]),
-                            'source' => (string) ($m['name'] ?? '?'),
-                        ];
-                    }
-                }
-            }
-        }
-        return ['rule' => null, 'source' => null];
+        return $this->policy_rule_resolver()->details($section, $name);
+    }
+
+    /** Fresh per call so mutable Policy fixture declarations remain observable. */
+    private function policy_rule_resolver(): PolicyRuleResolver {
+        return new PolicyRuleResolver(
+            $this->site,
+            $this->manifests,
+            static fn(array $rule, array $source): array => self::with_option_autoload($rule, $source)
+        );
     }
 
     private function rule(string $section, string $name): ?array {
@@ -3003,7 +2913,7 @@ final class Policy {
             'classification_sections' => self::SECTIONS,
             'scope_classes' => ScopeGrammar::scopeClasses(),
             'value_casts' => self::CASTS,
-            'pattern_keys' => self::PATTERN_KEYS,
+            'pattern_keys' => PolicyRuleResolver::pattern_keys(),
             'option_autoload_values' => OptionState::AUTOLOAD_VALUES,
             'option_autoload_sentinels' => OptionGrammar::optionAutoloadSentinels(),
             'dynamic_option_resolvers' => SubKeyGrammar::dynamic_option_resolvers(),
