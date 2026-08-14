@@ -34,6 +34,54 @@ function duo_cert_copy_tree(string $from, string $to): void {
     }
 }
 
+function duo_cert_copy_file(string $repo, string $root, string $relative): void {
+    $source = rtrim($repo, '/') . '/' . $relative;
+    $target = rtrim($root, '/') . '/' . $relative;
+    if (!is_file($source) || is_link($source)) {
+        throw new RuntimeException("certification fixture manufacture failed: source input is absent or unsafe: $relative");
+    }
+    if (!is_dir(dirname($target)) && !mkdir(dirname($target), 0777, true) && !is_dir(dirname($target))) {
+        throw new RuntimeException("certification fixture manufacture failed: cannot create " . dirname($target));
+    }
+    if (!copy($source, $target) || !chmod($target, fileperms($source) & 0777)) {
+        throw new RuntimeException("certification fixture manufacture failed: cannot copy $source");
+    }
+}
+
+/** @return array{exit:int,stdout:string,stderr:string} */
+function duo_cert_process(array $command): array {
+    $pipes = [];
+    $process = proc_open($command, [
+        0 => ['pipe', 'r'],
+        1 => ['pipe', 'w'],
+        2 => ['pipe', 'w'],
+    ], $pipes);
+    if (!is_resource($process)) {
+        throw new RuntimeException('certification fixture manufacture failed: could not start subprocess');
+    }
+    fclose($pipes[0]);
+    $stdout = stream_get_contents($pipes[1]);
+    $stderr = stream_get_contents($pipes[2]);
+    fclose($pipes[1]);
+    fclose($pipes[2]);
+    return [
+        'exit' => proc_close($process),
+        'stdout' => is_string($stdout) ? $stdout : '',
+        'stderr' => is_string($stderr) ? $stderr : '',
+    ];
+}
+
+function duo_cert_git(string $root, array $arguments): string {
+    $result = duo_cert_process(array_merge(['git', '-C', $root], $arguments));
+    if ($result['exit'] !== 0) {
+        throw new RuntimeException(
+            'certification fixture manufacture failed: git ' . implode(' ', $arguments)
+            . ' failed: ' . trim($result['stderr'])
+        );
+    }
+    return trim($result['stdout']);
+}
+
 function duo_cert_remove_tree(string $path): void {
     if (!file_exists($path) && !is_link($path)) {
         return;
@@ -133,7 +181,8 @@ function duo_cert_make_subject_record(
     string $name,
     array $manifest,
     array $claim,
-    string $subjectDigest
+    string $subjectDigest,
+    string $gitRevision
 ): array {
     $subjectKey = ScopedCertificationBundle::subjectKey($kind, $name);
     $tests = $claim['evidence']['tests'] ?? [];
@@ -177,15 +226,7 @@ function duo_cert_make_subject_record(
             'verdict' => 'pass',
         ];
     }
-    $manifestName = (string) $manifest['name'];
-    $inputPaths = [
-        'agent/duo-loader.php',
-        'agent/duo.php',
-        'agent/src/CapabilityRegistry.php',
-        'agent/src/ScopedCertificationBundle.php',
-        'manifests/dispositions.json',
-        "manifests/$manifestName.json",
-    ];
+    $inputPaths = ScopedCertificationBundle::subjectInputPaths($fixtureRoot, $kind, $name, $manifest, $tests);
     $inputs = array_map(fn(string $path): array => duo_cert_input($fixtureRoot, $path), $inputPaths);
     $bundle = [
         'artifacts' => duo_cert_scoped_artifacts($repo, $manifest),
@@ -195,7 +236,7 @@ function duo_cert_make_subject_record(
         'created_at' => '2026-08-14T00:00:00Z',
         'force_hatches' => [],
         'format' => ScopedCertificationBundle::FORMAT,
-        'git_revision' => str_repeat('0', 40),
+        'git_revision' => $gitRevision,
         'platform' => $platform,
         'ratification' => [
             'claim' => $claim,
@@ -230,16 +271,6 @@ function duo_cert_seal_library(string $repo, string $root): string {
         throw new RuntimeException("certification fixture manufacture failed: cannot create $root");
     }
     duo_cert_copy_tree("$repo/manifests", "$root/manifests");
-    duo_cert_copy_tree("$repo/agent", "$root/agent");
-    copy("$repo/Makefile", "$root/Makefile");
-    if (!is_dir("$root/sandbox/conformance")) {
-        mkdir("$root/sandbox/conformance", 0777, true);
-    }
-    copy("$repo/sandbox/conformance/artifacts.lock.json", "$root/sandbox/conformance/artifacts.lock.json");
-    if (!is_dir("$root/docs")) {
-        mkdir("$root/docs", 0777, true);
-    }
-    copy("$repo/docs/compatibility-baseline.json", "$root/docs/compatibility-baseline.json");
     duo_cert_remove_tree("$root/manifests/capabilities/scoped");
 
     $registry = Canon::decode(Canon::read_file("$repo/manifests/capabilities/registry.json"));
@@ -247,6 +278,44 @@ function duo_cert_seal_library(string $repo, string $root): string {
     if ($dispositions === null) {
         throw new RuntimeException('certification fixture manufacture failed: dispositions are absent');
     }
+    $sourcePaths = [];
+    foreach ($registry['manifests'] as $name => $row) {
+        if (($row['status'] ?? null) !== 'certified') {
+            continue;
+        }
+        $manifest = Canon::decode(Canon::read_file("$repo/manifests/$name.json"));
+        $claim = $dispositions->entry($name);
+        foreach (ScopedCertificationBundle::subjectInputPaths(
+            $repo, 'manifest', $name, $manifest, $claim['evidence']['tests'] ?? []
+        ) as $path) {
+            $sourcePaths[$path] = true;
+        }
+    }
+    foreach ($registry['profiles'] as $name => $row) {
+        if (($row['status'] ?? null) !== 'certified') {
+            continue;
+        }
+        $claim = $dispositions->profiles()[$name];
+        $manifest = Canon::decode(Canon::read_file("$repo/manifests/{$claim['manifest']}.json"));
+        foreach (ScopedCertificationBundle::subjectInputPaths(
+            $repo, 'profile', $name, $manifest, $claim['evidence']['tests'] ?? []
+        ) as $path) {
+            $sourcePaths[$path] = true;
+        }
+    }
+    $sourcePaths['sandbox/conformance/artifacts.lock.json'] = true;
+    ksort($sourcePaths, SORT_STRING);
+    foreach (array_keys($sourcePaths) as $path) {
+        duo_cert_copy_file($repo, $root, $path);
+    }
+
+    duo_cert_git($root, ['init', '-q']);
+    duo_cert_git($root, ['config', 'user.name', 'Duo Certification Fixture']);
+    duo_cert_git($root, ['config', 'user.email', 'fixture@invalid.example']);
+    duo_cert_git($root, ['add', '--all']);
+    duo_cert_git($root, ['commit', '-qm', 'Seal certification source fixture']);
+    $gitRevision = duo_cert_git($root, ['rev-parse', '--verify', 'HEAD^{commit}']);
+
     $records = [];
     foreach ($registry['manifests'] as $name => &$row) {
         if (($row['status'] ?? null) !== 'certified') {
@@ -255,7 +324,7 @@ function duo_cert_seal_library(string $repo, string $root): string {
         $manifest = Canon::decode(Canon::read_file("$root/manifests/$name.json"));
         $claim = $dispositions->entry($name);
         $record = duo_cert_make_subject_record(
-            $repo, $root, $registry['platform'], 'manifest', $name, $manifest, $claim, $row['adapter_digest']
+            $root, $root, $registry['platform'], 'manifest', $name, $manifest, $claim, $row['adapter_digest'], $gitRevision
         );
         $key = 'manifests.' . $name;
         $records[$key] = $record;
@@ -269,7 +338,7 @@ function duo_cert_seal_library(string $repo, string $root): string {
         $claim = $dispositions->profiles()[$name];
         $manifest = Canon::decode(Canon::read_file("$root/manifests/{$claim['manifest']}.json"));
         $record = duo_cert_make_subject_record(
-            $repo, $root, $registry['platform'], 'profile', $name, $manifest, $claim, $row['subject_digest']
+            $root, $root, $registry['platform'], 'profile', $name, $manifest, $claim, $row['subject_digest'], $gitRevision
         );
         $key = 'profiles.' . $name;
         $records[$key] = $record;
