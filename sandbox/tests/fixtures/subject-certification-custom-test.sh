@@ -17,8 +17,9 @@ TEST_ID="$DUO_CERT_TEST_ID"
 [ "$DUO_CERT_SUBJECT" = manifests.synthetic-extension ]
 [ "$DUO_CERT_MANIFEST" = synthetic-extension ]
 [[ "$DUO_CERT_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
-jq -e '
-  .plugins["synthetic-extension"]
+ARTIFACT_SLUG=$(jq -er '.plugin | split("/")[0]' "../manifests/$DUO_CERT_MANIFEST.json")
+jq -e --arg slug "$ARTIFACT_SLUG" '
+  .plugins[$slug]
   | ([to_entries[].value.role] | sort) == ["certified-boundary", "refusal-fixture"]
 ' conformance/artifacts.lock.json >/dev/null
 
