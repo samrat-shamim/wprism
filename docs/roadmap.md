@@ -57,12 +57,33 @@ same-day-fixed what it surfaced (DUO-3287, DUO-3290). The rollback program
 generation fence, encrypted checkpoints, atomic code releases with verified
 restore, upload journaling, effect contracts, crash certification — and
 DUO-3310 wired `duo promote` to select that profile automatically when the
-target qualifies. Next: product-spec Phase A — a calibration cohort of at
-least three transactionally active single-site WooCommerce sites across two
-agencies, followed by the held-out validation cohort defined in
+target qualifies. Next after the bounded modularization override below:
+product-spec Phase A — a calibration cohort of at least three transactionally
+active single-site WooCommerce sites across two agencies, followed by the
+held-out validation cohort defined in
 [docs/product-spec.md](product-spec.md). The outputs are an operator-facing
 guide distilled from real transcripts, frozen launch thresholds, and field
 evidence about real targets and verified recovery.
+
+### Temporary sequencing override — modularization before Phase A
+
+**Owner ruling, 2026-08-14.** Run the six-thread refactor program in
+[Thread 0](proposals/thread-0-foundation.md) before starting the Phase A
+calibration cohort. This is a sequencing exception, not a product-spec change.
+Its scope is limited to safety disposition/quarantine, ownership and dependency
+seams, behavior-preserving modularization, development/test tooling,
+deterministic distribution, and evidence/release closure. It may not implement
+the deferred Assess, Rehearse, product Release/Verify/Recover, qualification,
+or target capability-model work.
+
+The exception ends only when Thread 0's foundation gates pass, all five
+execution charters meet their machine-readable acceptance matrix, the
+integrated candidate is frozen and recertified once, and the exact
+release-family/target-set bytes pass adoption and recovery smoke tests. At that
+point H2 resumes at Phase A with the ratified cohort composition, launch
+thresholds, and held-out validation gate unchanged. Any broader abstraction or
+delay requires a new dated owner ruling rather than silently extending this
+override.
 
 **H3 — Agent-native product and ecosystem.** The ratified
 [product specification](product-spec.md) keeps branchable WordPress as the
