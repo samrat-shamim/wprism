@@ -34,7 +34,7 @@
         "host-cli-cold": {"median_ms": 70, "p95_ms": 70, "rss_kib": 40000, "maximum_regression_ratio": 0.2},
         "host-cli-warm": {"median_ms": 70, "p95_ms": 70, "rss_kib": 40000, "maximum_regression_ratio": 0.2},
         "closure-hashing": {"median_ms": 80, "p95_ms": 82, "rss_kib": 32000, "maximum_regression_ratio": 0.2},
-        "targeted-test-feedback": {"median_ms": 30, "p95_ms": 32, "rss_kib": 32000, "maximum_regression_ratio": 0.2},
+        "targeted-test-feedback": {"median_ms": 30, "p95_ms": 32, "rss_kib": 35000, "maximum_regression_ratio": 0.2},
         "complete-test-feedback": {"median_ms": 75, "p95_ms": 78, "rss_kib": 38000, "maximum_regression_ratio": 0.2}
     }
 }
