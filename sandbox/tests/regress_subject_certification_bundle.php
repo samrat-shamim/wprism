@@ -184,7 +184,10 @@ file_put_contents($untrackedPath, "<?php\n// convention-discovered but absent fr
 $untrackedProjection = run([PHP_BINARY, $builder, 'inputs', 'manifest', 'woocommerce', $repo]);
 $forged = is_string($bundle) ? json_decode((string) file_get_contents($bundle . '/bundle.json'), true) : null;
 if (is_array($forged) && is_array($untrackedProjection['json']['inputs'] ?? null)) {
-    $forged['closure']['inputs'] = $untrackedProjection['json']['inputs'];
+    $forged['closure']['inputs'] = Duo\ScopedCertificationBundle::currentInputsForPaths(
+        $repo,
+        $untrackedProjection['json']['inputs']
+    );
     $forged['closure']['digest'] = Duo\ScopedCertificationBundle::closureDigest($forged['closure']['inputs']);
     $forged['bundle_digest'] = Duo\ScopedCertificationBundle::digest($forged);
     $forgedDir = "$root/untracked-forgery/{$forged['bundle_digest']}";
@@ -504,6 +507,7 @@ foreach ([
     if (!is_dir(dirname($extensionRepo . '/' . $relative))) mkdir(dirname($extensionRepo . '/' . $relative), 0777, true);
     copy($source . '/' . $relative, $extensionRepo . '/' . $relative);
 }
+reset_subject_evidence($extensionRepo);
 $frameworkPaths = [
     'agent/src/CapabilityRegistry.php',
     'agent/src/ScopedCertificationBundle.php',
