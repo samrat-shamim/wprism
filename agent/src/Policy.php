@@ -65,6 +65,9 @@ require_once __DIR__ . '/PolicyRuleResolver.php';
 // DUO-3348 slice 55: the exact option declaration projection is pure
 // manifest work; Policy keeps its public inventory facades below.
 require_once __DIR__ . '/ExactOptionResolver.php';
+// DUO-3348 slice 56: option namespace ownership is pure manifest work;
+// Policy keeps its public discovery authority facade below.
+require_once __DIR__ . '/OptionNamespaceResolver.php';
 // DUO-3348 slice 18: pure reference-valued declaration shape grammar,
 // required here for the same "loads alone" reason as its neighbors above.
 require_once __DIR__ . '/ReferenceShapeGrammar.php';
@@ -647,6 +650,11 @@ final class Policy {
         return $this->rule_details('options', $name);
     }
 
+    /** Fresh per call so mutable Policy fixture declarations remain observable. */
+    private function option_namespace_resolver(): OptionNamespaceResolver {
+        return new OptionNamespaceResolver($this->manifests);
+    }
+
     /**
      * Return the manifest namespace that claims discovery responsibility for
      * an option name. A namespace is deliberately ownership-only: it does
@@ -656,25 +664,7 @@ final class Policy {
      * @return ?array{owner:string, match:string}
      */
     public function option_namespace(string $name): ?array {
-        $matches = [];
-        foreach ($this->manifests as $m) {
-            foreach ($m['option_namespaces'] ?? [] as $decl) {
-                if (preg_match('/' . $decl['match'] . '/', $name)) {
-                    $matches[] = [
-                        'owner' => (string) ($m['name'] ?? '?'),
-                        'match' => (string) $decl['match'],
-                    ];
-                }
-            }
-        }
-        if (count($matches) > 1) {
-            throw new \RuntimeException(
-                "duo: option '$name' is claimed by overlapping namespaces from "
-                . implode(', ', array_map(fn($m) => $m['owner'], $matches))
-                . ' — discovery ownership must not depend on manifest load order'
-            );
-        }
-        return $matches[0] ?? null;
+        return $this->option_namespace_resolver()->owner_for($name);
     }
 
     /** Classification for a namespace-owned option, with owner agreement. */
