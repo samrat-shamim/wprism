@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://duo.invalid/test-catalog-fragment.schema.json",
+  "title": "Duo test catalog fragment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "owner", "suites", "inventory", "profiles"],
+  "properties": {
+    "format": {"const": "duo-test-catalog-fragment/v1"},
+    "owner": {"enum": ["thread-1", "thread-2", "thread-3", "thread-4", "thread-5"]},
+    "suites": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/suite"}
+    },
+    "inventory": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/inventory"}
+    },
+    "profiles": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/profile"}
+    }
+  },
+  "$defs": {
+    "nonemptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "strings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "suite": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "command", "layer", "owner", "timeout_seconds",
+        "parallel_safe", "resource_locks", "temporary_directory",
+        "workspace_mode", "required_tools", "required_services",
+        "covered_paths", "covered_contracts", "evidence_inputs",
+        "evidence_role", "required_review_gate", "environment_class",
+        "expected_outputs"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9.-]*$"},
+        "command": {"$ref": "#/$defs/nonemptyStrings"},
+        "layer": {"enum": ["unit", "offline", "integration", "conformance", "certification", "grind", "platform", "architecture"]},
+        "owner": {"enum": ["thread-1", "thread-2", "thread-3", "thread-4", "thread-5"]},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 86400},
+        "parallel_safe": {"type": "boolean"},
+        "resource_locks": {"$ref": "#/$defs/strings"},
+        "temporary_directory": {"enum": ["none", "unique", "suite_managed"]},
+        "workspace_mode": {"enum": ["read_only", "isolated_copy", "exclusive"]},
+        "required_tools": {"$ref": "#/$defs/strings"},
+        "required_services": {"$ref": "#/$defs/strings"},
+        "covered_paths": {"$ref": "#/$defs/strings"},
+        "covered_contracts": {"$ref": "#/$defs/strings"},
+        "evidence_inputs": {"$ref": "#/$defs/strings"},
+        "evidence_role": {"enum": ["none", "characterization", "qualification", "authority_input"]},
+        "required_review_gate": {"type": ["string", "null"], "minLength": 1},
+        "environment_class": {"enum": ["offline", "live", "destructive", "credentialed", "evidence-producing"]},
+        "expected_outputs": {"$ref": "#/$defs/strings"},
+        "authority_requirements": {"$ref": "#/$defs/authorityRequirements"}
+      }
+    },
+    "authorityRequirements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provisioning_reference_id", "environment_role_reference_id",
+        "data_profile", "credential_reference_id", "effect_policy_reference_id",
+        "sandbox_destination_reference_id", "output_authority", "output_adoptability"
+      ],
+      "properties": {
+        "provisioning_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "environment_role_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "data_profile": {"enum": ["synthetic", "approved_minimized"]},
+        "credential_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "effect_policy_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "sandbox_destination_reference_id": {"type": "string", "pattern": "^[a-z][a-z0-9._/-]*$"},
+        "output_authority": {"const": "non_authorizing"},
+        "output_adoptability": {"const": "forbidden"}
+      }
+    },
+    "inventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "name", "role", "suite_ids"],
+      "properties": {
+        "kind": {"enum": ["file", "make_target"]},
+        "name": {"type": "string", "minLength": 1},
+        "role": {"enum": ["suite", "helper", "self_test", "fixture", "aggregate", "diagnostic"]},
+        "suite_ids": {"$ref": "#/$defs/nonemptyStrings"}
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "owner", "suite_ids", "environment_class", "blocking",
+        "expected_outputs", "evidence_staleness"
+      ],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9.-]*$"},
+        "owner": {"enum": ["thread-1", "thread-2", "thread-3", "thread-4", "thread-5"]},
+        "suite_ids": {"$ref": "#/$defs/nonemptyStrings"},
+        "environment_class": {"enum": ["offline", "live", "destructive", "credentialed", "evidence-producing", "mixed"]},
+        "blocking": {"type": "boolean"},
+        "expected_outputs": {"$ref": "#/$defs/nonemptyStrings"},
+        "evidence_staleness": {"enum": ["forbidden", "permitted", "required"]}
+      }
+    }
+  }
+}

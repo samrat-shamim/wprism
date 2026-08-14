@@ -1,0 +1,239 @@
+{
+  "format": "duo-test-catalog-fragment/v1",
+  "owner": "thread-1",
+  "suites": [
+    {
+      "id": "platform-catalog-self-test",
+      "command": [
+        "php",
+        "sandbox/catalog/fragments/engineering-platform/self-test.php"
+      ],
+      "layer": "platform",
+      "owner": "thread-1",
+      "timeout_seconds": 30,
+      "parallel_safe": true,
+      "resource_locks": [],
+      "temporary_directory": "unique",
+      "workspace_mode": "read_only",
+      "required_tools": ["git", "php"],
+      "required_services": [],
+      "covered_paths": ["sandbox/catalog/**"],
+      "covered_contracts": ["duo-test-catalog-fragment/v1"],
+      "evidence_inputs": [],
+      "evidence_role": "none",
+      "required_review_gate": null,
+      "environment_class": "offline",
+      "expected_outputs": []
+    },
+    {
+      "id": "platform-doctor",
+      "command": [
+        "php",
+        "sandbox/catalog/fragments/engineering-platform/doctor.php"
+      ],
+      "layer": "platform",
+      "owner": "thread-1",
+      "timeout_seconds": 30,
+      "parallel_safe": true,
+      "resource_locks": [],
+      "temporary_directory": "unique",
+      "workspace_mode": "read_only",
+      "required_tools": ["composer", "git", "jq", "make", "php"],
+      "required_services": [],
+      "covered_paths": ["composer.json", "composer.lock", "sandbox/catalog/**"],
+      "covered_contracts": ["duo-development-bootstrap-receipt/v1"],
+      "evidence_inputs": [],
+      "evidence_role": "none",
+      "required_review_gate": null,
+      "environment_class": "offline",
+      "expected_outputs": []
+    },
+    {
+      "id": "platform-catalog-unit",
+      "command": [
+        "vendor/bin/phpunit",
+        "--colors=never"
+      ],
+      "layer": "unit",
+      "owner": "thread-1",
+      "timeout_seconds": 60,
+      "parallel_safe": true,
+      "resource_locks": [],
+      "temporary_directory": "unique",
+      "workspace_mode": "read_only",
+      "required_tools": ["php"],
+      "required_services": [],
+      "covered_paths": ["sandbox/catalog/**"],
+      "covered_contracts": ["duo-test-catalog-fragment/v1"],
+      "evidence_inputs": ["composer.lock"],
+      "evidence_role": "characterization",
+      "required_review_gate": null,
+      "environment_class": "offline",
+      "expected_outputs": []
+    },
+    {
+      "id": "platform-static-analysis",
+      "command": [
+        "vendor/bin/phpstan",
+        "analyse",
+        "--no-progress"
+      ],
+      "layer": "architecture",
+      "owner": "thread-1",
+      "timeout_seconds": 120,
+      "parallel_safe": false,
+      "resource_locks": ["phpstan-cache"],
+      "temporary_directory": "unique",
+      "workspace_mode": "read_only",
+      "required_tools": ["php"],
+      "required_services": [],
+      "covered_paths": ["sandbox/catalog/fragments/engineering-platform/**"],
+      "covered_contracts": [],
+      "evidence_inputs": ["composer.lock", "phpstan.neon"],
+      "evidence_role": "none",
+      "required_review_gate": null,
+      "environment_class": "offline",
+      "expected_outputs": []
+    },
+    {
+      "id": "platform-format-check",
+      "command": [
+        "vendor/bin/php-cs-fixer",
+        "check",
+        "--diff",
+        "--using-cache=no"
+      ],
+      "layer": "architecture",
+      "owner": "thread-1",
+      "timeout_seconds": 60,
+      "parallel_safe": true,
+      "resource_locks": [],
+      "temporary_directory": "unique",
+      "workspace_mode": "read_only",
+      "required_tools": ["php"],
+      "required_services": [],
+      "covered_paths": ["sandbox/catalog/fragments/engineering-platform/**"],
+      "covered_contracts": [],
+      "evidence_inputs": [".php-cs-fixer.dist.php", "composer.lock"],
+      "evidence_role": "none",
+      "required_review_gate": null,
+      "environment_class": "offline",
+      "expected_outputs": []
+    }
+  ],
+  "inventory": [
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/Catalog.php",
+      "role": "helper",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/CatalogException.php",
+      "role": "helper",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/Doctor.php",
+      "role": "helper",
+      "suite_ids": ["platform-doctor"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/Runner.php",
+      "role": "helper",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/bootstrap-receipt.php",
+      "role": "helper",
+      "suite_ids": ["platform-doctor"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/catalog.php",
+      "role": "helper",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/doctor.php",
+      "role": "suite",
+      "suite_ids": ["platform-doctor"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/runner.php",
+      "role": "helper",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/schema.json",
+      "role": "fixture",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/self-test.php",
+      "role": "self_test",
+      "suite_ids": ["platform-catalog-self-test"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/tests/CatalogTest.php",
+      "role": "suite",
+      "suite_ids": ["platform-catalog-unit"]
+    },
+    {
+      "kind": "file",
+      "name": "sandbox/catalog/fragments/engineering-platform/tests/bootstrap.php",
+      "role": "helper",
+      "suite_ids": ["platform-catalog-unit"]
+    },
+    {
+      "kind": "make_target",
+      "name": "doctor",
+      "role": "diagnostic",
+      "suite_ids": ["platform-doctor"]
+    },
+    {
+      "kind": "make_target",
+      "name": "test-unit",
+      "role": "aggregate",
+      "suite_ids": ["platform-catalog-unit"]
+    }
+  ],
+  "profiles": [
+    {
+      "id": "platform-p0",
+      "owner": "thread-1",
+      "suite_ids": ["platform-catalog-self-test", "platform-doctor", "platform-catalog-unit"],
+      "environment_class": "offline",
+      "blocking": true,
+      "expected_outputs": ["artifacts/test-results/platform-p0/result.json"],
+      "evidence_staleness": "forbidden"
+    },
+    {
+      "id": "component-engineering-platform",
+      "owner": "thread-1",
+      "suite_ids": ["platform-catalog-self-test", "platform-doctor", "platform-catalog-unit", "platform-static-analysis", "platform-format-check"],
+      "environment_class": "offline",
+      "blocking": true,
+      "expected_outputs": ["artifacts/test-results/components/engineering-platform/result.json"],
+      "evidence_staleness": "forbidden"
+    },
+    {
+      "id": "thread-1-engineering-platform",
+      "owner": "thread-1",
+      "suite_ids": ["platform-catalog-self-test", "platform-doctor", "platform-catalog-unit", "platform-static-analysis", "platform-format-check"],
+      "environment_class": "offline",
+      "blocking": true,
+      "expected_outputs": ["artifacts/test-results/thread-1/result.json"],
+      "evidence_staleness": "forbidden"
+    }
+  ]
+}

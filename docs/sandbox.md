@@ -9,6 +9,41 @@ session — the incident that motivated this redesign. New surface:
 (`sandbox/pair.{http,journal,codebind}.yml`), and the lifecycle tool
 `sandbox/bin/pair.sh`.*
 
+## Engineering-platform bootstrap and Platform P0
+
+Development and build tools are lock-pinned inputs; they are never runtime
+dependencies of the host CLI, WordPress agent, or recovery payload. From a
+clean checkout:
+
+```sh
+make doctor
+make bootstrap-dev
+make platform-p0
+make test-component COMPONENT=engineering-platform
+```
+
+`doctor` is read-only and reports required and profile-specific optional tools.
+`bootstrap-dev` is the explicit network/workspace mutation boundary: it installs
+only `composer.lock` dependencies and writes a local tool/lock receipt under
+`artifacts/bootstrap/`. The `artifacts/`, `vendor/`, and `dist/` trees are local
+or CI outputs and are not source.
+
+Platform P0 catalog sources live below `sandbox/catalog/fragments/`. Each
+behavior thread owns only its ledger-assigned fragment directory. Thread 1 owns
+the schema, fail-closed validator, generated aggregate, serial runner, and the
+`engineering-platform` fragment. `catalog-fragment-check` validates this first
+train slice; `catalog-check` and `thread-1-gate` require the complete
+multi-owner aggregate and deliberately fail until all owner-authored fragments
+are present. No missing, empty, or unknown suite selection is treated as a
+pass.
+
+New engineering-platform PHP files use `strict_types`, one class per file, and
+the `Duo\EngineeringPlatform` namespace. Executable entrypoints load only their
+explicit class files; production entrypoints never load Composer or this
+development tree. New behavioral tests belong to their behavior owner's
+fragment and must declare isolation, timeout, resources, evidence role, and
+expected outputs before entering a gate.
+
 ## The model
 
 **One shared MariaDB server, many pairs.** `sandbox/db.yml` brings up a
