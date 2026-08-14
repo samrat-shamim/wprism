@@ -119,6 +119,9 @@ PAIR_PREFIX="${CERT_PARALLEL_PAIR_PREFIX:-certp$$}"
 REGISTRATION_DELAY="${CERT_PARALLEL_REGISTRATION_DELAY:-0}"
 [[ "$REGISTRATION_DELAY" =~ ^(0|[0-9]+([.][0-9]+)?)$ ]] \
   || fail "CERT_PARALLEL_REGISTRATION_DELAY must be a non-negative number"
+PRE_SETSID_DELAY="${CERT_PARALLEL_PRE_SETSID_DELAY:-0}"
+[[ "$PRE_SETSID_DELAY" =~ ^(0|[0-9]+([.][0-9]+)?)$ ]] \
+  || fail "CERT_PARALLEL_PRE_SETSID_DELAY must be a non-negative number"
 
 OUT_PARENT="${CERT_PARALLEL_OUT:-${TMPDIR:-/tmp}/duo-subject-certification-parallel}"
 mkdir -p -- "$OUT_PARENT"
@@ -201,13 +204,46 @@ for ((wave=0; wave<${#SUBJECTS[@]}; wave+=JOBS)); do
     pair="${PAIR_PREFIX}${slot}"
     port1=$((PORT_BASE + (slot * 2)))
     port2=$((port1 + 1))
+    lane_ready="$RUN_ROOT/results/.lane-$index.ready"
+    lane_go="$RUN_ROOT/results/.lane-$index.go"
     pending_signal=0
     trap 'pending_signal=130' INT
     trap 'pending_signal=143' TERM
-    python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+    CERT_PARALLEL_PRE_SETSID_DELAY="$PRE_SETSID_DELAY" python3 -c '
+import os
+import sys
+import time
+
+time.sleep(float(os.environ["CERT_PARALLEL_PRE_SETSID_DELAY"]))
+os.setsid()
+ready, go = sys.argv[1], sys.argv[2]
+with open(ready, "x", encoding="ascii") as stream:
+    stream.write(str(os.getpid()))
+while not os.path.exists(go):
+    time.sleep(0.005)
+os.unlink(go)
+os.unlink(ready)
+os.execvp(sys.argv[3], sys.argv[3:])
+' "$lane_ready" "$lane_go" \
       bash "$PWD/sandbox/tests/certify_subjects_parallel.sh" --lane \
       "$index" "$subject" "$pair" "$port1" "$port2" "$RUN_ROOT" "$SOURCE_SHA" &
     lane_pid="$!"
+    lane_is_ready=0
+    for _ in $(seq 1 1000); do
+      if [ -s "$lane_ready" ]; then
+        lane_is_ready=1
+        break
+      fi
+      kill -0 "$lane_pid" >/dev/null 2>&1 || break
+      sleep 0.01 || true
+    done
+    if [ "$lane_is_ready" -ne 1 ] || [ "$(cat "$lane_ready" 2>/dev/null || true)" != "$lane_pid" ]; then
+      kill -TERM "$lane_pid" >/dev/null 2>&1 || true
+      wait "$lane_pid" >/dev/null 2>&1 || true
+      trap 'abort_batch 130' INT
+      trap 'abort_batch 143' TERM
+      abort_batch "${pending_signal:-1}"
+    fi
     [ "$REGISTRATION_DELAY" = 0 ] || sleep "$REGISTRATION_DELAY" || true
     wave_pids+=("$lane_pid")
     wave_subjects+=("$subject")
@@ -216,6 +252,7 @@ for ((wave=0; wave<${#SUBJECTS[@]}; wave+=JOBS)); do
     trap 'abort_batch 130' INT
     trap 'abort_batch 143' TERM
     [ "$pending_signal" -eq 0 ] || abort_batch "$pending_signal"
+    : >"$lane_go"
   done
   wave_failed=0
   for ((offset=0; offset<${#wave_pids[@]}; offset++)); do

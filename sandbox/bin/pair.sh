@@ -756,12 +756,19 @@ cmd_stop() {
   # verb the LINEAR-LOOP resource-lifecycle rule wants while an agent is
   # polling/waiting/blocked rather than actively executing against the
   # pair (docs/agents/linear-loop.md).
-  local name="${1:?usage: pair.sh stop <name>}"
+  local name="${1:?usage: pair.sh stop <name>}" lease_locked=0
   validate_name "$name"
+  if canonical_root >/dev/null 2>&1; then
+    arm_budget_up_cleanup
+    reserve_pair_budget ""
+    pair_lease_assert_access "$name"
+    lease_locked=1
+  fi
   say "pair '$name': stop (free RAM/CPU; containers, volumes, databases all kept)"
   pair_compose_configure "$name"
   export DUO_PAIR="$name"
   "${PAIR_COMPOSE[@]}" stop
+  [ "$lease_locked" -eq 0 ] || disarm_budget_up_cleanup
   pass "stopped — resume with: pair.sh start $name"
 }
 
@@ -779,7 +786,8 @@ cmd_start() {
   # own output tells you to run) must still install unconditionally. A marker
   # is therefore not "stale at start" in any sequence this script can produce;
   # it is simply not `start`'s business.
-  local name="${1:?usage: pair.sh start <name>}"
+  local name="${1:?usage: pair.sh start <name>}" bound_ports
+  local -a requested_ports=()
   validate_name "$name"
   # DUO-3377: `start` resumes containers with the bind-mount sources baked in
   # at CREATE time (see this file's own check_dead_mounts comment), so the
@@ -794,6 +802,12 @@ cmd_start() {
   assert_candidate_source start "$PAIR_BAKED_AGENT_SRC"
   arm_budget_up_cleanup
   reserve_pair_budget "$name"
+  bound_ports="$(pair_compose_pair_bound_ports "$name")" \
+    || fail "could not read pair '$name' persisted host ports before start"
+  if [ -n "$bound_ports" ]; then
+    mapfile -t requested_ports <<<"$bound_ports"
+  fi
+  pair_lease_assert_access "$name" "${requested_ports[@]}"
   # Keep the existing resume contract: the shared MariaDB must be healthy
   # before a stopped pair is started. The reservation is already held, so a
   # concurrent up/start cannot over-commit while this prerequisite runs.

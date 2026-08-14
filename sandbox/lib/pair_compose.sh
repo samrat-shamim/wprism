@@ -127,3 +127,38 @@ pair_compose_all_pairs() { # pair_compose_all_pairs — one live/stopped pair na
     end
   '
 }
+
+pair_compose_pair_bound_ports() { # pair_compose_pair_bound_ports <name> — persisted host ports, including stopped containers
+  local name="$1" container containers observed port ports=''
+  containers="$(docker ps -a \
+    --filter "label=com.docker.compose.project=duo-${name}" \
+    --format '{{.Names}}' 2>/dev/null)" || return 1
+  for container in "duo-${name}-wp1-1" "duo-${name}-wp2-1"; do
+    # A partially-created or headless pair may have no web container or no
+    # bindings. A present container's persisted HostConfig remains readable
+    # while stopped, unlike a listener-only probe.
+    printf '%s\n' "$containers" | grep -Fqx -- "$container" || continue
+    observed="$(docker inspect --format \
+      '{{range $port, $bindings := .HostConfig.PortBindings}}{{range $bindings}}{{println .HostPort}}{{end}}{{end}}' \
+      "$container" 2>/dev/null)" || return 1
+    while IFS= read -r port; do
+      [ -n "$port" ] || continue
+      [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ] \
+        || return 1
+      ports+="$port"$'\n'
+    done <<<"$observed"
+  done
+  printf '%s' "$ports" | sort -nu
+}
+
+pair_compose_all_bound_ports() { # pair_compose_all_bound_ports — <pair><tab><port>, live or stopped
+  local pairs pair ports port
+  pairs="$(pair_compose_all_pairs)" || return 1
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    ports="$(pair_compose_pair_bound_ports "$pair")" || return 1
+    while IFS= read -r port; do
+      [ -n "$port" ] && printf '%s\t%s\n' "$pair" "$port"
+    done <<<"$ports"
+  done <<<"$pairs"
+}

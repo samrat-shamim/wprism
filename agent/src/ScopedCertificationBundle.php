@@ -135,8 +135,8 @@ final class ScopedCertificationBundle {
      * builder, importer, and full-source runtime verifier. A certificate may
      * supply hashes, but it never gets to choose which files are authoritative.
      * The shared artifact lock is intentionally absent: the signed `artifacts`
-     * projection binds only this manifest's plugin rows, so adding another
-     * extension cannot expire unrelated subjects.
+     * projection binds only the bootstrap, entry, and matrix rows exercised by
+     * this subject, so adding another extension cannot expire unrelated subjects.
      *
      * @param list<string> $requiredTests
      * @return list<string>
@@ -315,7 +315,8 @@ final class ScopedCertificationBundle {
         $selected = [];
         $select = static function (string $artifactKind, string $slug, string $version) use ($lock, &$selected): void {
             $section = $artifactKind === 'plugin' ? 'plugins' : ($artifactKind === 'theme' ? 'themes' : '');
-            if ($section === '' || preg_match('/^[a-z][a-z0-9-]*$/D', $slug) !== 1 || $version === '') {
+            if ($section === '' || !self::artifactSlug($slug)
+                || preg_match('/^[0-9A-Za-z][0-9A-Za-z._-]*$/D', $version) !== 1) {
                 throw new \RuntimeException('duo: certification artifact request is malformed');
             }
             $entry = $lock[$section][$slug][$version] ?? null;
@@ -323,6 +324,7 @@ final class ScopedCertificationBundle {
                 throw new \RuntimeException("duo: certification artifact '$artifactKind:$slug@$version' is absent");
             }
             $record = [
+                'archive_root' => $entry['archive_root'] ?? null,
                 'kind' => $artifactKind,
                 'name' => $slug,
                 'role' => $entry['role'] ?? null,
@@ -754,12 +756,12 @@ final class ScopedCertificationBundle {
         }
     }
 
-    /** @return list<array{kind:string,name:string,role:string,sha256:string,url:string,version:string}> */
+    /** @return list<array{archive_root:?string,kind:string,name:string,role:string,sha256:string,url:string,version:string}> */
     private static function validateArtifacts($artifacts, string $label): array {
         return self::normalizeArtifacts($artifacts, $label);
     }
 
-    /** @return list<array{kind:string,name:string,role:string,sha256:string,url:string,version:string}> */
+    /** @return list<array{archive_root:?string,kind:string,name:string,role:string,sha256:string,url:string,version:string}> */
     private static function normalizeArtifacts($artifacts, string $label): array {
         if (!is_array($artifacts) || !array_is_list($artifacts)) {
             throw new \RuntimeException("duo: $label must be a list");
@@ -770,17 +772,20 @@ final class ScopedCertificationBundle {
             if (!is_array($artifact) || array_is_list($artifact)) {
                 throw new \RuntimeException("duo: {$label}[$i] must be an object");
             }
-            self::exactKeys($artifact, ['kind', 'name', 'role', 'sha256', 'url', 'version'], "{$label}[$i]");
+            self::exactKeys($artifact, ['archive_root', 'kind', 'name', 'role', 'sha256', 'url', 'version'], "{$label}[$i]");
+            $archiveRoot = $artifact['archive_root'] ?? null;
             $kind = $artifact['kind'] ?? null;
             $name = $artifact['name'] ?? null;
             $role = $artifact['role'] ?? null;
             $url = $artifact['url'] ?? null;
             $version = $artifact['version'] ?? null;
             if (!in_array($kind, ['plugin', 'theme'], true)
-                || !is_string($name) || preg_match('/^[a-z][a-z0-9-]*$/D', $name) !== 1
+                || !is_string($name) || !self::artifactSlug($name)
+                || ($archiveRoot !== null && (!is_string($archiveRoot) || !self::artifactSlug($archiveRoot)))
                 || !in_array($role, ['certified-boundary', 'exercise-fixture', 'refusal-fixture'], true)
                 || !is_string($url) || filter_var($url, FILTER_VALIDATE_URL) === false
-                || !is_string($version) || $version === '' || !self::sha($artifact['sha256'] ?? null)) {
+                || !is_string($version) || preg_match('/^[0-9A-Za-z][0-9A-Za-z._-]*$/D', $version) !== 1
+                || !self::sha($artifact['sha256'] ?? null)) {
                 throw new \RuntimeException("duo: {$label}[$i] is malformed");
             }
             $key = "$kind\0$name\0$role\0$version";
@@ -788,13 +793,25 @@ final class ScopedCertificationBundle {
                 throw new \RuntimeException("duo: {$label} contains a duplicate artifact identity");
             }
             $seen[$key] = true;
-            $out[] = ['kind' => $kind, 'name' => $name, 'role' => $role, 'sha256' => $artifact['sha256'], 'url' => $url, 'version' => $version];
+            $out[] = [
+                'archive_root' => $archiveRoot,
+                'kind' => $kind,
+                'name' => $name,
+                'role' => $role,
+                'sha256' => $artifact['sha256'],
+                'url' => $url,
+                'version' => $version,
+            ];
         }
         usort($out, static fn(array $a, array $b): int => strcmp(
             $a['kind'] . "\0" . $a['name'] . "\0" . $a['role'] . "\0" . $a['version'],
             $b['kind'] . "\0" . $b['name'] . "\0" . $b['role'] . "\0" . $b['version']
         ));
         return $out;
+    }
+
+    private static function artifactSlug(string $slug): bool {
+        return preg_match('/^[a-z0-9][a-z0-9._-]*[a-z0-9]$/D', $slug) === 1;
     }
 
     /** @return array{path:string,sha256:string,size:int} */

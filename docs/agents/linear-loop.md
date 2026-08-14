@@ -241,7 +241,8 @@ branch or edit files before this passes.
     `sandbox/certification/version-matrix/<name>.sh`), and artifacts; no
     central certification allowlist or dispatch switch is edited. The shared
     artifact file is projected to the exact bootstrap theme, conformance-entry
-    plugins/themes, and matrix boundaries used by that subject, so unrelated
+    plugins/themes, and matrix boundaries used by that subject, including each
+    selected archive root, so unrelated
     new-extension rows do not stale existing evidence while changed exercised
     artifacts do. When several
     subjects need renewal, `make certify-subjects-parallel` schedules their

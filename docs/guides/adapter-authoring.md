@@ -691,7 +691,9 @@ For several independent new or changed extensions, run
 `SUBJECTS="manifests.one manifests.two"`). It allocates collision-free pairs,
 ports, logs, and bundle roots from the currently available host capacity under
 host-wide name/port leases; interruption kills each lane's full process group
-before its owned pair is destroyed. The
+before its owned pair is destroyed. Leases also exclude stopped Compose port
+bindings and ordinary lifecycle commands; a two-phase launcher handshake keeps
+the certifier blocked until its process group is registered. The
 batch `index.json` is the import manifest; import its bundle paths only after
 the whole batch completes so every lane observes the same clean source commit.
 

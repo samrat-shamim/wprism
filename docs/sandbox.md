@@ -444,7 +444,10 @@ source closure for that lane. A changed bound input expires that record without
 affecting another subject. Artifact-lock currentness is compared through the
 exact shared bootstrap theme, entry-declared plugin/theme rows, and matrix
 boundaries used by the subject, so adding an unrelated extension does not
-expire existing subjects while changing an exercised artifact does.
+expire existing subjects while changing an exercised artifact does. Each
+selected row signs its artifact kind, safe artifact slug, version, role, URL,
+digest, and normalized archive root (including an explicit null when the ZIP
+already expands under the slug).
 
 The builder/verifier emits one JSON verdict and can be invoked directly:
 
@@ -472,9 +475,12 @@ Independent subjects can be certified concurrently with
 manifest/profile from dispositions, reads `pair.sh capacity` under the shared
 admission lock, atomically leases collision-free pair names and host ports, and
 assigns each lane its own process group, log, and bundle directory. A stopped
-pair, retained site root, another batch lease, or listening port refuses before
-reset can drop data. Interrupt cleanup terminates the complete lane process
-group before destroying only its leased pairs. Legs within one subject remain
+pair or its persisted port binding, retained site root, another batch lease, or
+listening port refuses before reset can drop data. Ordinary pair lifecycle
+commands consult the same leases. Each launcher completes `setsid`, reports its
+process-group identity, and waits for parent registration before the certifier
+can execute; interrupt cleanup then terminates the complete group before
+destroying only its leased pairs. Legs within one subject remain
 serial, and worker slots are reused by later waves. `JOBS=<n>`,
 `PORT_BASE=<even-port>`, `PAIR_PREFIX=<lowercase-name>`, `OUT=<directory>`, and
 `SUBJECTS="manifests.acf profiles.fse"` narrow or place a run. Requested

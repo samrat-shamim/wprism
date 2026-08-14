@@ -256,6 +256,16 @@ check(
 );
 file_put_contents($artifactLockPath, $artifactLockBytes);
 
+$artifactLock = json_decode($artifactLockBytes, true);
+$artifactLock['themes']['twentytwentyone']['2.8']['archive_root'] = 'twentytwentyone-package';
+write_json($artifactLockPath, $artifactLock);
+$changedArchiveRoot = is_string($bundle) ? run([PHP_BINARY, $builder, 'verify', $bundle, $repo]) : ['exit' => 0];
+check(
+    $changedArchiveRoot['exit'] !== 0 && str_contains($changedArchiveRoot['err'], 'artifacts are not current'),
+    'changing an exercised archive root expires evidence because installation layout is signed'
+);
+file_put_contents($artifactLockPath, $artifactLockBytes);
+
 $newHook = $repo . '/sandbox/certification/version-matrix/woocommerce.sh';
 if (!is_dir(dirname($newHook))) mkdir(dirname($newHook), 0777, true);
 file_put_contents($newHook, "#!/usr/bin/env bash\nexit 0\n");
@@ -520,38 +530,40 @@ foreach ($frameworkPaths as $relative) {
     $frameworkBefore[$relative] = hash_file('sha256', $extensionRepo . '/' . $relative);
 }
 $syntheticManifest = json_decode((string) file_get_contents($extensionRepo . '/manifests/acf.json'), true);
+$syntheticArtifactSlug = '9synthetic_extension.dev';
 $syntheticManifest['name'] = 'synthetic-extension';
-$syntheticManifest['plugin'] = 'synthetic-extension/synthetic.php';
+$syntheticManifest['plugin'] = $syntheticArtifactSlug . '/synthetic.php';
 $syntheticManifest['version_range'] = ['max' => '2.0.0', 'min' => '1.0.0'];
 write_json($extensionRepo . '/manifests/synthetic-extension.json', $syntheticManifest);
 $syntheticDispositions = json_decode((string) file_get_contents($extensionRepo . '/manifests/dispositions.json'), true);
 $syntheticClaim = $syntheticDispositions['manifests']['acf'];
 $syntheticClaim['reason'] = 'Synthetic regression extension proves data-driven onboarding.';
 $syntheticClaim['supported_versions'] = [
-    'plugin' => 'synthetic-extension/synthetic.php',
+    'plugin' => $syntheticArtifactSlug . '/synthetic.php',
     'range' => ['max' => '2.0.0', 'min' => '1.0.0'],
 ];
 $syntheticClaim['evidence']['tests'] = ['exact-artifact-version-matrix'];
 $syntheticDispositions['manifests']['synthetic-extension'] = $syntheticClaim;
 write_json($extensionRepo . '/manifests/dispositions.json', $syntheticDispositions);
 $artifactLock = json_decode((string) file_get_contents($extensionRepo . '/sandbox/conformance/artifacts.lock.json'), true);
-$artifactLock['plugins']['synthetic-extension'] = [
+$artifactLock['plugins'][$syntheticArtifactSlug] = [
     '0.9.0' => [
         'role' => 'refusal-fixture',
         'sha256' => str_repeat('1', 64),
-        'url' => 'https://downloads.wordpress.org/plugin/synthetic-extension.0.9.0.zip',
+        'url' => 'https://downloads.wordpress.org/plugin/9synthetic_extension.dev.0.9.0.zip',
     ],
     '1.0.0' => [
         'role' => 'certified-boundary',
         'sha256' => str_repeat('2', 64),
-        'url' => 'https://downloads.wordpress.org/plugin/synthetic-extension.1.0.0.zip',
+        'url' => 'https://downloads.wordpress.org/plugin/9synthetic_extension.dev.1.0.0.zip',
+        'archive_root' => 'synthetic-extension-package',
     ],
 ];
 write_json($extensionRepo . '/sandbox/conformance/artifacts.lock.json', $artifactLock);
 write_json($extensionRepo . '/sandbox/conformance/entries/synthetic-extension.json', [
     'entry' => [
         'pin' => ['core', 'synthetic-extension'],
-        'plugins' => [['slug' => 'synthetic-extension', 'version' => '1.0.0']],
+        'plugins' => [['slug' => $syntheticArtifactSlug, 'version' => '1.0.0']],
         'post_types' => ['post', 'page', 'attachment', 'acf-field-group', 'acf-field'],
         'taxonomies' => ['category', 'post_tag'],
     ],
@@ -596,6 +608,16 @@ $syntheticRun = $syntheticCommit['exit'] === 0 ? run(
 ) : ['exit' => 1, 'out' => '', 'err' => 'synthetic source commit failed'];
 preg_match('/"bundle"\s*:\s*"([^"]+)"/', (string) ($syntheticRun['out'] ?? ''), $syntheticBundleMatch);
 $syntheticBundle = $syntheticBundleMatch[1] ?? null;
+$syntheticBundleJson = is_string($syntheticBundle) && is_file($syntheticBundle . '/bundle.json')
+    ? json_decode((string) file_get_contents($syntheticBundle . '/bundle.json'), true) : null;
+$syntheticArtifacts = is_array($syntheticBundleJson) ? ($syntheticBundleJson['artifacts'] ?? []) : [];
+$syntheticArtifact = null;
+foreach ($syntheticArtifacts as $artifact) {
+    if (($artifact['name'] ?? null) === $syntheticArtifactSlug && ($artifact['version'] ?? null) === '1.0.0') {
+        $syntheticArtifact = $artifact;
+        break;
+    }
+}
 $syntheticImport = is_string($syntheticBundle)
     ? run([PHP_BINARY, $extensionRepo . '/scripts/capability-registry.php', 'import-subject-bundle', $syntheticBundle])
     : ['exit' => 1, 'err' => 'missing synthetic bundle'];
@@ -614,6 +636,7 @@ check(
     && str_contains((string) $syntheticRun['out'], 'exact-artifact-version-matrix passed')
     && $syntheticImport['exit'] === 0
     && $syntheticGenerate['exit'] === 0
+    && ($syntheticArtifact['archive_root'] ?? null) === 'synthetic-extension-package'
     && ($syntheticRegistry['manifests']['synthetic-extension']['evidence']['status'] ?? null) === 'current'
     && ($syntheticRegistry['manifests']['synthetic-extension']['evidence']['subject'] ?? null) === 'manifests.synthetic-extension'
     && $frameworkBefore === $frameworkAfter,

@@ -41,6 +41,20 @@ if [ "${1:-}" = compose ] && [ "${2:-}" = ls ]; then
   printf '%s' "${DUO_PAIR_TEST_COMPOSE_LS?}"
   exit 0
 fi
+if [ "${1:-}" = inspect ] && [ "${2:-}" = --format ]; then
+  case "${4:-}" in
+    "duo-${DUO_PAIR_TEST_INSPECT_PAIR:-missing}-wp1-1") printf '%s\n' "${DUO_PAIR_TEST_INSPECT_PORT1:-}" ;;
+    "duo-${DUO_PAIR_TEST_INSPECT_PAIR:-missing}-wp2-1") printf '%s\n' "${DUO_PAIR_TEST_INSPECT_PORT2:-}" ;;
+    *) exit 1 ;;
+  esac
+  exit 0
+fi
+if [ "${1:-}" = ps ] && [ "${2:-}" = -a ]; then
+  if [ -n "${DUO_PAIR_TEST_INSPECT_PAIR:-}" ]; then
+    printf 'duo-%s-wp1-1\nduo-%s-wp2-1\n' "$DUO_PAIR_TEST_INSPECT_PAIR" "$DUO_PAIR_TEST_INSPECT_PAIR"
+  fi
+  exit 0
+fi
 printf 'FAKE-DOCKER-SENTINEL: %s\n' "$*" >&2
 exit 42
 FAKE_DOCKER
@@ -82,6 +96,14 @@ expected="$(printf 'duo-up\nduo-down' | sed 's/^duo-//' | sort)"
 got="$(pair_compose_stopped_pairs)"
 [ "$got" = "down" ] || fail "expected only 'down' (Status has no 'running'), got: $got"
 pass "stopped_pairs' Status filter is independent of live_pairs' own (status-blind) query"
+
+say "stopped container bindings remain visible even though no listener exists"
+export DUO_PAIR_TEST_INSPECT_PAIR=down DUO_PAIR_TEST_INSPECT_PORT1=9300 DUO_PAIR_TEST_INSPECT_PORT2=9301
+got="$(pair_compose_all_bound_ports)"
+[ "$got" = $'down\t9300\ndown\t9301' ] \
+  || fail "expected stopped pair bindings down/9300 and down/9301, got: $got"
+unset DUO_PAIR_TEST_INSPECT_PAIR DUO_PAIR_TEST_INSPECT_PORT1 DUO_PAIR_TEST_INSPECT_PORT2
+pass "lease preflight can enumerate persisted ports from stopped web containers"
 
 say "rows with a missing or wrong-typed ConfigFiles/Name are excluded, not fatal"
 export DUO_PAIR_TEST_COMPOSE_LS='[

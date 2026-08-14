@@ -25,6 +25,7 @@ source "$ROOT/sandbox/lib/pair_identity.sh"
 source "$ROOT/sandbox/lib/pair_lease.sh"
 PAIR_CANONICAL_ROOT="$LEASE_ROOT"
 pair_compose_all_pairs() { printf '%s' "${LEASE_TEST_COMPOSE_PAIRS:-}"; }
+pair_compose_all_bound_ports() { printf '%s' "${LEASE_TEST_BOUND_PORTS:-}"; }
 lease_token=0123456789abcdef0123456789abcdef
 lease_owner_start="$(pair_lease_owner_start $$)"
 pushd "$LEASE_ROOT/sandbox" >/dev/null
@@ -34,6 +35,9 @@ pair_lease_acquire_batch "$lease_token" "$$" "$lease_owner_start" plock 9460 946
 DUO_PAIR_LEASE_TOKEN="$lease_token" pair_lease_assert_access plock 9460 9461
 if (DUO_PAIR_LEASE_TOKEN=ffffffffffffffffffffffffffffffff; pair_lease_assert_access plock) >/dev/null 2>&1; then
   fail "a different token accessed an owned pair lease"
+fi
+if (pair_lease_assert_access ordinary 9460 9461) >/dev/null 2>&1; then
+  fail "an ordinary pair command reused ports owned by another lease"
 fi
 if (pair_lease_acquire_batch fedcba9876543210fedcba9876543210 "$$" "$lease_owner_start" plock 9462 9463) >/dev/null 2>&1; then
   fail "a second batch acquired an already leased pair name"
@@ -48,12 +52,17 @@ if (pair_lease_acquire_batch fedcba9876543210fedcba9876543210 "$$" "$lease_owner
   fail "a pair lease ignored an occupied host port"
 fi
 unset LEASE_TEST_OCCUPIED_PORT
+export LEASE_TEST_BOUND_PORTS=$'stopped\t9464\nstopped\t9465\n'
+if (pair_lease_acquire_batch fedcba9876543210fedcba9876543210 "$$" "$lease_owner_start" pstopped 9464 9465) >/dev/null 2>&1; then
+  fail "a pair lease ignored ports retained by a stopped pair"
+fi
+unset LEASE_TEST_BOUND_PORTS
 pair_lease_release_token "$lease_token"
 [ ! -e "$LEASE_ROOT/sandbox/siterepo/.pair-leases/plock.json" ] \
   || fail "pair lease release left its ownership record"
 popd >/dev/null
 export PATH="$ORIGINAL_PATH"
-pass "real leases refuse owned names, existing roots, occupied ports, and wrong-token mutation"
+pass "real leases exclude ordinary commands, stopped bindings, owned names, existing roots, occupied ports, and wrong-token mutation"
 
 REPO="$TMP/repo"
 mkdir -p "$REPO/sandbox/tests" "$REPO/manifests" "$TMP/bin"
@@ -158,6 +167,33 @@ git -C "$REPO" checkout -- manifests/dispositions.json
 [ -z "$(find "$TMP/drift" -name index.json -type f -print -quit)" ] \
   || fail "mixed-source batch published an index"
 pass "source drift across waves refuses before index publication"
+
+cert_lines_before="$(wc -l <"$CERT_LOG" | tr -d ' ')"
+env "${common_env[@]}" CERT_PARALLEL_JOBS=1 CERT_PARALLEL_OUT="$TMP/pre-setsid-signal" \
+  CERT_PARALLEL_SUBJECTS='manifests.acf' CERT_PARALLEL_PRE_SETSID_DELAY=1 \
+  bash "$REPO/sandbox/tests/certify_subjects_parallel.sh" \
+  >"$TMP/pre-setsid-signal.out" 2>"$TMP/pre-setsid-signal.err" &
+batch_pid=$!
+launcher_pid=''
+for _ in $(seq 1 200); do
+  launcher_pid="$(ps -axo pid=,ppid=,command= 2>/dev/null \
+    | awk -v parent="$batch_pid" '$2 == parent && tolower($3) ~ /python/ { print $1; exit }' || true)"
+  [ -n "$launcher_pid" ] && break
+  sleep 0.01
+done
+[ -n "$launcher_pid" ] || { kill -KILL "$batch_pid" 2>/dev/null || true; fail "pre-setsid launcher did not start"; }
+kill -TERM "$batch_pid"
+pre_setsid_status=0
+wait "$batch_pid" || pre_setsid_status=$?
+[ "$pre_setsid_status" -eq 143 ] || fail "pre-setsid SIGTERM batch exit was $pre_setsid_status, expected 143"
+if kill -0 "$launcher_pid" >/dev/null 2>&1; then
+  fail "pre-setsid SIGTERM left launcher $launcher_pid alive"
+fi
+[ "$(wc -l <"$CERT_LOG" | tr -d ' ')" = "$cert_lines_before" ] \
+  || fail "pre-setsid SIGTERM allowed the certifier to run before process-group registration"
+grep -q '^destroy ptest0$' "$PAIR_LOG" && grep -q '^lease-batch-release ' "$PAIR_LOG" \
+  || fail "pre-setsid SIGTERM did not destroy its exact pair and release leases"
+pass "SIGTERM before setsid waits for a registered process group and never runs the certifier"
 
 CHILD_PID_FILE="$TMP/grandchild.pid"
 export FAKE_CHILD_PID="$CHILD_PID_FILE"
