@@ -405,6 +405,8 @@ $check(
 
 $menuSource = file_get_contents("$root/agent/src/MenuCapture.php");
 $captureSource = file_get_contents("$root/agent/src/Capture.php");
+$workflowSource = file_get_contents("$root/agent/src/CapturePublicationWorkflow.php");
+$candidateSource = file_get_contents("$root/agent/src/CaptureCandidateBuilder.php");
 $check(
     !str_contains($menuSource, 'Ledger::')
         && !str_contains($menuSource, 'Db::')
@@ -412,16 +414,19 @@ $check(
     'MenuCapture owns no identity or ledger mutation implementation'
 );
 $check(
-    substr_count($captureSource, "require_once __DIR__ . '/MenuCapture.php';") === 1
-        && str_contains($captureSource, 'private ?MenuCapture $menuCapture = null;')
-        && str_contains($captureSource, 'new MenuCapture('),
-    'Capture explicitly requires and lazily binds the extracted menu collaborator'
+    str_contains($captureSource, "require_once __DIR__ . '/CapturePublicationWorkflow.php';")
+        && str_contains($workflowSource, "require_once __DIR__ . '/CaptureCandidateBuilder.php';")
+        && str_contains($workflowSource, '$c = new CaptureCandidateBuilder(')
+        && str_contains($candidateSource, "require_once __DIR__ . '/MenuCapture.php';")
+        && str_contains($candidateSource, 'private MenuCapture $menuCapture;')
+        && str_contains($candidateSource, '$this->menuCapture = new MenuCapture('),
+    'Capture delegates candidate assembly and the builder binds the extracted menu collaborator'
 );
 $check(
-    str_contains($captureSource, '$result = $this->menu_capture()->capture($mint, $strictReadOnly);')
-        && str_contains($captureSource, '$this->planObservations[\'menus_by_term_id\'] = $result[\'observations\'];')
-        && str_contains($captureSource, 'return $result[\'menus\'];'),
-    'Capture retains the historical scope_menus facade and same-snapshot observation side effect'
+    str_contains($candidateSource, '$result = $this->menuCapture->capture($mint, $strictReadOnly);')
+        && str_contains($candidateSource, '$this->planObservations[\'menus_by_term_id\'] = $result[\'observations\'];')
+        && str_contains($candidateSource, 'return $result[\'menus\'];'),
+    'candidate builder retains the direct menu seam and same-snapshot observation side effect'
 );
 $check(
     !str_contains($captureSource, '(SELECT pm.meta_value FROM {$wpdb->postmeta} pm'),

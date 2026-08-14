@@ -48,11 +48,11 @@ require __DIR__ . '/../../agent/src/Secrets.php';
 require __DIR__ . '/../../agent/src/Policy.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/Capture.php';
+require __DIR__ . '/../../agent/src/EntityMetaCapture.php';
 require __DIR__ . '/../../agent/src/Apply.php';
 
 use Duo\Apply;
-use Duo\Capture;
+use Duo\EntityMetaCapture;
 use Duo\Policy;
 use Duo\Tokens;
 
@@ -147,16 +147,20 @@ function assertion(bool $condition, string $message): void {
     if (!$condition) throw new RuntimeException("FAIL: $message");
     echo "ok: $message\n";
 }
-function capture_instance(Policy $policy, Tokens $tokens): Capture {
-    $capture = (new ReflectionClass(Capture::class))->newInstanceWithoutConstructor();
-    set_private($capture, 'repo', '/offline');
-    set_private($capture, 'policy', $policy);
-    set_private($capture, 'tokens', $tokens);
-    set_private($capture, 'unclassified', []);
-    return $capture;
+function capture_instance(Policy $policy, Tokens $tokens): EntityMetaCapture {
+    return new EntityMetaCapture(
+        $policy,
+        $tokens,
+        static function (): void {},
+        static function (): void {},
+        static function (string $finding): void {
+            $GLOBALS['term_meta_unclassified'][] = $finding;
+        }
+    );
 }
 
 $uuid = '018f0000-0000-7000-8000-000000000001';
+$GLOBALS['term_meta_unclassified'] = [];
 $policy = new Policy();
 $policy->site = ['policy' => ['term_meta' => [
     'thumbnail_id' => ['class' => 'authored', 'ref' => 'post'],
@@ -174,7 +178,7 @@ $wpdb->rows = [
 $sourceTokens = new Tokens();
 $capture = capture_instance($policy, $sourceTokens);
 [$store, $canonical] = invoke_private(
-    $capture, 'classify_meta_value', 'thumbnail_id', ['41'], ['thumbnail_id' => '41'],
+    $capture, 'classifyValue', 'thumbnail_id', ['41'], ['thumbnail_id' => '41'],
     'term product_cat:widgets', 'term_meta', true
 );
 assertion($store && $canonical === '{{post:' . $uuid . '}}', 'capture tokenizes WooCommerce thumbnail_id as a canonical post ref');
@@ -204,16 +208,16 @@ assertion(($byKey['undeclared_plugin_key'] ?? null) === "opaque\0bytes", 'apply 
 
 $recapture = capture_instance($policy, $targetTokens);
 [$storedAgain, $canonicalAgain] = invoke_private(
-    $recapture, 'classify_meta_value', 'thumbnail_id', [(string) $byKey['thumbnail_id']],
+    $recapture, 'classifyValue', 'thumbnail_id', [(string) $byKey['thumbnail_id']],
     ['thumbnail_id' => (string) $byKey['thumbnail_id']], 'term product_cat:widgets', 'term_meta', true
 );
 assertion($storedAgain && $canonicalAgain === $canonical, 'target recapture is byte-identical to source canonical term meta');
 
 [$unknownStored] = invoke_private(
-    $recapture, 'classify_meta_value', 'unknown_term_key', ['x'], ['unknown_term_key' => 'x'],
+    $recapture, 'classifyValue', 'unknown_term_key', ['x'], ['unknown_term_key' => 'x'],
     'term product_cat:widgets', 'term_meta', true
 );
-$unclassified = (new ReflectionProperty($recapture, 'unclassified'))->getValue($recapture);
+$unclassified = $GLOBALS['term_meta_unclassified'];
 assertion(!$unknownStored && $unclassified === ['term_meta:unknown_term_key'], 'only genuinely unclassified termmeta enters the loud blocker list');
 
 echo "ALL PASSED\n";

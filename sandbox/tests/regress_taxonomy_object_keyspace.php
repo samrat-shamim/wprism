@@ -71,6 +71,7 @@ use Duo\Lint;
 use Duo\Policy;
 use Duo\RepositoryCompiler;
 use Duo\RepositorySchemaValidator;
+use Duo\ScopeDiscovery;
 use Duo\SidebarState;
 use Duo\Tokens;
 
@@ -294,15 +295,8 @@ tok_expect_failure(
 );
 
 echo "\n== Capture uses the resolved keyspace, not a sentinel ==\n";
-$captureReflection = new ReflectionClass(Capture::class);
-$capture = $captureReflection->newInstanceWithoutConstructor();
-$tokens = (new ReflectionClass(Tokens::class))->newInstanceWithoutConstructor();
-foreach (['policy' => $policy, 'tokens' => $tokens] as $property => $value) {
-    $slot = $captureReflection->getProperty($property);
-    $slot->setValue($capture, $value);
-}
-$captureTaxonomies = $captureReflection->getMethod('taxes_by_object_type');
-$captured = $captureTaxonomies->invoke($capture, [
+$captureScope = new ScopeDiscovery($policy);
+$captured = $captureScope->taxonomyOwnership([
     'duo_keyspace_post_links',
     'duo_keyspace_legacy_post_links',
     'duo_keyspace_term_links',
@@ -317,7 +311,11 @@ tok_check(
     'Capture maps opaque exact and dynamic term keyspaces without literal term inference'
 );
 tok_expect_failure(
-    fn() => $captureTaxonomies->invoke($capture, ['duo_keyspace_undeclared_term_links'], ['duo_keyspace_post'], false),
+    fn() => $captureScope->taxonomyOwnership(
+        ['duo_keyspace_undeclared_term_links'],
+        ['duo_keyspace_post'],
+        false
+    ),
     'no manifest object_keyspace declaration',
     'Capture of undeclared runtime term taxonomy'
 );

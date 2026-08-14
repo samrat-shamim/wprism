@@ -9,9 +9,9 @@ namespace Duo;
  * ownership for one capture build. It deliberately knows nothing about
  * identity minting, canonical serialization, publication, or scope-contract
  * closure: ScopeClosure/ScopeContract remain the sole owners of repository
- * dependency closure. Capture injects the two observable side channels this
- * read boundary needs -- an immediate read-error checkpoint and its warning
- * collector -- and retains compatibility facades for historical tests.
+ * dependency closure. CaptureCandidateBuilder injects the two observable side
+ * channels this read boundary needs -- an immediate read-error checkpoint and
+ * its warning collector.
  */
 final class ScopeDiscovery {
     private object $policy;

@@ -178,6 +178,8 @@ foreach ($invalidCases as $label => $case) {
 
 $mediaSource = file_get_contents("$root/agent/src/MediaCapture.php");
 $captureSource = file_get_contents("$root/agent/src/Capture.php");
+$candidateSource = file_get_contents("$root/agent/src/CaptureCandidateBuilder.php");
+$postCaptureSource = file_get_contents("$root/agent/src/PostCapture.php");
 $check(
     !str_contains($mediaSource, 'Db::')
         && !str_contains($mediaSource, 'Ledger::')
@@ -186,16 +188,16 @@ $check(
     'MediaCapture owns no database, identity, or ledger mutation'
 );
 $check(
-    substr_count($captureSource, "require_once __DIR__ . '/MediaCapture.php';") === 1
-        && str_contains($captureSource, 'private ?MediaCapture $mediaCapture = null;')
-        && str_contains($captureSource, 'new MediaCapture()'),
-    'Capture explicitly requires and lazily binds the extracted media collaborator'
+    str_contains($candidateSource, "require_once __DIR__ . '/MediaCapture.php';")
+        && str_contains($candidateSource, '$this->mediaCapture = new MediaCapture();')
+        && str_contains($candidateSource, 'new PostCapture('),
+    'candidate builder explicitly binds the extracted media collaborator'
 );
 $check(
-    str_contains($captureSource, '$this->media_capture()->capture(')
-        && str_contains($captureSource, '$front += $attachment[\'front\'];')
-        && str_contains($captureSource, '$mediaRef = $attachment[\'media_ref\'];'),
-    'build_post delegates attachment source projection and retains its historical media result'
+    str_contains($postCaptureSource, '$this->mediaCapture->capture(')
+        && str_contains($postCaptureSource, '$front += $attachment[\'front\'];')
+        && str_contains($postCaptureSource, '$mediaRef = $attachment[\'media_ref\'];'),
+    'PostCapture delegates attachment source projection and retains its historical media result'
 );
 $check(
     !str_contains($captureSource, "apply_filters(\n                    'duo_attachment_capture_source'")

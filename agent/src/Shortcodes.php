@@ -1,11 +1,13 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/ReferenceScopeClassifier.php';
+
 /**
  * Structure-aware rewriting of shortcode attributes -- DUO-3259, the
  * shortcode twin of Blocks.php's block_attrs mechanism (see that class's
  * own docblock for the shared dangling-vs-unscoped triage this reuses via
- * Capture::classify_unscoped_ref(), the extracted core of the same
+ * ReferenceScopeClassifier, the extracted core of the same
  * decision Blocks::queue_unscoped() makes inline).
  *
  * Unlike blocks (parse_blocks() hands this engine a clean, already-parsed
@@ -538,8 +540,8 @@ final class Shortcodes {
      * DUO-3259: task #73's own unscoped-vs-dangling triage, ported a
      * second time this session (Blocks::queue_unscoped() the first).
      * Unlike that method, this one does NOT re-derive the three-way
-     * decision inline -- it calls the shared Capture::classify_unscoped_
-     * ref() helper directly, the extraction DUO-3259 itself added
+     * decision inline -- it calls the shared ReferenceScopeClassifier
+     * directly, the extraction DUO-3259 itself added
      * specifically so a third ref-carrying surface would not need a
      * third hand-copy of the same logic. See that method's own docblock
      * for the full three-reasons reasoning (dangling / not-yet-minted /
@@ -555,7 +557,7 @@ final class Shortcodes {
         string $kind,
         int $id
     ): void {
-        $targetType = Capture::classify_unscoped_ref($id, $kind, $force, $policy);
+        $targetType = ReferenceScopeClassifier::classify($id, $kind, $force, $policy);
         if ($targetType === null) {
             return;
         }

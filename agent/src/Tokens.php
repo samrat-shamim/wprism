@@ -5,6 +5,7 @@ require_once __DIR__ . '/IdentityTokenCodec.php';
 require_once __DIR__ . '/StructuredReferenceCodec.php';
 require_once __DIR__ . '/TextTokenizer.php';
 require_once __DIR__ . '/UrlQueryReferenceCodec.php';
+require_once __DIR__ . '/ReferenceScopeClassifier.php';
 
 /**
  * Environment-bound values are tokenized at capture and re-bound at apply:
@@ -27,14 +28,14 @@ final class Tokens {
     /**
      * @var list<array{post:string,block:string,attr:string,kind:string,id:int,target_type:string}>
      * Block-ref violations of the SAME shape task #73 gives ref-typed
-     * options (Capture::$unscopedRefs): a "kind"/"kind_from" block_attrs
+     * options: a "kind"/"kind_from" block_attrs
      * ref whose id names a REAL row genuinely outside policy scope, as
      * opposed to a merely dangling one (Blocks::walk() itself resolves the
-     * dangling-vs-unscoped question via Capture::ref_target_type() + the
+     * dangling-vs-unscoped question via ReferenceScopeClassifier + the
      * live Policy, since Blocks.php has no persistent instance state of its
      * own to hold this across a recursive innerBlocks walk — this array,
      * like $warnings above, is the side-channel). Populated during
-     * Blocks::capture_rewrite(); Capture::build() reads it after the whole
+     * Blocks::capture_rewrite(); CaptureCandidateBuilder reads it after the whole
      * post loop completes (accumulates across every post in one build, the
      * same way $warnings does) and throws its own batched abort if
      * non-empty — see build()'s gate for the exact posture and message.
@@ -48,13 +49,13 @@ final class Tokens {
      * shortcode_attrs ref whose id names a REAL row genuinely outside
      * policy scope, as opposed to a merely dangling one. Shortcodes.php
      * resolves the dangling-vs-unscoped question via the shared
-     * Capture::classify_unscoped_ref() helper (itself just the extracted
+     * ReferenceScopeClassifier helper (itself just the extracted
      * core of the same decision Blocks::queue_unscoped() makes inline),
      * since Shortcodes.php — like Blocks.php — has no persistent instance
      * state of its own to hold this across a walk over one post's content,
      * let alone across every post in one build; this array, like
      * $warnings/$unscopedBlockRefs above, is the side-channel. Populated
-     * during Shortcodes::capture_rewrite_text(); Capture::build() reads it
+     * during Shortcodes::capture_rewrite_text(); CaptureCandidateBuilder reads it
      * after the whole post loop completes and throws its own batched abort
      * if non-empty — see build()'s gate for the exact posture and message.
      */
@@ -74,7 +75,7 @@ final class Tokens {
      * policy/$this->forceUnresolvedRefs (see those properties' own
      * docblocks for why they're stored on the instance instead of
      * threaded as call parameters through every one of tokenize_text()'s
-     * many call sites) rather than passed in per call. Capture::build()
+     * many call sites) rather than passed in per call. CaptureCandidateBuilder
      * reads it after the whole build completes and throws its own
      * batched abort if non-empty — see build()'s gate for the exact
      * posture and message.
@@ -179,8 +180,8 @@ final class Tokens {
 
     /**
      * Mirrors Blocks::queue_unscoped()/Shortcodes::queue_unscoped() but
-     * delegates the whole three-way decision to Capture::classify_
-     * unscoped_ref() directly (the extraction DUO-3259 added specifically
+     * delegates the whole three-way decision to ReferenceScopeClassifier
+     * directly (the extraction DUO-3259 added specifically
      * so a third caller wouldn't need a third hand-copy) rather than
      * re-deriving it. Called by UrlQueryReferenceCodec's unresolved sink for EVERY id
      * that id_to_token() fails to resolve, before classification —
@@ -219,7 +220,12 @@ final class Tokens {
                 . 'constructor.'
             );
         }
-        $targetType = Capture::classify_unscoped_ref($id, 'post', $this->forceUnresolvedRefs, $this->policy);
+        $targetType = ReferenceScopeClassifier::classify(
+            $id,
+            'post',
+            $this->forceUnresolvedRefs,
+            $this->policy
+        );
         if ($targetType === null) {
             return;
         }

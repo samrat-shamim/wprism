@@ -736,16 +736,13 @@ $check(
     'Capture refuses serialized option objects without invoking __wakeup/__unserialize'
 );
 
-// 2c-menu. scope_menus()'s active-theme location reader is a separate raw
+// 2c-menu. CaptureCandidateBuilder's direct menu seam exercises the
+// active-theme location reader, a separate raw
 // wp_options consumer from the option-name-ref path above. Invoke the real
 // private method with one menu term so this regression proves the exact SQL,
 // native array/scalar behavior, and the no-hook object boundary at the point
 // where locations are actually consumed.
-$captureReflection = new ReflectionClass(Capture::class);
-$captureConstructor = $captureReflection->getConstructor();
-$captureForMenus = $captureReflection->newInstanceWithoutConstructor();
-$captureConstructor->invoke($captureForMenus, '/unused', $policy(false));
-$scopeMenus = new ReflectionMethod(Capture::class, 'scope_menus');
+$captureForMenus = new \Duo\CaptureCandidateBuilder('/unused', $policy(false));
 $captureOptionRowsBeforeMenus = $wpdb->optionRows;
 $wpdb->menuTerms = [(object) [
     'term_id' => 7,
@@ -765,7 +762,7 @@ $wpdb->optionRows = [
     ],
 ];
 $wpdb->queries = [];
-$menuArraySnapshot = $scopeMenus->invoke($captureForMenus, false);
+$menuArraySnapshot = $captureForMenus->captureMenus(false);
 $rawThemeModsQueries = array_values(array_filter(
     $wpdb->queries,
     static fn(string $sql): bool => str_contains(
@@ -780,21 +777,21 @@ $check(
 );
 
 $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = 'ordinary scalar string';
-$menuScalarSnapshot = $scopeMenus->invoke($captureForMenus, false);
+$menuScalarSnapshot = $captureForMenus->captureMenus(false);
 $check(
     ($menuScalarSnapshot[0]['front']['locations'] ?? null) === [],
     'Capture menu locations preserves WordPress ordinary-scalar semantics'
 );
 
 $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] = serialize(7);
-$menuSerializedScalarSnapshot = $scopeMenus->invoke($captureForMenus, false);
+$menuSerializedScalarSnapshot = $captureForMenus->captureMenus(false);
 $check(
     ($menuSerializedScalarSnapshot[0]['front']['locations'] ?? null) === [],
     'Capture menu locations preserves serialized-scalar semantics'
 );
 
 unset($wpdb->optionRows['theme_mods_fixture-theme']);
-$menuMissingSnapshot = $scopeMenus->invoke($captureForMenus, false);
+$menuMissingSnapshot = $captureForMenus->captureMenus(false);
 $check(
     ($menuMissingSnapshot[0]['front']['locations'] ?? null) === [],
     'Capture menu locations preserves get_option false-default semantics for a missing row'
@@ -806,7 +803,7 @@ $wpdb->optionRows['theme_mods_fixture-theme']['option_value'] =
     serialize(new CaptureSerializedWakeupProbe());
 $menuObjectRejected = false;
 try {
-    $scopeMenus->invoke($captureForMenus, false);
+    $captureForMenus->captureMenus(false);
 } catch (Throwable $e) {
     $menuObjectRejected = str_contains($e->getMessage(), 'PHP object');
 }

@@ -417,11 +417,10 @@ $knownGapsByFile = [
     'Apply' => ['Canary', 'Canon', 'Capture', 'CompiledRepository', 'Deletion', 'Ledger', 'LedgerScopedApplySessionStorage', 'OptionState', 'Policy', 'PromotionLock', 'RepositoryCompiler', 'ScopeContract', 'ScopedApply', 'ScopedApplySession', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Snapshot', 'Tokens'],
     'ApplyFieldMaterializer' => ['Db', 'StructuredValue'],
     'AttachmentMaterializer' => ['CompiledRepository'],
-    'Blocks' => ['Capture', 'Policy', 'Shortcodes', 'Tokens'],
+    'Blocks' => ['Policy', 'Shortcodes', 'Tokens'],
     'Canon' => ['OrderPreserved', 'Policy'],
     'CanonicalSurfaces' => ['OptionState', 'Policy', 'SidebarState'],
     'CapabilityRegistry' => ['Canon', 'ManifestDispositions', 'Policy'],
-    'Capture' => ['Blocks', 'Code', 'CompiledRepository', 'Db', 'Deletion', 'Deploy', 'Identity', 'Ledger', 'Lint', 'OptionState', 'PersonalData', 'Policy', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'Secrets', 'SidebarState', 'Snapshot', 'Tokens', 'Uuid'],
     'Cli' => ['AdapterObservation', 'AdapterSources', 'Apply', 'Canon', 'CapabilityRegistry', 'Capture', 'Code', 'CodeCompilationException', 'Coverage', 'Db', 'Deploy', 'IdentityBackup', 'Init', 'InitialStateBoundaryException', 'Journal', 'Ledger', 'Lint', 'ManifestDispositions', 'Orphans', 'Pending', 'Policy', 'PromotionLock', 'RefreshExport', 'RepositoryAuthorizationException', 'RepositoryCompilationException', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract', 'ScopedPromotionAuthority', 'ScopedStateOverlay', 'Secrets'],
     // The reader deliberately tests this bridge at runtime rather than
     // requiring it: an unavailable bridge is a stable artifact diagnostic.
@@ -467,12 +466,12 @@ $knownGapsByFile = [
     'ScopeContract' => ['Canon', 'CompiledRepository', 'Deletion', 'Policy', 'ReferenceGraph'],
     'ScopedApply' => ['Canon', 'CompiledRepository', 'Db', 'Ledger', 'Policy', 'ReferenceGraph', 'RepositoryCompiler', 'ScopeContract', 'ScopedStateOverlay', 'SidebarState', 'Snapshot', 'Uuid'],
     'ScopedStateOverlay' => ['Canon', 'CompiledRepository', 'Policy', 'ScopeClosure', 'ScopeContract'],
-    'Shortcodes' => ['Capture', 'Policy', 'Tokens'],
+    'Shortcodes' => ['Policy', 'Tokens'],
     'SidebarState' => ['Blocks', 'Canon', 'Db', 'Ledger', 'Policy', 'Secrets', 'Snapshot', 'Tokens', 'Uuid'],
     'Snapshot' => ['Canon', 'Db', 'IdentityNotes', 'Ledger', 'OptionState', 'Policy', 'Tokens', 'Uuid'],
     'StateHandoffVerifier' => ['Canon', 'Capture', 'CompiledRepository', 'OptionState', 'Policy'],
     'TermMaterializer' => ['Db', 'Ledger'],
-    'Tokens' => ['Capture', 'Ledger', 'Policy'],
+    'Tokens' => ['Ledger', 'Policy'],
     'UserMetaMaterializer' => ['Db'],
 ];
 $knownGaps = [];
@@ -498,8 +497,8 @@ $mutated = $sources;
 foreach ([
     ['Apply', 'ConvergenceVerifier'],
     ['ConvergenceVerifier', 'Canon'],
-    ['Capture', 'Canary'],
-    ['Capture', 'ScopedApply'],
+    ['CapturePublicationWorkflow', 'Canary'],
+    ['CapturePublicationWorkflow', 'ScopedApply'],
     ['ConvergenceVerifier', 'OptionState'],
     ['ConvergenceVerifier', 'ScopeClosure'],
     ['ConvergenceVerifier', 'ScopedApply'],
