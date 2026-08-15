@@ -1,0 +1,6 @@
+{
+    "format": "duo-quality-scope/v1",
+    "shell": [
+        "sandbox/tests/check_guide_commands.sh"
+    ]
+}

@@ -1961,10 +1961,17 @@ regress-duo-init:
 # is the one explicit lock-pinned dependency installation step.
 .PHONY: doctor bootstrap-dev foundation-check ownership-check contracts-check guide-check
 .PHONY: canonical-contract-check recovery-transition-check evidence-impact evidence-staleness-check
-.PHONY: catalog-fragment-check catalog-check platform-p0-bootstrap platform-p0 test-component thread-1-gate thread-4-gate
-.PHONY: test-unit test-offline format-check static-analysis lint verify-generated check
+.PHONY: catalog-fragment-check catalog-check platform-p0-bootstrap platform-p0 test-component thread-1-gate
+.PHONY: test-unit test-offline format-check static-analysis architecture-check hygiene-check lint verify-generated check
+.PHONY: developer-command-check test-changed test-integration test-conformance audit
+.PHONY: build payload-dist-check payload-reproducibility-check candidate-adoption-check
+.PHONY: release-family-check assembly-reproducibility-check release-validation
+.PHONY: final-integration-close-gate
+.PHONY: ci-build-dist-check loader-check perf-smoke perf-budget
 
 THREAD1_PLATFORM_DIR := sandbox/catalog/fragments/engineering-platform
+OFFLINE_SHARDS ?= 4
+HARNESS_RUNNER_ARGS = $(if $(strip $(HARNESS_APPROVAL)),--harness-approval="$(HARNESS_APPROVAL)" --harness-keyring="$(HARNESS_KEYRING)" --harness-provisioning="$(HARNESS_PROVISIONING)" --harness-probe="$(HARNESS_PROBE)")
 
 doctor:
 	@php $(THREAD1_PLATFORM_DIR)/doctor.php
@@ -2013,6 +2020,10 @@ catalog-check:
 
 verify-generated:
 	@php $(THREAD1_PLATFORM_DIR)/catalog.php verify
+	@php $(THREAD1_PLATFORM_DIR)/command-contract.php verify
+
+developer-command-check:
+	@php $(THREAD1_PLATFORM_DIR)/command-contract.php validate
 
 platform-p0-bootstrap: catalog-fragment-check
 	@php $(THREAD1_PLATFORM_DIR)/runner.php --partial-owner=thread-1 --profile=platform-p0-bootstrap --result=artifacts/test-results/platform-p0-bootstrap/result.json
@@ -2037,16 +2048,24 @@ test-component:
 thread-1-gate:
 	@php $(THREAD1_PLATFORM_DIR)/runner.php --profile=thread-1-engineering-platform --result=artifacts/test-results/thread-1/result.json
 
-# Thread 4's authoritative profile is supplied by its owner-authored catalog
-# fragment; the runner and receipt mechanics remain Thread 1-owned.
-thread-4-gate:
-	@php $(THREAD1_PLATFORM_DIR)/runner.php --profile=thread-4-capability-evidence --result=artifacts/test-results/thread-4/result.json
-
 test-unit:
 	@vendor/bin/phpunit --colors=never
 
 test-offline:
-	@$(MAKE) --no-print-directory regress-offline-all
+	@php $(THREAD1_PLATFORM_DIR)/shard.php plan --profile=legacy-offline-compatibility --count=$(OFFLINE_SHARDS) --output=artifacts/test-results/offline/plan.json
+	@php $(THREAD1_PLATFORM_DIR)/shard.php run --plan=artifacts/test-results/offline/plan.json --output=artifacts/test-results/offline/result.json
+
+test-changed:
+	@php $(THREAD1_PLATFORM_DIR)/changed-selector.php --base-sha="$(BASE_SHA)" --head-sha="$(HEAD_SHA)" --output=artifacts/test-results/changed/selection.json
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --selection=artifacts/test-results/changed/selection.json --result=artifacts/test-results/changed/result.json
+
+test-integration:
+	@php $(THREAD1_PLATFORM_DIR)/suite-selection.php --kind=integration --ids="$(SUITES)" --output=artifacts/test-results/integration/selection.json
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --selection=artifacts/test-results/integration/selection.json --result=artifacts/test-results/integration/result.json $(HARNESS_RUNNER_ARGS)
+
+test-conformance:
+	@php $(THREAD1_PLATFORM_DIR)/suite-selection.php --kind=conformance --ids="$(SUBJECTS)" --output=artifacts/test-results/conformance/selection.json
+	@php $(THREAD1_PLATFORM_DIR)/runner.php --selection=artifacts/test-results/conformance/selection.json --result=artifacts/test-results/conformance/result.json $(HARNESS_RUNNER_ARGS)
 
 format-check:
 	@vendor/bin/php-cs-fixer check --diff --using-cache=no
@@ -2054,8 +2073,58 @@ format-check:
 static-analysis:
 	@vendor/bin/phpstan analyse --no-progress
 
-lint:
-	@find $(THREAD1_PLATFORM_DIR) -type f -name '*.php' -print0 | sort -z | xargs -0 -n1 php -l >/dev/null
+architecture-check:
+	@composer architecture --no-interaction
 
-check: format-check lint static-analysis foundation-check ownership-check contracts-check \
-	guide-check catalog-check verify-generated
+hygiene-check:
+	@php $(THREAD1_PLATFORM_DIR)/hygiene.php
+
+lint:
+	@php $(THREAD1_PLATFORM_DIR)/lint.php
+
+audit:
+	@php $(THREAD1_PLATFORM_DIR)/audit.php --result=artifacts/test-results/audit/result.json
+
+build:
+	@php $(THREAD1_PLATFORM_DIR)/build.php build --output=artifacts/dist
+
+# One explicit CI composition point so the aggregate receipt cannot pass when
+# build, dist verification, loader behavior, or the smoke harness is absent.
+ci-build-dist-check:
+	@php $(THREAD1_PLATFORM_DIR)/build.php build --output=artifacts/dist
+	@php $(THREAD1_PLATFORM_DIR)/build.php payload-dist-check --output=artifacts/dist --result=artifacts/test-results/payload-dist/result.json
+	@php $(THREAD1_PLATFORM_DIR)/loader-check.php --result=artifacts/test-results/loader/result.json
+	@php $(THREAD1_PLATFORM_DIR)/performance.php smoke --result=artifacts/test-results/performance/smoke.json
+
+payload-dist-check:
+	@php $(THREAD1_PLATFORM_DIR)/build.php payload-dist-check --output=artifacts/dist --result=artifacts/test-results/payload-dist/result.json
+
+payload-reproducibility-check:
+	@php $(THREAD1_PLATFORM_DIR)/build.php payload-reproducibility-check --result=artifacts/test-results/payload-reproducibility/result.json
+
+candidate-adoption-check:
+	@php $(THREAD1_PLATFORM_DIR)/qualification.php candidate-adoption --approval="$(APPROVAL)" --result=artifacts/test-results/candidate-adoption/result.json
+
+release-family-check:
+	@php $(THREAD1_PLATFORM_DIR)/release.php verify --release-family="$(RELEASE_FAMILY)" --selection="$(RELEASE_SELECTION)" --pin-record="$(RELEASE_PIN_RECORD)" --result=artifacts/test-results/release-family/result.json
+
+assembly-reproducibility-check:
+	@php $(THREAD1_PLATFORM_DIR)/release.php reproducibility --release-family="$(RELEASE_FAMILY)" --selection="$(RELEASE_SELECTION)" --pin-record="$(RELEASE_PIN_RECORD)" --result=artifacts/test-results/assembly-reproducibility/result.json
+
+release-validation:
+	@php $(THREAD1_PLATFORM_DIR)/qualification.php release-validation --release-family="$(RELEASE_FAMILY)" --release-family-sha256="$(RELEASE_FAMILY_SHA256)" --approval="$(APPROVAL)" --result=artifacts/test-results/release-validation/result.json
+
+final-integration-close-gate:
+	@php $(THREAD1_PLATFORM_DIR)/close-gate.php --candidate="$(CANDIDATE_SHA)" --evidence-child="$(EVIDENCE_CHILD_SHA)" --main-ref=refs/remotes/origin/main --release-family="$(RELEASE_FAMILY)" --selection="$(RELEASE_SELECTION)" --pin-record="$(RELEASE_PIN_RECORD)" --result=artifacts/test-results/final-integration-close-gate/result.json
+
+loader-check:
+	@php $(THREAD1_PLATFORM_DIR)/loader-check.php --result=artifacts/test-results/loader/result.json
+
+perf-smoke:
+	@php $(THREAD1_PLATFORM_DIR)/performance.php smoke --result=artifacts/test-results/performance/smoke.json
+
+perf-budget:
+	@php $(THREAD1_PLATFORM_DIR)/performance.php budget --result=artifacts/test-results/performance/budget.json
+
+check: format-check lint static-analysis architecture-check hygiene-check foundation-check ownership-check contracts-check \
+	guide-check canonical-contract-check recovery-transition-check developer-command-check catalog-check verify-generated

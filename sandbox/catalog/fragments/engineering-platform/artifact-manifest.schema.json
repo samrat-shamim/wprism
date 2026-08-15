@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://duo.local/contracts/artifact-manifest.schema.json",
+    "title": "Duo artifact manifest",
+    "type": "object",
+    "required": [
+        "archive_sha256",
+        "build_version",
+        "compatibility",
+        "component",
+        "content_sha256",
+        "files",
+        "format",
+        "root",
+        "source_commit"
+    ],
+    "additionalProperties": false,
+    "properties": {
+        "archive_sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "build_version": {"const": "1"},
+        "compatibility": {"type": "object"},
+        "component": {"enum": ["agent", "declarations", "host-cli", "recovery"]},
+        "content_sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+        "files": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["mode", "path", "sha256", "size"],
+                "additionalProperties": false,
+                "properties": {
+                    "mode": {"type": "string", "pattern": "^0[0-7]{3}$"},
+                    "path": {"type": "string", "minLength": 1},
+                    "sha256": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+                    "size": {"type": "integer", "minimum": 0}
+                }
+            }
+        },
+        "format": {"const": "duo-artifact-manifest/v1"},
+        "root": {"enum": ["host", "payload/agent", "payload/declarations", "payload/recovery"]},
+        "source_commit": {"type": "string", "pattern": "^[a-f0-9]{40}$"}
+    }
+}

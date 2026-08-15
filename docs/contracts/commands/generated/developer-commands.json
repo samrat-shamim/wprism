@@ -1,0 +1,580 @@
+{
+    "format": "duo-developer-commands/v1",
+    "commands": [
+        {
+            "name": "assembly-reproducibility-check",
+            "prerequisites": [
+                "retained release family",
+                "PHP 8.2",
+                "tar"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary assembly roots",
+                "artifacts/test-results/assembly-reproducibility/result.json"
+            ],
+            "result": "artifacts/test-results/assembly-reproducibility/result.json",
+            "exit_semantics": [
+                "identical assemblies",
+                "assembly mismatch",
+                "invalid invocation or unavailable prerequisite"
+            ]
+        },
+        {
+            "name": "audit",
+            "prerequisites": [
+                "Composer 2.3+",
+                "composer.lock",
+                "network advisory provider"
+            ],
+            "network": "required",
+            "writes": [
+                "artifacts/test-results/audit/result.json"
+            ],
+            "result": "artifacts/test-results/audit/result.json",
+            "exit_semantics": [
+                "clean",
+                "vulnerability or supply-chain policy failure",
+                "audit unavailable or network failure"
+            ]
+        },
+        {
+            "name": "bootstrap-dev",
+            "prerequisites": [
+                "Composer 2.3+",
+                "PHP 8.2 or 8.3",
+                "composer.lock"
+            ],
+            "network": "required",
+            "writes": [
+                "vendor/",
+                "Composer cache",
+                "artifacts/bootstrap-dev/receipt.json"
+            ],
+            "result": "artifacts/bootstrap-dev/receipt.json",
+            "exit_semantics": [
+                "locked tools installed",
+                "installation failed",
+                "invalid prerequisite"
+            ]
+        },
+        {
+            "name": "build",
+            "prerequisites": [
+                "clean Git worktree",
+                "PHP 8.2",
+                "tar"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/dist/"
+            ],
+            "result": "artifacts/dist/build-receipt.json",
+            "exit_semantics": [
+                "candidate payload built",
+                "build or membership failure",
+                "invalid invocation or prerequisite"
+            ]
+        },
+        {
+            "name": "candidate-adoption-check",
+            "prerequisites": [
+                "built candidate",
+                "external qualification approval"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "approved synthetic qualification target",
+                "artifacts/test-results/candidate-adoption/result.json"
+            ],
+            "result": "artifacts/test-results/candidate-adoption/result.json",
+            "exit_semantics": {
+                "0": "non-authorizing adoption and rollback passed",
+                "1": "qualification failed",
+                "69": "external authority unavailable"
+            }
+        },
+        {
+            "name": "canonical-contract-check",
+            "prerequisites": [
+                "WordPress-agent owner export"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": {
+                "0": "contract checks passed",
+                "1": "contract mismatch",
+                "69": "owner export unavailable"
+            }
+        },
+        {
+            "name": "check",
+            "prerequisites": [
+                "bootstrap-dev"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary roots",
+                "declared test receipts"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "offline structural aggregate passed",
+                "one or more checks failed",
+                "invalid prerequisite"
+            ]
+        },
+        {
+            "name": "contracts-check",
+            "prerequisites": [
+                "Thread 0 contract fixtures"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "contracts agree",
+                "contract drift"
+            ]
+        },
+        {
+            "name": "doctor",
+            "prerequisites": [],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "required prerequisites available",
+                "required prerequisite missing or mismatched"
+            ]
+        },
+        {
+            "name": "evidence-impact",
+            "prerequisites": [
+                "Thread 4 owner export",
+                "full BASE_SHA",
+                "full HEAD_SHA"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "owner-declared report path"
+            ],
+            "result": null,
+            "exit_semantics": {
+                "0": "impact report produced",
+                "1": "impact evaluation failed",
+                "2": "invalid SHA",
+                "69": "owner export unavailable"
+            }
+        },
+        {
+            "name": "evidence-staleness-check",
+            "prerequisites": [
+                "Thread 4 owner export",
+                "reviewed impact report"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": {
+                "0": "stale set matches report",
+                "1": "stale-set mismatch",
+                "2": "invalid report",
+                "69": "owner export unavailable"
+            }
+        },
+        {
+            "name": "final-integration-close-gate",
+            "prerequisites": [
+                "freshly fetched refs/remotes/origin/main",
+                "frozen candidate and direct evidence child SHAs",
+                "retained release family",
+                "independent release selection and pin record"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/test-results/final-integration-close-gate/result.json"
+            ],
+            "result": "artifacts/test-results/final-integration-close-gate/result.json",
+            "exit_semantics": [
+                "approved final-integration lineage and retained bytes verified",
+                "reachability, parent, diff, authority, or release binding failed",
+                "invalid invocation"
+            ]
+        },
+        {
+            "name": "format-check",
+            "prerequisites": [
+                "bootstrap-dev"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "format agrees",
+                "format drift"
+            ]
+        },
+        {
+            "name": "foundation-check",
+            "prerequisites": [
+                "Thread 0 policy files"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "policy-only foundation checks passed",
+                "foundation violation"
+            ]
+        },
+        {
+            "name": "guide-check",
+            "prerequisites": [
+                "command sources and guides"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "guide citations agree",
+                "guide contract mismatch"
+            ]
+        },
+        {
+            "name": "lint",
+            "prerequisites": [
+                "PHP 8.2"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary roots"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "syntax, schemas, shell and workflow checks passed",
+                "lint failure"
+            ]
+        },
+        {
+            "name": "loader-check",
+            "prerequisites": [
+                "built source and dist loader layouts",
+                "declared PHP runtime matrix"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/test-results/loader/result.json"
+            ],
+            "result": "artifacts/test-results/loader/result.json",
+            "exit_semantics": [
+                "loader matrix and budgets passed",
+                "loader behavior or budget failure",
+                "runtime prerequisite unavailable"
+            ]
+        },
+        {
+            "name": "ownership-check",
+            "prerequisites": [
+                "Thread 0 ownership ledger"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "ownership is exclusive and complete",
+                "ownership violation"
+            ]
+        },
+        {
+            "name": "payload-dist-check",
+            "prerequisites": [
+                "clean candidate build"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary extraction root",
+                "artifacts/test-results/payload-dist/result.json"
+            ],
+            "result": "artifacts/test-results/payload-dist/result.json",
+            "exit_semantics": [
+                "payload membership and boot checks passed",
+                "payload violation",
+                "invalid build input"
+            ]
+        },
+        {
+            "name": "payload-reproducibility-check",
+            "prerequisites": [
+                "clean Git worktree",
+                "locked builder inputs"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "two temporary build roots",
+                "artifacts/test-results/payload-reproducibility/result.json"
+            ],
+            "result": "artifacts/test-results/payload-reproducibility/result.json",
+            "exit_semantics": [
+                "candidate payload bytes match",
+                "reproducibility mismatch",
+                "invalid prerequisite"
+            ]
+        },
+        {
+            "name": "perf-budget",
+            "prerequisites": [
+                "pinned benchmark image",
+                "dedicated runner class",
+                "ratified baseline"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary benchmark roots",
+                "artifacts/test-results/performance/budget.json"
+            ],
+            "result": "artifacts/test-results/performance/budget.json",
+            "exit_semantics": [
+                "ratified budgets passed",
+                "budget or noise failure",
+                "controlled infrastructure unavailable"
+            ]
+        },
+        {
+            "name": "perf-smoke",
+            "prerequisites": [
+                "PHP 8.2",
+                "benchmark scenarios"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary benchmark roots",
+                "artifacts/test-results/performance/smoke.json"
+            ],
+            "result": "artifacts/test-results/performance/smoke.json",
+            "exit_semantics": [
+                "harness and result parsing passed",
+                "scenario or result failure",
+                "runtime unavailable"
+            ]
+        },
+        {
+            "name": "recovery-transition-check",
+            "prerequisites": [
+                "Mutation/recovery owner export"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": {
+                "0": "transition matrix passed",
+                "1": "transition mismatch",
+                "69": "owner export unavailable"
+            }
+        },
+        {
+            "name": "release-family-check",
+            "prerequisites": [
+                "retained candidate payload",
+                "direct evidence-child overlays",
+                "release family path"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary verification roots",
+                "artifacts/test-results/release-family/result.json"
+            ],
+            "result": "artifacts/test-results/release-family/result.json",
+            "exit_semantics": [
+                "family and exact bytes verified",
+                "trust, closure or byte mismatch",
+                "invalid invocation"
+            ]
+        },
+        {
+            "name": "release-validation",
+            "prerequisites": [
+                "verified retained release family",
+                "external qualification approval"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "approved qualification target",
+                "artifacts/test-results/release-validation/result.json"
+            ],
+            "result": "artifacts/test-results/release-validation/result.json",
+            "exit_semantics": {
+                "0": "post-evidence adoption and rollback passed",
+                "1": "qualification failed",
+                "69": "external authority unavailable"
+            }
+        },
+        {
+            "name": "test-changed",
+            "prerequisites": [
+                "full existing BASE_SHA",
+                "full existing HEAD_SHA",
+                "complete catalog"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/test-results/changed/selection.json",
+                "artifacts/test-results/changed/result.json",
+                "retained suite logs"
+            ],
+            "result": "artifacts/test-results/changed/result.json",
+            "exit_semantics": [
+                "selected suites passed or selector-proven not applicable",
+                "selection or suite failure",
+                "invalid or shallow history"
+            ]
+        },
+        {
+            "name": "test-component",
+            "prerequisites": [
+                "complete catalog",
+                "known nonempty component"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/test-results/components/",
+                "retained suite logs"
+            ],
+            "result": "component-specific result path",
+            "exit_semantics": [
+                "component profile passed",
+                "component failed",
+                "unknown component"
+            ]
+        },
+        {
+            "name": "test-conformance",
+            "prerequisites": [
+                "catalog IDs",
+                "external harness approval",
+                "declared services"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "approved destructive sandbox",
+                "artifacts/test-results/conformance/",
+                "retained suite logs"
+            ],
+            "result": "artifacts/test-results/conformance/result.json",
+            "exit_semantics": {
+                "0": "selected conformance suites passed",
+                "1": "conformance failure",
+                "2": "invalid subject",
+                "69": "authority unavailable"
+            }
+        },
+        {
+            "name": "test-integration",
+            "prerequisites": [
+                "catalog IDs",
+                "declared suite tools and services"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "declared suite targets",
+                "artifacts/test-results/integration/",
+                "retained suite logs"
+            ],
+            "result": "artifacts/test-results/integration/result.json",
+            "exit_semantics": {
+                "0": "selected suites passed",
+                "1": "suite failure",
+                "2": "unknown or empty selection",
+                "69": "authority unavailable"
+            }
+        },
+        {
+            "name": "test-offline",
+            "prerequisites": [
+                "complete catalog",
+                "bootstrap-dev"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/test-results/offline/result.json",
+                "retained suite logs"
+            ],
+            "result": "artifacts/test-results/offline/result.json",
+            "exit_semantics": [
+                "offline profile passed",
+                "offline suite failed",
+                "runner prerequisite unavailable"
+            ]
+        },
+        {
+            "name": "test-unit",
+            "prerequisites": [
+                "bootstrap-dev",
+                "PHP 8.2 or 8.3"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "temporary roots",
+                "optional declared PHPUnit result"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "unit suite passed",
+                "unit failure"
+            ]
+        },
+        {
+            "name": "thread-1-gate",
+            "prerequisites": [
+                "complete catalog",
+                "bootstrap-dev"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "artifacts/test-results/thread-1/result.json",
+                "retained suite logs"
+            ],
+            "result": "artifacts/test-results/thread-1/result.json",
+            "exit_semantics": [
+                "Thread 1 acceptance profile passed",
+                "acceptance failure",
+                "runner prerequisite unavailable"
+            ]
+        },
+        {
+            "name": "verify-generated",
+            "prerequisites": [
+                "complete owner fragments",
+                "generated aggregates"
+            ],
+            "network": "forbidden",
+            "writes": [
+                "none"
+            ],
+            "result": null,
+            "exit_semantics": [
+                "generated bytes agree",
+                "generated drift"
+            ]
+        }
+    ]
+}

@@ -7,6 +7,9 @@ namespace Duo\EngineeringPlatform;
 /**
  * @phpstan-import-type CatalogAggregate from Catalog
  * @phpstan-import-type Suite from Catalog
+ * @phpstan-import-type SelectionDocument from Selection
+ * @phpstan-import-type ShardContext from ShardPlan
+ * @phpstan-import-type HarnessContext from HarnessApproval
  * @phpstan-type ArtifactResult array{path:string,sha256:string}
  * @phpstan-type SuiteResult array{
  *     id:string,
@@ -34,7 +37,25 @@ final class Runner
     /** @var CatalogScope */
     private readonly array $catalogScope;
 
+    /** @var SelectionDocument|null */
+    private readonly ?array $selection;
+
+    /** @var ShardContext|null */
+    private readonly ?array $shard;
+
+    /** @var HarnessContext|null */
+    private readonly ?array $harness;
+
     private readonly string $resultPath;
+    private readonly ?string $junitPath;
+    private readonly ?string $tapPath;
+    private readonly ?string $requestedRunId;
+
+    /** @var list<string> */
+    private readonly array $ownedOutputTrees;
+
+    /** @var list<string> */
+    private readonly array $ownedOutputPaths;
     private ?int $activeProcessGroup = null;
     private bool $interrupted = false;
     private ?int $interruptSignal = null;
@@ -51,18 +72,55 @@ final class Runner
 
     private ?string $setsidPath = null;
 
-    /** @param CatalogAggregate $catalog */
+    /**
+     * @param CatalogAggregate $catalog
+     * @param SelectionDocument|null $selection
+     * @param ShardContext|null $shard
+     * @param HarnessContext|null $harness
+     * @param list<string> $ownedOutputTrees
+     * @param list<string> $ownedOutputPaths
+     */
     public function __construct(
         private readonly string $root,
         array $catalog,
         string $resultPath,
         ?string $partialOwner = null,
+        ?array $selection = null,
+        ?array $shard = null,
+        ?string $junitPath = null,
+        ?string $tapPath = null,
+        ?array $harness = null,
+        ?string $runId = null,
+        array $ownedOutputTrees = [],
+        array $ownedOutputPaths = [],
     ) {
         $this->catalog = $catalog;
         $this->catalogScope = $partialOwner === null
             ? ['kind' => 'complete', 'owner' => null]
             : ['kind' => 'partial_owner', 'owner' => $partialOwner];
         $this->resultPath = self::normalizeArtifactPath($root, $resultPath);
+        $this->selection = $selection;
+        $this->shard = $shard;
+        $this->harness = $harness;
+        if ($runId !== null && preg_match('/^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}-[a-f0-9]{8}$/D', $runId) !== 1) {
+            throw new CatalogException('runner run ID is malformed');
+        }
+        $this->requestedRunId = $runId;
+        $this->ownedOutputTrees = $this->validateParallelOutputs(
+            $ownedOutputTrees,
+            '~^artifacts/test-results/runs/[0-9]{8}T[0-9]{6}Z-[a-f0-9]{12}-[a-f0-9]{8}$~D',
+            'tree',
+        );
+        $this->ownedOutputPaths = $this->validateParallelOutputs(
+            $ownedOutputPaths,
+            '~^artifacts/(?:[A-Za-z0-9._-]+/)+shards/shard-[0-9]+\.json$~D',
+            'path',
+        );
+        $this->junitPath = $junitPath === null ? null : self::normalizeArtifactPath($root, $junitPath);
+        $this->tapPath = $tapPath === null ? null : self::normalizeArtifactPath($root, $tapPath);
+        if ($this->junitPath !== null && $this->junitPath === $this->tapPath) {
+            throw new CatalogException('JUnit and TAP reports require distinct output paths');
+        }
         register_shutdown_function(function (): void {
             if ($this->activeProcessGroup !== null) {
                 $this->terminateGroup($this->activeProcessGroup);
@@ -104,7 +162,8 @@ final class Runner
                 throw new CatalogException("result path is not declared by profile $profileId");
             }
         }
-        if ($suiteIds === []) {
+        $notApplicable = $this->selection !== null && $this->selection['state'] === 'not_applicable';
+        if ($suiteIds === [] && !$notApplicable) {
             throw new CatalogException('runner selection is empty');
         }
         foreach ($suiteIds as $suiteId) {
@@ -121,19 +180,32 @@ final class Runner
         if (preg_match('/^[a-f0-9]{40}$/D', $candidateSha) !== 1) {
             throw new CatalogException('candidate commit is not a full SHA');
         }
+        if ($this->selection !== null
+            && $this->selection['selector_version'] === 'changed-paths/v1'
+            && $this->selection['head_sha'] !== $candidateSha) {
+            throw new CatalogException('changed selection head does not match the candidate commit');
+        }
+        if ($this->shard !== null && $this->shard['candidate_sha'] !== $candidateSha) {
+            throw new CatalogException('shard plan candidate does not match the current commit');
+        }
         $dirtyBefore = $this->capture(['git', 'status', '--porcelain=v1', '-z'], $this->root);
         $startedWall = gmdate('Y-m-d\TH:i:s\Z');
         $started = hrtime(true);
-        $runId = gmdate('Ymd\THis\Z') . '-' . substr($candidateSha, 0, 12) . '-' . bin2hex(random_bytes(4));
+        $runId = $this->requestedRunId
+            ?? gmdate('Ymd\THis\Z') . '-' . substr($candidateSha, 0, 12) . '-' . bin2hex(random_bytes(4));
         $logRootRelative = 'artifacts/test-results/runs/' . $runId;
         $logRoot = $this->absoluteArtifactPath($logRootRelative);
-        if (!mkdir($logRoot, 0700, true) && !is_dir($logRoot)) {
-            throw new CatalogException('cannot create result log directory');
+        if (!$notApplicable) {
+            if (!mkdir($logRoot, 0700, true) && !is_dir($logRoot)) {
+                throw new CatalogException('cannot create result log directory');
+            }
+            chmod($logRoot, 0700);
         }
-        chmod($logRoot, 0700);
 
         /** @var list<SuiteResult> $results */
-        $results = [];
+        $results = $notApplicable
+            ? [$this->result('selector.changed-paths', 'not_applicable', $this->selection['reason'])]
+            : [];
         foreach ($suiteIds as $index => $suiteId) {
             if ($this->interrupted) {
                 foreach (array_slice($suiteIds, $index) as $unrunId) {
@@ -191,10 +263,27 @@ final class Runner
             );
         }
         $aggregateState = $this->aggregateState($results);
+        $reportArtifacts = [];
+        foreach ([
+            [$this->junitPath, $this->junitPath === null ? null : Reports::junit($results)],
+            [$this->tapPath, $this->tapPath === null ? null : Reports::tap($results)],
+        ] as [$reportPath, $reportBytes]) {
+            if (!is_string($reportPath) || !is_string($reportBytes)) {
+                continue;
+            }
+            $this->publish($reportPath, $reportBytes);
+            $artifact = $this->artifactResult($this->root, $reportPath);
+            if ($artifact === null) {
+                $results[] = $this->infrastructureResult('runner.reports', 'cannot retain structured report');
+                $aggregateState = 'infra_error';
+            } else {
+                $reportArtifacts[] = $artifact;
+            }
+        }
         $receipt = [
             'format' => 'duo-test-run-receipt/v1',
             'phase' => 'complete',
-            'authority' => $this->catalogScope['kind'] === 'complete' ? 'gate_result' : 'non_authorizing_partial',
+            'authority' => $this->authority($profileId),
             'state' => $aggregateState,
             'message' => $this->interrupted ? 'runner interrupted' : null,
             'candidate_sha' => $candidateSha,
@@ -207,21 +296,30 @@ final class Runner
             'catalog_schema_sha256' => $this->fileDigest(__DIR__ . '/schema.json'),
             'receipt_schema_sha256' => $this->fileDigest(__DIR__ . '/run-receipt.schema.json'),
             'invocation_schema_sha256' => $this->fileDigest(__DIR__ . '/invocation.schema.json'),
+            'selection_schema_sha256' => $this->fileDigest(__DIR__ . '/selection.schema.json'),
             'profile_id' => $profileId,
             'profile_sha256' => $profile === null ? null : 'sha256:' . hash('sha256', $this->canonical($profile)),
+            'selection' => $this->selectionSummary(),
+            'selection_sha256' => $this->selection === null
+                ? null
+                : 'sha256:' . hash('sha256', $this->canonical($this->selection)),
+            'shard' => $this->shard,
+            'shard_plan_schema_sha256' => $this->fileDigest(__DIR__ . '/shard-plan.schema.json'),
             'selected_suite_ids' => $suiteIds,
             'selected_set_sha256' => 'sha256:' . hash('sha256', $this->canonical($suiteIds)),
             'execution_plan' => array_map(fn(array $suite): array => $this->executionPlan($suite), $selectedSuites),
             'runner_sha256' => $this->fileDigest(__FILE__),
             'dependency_lock_sha256' => $this->fileDigest($this->root . '/composer.lock'),
             'toolchain' => $this->toolchainBindings,
-            'image_digest' => null,
+            'image_digest' => $this->harness['image_digest'] ?? null,
+            'harness' => $this->harnessSummary(),
             'platform_contract' => $platformContract,
             'started_at' => $startedWall,
             'finished_at' => gmdate('Y-m-d\TH:i:s\Z'),
             'duration_ms' => (int) round((hrtime(true) - $started) / 1_000_000),
             'interrupt_signal' => $this->interruptSignal,
             'profile_artifacts' => $profileArtifacts,
+            'report_artifacts' => $reportArtifacts,
             'results' => $results,
         ];
         $this->publish($this->resultPath, $this->canonical($receipt) . "\n");
@@ -235,7 +333,7 @@ final class Runner
         if ($this->interruptSignal !== null) {
             return 128 + $this->interruptSignal;
         }
-        return $aggregateState === 'pass' ? 0 : 1;
+        return in_array($aggregateState, ['pass', 'not_applicable'], true) ? 0 : 1;
     }
 
     /**
@@ -248,11 +346,18 @@ final class Runner
         if ($this->setsidPath === null || !function_exists('posix_kill')) {
             return $this->infrastructureResult($id, 'setsid and posix_kill are required for process-group cleanup');
         }
-        if ($suite['required_services'] !== []) {
-            return $this->infrastructureResult($id, 'serial P0 runner cannot provision required services');
-        }
         if ($suite['environment_class'] !== 'offline') {
-            return $this->infrastructureResult($id, 'non-offline suite requires harness-approval preflight');
+            $mismatch = $this->harnessMismatch($suite);
+            if ($mismatch !== null) {
+                return $this->infrastructureResult($id, $mismatch);
+            }
+            foreach ($suite['required_services'] as $service) {
+                if ($this->findTool($service) === null) {
+                    return $this->infrastructureResult($id, "approved required service is unavailable: $service");
+                }
+            }
+        } elseif ($suite['required_services'] !== []) {
+            return $this->infrastructureResult($id, 'offline suite cannot depend on a provisioned service');
         }
 
         $controlRoot = sys_get_temp_dir() . '/duo-test-' . preg_replace('/[^a-z0-9.-]+/', '-', $id) . '-' . bin2hex(random_bytes(6));
@@ -289,11 +394,11 @@ final class Runner
         }
 
         $enforceWorkspaceIntegrity = $suite['workspace_mode'] === 'read_only';
-        $runnerOwnedOutputTrees = $this->inheritedRunnerOutputTrees();
+        $runnerOwnedOutputTrees = array_merge($this->inheritedRunnerOutputTrees(), $this->ownedOutputTrees);
         $runnerOwnedOutputTrees[] = $logRootRelative;
         $runnerOwnedOutputTrees = array_values(array_unique($runnerOwnedOutputTrees));
         $fingerprintExcludedTrees = array_merge(['.git'], $runnerOwnedOutputTrees);
-        $fingerprintExcludedExactPaths = $suite['expected_outputs'];
+        $fingerprintExcludedExactPaths = array_merge($suite['expected_outputs'], $this->ownedOutputPaths);
         foreach ($suite['expected_outputs'] as $expectedOutput) {
             $ancestor = dirname($expectedOutput);
             while ($ancestor !== '.' && $ancestor !== '') {
@@ -336,12 +441,20 @@ final class Runner
         if ($suite['temporary_directory'] === 'unique') {
             $environment['DUO_TEST_TMPDIR'] = $temporary;
         }
+        if ($suite['environment_class'] !== 'offline' && $this->harness !== null) {
+            foreach ($this->harness['environment'] as $name => $value) {
+                $environment[$name] = $value;
+            }
+        }
         $redactions = array_values(array_filter([
             $this->root,
             $workspace,
             $controlRoot,
             is_string(getenv('HOME')) ? getenv('HOME') : null,
         ], static fn(mixed $value): bool => is_string($value) && $value !== ''));
+        if ($suite['environment_class'] !== 'offline' && $this->harness !== null) {
+            array_push($redactions, ...array_values($this->harness['environment']));
+        }
 
         $logPath = $logRoot . '/' . $id . '.log';
         $logRelative = $logRootRelative . '/' . $id . '.log';
@@ -656,6 +769,89 @@ final class Runner
         return $states !== [] && !in_array('not_applicable', $states, true) ? 'pass' : 'infra_error';
     }
 
+    private function authority(?string $profileId): string
+    {
+        if ($this->catalogScope['kind'] !== 'complete') {
+            return 'non_authorizing_partial';
+        }
+        if ($profileId !== null) {
+            return 'gate_result';
+        }
+        if ($this->selection !== null && $this->selection['authority'] === 'advisory') {
+            return 'non_authorizing_advisory';
+        }
+        if ($this->shard !== null) {
+            return 'non_authorizing_shard';
+        }
+        return 'non_authorizing_diagnostic';
+    }
+
+    /** @return array<string,mixed>|null */
+    private function harnessSummary(): ?array
+    {
+        if ($this->harness === null) {
+            return null;
+        }
+        return [
+            'approval_id' => $this->harness['approval_id'],
+            'approval_sha256' => $this->harness['approval_sha256'],
+            'provisioning_sha256' => $this->harness['provisioning_sha256'],
+            'probe_sha256' => $this->harness['probe_sha256'],
+            'image_digest' => $this->harness['image_digest'],
+            'environment_class' => $this->harness['environment_class'],
+            'data_profile' => $this->harness['data_profile'],
+            'credential_realm' => $this->harness['credential_realm'],
+            'egress_policy' => $this->harness['egress_policy'],
+            'effect_policy' => $this->harness['effect_policy'],
+            'sandbox_destinations_sha256' => $this->harness['sandbox_destinations_sha256'],
+            'environment_fingerprint' => $this->harness['environment_fingerprint'],
+            'output_authority' => $this->harness['output_authority'],
+            'output_adoptability' => $this->harness['output_adoptability'],
+        ];
+    }
+
+    /** @param Suite $suite */
+    private function harnessMismatch(array $suite): ?string
+    {
+        if ($this->harness === null) {
+            return 'non-offline suite requires harness-approval, keyring, provisioning, and fresh probe preflight';
+        }
+        if ($suite['required_review_gate'] !== 'duo-harness-approval/v1') {
+            return 'non-offline suite does not name the required harness approval contract';
+        }
+        $authority = $suite['authority_requirements'] ?? null;
+        if (!is_array($authority)
+            || $authority['output_authority'] !== $this->harness['output_authority']
+            || $authority['output_adoptability'] !== $this->harness['output_adoptability']) {
+            return 'suite authority class disagrees with the verified non-authorizing harness';
+        }
+        $expectedDataProfile = $authority['data_profile'] === 'synthetic'
+            ? 'approved_synthetic'
+            : $authority['data_profile'];
+        if ($expectedDataProfile !== $this->harness['data_profile']) {
+            return 'suite data profile disagrees with the verified harness';
+        }
+        return null;
+    }
+
+    /** @return array<string,mixed>|null */
+    private function selectionSummary(): ?array
+    {
+        if ($this->selection === null) {
+            return null;
+        }
+        return [
+            'selector_version' => $this->selection['selector_version'],
+            'authority' => $this->selection['authority'],
+            'state' => $this->selection['state'],
+            'reason' => $this->selection['reason'],
+            'base_sha' => $this->selection['base_sha'],
+            'head_sha' => $this->selection['head_sha'],
+            'merge_base_sha' => $this->selection['merge_base_sha'],
+            'changed_paths_sha256' => $this->selection['changed_paths_sha256'],
+        ];
+    }
+
     /**
      * @param Suite $suite
      * @return array<string,mixed>
@@ -685,7 +881,12 @@ final class Runner
         }
         $this->setsidPath = $setsid;
         $this->bindToolchainPath('php', PHP_BINARY);
+        $this->bindToolchainPath('runner.entry', __DIR__ . '/runner.php');
+        $this->bindToolchainPath('runner.harness-approval', __DIR__ . '/HarnessApproval.php');
         $this->bindToolchainPath('runner.process-entry', __DIR__ . '/process-entry.php');
+        $this->bindToolchainPath('runner.reports', __DIR__ . '/Reports.php');
+        $this->bindToolchainPath('runner.selection', __DIR__ . '/Selection.php');
+        $this->bindToolchainPath('runner.shard-plan', __DIR__ . '/ShardPlan.php');
         $this->bindToolchainPath('runner.setsid', $setsid);
         foreach ($suites as $suite) {
             $executable = $this->resolveExecutable($suite['command'][0], $this->root);
@@ -754,6 +955,23 @@ final class Runner
             $validated[] = $path;
         }
         return $validated;
+    }
+
+    /**
+     * @param list<string> $paths
+     * @return list<string>
+     */
+    private function validateParallelOutputs(array $paths, string $pattern, string $label): array
+    {
+        if (count($paths) > 64 || count(array_unique($paths, SORT_STRING)) !== count($paths)) {
+            throw new CatalogException("runner-owned parallel output $label list is invalid");
+        }
+        foreach ($paths as $path) {
+            if (preg_match($pattern, $path) !== 1) {
+                throw new CatalogException("runner-owned parallel output $label is invalid");
+            }
+        }
+        return $paths;
     }
 
     /** @return array{profile_id:string,contract_sha256:string} */
@@ -1124,7 +1342,9 @@ final class Runner
         $receipt = [
             'format' => 'duo-test-run-receipt/v1',
             'phase' => 'preflight',
-            'authority' => $catalogScope['kind'] === 'complete' ? 'gate_result' : 'non_authorizing_partial',
+            'authority' => $catalogScope['kind'] !== 'complete'
+                ? 'non_authorizing_partial'
+                : ($profileId === null ? 'non_authorizing_diagnostic' : 'gate_result'),
             'state' => 'infra_error',
             'message' => $message,
             'candidate_sha' => $candidate,
@@ -1134,8 +1354,13 @@ final class Runner
             'catalog_schema_sha256' => null,
             'receipt_schema_sha256' => null,
             'invocation_schema_sha256' => null,
+            'selection_schema_sha256' => null,
             'profile_id' => $profileId,
             'profile_sha256' => null,
+            'selection' => null,
+            'selection_sha256' => null,
+            'shard' => null,
+            'shard_plan_schema_sha256' => null,
             'selected_suite_ids' => [],
             'selected_set_sha256' => null,
             'execution_plan' => [],
@@ -1143,12 +1368,14 @@ final class Runner
             'dependency_lock_sha256' => null,
             'toolchain' => [],
             'image_digest' => null,
+            'harness' => null,
             'platform_contract' => null,
             'started_at' => gmdate('Y-m-d\TH:i:s\Z'),
             'finished_at' => gmdate('Y-m-d\TH:i:s\Z'),
             'duration_ms' => 0,
             'interrupt_signal' => null,
             'profile_artifacts' => [],
+            'report_artifacts' => [],
             'results' => [[
                 'id' => 'runner.preflight',
                 'state' => 'infra_error',
@@ -1181,7 +1408,10 @@ final class Runner
     private function removeTree(string $path): bool
     {
         if (!is_dir($path) || is_link($path)) {
-            return !file_exists($path) || unlink($path);
+            if (!file_exists($path) && !is_link($path)) {
+                return true;
+            }
+            return unlink($path);
         }
         $entries = scandir($path);
         if (!is_array($entries)) {

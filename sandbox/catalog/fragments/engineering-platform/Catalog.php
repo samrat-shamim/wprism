@@ -90,6 +90,10 @@ final class Catalog
         'component-wordpress-agent',
         'component-capability-policy-evidence',
         'component-mutation-recovery',
+        'pr',
+        'frozen-candidate',
+        'evidence-child',
+        'release-validation',
         'legacy-offline-compatibility',
         'legacy-live-compatibility',
     ];
@@ -714,7 +718,7 @@ final class Catalog
             'git', 'ls-files', '-z', '--',
             'sandbox/tests',
             'sandbox/conformance',
-            'sandbox/catalog/fragments/*/tests',
+            ':(glob)sandbox/catalog/fragments/*/tests/**',
         ]);
         $files = array_values(array_filter(explode("\0", $output), static fn(string $path): bool => $path !== ''));
         sort($files, SORT_STRING);
@@ -735,6 +739,11 @@ final class Catalog
                     'evidence-staleness-check', 'verify-generated', 'lint', 'check',
                     'catalog-fragment-check', 'catalog-check', 'platform-p0', 'test-component',
                     'thread-1-gate', 'test-unit', 'test-offline', 'format-check', 'static-analysis',
+                    'build', 'payload-dist-check', 'payload-reproducibility-check', 'loader-check',
+                    'candidate-adoption-check', 'release-family-check',
+                    'assembly-reproducibility-check', 'release-validation',
+                    'final-integration-close-gate',
+                    'perf-smoke', 'perf-budget',
                 ], true)) {
                 $targets[$target] = true;
             }

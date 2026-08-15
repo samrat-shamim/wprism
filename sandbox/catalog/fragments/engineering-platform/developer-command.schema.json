@@ -1,0 +1,42 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://duo.local/contracts/developer-command.schema.json",
+    "title": "Duo developer command contract",
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["format", "commands"],
+    "properties": {
+        "format": {"const": "duo-developer-commands/v1"},
+        "commands": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "prerequisites", "network", "writes", "result", "exit_semantics"],
+                "properties": {
+                    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]*$"},
+                    "prerequisites": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "uniqueItems": true
+                    },
+                    "network": {"enum": ["forbidden", "required"]},
+                    "writes": {
+                        "type": "array",
+                        "minItems": 1,
+                        "items": {"type": "string", "minLength": 1},
+                        "uniqueItems": true
+                    },
+                    "result": {"type": ["string", "null"]},
+                    "exit_semantics": {
+                        "type": "object",
+                        "minProperties": 1,
+                        "additionalProperties": {"type": "string", "minLength": 1},
+                        "propertyNames": {"pattern": "^(0|1|2|69|128\\+signal)$"}
+                    }
+                }
+            }
+        }
+    }
+}
