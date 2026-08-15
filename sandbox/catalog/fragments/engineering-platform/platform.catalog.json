@@ -124,7 +124,7 @@
   "inventory": [
     {
       "kind": "file",
-      "name": "sandbox/catalog/fragments/engineering-platform/Catalog.php",
+      "name": "sandbox/catalog/fragments/engineering-platform/CatalogValidator.php",
       "role": "helper",
       "suite_ids": ["platform-catalog-self-test"]
     },
@@ -136,13 +136,13 @@
     },
     {
       "kind": "file",
-      "name": "sandbox/catalog/fragments/engineering-platform/Doctor.php",
+      "name": "sandbox/catalog/fragments/engineering-platform/DoctorService.php",
       "role": "helper",
       "suite_ids": ["platform-doctor"]
     },
     {
       "kind": "file",
-      "name": "sandbox/catalog/fragments/engineering-platform/Runner.php",
+      "name": "sandbox/catalog/fragments/engineering-platform/SuiteRunner.php",
       "role": "helper",
       "suite_ids": ["platform-catalog-self-test"]
     },

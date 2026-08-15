@@ -1,0 +1,187 @@
+{
+  "format": "duo-canonical-call-site-matrix/v1",
+  "owner": "thread-3",
+  "domains": [
+    {
+      "id": "capture-observation",
+      "profile_id": "component-wordpress-agent",
+      "source_paths": [
+        "agent/src/AdapterObservation.php",
+        "agent/src/CaptureCandidateBuilder.php",
+        "agent/src/CapturePublicationRecovery.php",
+        "agent/src/CapturePublicationWorkflow.php",
+        "agent/src/CaptureSnapshotService.php",
+        "agent/src/RefreshExport.php",
+        "agent/src/TermCapture.php",
+        "agent/src/TypedTableCapture.php",
+        "agent/src/UserMetaCapture.php"
+      ],
+      "suite_ids": [
+        "wordpress-agent.adapter-observation",
+        "wordpress-agent.capture-atomicity",
+        "wordpress-agent.capture-command",
+        "wordpress-agent.capture-publish-recovery",
+        "wordpress-agent.capture-record-readback",
+        "wordpress-agent.capture-refactor-boundaries",
+        "wordpress-agent.entity-meta-capture",
+        "wordpress-agent.media-capture",
+        "wordpress-agent.menu-capture",
+        "wordpress-agent.options-capture",
+        "wordpress-agent.term-meta",
+        "wordpress-agent.typed-table-capture",
+        "wordpress-agent.user-meta-capture"
+      ],
+      "fixtures": [
+        "sandbox/tests/regress_capture_atomicity.php",
+        "sandbox/tests/regress_capture_publish.php",
+        "sandbox/tests/regress_entity_meta_capture.php",
+        "sandbox/tests/regress_media_capture.php",
+        "sandbox/tests/regress_menu_capture.php",
+        "sandbox/tests/regress_options_capture.php",
+        "sandbox/tests/regress_term_meta.php",
+        "sandbox/tests/regress_typed_table_capture.php",
+        "sandbox/tests/regress_user_meta_capture.php"
+      ]
+    },
+    {
+      "id": "init-publication",
+      "profile_id": "component-wordpress-agent",
+      "source_paths": [
+        "agent/src/InitAttemptJournal.php",
+        "agent/src/InitCodeBaseline.php",
+        "agent/src/InitCodeInventory.php",
+        "agent/src/InitConfirmation.php",
+        "agent/src/InitOwnedArtifacts.php",
+        "agent/src/InitPlanner.php",
+        "agent/src/InitRecovery.php",
+        "agent/src/InitRepositoryBoundary.php",
+        "agent/src/InitialCaptureBoundary.php"
+      ],
+      "suite_ids": [
+        "wordpress-agent.init-command",
+        "wordpress-agent.init-contract"
+      ],
+      "fixtures": [
+        "sandbox/tests/regress_init_command.php",
+        "sandbox/tests/regress_init_contract.php"
+      ]
+    },
+    {
+      "id": "repository-compiler",
+      "profile_id": "component-wordpress-agent",
+      "source_paths": [
+        "agent/src/CodeDescriptorCompiler.php",
+        "agent/src/CompiledArtifact.php",
+        "agent/src/CompiledArtifactReader.php",
+        "agent/src/Deletion.php",
+        "agent/src/RepositoryAuthorization.php",
+        "agent/src/RepositoryCompiler.php",
+        "agent/src/RepositoryDeletionParser.php",
+        "agent/src/RepositoryEntityParser.php",
+        "agent/src/RepositoryIdentityRegistry.php",
+        "agent/src/RepositoryMediaCatalog.php"
+      ],
+      "suite_ids": [
+        "wordpress-agent.repository-compiler",
+        "wordpress-agent.repository-deletion-parser",
+        "wordpress-agent.repository-entity-parser",
+        "wordpress-agent.repository-identity-registry",
+        "wordpress-agent.repository-media-catalog",
+        "wordpress-agent.repository-portable-shape-validator",
+        "wordpress-agent.repository-reference-graph",
+        "wordpress-agent.repository-schema-validator",
+        "wordpress-agent.repository-state-file-catalog"
+      ],
+      "fixtures": [
+        "sandbox/tests/regress_repository_compiler.sh",
+        "sandbox/tests/regress_repository_deletion_parser.php",
+        "sandbox/tests/regress_repository_entity_parser.php",
+        "sandbox/tests/regress_repository_identity_registry.php",
+        "sandbox/tests/regress_repository_media_catalog.php",
+        "sandbox/tests/regress_repository_portable_shape_validator.php",
+        "sandbox/tests/regress_repository_reference_graph_validator.php",
+        "sandbox/tests/regress_repository_schema_validator.php",
+        "sandbox/tests/regress_repository_state_file_catalog.php"
+      ]
+    },
+    {
+      "id": "identity-and-reference",
+      "profile_id": "component-wordpress-agent",
+      "source_paths": [
+        "agent/src/Identity.php",
+        "agent/src/IdentityBackup.php",
+        "agent/src/OptionState.php",
+        "agent/src/OrderPreserved.php",
+        "agent/src/PublicationJournal.php",
+        "agent/src/ScopedStateOverlay.php",
+        "agent/src/SidebarState.php",
+        "agent/src/Snapshot.php",
+        "agent/src/ScopeContract.php"
+      ],
+      "suite_ids": [
+        "wordpress-agent.block-reference-scanner",
+        "wordpress-agent.canonical-order-preserving",
+        "wordpress-agent.identity-token-codec",
+        "wordpress-agent.menu-reference-scanner",
+        "wordpress-agent.scope-closure",
+        "wordpress-agent.scope-contract",
+        "wordpress-agent.scope-discovery",
+        "wordpress-agent.snapshot-identity",
+        "wordpress-agent.snapshot-pruner",
+        "wordpress-agent.structured-reference-codec",
+        "wordpress-agent.url-query-reference-codec"
+      ],
+      "fixtures": [
+        "sandbox/tests/regress_block_reference_scanner.php",
+        "sandbox/tests/regress_identity_token_codec.php",
+        "sandbox/tests/regress_menu_reference_scanner.php",
+        "sandbox/tests/regress_order_preserving.php",
+        "sandbox/tests/regress_scope_closure.php",
+        "sandbox/tests/regress_scope_contract.php",
+        "sandbox/tests/regress_scope_discovery.php",
+        "sandbox/tests/regress_snapshot_identity.php",
+        "sandbox/tests/regress_snapshot_pruner.php",
+        "sandbox/tests/regress_structured_reference_codec.php",
+        "sandbox/tests/regress_url_query_reference_codec.php"
+      ]
+    },
+    {
+      "id": "filesystem-and-safety",
+      "profile_id": "component-wordpress-agent",
+      "source_paths": [
+        "agent/src/DurableFilesystem.php",
+        "agent/src/Lint.php"
+      ],
+      "suite_ids": [
+        "wordpress-agent.capture-gate-scanner",
+        "wordpress-agent.capture-publish-recovery",
+        "wordpress-agent.capture-safety-gates",
+        "wordpress-agent.capture-secret-scan",
+        "wordpress-agent.lint-primitives"
+      ],
+      "fixtures": [
+        "sandbox/tests/regress_capture_gate_scanner.php",
+        "sandbox/tests/regress_capture_safety_gates.php",
+        "sandbox/tests/regress_capture_secret_scan.php",
+        "sandbox/tests/regress_lint_primitives.php"
+      ]
+    },
+    {
+      "id": "command-projection",
+      "profile_id": "component-wordpress-agent",
+      "source_paths": [
+        "agent/src/Cli.php"
+      ],
+      "suite_ids": [
+        "wordpress-agent.cli-json-refusals",
+        "wordpress-agent.command-golden-fixtures",
+        "wordpress-agent.command-output"
+      ],
+      "fixtures": [
+        "sandbox/tests/regress_cli_json_refusals.php",
+        "sandbox/tests/regress_command_output.php",
+        "sandbox/catalog/fragments/wordpress-agent/command-goldens.json"
+      ]
+    }
+  ]
+}

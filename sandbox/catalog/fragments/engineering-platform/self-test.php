@@ -7,7 +7,7 @@ use Duo\EngineeringPlatform\Catalog;
 use Duo\EngineeringPlatform\CatalogException;
 
 require_once __DIR__ . '/CatalogException.php';
-require_once __DIR__ . '/Catalog.php';
+require_once __DIR__ . '/CatalogValidator.php';
 
 $temporary = sys_get_temp_dir() . '/duo-catalog-self-test-' . bin2hex(random_bytes(8));
 $fragmentDirectory = $temporary . '/sandbox/catalog/fragments/engineering-platform';

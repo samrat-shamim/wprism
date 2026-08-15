@@ -4,12 +4,12 @@ This directory is the Thread 1-owned Platform P0 surface permitted by the
 foundation ownership ledger. It contains:
 
 - `schema.json`: the catalog-fragment contract;
-- `Catalog.php` and `catalog.php`: fragment validation and deterministic
+- `CatalogValidator.php` and `catalog.php`: fragment validation and deterministic
   aggregate generation;
-- `Runner.php` and `runner.php`: the serial, streamed, timeout-bounded P0
+- `SuiteRunner.php` and `runner.php`: the serial, streamed, timeout-bounded P0
   runner with retained logs and a canonical run receipt;
 - `platform.catalog.json`: the nonempty Thread 1 fragment and profiles;
-- `Doctor.php`, `doctor.php`, and `bootstrap-receipt.php`: read-only diagnosis
+- `DoctorService.php`, `doctor.php`, and `bootstrap-receipt.php`: read-only diagnosis
   and the explicit development-bootstrap receipt; and
 - self-tests plus PHPUnit coverage for validation failures.
 

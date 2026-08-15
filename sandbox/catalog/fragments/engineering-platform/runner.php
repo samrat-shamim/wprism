@@ -8,8 +8,8 @@ use Duo\EngineeringPlatform\CatalogException;
 use Duo\EngineeringPlatform\Runner;
 
 require_once __DIR__ . '/CatalogException.php';
-require_once __DIR__ . '/Catalog.php';
-require_once __DIR__ . '/Runner.php';
+require_once __DIR__ . '/CatalogValidator.php';
+require_once __DIR__ . '/SuiteRunner.php';
 
 $root = dirname(__DIR__, 4);
 $profile = null;

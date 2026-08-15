@@ -7,7 +7,7 @@ use Duo\EngineeringPlatform\Catalog;
 use Duo\EngineeringPlatform\CatalogException;
 
 require_once __DIR__ . '/CatalogException.php';
-require_once __DIR__ . '/Catalog.php';
+require_once __DIR__ . '/CatalogValidator.php';
 
 $root = dirname(__DIR__, 4);
 $command = $argv[1] ?? 'validate';
