@@ -1683,7 +1683,7 @@
             "environment_class": "offline",
             "evidence_staleness": "forbidden",
             "expected_outputs": [
-                "artifacts/test-results/threads/thread-4/result.json"
+                "artifacts/test-results/thread-4/result.json"
             ],
             "id": "thread-4-capability-evidence",
             "owner": "thread-4",

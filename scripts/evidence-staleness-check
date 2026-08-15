@@ -1,0 +1,42 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+$root = dirname(__DIR__);
+require_once $root . '/agent/src/Evidence/EvidenceStalenessCheck.php';
+
+use Duo\Canon;
+use Duo\EvidenceImpactReport;
+use Duo\EvidenceStalenessCheck;
+
+$reportPath = null;
+$output = null;
+foreach (array_slice($argv, 1) as $argument) {
+    if (str_starts_with($argument, '--report=')) {
+        $reportPath = substr($argument, strlen('--report='));
+    } elseif (str_starts_with($argument, '--output=')) {
+        $output = substr($argument, strlen('--output='));
+    } else {
+        fwrite(STDERR, "evidence-staleness-check: unknown argument $argument\n");
+        exit(64);
+    }
+}
+
+if (!is_string($reportPath) || $reportPath === '') {
+    fwrite(STDERR, "usage: scripts/evidence-staleness-check --report=<path> [--output=<path>]\n");
+    exit(64);
+}
+
+try {
+    $report = EvidenceImpactReport::decode(Canon::read_file($reportPath), "evidence impact report '$reportPath'");
+    $result = EvidenceStalenessCheck::run($root, $report);
+    $encoded = Canon::encode($result);
+    if (is_string($output) && $output !== '') {
+        Canon::write_file($output, $encoded);
+    }
+    fwrite(STDOUT, $encoded);
+    exit(($result['state'] ?? null) === 'pass' ? 0 : 1);
+} catch (Throwable $e) {
+    fwrite(STDERR, "evidence-staleness-check: {$e->getMessage()}\n");
+    exit(69);
+}

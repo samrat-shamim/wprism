@@ -1462,6 +1462,10 @@
             "owner": "thread-4"
         },
         {
+            "path": "manifests/capabilities/source-to-artifact.json",
+            "owner": "thread-4"
+        },
+        {
             "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/bundle.json",
             "owner": "thread-4"
         },
@@ -3832,6 +3836,14 @@
         {
             "path": "scripts/contracts-check",
             "owner": "thread-0"
+        },
+        {
+            "path": "scripts/evidence-impact",
+            "owner": "thread-4"
+        },
+        {
+            "path": "scripts/evidence-staleness-check",
+            "owner": "thread-4"
         },
         {
             "path": "scripts/foundation-check",

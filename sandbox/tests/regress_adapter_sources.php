@@ -50,6 +50,7 @@ require __DIR__ . '/../../agent/src/Db.php';
 require __DIR__ . '/../../agent/src/ManifestDispositions.php';
 require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
 require __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Adapter/AdapterSourceDiscovery.php';
 require __DIR__ . '/../../agent/src/Ledger.php';
 require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
 require_once __DIR__ . '/../../agent/src/SidebarState.php';
@@ -1454,6 +1455,15 @@ check(
     && (($plainRows['woocommerce']['evidence']['status'] ?? null) === 'current'),
     'a shipped-only report exposes each claim authority when its Woo evidence is scoped'
 );
+$plainSnapshot = $plain->snapshot();
+$plainSnapshotCopy = $plainSnapshot->data();
+$plainSnapshotCopy['manifests'][] = ['name' => 'forged'];
+check(
+    $plainSnapshot->manifestNames() === ['core', 'woocommerce']
+        && $plain->queries()->surface('options') !== []
+        && $plainSnapshot->manifest('forged') === null,
+    'a real Policy::load publishes an immutable snapshot and indexed query view without accepting caller-added declarations'
+);
 
 // ======================================================================
 echo "\n== the shipped library view reports its own tiers, from the same scan (DUO-3339) ==\n";
@@ -1518,6 +1528,24 @@ check(
     str_contains($backstopText, 'source=shipped') && str_contains($backstopText, 'tier=unknown')
     && str_contains($backstopText, '    remediation: '),
     'duo status renders the row\'s own words rather than its own defaults'
+);
+
+$adapterCatalog = $plain->adapter_catalog();
+$adapterSnapshot = $plain->adapter_sources()->snapshot();
+$restoredSources = \Duo\Adapter\AdapterSnapshot::decode($adapterSnapshot->encode())
+    ->restore($plain->manifests);
+$discoveredCatalog = \Duo\Adapter\AdapterSourceDiscovery::discover($shippedDir, null);
+check(
+    $adapterCatalog->names() === $plain->adapter_sources()->names()
+        && $adapterCatalog->evidenceModel() === 'legacy_adapter_package_evidence'
+        && $restoredSources->export() === $plain->adapter_sources()->export()
+        && $discoveredCatalog->source('core') === 'shipped'
+        && in_array('woocommerce', $discoveredCatalog->names(), true),
+    'the adapter catalog is immutable, labels historical package evidence explicitly, discovery remains inert, and its snapshot round-trips without changing legacy source bytes'
+);
+check(
+    str_contains((string) file_get_contents(__DIR__ . '/../../agent/src/AdapterSources.php'), 'AdapterSourceReader::bytes('),
+    'adapter source reads flow through the source-reader boundary'
 );
 
 echo $failures === 0 ? "\nALL PASSED\n" : "\nFAIL: $failures check(s) failed\n";

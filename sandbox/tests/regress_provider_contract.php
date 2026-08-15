@@ -240,6 +240,7 @@ require_once $root . '/agent/src/CodeCompatibility.php';
 require $root . '/agent/src/Deploy.php';
 require $root . '/agent/src/ProviderSdk.php';
 require $root . '/agent/src/Providers.php';
+require_once $root . '/agent/src/Provider/ProviderExecutionFacade.php';
 // DUO-3339: `duo status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
 require $root . '/cli/src/PlanSummary.php';
@@ -3519,6 +3520,39 @@ $check(
     'a channel-less entity-scoped capability receives the bare batch, byte-identical to the pre-change engine'
 );
 $reset();
+
+echo "\n== Thread 4 provider catalog and execution boundaries ==\n";
+$providerFacade = new \Duo\Provider\ProviderNegotiationFacade($policy);
+$directNegotiation = \Duo\Providers::negotiate($policy, $policy->actions_for(['post:probe']));
+$facadeNegotiation = $providerFacade->negotiate($policy->actions_for(['post:probe']));
+$providerCatalog = $providerFacade->catalog();
+$operationEnvelope = [
+    'authority_hash' => str_repeat('a', 64),
+    'lease_session_id' => 'lease-01',
+    'operation_id' => 'operation-1',
+    'input_hash' => str_repeat('b', 64),
+    'effect_hash' => str_repeat('c', 64),
+];
+$check(
+    json_encode($facadeNegotiation) === json_encode($directNegotiation)
+        && $providerCatalog->ids() === ['probe-cache']
+        && is_array($providerCatalog->declaration('probe-cache')),
+    'provider negotiation and the immutable provider catalog preserve the legacy declaration and negotiation result'
+);
+$check(
+    \Duo\Provider\ProviderExecutionFacade::boundReceipt($receipt, 'probe-cache', 'flush')
+        === \Duo\Providers::bound_receipt($receipt, 'probe-cache', 'flush')
+        && \Duo\Provider\ProviderExecutionFacade::scopedInputHash($action, $declaration)
+            === \Duo\Providers::scoped_input_hash($action, $declaration)
+        && \Duo\Provider\ProviderExecutionFacade::validateScopedOperation($operationEnvelope)
+            === \Duo\Providers::validate_scoped_operation($operationEnvelope)
+        && \Duo\Provider\ProviderExecutionFacade::operationState(
+            'probe-cache',
+            'flush',
+            $operationEnvelope
+        ) === \Duo\Providers::scoped_operation_state('probe-cache', 'flush', $operationEnvelope),
+    'provider execution boundary preserves receipt projection, scoped input hashing, operation-envelope validation, and state reads byte-for-byte'
+);
 
 echo "\n== manifest-shipped provider code is part of the manifest artifact ==\n";
 unlink($dir . '/providers/probe-index.php');

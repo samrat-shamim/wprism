@@ -2,6 +2,7 @@
 namespace Duo;
 
 require_once __DIR__ . '/CapabilityRegistry.php';
+require_once __DIR__ . '/Capability/CurrentCapabilityProjection.php';
 
 /**
  * Adapter provenance and capability-readiness resolution, extracted from
@@ -157,9 +158,9 @@ final class AdapterRegistry {
         // Provider code is late-bound so Policy retains its pure/offline load
         // path. Runtime facts enter through the capability-owned inspection
         // port; this facade never imports Deploy's mutation implementation.
-        require_once __DIR__ . '/Providers.php';
-        $packagingProblems = Providers::packaging_problems($this->policy, $providerActions);
-        if (!Providers::runtime_negotiation_available()
+        $negotiator = $this->policy->provider_negotiation();
+        $packagingProblems = $negotiator->packagingProblems($providerActions);
+        if (!$negotiator->runtimeAvailable()
             || $this->manifestDispositions === null
             || $this->capabilityRegistry === null) {
             // A missing manifest-shipped provider is a packaging fault, not a
@@ -170,14 +171,14 @@ final class AdapterRegistry {
             $negotiation = ['problems' => $packagingProblems];
         } else {
             try {
-                $negotiation = Providers::negotiate($this->policy, $providerActions);
+                $negotiation = $negotiator->negotiate($providerActions);
             } catch (ProviderPackagingException $failure) {
                 // A missing manifest-shipped provider is a packaging fault, not
                 // a target fact. Keep plan/status/doctor readable by projecting
                 // the same structured row Providers::problems() uses, while
                 // leaving Providers::negotiate() itself throwing for apply's
                 // fail-before-mutation gate.
-                $negotiation = ['problems' => [Providers::packaging_problem($failure)]];
+                $negotiation = ['problems' => [$negotiator->packagingProblem($failure)]];
             }
         }
         $sources = $this->policy->adapter_sources()->diagnostics($this->policy->manifests);
@@ -233,7 +234,7 @@ final class AdapterRegistry {
         );
         $providerBlockers = $this->provider_readiness_blockers($this->policy->actions());
         if ($providerBlockers === []) {
-            return $report;
+            return \Duo\Capability\CurrentCapabilityProjection::fromReport($report)->legacyReport();
         }
 
         // Preserve the registry claim (the signed/certified source fact), but
@@ -266,6 +267,6 @@ final class AdapterRegistry {
             $report['blockers'][] = $blocker;
         }
         $report['ready'] = $report['blockers'] === [];
-        return $report;
+        return \Duo\Capability\CurrentCapabilityProjection::fromReport($report)->legacyReport();
     }
 }

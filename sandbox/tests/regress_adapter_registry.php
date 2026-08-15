@@ -58,6 +58,7 @@ putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 require __DIR__ . '/../../agent/src/Canon.php';
 require __DIR__ . '/../../agent/src/OptionState.php';
 require __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Capability/CurrentCapabilityProjection.php';
 require_once __DIR__ . '/../../agent/src/Providers.php';
 
 use Duo\AdapterRegistry;
@@ -169,6 +170,32 @@ $check(
 $check(
     str_contains($policySource, 'return $this->adapter_registry()->capability_report($query);'),
     'Policy::capability_report() is a thin facade delegating to AdapterRegistry'
+);
+$adapterCatalog = $policy->adapter_catalog();
+$providerCatalog = $policy->provider_catalog();
+$check(
+    $adapterCatalog->evidenceModel() === 'legacy_adapter_package_evidence'
+        && $adapterCatalog->names() === ['m']
+        && $providerCatalog->ids() === [],
+    'Policy exposes explicit legacy adapter evidence and a target-free provider declaration catalog'
+);
+$check(
+    $policy->provider_negotiation()->catalog()->data() === $providerCatalog->data(),
+    'provider negotiation consumes the same immutable declaration catalog exposed by Policy'
+);
+$projection = \Duo\Capability\CurrentCapabilityProjection::fromReport([
+    'ready' => true,
+    'manifests' => [[
+        'name' => 'm',
+        'verdict' => ['status' => 'certified', 'reasons' => []],
+    ]],
+]);
+$check(
+    $projection->verdict('m')?->isLegacyCertified() === true
+        && $projection->claim('m')['name'] === 'm'
+        && !array_key_exists('ready', $projection->data())
+        && ($projection->legacyReport()['ready'] ?? null) === true,
+    'the capability projection exposes a legacy certified verdict as a typed value while ready remains compatibility-serializer-only'
 );
 
 if ($failures) {

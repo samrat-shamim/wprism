@@ -1,0 +1,449 @@
+{
+  "format": "duo-manifest-source-to-artifact/v1",
+  "owner": "thread-4",
+  "authority_path": "manifests/capabilities/source-to-artifact.json",
+  "authority": "exact tracked-file classification; no generated projection or review record is authority by itself",
+  "roots": {
+    "payload/declarations": "reviewed manifest declaration JSON",
+    "payload/runtime": "first-party manifest-shipped runtime dependencies",
+    "overlay/review": "dispositions, evidence, authority, and scoped review records",
+    "overlay/projection": "generated capability registry and claim projections"
+  },
+  "entries": [
+    {
+      "path": "manifests/acf.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/capabilities/adapter-authorities.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/evidence.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/registry.json",
+      "artifact_class": "generated_projection",
+      "artifact_root": "overlay/projection"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/diffs/conformance-acf.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/logs/conformance-acf.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/results/conformance-acf.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/acf/b7ece49328526e1d53962cca51029cea2bf7636b4cb065e3302a3f8bb4a93c05/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/diffs/conformance-contact-form-7.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/logs/conformance-contact-form-7.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/results/conformance-contact-form-7.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/contact-form-7/b1602413258c88d72b78529eb343e80056d33bd507fc24f8f7b7685ac6db45ff/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/diffs/conformance-core.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/diffs/multisite-refusal.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/logs/conformance-core.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/logs/multisite-refusal.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/results/conformance-core.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/core/72ffabbacf6bbff10e24ab6c7cbc9b7e2c958953f9b3ca8c6d572a5dd2fdd965/results/multisite-refusal.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/diffs/conformance-elementor.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/logs/conformance-elementor.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/results/conformance-elementor.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/elementor/2dd85909b865beaf6ebaf830ef082e89f059ea5809839b36c5a67124332ae6e8/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/diffs/conformance-ninja-forms.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/logs/conformance-ninja-forms.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/results/conformance-ninja-forms.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/ninja-forms/db22be96ca539141da7ca14178de61454612747679b1a2a69de9a24b8327937c/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/diffs/conformance-polylang.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/logs/conformance-polylang.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/results/conformance-polylang.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/polylang/58a030a61bf1a4d8c79ae0668e516730a6a6528bad72f8a3f29f46a18627a56a/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/diffs/conformance-woocommerce.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/logs/conformance-woocommerce.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/results/conformance-woocommerce.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/woocommerce/f49ae98bca74a94182db41569eba88b74da90b7e074f2e4d266f34f7ada2e11e/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/diffs/conformance-yoast.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/diffs/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/logs/conformance-yoast.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/logs/exact-artifact-version-matrix.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/results/conformance-yoast.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/manifests/yoast/2f4f0f8805ded03a43d51a2a23ac16edc87318c41ee25b3600f87ff4e6733ab1/results/exact-artifact-version-matrix.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/bundle.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/diffs/conformance-fse.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/logs/conformance-fse.txt",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/capabilities/scoped/profiles/fse/94c123d501875ebd72afc92d320f01cb33877c95ba928c47ce659910ec2051d7/results/conformance-fse.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/contact-form-7.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/core.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/dispositions.json",
+      "artifact_class": "review_input",
+      "artifact_root": "overlay/review"
+    },
+    {
+      "path": "manifests/duo-agency-cpt.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/duo-code-half-ecosystem.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/duo-code-half-probe.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/duo-loop-demo-versioned.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/duo-loop-demo.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/elementor.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/interpreters/acf.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/ninja-forms.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/paid-memberships-pro.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/polylang.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/providers/elementor-css.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/providers/ninja-forms-form-cache.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/providers/polylang-nav-menus.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/providers/woocommerce-cache.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/providers/woocommerce-product-lookups.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/providers/yoast-index.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/regenerators/the-events-calendar.php",
+      "artifact_class": "runtime_dependency",
+      "artifact_root": "payload/runtime"
+    },
+    {
+      "path": "manifests/the-events-calendar.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/woocommerce.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    },
+    {
+      "path": "manifests/yoast.json",
+      "artifact_class": "declaration",
+      "artifact_root": "payload/declarations"
+    }
+  ]
+}

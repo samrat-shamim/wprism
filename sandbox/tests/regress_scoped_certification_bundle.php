@@ -3,6 +3,11 @@
 declare(strict_types=1);
 
 require __DIR__ . '/../../agent/src/ScopedCertificationBundle.php';
+require_once __DIR__ . '/../../agent/src/Evidence/EvidenceInputClosure.php';
+require_once __DIR__ . '/../../agent/src/Evidence/EvidenceImpactReport.php';
+require_once __DIR__ . '/../../agent/src/Evidence/EvidencePublicationBoundary.php';
+require_once __DIR__ . '/../../agent/src/Evidence/EvidenceSubjectIndex.php';
+require_once __DIR__ . '/../../cli/src/ArtifactTrust/CertificationClosureV2.php';
 require __DIR__ . '/certification_fixture.php';
 
 use Duo\Canon;
@@ -224,6 +229,204 @@ foreach (['./agent/src/Engine.php', 'agent//src/Engine.php', 'agent/src/'] as $a
 $missingVerdict = $bundle;
 unset($missingVerdict['verdict']);
 expect_refusal(fn() => ScopedCertificationBundle::validate($missingVerdict), 'unsupported keys', 'missing verdict is refused rather than defaulted');
+
+echo "\n== deterministic closure-v2 and redacted identity boundaries ==\n";
+$closureIdentity = static function (string $publicKey, string $publicValue, string $binding): array {
+    return [
+        'format' => \Duo\Orchestrator\RedactedEvidenceIdentity::FORMAT,
+        'public' => [$publicKey => $publicValue],
+        'secret_references' => [],
+        'keyed_bindings' => [$binding => 'hmac-sha256:' . str_repeat('a', 64)],
+    ];
+};
+$closureV2 = \Duo\Orchestrator\CertificationClosureV2::assemble(
+    str_repeat('1', 40),
+    ['agent/duo.php' => 'runtime-bytes'],
+    ['manifests/core.json' => 'declaration-bytes'],
+    'build-definition-bytes',
+    'test-plan-bytes',
+    ['sandbox/conformance/run.sh' => 'harness-bytes'],
+    ['oracle/manifest' => 'oracle-bytes'],
+    ['helper/loader' => 'helper-bytes'],
+    $closureIdentity('toolchain_profile', 'composer-2', 'toolchain:profile'),
+    $closureIdentity('platform_profile', 'php-8.3', 'platform:profile'),
+    [
+        'format' => \Duo\Orchestrator\RedactedEvidenceIdentity::FORMAT,
+        'public' => [],
+        'secret_references' => [],
+        'keyed_bindings' => ['provider:cache' => 'hmac-sha256:' . str_repeat('b', 64)],
+    ],
+    [
+        'format' => \Duo\Orchestrator\RedactedEvidenceIdentity::FORMAT,
+        'public' => [],
+        'secret_references' => [],
+        'keyed_bindings' => ['environment:ci' => 'hmac-sha256:' . str_repeat('c', 64)],
+    ],
+    ['run-receipt-bytes']
+);
+$closureV2Golden = 'sha256:c63e73d033972edfe21aea1ca424bc6db4717921c0404befe96c86481f4bde68';
+check(
+    \Duo\Orchestrator\CertificationClosureV2::digest(
+        \Duo\Orchestrator\CertificationClosureV2::canonical($closureV2)
+    ) === $closureV2Golden,
+    'closure-v2 assembly is deterministic over exact bytes and approved redacted identities'
+);
+$closureV2Tampered = $closureV2;
+$closureV2Tampered['runtime_payloads']['agent/duo.php'] = 'not-a-digest';
+expect_refusal(
+    fn() => \Duo\Orchestrator\CertificationClosureV2::assertValid($closureV2Tampered),
+    'sha256 digest',
+    'closure-v2 refuses a forged runtime payload digest'
+);
+$closureV2Unknown = $closureV2;
+$closureV2Unknown['future_claim'] = true;
+expect_refusal(
+    fn() => \Duo\Orchestrator\CertificationClosureV2::assertValid($closureV2Unknown),
+    'unsupported or malformed root',
+    'closure-v2 refuses an unreviewed root field'
+);
+$closureV2Identity = $closureV2;
+$closureV2Identity['platform']['public']['platform_profile'] = 'php-9';
+expect_refusal(
+    fn() => \Duo\Orchestrator\CertificationClosureV2::assertValid($closureV2Identity),
+    'unreviewed',
+    'closure-v2 refuses an unreviewed platform identity'
+);
+$closureV2Sensitive = $closureV2;
+$closureV2Sensitive['environment']['secret_references'] = ['vault:prod.example.com'];
+expect_refusal(
+    fn() => \Duo\Orchestrator\CertificationClosureV2::assertValid($closureV2Sensitive),
+    'sensitive',
+    'closure-v2 refuses a secret reference that leaks a dictionary-guessable environment identity'
+);
+$closureV2Unkeyed = $closureV2;
+$closureV2Unkeyed['providers']['keyed_bindings']['provider:cache'] = 'sha256:' . str_repeat('d', 64);
+expect_refusal(
+    fn() => \Duo\Orchestrator\CertificationClosureV2::assertValid($closureV2Unkeyed),
+    'keyed binding',
+    'closure-v2 refuses an unkeyed provider identity digest'
+);
+
+$publicationRoot = sys_get_temp_dir() . '/duo-evidence-publication-' . bin2hex(random_bytes(6));
+if (!mkdir($publicationRoot, 0777, true)) {
+    throw new RuntimeException('could not create evidence publication fixture');
+}
+try {
+    $publicationPath = $publicationRoot . '/record.json';
+    $publicationBytes = Canon::encode(['format' => 'evidence-publication-fixture/v1']);
+    $publicationDigest = \Duo\EvidencePublicationBoundary::publish($publicationPath, $publicationBytes, 0644);
+    check(
+        $publicationDigest === hash('sha256', $publicationBytes)
+            && file_get_contents($publicationPath) === $publicationBytes,
+        'evidence publication writes and reads back exact content-addressed bytes'
+    );
+    check(
+        \Duo\EvidencePublicationBoundary::publish($publicationPath, $publicationBytes, 0644) === $publicationDigest,
+        're-publishing identical evidence bytes is an idempotent no-op'
+    );
+    expect_refusal(
+        fn() => \Duo\EvidencePublicationBoundary::publish($publicationPath, $publicationBytes . "\nchanged", 0644),
+        'different bytes',
+        'evidence publication refuses replacement of an existing content-addressed record'
+    );
+} finally {
+    remove_tree($publicationRoot);
+}
+
+echo "\n== synthetic closure impact across the certified subject graph ==\n";
+$evidenceRoot = realpath(__DIR__ . '/../..');
+$subjectIndex = \Duo\EvidenceSubjectIndex::load($evidenceRoot);
+$classification = \Duo\ManifestArtifactClassification::load(
+    $evidenceRoot . '/manifests/capabilities/source-to-artifact.json'
+);
+check(
+    \Duo\ManifestArtifactClassification::classify($classification, 'manifests/woocommerce.json') === [
+        'artifact_class' => 'declaration',
+        'artifact_root' => 'payload/declarations',
+    ]
+        && \Duo\ManifestArtifactClassification::classify(
+            $classification,
+            'manifests/capabilities/registry.json'
+        ) === [
+            'artifact_class' => 'generated_projection',
+            'artifact_root' => 'overlay/projection',
+        ]
+        && \Duo\ManifestArtifactClassification::classify(
+            $classification,
+            'manifests/capabilities/source-to-artifact.json'
+        ) === null,
+    'manifest source-to-artifact classification separates declarations, generated projection, and its own authority file'
+);
+$syntheticChanged = [
+    'agent/duo-loader.php',
+    'cli/src/AdapterCatalog.php',
+    'Makefile',
+    'manifests/woocommerce.json',
+    'recovery/rollback-control.php',
+    'sandbox/bin/subject-certification-bundle.php',
+    'sandbox/conformance/entries/woocommerce.json',
+];
+sort($syntheticChanged, SORT_STRING);
+$syntheticRows = [];
+$syntheticAffected = [];
+foreach ($subjectIndex->certifiedSubjects() as $subject) {
+    $closurePaths = \Duo\EvidenceInputClosure::paths(
+        $evidenceRoot,
+        $subject['kind'],
+        $subject['name'],
+        $subject['manifest'],
+        $subject['tests']
+    );
+    $matched = \Duo\EvidenceInputClosure::changedMembers($syntheticChanged, $closurePaths);
+    $syntheticRows[] = [
+        'key' => $subject['key'],
+        'kind' => $subject['kind'],
+        'name' => $subject['name'],
+        'closure_digest' => hash('sha256', Canon::encode($closurePaths)),
+        'matched_paths' => $matched,
+        'affected' => $matched !== [],
+    ];
+    if ($matched !== []) {
+        $syntheticAffected[] = $subject['key'];
+    }
+    $specificMatch = $subject['key'] === 'manifests.woocommerce'
+        ? ['manifests/woocommerce.json', 'sandbox/conformance/entries/woocommerce.json']
+        : [];
+    check(
+        array_values(array_intersect($matched, $specificMatch)) === $specificMatch,
+        "subject {$subject['key']} receives only its own manifest/conformance-specific synthetic inputs"
+    );
+}
+usort($syntheticRows, static fn(array $a, array $b): int => strcmp($a['key'], $b['key']));
+sort($syntheticAffected, SORT_STRING);
+$syntheticReport = [
+    'format' => \Duo\EvidenceImpactReport::FORMAT,
+    'base_sha' => str_repeat('1', 40),
+    'head_sha' => str_repeat('2', 40),
+    'merge_base_sha' => str_repeat('1', 40),
+    'checked_out_head' => str_repeat('2', 40),
+    'changed_paths' => $syntheticChanged,
+    'changed_paths_sha256' => hash('sha256', Canon::encode($syntheticChanged)),
+    'closure_authority' => ScopedCertificationBundle::FORMAT,
+    'subjects' => $syntheticRows,
+    'affected_subjects' => $syntheticAffected,
+    'review' => [
+        'reviewed_impact_set' => $syntheticAffected,
+        'release_eligibility' => 'non_releasable',
+        'requires_fresh_certification' => $syntheticAffected,
+    ],
+];
+try {
+    \Duo\EvidenceImpactReport::validate($syntheticReport, 'synthetic closure impact report');
+    $expectedAffected = array_map(static fn(array $subject): string => $subject['key'], $subjectIndex->certifiedSubjects());
+    sort($expectedAffected, SORT_STRING);
+    check(
+        $syntheticAffected === $expectedAffected,
+        'synthetic changes across shared agent/host/recovery/build inputs and Woo-specific inputs affect exactly the certified subject set'
+    );
+} catch (Throwable $e) {
+    check(false, 'synthetic closure impact report validates its exact affected-subject projection (' . $e->getMessage() . ')');
+}
 
 echo "\n== deployed scoped-certification runtime layout ==\n";
 $repo = realpath(__DIR__ . '/../..');
