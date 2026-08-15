@@ -41,7 +41,7 @@ final class LoaderTest extends TestCase
         $sourceJournal = $source['journal'] ?? null;
         $distJournal = $dist['journal'] ?? null;
         $distCli = $dist['wp_cli'] ?? null;
-        $source80 = $source['php_8_0'] ?? null;
+        $source80 = $source['php_8_0_guard_emulation'] ?? null;
         self::assertIsArray($sourceNormal);
         self::assertIsArray($distNormal);
         self::assertIsArray($sourceJournal);

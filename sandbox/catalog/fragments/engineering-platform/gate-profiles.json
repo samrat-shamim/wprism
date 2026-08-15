@@ -28,6 +28,7 @@
                 "changed-impact",
                 "check",
                 "evidence-staleness",
+                "loader-runtime",
                 "offline-shards",
                 "unit-php-8.2",
                 "unit-php-8.3"

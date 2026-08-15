@@ -219,6 +219,102 @@ jobs:
           path: artifacts/test-results/ci/build-dist.json
           if-no-files-found: error
           retention-days: 7
+      - name: Retain exact candidate dist for the runtime compatibility matrix
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: candidate-dist
+          path: artifacts/dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  loader-runtime:
+    name: loader / PHP ${{ matrix.php }}
+    needs: [resolve-shas, build-dist]
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ['8.0', '8.1', '8.2', '8.3', '8.4']
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - uses: shivammathur/setup-php@b604ade2a87db23f8871b7182e69ec5e75effb45 # v2
+        with:
+          php-version: ${{ matrix.php }}
+          tools: composer:v2
+          coverage: none
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: candidate-dist
+          path: artifacts/dist
+      - name: Exercise the exact source and dist loader on this runtime
+        env:
+          CANDIDATE_SHA: ${{ needs.resolve-shas.outputs.head }}
+          RUNTIME: ${{ matrix.php }}
+        run: |
+          set -euo pipefail
+          php sandbox/catalog/fragments/engineering-platform/loader-runtime-probe.php probe \
+            --expected-version="$RUNTIME" --layout=source --loader=agent/duo.php \
+            --result="artifacts/test-results/ci/loader-source-$RUNTIME.json"
+          php sandbox/catalog/fragments/engineering-platform/loader-runtime-probe.php probe \
+            --expected-version="$RUNTIME" --layout=dist --loader=artifacts/dist/payload/agent/duo-loader.php \
+            --result="artifacts/test-results/ci/loader-dist-$RUNTIME.json"
+          full=()
+          if [[ "$RUNTIME" = 8.2 || "$RUNTIME" = 8.3 ]]; then
+            composer install --no-interaction --prefer-dist --no-progress
+            php sandbox/catalog/fragments/engineering-platform/loader-check.php \
+              --dist=artifacts/dist --result="artifacts/test-results/ci/loader-full-$RUNTIME.json"
+            full+=(--full-result="artifacts/test-results/ci/loader-full-$RUNTIME.json")
+          fi
+          php sandbox/catalog/fragments/engineering-platform/loader-runtime-probe.php aggregate \
+            --expected-version="$RUNTIME" \
+            --source-result="artifacts/test-results/ci/loader-source-$RUNTIME.json" \
+            --dist-result="artifacts/test-results/ci/loader-dist-$RUNTIME.json" \
+            "${full[@]}" --result="artifacts/test-results/ci/loader-runtime-$RUNTIME.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-loader-runtime-${{ matrix.php }}
+          path: artifacts/test-results/ci/loader-runtime-${{ matrix.php }}.json
+          if-no-files-found: error
+          retention-days: 7
+
+  loader-verdict:
+    name: aggregate loader runtime verdict
+    if: always()
+    needs: [resolve-shas, loader-runtime]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.resolve-shas.outputs.head }}
+      - name: Download every runtime result
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: receipt-loader-runtime-*
+          path: artifacts/test-results/ci
+          merge-multiple: true
+      - name: Fail closed over the exact five-runtime matrix
+        env:
+          CANDIDATE_SHA: ${{ needs.resolve-shas.outputs.head }}
+        run: >-
+          php sandbox/catalog/fragments/engineering-platform/loader-runtime-probe.php verdict
+          --runtime-8.0=artifacts/test-results/ci/loader-runtime-8.0.json
+          --runtime-8.1=artifacts/test-results/ci/loader-runtime-8.1.json
+          --runtime-8.2=artifacts/test-results/ci/loader-runtime-8.2.json
+          --runtime-8.3=artifacts/test-results/ci/loader-runtime-8.3.json
+          --runtime-8.4=artifacts/test-results/ci/loader-runtime-8.4.json
+          --result=artifacts/test-results/ci/loader-runtime.json
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: receipt-loader-runtime-verdict
+          path: artifacts/test-results/ci/loader-runtime.json
+          if-no-files-found: warn
+          retention-days: 7
 
   evidence-staleness:
     name: exact evidence staleness
@@ -253,7 +349,7 @@ jobs:
   pr-verdict:
     name: aggregate PR verdict
     if: always()
-    needs: [resolve-shas, quality, unit, offline-shards, changed-impact, build-dist, evidence-staleness]
+    needs: [resolve-shas, quality, unit, offline-shards, changed-impact, build-dist, loader-verdict, evidence-staleness]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -275,6 +371,7 @@ jobs:
           --dependency=changed-impact:artifacts/test-results/ci/changed-impact.json
           --dependency=check:artifacts/test-results/ci/check.json
           --dependency=evidence-staleness:artifacts/test-results/ci/evidence-staleness.json
+          --dependency=loader-runtime:artifacts/test-results/ci/loader-runtime.json
           --dependency=offline-shards:artifacts/test-results/ci/offline-shards.json
           --dependency=unit-php-8.2:artifacts/test-results/ci/unit-php-8.2.json
           --dependency=unit-php-8.3:artifacts/test-results/ci/unit-php-8.3.json

@@ -264,6 +264,14 @@
         },
         {
             "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/architecture.php",
+            "role": "suite",
+            "suite_ids": [
+                "platform-architecture-boundary"
+            ]
+        },
+        {
+            "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/artifact-manifest.schema.json",
             "role": "fixture",
             "suite_ids": [
@@ -432,6 +440,14 @@
             "kind": "file",
             "name": "sandbox/catalog/fragments/engineering-platform/loader-profile.json",
             "role": "fixture",
+            "suite_ids": [
+                "platform-loader-contract"
+            ]
+        },
+        {
+            "kind": "file",
+            "name": "sandbox/catalog/fragments/engineering-platform/loader-runtime-probe.php",
+            "role": "suite",
             "suite_ids": [
                 "platform-loader-contract"
             ]
@@ -8047,7 +8063,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:797eb9db7b098db93e2dc4afcadced9898db077ce9a90b1e10e543e2d8ffc377"
+            "sha256": "sha256:5bcd4170588bf8d8c24341f25c0fb69325b15876f6c5733096b8667a212da8d4"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",
@@ -19564,12 +19580,14 @@
                 "cli/src/**",
                 "composer.json",
                 "composer.lock",
+                "docs/proposals/refactor-ownership.json",
                 "recovery/**",
                 "sandbox/catalog/fragments/engineering-platform/**"
             ],
             "environment_class": "offline",
             "evidence_inputs": [
                 "composer.lock",
+                "docs/proposals/refactor-ownership.json",
                 "sandbox/catalog/fragments/engineering-platform/deptrac.yaml"
             ],
             "evidence_role": "none",
@@ -20163,7 +20181,8 @@
                 "--result=artifacts/test-results/loader/result.json"
             ],
             "covered_contracts": [
-                "duo-loader-check/v1"
+                "duo-loader-check/v1",
+                "duo-loader-runtime-matrix/v1"
             ],
             "covered_paths": [
                 "agent/duo-loader.php",
@@ -20172,6 +20191,7 @@
                 "sandbox/catalog/fragments/engineering-platform/Build.php",
                 "sandbox/catalog/fragments/engineering-platform/Loader.php",
                 "sandbox/catalog/fragments/engineering-platform/loader-check.php",
+                "sandbox/catalog/fragments/engineering-platform/loader-runtime-probe.php",
                 "sandbox/catalog/fragments/engineering-platform/loader-profile.json",
                 "sandbox/catalog/fragments/engineering-platform/tests/LoaderTest.php"
             ],
@@ -20436,6 +20456,7 @@
                 "--dependency=changed-impact:artifacts/test-results/ci/changed-impact.json",
                 "--dependency=check:artifacts/test-results/ci/check.json",
                 "--dependency=evidence-staleness:artifacts/test-results/ci/evidence-staleness.json",
+                "--dependency=loader-runtime:artifacts/test-results/ci/loader-runtime.json",
                 "--dependency=offline-shards:artifacts/test-results/ci/offline-shards.json",
                 "--dependency=unit-php-8.2:artifacts/test-results/ci/unit-php-8.2.json",
                 "--dependency=unit-php-8.3:artifacts/test-results/ci/unit-php-8.3.json",
@@ -20455,6 +20476,7 @@
                 "artifacts/test-results/ci/changed-impact.json",
                 "artifacts/test-results/ci/check.json",
                 "artifacts/test-results/ci/evidence-staleness.json",
+                "artifacts/test-results/ci/loader-runtime.json",
                 "artifacts/test-results/ci/offline-shards.json",
                 "artifacts/test-results/ci/unit-php-8.2.json",
                 "artifacts/test-results/ci/unit-php-8.3.json"

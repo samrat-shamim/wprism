@@ -83,6 +83,9 @@ over every workflow, Composer lock validation, and Deptrac 4.7.1 with no
 architecture baseline. The boundary policy forbids the host, agent, and
 recovery runtime layers from importing development-platform code; Thread 1 may
 consume only the two release-verification contracts exported by the host.
+The analyzer wrapper first resolves that production/development prohibition
+from Thread 0's immutable ownership ledger; the Deptrac file is integration
+configuration, not an independent exception or policy source.
 `make hygiene-check` rejects tracked dependency/build/cache trees,
 credential-bearing file names, recognized credential material in governed
 platform/workflow sources, and third-party Actions not pinned to a full commit
@@ -128,6 +131,16 @@ inputs. `make payload-dist-check`, `make payload-reproducibility-check`, and
 `make loader-check` independently verify membership, two-root byte identity,
 source-independent boot, and the bounded loader graph. No Composer package,
 test, cache, credential, or local source path is shipped.
+
+The PR loader lane reuses that exact retained dist and runs the source bootstrap
+and installed dist loader under actual PHP 8.0, 8.1, 8.2, 8.3, and 8.4
+interpreters. PHP 8.0/8.1
+must refuse before registering an autoloader or defining an engine version;
+PHP 8.2/8.3 additionally run the complete loader contract; PHP 8.4 proves the
+top loader and lazy path remain parse/load safe while the certified profile
+stays max-exclusive. A fail-closed matrix receipt is a separate PR aggregate
+dependency, so parser emulation in the local unit check is never release
+authority.
 
 The release boundary never rebuilds the frozen candidate. Supply the retained
 bundle together with independently controlled absolute selection and pin files:

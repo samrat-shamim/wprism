@@ -36,7 +36,7 @@ final class AggregateTest extends TestCase
         if (!is_array($rows)) {
             throw new \LogicException('passing aggregate test result lacks dependencies');
         }
-        self::assertCount(7, $rows);
+        self::assertCount(8, $rows);
     }
 
     public function testMissingDependencySetIsRejectedBeforeEvaluation(): void
@@ -102,7 +102,7 @@ final class AggregateTest extends TestCase
     {
         $ids = [
             'build-dist', 'changed-impact', 'check', 'evidence-staleness',
-            'offline-shards', 'unit-php-8.2', 'unit-php-8.3',
+            'loader-runtime', 'offline-shards', 'unit-php-8.2', 'unit-php-8.3',
         ];
         $candidate = $this->headSha();
         $dependencies = [];

@@ -51,8 +51,8 @@ final class Loader
                 'normal' => $ordinary,
                 'journal' => $journal,
                 'wp_cli' => $cli,
-                'php_8_0' => $unsupported80,
-                'php_8_1' => $unsupported81,
+                'php_8_0_guard_emulation' => $unsupported80,
+                'php_8_1_guard_emulation' => $unsupported81,
             ];
         }
         return [
@@ -64,6 +64,7 @@ final class Loader
             'php_8_2' => PHP_VERSION_ID >= 80200 ? 'source_syntax_and_loader_executed' : 'unavailable',
             'php_8_3' => PHP_VERSION_ID >= 80300 && PHP_VERSION_ID < 80400 ? 'certified_matrix_executed' : 'parse_contract_only',
             'php_8_4' => 'top_loader_parse_safe; certified_profile_refuses_max_exclusive',
+            'actual_runtime_matrix' => 'duo-loader-runtime-matrix/v1 is required by the PR gate',
             'budget_profile_sha256' => $this->fileDigest(__DIR__ . '/loader-profile.json'),
             'dependency_and_rss_budgets' => 'pass',
             'layouts' => $results,
