@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/HostContracts/TargetInvocation.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /**
  * Host-side half of code deployment.
@@ -95,9 +96,9 @@ PHP;
      * @return array{exit:int, stdout:string, stderr:string, summary:?array}
      */
     public static function compile(TargetInvocation $transport, string $repo, string $artifact): array {
-        $result = $transport->captureWp(self::controlArgs([
+        $result = (new AgentGateway($transport))->captureArgs(self::controlArgs([
             'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
-        ]));
+        ]))->toArray();
         if ($result['exit'] !== 0) {
             return $result + ['summary' => null];
         }
@@ -124,7 +125,7 @@ PHP;
         string $artifactHash,
         string $codeRevision
     ): array {
-        $result = $transport->captureWp(self::preflightArgs($repo, $artifact, $artifactHash));
+        $result = (new AgentGateway($transport))->captureArgs(self::preflightArgs($repo, $artifact, $artifactHash))->toArray();
         if ($result['exit'] !== 0) {
             return $result + ['summary' => null];
         }

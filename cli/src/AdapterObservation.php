@@ -5,6 +5,8 @@ namespace Duo\Orchestrator;
 
 use Duo\Canon;
 
+require_once __DIR__ . '/Environment/AgentGateway.php';
+
 /**
  * Host boundary for the target-owned, redacted adapter observation document.
  *
@@ -62,12 +64,12 @@ final class AdapterObservation {
         }
 
         try {
-            $result = $driver->captureWp([
+            $result = (new AgentGateway($driver))->captureArgs([
                 'duo',
                 'adapter-observe',
                 '--repo=' . $driver->repoPath(),
                 '--format=json',
-            ]);
+            ])->toArray();
         } catch (\Throwable) {
             return self::refusal(
                 $options['json'],

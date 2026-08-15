@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/PassthroughCommand.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /** Host command handler for capture's local --scope-contract flag handling. */
 final class CaptureCommand {
@@ -91,9 +92,7 @@ final class CaptureCommand {
         if ($envsFileOverride === null) {
             $forward[] = '--orchestrator-environment=' . $driver->name();
         }
-        return $driver->streamWp(
-            array_merge(['duo', 'capture', '--repo=' . $driver->repoPath()], $forward)
-        );
+        return (new AgentGateway($driver))->stream('capture', $forward);
     }
 
     private static function scopeRefusal(

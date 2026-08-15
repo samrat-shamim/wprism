@@ -3,6 +3,8 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+require_once __DIR__ . '/Environment/AgentGateway.php';
+
 /**
  * Read-only proof that one adoption-capable driver points at a safe target.
  *
@@ -101,7 +103,9 @@ PHP;
             return self::finish($environment, $driverId, '[invalid]', $checks, null);
         }
 
-        $reachable = self::capture(static fn(): array => $transport->captureRaw('echo duo-reachable'));
+        $reachable = self::capture(static fn(): array =>
+            (new AgentGateway($transport))->captureRaw('echo duo-reachable')->toArray()
+        );
         $reachableOk = $reachable['exit'] === 0 && trim($reachable['stdout']) === 'duo-reachable';
         $checks[] = self::check(
             'transport_reachable',
@@ -115,9 +119,9 @@ PHP;
             return self::finish($environment, $driverId, $repo, $checks, null);
         }
 
-        $wordpress = self::capture(static fn(): array => $transport->captureWp(
+        $wordpress = self::capture(static fn(): array => (new AgentGateway($transport))->captureArgs(
             self::controlArgs(['core', 'is-installed'])
-        ));
+        )->toArray());
         $wordpressOk = $wordpress['exit'] === 0;
         $checks[] = self::check(
             'wordpress_installed',
@@ -131,9 +135,9 @@ PHP;
             return self::finish($environment, $driverId, $repo, $checks, null);
         }
 
-        $mu = self::capture(static fn(): array => $transport->captureWp(
+        $mu = self::capture(static fn(): array => (new AgentGateway($transport))->captureArgs(
             self::controlArgs(['eval', 'echo DUO_BOOTSTRAP_WPMU_PLUGIN_DIR;'])
-        ));
+        )->toArray());
         $muDir = trim($mu['stdout']);
         $muOk = $mu['exit'] === 0
             && self::safeAbsolutePath($muDir)
@@ -151,9 +155,9 @@ PHP;
             return self::finish($environment, $driverId, $repo, $checks, null);
         }
 
-        $topology = self::capture(static fn(): array => $transport->captureRaw(
-            self::topologyScript($wp, $muDir, $repo)
-        ));
+        $topology = self::capture(static fn(): array =>
+            (new AgentGateway($transport))->captureRaw(self::topologyScript($wp, $muDir, $repo))->toArray()
+        );
         $topologyCode = $topology['exit'] === 0 ? trim($topology['stdout']) : 'topology_unreadable';
         $topologyDetails = self::topologyDetails($topologyCode);
         $topologyOk = $topologyCode === 'safe';

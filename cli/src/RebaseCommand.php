@@ -6,6 +6,7 @@ namespace Duo\Orchestrator;
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 require_once __DIR__ . '/Refresh.php';
+require_once __DIR__ . '/Refresh/RefreshWorkflow.php';
 
 /** Host parser/output boundary for refresh rebase and abort commands. */
 final class RebaseCommand {
@@ -32,7 +33,7 @@ final class RebaseCommand {
                     || $parsed['resolution']['strategy'] !== 'manual' || $parsed['resolution']['records'] !== []) {
                     throw new \RuntimeException('duo rebase --abort=<run-id> accepts no production-ref or new-branch flags');
                 }
-                Refresh::abort($flags['--abort']);
+                RefreshWorkflow::abort($flags['--abort']);
                 echo 'refresh rebase aborted: ' . $flags['--abort'] . "\n";
                 return 0;
             }
@@ -74,7 +75,7 @@ final class RebaseCommand {
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
-            $result = Refresh::rebase($driver, $flags['--production-ref'], $flags['--new-branch'], $parsed['resolution'], $scope, $fieldPath, $parsed['interactive'], $parsed['strategy_seen']);
+            $result = RefreshWorkflow::publishCandidate($driver, $flags['--production-ref'], $flags['--new-branch'], $parsed['resolution'], $scope, $fieldPath, $parsed['interactive'], $parsed['strategy_seen']);
             echo 'refresh rebase complete: ' . $result['new_branch'] . ' at ' . $result['head'] . "\n";
             echo 'plan: ' . $result['plan_path'] . ' run: ' . $result['run_id'] . "\n";
             return 0;

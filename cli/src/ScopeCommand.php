@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/CodeDeploy.php';
+require_once __DIR__ . '/Environment/AgentGateway.php';
 
 /**
  * Host command handler for the target scope boundary.
@@ -15,7 +16,7 @@ require_once __DIR__ . '/CodeDeploy.php';
 final class ScopeCommand {
     /** @param list<string> $extra */
     public static function run(EnvironmentDriver $driver, array $extra): int {
-        return $driver->streamWp(CodeDeploy::controlArgs(array_merge(
+        return (new AgentGateway($driver))->streamArgs(CodeDeploy::controlArgs(array_merge(
             ['duo', 'scope', '--repo=' . $driver->repoPath()],
             $extra
         )));

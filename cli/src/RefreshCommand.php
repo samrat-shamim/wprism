@@ -7,6 +7,7 @@ require_once __DIR__ . '/CommandOutput.php';
 require_once __DIR__ . '/EnvironmentDriver.php';
 require_once __DIR__ . '/PassthroughCommand.php';
 require_once __DIR__ . '/Refresh.php';
+require_once __DIR__ . '/Refresh/RefreshWorkflow.php';
 require_once __DIR__ . '/RefreshFieldDiff.php';
 
 /** Host command boundary for semantic refresh planning and field-diff output. */
@@ -36,7 +37,7 @@ final class RefreshCommand {
             $scope = isset($flags['--scope-contract'])
                 ? PassthroughCommand::readScopeContractInput($flags['--scope-contract'])['contract']
                 : null;
-            $result = Refresh::refresh($driver, $flags['--production-ref'], $scope, $fieldDiff);
+            $result = RefreshWorkflow::observeAndPlan($driver, $flags['--production-ref'], $scope, $fieldDiff);
             if ($fieldDiff) {
                 if (!is_array($result['field_diff'] ?? null)) {
                     throw new \RuntimeException('field-level resolution is unavailable for this refresh plan');

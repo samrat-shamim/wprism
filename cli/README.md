@@ -60,6 +60,9 @@ duo -h | --help
 ```
 
 Run `duo --help` for the full usage text (verbs, global flags, registry shape).
+The pre-extraction command grammar, boundary, transport, and regression
+inventory is maintained in
+[`docs/contracts/commands/host/command-matrix.md`](../docs/contracts/commands/host/command-matrix.md).
 Environment names use the shell-safe grammar
 `[A-Za-z0-9][A-Za-z0-9._-]{0,63}`; option-looking or control-bearing names
 are rejected when the registry is loaded.
