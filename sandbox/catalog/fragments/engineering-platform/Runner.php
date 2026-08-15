@@ -1408,7 +1408,10 @@ final class Runner
     private function removeTree(string $path): bool
     {
         if (!is_dir($path) || is_link($path)) {
-            return !file_exists($path) || unlink($path);
+            if (!file_exists($path) && !is_link($path)) {
+                return true;
+            }
+            return unlink($path);
         }
         $entries = scandir($path);
         if (!is_array($entries)) {

@@ -432,6 +432,21 @@ final class RunnerTest extends TestCase
         $this->trackLogDirectory($receipt);
     }
 
+    public function testCleanupRemovesDanglingSymlinksFromUniqueTemporaryDirectory(): void
+    {
+        $result = $this->resultPath('dangling-temporary-symlink');
+        $program = '$temporary = getenv("TMPDIR");'
+            . 'if (!is_string($temporary) || !symlink($temporary . "/absent", $temporary . "/dangling")) { exit(2); }';
+        $suite = $this->suite('runner-dangling-temporary-symlink-fixture', ['php', '-r', $program]);
+        $catalog = $this->catalog($suite, 'runner-dangling-temporary-symlink-profile', $result);
+
+        self::assertSame(0, (new Runner($this->root, $catalog, $result))->run([], 'runner-dangling-temporary-symlink-profile'));
+        $receipt = $this->receipt($result);
+        self::assertSame('pass', $receipt['state']);
+        self::assertSame('pass', $receipt['results'][0]['cleanup']);
+        $this->trackLogDirectory($receipt);
+    }
+
     /**
      * @param list<string> $command
      * @param list<string> $expectedOutputs
