@@ -1,0 +1,633 @@
+{
+  "format": "duo-command-contract-set/v1",
+  "owner": "thread-3",
+  "entries": [
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.compile-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo compile",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--out", "required": false, "default": null, "shape": "canonical artifact output path"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only canonical repository and policy"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "artifact summary or canonical JSON", "stderr": "WP-CLI human error", "json": "compiled artifact or duo-command-refusal/v1"},
+      "exit_codes": {"1": "typed or redacted compilation refusal"},
+      "mutation_boundary": "read-only repository compilation; no WordPress or target mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.code-preflight-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo code-preflight",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--compiled", "required": true, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only code/runtime compatibility inputs"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "compatibility report", "stderr": "WP-CLI human error", "json": "compatibility report or duo-command-refusal/v1"},
+      "exit_codes": {"1": "typed or redacted preflight refusal"},
+      "mutation_boundary": "read-only target version inspection; no lifecycle or code mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.promotion-begin-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo promotion-begin",
+      "arguments": [],
+      "flags": [
+        {"name": "--promotion-owner", "required": true, "default": null, "shape": "internal lease owner token"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "not read; lease boundary is hash-bound"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "promotion lease summary", "stderr": "WP-CLI human error", "json": "lease summary or duo-command-refusal/v1"},
+      "exit_codes": {"1": "lease refusal"},
+      "mutation_boundary": "mutation is limited to the promotion lease protocol; no state/code payload mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.promotion-begin-scoped-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo promotion-begin-scoped",
+      "arguments": [],
+      "flags": [
+        {"name": "--promotion-owner", "required": true, "default": null, "shape": "external generation owner"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--scoped-promotion-receipt", "required": true, "default": null, "shape": "signed receipt payload hash"},
+        {"name": "--scope-hash", "required": true, "default": null, "shape": "sha256 scope identity"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "not read; exact external checkpoint identity required"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "scoped lease summary", "stderr": "WP-CLI human error", "json": "scoped lease summary or duo-command-refusal/v1"},
+      "exit_codes": {"1": "scoped lease refusal"},
+      "mutation_boundary": "mutation is limited to the exact scoped promotion lease protocol",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.promotion-complete-scoped-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo promotion-complete-scoped",
+      "arguments": [],
+      "flags": [
+        {"name": "--promotion-owner", "required": true, "default": null, "shape": "external generation owner"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--scoped-promotion-receipt", "required": true, "default": null, "shape": "signed receipt payload hash"},
+        {"name": "--scope-hash", "required": true, "default": null, "shape": "sha256 scope identity"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "not read; exact external checkpoint identity required"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "scoped lease completion summary", "stderr": "WP-CLI human error", "json": "scoped completion summary or duo-command-refusal/v1"},
+      "exit_codes": {"1": "scoped completion refusal"},
+      "mutation_boundary": "mutation is limited to retiring the matching scoped promotion lease",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.promotion-abort-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo promotion-abort",
+      "arguments": [],
+      "flags": [
+        {"name": "--promotion-owner", "required": true, "default": null, "shape": "internal lease owner token"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "not read; abort is lease-bound"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "promotion abort summary", "stderr": "WP-CLI human error", "json": "abort summary or duo-command-refusal/v1"},
+      "exit_codes": {"1": "abort refusal"},
+      "mutation_boundary": "mutation is limited to releasing the exact recorded promotion lease",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.code-stage-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo code-stage",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--compiled", "required": true, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--promotion-owner", "required": true, "default": null, "shape": "internal lease owner token"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only source of selected code descriptor; target code staging is guarded"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "code-stage summary", "stderr": "WP-CLI human error", "json": "code-stage summary or duo-command-refusal/v1"},
+      "exit_codes": {"1": "stage or lease refusal"},
+      "mutation_boundary": "target code staging is limited to the exact promotion owner and artifact hash",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.code-finalize-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo code-finalize",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--compiled", "required": true, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--promotion-owner", "required": true, "default": null, "shape": "internal lease owner token"},
+        {"name": "--artifact-hash", "required": true, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--promotion-hold", "required": false, "default": false, "shape": "boolean retain promotion lease"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only source of selected code descriptor; lifecycle state is guarded"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "code-finalize summary", "stderr": "WP-CLI human error", "json": "code-finalize summary or duo-command-refusal/v1"},
+      "exit_codes": {"1": "finalization or lease refusal"},
+      "mutation_boundary": "target lifecycle mutation is limited to the exact staged artifact and promotion lease",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.init-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo init",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--confirm", "required": false, "default": null, "shape": "sha256 proposal digest"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "proposal is read-only; confirmation is foundation-quarantined"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "proposal or confirmation result", "stderr": "WP-CLI human error", "json": "init envelope or duo-command-refusal/v1"},
+      "exit_codes": {"1": "typed safety or confirmation refusal"},
+      "mutation_boundary": "proposal remains available; confirmed initialization refuses before ownership/publication mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.capture-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo capture",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--out", "required": false, "default": null, "shape": "alternate state output path"},
+        {"name": "--force-unresolved-refs", "required": false, "default": false, "shape": "boolean reviewed unresolved-reference escape hatch"},
+        {"name": "--scope-contract", "required": false, "default": null, "shape": "canonical scope-contract path"},
+        {"name": "--scope-request-b64", "required": false, "default": null, "shape": "orchestrator compact scope request"},
+        {"name": "--orchestrator-environment", "required": false, "default": null, "shape": "orchestrator presentation context"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "portable capture safety proof is checked before repository, scope, lock, ledger, identity, filesystem, or database access"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "capture summary", "stderr": "WP-CLI human error", "json": "capture result or duo-command-refusal/v1"},
+      "exit_codes": {"1": "portable_capture_safety_unqualified or capture refusal"},
+      "mutation_boundary": "foundation quarantine wins before scope-file, repository, lock, ledger, identity, filesystem, or database access",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.refresh-export-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo refresh-export",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--scope-contract", "required": false, "default": null, "shape": "canonical scope-contract path"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "completed identity and repository state are required; live read-only observation only"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "canonical production export", "stderr": "WP-CLI human error", "json": "canonical export or duo-command-refusal/v1"},
+      "exit_codes": {"1": "identity, lease, or observation refusal"},
+      "mutation_boundary": "strict read-only export; no identity minting, ledger repair, or publication",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.identity-export-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo identity-export",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--out", "required": true, "default": null, "shape": "identity sidecar output path"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "identity ledger read and backup-bound export"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "identity export summary", "stderr": "WP-CLI human error", "json": null},
+      "exit_codes": {"1": "identity export refusal"},
+      "mutation_boundary": "writes only the explicitly requested sidecar; target database and repository state remain unchanged",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.identity-import-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo identity-import",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--in", "required": true, "default": null, "shape": "verified identity sidecar path"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "matching database backup and verified sidecar required"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "identity import summary", "stderr": "WP-CLI human error", "json": null},
+      "exit_codes": {"1": "identity import refusal"},
+      "mutation_boundary": "identity map mutation is guarded by exact sidecar/database matching and recovery checks",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.plan-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo plan",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--adopt-by-slug", "required": false, "default": null, "shape": "comma-separated entity kinds"},
+        {"name": "--force-unresolved-refs", "required": false, "default": false, "shape": "boolean reviewed unresolved-reference escape hatch"},
+        {"name": "--scope-contract", "required": false, "default": null, "shape": "canonical scope-contract path"},
+        {"name": "--scoped-promotion", "required": false, "default": false, "shape": "boolean internal scoped-promotion preflight"},
+        {"name": "--compiled", "required": false, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--promotion-owner", "required": false, "default": null, "shape": "internal lease owner token"},
+        {"name": "--artifact-hash", "required": false, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--category", "required": false, "default": null, "shape": "comma-separated plan categories"},
+        {"name": "--action", "required": false, "default": null, "shape": "comma-separated action buckets"},
+        {"name": "--entity", "required": false, "default": null, "shape": "comma-separated entity kinds"},
+        {"name": "--limit", "required": false, "default": 200, "shape": "bounded plan row limit"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only compile and target observation; no Apply mutation"},
+      "terminal": {"width": "human listings may be bounded; JSON is complete", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "plan or bounded plan view", "stderr": "WP-CLI human error", "json": "plan document or duo-command-refusal/v1"},
+      "exit_codes": {"1": "plan refusal"},
+      "mutation_boundary": "read-only planning; no Apply, publication, identity, or target mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.explain-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo explain",
+      "arguments": [{"name": "selector", "required": true, "default": null, "shape": "bucket:entity-key from current plan"}],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--adopt-by-slug", "required": false, "default": null, "shape": "comma-separated entity kinds"},
+        {"name": "--force-unresolved-refs", "required": false, "default": false, "shape": "boolean reviewed unresolved-reference escape hatch"},
+        {"name": "--compiled", "required": false, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "fresh read-only plan observation and selector"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "one action explanation", "stderr": "WP-CLI human error", "json": "explanation document or duo-command-refusal/v1"},
+      "exit_codes": {"1": "selector, plan, or observation refusal"},
+      "mutation_boundary": "read-only explanation; no target or repository mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.env-set-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo env-set",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--name", "required": true, "default": null, "shape": "declared environment option name"},
+        {"name": "--value", "required": false, "default": null, "shape": "plain value, mutually exclusive with --stdin"},
+        {"name": "--stdin", "required": false, "default": false, "shape": "boolean masked stdin input"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "declared class=env policy entry required"},
+      "terminal": {"width": "prompt is stderr-only; no width-dependent JSON", "locale": "byte-stable English", "tty": "stdin mode may be interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "environment value summary without the value", "stderr": "WP-CLI human error or masked prompt", "json": "redacted result or duo-command-refusal/v1"},
+      "exit_codes": {"1": "classification, input, or storage refusal"},
+      "mutation_boundary": "writes only the declared environment value through policy-owned repository publication",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.orphans-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo orphans",
+      "arguments": [{"name": "table", "required": true, "default": null, "shape": "declared authored_snapshot table name"}],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--row", "required": false, "default": null, "shape": "exact listed scalar local id"},
+        {"name": "--delete", "required": false, "default": false, "shape": "boolean guarded orphan deletion"},
+        {"name": "--reparent", "required": false, "default": null, "shape": "column=target-local-id reparent request"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "declared authored snapshot table and exact orphan evidence"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "orphan listing or repair summary", "stderr": "WP-CLI human error", "json": "orphan document or duo-command-refusal/v1"},
+      "exit_codes": {"1": "orphan grammar, reference, or mutation refusal"},
+      "mutation_boundary": "repair requires one exact listed row and one explicit delete or reparent operation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.verify-canonical-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo verify-canonical",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--expected-artifact", "required": true, "default": null, "shape": "sha256 expected artifact"},
+        {"name": "--compiled", "required": true, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--policy-snapshot", "required": true, "default": null, "shape": "frozen policy snapshot path"},
+        {"name": "--with-deletes", "required": false, "default": false, "shape": "boolean deletion projection"},
+        {"name": "--force-unresolved-refs", "required": false, "default": false, "shape": "boolean reviewed unresolved-reference escape hatch"},
+        {"name": "--scope-request-b64", "required": false, "default": null, "shape": "orchestrator compact scope request"},
+        {"name": "--expected-protected-root", "required": false, "default": null, "shape": "scoped verifier witness"},
+        {"name": "--expected-protected-map-root", "required": false, "default": null, "shape": "scoped verifier witness"},
+        {"name": "--expected-authority-hash", "required": false, "default": null, "shape": "scoped verifier witness"},
+        {"name": "--expected-effects-root", "required": false, "default": null, "shape": "scoped verifier witness"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "fresh read-only capture compared to the selected frozen artifact"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "canonical convergence result", "stderr": "WP-CLI human error", "json": "convergence result or duo-command-refusal/v1"},
+      "exit_codes": {"1": "convergence or authority refusal"},
+      "mutation_boundary": "read-only verification; no publication or target mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.deploy-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo deploy",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--force-code-mismatch", "required": false, "default": false, "shape": "boolean reviewed code mismatch override"},
+        {"name": "--force-code-drift", "required": false, "default": false, "shape": "boolean reviewed code drift override"},
+        {"name": "--compiled", "required": false, "default": null, "shape": "selected compiled artifact path"},
+        {"name": "--promotion-owner", "required": false, "default": null, "shape": "internal lease owner token"},
+        {"name": "--artifact-hash", "required": false, "default": null, "shape": "sha256 artifact identity"},
+        {"name": "--materializing-code", "required": false, "default": false, "shape": "boolean orchestrator stage witness"},
+        {"name": "--promotion-hold", "required": false, "default": false, "shape": "boolean retain promotion lease"},
+        {"name": "--state-handoff", "required": false, "default": false, "shape": "boolean state handoff witness"},
+        {"name": "--lifecycle-phase", "required": false, "default": null, "shape": "retire|activate"},
+        {"name": "--force-unresolved-refs", "required": false, "default": false, "shape": "boolean reviewed unresolved-reference escape hatch"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "compiled code descriptor and lifecycle evidence required"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "lifecycle/deploy summary", "stderr": "WP-CLI human error", "json": "deploy result or duo-command-refusal/v1"},
+      "exit_codes": {"1": "code mismatch, lifecycle, lease, or safety refusal"},
+      "mutation_boundary": "target code lifecycle mutation is guarded by exact compiled artifact, lease, and phase evidence",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.journal-report-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo journal-report",
+      "arguments": [],
+      "flags": [
+        {"name": "--manifests", "required": false, "default": "core", "shape": "comma-separated manifest names"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "provenance journal and selected manifest reads"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "journal aggregate and proposal score", "stderr": "WP-CLI human error", "json": "journal report or duo-command-refusal/v1"},
+      "exit_codes": {"1": "journal read or manifest refusal"},
+      "mutation_boundary": "read-only journal reporting; no journal truncation or repository mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.version-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo version",
+      "arguments": [],
+      "flags": [],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "not read"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "agent and spec version probe", "stderr": "WP-CLI human error", "json": null},
+      "exit_codes": {"1": "version probe refusal"},
+      "mutation_boundary": "read-only version probe with no repository, WordPress data, or filesystem mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.journal-reset-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo journal-reset",
+      "arguments": [],
+      "flags": [],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "journal storage is the explicit mutation target"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "journal reset summary", "stderr": "WP-CLI human error", "json": null},
+      "exit_codes": {"1": "journal reset refusal"},
+      "mutation_boundary": "explicitly mutates only provenance journal storage; no repository or WordPress content mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.pending-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo pending",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only policy, ledger, journal, and pending surfaces"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "pending/classification review queue", "stderr": "WP-CLI human error", "json": "pending document or duo-command-refusal/v1"},
+      "exit_codes": {"1": "read-only observation or policy refusal"},
+      "mutation_boundary": "read-only pending scan; does not classify, capture, journal, or mutate the target",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.coverage-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo coverage",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only policy and coverage inventory"},
+      "terminal": {"width": "human listings may be bounded; JSON is complete", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "coverage counts and bounded listings", "stderr": "WP-CLI human error", "json": "coverage report or duo-command-refusal/v1"},
+      "exit_codes": {"1": "coverage observation refusal"},
+      "mutation_boundary": "read-only additive coverage; findings do not mutate or block capture directly",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.scope-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo scope",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--roots", "required": true, "default": null, "shape": "comma-separated bounded root selectors"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"},
+        {"name": "--contract", "required": false, "default": false, "shape": "boolean immutable scope-contract output"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only compile and declared dependency-edge projection"},
+      "terminal": {"width": "human listings may be bounded; JSON is complete", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "scope preview or duo-scope-contract/v1", "stderr": "WP-CLI human error", "json": "scope document or duo-command-refusal/v1"},
+      "exit_codes": {"1": "root, compiler, or contract refusal"},
+      "mutation_boundary": "read-only scope projection; no capture, apply, delete, or repository mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.classify-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo classify",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--set", "required": true, "default": null, "shape": "semicolon-separated section:key=class rules"},
+        {"name": "--allow-secret", "required": false, "default": false, "shape": "boolean reviewed secret classification override"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "policy file and current value reads precede explicit rule publication"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "classification result", "stderr": "WP-CLI human error", "json": "classification result or duo-command-refusal/v1"},
+      "exit_codes": {"1": "malformed spec, secret, or policy refusal"},
+      "mutation_boundary": "writes only the explicit policy classification; never captures or mutates target content",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.lint-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo lint",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--json", "required": false, "default": false, "shape": "boolean JSON output alias"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only policy and captured state tree"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "lint findings", "stderr": "WP-CLI human error", "json": "lint findings or duo-command-refusal/v1"},
+      "exit_codes": {"1": "finding or lint refusal"},
+      "mutation_boundary": "read-only safety evaluation; no repository or WordPress mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.policy-to-manifest-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo policy-to-manifest",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "site repository path"},
+        {"name": "--match", "required": true, "default": null, "shape": "PCRE body matched against policy keys"},
+        {"name": "--name", "required": true, "default": null, "shape": "exported manifest name"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "read-only policy facts export"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "one facts-only manifest-shaped JSON document", "stderr": "WP-CLI human error", "json": "facts-only manifest JSON"},
+      "exit_codes": {"1": "policy or regex refusal"},
+      "mutation_boundary": "read-only facts export; no site.duo.json or manifest publication",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.manifest-pin-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo manifest-pin",
+      "arguments": [],
+      "flags": [
+        {"name": "--name", "required": true, "default": null, "shape": "manifest name without .json"},
+        {"name": "--repo", "required": false, "default": null, "shape": "site repository path"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "optional policy validation; explicit manifest source resolution"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "copy-pasteable content-addressed pin", "stderr": "WP-CLI human error", "json": "pin JSON"},
+      "exit_codes": {"1": "manifest or policy refusal"},
+      "mutation_boundary": "read-only pin calculation; no site policy or manifest write",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.adapter-observe-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo adapter-observe",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": true, "default": null, "shape": "target-local site repository path"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "currently booted WordPress/plugin target", "repository": "read-only policy, pending, journal, and adapter observation inputs"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "closed redacted observation document", "stderr": "WP-CLI human error", "json": "duo-adapter-observation/v1 or duo-command-refusal/v1"},
+      "exit_codes": {"1": "journal, policy, or read refusal"},
+      "mutation_boundary": "observation path declares boot-time external effects and owns no journal writes or Capture mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.adapter-survey-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo adapter-survey",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": false, "default": null, "shape": "optional site repository path"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "currently booted WordPress/plugin target", "repository": "optional adapter source and pin reads"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "installed adapter survey and deferred boundaries", "stderr": "WP-CLI human error", "json": "adapter survey document or duo-command-refusal/v1"},
+      "exit_codes": {"1": "survey finding or read refusal"},
+      "mutation_boundary": "read-only survey; plugin/theme code is inventoried but never activated or modified for convenience",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    },
+    {
+      "format": "duo-command-contract/v1",
+      "id": "agent.capabilities-characterization",
+      "component": "wordpress-agent",
+      "command": "wp duo capabilities",
+      "arguments": [],
+      "flags": [
+        {"name": "--repo", "required": false, "default": null, "shape": "site repository path"},
+        {"name": "--all", "required": false, "default": false, "shape": "boolean shipped manifest report"},
+        {"name": "--operation", "required": false, "default": "promote", "shape": "capability operation"},
+        {"name": "--surface", "required": false, "default": null, "shape": "exact capability surface"},
+        {"name": "--revision", "required": false, "default": null, "shape": "evidence-bound platform revision"},
+        {"name": "--format", "required": false, "default": "human", "shape": "human|json"}
+      ],
+      "requirements": {"environment": "loaded WordPress WP-CLI process", "repository": "exactly one of --repo or --all; manifest and capability evidence are read-only"},
+      "terminal": {"width": "no width-dependent safety output", "locale": "byte-stable English", "tty": "non-interactive", "color": "WP-CLI outer layer only"},
+      "output": {"stdout": "capability and evidence report", "stderr": "WP-CLI human error", "json": "capability report or duo-command-refusal/v1"},
+      "exit_codes": {"1": "selector, registry, or evidence refusal"},
+      "mutation_boundary": "read-only capability/evidence projection; no manifest, provider, or target mutation",
+      "fixtures": ["sha256:27d0ab28e09e6d1d3c4e4c718d74f78f71a0ea407b1b8cb37c85e57fb8e9bc88"]
+    }
+  ]
+}

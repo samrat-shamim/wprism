@@ -1,0 +1,135 @@
+{
+  "format": "duo-command-golden-set/v1",
+  "owner": "thread-3",
+  "cases": [
+    {
+      "id": "capture-portable-safety",
+      "command": "capture",
+      "exception": "portable_capture_unqualified",
+      "expected_key_order": ["format", "ok", "command", "error", "reason_code", "message", "remediation", "diagnostics"],
+      "expected": {
+        "format": "duo-command-refusal/v1",
+        "ok": false,
+        "command": "capture",
+        "error": "portable_capture_safety_unqualified",
+        "reason_code": "portable_capture_safety_unqualified",
+        "message": "portable capture is unavailable until every selected surface has reviewed portability and sensitivity proof",
+        "remediation": "use read-only plan, explain, pending, or observation surfaces until portable capture qualification is implemented",
+        "diagnostics": [
+          {
+            "code": "portable_capture_safety_unqualified",
+            "message": "experimental or incompletely classified state cannot become an authoritative portable repository",
+            "remediation": "qualify handling and portability before publishing repository state"
+          }
+        ]
+      }
+    },
+    {
+      "id": "apply-qualification-harness",
+      "command": "apply",
+      "exception": "qualification_harness_required",
+      "expected_key_order": ["format", "ok", "command", "error", "reason_code", "message", "remediation", "diagnostics"],
+      "expected": {
+        "format": "duo-command-refusal/v1",
+        "ok": false,
+        "command": "apply",
+        "error": "qualification_harness_required",
+        "reason_code": "qualification_harness_required",
+        "message": "apply and delete require a current independently issued qualification-harness approval",
+        "remediation": "run read-only plan or explain; use Apply/Delete only after the engineering platform can verify the reviewed harness record",
+        "diagnostics": [
+          {
+            "code": "qualification_harness_required",
+            "message": "mutable disposable flags and self-asserted test metadata do not prove isolation",
+            "remediation": "supply independently verified containment, data, credential, egress, effect, expiry, and target bindings"
+          }
+        ]
+      }
+    },
+    {
+      "id": "scope-unknown-input",
+      "command": "scope",
+      "exception": "missing_scope_roots",
+      "expected_key_order": ["format", "ok", "command", "error", "reason_code", "message", "remediation"],
+      "expected": {
+        "format": "duo-command-refusal/v1",
+        "ok": false,
+        "command": "scope",
+        "error": "invalid_arguments",
+        "reason_code": "invalid_arguments",
+        "message": "--roots is required for scope",
+        "remediation": "supply --roots and rerun scope"
+      }
+    },
+    {
+      "id": "plan-malformed-repository-redaction",
+      "command": "plan",
+      "exception": "malformed_repository",
+      "forbidden": ["/private/customer/repository", "malformed repository payload"],
+      "expected_key_order": ["format", "ok", "command", "error", "reason_code", "message", "remediation", "details_redacted", "diagnostics"],
+      "expected": {
+        "format": "duo-command-refusal/v1",
+        "ok": false,
+        "command": "plan",
+        "error": "plan_failed",
+        "reason_code": "plan_failed",
+        "message": "plan refused at an unclassified safety gate",
+        "remediation": "inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker",
+        "details_redacted": true,
+        "diagnostics": [
+          {
+            "code": "plan_failed",
+            "message": "plan refused at an unclassified safety gate",
+            "remediation": "inspect private operator evidence and target state, then correct the repository, policy, capability, or target-state blocker"
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan-unsupported-topology",
+      "command": "plan",
+      "exception": "unsupported_topology",
+      "expected_key_order": ["format", "ok", "command", "error", "reason_code", "message", "remediation", "diagnostics"],
+      "expected": {
+        "format": "duo-command-refusal/v1",
+        "ok": false,
+        "command": "plan",
+        "error": "unsupported_deletion",
+        "reason_code": "unsupported_deletion",
+        "message": "the selected topology has no reviewed deletion capability",
+        "remediation": "select a supported topology or preserve it as authored state",
+        "diagnostics": [
+          {
+            "code": "unsupported_deletion",
+            "surface": "table:nf3_forms",
+            "message": "no reviewed deletion capability is declared for this topology",
+            "remediation": "review the adapter capability before retrying"
+          }
+        ]
+      }
+    },
+    {
+      "id": "plan-interrupted-state",
+      "command": "plan",
+      "exception": "capture_recovery_ambiguous",
+      "forbidden": ["operator-only interrupted publication detail", "/private/repository/state.capture-intent"],
+      "expected_key_order": ["format", "ok", "command", "error", "reason_code", "message", "remediation", "diagnostics"],
+      "expected": {
+        "format": "duo-command-refusal/v1",
+        "ok": false,
+        "command": "plan",
+        "error": "capture_recovery_ambiguous",
+        "reason_code": "capture_recovery_ambiguous",
+        "message": "capture recovery found an ambiguous publication or commit boundary",
+        "remediation": "do not retry or discard the retained backup; inspect the durable intent, receipt, and database commit proof before continuing",
+        "diagnostics": [
+          {
+            "code": "capture_recovery_ambiguous",
+            "message": "durable recovery evidence does not authorize an automatic choice",
+            "remediation": "preserve the intent, receipt, and retained backup and reconcile the recorded publication manually"
+          }
+        ]
+      }
+    }
+  ]
+}
