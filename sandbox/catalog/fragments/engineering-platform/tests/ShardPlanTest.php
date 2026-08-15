@@ -51,7 +51,20 @@ final class ShardPlanTest extends TestCase
         if ($counts === []) {
             throw new \LogicException('shard plan unexpectedly has no shards');
         }
-        self::assertCount(13, array_unique($ids));
+        $expectedIds = null;
+        $catalog = (new Catalog($this->root))->validate();
+        foreach ($catalog['profiles'] as $profile) {
+            if ($profile['id'] === 'platform-p0') {
+                $expectedIds = $profile['suite_ids'];
+                break;
+            }
+        }
+        if ($expectedIds === null) {
+            throw new \LogicException('platform-p0 profile is absent');
+        }
+        sort($ids, SORT_STRING);
+        sort($expectedIds, SORT_STRING);
+        self::assertSame($expectedIds, $ids);
         self::assertLessThanOrEqual(1, max($counts) - min($counts));
     }
 

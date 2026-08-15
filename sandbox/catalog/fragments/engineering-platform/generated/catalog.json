@@ -8063,7 +8063,7 @@
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/platform.catalog.json",
-            "sha256": "sha256:5bcd4170588bf8d8c24341f25c0fb69325b15876f6c5733096b8667a212da8d4"
+            "sha256": "sha256:34828ef0bcc704087ee7c5acfa072ab15905ed99d512d87fa02fde080faf7d37"
         },
         {
             "path": "sandbox/catalog/fragments/engineering-platform/requirements.json",
@@ -19746,7 +19746,7 @@
             ],
             "resource_locks": [],
             "temporary_directory": "unique",
-            "timeout_seconds": 60,
+            "timeout_seconds": 180,
             "workspace_mode": "read_only"
         },
         {

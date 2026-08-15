@@ -3491,7 +3491,7 @@
             ],
             "resource_locks": [],
             "temporary_directory": "unique",
-            "timeout_seconds": 60,
+            "timeout_seconds": 180,
             "workspace_mode": "read_only"
         },
         {
