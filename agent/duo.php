@@ -9,103 +9,59 @@ if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) {
     return;
 }
 
+if (PHP_VERSION_ID < 80200) {
+    if (!defined('DUO_AGENT_RUNTIME_STATUS')) {
+        define('DUO_AGENT_RUNTIME_STATUS', 'unsupported_php_' . PHP_MAJOR_VERSION . '_' . PHP_MINOR_VERSION);
+    }
+    return;
+}
+
 define('DUO_AGENT_VERSION', '0.5.0');
 define('DUO_SPEC_VERSION', 2);
 
-require_once __DIR__ . '/src/Uuid.php';
-require_once __DIR__ . '/src/OrderPreserved.php';
-require_once __DIR__ . '/src/Canon.php';
-require_once __DIR__ . '/src/OptionState.php';
-require_once __DIR__ . '/src/UserMetaState.php';
-require_once __DIR__ . '/src/Db.php';
-require_once __DIR__ . '/src/ProviderSdk.php';
-require_once __DIR__ . '/src/Secrets.php';
-require_once __DIR__ . '/src/CommandRefusal.php';
-require_once __DIR__ . '/src/PersonalData.php';
-require_once __DIR__ . '/src/ManifestDispositions.php';
-require_once __DIR__ . '/src/AdapterSources.php';
-require_once __DIR__ . '/src/CapabilityRegistry.php';
-require_once __DIR__ . '/src/ScopedCertificationBundle.php';
-require_once __DIR__ . '/src/NativeActions.php';
-require_once __DIR__ . '/src/ReferenceRules.php';
-require_once __DIR__ . '/src/ManifestGrammar.php';
-require_once __DIR__ . '/src/AdapterRegistry.php';
-require_once __DIR__ . '/src/Policy.php';
-require_once __DIR__ . '/src/WordPressTargetRuntimeInspector.php';
-require_once __DIR__ . '/src/Providers.php';
-require_once __DIR__ . '/src/Ledger.php';
-require_once __DIR__ . '/src/PromotionLease.php';
-require_once __DIR__ . '/src/ScopedPromotionAuthority.php';
-require_once __DIR__ . '/src/PromotionLock.php';
-require_once __DIR__ . '/src/PromotionSessionJournal.php';
-require_once __DIR__ . '/src/LifecycleJournal.php';
-require_once __DIR__ . '/src/StateTransitionJournal.php';
-require_once __DIR__ . '/src/ProcessFence.php';
-require_once __DIR__ . '/src/Identity.php';
-require_once __DIR__ . '/src/IdentityBackup.php';
-require_once __DIR__ . '/src/Deletion.php';
-require_once __DIR__ . '/src/JsonRefs.php';
-require_once __DIR__ . '/src/Tokens.php';
-require_once __DIR__ . '/src/Blocks.php';
-require_once __DIR__ . '/src/PlainData.php';
-require_once __DIR__ . '/src/StructuredValue.php';
-require_once __DIR__ . '/src/SidebarState.php';
-require_once __DIR__ . '/src/Shortcodes.php';
-require_once __DIR__ . '/src/Canary.php';
-require_once __DIR__ . '/src/IdentityNotes.php';
-require_once __DIR__ . '/src/Snapshot.php';
-require_once __DIR__ . '/src/Orphans.php';
-require_once __DIR__ . '/src/TransientDbException.php';
-require_once __DIR__ . '/src/DurableFilesystem.php';
-require_once __DIR__ . '/src/PublicationJournal.php';
-require_once __DIR__ . '/src/AtomicTreePublisher.php';
-require_once __DIR__ . '/src/Publish.php';
-require_once __DIR__ . '/src/Capture.php';
-require_once __DIR__ . '/src/RepositoryAuthorization.php';
-require_once __DIR__ . '/src/CodeCompatibility.php';
-require_once __DIR__ . '/src/PathSafety.php';
-require_once __DIR__ . '/src/CodeStageTransaction.php';
-require_once __DIR__ . '/src/Code.php';
-require_once __DIR__ . '/src/ReferenceGraph.php';
-require_once __DIR__ . '/src/CompiledArtifact.php';
-require_once __DIR__ . '/src/RepositoryCompiler.php';
-require_once __DIR__ . '/src/ScopeClosure.php';
-require_once __DIR__ . '/src/InitSiteProbe.php';
-require_once __DIR__ . '/src/InitCodeInventory.php';
-require_once __DIR__ . '/src/InitFaults.php';
-require_once __DIR__ . '/src/InitOwnedArtifacts.php';
-require_once __DIR__ . '/src/InitRepositoryBoundary.php';
-require_once __DIR__ . '/src/InitProtocol.php';
-require_once __DIR__ . '/src/InitAttemptJournal.php';
-require_once __DIR__ . '/src/InitRecovery.php';
-require_once __DIR__ . '/src/InitExceptions.php';
-require_once __DIR__ . '/src/InitCodeBaseline.php';
-require_once __DIR__ . '/src/InitPlanner.php';
-require_once __DIR__ . '/src/InitConfirmation.php';
-require_once __DIR__ . '/src/Init.php';
-require_once __DIR__ . '/src/CanonicalSurfaces.php';
-require_once __DIR__ . '/src/ScopeContract.php';
-require_once __DIR__ . '/src/ScopedStateOverlay.php';
-require_once __DIR__ . '/src/ScopedApplySession.php';
-require_once __DIR__ . '/src/ScopedApply.php';
-require_once __DIR__ . '/src/ApplyPlanner.php';
-require_once __DIR__ . '/src/PlanExplanation.php';
-require_once __DIR__ . '/src/PlanCategorySummary.php';
-require_once __DIR__ . '/src/PlanView.php';
-require_once __DIR__ . '/src/CodeStateContract.php';
-require_once __DIR__ . '/src/RefreshExport.php';
-require_once __DIR__ . '/src/MenuMaterializer.php';
-require_once __DIR__ . '/src/UserMetaMaterializer.php';
-require_once __DIR__ . '/src/ConvergenceVerifier.php';
-require_once __DIR__ . '/src/Apply.php';
-require_once __DIR__ . '/src/Deploy.php';
-require_once __DIR__ . '/src/Journal.php';
-require_once __DIR__ . '/src/Pending.php';
-require_once __DIR__ . '/src/AdapterObservationProjector.php';
-require_once __DIR__ . '/src/AdapterObservation.php';
-require_once __DIR__ . '/src/Coverage.php';
-require_once __DIR__ . '/src/Lint.php';
-require_once __DIR__ . '/src/CaptureMutationBridge.php';
+$duoLegacyClassmap = [
+    // BEGIN GENERATED LEGACY CLASSMAP
+    'Duo\\BoundHelper' => 'PublicationJournal.php',
+    'Duo\\CodeCompilationException' => 'CodeDescriptorCompiler.php',
+    'Duo\\CommandRefusalException' => 'CommandRefusal.php',
+    'Duo\\CompiledRepository' => 'CompiledArtifact.php',
+    'Duo\\DatabaseMutationException' => 'Db.php',
+    'Duo\\InitAttemptRecord' => 'InitAttemptJournal.php',
+    'Duo\\InitAttemptRetentionException' => 'InitExceptions.php',
+    'Duo\\InitialStateBoundaryException' => 'DurableFilesystem.php',
+    'Duo\\LedgerScopedApplySessionStorage' => 'ScopedApply.php',
+    'Duo\\LifecycleAttemptRecord' => 'LifecycleJournal.php',
+    'Duo\\PromotionLeaseRecord' => 'PromotionLease.php',
+    'Duo\\PromotionSessionRecord' => 'PromotionSessionJournal.php',
+    'Duo\\ProviderPackagingException' => 'Providers.php',
+    'Duo\\PublicationRecord' => 'PublicationJournal.php',
+    'Duo\\RepositoryAuthorizationException' => 'RepositoryAuthorization.php',
+    'Duo\\RepositoryCompilationException' => 'CompiledArtifact.php',
+    'Duo\\ScopedApplySessionStorage' => 'ScopedApplySession.php',
+    'Duo\\ScopedOptionMutationUnsupported' => 'ScopeContract.php',
+    'Duo\\StateTransitionRecord' => 'StateTransitionJournal.php',
+    'Duo\\TargetRuntimeInspectionPort' => 'TargetRuntimeInspector.php',
+    // END GENERATED LEGACY CLASSMAP
+];
+
+spl_autoload_register(static function (string $class) use ($duoLegacyClassmap): void {
+    if (isset($duoLegacyClassmap[$class])) {
+        require_once __DIR__ . '/src/' . $duoLegacyClassmap[$class];
+        return;
+    }
+    $prefix = 'Duo\\';
+    if (!str_starts_with($class, $prefix)) {
+        return;
+    }
+    $relative = substr($class, strlen($prefix));
+    if ($relative === '' || preg_match('/^[A-Za-z_][A-Za-z0-9_\\\\]*$/D', $relative) !== 1) {
+        return;
+    }
+    $path = __DIR__ . '/src/' . str_replace('\\', '/', $relative) . '.php';
+    if (is_file($path)) {
+        require_once $path;
+    }
+});
 
 // Provenance journal is opt-in: define('DUO_JOURNAL', true) in wp-config.php
 // (or export DUO_JOURNAL=1 in the environment).
@@ -125,5 +81,5 @@ if ($duoJournalEnabled
 }
 
 if (defined('WP_CLI') && WP_CLI) {
-    require_once __DIR__ . '/src/Cli.php';
+    class_exists(\Duo\Cli::class);
 }

@@ -2,6 +2,9 @@ parameters:
     level: max
     paths:
         - sandbox/catalog/fragments/engineering-platform
+    scanFiles:
+        - cli/src/ArtifactTrust/ArtifactTrustVerifier.php
+        - cli/src/HostContracts/ReleaseSelection.php
     excludePaths:
         analyse:
             - sandbox/catalog/fragments/engineering-platform/generated (?)

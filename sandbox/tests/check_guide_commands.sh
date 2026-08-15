@@ -54,7 +54,10 @@ AGENT_CLI="$ROOT/agent/src/Cli.php"
 GUIDE_DIR="$ROOT/docs/guides"
 
 TMPDIR_SELFTEST=""
-cleanup() { [ -n "$TMPDIR_SELFTEST" ] && rm -rf "$TMPDIR_SELFTEST"; return 0; }
+cleanup() {
+    [ -n "$TMPDIR_SELFTEST" ] && rm -rf "$TMPDIR_SELFTEST"
+    return 0
+}
 trap cleanup EXIT
 
 for required in "$HOST_CLI" "$HOST_PREFLIGHT" "$AGENT_CLI"; do
@@ -89,10 +92,10 @@ host_verbs() {
 # @subcommand annotation names it.
 agent_commands() {
     {
-        grep -oE '^[[:space:]]*public function [a-z_]+' "$AGENT_CLI" \
-            | sed 's/.*public function //' | tr '_' '-'
-        grep -oE '@subcommand [a-z][a-z0-9-]*' "$AGENT_CLI" \
-            | sed 's/@subcommand //'
+        grep -oE '^[[:space:]]*public function [a-z_]+' "$AGENT_CLI" |
+            sed 's/.*public function //' | tr '_' '-'
+        grep -oE '@subcommand [a-z][a-z0-9-]*' "$AGENT_CLI" |
+            sed 's/@subcommand //'
     } | sort -u
 }
 
@@ -165,7 +168,7 @@ scan_guides() {
                 allowed="$verbs"
                 label="duo $token"
             fi
-            if grep -qxF -- "$token" <<<"$allowed"; then
+            if grep -qxF -- "$token" <<< "$allowed"; then
                 continue
             fi
             if [ "$planned" = '1' ]; then
@@ -173,8 +176,8 @@ scan_guides() {
                 echo "  planned: $(basename "$file"):$lineno cites '$label' and labels it unshipped"
                 continue
             fi
-            echo "FAIL: $(basename "$file"):$lineno cites '$label', which is not a"\
-                 "$([ "$kind" = 'agent' ] && echo 'wp duo subcommand in agent/src/Cli.php' || echo 'verb in cli/duo')" >&2
+            echo "FAIL: $(basename "$file"):$lineno cites '$label', which is not a" \
+                "$([ "$kind" = 'agent' ] && echo 'wp duo subcommand in agent/src/Cli.php' || echo 'verb in cli/duo')" >&2
             status=1
         done < <(awk "$AWK_EXTRACT" "$f")
     done

@@ -1,0 +1,68 @@
+deptrac:
+  paths:
+    - '%currentWorkingDirectory%/agent/src'
+    - '%currentWorkingDirectory%/cli/src'
+    - '%currentWorkingDirectory%/recovery'
+    - '%currentWorkingDirectory%/sandbox/catalog/fragments/engineering-platform'
+  exclude_files:
+    - '#sandbox/catalog/fragments/engineering-platform/generated/#'
+  layers:
+    - name: EngineeringPlatformTests
+      collectors:
+        - type: classLike
+          value: '^Duo\\EngineeringPlatform\\Tests\\'
+    - name: EngineeringPlatform
+      collectors:
+        - type: bool
+          must:
+            - type: classLike
+              value: '^Duo\\EngineeringPlatform\\'
+          must_not:
+            - type: layer
+              value: EngineeringPlatformTests
+    - name: ReleaseContracts
+      collectors:
+        - type: classLike
+          value: '^Duo\\Orchestrator\\(?:ArtifactTrustVerifier|ReleaseSelection)$'
+    - name: Runtime
+      collectors:
+        - type: bool
+          must:
+            - type: classLike
+              value: '^Duo\\'
+          must_not:
+            - type: layer
+              value: EngineeringPlatform
+            - type: layer
+              value: EngineeringPlatformTests
+            - type: layer
+              value: ReleaseContracts
+    - name: PhpParser
+      collectors:
+        - type: composer
+          composerPath: '%currentWorkingDirectory%/composer.json'
+          composerLockPath: '%currentWorkingDirectory%/composer.lock'
+          packages:
+            - nikic/php-parser
+    - name: PHPUnit
+      collectors:
+        - type: composer
+          composerPath: '%currentWorkingDirectory%/composer.json'
+          composerLockPath: '%currentWorkingDirectory%/composer.lock'
+          packages:
+            - phpunit/phpunit
+  ruleset:
+    EngineeringPlatformTests:
+      - EngineeringPlatform
+      - PhpParser
+      - PHPUnit
+      - ReleaseContracts
+    EngineeringPlatform:
+      - PhpParser
+      - ReleaseContracts
+    ReleaseContracts: ~
+    Runtime:
+      - ReleaseContracts
+      - Runtime
+    PhpParser: ~
+    PHPUnit: ~

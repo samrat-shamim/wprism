@@ -7,16 +7,16 @@
   "required": [
     "format", "phase", "authority", "state", "message", "candidate_sha",
     "candidate_dirty", "catalog_scope", "catalog_sha256", "catalog_schema_sha256",
-    "receipt_schema_sha256", "invocation_schema_sha256", "profile_id",
-    "profile_sha256", "selected_suite_ids", "selected_set_sha256", "execution_plan",
-    "runner_sha256", "dependency_lock_sha256", "toolchain", "image_digest",
+    "receipt_schema_sha256", "invocation_schema_sha256", "selection_schema_sha256", "profile_id",
+    "profile_sha256", "selection", "selection_sha256", "shard", "shard_plan_schema_sha256", "selected_suite_ids", "selected_set_sha256", "execution_plan",
+    "runner_sha256", "dependency_lock_sha256", "toolchain", "image_digest", "harness",
     "platform_contract", "started_at", "finished_at", "duration_ms",
-    "interrupt_signal", "profile_artifacts", "results"
+    "interrupt_signal", "profile_artifacts", "report_artifacts", "results"
   ],
   "properties": {
     "format": {"const": "duo-test-run-receipt/v1"},
     "phase": {"enum": ["preflight", "complete"]},
-    "authority": {"enum": ["gate_result", "non_authorizing_partial"]},
+    "authority": {"enum": ["gate_result", "non_authorizing_partial", "non_authorizing_advisory", "non_authorizing_diagnostic", "non_authorizing_shard"]},
     "state": {"enum": ["pass", "not_applicable", "fail", "infra_error"]},
     "message": {"type": ["string", "null"]},
     "candidate_sha": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"},
@@ -34,8 +34,53 @@
     "catalog_schema_sha256": {"$ref": "#/$defs/nullableDigest"},
     "receipt_schema_sha256": {"$ref": "#/$defs/nullableDigest"},
     "invocation_schema_sha256": {"$ref": "#/$defs/nullableDigest"},
+    "selection_schema_sha256": {"$ref": "#/$defs/nullableDigest"},
     "profile_id": {"type": ["string", "null"]},
     "profile_sha256": {"$ref": "#/$defs/nullableDigest"},
+    "selection": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "selector_version", "authority", "state", "reason", "base_sha", "head_sha",
+            "merge_base_sha", "changed_paths_sha256"
+          ],
+          "properties": {
+            "selector_version": {"enum": ["changed-paths/v1", "explicit-diagnostic/v1"]},
+            "authority": {"enum": ["advisory", "diagnostic"]},
+            "state": {"enum": ["selected", "not_applicable"]},
+            "reason": {"type": "string", "minLength": 1},
+            "base_sha": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"},
+            "head_sha": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"},
+            "merge_base_sha": {"type": ["string", "null"], "pattern": "^[a-f0-9]{40}$"},
+            "changed_paths_sha256": {"$ref": "#/$defs/digest"}
+          }
+        }
+      ]
+    },
+    "selection_sha256": {"$ref": "#/$defs/nullableDigest"},
+    "shard": {
+      "anyOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["candidate_sha", "profile_id", "plan_sha256", "index", "count", "estimated_duration_ms", "suite_ids"],
+          "properties": {
+            "candidate_sha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+            "profile_id": {"type": "string"},
+            "plan_sha256": {"$ref": "#/$defs/digest"},
+            "index": {"type": "integer", "minimum": 0},
+            "count": {"type": "integer", "minimum": 1},
+            "estimated_duration_ms": {"type": "integer", "minimum": 1},
+            "suite_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}}
+          }
+        }
+      ]
+    },
+    "shard_plan_schema_sha256": {"$ref": "#/$defs/nullableDigest"},
     "selected_suite_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
     "selected_set_sha256": {"$ref": "#/$defs/nullableDigest"},
     "execution_plan": {"$ref": "invocation.schema.json"},
@@ -43,6 +88,32 @@
     "dependency_lock_sha256": {"$ref": "#/$defs/nullableDigest"},
     "toolchain": {"type": "object", "additionalProperties": {"$ref": "#/$defs/digest"}},
     "image_digest": {"$ref": "#/$defs/nullableDigest"},
+    "harness": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": [
+        "approval_id", "approval_sha256", "credential_realm", "data_profile", "effect_policy",
+        "egress_policy", "environment_class", "environment_fingerprint", "image_digest",
+        "output_adoptability", "output_authority", "probe_sha256", "provisioning_sha256",
+        "sandbox_destinations_sha256"
+      ],
+      "properties": {
+        "approval_id": {"type": "string", "minLength": 1},
+        "approval_sha256": {"$ref": "#/$defs/digest"},
+        "credential_realm": {"const": "non_production"},
+        "data_profile": {"enum": ["approved_synthetic", "approved_minimized"]},
+        "effect_policy": {"enum": ["sandbox_only", "no_external_effect_possible"]},
+        "egress_policy": {"const": "default_deny"},
+        "environment_class": {"const": "isolated_qualification"},
+        "environment_fingerprint": {"$ref": "#/$defs/digest"},
+        "image_digest": {"$ref": "#/$defs/digest"},
+        "output_adoptability": {"const": "forbidden"},
+        "output_authority": {"const": "non_authorizing"},
+        "probe_sha256": {"$ref": "#/$defs/digest"},
+        "provisioning_sha256": {"$ref": "#/$defs/digest"},
+        "sandbox_destinations_sha256": {"$ref": "#/$defs/digest"}
+      }
+    },
     "platform_contract": {
       "type": ["object", "null"],
       "additionalProperties": false,
@@ -57,6 +128,7 @@
     "duration_ms": {"type": "integer", "minimum": 0},
     "interrupt_signal": {"type": ["integer", "null"], "minimum": 1},
     "profile_artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
+    "report_artifacts": {"type": "array", "items": {"$ref": "#/$defs/artifact"}},
     "results": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/result"}}
   },
   "$defs": {

@@ -1,0 +1,4 @@
+self-hosted-runner:
+  labels:
+    - duo-performance-qualification-aarch64
+    - duo-qualification

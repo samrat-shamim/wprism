@@ -23,7 +23,7 @@ final class Doctor
                 'detail' => extension_loaded($extension) ? 'loaded' : 'required extension is not loaded',
             ];
         }
-        foreach (['git', 'make', 'composer', 'jq'] as $tool) {
+        foreach (['git', 'make', 'composer', 'curl', 'jq', 'tar'] as $tool) {
             $path = $this->findTool($tool);
             $checks[] = [
                 'name' => "tool:$tool",
@@ -61,7 +61,7 @@ final class Doctor
                 'detail' => $path === null ? 'needed only by its declared quality/live profile' : 'available on PATH',
             ];
         }
-        foreach (['composer.json', 'composer.lock', 'phpunit.xml', 'phpstan.neon', '.php-cs-fixer.dist.php'] as $path) {
+        foreach (['composer.json', 'composer.lock', 'phpunit.xml', 'phpstan.neon', '.php-cs-fixer.dist.php', 'sandbox/catalog/fragments/engineering-platform/toolchain-lock.json'] as $path) {
             $checks[] = [
                 'name' => "configuration:$path",
                 'state' => is_file($root . '/' . $path) ? 'pass' : 'fail',

@@ -1,0 +1,30 @@
+{
+    "format": "duo-performance-baseline/v1",
+    "profile_id": "duo-linux-aarch64-wordpress-7.0.2-php-8.3-fpm-opcache/v1",
+    "baseline_sha": "16cc150ff1c91af274d222ea96a9ba39c7ec214f",
+    "ratified_at": "2026-08-14T23:27:45Z",
+    "ratified_from_candidate_sha": "ca6940fcf85212db70d872636f8f4bb83f522793",
+    "ratified_from_proposal_sha256": "sha256:cf6149a7fc47a385a741f33f5d414b598a4014fc7074b34993f40800bcf97ffd",
+    "environment": {
+        "cpu_model": "Neoverse-N1",
+        "database_image": "mariadb:11.4.12@sha256:67873d30a17f6a9c331f06363b2fa15f38abca415529966d67c84f87f82439fe",
+        "docker_server_version": "29.6.1",
+        "fpm_php_version": "8.3.33",
+        "kernel": "Linux 6.1.0-50-cloud-arm64 aarch64",
+        "opcache_enabled": true,
+        "resource_class": "2cpu-4096mib",
+        "wordpress_image": "wordpress:7.0.2-php8.3-fpm@sha256:b3f5d0d05eaec9d18eba7a0c683d380440db3bfde48760a53f8d512ff00a35fe"
+    },
+    "scenarios": {
+        "ordinary-wordpress-disabled": {"median_ms": 49.371, "p95_ms": 51.397, "maximum_rss_kib": 127264},
+        "ordinary-wordpress-enabled": {"median_ms": 49.605, "p95_ms": 51.533, "maximum_rss_kib": 141076},
+        "journal-enabled": {"median_ms": 49.887, "p95_ms": 52.457, "maximum_rss_kib": 141076},
+        "agent-command-cold": {"median_ms": 160.623, "p95_ms": 164.28, "maximum_rss_kib": 135780},
+        "agent-command-warm": {"median_ms": 0.708, "p95_ms": 0.764, "maximum_rss_kib": 135780},
+        "host-cli-cold": {"median_ms": 57.219, "p95_ms": 58.171, "maximum_rss_kib": 31216},
+        "host-cli-warm": {"median_ms": 56.726, "p95_ms": 57.65, "maximum_rss_kib": 31216},
+        "closure-hashing": {"median_ms": 66.001, "p95_ms": 67.517, "maximum_rss_kib": 26120},
+        "targeted-test-feedback": {"median_ms": 24.31, "p95_ms": 26.268, "maximum_rss_kib": 25688},
+        "complete-test-feedback": {"median_ms": 61.93, "p95_ms": 64.446, "maximum_rss_kib": 30496}
+    }
+}

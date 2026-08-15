@@ -4,8 +4,11 @@
 declare(strict_types=1);
 
 use Duo\EngineeringPlatform\Doctor;
+use Duo\EngineeringPlatform\Toolchain;
 
+require_once __DIR__ . '/CatalogException.php';
 require_once __DIR__ . '/Doctor.php';
+require_once __DIR__ . '/Toolchain.php';
 
 /** @param list<string> $argv */
 function bootstrap_probe(array $argv, string $root): string
@@ -50,9 +53,13 @@ if (!is_string($lockDigest)) {
     exit(1);
 }
 try {
+    $toolchain = new Toolchain($root);
+    $lockedTools = $toolchain->install();
     $receipt = [
         'format' => 'duo-development-bootstrap-receipt/v1',
         'composer_lock_sha256' => 'sha256:' . $lockDigest,
+        'toolchain_lock_sha256' => $toolchain->lockDigest(),
+        'platform' => $toolchain->platformId(),
         'php_version' => PHP_VERSION,
         'tools' => [
             'composer' => bootstrap_probe(['composer', '--version', '--no-ansi'], $root),
@@ -60,6 +67,7 @@ try {
             'phpstan' => bootstrap_probe([$root . '/vendor/bin/phpstan', '--version'], $root),
             'phpunit' => bootstrap_probe([$root . '/vendor/bin/phpunit', '--version'], $root),
         ],
+        'locked_tools' => $lockedTools,
     ];
 } catch (RuntimeException $exception) {
     fwrite(STDERR, 'bootstrap-dev: ' . $exception->getMessage() . "\n");
@@ -67,13 +75,16 @@ try {
 }
 ksort($receipt['tools'], SORT_STRING);
 $bytes = json_encode($receipt, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
-$output = $root . '/artifacts/bootstrap/tool-lock-receipt.json';
+$output = $root . '/artifacts/bootstrap-dev/receipt.json';
 if (!is_dir(dirname($output)) && !mkdir(dirname($output), 0755, true) && !is_dir(dirname($output))) {
     fwrite(STDERR, "bootstrap-dev: cannot create receipt directory\n");
     exit(1);
 }
 $temporary = tempnam(dirname($output), '.bootstrap.');
-if (!is_string($temporary) || file_put_contents($temporary, $bytes) !== strlen($bytes) || !rename($temporary, $output)) {
+if (!is_string($temporary)
+    || file_put_contents($temporary, $bytes) !== strlen($bytes)
+    || !chmod($temporary, 0600)
+    || !rename($temporary, $output)) {
     if (is_string($temporary) && is_file($temporary)) {
         unlink($temporary);
     }
