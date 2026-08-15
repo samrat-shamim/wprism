@@ -2,6 +2,8 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../../cli/src/PromoteCommand.php';
+require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
+require_once __DIR__ . '/../../agent/src/Promotion/PromotionRecoveryDecision.php';
 
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;
@@ -71,6 +73,48 @@ assert_promote_command(
 assert_promote_command(
     $ordinaryCalls === [] && $scopedCalls === [],
     'no ordinary/scoped callback or target workflow runs behind the quarantine'
+);
+assert_promote_command(
+    class_exists('Duo\\Orchestrator\\PromotionCoordinator'),
+    'promotion routing is exposed as an explicit coordinator rather than only a procedural callback'
+);
+
+$decision = \Duo\Orchestrator\PromotionRecoveryDecision::select(
+    'verified-rollback-provider',
+    'verified_rollback',
+    hash('sha256', 'redacted-config-fixture')
+);
+$boundDecision = null;
+$boundExit = PromoteCommand::run(
+    $driver,
+    ['--format=json'],
+    static fn(): int => 19,
+    static function ($received, array $args, ?array $frozen, array $selected) use (&$boundDecision): int {
+        $boundDecision = $selected;
+        return 23;
+    },
+    static fn() => $decision->toArray()
+);
+assert_promote_command($boundExit === 23, 'decision-aware promotion routes through the explicit coordinator callback');
+assert_promote_command($boundDecision === $decision->toArray(), 'decision-aware promotion callback receives the exact canonical witness');
+$beginArgs = \Duo\Orchestrator\CodeDeploy::beginBoundArgs(
+    'promote-fixture-owner',
+    str_repeat('a', 64),
+    $decision
+);
+assert_promote_command(
+    in_array('promotion-begin-bound', $beginArgs, true)
+        && str_starts_with((string) end($beginArgs), '--recovery-decision-b64='),
+    'CodeDeploy exposes a fail-closed base64url begin-bound transport contract'
+);
+$targetDecision = \Duo\PromotionRecoveryDecision::fromArray($decision->toArray());
+assert_promote_command(
+    $targetDecision->canonical() === $decision->canonical(),
+    'host and target recovery-decision codecs preserve identical canonical bytes'
+);
+assert_promote_command(
+    \Duo\PromotionRecoveryDecision::decodeWire($decision->encodeWire()) === $decision->toArray(),
+    'target recovery-decision wire decoding refuses byte drift and preserves the exact witness'
 );
 
 echo "PASS: promote command\n";

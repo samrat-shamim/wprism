@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "duo-promotion-recovery-decision/v1",
+  "title": "Duo promotion recovery decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "format",
+    "provider",
+    "profile",
+    "configuration_identity_sha256",
+    "decision_sha256"
+  ],
+  "properties": {
+    "format": {"const": "duo-promotion-recovery-decision/v1"},
+    "provider": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "profile": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"},
+    "configuration_identity_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "decision_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+  }
+}

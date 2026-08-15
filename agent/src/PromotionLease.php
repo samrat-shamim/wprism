@@ -92,10 +92,104 @@ class PromotionLease {
     private const DEFAULT_TTL = 300;
     private static ?string $leaseSessionOwner = null;
     private static ?string $leaseSessionArtifact = null;
+    /** @var array{owner:string,artifact:string}|null */
+    private static ?array $boundSessionWrite = null;
 
     /** Begin a new multi-process host session; later host phases only continue it. */
     public static function begin(string $owner, string $artifactHash, ?int $ttl = null): array {
         return self::acquire($owner, $artifactHash, 'checkpoint', $ttl, false);
+    }
+
+    /**
+     * Begin a new ordinary session with its recovery decision and lease
+     * published by one target-side acquire path.  Existing sessions are not
+     * silently upgraded: a legacy unbound row must be reconciled or rolled
+     * back through the recovery path first.
+     *
+     * @param array<string,mixed> $decision
+     * @return array<string,mixed>
+     */
+    public static function begin_bound(
+        string $owner,
+        string $artifactHash,
+        array $decision,
+        ?int $ttl = null
+    ): array {
+        $bound = PromotionRecoveryDecision::fromArray($decision)->toArray();
+        self::$boundSessionWrite = ['owner' => $owner, 'artifact' => $artifactHash];
+        try {
+            return self::acquire_internal(
+                $owner,
+                $artifactHash,
+                'checkpoint',
+                $ttl,
+                false,
+                true,
+                ['recovery_decision' => $bound],
+                false,
+                true,
+                true
+            );
+        } finally {
+            self::$boundSessionWrite = null;
+        }
+    }
+
+    /** @return array<string,mixed> */
+    public static function begin_bound_wire(
+        string $owner,
+        string $artifactHash,
+        string $wire,
+        ?int $ttl = null
+    ): array {
+        return self::begin_bound(
+            $owner,
+            $artifactHash,
+            PromotionRecoveryDecision::decodeWire($wire),
+            $ttl
+        );
+    }
+
+    /**
+     * Continue a bound session only after the freshly selected decision has
+     * matched the durable witness.  This check deliberately precedes lease
+     * renewal so drift cannot acquire a new forward lease.
+     *
+     * @param array<string,mixed> $decision
+     * @return array<string,mixed>
+     */
+    public static function resume_bound(
+        string $owner,
+        string $artifactHash,
+        string $phase,
+        array $decision,
+        ?int $ttl = null
+    ): array {
+        PromotionSessionJournal::assertRecoveryDecision($owner, $artifactHash, $decision);
+        $lease = self::acquire($owner, $artifactHash, $phase, $ttl, true);
+        PromotionSessionJournal::assertRecoveryDecision($owner, $artifactHash, $decision);
+        return $lease;
+    }
+
+    /** @param array<string,mixed> $decision */
+    public static function assert_recovery_decision(
+        string $owner,
+        string $artifactHash,
+        array $decision
+    ): void {
+        PromotionSessionJournal::assertRecoveryDecision($owner, $artifactHash, $decision);
+    }
+
+    /** Internal guard used by PromotionSessionJournal's decision-bearing start. */
+    public static function bound_session_write_allowed(string $owner, string $artifactHash): bool {
+        $lease = self::current();
+        return self::$boundSessionWrite !== null
+            && hash_equals(self::$boundSessionWrite['owner'], $owner)
+            && hash_equals(self::$boundSessionWrite['artifact'], $artifactHash)
+            && self::process_fence_is_continuous()
+            && is_array($lease)
+            && hash_equals($owner, (string) ($lease['owner'] ?? ''))
+            && hash_equals($artifactHash, (string) ($lease['artifact_hash'] ?? ''));
     }
 
     /** Begin or resume one receipt-bound, externally checkpointed promotion. */
@@ -285,16 +379,21 @@ class PromotionLease {
         bool $publishSession,
         ?array $sessionMetadata = null,
         bool $replaceProfilelessOrdinarySession = false,
-        bool $requireSessionAbsentAfterFence = false
+        bool $requireSessionAbsentAfterFence = false,
+        bool $atomicSessionBinding = false
     ): array {
         global $wpdb;
         self::assert_identity($owner, $artifactHash);
         self::claim_process_fence();
         $replacementTransactionOpen = false;
+        $sessionBindingTransactionOpen = false;
         try {
             if ($replaceProfilelessOrdinarySession) {
                 Db::start('scoped ordinary session replacement transaction start');
                 $replacementTransactionOpen = true;
+            } elseif ($atomicSessionBinding) {
+                Db::start('promotion recovery decision binding transaction start');
+                $sessionBindingTransactionOpen = true;
             }
             $ttl = self::ttl($ttl);
             $now = time();
@@ -306,8 +405,10 @@ class PromotionLease {
                     'duo: scoped promotion initial begin found a target promotion session after fencing; retry so its recovery contract can be classified'
                 );
             }
-            if ($replaceProfilelessOrdinarySession) {
+            if ($replaceProfilelessOrdinarySession || $atomicSessionBinding) {
                 self::assert_transactional_replacement_storage();
+            }
+            if ($replaceProfilelessOrdinarySession) {
                 if ($before !== null) {
                     throw new \RuntimeException('duo: scoped promotion begin found a live ordinary target promotion lock');
                 }
@@ -434,15 +535,20 @@ class PromotionLease {
                 }
                 $current['session_id'] = self::normalized_session_id($session);
             }
-            if ($replacementTransactionOpen) {
-                Db::commit('scoped ordinary session replacement transaction commit');
+            if ($replacementTransactionOpen || $sessionBindingTransactionOpen) {
+                Db::commit($replacementTransactionOpen
+                    ? 'scoped ordinary session replacement transaction commit'
+                    : 'promotion recovery decision binding transaction commit');
                 $replacementTransactionOpen = false;
+                $sessionBindingTransactionOpen = false;
             }
             return $current;
         } catch (\Throwable $t) {
-            if ($replacementTransactionOpen) {
+            if ($replacementTransactionOpen || $sessionBindingTransactionOpen) {
                 try {
-                    Db::rollback('scoped ordinary session replacement transaction rollback');
+                    Db::rollback($replacementTransactionOpen
+                        ? 'scoped ordinary session replacement transaction rollback'
+                        : 'promotion recovery decision binding transaction rollback');
                 } catch (\Throwable $rollback) {
                     self::release_process_fence();
                     throw new \RuntimeException(
@@ -1018,6 +1124,7 @@ class PromotionLease {
         $scopedMarkers = [
             'profile', 'scoped_allow_deletes', 'scoped_generation', 'scoped_receipt_id',
             'scoped_receipt_sha256', 'scoped_scope_hash', 'scoped_signing_key_id', 'scoped_target_id',
+            'recovery_decision',
         ];
         if (array_intersect($scopedMarkers, array_keys($decoded)) !== []) {
             throw $typedFailure ?? new \RuntimeException('duo: malformed scoped promotion session record');

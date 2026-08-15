@@ -21,6 +21,7 @@ foreach ([
     '/agent/src/PromotionSessionJournal.php',
     '/agent/src/LifecycleJournal.php',
     '/agent/src/StateTransitionJournal.php',
+    '/recovery/TransitionFaultMatrix.php',
     '/agent/src/Publish.php',
     '/agent/src/AtomicTreePublisher.php',
     '/agent/src/PublicationJournal.php',
@@ -141,6 +142,21 @@ $session = \Duo\PromotionSessionRecord::fromArray([
     'lifecycle_phases' => ['retire'],
 ]);
 $check($session->sessionId() === 'ps-' . str_repeat('b', 32), 'session value object reads the durable session generation, not lease expiry');
+$decision = \Duo\PromotionRecoveryDecision::select(
+    'verified-rollback-provider',
+    'verified_rollback',
+    hash('sha256', 'redacted-config-fixture')
+);
+$check(
+    \Duo\PromotionRecoveryDecision::fromArray($decision->toArray())->same($decision),
+    'promotion recovery decision round-trips its canonical digest'
+);
+$decisionTampered = $decision->toArray();
+$decisionTampered['profile'] = 'checkpoint-only';
+$check(
+    $throws(static fn() => \Duo\PromotionRecoveryDecision::fromArray($decisionTampered)),
+    'promotion recovery decision refuses provider/profile drift without a new digest'
+);
 $check($throws(static fn() => \Duo\PromotionSessionRecord::fromArray([
     'owner' => 'duo3353-owner',
     'artifact_hash' => $artifact,
@@ -193,6 +209,86 @@ $check($throws(static fn() => \Duo\PublicationRecord::fromArray($emptyTimestamp)
 if (!class_exists('Duo\\Ledger', false)) {
     eval('namespace Duo; final class Ledger { public static array $rows = []; public static function kv_get(string $key): ?string { return self::$rows[$key] ?? null; } public static function kv_set(string $key, string $value): void { self::$rows[$key] = $value; } }');
 }
+$legacyDecision = \Duo\PromotionSessionRecord::fromArray([
+    'owner' => 'legacy-owner',
+    'artifact_hash' => $artifact,
+    'begun_at' => 1,
+]);
+\Duo\Ledger::$rows['promotion_session'] = json_encode($legacyDecision->toArray(), JSON_THROW_ON_ERROR);
+$check(
+    !$legacyDecision->isForwardAuthorized()
+        && $throws(static fn() => \Duo\PromotionSessionJournal::bindRecoveryDecision(
+            'legacy-owner', $artifact, $decision->toArray()
+        )),
+    'legacy promotion sessions remain recovery-only and cannot be upgraded by a generic binding'
+);
+$legacyUpgrade = \Duo\PromotionSessionRecord::fromArray(
+    $legacyDecision->toArray() + ['recovery_decision' => $decision->toArray()]
+);
+$check(
+    $throws(static fn() => \Duo\PromotionSessionJournal::replaceExact($legacyDecision, $legacyUpgrade)),
+    'typed promotion session replacement cannot upgrade a legacy row with a recovery decision'
+);
+$boundDecisionSession = \Duo\PromotionSessionRecord::fromArray([
+    'owner' => 'bound-owner',
+    'artifact_hash' => $artifact,
+    'begun_at' => 1,
+    'session_id' => 'ps-' . str_repeat('d', 32),
+    'recovery_decision' => $decision->toArray(),
+]);
+\Duo\Ledger::$rows['promotion_session'] = json_encode(
+    $boundDecisionSession->toArray(),
+    JSON_THROW_ON_ERROR
+);
+$check(
+    $boundDecisionSession->isForwardAuthorized()
+        && \Duo\PromotionSessionJournal::assertRecoveryDecision(
+            'bound-owner', $artifact, $decision->toArray()
+        )->toArray() === $boundDecisionSession->toArray(),
+    'bound promotion sessions reselect and compare the exact recovery decision'
+);
+$check(
+    $throws(static fn() => \Duo\PromotionSessionJournal::start(
+        'untrusted-owner',
+        $artifact,
+        1,
+        'ps-' . str_repeat('e', 32),
+        ['recovery_decision' => $decision->toArray()]
+    )),
+    'generic promotion session starts cannot publish a decision outside the lease-bound transaction'
+);
+$check(
+    $throws(static fn() => \Duo\PromotionSessionJournal::assertRecoveryDecision(
+        'bound-owner', $artifact,
+        \Duo\PromotionRecoveryDecision::select('other-provider', 'verified_rollback', hash('sha256', 'redacted-config-fixture'))->toArray()
+    )),
+    'bound promotion sessions refuse recovery provider/profile drift before continuation'
+);
+$matrix = \Duo\Recovery\TransitionFaultMatrix::load(
+    $root . '/recovery/transition-fault-matrix.json'
+);
+$check(
+    ($matrix['format'] ?? null) === 'duo-recovery-transition-fault-matrix/v1'
+        && ($matrix['deferrals'] ?? null) === [],
+    'recovery transition matrix is versioned and has no deferred authority obligations'
+);
+$matrixWithUnknownField = $matrix;
+$matrixWithUnknownField['transitions'][0]['unexpected'] = true;
+$check(
+    $throws(static fn() => \Duo\Recovery\TransitionFaultMatrix::validate($matrixWithUnknownField)),
+    'recovery transition matrix refuses open row fields'
+);
+$matrixWithMissingTransition = $matrix;
+array_pop($matrixWithMissingTransition['transitions']);
+$check(
+    $throws(static fn() => \Duo\Recovery\TransitionFaultMatrix::validate($matrixWithMissingTransition)),
+    'recovery transition matrix refuses incomplete transition coverage'
+);
+$check(
+    \Duo\Recovery\RecoveryTransitionPolicy::allows('promoting', 'verifying_new', 'ordinary')
+        && !\Duo\Recovery\RecoveryTransitionPolicy::allows('verifying_new', 'rollback_pending', 'scoped-checkpoint-v1'),
+    'recovery transition policy preserves ordinary rollback and scoped forward-only verification boundaries'
+);
 \Duo\Ledger::$rows['promotion_session'] = json_encode([
     'owner' => 'journal-owner',
     'artifact_hash' => $artifact,

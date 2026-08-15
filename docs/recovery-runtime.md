@@ -1,5 +1,55 @@
 # SSH maintenance exclusion and recovery runtime
 
+## Promotion recovery-decision handoff
+
+The current promotion kernel binds a small, versioned recovery decision before
+it can enter a forward mutation path. The decision is not a product
+`ReleasePlan` or actor authorization artifact; it records only the selected
+provider, selected recovery profile, and a SHA-256 identity of the redacted
+configuration that produced that selection:
+
+```json
+{
+  "format": "duo-promotion-recovery-decision/v1",
+  "provider": "verified-rollback-provider",
+  "profile": "verified_rollback",
+  "configuration_identity_sha256": "<64 lowercase hex>",
+  "decision_sha256": "<canonical decision digest>"
+}
+```
+
+The host sends the canonical value as base64url on the target-side
+`promotion-begin-bound` boundary. This is intentionally a distinct command
+until the Thread 2/3 composition roots wire the handler; an older target must
+reject it instead of ignoring the witness. The target publishes it in the same durable
+`promotion_session` write as the lease handoff, and every forward continuation
+must reselect and compare the exact digest before lease renewal or mutation.
+Provider configuration, credentials, endpoints, and target values never enter
+the session or public refusal. A legacy session without this field remains
+readable for rollback/reconciliation, but cannot be upgraded in place or
+authorize a new forward mutation.
+
+The standalone `rollback-control.php` entry point is a compatibility bootstrap
+for the exported `RecoveryAuthorityController` and `RecoveryCliDispatcher`.
+The packaged runtime includes the authority kernel, transition policy, and
+both exported facades alongside that bootstrap; adoption treats this complete
+set as one immutable runtime. The kernel preserves the archived `RollbackControl`
+class and protocol bytes while the bootstrap remains dispatch-only.
+`recovery/runtime-manifest.json` is the reviewed closure for that package;
+target-side read-only inspection rejects a missing, extra, or incomplete
+runtime before it can be used for authority work. Host adoption/build tooling
+must consume the same manifest when validating a staged artifact.
+
+The Thread 5 catalog fragment contains the eight recovery suites whose semantic
+assertions are owned by this thread. The aggregate must additionally import the
+independently owned platform/qualification suites (including upload-bundle,
+control-plane, promotion-command, adoption, and bootstrap checks); they are
+deliberately not duplicated in this fragment, so a behavior thread cannot
+self-authorize its own qualification evidence.
+The transition/fault inventory in `recovery/transition-fault-matrix.json` is
+validated independently; it covers ordinary and checkpoint-only scoped state
+transitions plus resource prepare/execute/restore/delete boundaries.
+
 The recovery runtime under `<repo_path>/.duo/control/recovery-runtime/` is a
 PHP CLI that does not load WordPress. A production host supplies its own
 maintenance-exclusion provider, optional checkpoint, code-release, upload, and effect
