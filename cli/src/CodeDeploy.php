@@ -4,7 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/HostContracts/TargetInvocation.php';
-require_once __DIR__ . '/Environment/AgentGateway.php';
+require_once __DIR__ . '/Promotion/PromotionRecoveryDecision.php';
 
 /**
  * Host-side half of code deployment.
@@ -96,9 +96,9 @@ PHP;
      * @return array{exit:int, stdout:string, stderr:string, summary:?array}
      */
     public static function compile(TargetInvocation $transport, string $repo, string $artifact): array {
-        $result = (new AgentGateway($transport))->captureArgs(self::controlArgs([
+        $result = $transport->captureWp(self::controlArgs([
             'duo', 'compile', '--repo=' . $repo, '--out=' . $artifact, '--format=json',
-        ]))->toArray();
+        ]));
         if ($result['exit'] !== 0) {
             return $result + ['summary' => null];
         }
@@ -125,7 +125,7 @@ PHP;
         string $artifactHash,
         string $codeRevision
     ): array {
-        $result = (new AgentGateway($transport))->captureArgs(self::preflightArgs($repo, $artifact, $artifactHash))->toArray();
+        $result = $transport->captureWp(self::preflightArgs($repo, $artifact, $artifactHash));
         if ($result['exit'] !== 0) {
             return $result + ['summary' => null];
         }
@@ -222,6 +222,30 @@ PHP;
             'duo', 'promotion-begin', '--promotion-owner=' . $owner,
             '--artifact-hash=' . $artifactHash,
         ]);
+    }
+
+    /**
+     * Target-side begin for the reviewed recovery-decision lift. The
+     * decision is sent as canonical base64url JSON so shell quoting and
+     * provider values can never alter the bytes being bound. The distinct
+     * command name is deliberate: until Thread 2/3 wires the target handler,
+     * an older agent rejects this request rather than silently ignoring the
+     * witness and creating an unbound session. Older callers keep using
+     * beginArgs() and therefore retain the foundation quarantine.
+     *
+     * @return array<int,string>
+     */
+    public static function beginBoundArgs(
+        string $owner,
+        string $artifactHash,
+        PromotionRecoveryDecision $decision
+    ): array {
+        $args = self::controlArgs([
+            'duo', 'promotion-begin-bound', '--promotion-owner=' . $owner,
+            '--artifact-hash=' . $artifactHash,
+        ]);
+        $args[] = '--recovery-decision-b64=' . $decision->encodeWire();
+        return $args;
     }
 
     /**

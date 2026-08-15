@@ -1,0 +1,24 @@
+{
+  "files": [
+    "AtomicStore.php",
+    "CanonicalJson.php",
+    "CheckpointBundle.php",
+    "CodeRelease.php",
+    "EffectBundle.php",
+    "ProviderClient.php",
+    "ProtocolLock.php",
+    "RecoveryAuthorityController.php",
+    "RecoveryAuthorityKernel.php",
+    "RecoveryCliDispatcher.php",
+    "RecoveryExecutor.php",
+    "RecoveryRuntimeManifest.php",
+    "RecoveryTransitionPolicy.php",
+    "TransitionFaultMatrix.php",
+    "UploadBundle.php",
+    "promotion-recovery-decision.schema.json",
+    "rollback-control.php",
+    "transition-fault-matrix.json"
+  ],
+  "format": "duo-recovery-runtime-manifest/v1",
+  "version": 1
+}
