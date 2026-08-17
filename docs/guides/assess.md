@@ -235,10 +235,11 @@ Three statements belong in the same breath as any assessment you act on.
 **`Site-certified` is your organization's word, not Duo's — and it does not
 sign your contract.** It is emitted now, and only on a fact: a certificate
 verified under a trust root your repository or the agent owns, over that
-adapter's exact bytes. What it attests to is narrow and the signed bundle says
-so out loud — `exercised: false`, plus the grammar verdict and the reason you
-stated. It is not a claim that the adapter was tested against a live site, and
-it is not a Duo endorsement of anything.
+adapter's exact bytes. What it attests to is narrow and the certificate says
+so out loud: `exercised: false` rides onto the claim itself, beside the
+grammar verdict and the reason you stated, so `certified` can never be read as
+"somebody ran it". It is not a claim that the adapter was tested against a
+live site, and it is not a Duo endorsement of anything.
 
 The contract's own `attestation.state` is still written `unsigned`, which is
 why the evidence line ends `contract attestation unsigned`. A certified

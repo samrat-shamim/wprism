@@ -249,14 +249,17 @@ customer-organization approval through Duo's certification protocol,
 on every load: tamper with the adapter, the certificate, the authority record
 or the pin and the claim drops rather than degrading quietly.
 
-What it attests to is narrow, and the signed bundle records that rather than
-leaving it to be assumed. `duo adapter certify` writes
-`{grammar: <validator verdict>, exercised: false, reason: <yours>}` into the
-content-addressed evidence the signature covers, and declares deletion
-semantics **unsupported** — a validator run cannot review them. So
-`Site-certified` says *this organization approves these exact bytes, and the
-engine's validators accept the manifest's grammar*. It does not say the adapter
-was exercised against a live site.
+What it attests to is narrow, and the certificate records that rather than
+leaving it to be assumed. `duo adapter certify` signs
+`{grammar: <validator verdict>, exercised: false, reason: <yours>}`, and
+`exercised: false` rides onto the **claim** — so nothing downstream can read
+`status: certified` as "somebody ran it". The claim also carries no named
+tests, because `evidence.tests: ["something"]` is indistinguishable from a
+reviewed conformance run. Deletion semantics are declared **unsupported**: a
+validator run reviews none. So `Site-certified` says *this organization
+approves these exact bytes, and the engine's validators accept the manifest's
+grammar*. It does not say the adapter was exercised against a live site, and
+the certificate itself is what says so.
 
 Three things it does not do:
 
