@@ -121,6 +121,13 @@
         "sha256": "f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23",
         "role": "certified-boundary"
       }
+    },
+    "wpforms-lite": {
+      "2.0.0.4": {
+        "url": "https://downloads.wordpress.org/plugin/wpforms-lite.2.0.0.4.zip",
+        "sha256": "3deaa115c6ed18fe3ef21f327239cf9573f78f97b1f4cc8204abfaf910689608",
+        "role": "exercise-fixture"
+      }
     }
   },
   "themes": {
