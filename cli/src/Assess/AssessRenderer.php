@@ -340,7 +340,7 @@ final class AssessRenderer {
         $counts = GapActions::summarise($rows, [
             'pending' => (int) ($unknown['pending_count'] ?? 0),
             'invisible_option' => (int) ($unknown['invisible_names_count'] ?? 0),
-            'undeclared_table' => (int) ($unknown['undeclared_tables_count'] ?? 0),
+            'undeclared_table' => self::uncountedTables($report),
         ]);
 
         $lines = ['next actions:'];
@@ -349,6 +349,51 @@ final class AssessRenderer {
         }
 
         return $lines;
+    }
+
+    /**
+     * Undeclared tables the surface table did NOT already account for.
+     *
+     * The three unknown-section kinds are not alike, and this is where that
+     * matters. A pending classification and an invisible option name are
+     * findings with no surface row — the inventory groups options by
+     * declarant precisely so a row per option name cannot appear (MUP §4.6),
+     * so the roll-up is the only place they can be counted. An undeclared
+     * table is different: `SurfaceCatalog` mints a `table:<name>` ROW for
+     * each one, and that row already contributes its own next action. Adding
+     * the coverage total on top would count the same table twice and print a
+     * number that is not true of the site — in a section whose entire
+     * doctrine is that the count IS the signal.
+     *
+     * So what is passed is the residual: undeclared tables coverage found
+     * that produced no row. That is normally zero, and it is not always: T6
+     * §3.7 item 1 is the live bug where `Coverage::tables_report()` drops
+     * `logical_name`, and a row without it cannot be turned into a surface
+     * id. Those tables exist on the site and would otherwise be counted
+     * nowhere at all, which is the failure this whole section exists to
+     * prevent.
+     *
+     * @param array<string,mixed> $report
+     */
+    private static function uncountedTables(array $report): int {
+        $total = (int) ($report['unknown']['undeclared_tables_count'] ?? 0);
+        $rows = is_array($report['surfaces'] ?? null) ? $report['surfaces'] : [];
+        $counted = 0;
+        foreach ($rows as $row) {
+            // `unclassified` is the discriminator, not the row's source: a
+            // table a manifest declares carries a policy class and is never
+            // unclassified, and a table no manifest declares can never carry
+            // one. So this counts exactly the undeclared tables that became
+            // rows, without the report having to publish where each row
+            // came from.
+            if (is_array($row) && ($row['kind'] ?? null) === 'table'
+                && ($row['state_class'] ?? null) === 'unclassified'
+            ) {
+                $counted++;
+            }
+        }
+
+        return max(0, $total - $counted);
     }
 
     /**

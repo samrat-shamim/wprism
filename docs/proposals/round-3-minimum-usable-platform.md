@@ -106,7 +106,7 @@ Computed from one `CapabilityRegistry::report()` call for the exact
 | Source fact | Projected `certification_provenance` |
 |---|---|
 | `source.source == shipped` **and** claim `status == certified` **and** `evidence.status == current` | `Platform-certified` |
-| a site adapter with signed third-party evidence **and** an explicit repository pin binding source `site` + certificate digest | `Site-certified` — **MUP never emits this**: the certification gate is deferred (§7), so the contract carries an `unsigned` attestation placeholder and the projection reads `Uncertified` |
+| a site adapter with signed evidence **and** an explicit repository pin binding source `site` + certificate digest | `Site-certified` — **emitted since round-3 T6 §3.2** (this row read "MUP never emits this" while no operator could complete a certification; `duo adapter certify` is that path). The projection also exposes `principal` and `trust_root`; the contract's attestation placeholder stays `unsigned` |
 | everything else | `Uncertified` |
 
 ### 1.5 Effect containment
@@ -181,6 +181,9 @@ Sections, in this order:
 4. **Smallest safe next action per gap** — one action per row, drawn from a
    closed set: `classify`, `declare in contract`, `qualify in rehearsal`,
    `exclude`, `provision env value`, `install adapter`, `nothing — supported`.
+   *(Round-3 T6 §3.6 adds `certify adapter` and stops emitting `qualify in
+   rehearsal`, which rehearsal states it cannot do; the word stays in the set
+   so an older stored projection still validates.)*
 5. **Proposed application contract** — written to
    `.duo/contract/proposed.json`, never authoritative (§3 of the spec: a
    declaration cannot certify itself).
@@ -906,7 +909,7 @@ reviewable.
 | Deferred item | What MUP does instead | Spec section that defers it |
 |---|---|---|
 | Containment enforcement (default-deny outbound HTTP/mail/payment/webhook/queue; verified containment before workflows) | prints `containment: unknown — not enforced in this profile`; never emits `sandboxed`; rehearsal cannot authorize Experimental/Uncertified capabilities | *Core product workflows → 2. Rehearse*; *Qualification and requalification* step 3 |
-| Certification attestation (signing under a platform/customer trust root; named approving principal) | `attestation.state: "unsigned"` placeholder; every site-scoped claim projects `Uncertified`; `Site-certified` is never emitted | *The application contract → 3. Certification attestation*; *Certification provenance* |
+| Certification attestation (signing under a platform/customer trust root; named approving principal) | `attestation.state: "unsigned"` placeholder; every site-scoped claim projects `Uncertified`; `Site-certified` is never emitted. **Half-delivered by round-3 T6 §3.2**: an operator key signs a site adapter and the projection reads `Site-certified` naming the principal, so the *adapter* half is done; the *contract* attestation stays `unsigned` | *The application contract → 3. Certification attestation*; *Certification provenance* |
 | Signed/attested site evidence and the registered certification gate | evidence **pins** only (digests, expiry, dependency sets); readiness always recomputed | *The application contract → 2. Generated evidence* |
 | PII hardening beyond the shipped gates (scoped PII exceptions, redaction policy, egress declarations) | shipped secret/PII gates unchanged; assess prints names and counts only, never values | *Version and merge*; *Privacy and ecosystem evidence* |
 | Snapshot minimization, encryption in transit/at rest, isolated access, log redaction, retention and secure deletion for rehearsal | provider-owned; MUP declares the requirement and does not claim it | *Core product workflows → 2. Rehearse* (first bullet) |
@@ -927,9 +930,18 @@ Three sentences an operator should be able to read in the guides:
 1. **Rehearsal is a preview, not a sandbox.** Duo does not stop a plugin in
    your preview environment from sending mail, calling a payment API, or
    firing a webhook. Point it at test credentials.
-2. **Site-certified does not exist yet.** Any capability that is not covered
-   by the platform registry is `Uncertified`, and no amount of local evidence
-   changes that in this release.
+2. **`Site-certified` is your organization's word, not Duo's.** *(Superseded
+   by round-3 T6 §3.2, which built the operator-side certification path. The
+   original MUP statement — "Site-certified does not exist yet; any capability
+   not covered by the platform registry is `Uncertified`" — was true for the
+   whole of MUP and is retained here as history.)* It is emitted now, and only
+   on a verified Ed25519 signature over an adapter's exact bytes under a trust
+   root the repository or the agent owns. It means customer-organization
+   approval, explicitly not a Duo endorsement; the signed bundle records
+   `exercised: false` beside its grammar verdict, so it never implies the
+   adapter was tested against a live site. The **contract's** attestation is
+   still `unsigned`, which the human view says on the same line: `certified by
+   <principal> (<root> trust root); contract attestation unsigned`.
 3. **Rollback restores bytes, not consequences.** The list of what a profile
    does *not* restore is printed before you authorize and again before you
    recover, and it is the literal truth.

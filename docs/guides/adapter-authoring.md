@@ -591,17 +591,67 @@ site-local rules from `site.duo.json`. Run
 further — see [Checking the grammar offline](#checking-the-grammar-offline);
 the hand-added parts are exactly the ones no export path checked.
 
+### 4b. Or start from a draft, when there are no site-local rules yet
+
+`policy-to-manifest` promotes rules you have *already classified*. For a plugin
+nothing knows about yet, there are none — so `duo adapter-draft` proposes them
+instead, from the repository's captured `state/**` plus, with `--seed`, from
+what `duo coverage` saw on the live site:
+
+```sh
+duo coverage prod --format=json > coverage.json
+duo adapter-draft <site-repo> --name=wpforms \
+  --seed=coverage.json --out=<site-repo>/adapters/wpforms.json
+```
+
+Why `--seed` earns its place: the offline proposers read `state/**`, so they
+can only see surfaces Duo **already captures** — and the surfaces you are
+writing an adapter *for* are exactly the ones it does not. An option prefix
+invisible to every installed adapter, and a live table no manifest declares,
+are invisible to the draft generator and plainly visible to `duo coverage`.
+`--seed` turns each into a candidate with coverage's own observation quoted:
+
+| coverage finding | proposed as |
+|---|---|
+| `options.invisible_groups[].prefix` | an `option_namespaces` match **and** an `option_patterns` rule |
+| `tables.undeclared[]` | a `tables.<logical_name>` declaration |
+| a scope-gate-refused post type | a `post_types.<name>` declaration |
+
+The third one needs the richer seed: `duo coverage` reports options and tables
+and nothing else, so pass a `wp duo assess-inventory --format=json` document
+instead when you want post types too. The draft records which families its seed
+actually supplied in `_draft.seed`, so a short draft is never a silent one.
+
+**Every seeded candidate is `runtime`, and that is a default, not an
+observation.** An undeclared table is one Duo has never read a row of; calling
+it `authored` on that evidence would put live operational rows into your
+repository. What `runtime` buys is honest: the surface becomes *declared and
+excluded* instead of reading `unclassified / block` in assess. Promote the
+parts that really are authored configuration by hand — and then their columns,
+primary key and identity are live facts an offline draft cannot supply, which
+is what each candidate's `questions` say.
+
+Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
+and the trigger keys are renamed so no validator mis-collects one. Ratify by
+hand, delete the rest, then `duo adapter inspect <name> --repo=<site-repo>`.
+`--out` refuses to overwrite an existing draft without `--force`, because that
+file holds your ratifications; re-running with `--force` is safe, since human
+edits in the prior draft are carried forward.
+
 ### 5. Pin it
 
 ```sh
 wp duo manifest-pin --name=contact-form-7
 ```
 
-This prints the exact canonical `{"name": …, "digest": …, "source": …}` object
-to paste into `site.duo.json`'s `manifests` array. `source` is always present
-and always the source the adapter actually resolved from — `shipped` here,
-`site` for one installed at `adapters/<name>.json` — because a pin that named
-only a name and a digest could not say WHICH definition it reviewed. The digest is content-addressed against
+This prints the exact canonical `{"digest": …, "name": …, "source": …}` object
+to paste into `site.duo.json`'s `manifests` array (keys are canonical, so they
+print in alphabetical order). `source` is always present and always the source
+the adapter actually resolved from — `shipped` here, `site` for one installed
+at `adapters/<name>.json`, `plugin` for one a plugin bundles — because a pin
+that named only a name and a digest could not say WHICH definition it
+reviewed, and a pin that names a source refuses loudly the day a different
+source starts answering to that name. The digest is content-addressed against
 the same per-manifest digest compiled artifacts record in `resolved_adapters`,
 including a declared interpreter's name and bytes, and load refuses a mismatch
 before any policy consumer or target contact.
@@ -715,8 +765,102 @@ installed, active, version-bounded plugin and the ordinary provider
 negotiation/receipt contract—not the site manifest.
 
 Without a certificate, the adapter is usable for plan/apply but is visibly
-`uncertified`; readiness and host promotion remain blocked. Certification is a
-separate reviewer operation:
+`uncertified`; readiness and host promotion remain blocked.
+
+There are two ways to certify one, and which you want depends on **whose
+approval the certificate represents**.
+
+### Your organization's own approval (`duo adapter certify`)
+
+This is the path for an adapter you authored for your own site. The product
+spec calls the result *Site-certified*: "customer-organization approval through
+Duo's certification protocol, explicitly not a Duo endorsement". You hold the
+key, you sign your own adapters, and the projection names you.
+
+```sh
+# 1. Mint the organization key. ONCE, and never inside a site repository —
+#    a site repo is committed and published, so a key in one is a published key.
+duo adapter keygen --out=~/.duo-keys/acme-org.key
+#    key-id:     site-1a2b3c4d5e6f
+#    public-key: <base64>
+
+# 2. Certify the installed adapter and write the pin in one step.
+duo adapter certify <site-repo> --name=<name> \
+  --secret-key-file=~/.duo-keys/acme-org.key \
+  --reason='Acme reviewed this adapter against its own catalog schema.' --pin
+```
+
+`certify` does five things and prints what each one produced:
+
+1. Registers the public key in the site's own
+   `adapters/authorities.json` — the **site trust root**, in exactly the
+   shipped `duo-adapter-authorities/v1` grammar. Keys there are trusted only
+   for adapters in that repository. A key present in both the shipped file and
+   the site file: the shipped record wins.
+2. Runs the engine's real manifest validators over the adapter. A manifest the
+   engine will not load is never signed.
+3. Builds a `duo-site-adapter-certification-bundle/v1` whose evidence is
+   exactly `{grammar: <validator verdict>, exercised: false, reason}` and whose
+   bound input is the adapter's exact raw bytes.
+4. Signs `adapters/certifications/<name>.json` and immediately verifies it back
+   through the live verifier.
+5. Prints the `{name, source, digest}` pin object; `--pin` writes it into
+   `site.duo.json`.
+
+**What this certificate says, and what it does not.** It says: this
+organization's key approves *these exact bytes*, and the engine's validators
+accept the manifest's grammar. It does not say the adapter was exercised
+against a live site — the signed bundle records `exercised: false`, so nobody
+can later claim otherwise — and it declares deletion semantics **unsupported**,
+because a validator run cannot review them. Assess reads `Site-certified` for
+the surfaces it governs, prints `certified by <key-id> (site trust root);
+contract attestation unsigned` once, and `duo release`/`duo promote` admit the
+adapter through their existing "certified and evidence current" gate.
+
+**The certificate binds bytes, so an edit breaks it.** Any change to
+`adapters/<name>.json` moves the digest; the pin then refuses and the claim
+drops back to uncertified. Re-run `duo adapter certify … --pin` after every
+edit. That is the mechanism working, not a bug to route around.
+
+**Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
+any adapter in a repository whose `adapters/authorities.json` names it. Back it
+up where you back up deploy keys; production-grade custody (HSMs, rotation,
+revocation workflow) is out of scope for this profile.
+
+### Overriding a shipped adapter with your own copy
+
+Precedence is `shipped > site > plugin` for a name-only pin, so a site adapter
+cannot accidentally displace a reviewed one. An **explicit** site pin is the
+deliberate override:
+
+```sh
+cp manifests/woocommerce.json <site-repo>/adapters/woocommerce.json
+# ... edit it ...
+duo adapter pin <site-repo> --name=woocommerce --source=site
+duo adapter certify <site-repo> --name=woocommerce --secret-key-file=<key> --pin
+```
+
+`duo adapter list --repo=<site-repo>` then reports the shipped copy as
+`shadowed_by_site` on every row that mentions it, so the substitution is never
+silent. The site copy carries the site's certification words: a signed override
+is `Site-certified`, never `Platform-certified` — the platform did not review
+your copy.
+
+### Promoting a plugin-bundled adapter
+
+An adapter a plugin bundles (`<plugin>/duo-adapter.json`) can never be
+certified where it lives: certification binds `adapters/<name>.json` inside the
+signed statement, so no certificate can name a bundled file at all. The
+promotion path is to install it as a repository package first — copy it to
+`adapters/<name>.json`, pin it, then certify it. The site copy wins by
+precedence and the bundled copy reports as not installed; the plugin stays
+active throughout and nothing breaks in between.
+
+### A reviewer's approval under the agent-owned trust root
+
+This is the original path and it is unchanged. It is for a reviewer who
+exercised the adapter and holds a key the *agent* trusts, and it produces a
+richer bundle — real tests, real artifacts, a real evidence repository:
 
 1. Produce a passing `duo-site-adapter-certification-bundle/v1` scoped exactly
    to `{"kind":"site_adapter","name":"<name>"}` whose bound inputs contain

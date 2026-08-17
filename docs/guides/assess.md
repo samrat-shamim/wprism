@@ -65,22 +65,30 @@ Payment keys     environment-bound  rebind          Ready with conditions  Platf
   next action: provision env value (release)
 Orders           runtime            preserve local  Unsupported            Platform-certified  prevented    not applicable
   meaning: live operational state is never copied
+Catalog index    authored           manage          Ready                  Site-certified      prevented    provider-state restorable
+  meaning: authored catalog content travels between environments
+plugin:wpforms-lite  unclassified   block           Not qualified          Uncertified         unknown      unknown
+  reason: install or author an adapter that models this surface, classify it, or declare it out of scope in the contract
+  next action: install adapter (capture, merge, release, verify, delete, recover)
 Custom catalog   unclassified       block           Not qualified          Uncertified         unknown      unknown
-  reason: an unclassified surface has no registry entry that could make it Ready
+  reason: install or author an adapter that models this surface, classify it, or declare it out of scope in the contract
   next action: classify (capture, merge, release, verify, delete, recover)
 
 unknown: 41 option name(s) invisible to every installed adapter
          3 pending classification(s) (duo pending production)
+         2 undeclared table(s) (no installed adapter declares them)
 
 next actions:
-     45  classify
+     44  classify
       0  declare in contract
       0  qualify in rehearsal
       0  exclude
       1  provision env value
-      0  install adapter
+      3  install adapter
+      0  certify adapter
       2  nothing — supported
 evidence: 4 certification subject(s) pinned
+          certified by site-1a2b3c4d5e6f (site trust root); contract attestation unsigned
 proposed contract written: .duo/contract/proposed.json (accept with duo contract production accept)
 ```
 
@@ -117,9 +125,16 @@ conditions`, `Requalification required`, `Experimental`, `Not qualified`,
 live probe on every run. A condition under a `Ready with conditions` row is
 re-checked at the mutation gate, so it is a live promise, not a footnote.
 
-**certification** — where the claim comes from: `Platform-certified` or
-`Uncertified`. There is no third value in this profile; see *What this profile
-does not claim* below.
+**certification** — where the claim comes from: `Platform-certified`,
+`Site-certified`, or `Uncertified`. `Site-certified` means a certificate
+verified under a trust root your organization or the agent owns, signed over
+that adapter's exact bytes — customer-organization approval, explicitly **not**
+a Duo endorsement. It is what `duo adapter certify` produces; see
+[adapter-authoring.md](adapter-authoring.md#your-organizations-own-approval-duo-adapter-certify).
+The evidence block prints `certified by <principal> (<root> trust root);
+contract attestation unsigned` once — the second half matters, because a
+certified *adapter* does not make your application *contract* a signed
+document. See *What this profile does not claim* below.
 
 **containment** — whether an effect can escape: `prevented`, `live`, or
 `unknown`. `prevented` is emitted only where the mutation happens entirely
@@ -141,9 +156,9 @@ JSON), a `reason:` line quoting the registry's own words, a one-line
 
 ## What the next actions mean
 
-The assessment prints a count per action. There are exactly seven, the set is
+The assessment prints a count per action. There are exactly eight, the set is
 closed — a gap Duo cannot express as one of these is a bug, not a judgement
-call — and every one of the seven is printed with its count *including the
+call — and every one of the eight is printed with its count *including the
 zeroes*. A section that showed a line only when it had rows would teach you to
 read the presence of the line as the signal. The count is the signal.
 
@@ -151,8 +166,9 @@ read the presence of the line as the signal. The count is the signal.
 |---|---|
 | `classify` | The surface has no disposition. `duo pending <env>` lists it, `duo classify <env>` decides it. Cheapest remedy on the list, which is why it sorts first. |
 | `declare in contract` | Duo can see the effect but cannot bound it. Add the declaration to `.duo/contract/proposed.json` and accept it — see below, and the containment rule in [release.md](release.md#when-release-refuses-before-it-freezes-anything). |
-| `qualify in rehearsal` | Nothing on this site proves the surface behaves. Build a preview with `duo rehearse <env> --from <production-env>` and gather evidence there. Read the limits in [release.md](release.md#rehearse-is-a-preview-not-a-sandbox) first. |
-| `install adapter` | No installed adapter has a manifest for it. Write or install one; [adapter-authoring.md](adapter-authoring.md) is the whole path. |
+| `qualify in rehearsal` | **Never printed by this profile.** It stays in the closed set so a projection written by an older build still validates, but nothing emits it: rehearsal says in its own output that it cannot qualify anything, so naming it as your next step was sending you to prove that. |
+| `install adapter` | Nothing models this surface, and something probably owns it — an active plugin, or a table with a plugin's name on it. Write or install an adapter; [adapter-authoring.md](adapter-authoring.md) is the whole path, and `duo adapter-draft --seed` will propose the surface for you. |
+| `certify adapter` | The adapter **is** installed and is one signature or one pin short: `duo adapter certify <site-repo> --name=<n> --secret-key-file=<key> --pin`. This is also what expired or experimental evidence needs — current certification evidence, which no rehearsal can produce. |
 | `provision env value` | A manifest-declared `class: "env"` option is unset here: `duo env-set <env> --name=<name> --stdin`. |
 | `exclude` | The boundary is stated, not broken. Record the decision in the contract's `unsupported[]` and stop trying to release it. |
 | `nothing — supported` | Every projected operation agrees. This is last in the ordering so it wins only when nothing else applies. |
@@ -163,8 +179,11 @@ why the action names its operations: `install adapter (delete)` is a complete
 sentence.
 
 The unknown section gets actions of its own. Pending items and option names
-invisible to every installed adapter are both `classify`; an undeclared table
-is `qualify in rehearsal`. Those are counted and *named*, never valued —
+invisible to every installed adapter are both `classify` — `duo classify <env>`
+is the literal command for each. An **undeclared table** is `install adapter`:
+its defining property is that no installed adapter models it, which is why
+coverage had to find it by looking at the database, and `duo classify` has no
+table in its queue at all. Those are counted and *named*, never valued —
 `duo assess` prints names and counts only, exactly as `duo coverage` does.
 
 ## Record the decision: the application contract
@@ -213,11 +232,20 @@ registry and a live probe every time, so a declaration can widen what Duo is
 
 Three statements belong in the same breath as any assessment you act on.
 
-**Site certification does not exist yet.** The contract's attestation is
-always written `unsigned`, and every site-scoped claim therefore projects
-`Uncertified`. `Site-certified` is never emitted by this profile — not for a
-site adapter with local evidence, not for one you wrote yourself. No amount of
-local evidence changes that in this release.
+**`Site-certified` is your organization's word, not Duo's — and it does not
+sign your contract.** It is emitted now, and only on a fact: a certificate
+verified under a trust root your repository or the agent owns, over that
+adapter's exact bytes. What it attests to is narrow and the signed bundle says
+so out loud — `exercised: false`, plus the grammar verdict and the reason you
+stated. It is not a claim that the adapter was tested against a live site, and
+it is not a Duo endorsement of anything.
+
+The contract's own `attestation.state` is still written `unsigned`, which is
+why the evidence line ends `contract attestation unsigned`. A certified
+*adapter* and a signed *contract* are different documents; this release ships
+the first and not the second. Machine-legible attestation of the contract, and
+the resumable 12-step qualification workflow that would justify a stronger
+word, both remain deferred.
 
 **Containment is unknown wherever it is not structurally prevented.** The word
 `sandboxed` is never emitted, because there is no egress control to

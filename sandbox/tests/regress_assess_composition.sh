@@ -147,11 +147,22 @@ foreach ($d["surfaces"] as $row) {
             ? "no WordPress hooks fire in the apply window"
             : "unknown — not enforced in this profile";
         if ($basis !== $want) { $fail("{$row["id"]}/$operation carries the wrong containment basis"); }
-        foreach (["Site-certified","sandboxed","compensatable"] as $never) {
+        // T6 §3.2 removed `Site-certified` from this list: it is EARNED now,
+        // by a verified certificate. The two that remain are the ones this
+        // profile still structurally cannot prove — there is no egress
+        // control behind `sandboxed`, and no declared compensation action
+        // behind `compensatable`.
+        foreach (["sandboxed","compensatable"] as $never) {
             if (in_array($never, [$p["certification_provenance"], $p["effect_containment"],
                                   $p["effect_recovery_semantics"]], true)) {
                 $fail("$never was emitted, and this profile can never earn it");
             }
+        }
+        // This fixture installs no certificate, so nothing in it may read
+        // Site-certified either — the word must come from evidence, never
+        // from an adapter merely being site-sourced.
+        if ($p["certification_provenance"] === "Site-certified") {
+            $fail("{$row["id"]}/$operation reads Site-certified with no certificate installed");
         }
     }
 }
@@ -166,7 +177,32 @@ if ($rows["table:sample_log"]["decided_by"] !== "unresolved") { $fail("an unclas
 // The unknown block: names and counts, never values, and bounded.
 if ($d["unknown"]["invisible_names_count"] !== 41) { $fail("invisible option count is not the true total"); }
 if ($d["unknown"]["pending_count"] !== 3) { $fail("pending count is not the true total"); }
+// T6 §3.7 item 2: the third finding MUP §2.1 item 3 always named. The names
+// were already in names_sample; without the COUNT the human `unknown:` block
+// had no table line and the next-actions roll-up had nothing to add.
+if (!is_int($d["unknown"]["undeclared_tables_count"] ?? null)) {
+    $fail("the undeclared-table count is not published");
+}
 if (count($d["unknown"]["names_sample"]) > 200) { $fail("the names sample is unbounded"); }
+// T6 §3.6: an unclassified surface with no probable owning plugin is a
+// classification rule away. `qualify in rehearsal` is retired from the
+// emitted set entirely, so nothing in the document may carry it.
+if ($rows["table:sample_log"]["next_action"] !== "classify") {
+    $fail("an unowned unclassified table names {$rows["table:sample_log"]["next_action"]}, expected classify");
+}
+foreach ($d["surfaces"] as $row) {
+    if (($row["next_action"] ?? null) === "qualify in rehearsal") {
+        $fail("{$row["id"]} emits the retired `qualify in rehearsal`");
+    }
+    foreach ($row["operations"] as $operation => $p) {
+        if (($p["gap_action"] ?? null) === "qualify in rehearsal") {
+            $fail("{$row["id"]}/$operation emits the retired `qualify in rehearsal`");
+        }
+        foreach (["certification_principal","certification_trust_root","blockers","probable_owner"] as $k) {
+            if (!array_key_exists($k, $p)) { $fail("{$row["id"]}/$operation is missing $k"); }
+        }
+    }
+}
 // The evidence pins, and the digest binding the whole document.
 if (count($d["evidence"]["bundles"]) !== 2) { $fail("both certification subjects should be pinned"); }
 foreach (["dispositions_sha256","evidence_sha256","compatibility_sha256"] as $k) {
@@ -198,6 +234,63 @@ if (($p["review_required_count"] ?? 0) < 1) { $fail("a generated proposal with a
 if (!isset($p["contract"]["declarations"]["surface_labels"])) { $fail("the surface_labels map is missing"); }
 echo "ok: the proposal is a proposal — unsigned, unreviewed where it must be, and never authority\n";
 ' "$TMP/site/repo/.duo/contract/proposed.json" || fail 'the generated proposal is wrong'
+
+# ---------------------------------------------------------------- human view
+# The human view is a PROJECTION of the document above, never a second
+# computation — so these are the exact lines an operator (and the T6 adapter
+# walk) reads, asserted against the same run.
+say 'the human view'
+( cd "$TMP/site/repo" && run_assess "$TMP/callsh.txt" "$TMP/outh.txt" "$TMP/errh.txt" \
+    assess fixture )
+STATUS=$?
+check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "the human view exits 0 (got $STATUS)"
+
+# T6 §3.7 item 2: the `unknown:` block's third line. Its absence was the
+# difference between an operator seeing "Duo cannot see this part of your
+# database" and seeing nothing at all.
+assert_contains "$TMP/outh.txt" 'undeclared table(s) (no installed adapter declares them)' \
+  'the unknown block counts undeclared tables'
+assert_contains "$TMP/outh.txt" 'option name(s) invisible to every installed adapter' \
+  'beside the invisible options it always counted'
+
+# T6 §3.6: every action in the closed set prints with its count INCLUDING the
+# zeroes, so the presence of a line is never the signal. `certify adapter` is
+# the new one and it must print at zero here — this fixture installs no
+# uncertified adapter.
+assert_contains "$TMP/outh.txt" '  certify adapter' \
+  'the new closed-set action prints in the roll-up, at its true count'
+assert_contains "$TMP/outh.txt" '  install adapter' \
+  'and so does install adapter'
+assert_contains "$TMP/outh.txt" '  qualify in rehearsal' \
+  'the retired word still PRINTS its count — the closed set is the same size for a reader'
+NEXT_ACTION_LINES=$(sed -n '/^next actions:/,/^evidence:/p' "$TMP/outh.txt" | grep -cE '^ +[0-9]+  ')
+check "$([ "$NEXT_ACTION_LINES" = 8 ] && echo 0 || echo 1)" \
+  "the roll-up prints all eight closed-set actions (got $NEXT_ACTION_LINES)"
+
+# The roll-up counts every finding EXACTLY once. An undeclared table is a
+# surface row AND an unknown-section finding, so counting the coverage total on
+# top of the rows would report one table twice — in the one section whose whole
+# doctrine is that the count is the signal. The sum below is the arithmetic
+# statement of that: surface rows + invisible options + pending, and nothing
+# else, because every undeclared table here became a row.
+ROLLUP_TOTAL=$(sed -n '/^next actions:/,/^evidence:/p' "$TMP/outh.txt" \
+  | grep -oE '^ +[0-9]+' | tr -d ' ' | paste -sd+ - | bc)
+EXPECTED_TOTAL=$(php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+echo count($d["surfaces"]) + $d["unknown"]["invisible_names_count"] + $d["unknown"]["pending_count"];
+' "$TMP/out.json")
+check "$([ "$ROLLUP_TOTAL" = "$EXPECTED_TOTAL" ] && echo 0 || echo 1)" \
+  "the roll-up counts each finding exactly once (sum $ROLLUP_TOTAL, expected $EXPECTED_TOTAL)"
+
+# The retired word may print as a COUNTED zero and must never appear as a row's
+# own next action, which is a different thing and the one that would be a lie.
+assert_absent "$TMP/outh.txt" 'next action: qualify in rehearsal' \
+  'no surface row names the retired action'
+
+# Nothing here is certified by a site key, so the evidence block says nothing
+# about a principal. The positive case is regress_adapter_certify.php's.
+assert_absent "$TMP/outh.txt" 'contract attestation unsigned' \
+  'the site-certified line is absent when no certificate is installed'
 
 # ------------------------------------------------------------------- refusals
 say 'structured refusals'

@@ -1,5 +1,5 @@
 {
-    "class_count": 337,
+    "class_count": 338,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -17680,6 +17680,144 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\AdapterCertify": {
+            "abstract": false,
+            "constants": {
+                "AUTHORITIES_RELATIVE": {
+                    "value_repr": "adapters/authorities.json"
+                },
+                "CLAIMED_OPERATIONS": {
+                    "value_repr": [
+                        "apply",
+                        "capture",
+                        "compile",
+                        "deploy",
+                        "plan",
+                        "recapture"
+                    ]
+                },
+                "DEFAULT_REASON": {
+                    "value_repr": "The site organization approves these exact adapter bytes. The engine's own manifest validators accept its grammar; nothing was exercised against a live site."
+                },
+                "DELETION_UNSUPPORTED_REASON": {
+                    "value_repr": "deletion semantics were not reviewed: this certificate attests to manifest grammar and to the organization's approval of these exact adapter bytes, not to delete behaviour"
+                },
+                "ENTITY_SECTIONS": {
+                    "value_repr": [
+                        "post_types",
+                        "tables",
+                        "taxonomies",
+                        "taxonomy_patterns",
+                        "widgets"
+                    ]
+                },
+                "FIELD_SECTIONS": {
+                    "value_repr": [
+                        "block_attrs",
+                        "dynamic_options",
+                        "interpreter",
+                        "menu_fields",
+                        "meta_patterns",
+                        "option_name_refs",
+                        "option_namespaces",
+                        "option_patterns",
+                        "options",
+                        "post_meta",
+                        "shortcode_attrs",
+                        "term_meta",
+                        "user_meta"
+                    ]
+                },
+                "GRAMMAR_TEST": {
+                    "value_repr": "manifest-grammar"
+                },
+                "NO_EVIDENCE_REVISION": {
+                    "value_repr": "0000000000000000000000000000000000000000"
+                },
+                "VERBS": {
+                    "value_repr": [
+                        "keygen",
+                        "certify",
+                        "pin"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "readSecretKey": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "writeCertificate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "certificate",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\AdapterDraft": {
             "abstract": false,
             "constants": {
@@ -17688,6 +17826,12 @@
                 },
                 "FORMAT": {
                     "value_repr": "duo-adapter-draft/v1"
+                },
+                "SEED_COVERAGE_FORMAT": {
+                    "value_repr": "duo-coverage-report/v1"
+                },
+                "SEED_INVENTORY_FORMAT": {
+                    "value_repr": "duo-assess-inventory/v1"
                 }
             },
             "final": true,
@@ -22333,6 +22477,7 @@
                         "exclude",
                         "provision env value",
                         "install adapter",
+                        "certify adapter",
                         "nothing — supported"
                     ]
                 },
@@ -22349,6 +22494,7 @@
                         "declare in contract",
                         "qualify in rehearsal",
                         "install adapter",
+                        "certify adapter",
                         "provision env value",
                         "exclude",
                         "nothing — supported"
@@ -22442,7 +22588,14 @@
         },
         "Duo\\Orchestrator\\Init": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "ALLOW_UNMANAGED_PLUGINS": {
+                    "value_repr": "--allow-unmanaged-plugins"
+                },
+                "UNMANAGED_PLUGIN_CODE": {
+                    "value_repr": "active_plugin_without_adapter"
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
@@ -22465,6 +22618,14 @@
                             "has_default": false,
                             "name": "digest",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -22507,6 +22668,14 @@
                             "has_default": false,
                             "name": "transport",
                             "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -24254,11 +24423,23 @@
                 "ANNOTATION_RESTORED_BY_PREFIX": {
                     "value_repr": "restored by: "
                 },
-                "ANNOTATION_SITE_CERTIFICATION_DEFERRED": {
-                    "value_repr": "site certification is deferred in this profile: the contract carries an unsigned attestation, so a site-scoped claim projects Uncertified"
+                "ANNOTATION_SITE_CERTIFIED_PREFIX": {
+                    "value_repr": "certified by "
+                },
+                "ANNOTATION_SITE_CERTIFIED_SUFFIX": {
+                    "value_repr": "; contract attestation unsigned"
+                },
+                "ANNOTATION_SITE_SIGNED_UNPINNED": {
+                    "value_repr": "this adapter carries valid signed evidence, but its repository pin does not bind both source \"site\" and the certificate-derived digest, so the claim is not certified"
                 },
                 "ANNOTATION_UNCLASSIFIED_NOT_QUALIFIED": {
                     "value_repr": "an unclassified surface has no registry entry that could make it Ready"
+                },
+                "BLOCKERS_CERTIFIABLE": {
+                    "value_repr": [
+                        "adapter_source_uncertified",
+                        "adapter_certification_unpinned"
+                    ]
                 },
                 "BLOCKERS_NOT_QUALIFIED": {
                     "value_repr": [
@@ -24325,6 +24506,7 @@
                         "exclude",
                         "provision env value",
                         "install adapter",
+                        "certify adapter",
                         "nothing — supported"
                     ]
                 },
@@ -24347,7 +24529,6 @@
                 },
                 "NEVER_EMITTED": {
                     "value_repr": [
-                        "Site-certified",
                         "sandboxed",
                         "compensatable"
                     ]
@@ -24360,6 +24541,16 @@
                         "verify",
                         "delete",
                         "recover"
+                    ]
+                },
+                "OPTIONAL_FACTS": {
+                    "value_repr": [
+                        "probable_owner"
+                    ]
+                },
+                "OPTIONAL_REGISTRY_FACTS": {
+                    "value_repr": [
+                        "certification"
                     ]
                 },
                 "POLICY_CLASSES": {
@@ -28772,6 +28963,40 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "pluginRows": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "pluginsWithoutAdapter": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "stack": {
                     "abstract": false,
                     "final": false,
@@ -28892,6 +29117,9 @@
                 },
                 "LIFECYCLE_SURFACE_ALIAS": {
                     "value_repr": "plugins/themes"
+                },
+                "PLUGIN_KIND": {
+                    "value_repr": "plugin"
                 },
                 "REGISTRY_OPERATION": {
                     "value_repr": {

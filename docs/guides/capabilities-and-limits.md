@@ -240,8 +240,36 @@ the gate.
 | Value | Meaning |
 |---|---|
 | `Platform-certified` | shipped adapter, certified claim, current evidence. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority |
-| `Uncertified` | everything else, including every site-scoped claim in this release |
-| `Site-certified` | **never emitted.** The certification attestation gate is deferred: every contract this build writes carries `attestation.state: "unsigned"`, so a site adapter's own evidence — however good — projects `Uncertified`. No amount of local evidence changes that today |
+| `Site-certified` | a site adapter whose certificate verified: an Ed25519 signature over that adapter's exact bytes, under a key in a trust root the repository or the agent owns, with an exact `{name,source,digest}` pin. `duo adapter certify` produces one |
+| `Uncertified` | everything else — no certificate, or a certificate whose pin does not bind it (`signed_unpinned`, which the row names) |
+
+**What `Site-certified` does and does not mean.** It is
+customer-organization approval through Duo's certification protocol,
+**explicitly not a Duo endorsement**. The signature is real and it is checked
+on every load: tamper with the adapter, the certificate, the authority record
+or the pin and the claim drops rather than degrading quietly.
+
+What it attests to is narrow, and the signed bundle records that rather than
+leaving it to be assumed. `duo adapter certify` writes
+`{grammar: <validator verdict>, exercised: false, reason: <yours>}` into the
+content-addressed evidence the signature covers, and declares deletion
+semantics **unsupported** — a validator run cannot review them. So
+`Site-certified` says *this organization approves these exact bytes, and the
+engine's validators accept the manifest's grammar*. It does not say the adapter
+was exercised against a live site.
+
+Three things it does not do:
+
+- It does not sign your **contract**. `attestation.state` is still written
+  `unsigned`, which is why assess prints `certified by <principal>
+  (<root> trust root); contract attestation unsigned`. A certified adapter and
+  a signed contract are different documents and this release ships the first.
+- It does not become `Platform-certified` under the agent-owned trust root. A
+  certificate about a *site adapter* reads `Site-certified` whichever root
+  signed it; only the named root changes. A signed override of a shipped
+  adapter is `Site-certified` too — the platform did not review your copy.
+- It does not replace the resumable 12-step qualification workflow, which stays
+  deferred along with production-grade key custody.
 
 **5. Effect containment** — whether an operation can reach a live external
 system.
