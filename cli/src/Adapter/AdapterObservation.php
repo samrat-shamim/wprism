@@ -33,8 +33,16 @@ final class AdapterObservation {
     ];
     private const PENDING_SHAPES = ['array', 'bool', 'float', 'int', 'null', 'object', 'other', 'string'];
     private const GRAMMAR = ['blocked_by_source_refusal', 'error', 'ok'];
+    /**
+     * T6 §3.2 adds `site_signed` — a certificate under a key in the site's
+     * own `adapters/authorities.json`. Without it here, an observation of a
+     * target running an adapter the operator certified themselves refuses on
+     * a word the engine legitimately emits, which is a closed vocabulary
+     * failing closed against its own product.
+     */
     private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'signed_unpinned', 'third_party_signed', 'uncertified',
+        'certification_unjudged', 'registry', 'signed_unpinned', 'site_signed',
+        'third_party_signed', 'uncertified',
     ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];
     private const VERDICTS = ['blocked', 'certified'];

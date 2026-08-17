@@ -4,37 +4,33 @@
  *
  * Three things this suite is for, in the order they matter.
  *
- * **1. The bundle this command builds is accepted by the SHIPPED verifier.**
- * `AdapterCertify` deliberately produces the existing
- * `duo-site-adapter-certification-bundle/v1` grammar rather than a relaxed
- * one, so the adversarial matrix in `regress_site_adapter_certification.php`
- * keeps applying to an operator-authored certificate unchanged. That claim is
- * only worth anything if it is exercised end to end, so the core case here
- * signs and then VERIFIES through `AdapterCertification::verifyFile()` — the
- * same call the live policy path makes.
+ * **1. The whole verb, end to end, against the real signer.** `certify`
+ * registers the operator's key in the site trust root, calls
+ * `AdapterCertification::sign_site()`, writes the certificate at its derived
+ * path, and verifies it back through `verifyFile()` — the same call the live
+ * policy path makes. The bundle itself is the AGENT's (T6 §3.5 as landed);
+ * this suite owns the three mutations around it and proves the composition
+ * produces a `certified` claim under a `site` trust root.
  *
- * The signing round trip runs against a scratch agent manifest directory whose
- * `capabilities/adapter-authorities.json` holds the operator's key. That is not
- * a test backdoor: `DUO_MANIFESTS_DIR` is the documented way every offline
- * adapter command retargets the library (`ManifestValidate`, `AdapterDraft`
- * and `regress_site_adapter_certification.php` all use it). It also keeps this
- * suite independent of the SITE trust root, which is the agent half of T6 §3.1
- * — so a red line here is about the CLI's bundle, never about that.
+ * A manifest exercising every branch of the agent's derived ratification is
+ * used deliberately — a declared plugin, an entity section, three field
+ * sections, a default-authored keyspace and an intent-only table — because
+ * `ManifestDispositions::validate_entry()` checks the derived entry against
+ * the manifest in five directions, and a fixture that dodged them would let
+ * a real adapter fail where this passed.
  *
- * **2. The two mutations refuse before they damage anything.** A private key
- * inside a repository that gets committed is a published key; an overwritten
- * key orphans every certificate it signed; a rewritten `site.duo.json` that
- * flattened `"policy": {}` into `[]` would produce a file the engine refuses
- * to load. Each is asserted rather than reasoned about — the third one was a
- * real defect caught by the first smoke run of `duo adapter pin`.
+ * **2. The three mutations refuse before they damage anything.** A private
+ * key inside a repository that gets committed is a published key; an
+ * overwritten key orphans every certificate it signed; a rewritten
+ * `site.duo.json` that flattened `"policy": {}` into `[]` would produce a
+ * file the engine refuses to load. Each is asserted rather than reasoned
+ * about — the third was a real defect caught by the first smoke run of
+ * `duo adapter pin`, and the ordering rule below by the first run of
+ * `duo adapter certify`.
  *
- * **3. The derived ratification satisfies the disposition validator.**
- * `certify` has to synthesize a `duo-manifest-dispositions/v1` entry from a
- * manifest, and `ManifestDispositions::validate_entry()` checks that entry
- * against the manifest in five different directions (named sections must
- * exist, default-authored keyspaces must be one-for-one, intent-only tables
- * must be marked unsupported, a certified entry's plugin versions must match
- * its contract). A manifest exercising all of them is signed here.
+ * **3. A failed certify leaves the repository as it found it.** The
+ * pre-flight grammar check runs BEFORE the key is registered, so an adapter
+ * the engine will not load never causes a write.
  */
 declare(strict_types=1);
 
@@ -46,6 +42,7 @@ require_once $duoRoot . '/cli/src/Adapter/AdapterCertify.php';
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
 use Duo\Canon;
+use Duo\Policy;
 use Duo\Orchestrator\AdapterCertify;
 
 // -------------------------------------------------------------------- harness
@@ -304,112 +301,35 @@ $rich = [
 ];
 
 $signRepo = cert_site($root, 'signsite', $rich);
-$library = cert_agent_library($root, 'signlib', ['acme-catalog'], [AdapterSources::TIER_DECLARATIVE]);
+
+// The key lives in the SITE trust root, which is what makes the result
+// `site_signed` — `sign_site()` refuses an agent-owned key by name, because
+// an agent-owned key certifies a reviewed exercise or nothing.
+$keypair = sodium_crypto_sign_keypair();
+$signSecret = sodium_crypto_sign_secretkey($keypair);
+$signPublic = sodium_crypto_sign_publickey($keypair);
+$signKeyId = 'site-' . substr(hash('sha256', $signPublic), 0, 12);
 $secretPath = $keyDir . '/sign.key';
-file_put_contents($secretPath, base64_encode($library['secret']) . "\n");
+file_put_contents($secretPath, base64_encode($signSecret) . "\n");
 chmod($secretPath, 0600);
 
-$adapterRaw = (string) file_get_contents($signRepo . '/adapters/acme-catalog.json');
 $reason = 'Acme Ltd reviewed this adapter against its own catalog schema.';
-$bundleDir = cert_private('buildBundle', [
-    $signRepo, 'acme-catalog', $rich, $adapterRaw, ['status' => 'ok', 'message' => null], $reason,
+cert_private('registerAuthority', [
+    $signRepo, $signKeyId, $signPublic, 'acme-catalog', AdapterSources::TIER_DECLARATIVE,
 ]);
 
-$bundleRaw = (string) file_get_contents($bundleDir . '/bundle.json');
-$bundle = json_decode($bundleRaw, true);
-duo_check_same(
-    AdapterCertification::BUNDLE_FORMAT,
-    $bundle['schema_version'] ?? null,
-    'the bundle declares the SHIPPED schema — one grammar, one verifier'
-);
-duo_check_same([], $bundle['artifacts'] ?? null, 'artifacts[] is a STATED empty: nothing was exercised');
-duo_check_same(
-    AdapterCertify::NO_EVIDENCE_REVISION,
-    $bundle['git_revision'] ?? null,
-    'git_revision is all zeros: this profile binds no evidence repository, and a borrowed '
-    . 'site-repo HEAD would read as provenance it is not'
-);
-duo_check_same([], $bundle['force_hatches'] ?? null, 'no force hatches — a certificate is not a vehicle for one');
-duo_check_same(
-    ['adapters/acme-catalog.json'],
-    array_column((array) ($bundle['bound_inputs'] ?? []), 'path'),
-    'the bundle binds exactly the adapter file'
-);
-duo_check_same(
-    hash('sha256', $adapterRaw),
-    $bundle['bound_inputs'][0]['sha256'] ?? null,
-    'and binds its EXACT bytes, which is what makes the certificate specific to them'
-);
-
-$result = json_decode(
-    (string) file_get_contents($bundleDir . '/results/' . AdapterCertify::GRAMMAR_TEST . '.json'),
-    true
-);
-duo_check_same(
-    ['exercised' => false, 'exit_code' => 0, 'grammar' => 'ok', 'reason' => $reason,
-        'schema_version' => 1, 'test' => AdapterCertify::GRAMMAR_TEST, 'verdict' => 'pass'],
-    $result,
-    'T6 §3.5 evidence triple {grammar, exercised: false, reason} is the named test\'s recorded result'
-);
-
-$ratification = json_decode((string) file_get_contents($bundleDir . '/ratification.json'), true);
-$disposition = $ratification['manifests']['acme-catalog'] ?? [];
-duo_check_same('certified', $disposition['status'] ?? null, 'the derived disposition is a certified entry');
-duo_check_same($reason, $disposition['reason'] ?? null, 'the operator\'s stated reason is what it is certified ON');
-duo_check_same(
-    ['post_types', 'tables'],
-    $disposition['capabilities']['entity_sections'] ?? null,
-    'entity_sections names only sections the manifest actually declares'
-);
-duo_check_same(
-    ['option_namespaces', 'options', 'post_meta'],
-    $disposition['capabilities']['field_sections'] ?? null,
-    'and so does field_sections — a disposition naming an absent section is refused'
-);
-duo_check_same(
-    ['acme_catalog_index'],
-    array_column((array) ($disposition['default_authored_keyspaces'] ?? []), 'table'),
-    'default_authored_keyspaces is exactly the default-authored tables, one for one'
-);
-duo_check(
-    in_array('tables.acme_catalog_intent', array_column(
-        (array) ($disposition['unsupported'] ?? []),
-        'surface'
-    ), true),
-    'the intent-only table is marked unsupported, which validate_entry() requires'
-);
-duo_check_same(
-    ['plugin' => 'acme-catalog/acme-catalog.php', 'range' => ['max' => '3.0.0', 'min' => '1.0.0']],
-    $disposition['supported_versions'] ?? null,
-    'supported_versions mirrors the manifest\'s own plugin contract, which a certified entry must'
-);
-duo_check_same(
-    ['supported' => [], 'unsupported' => ['all']],
-    $disposition['capabilities']['deletion_semantics'] ?? null,
-    'deletion is declared UNSUPPORTED: a validator run cannot review deletion semantics, and a '
-    . 'certificate claiming them would claim a review nobody did'
-);
-duo_check(
-    !in_array('delete', (array) ($disposition['capabilities']['operations'] ?? []), true),
-    'and `delete` is absent from the claimed operations for the same reason'
-);
-duo_check(
-    in_array('apply', (array) ($disposition['capabilities']['operations'] ?? []), true)
-    && in_array('deploy', (array) ($disposition['capabilities']['operations'] ?? []), true),
-    'while apply+deploy ARE claimed — CapabilityRegistry mints `promote` from them, which is what '
-    . 'lets duo release admit a site-certified adapter through its existing gate'
-);
-
-// The claim this whole suite exists for: the SHIPPED signer and the SHIPPED
-// live verifier both accept what AdapterCertify built.
-$certificate = AdapterCertification::sign(
-    $library['dir'],
+// The agent owns the bundle (T6 §3.5): sign_site() derives the ratification,
+// runs the real loader for the grammar verdict, builds and verifies the
+// unexercised bundle in memory, and signs. This suite asserts the composition
+// around it, and that the composition produces a claim the LIVE verifier
+// accepts — the same call the policy path makes on every load.
+$certificate = AdapterCertification::sign_site(
+    Policy::manifests_dir(),
     $signRepo,
     'acme-catalog',
-    $bundleDir,
-    $signRepo,
-    $library['key_id'],
-    base64_encode($library['secret'])
+    $signKeyId,
+    base64_encode($signSecret),
+    $reason
 );
 $certificatePath = AdapterCertify::writeCertificate($signRepo, 'acme-catalog', $certificate);
 duo_check_same(
@@ -427,7 +347,7 @@ duo_check_same(
 );
 
 $verified = AdapterCertification::verifyFile(
-    $library['dir'],
+    Policy::manifests_dir(),
     $signRepo,
     'acme-catalog',
     $rich,
@@ -442,9 +362,69 @@ duo_check_same(
     'at the declarative trust tier the manifest earned'
 );
 duo_check_same(
-    $library['key_id'],
+    $signKeyId,
     $summary['authority']['key_id'] ?? null,
     'under the operator\'s own key'
+);
+
+// T6 §3.2's two projected facts, read off the claim the projection consumes.
+// `exercised: false` is the whole point of the site profile — a certificate
+// that could be read as "somebody ran it" is the ambiguity the relaxation
+// exists to remove — and `trust_root: site` is what keeps this
+// `Site-certified` rather than `Platform-certified`.
+$claim = is_array($verified['claim'] ?? null) ? $verified['claim'] : [];
+duo_check_same(
+    false,
+    $claim['evidence']['exercised'] ?? null,
+    'the CLAIM carries exercised: false, so nothing downstream can read it as a reviewed exercise'
+);
+duo_check_same(
+    'site',
+    $claim['certification']['trust_root'] ?? null,
+    'and a site trust root, which is what makes the projection say Site-certified'
+);
+duo_check_same(
+    'site',
+    $claim['certification']['source'] ?? null,
+    'with source "site" — the fact ProjectionVocabulary::projectProvenance() keys on'
+);
+duo_check_same(
+    $signKeyId,
+    $claim['certification']['principal'] ?? null,
+    'naming the principal the human view prints'
+);
+duo_check_same(
+    // The reason rides on the DISPOSITION, not the claim's evidence block —
+    // it is what the entry is certified ON, and it is inside the signed
+    // statement either way. Asserted where it lives rather than where it
+    // would have been convenient.
+    $reason,
+    $verified['disposition']['reason'] ?? null,
+    'and the operator\'s stated basis, signed rather than merely typed'
+);
+duo_check_same(
+    [],
+    $claim['evidence']['tests'] ?? null,
+    'with NO named tests — `evidence.tests: ["something"]` is indistinguishable downstream from a '
+    . 'reviewed conformance run, which is the collapse `exercised: false` exists to prevent'
+);
+
+// An AGENT-owned key routed through this entry point is refused by name. The
+// relaxation follows the trust ROOT, not the caller, so this is the boundary
+// that keeps `site_signed` and `third_party_signed` separable at all.
+$agentLibrary = cert_agent_library($root, 'agentlib', ['acme-catalog'], [AdapterSources::TIER_DECLARATIVE]);
+$agentRepo = cert_site($root, 'agentsite', $rich);
+duo_check_throws(
+    static fn() => AdapterCertification::sign_site(
+        $agentLibrary['dir'],
+        $agentRepo,
+        'acme-catalog',
+        $agentLibrary['key_id'],
+        base64_encode($agentLibrary['secret']),
+        'attempting the unexercised profile under an agent-owned key'
+    ),
+    RuntimeException::class,
+    'an agent-owned key cannot mint an unexercised certificate — it certifies a reviewed exercise or nothing'
 );
 
 // Byte-binding, restated as a live check rather than a claim: one edited byte
@@ -455,7 +435,7 @@ $tampered['options']['acme_catalog_layout']['class'] = 'runtime';
 Canon::write_file($signRepo . '/adapters/acme-catalog.json', Canon::encode($tampered));
 duo_check_throws(
     static fn() => AdapterCertification::verifyFile(
-        $library['dir'],
+        Policy::manifests_dir(),
         $signRepo,
         'acme-catalog',
         $tampered,
@@ -474,7 +454,7 @@ $authRepo = cert_site($root, 'authsite', [
     'options' => ['keeper_layout' => ['class' => 'authored']],
     'spec_version' => DUO_SPEC_VERSION,
 ]);
-$public = sodium_crypto_sign_publickey_from_secretkey($library['secret']);
+$public = sodium_crypto_sign_publickey_from_secretkey($signSecret);
 $wrote = cert_private('registerAuthority', [
     $authRepo, 'site-acme', $public, 'keeper', AdapterSources::TIER_DECLARATIVE,
 ]);
@@ -565,7 +545,7 @@ duo_check_throws(
 // -------------------------------------------------------------- secret handling
 
 $loose = $keyDir . '/loose.key';
-file_put_contents($loose, base64_encode($library['secret']) . "\n");
+file_put_contents($loose, base64_encode($signSecret) . "\n");
 chmod($loose, 0644);
 duo_check_throws(
     static fn() => AdapterCertify::readSecretKey($loose),
@@ -575,15 +555,15 @@ duo_check_throws(
 );
 chmod($loose, 0600);
 duo_check_same(
-    $library['secret'],
+    $signSecret,
     AdapterCertify::readSecretKey($loose),
     'a 0600 base64 secret key reads back byte-for-byte'
 );
 $hexKey = $keyDir . '/hex.key';
-file_put_contents($hexKey, bin2hex($library['secret']) . "\n");
+file_put_contents($hexKey, bin2hex($signSecret) . "\n");
 chmod($hexKey, 0600);
 duo_check_same(
-    $library['secret'],
+    $signSecret,
     AdapterCertify::readSecretKey($hexKey),
     'and so does the hexadecimal spelling, which the engine\'s own signer accepts'
 );

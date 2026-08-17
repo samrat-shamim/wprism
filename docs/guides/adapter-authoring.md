@@ -799,23 +799,24 @@ duo adapter certify <site-repo> --name=<name> \
    the site file: the shipped record wins.
 2. Runs the engine's real manifest validators over the adapter. A manifest the
    engine will not load is never signed.
-3. Builds a `duo-site-adapter-certification-bundle/v1` whose evidence is
-   exactly `{grammar: <validator verdict>, exercised: false, reason}` and whose
-   bound input is the adapter's exact raw bytes.
-4. Signs `adapters/certifications/<name>.json` and immediately verifies it back
-   through the live verifier.
-5. Prints the `{name, source, digest}` pin object; `--pin` writes it into
+3. Signs `adapters/certifications/<name>.json` — the bundle is derived and
+   built by the engine, never by hand, and never reaches disk. What it may
+   claim is [What a site-rooted certificate may
+   prove](#what-a-site-rooted-certificate-may-prove).
+4. Immediately verifies what it just wrote, through the live verifier.
+5. Prints the `{digest, name, source}` pin object; `--pin` writes it into
    `site.duo.json`.
 
 **What this certificate says, and what it does not.** It says: this
 organization's key approves *these exact bytes*, and the engine's validators
 accept the manifest's grammar. It does not say the adapter was exercised
-against a live site — the signed bundle records `exercised: false`, so nobody
-can later claim otherwise — and it declares deletion semantics **unsupported**,
-because a validator run cannot review them. Assess reads `Site-certified` for
-the surfaces it governs, prints `certified by <key-id> (site trust root);
-contract attestation unsigned` once, and `duo release`/`duo promote` admit the
-adapter through their existing "certified and evidence current" gate.
+against a live site — the signed bundle records `exercised: false` and carries
+it onto the claim, so nobody downstream can read `certified` as "somebody ran
+it" — and it declares deletion semantics **unsupported**, because a validator
+run reviews none. Assess reads `Site-certified` for the surfaces it governs,
+prints `certified by <key-id> (site trust root); contract attestation unsigned`
+once, and `duo release`/`duo promote` admit the adapter through their existing
+"certified and evidence current" gate.
 
 **The certificate binds bytes, so an edit breaks it.** Any change to
 `adapters/<name>.json` moves the digest; the pin then refuses and the claim
@@ -827,34 +828,17 @@ any adapter in a repository whose `adapters/authorities.json` names it. Back it
 up where you back up deploy keys; production-grade custody (HSMs, rotation,
 revocation workflow) is out of scope for this profile.
 
-### Overriding a shipped adapter with your own copy
-
-Precedence is `shipped > site > plugin` for a name-only pin, so a site adapter
-cannot accidentally displace a reviewed one. An **explicit** site pin is the
-deliberate override:
-
-```sh
-cp manifests/woocommerce.json <site-repo>/adapters/woocommerce.json
-# ... edit it ...
-duo adapter pin <site-repo> --name=woocommerce --source=site
-duo adapter certify <site-repo> --name=woocommerce --secret-key-file=<key> --pin
-```
-
-`duo adapter list --repo=<site-repo>` then reports the shipped copy as
-`shadowed_by_site` on every row that mentions it, so the substitution is never
-silent. The site copy carries the site's certification words: a signed override
-is `Site-certified`, never `Platform-certified` — the platform did not review
-your copy.
-
 ### Promoting a plugin-bundled adapter
 
 An adapter a plugin bundles (`<plugin>/duo-adapter.json`) can never be
 certified where it lives: certification binds `adapters/<name>.json` inside the
 signed statement, so no certificate can name a bundled file at all. The
 promotion path is to install it as a repository package first — copy it to
-`adapters/<name>.json`, pin it, then certify it. The site copy wins by
-precedence and the bundled copy reports as not installed; the plugin stays
-active throughout and nothing breaks in between.
+`adapters/<name>.json`, run `duo adapter pin <site-repo> --name=<n>`, then
+`duo adapter certify`. The site copy wins by precedence and the bundled copy
+reports as not installed; the plugin stays active throughout and nothing breaks
+in between. (Replacing a *shipped* name is a different act with its own rules —
+see [Overriding a shipped adapter](#overriding-a-shipped-adapter).)
 
 ### A reviewer's approval under the agent-owned trust root
 

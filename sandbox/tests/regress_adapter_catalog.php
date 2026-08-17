@@ -1400,14 +1400,27 @@ check(
     'a site_signed row names WHO vouched and under whose trust root (got '
     . json_encode($detail) . ')'
 );
-$shadowed = $renderRow->invoke(null, ['certification' => 'registry', 'shadowed_by_site' => true]);
-check(
-    count($shadowed) === 1 && str_contains($shadowed[0], 'shadowed_by_site:'),
-    'and a shipped row an explicit site pin overrode says so on every run, not only in doctor'
-);
 check(
     $renderRow->invoke(null, ['certification' => 'registry']) === [],
     'an ordinary row adds no lines at all'
+);
+// T6 §3.3's shadowed shipped adapter is deliberately NOT an adapters[] row —
+// it is not loaded, and a row for a definition nothing loads would contradict
+// what that section means. render_not_installed() carries it.
+$notInstalled = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'render_not_installed');
+ob_start();
+$notInstalled->invoke(null, [[
+    'name' => 'woocommerce', 'path' => 'manifests/woocommerce.json', 'plugin' => null,
+    'reason_code' => \Duo\AdapterSources::CERTIFICATION_SHADOWED_BY_SITE, 'source' => 'shipped',
+    'winner' => ['path' => 'adapters/woocommerce.json', 'source' => 'site'],
+    'message' => 'the repository explicitly pins the site copy for that name',
+]]);
+$shadowedText = (string) ob_get_clean();
+check(
+    str_contains($shadowedText, "[shadowed_by_site] 'woocommerce'")
+    && str_contains($shadowedText, "site answers to this name ('adapters/woocommerce.json')"),
+    'a site override prints the shipped copy as installed-but-not-loaded, naming the winner (got: '
+    . trim($shadowedText) . ')'
 );
 $cellMethod = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'certification_cell');
 foreach (['site_signed', 'third_party_signed', 'signed_unpinned', 'uncertified'] as $word) {

@@ -43,40 +43,36 @@ use Duo\RepositoryCompiler;
  * projection reads `Site-certified`, never `Platform-certified`
  * (T6 §3.2/§3.3).
  *
- * ## The bundle, and why it is the shipped grammar rather than a new one
+ * ## What this class does NOT build, and why
  *
- * `AdapterCertification` already owns a complete, adversarially-tested
- * `duo-site-adapter-certification-bundle/v1` grammar: content-addressed
- * assets, a bound input binding the exact raw adapter bytes, a
- * one-manifest `duo-manifest-dispositions/v1` ratification, and a bundle
- * digest the Ed25519 signature covers. Nothing in T6 needs that weakened —
- * what was missing was a *producer* an operator could run. So this class
- * produces that exact grammar rather than asking the agent for a second,
- * laxer one: one bundle format means one verifier, and the properties the
- * adversarial matrix in `regress_site_adapter_certification.php` already
- * proves keep applying to an operator-authored certificate unchanged.
+ * It builds no certification bundle. `AdapterCertification::sign_site()`
+ * does: it derives the ratification from the manifest, runs the real loader
+ * for the `grammar` verdict, assembles the unexercised
+ * `duo-site-adapter-certification-bundle/v1` in memory, verifies its own
+ * output through the same validator that re-verifies it at every load, and
+ * signs. Nothing of that reaches disk but the certificate — an unexercised
+ * bundle's only assets are `environment.json` and `ratification.json`, and
+ * both are already inside the signed statement.
  *
- * Two fields carry the "grammar only, nothing exercised" fact explicitly
- * rather than by omission:
+ * That split is deliberate and it is the second design this file had. The
+ * first built the bundle here, out of the same shipped grammar, and it
+ * verified. What it could not do is carry `exercised` onto the CLAIM: the
+ * agent never reads a result asset for a claim field, so the fact would have
+ * lived only in a blob nothing projects — and `evidence.tests:
+ * ["manifest-grammar"]` is indistinguishable downstream from a reviewed
+ * conformance run, which is exactly the collapse `exercised: false` exists
+ * to prevent. The grammar and its producer belong in one file, beside the
+ * validator that refuses them.
  *
- *  - `artifacts: []` — the half of a certified adapter's version story that
- *    says *what was exercised and at which version*. Empty is the honest
- *    answer here and it is a stated empty, not a dropped field.
- *  - `git_revision` is 40 zeros. It binds the revision of an *evidence
- *    repository*, and this profile has none; the site repository's own HEAD
- *    would be a number that looks like provenance while proving nothing
- *    about how the adapter was tested.
+ * ## What this class owns
  *
- * ## The one thing this class depends on the agent for
- *
- * `AdapterCertification::sign()` resolves the signing key through
- * `authority()`, which reads the agent-owned authorities file. T6 §3.1 adds
- * the site trust root (`<repo>/adapters/authorities.json`, same
- * `duo-adapter-authorities/v1` grammar, trusted **only** for adapters in
- * that repository, shipped record wins on a collision). This class writes
- * that file and then calls `sign()` unchanged. Until the agent consults it,
- * `certify` fails loudly with the engine's own "authority key '<id>' is not
- * installed" — a named missing piece, never a silent downgrade.
+ * The three mutations, and nothing else: the private key (`keygen`), the
+ * site trust root and the certificate file (`certify`), and the pin
+ * (`certify --pin`, `pin`). The key must be registered in
+ * `adapters/authorities.json` BEFORE signing — that is where
+ * `AdapterCertification::authority()` resolves it, and resolving under the
+ * site root is what makes the result `site_signed` rather than an
+ * agent-owned certificate.
  *
  * WordPress-free, no environment, no transport: every verb here reads and
  * writes files on the machine running `duo`.
@@ -88,53 +84,13 @@ final class AdapterCertify {
     /** T6 §3.1: the SITE trust root, beside the adapters it is trusted for. */
     public const AUTHORITIES_RELATIVE = 'adapters/authorities.json';
 
-    /** The one named test a grammar-only certification bundle carries. */
-    public const GRAMMAR_TEST = 'manifest-grammar';
-
     /**
-     * No evidence repository exists in this profile, so the bundle binds no
-     * source revision. Stated as an explicit all-zero revision rather than
-     * omitted: `verifyBundleManifest()` requires 40 lowercase hex, and a
-     * borrowed site-repo HEAD would read as provenance it is not.
-     */
-    public const NO_EVIDENCE_REVISION = '0000000000000000000000000000000000000000';
-
-    /**
-     * Manifest sections `ManifestDispositions::validate_entry()` accepts as
-     * entity sections, from the shipped `manifests/dispositions.json`'s own
-     * vocabulary. A derived disposition names only the sections the manifest
-     * actually declares, so this is a filter and never an assertion.
-     */
-    public const ENTITY_SECTIONS = [
-        'post_types', 'tables', 'taxonomies', 'taxonomy_patterns', 'widgets',
-    ];
-
-    /** The field-section half of the same vocabulary. */
-    public const FIELD_SECTIONS = [
-        'block_attrs', 'dynamic_options', 'interpreter', 'menu_fields', 'meta_patterns',
-        'option_name_refs', 'option_namespaces', 'option_patterns', 'options',
-        'post_meta', 'shortcode_attrs', 'term_meta', 'user_meta',
-    ];
-
-    /**
-     * The operations a grammar-only site certification claims.
+     * Default `--reason` when the operator states none.
      *
-     * `delete` is deliberately absent and is separately declared
-     * unsupported: deletion semantics are the one capability that cannot be
-     * inferred from a manifest's grammar, and a certificate that claimed
-     * them from a validator run would be claiming a review nobody did.
-     * `promote` is not listed because `CapabilityRegistry` mints it from
-     * `deploy` + `apply` itself — listing it would be a second spelling of
-     * the same claim.
+     * `sign_site()` refuses a blank one, so there is always a stated basis on
+     * the claim. This is the honest default rather than a placeholder: it
+     * says exactly what a grammar-only certificate attests to.
      */
-    public const CLAIMED_OPERATIONS = ['apply', 'capture', 'compile', 'deploy', 'plan', 'recapture'];
-
-    /** The stated boundary every certificate minted here carries. */
-    public const DELETION_UNSUPPORTED_REASON =
-        'deletion semantics were not reviewed: this certificate attests to manifest grammar and to the '
-        . 'organization\'s approval of these exact adapter bytes, not to delete behaviour';
-
-    /** Default `--reason` when the operator states none. */
     public const DEFAULT_REASON =
         'The site organization approves these exact adapter bytes. The engine\'s own manifest validators '
         . 'accept its grammar; nothing was exercised against a live site.';
@@ -296,15 +252,14 @@ final class AdapterCertify {
 
         $tier = AdapterSources::trust_tier($manifest);
 
-        // The grammar half of the evidence triple: the REAL loader, over the
-        // real site repository, exactly as `duo manifest-validate` runs it.
-        //
-        // BEFORE the authority is registered, and that order is load-bearing.
-        // Registering first meant a manifest the engine refuses still left
-        // `adapters/authorities.json` written — and until the engine excludes
-        // that file from its adapter scan, its mere presence makes every
-        // subsequent command in the repository refuse. A failed certify must
-        // leave the repository exactly as it found it. (Found by running it.)
+        // A PRE-FLIGHT, not the verdict. `sign_site()` runs the real loader
+        // itself and refuses with the loader's own message, so this is not the
+        // authority on anything — it exists purely so that a manifest the
+        // engine will not load never causes a WRITE. Registering the key
+        // first and discovering the adapter is broken second would leave a
+        // trust root in a repository whose certify attempt failed, and "a
+        // failed certify leaves the repository exactly as it found it" is
+        // worth one extra offline Policy::load(). (Found by running it.)
         $grammar = self::grammarVerdict($repo, $name);
         if ($grammar['status'] !== 'ok') {
             return self::fail(
@@ -314,34 +269,45 @@ final class AdapterCertify {
             );
         }
 
+        // The key has to be IN the site trust root before signing: that is
+        // where `AdapterCertification::authority()` resolves it from, and
+        // resolving under the site root is what makes the result `site_signed`
+        // rather than an agent-owned certificate.
         $registered = self::registerAuthority($repo, $keyId, $public, $name, $tier);
 
-        $bundleDir = self::buildBundle($repo, $name, $manifest, $adapterRaw, $grammar, $reason);
-        try {
-            $manifestDir = Policy::manifests_dir();
-            $certificate = AdapterCertification::sign(
-                $manifestDir,
-                $repo,
-                $name,
-                $bundleDir,
-                // The site repository IS the evidence repository: the one
-                // bound input this bundle declares is the adapter's own raw
-                // bytes, which live there and nowhere else.
-                $repo,
-                $keyId,
-                base64_encode($secret)
-            );
-            $certificatePath = self::writeCertificate($repo, $name, $certificate);
-            $verified = AdapterCertification::verifyFile(
-                $manifestDir,
-                $repo,
-                $name,
-                $manifest,
-                $certificatePath
-            );
-        } finally {
-            self::removeTree($bundleDir);
-        }
+        // T6 §3.5, as the agent landed it: the AGENT owns the unexercised
+        // bundle. `sign_site()` derives the ratification from the manifest,
+        // runs the real loader for the `grammar` verdict, builds the bundle in
+        // memory, verifies its own output through the same validator that
+        // re-verifies at every load, and signs. Nothing of it reaches disk but
+        // the certificate — an unexercised bundle's only assets are
+        // `environment.json` and `ratification.json`, and both are already
+        // inside the signed statement.
+        //
+        // This verb deliberately does NOT build a bundle. One grammar with
+        // two producers is the failure mode both halves of this train were
+        // trying to avoid, and the producer belongs beside the validator that
+        // refuses it.
+        $manifestDir = Policy::manifests_dir();
+        $certificate = AdapterCertification::sign_site(
+            $manifestDir,
+            $repo,
+            $name,
+            $keyId,
+            base64_encode($secret),
+            $reason
+        );
+        $certificatePath = self::writeCertificate($repo, $name, $certificate);
+        // Verify what was just written, through the live verifier, before
+        // claiming anything. A producer that trusted its own bytes would put
+        // the one certificate nobody checked into the repository.
+        $verified = AdapterCertification::verifyFile(
+            $manifestDir,
+            $repo,
+            $name,
+            $manifest,
+            $certificatePath
+        );
 
         $summary = AdapterCertification::certificateSummary($verified);
         $pinObject = self::pinObject($repo, $name, 'site');
@@ -351,7 +317,7 @@ final class AdapterCertify {
             . ($registered ? ' — key registered by this run' : ' — key already registered') . ")\n";
         echo 'trust tier: ' . (string) ($summary['trust_tier'] ?? $tier) . "\n";
         echo 'claim:      ' . (string) ($summary['status'] ?? 'certified') . "\n";
-        echo 'evidence:   grammar=' . $grammar['status'] . ', exercised=false, reason stated in the signed bundle' . "\n";
+        echo "evidence:   grammar=ok, exercised=false, reason stated in the signed bundle\n";
         echo 'certificate: ' . AdapterSources::SITE_DIR . '/' . AdapterSources::CERTIFICATION_DIR . "/$name.json\n";
         echo "\npin object for site.duo.json manifests[]:\n";
         echo rtrim(Canon::encode($pinObject)) . "\n";
@@ -641,195 +607,6 @@ final class AdapterCertify {
     }
 
     /**
-     * Build the certification bundle in a scratch directory.
-     *
-     * Every asset is written with the encoding its verifier demands:
-     * `bundle.json` and `results/*.json` in the bundle producer's four-space
-     * pretty canonical form (`AdapterCertification::parseBundleObject()`),
-     * `environment.json`, `ratification.json` and `diffs/*.json` in
-     * repository `Canon`. Getting one of those wrong is a refusal at sign
-     * time, not a silently weaker certificate.
-     *
-     * @param array<string,mixed> $manifest
-     * @param array{status:string,message:?string} $grammar
-     * @return string the scratch bundle directory (caller removes it)
-     */
-    private static function buildBundle(
-        string $repo,
-        string $name,
-        array $manifest,
-        string $adapterRaw,
-        array $grammar,
-        string $reason
-    ): string {
-        $dir = self::scratchDirectory();
-
-        $environment = [
-            'multisite' => false,
-            'php' => PHP_VERSION,
-            // Stated, not measured: this bundle exercised nothing, so there
-            // is no WordPress version it ran against. `environment.json` and
-            // `environment_summary` must agree byte-for-byte, so the same
-            // array builds both.
-            'wordpress' => 'not exercised',
-        ];
-        self::writeFile($dir . '/environment.json', Canon::encode($environment));
-
-        $ratification = [
-            'format' => AdapterCertification::RATIFICATION_FORMAT,
-            'manifests' => (object) [$name => self::disposition($name, $manifest, $reason)],
-            'profiles' => [],
-        ];
-        $ratificationRaw = Canon::encode($ratification);
-        self::writeFile($dir . '/ratification.json', $ratificationRaw);
-
-        // T6 §3.5's evidence triple, as the named test's own recorded
-        // result. It is inside the content-addressed asset set, so the
-        // Ed25519 signature covers it: an operator cannot later claim the
-        // adapter was exercised when the signed bundle says it was not.
-        $result = [
-            'exercised' => false,
-            'exit_code' => 0,
-            'grammar' => $grammar['status'],
-            'reason' => $reason,
-            'schema_version' => 1,
-            'test' => self::GRAMMAR_TEST,
-            'verdict' => 'pass',
-        ];
-        self::writeFile($dir . '/results/' . self::GRAMMAR_TEST . '.json', self::bundlePretty($result));
-        self::writeFile(
-            $dir . '/diffs/' . self::GRAMMAR_TEST . '.json',
-            Canon::encode(['changed' => [], 'status' => 'clean'])
-        );
-        self::writeFile(
-            $dir . '/logs/' . self::GRAMMAR_TEST . '.txt',
-            "duo adapter certify: the engine's manifest validators accepted adapters/$name.json\n"
-            . "nothing was exercised against a live site\n"
-        );
-
-        $bundle = [
-            'artifacts' => [],
-            'bound_inputs' => [[
-                'path' => AdapterSources::SITE_DIR . '/' . $name . '.json',
-                'sha256' => hash('sha256', $adapterRaw),
-                'size' => strlen($adapterRaw),
-            ]],
-            'created_at' => gmdate('Y-m-d\TH:i:s\Z'),
-            'environment' => self::descriptor($dir, 'environment.json'),
-            'environment_summary' => $environment,
-            'force_hatches' => [],
-            'git_revision' => self::NO_EVIDENCE_REVISION,
-            'harness' => ['name' => 'duo-adapter-certify', 'version' => 1],
-            'ratification' => self::descriptor($dir, 'ratification.json'),
-            'ratification_summary' => [
-                'certified_claims' => ['manifests.' . $name],
-                'manifest_count' => 1,
-                'profile_count' => 0,
-            ],
-            'schema_version' => AdapterCertification::BUNDLE_FORMAT,
-            'subject' => ['kind' => 'site_adapter', 'name' => $name],
-            'tests' => [[
-                'diff' => self::descriptor($dir, 'diffs/' . self::GRAMMAR_TEST . '.json'),
-                'id' => self::GRAMMAR_TEST,
-                'log' => self::descriptor($dir, 'logs/' . self::GRAMMAR_TEST . '.txt'),
-                'result' => self::descriptor($dir, 'results/' . self::GRAMMAR_TEST . '.json'),
-                'verdict' => 'pass',
-            ]],
-            'verdict' => 'pass',
-        ];
-        $bundle['bundle_digest'] = self::bundleDigest($bundle);
-        self::writeFile($dir . '/bundle.json', self::bundlePretty($bundle));
-        unset($repo);
-
-        return $dir;
-    }
-
-    /**
-     * The one-manifest disposition the bundle ratifies, derived from the
-     * manifest's own declarations.
-     *
-     * Derivation, not invention: `entity_sections`/`field_sections` name
-     * only sections the manifest actually declares (a disposition naming an
-     * absent section is refused by `ManifestDispositions::validate_entry()`),
-     * `default_authored_keyspaces` names exactly the tables whose
-     * `default_class` is `authored` (that check is one-for-one in both
-     * directions), and every intent-only table is marked unsupported because
-     * the same validator requires it.
-     *
-     * @param array<string,mixed> $manifest
-     * @return array<string,mixed>
-     */
-    private static function disposition(string $name, array $manifest, string $reason): array {
-        $entity = [];
-        foreach (self::ENTITY_SECTIONS as $section) {
-            if (array_key_exists($section, $manifest)) {
-                $entity[] = $section;
-            }
-        }
-        $field = [];
-        foreach (self::FIELD_SECTIONS as $section) {
-            if (array_key_exists($section, $manifest)) {
-                $field[] = $section;
-            }
-        }
-
-        $unsupported = [[
-            'operation' => 'delete',
-            'reason' => self::DELETION_UNSUPPORTED_REASON,
-            'surface' => 'all',
-        ]];
-        $keyspaces = [];
-        foreach ((array) ($manifest['tables'] ?? []) as $table => $rule) {
-            $table = (string) $table;
-            if (!is_array($rule)) {
-                continue;
-            }
-            if (($rule['class'] ?? null) === 'authored_typed_snapshot_post_v1') {
-                $unsupported[] = [
-                    'operation' => 'apply',
-                    'reason' => 'intent-only table: this manifest declares its shape, not a write path',
-                    'surface' => "tables.$table",
-                ];
-            }
-            if (($rule['default_class'] ?? null) === 'authored') {
-                $keyspaces[] = [
-                    'reason' => 'the site organization accepts this table\'s default-authored keyspace as '
-                        . 'declared; no live keyspace enumeration was performed',
-                    'status' => 'justified',
-                    'table' => $table,
-                ];
-            }
-        }
-
-        $versions = ['site' => ['source' => 'site certification: manifest grammar only, nothing exercised']];
-        $plugin = $manifest['plugin'] ?? null;
-        if (is_string($plugin) && $plugin !== '') {
-            // `validate_entry()` compares these two against the manifest's
-            // own contract for a certified entry; anything else is refused.
-            $versions = ['plugin' => $plugin, 'range' => $manifest['version_range'] ?? null];
-        }
-
-        return [
-            'capabilities' => [
-                'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
-                'entity_sections' => $entity,
-                'field_sections' => $field,
-                'lifecycle_phases' => [],
-                'operations' => self::CLAIMED_OPERATIONS,
-            ],
-            'default_authored_keyspaces' => $keyspaces,
-            'evidence' => [
-                'bundle_schema' => AdapterCertification::BUNDLE_FORMAT,
-                'tests' => [self::GRAMMAR_TEST],
-            ],
-            'reason' => $reason,
-            'status' => 'certified',
-            'supported_versions' => $versions,
-            'unsupported' => $unsupported,
-        ];
-    }
-
-    /**
      * Write the certificate atomically at its DERIVED path.
      *
      * Moved here from `scripts/adapter-certification.php` so the mutation
@@ -1034,42 +811,6 @@ final class AdapterCertify {
         return $typed;
     }
 
-    /** The bundle producer's own four-space canonical encoding. */
-    private static function bundlePretty(mixed $value): string {
-        return json_encode(
-            Canon::normalize($value),
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
-        ) . "\n";
-    }
-
-    /** @param array<string,mixed> $bundle */
-    private static function bundleDigest(array $bundle): string {
-        unset($bundle['bundle_digest']);
-
-        return hash('sha256', json_encode(
-            Canon::normalize($bundle),
-            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR
-        ) . "\n");
-    }
-
-    /** @return array{path:string,sha256:string,size:int} */
-    private static function descriptor(string $dir, string $relative): array {
-        $file = $dir . '/' . $relative;
-        $raw = file_get_contents($file);
-        if ($raw === false) {
-            throw new \RuntimeException("duo: cannot read the bundle asset just written: $relative");
-        }
-
-        return ['path' => $relative, 'sha256' => hash('sha256', $raw), 'size' => strlen($raw)];
-    }
-
-    private static function writeFile(string $path, string $contents): void {
-        self::ensureDirectory(dirname($path));
-        if (file_put_contents($path, $contents) === false) {
-            throw new \RuntimeException("duo: cannot write $path");
-        }
-    }
-
     private static function ensureDirectory(string $path): void {
         if (is_dir($path)) {
             return;
@@ -1096,37 +837,6 @@ final class AdapterCertify {
                 unlink($temporary);
             }
         }
-    }
-
-    /**
-     * A scratch bundle directory OUTSIDE the site repository.
-     *
-     * AGENTS.md's closure rule is one reason; the operator's `git status`
-     * is the other. A bundle is signing scaffolding, not repository content.
-     */
-    private static function scratchDirectory(): string {
-        $base = sys_get_temp_dir() . '/duo-adapter-certify-' . bin2hex(random_bytes(8));
-        self::ensureDirectory($base);
-
-        return $base;
-    }
-
-    private static function removeTree(string $path): void {
-        if (!is_dir($path) || is_link($path)) {
-            return;
-        }
-        foreach ((array) scandir($path) as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-            $child = $path . '/' . $entry;
-            if (is_dir($child) && !is_link($child)) {
-                self::removeTree($child);
-                continue;
-            }
-            @unlink($child);
-        }
-        @rmdir($path);
     }
 
     /**

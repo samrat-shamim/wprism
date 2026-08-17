@@ -17686,53 +17686,8 @@
                 "AUTHORITIES_RELATIVE": {
                     "value_repr": "adapters/authorities.json"
                 },
-                "CLAIMED_OPERATIONS": {
-                    "value_repr": [
-                        "apply",
-                        "capture",
-                        "compile",
-                        "deploy",
-                        "plan",
-                        "recapture"
-                    ]
-                },
                 "DEFAULT_REASON": {
                     "value_repr": "The site organization approves these exact adapter bytes. The engine's own manifest validators accept its grammar; nothing was exercised against a live site."
-                },
-                "DELETION_UNSUPPORTED_REASON": {
-                    "value_repr": "deletion semantics were not reviewed: this certificate attests to manifest grammar and to the organization's approval of these exact adapter bytes, not to delete behaviour"
-                },
-                "ENTITY_SECTIONS": {
-                    "value_repr": [
-                        "post_types",
-                        "tables",
-                        "taxonomies",
-                        "taxonomy_patterns",
-                        "widgets"
-                    ]
-                },
-                "FIELD_SECTIONS": {
-                    "value_repr": [
-                        "block_attrs",
-                        "dynamic_options",
-                        "interpreter",
-                        "menu_fields",
-                        "meta_patterns",
-                        "option_name_refs",
-                        "option_namespaces",
-                        "option_patterns",
-                        "options",
-                        "post_meta",
-                        "shortcode_attrs",
-                        "term_meta",
-                        "user_meta"
-                    ]
-                },
-                "GRAMMAR_TEST": {
-                    "value_repr": "manifest-grammar"
-                },
-                "NO_EVIDENCE_REVISION": {
-                    "value_repr": "0000000000000000000000000000000000000000"
                 },
                 "VERBS": {
                     "value_repr": [
@@ -24430,7 +24385,7 @@
                     "value_repr": "; contract attestation unsigned"
                 },
                 "ANNOTATION_SITE_SIGNED_UNPINNED": {
-                    "value_repr": "this adapter carries valid signed evidence, but its repository pin does not bind both source \"site\" and the certificate-derived digest, so the claim is not certified"
+                    "value_repr": "this adapter carries valid signed evidence that is not a certified claim: its repository pin does not bind both source \"site\" and the certificate-derived digest, or its evidence is no longer current"
                 },
                 "ANNOTATION_UNCLASSIFIED_NOT_QUALIFIED": {
                     "value_repr": "an unclassified surface has no registry entry that could make it Ready"

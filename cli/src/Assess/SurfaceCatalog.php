@@ -659,14 +659,23 @@ final class SurfaceCatalog {
             'source' => is_string($manifest['source']['source'] ?? null)
                 ? $manifest['source']['source']
                 : null,
-            // Signed site evidence that is NOT a certified claim. After T6
-            // §3.2 the only word left here is `signed_unpinned`: a valid
-            // certificate whose repository pin does not bind both source and
-            // the certificate-derived digest, so the claim never reaches
-            // `certified`. `site_signed`/`third_party_signed` now travel on
-            // the claim's own certification block below instead, because that
-            // is where the principal and the trust root are.
-            'site_certified' => $certification === 'signed_unpinned',
+            // Signed evidence exists. Whether it makes the claim CERTIFIED is
+            // a different question, answered by the certification block below
+            // — `projectProvenance()` tests that first, so this fact is only
+            // ever read on the path where a real signature did NOT produce a
+            // certified claim.
+            //
+            // All three signed words belong here, not just `signed_unpinned`.
+            // The commonest cause is an unexact pin, and that word says so
+            // itself; but a `site_signed` adapter whose evidence went stale
+            // reaches the same place, and dropping it would print
+            // `Uncertified` beside a valid certificate with nothing saying
+            // which of the two happened.
+            'site_certified' => in_array(
+                $certification,
+                ['signed_unpinned', 'site_signed', 'third_party_signed'],
+                true
+            ),
             // T6 §3.2: `{source, trust_root, principal, signed_at}` from the
             // verified certificate, or null. This is the fact `Site-certified`
             // is projected from — not the adapter's source, which says only

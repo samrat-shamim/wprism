@@ -813,12 +813,12 @@ final class AdapterCatalog {
      * signed adapters needs to tell their own organization's key from a
      * third party's, and the word `site_signed` does not say which key.
      *
-     * `shadowed_by_site` (T6 §3.3) is reported on the SHIPPED row it applies
-     * to. An explicit site pin selecting the operator's own copy of a shipped
-     * name is a deliberate override, but it is also the kind of thing that
-     * gets forgotten between the person who wrote it and the person
-     * debugging six months later — so the row that is no longer in force
-     * says so on every run rather than only in `duo adapter doctor`.
+     * T6 §3.3's `shadowed_by_site` is deliberately NOT here. A shipped
+     * adapter an explicit site pin displaced has no `adapters[]` row at all
+     * — it is not loaded, and minting a row for a definition nothing loads
+     * would contradict what this section means. It is a `not_installed[]`
+     * row carrying `reason_code: shadowed_by_site` and a `winner` naming the
+     * site copy, which `render_not_installed()` already prints in full.
      *
      * @param array<string,mixed> $row
      * @return list<string>
@@ -832,10 +832,6 @@ final class AdapterCatalog {
                 . (is_string($trustRoot) && $trustRoot !== ''
                     ? ' (' . AdapterSources::render_untrusted($trustRoot) . ' trust root)'
                     : '');
-        }
-        if (($row['shadowed_by_site'] ?? false) === true) {
-            $lines[] = 'shadowed_by_site: an explicit {name,source:"site",digest} pin selects this '
-                . 'repository\'s own copy, so THIS definition is installed and not in force';
         }
 
         return $lines;

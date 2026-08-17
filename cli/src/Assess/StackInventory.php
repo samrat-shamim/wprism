@@ -194,35 +194,26 @@ final class StackInventory {
     /**
      * The installed-plugin rows of a `duo-assess-inventory/v1` document.
      *
-     * ONE reader for a key that is mid-contract. Through round 3 the
-     * inventory published `plugins` as a bare list of
-     * `{basename,name,version,active}` rows; T6 §3.6 adds
-     * `plugins.active_without_adapter[]`, which needs `plugins` to be an
-     * object. Both spellings are read HERE, once, so the three consumers
-     * (`installed()`'s counts, `code()`'s identity rows — which the
-     * assess_digest binds — and `AssessReport::proposalSeed()`'s contract
-     * stack ranges) never learn about the move at all.
+     * `plugins` is a bare list of `{basename,name,version,active}` rows and
+     * stays one: two of this method's three consumers feed the assess_digest
+     * (`code()`'s identity rows) or the proposed contract's stack ranges
+     * (`AssessReport::proposalSeed()`), and T6 deliberately did not move a
+     * shape those depend on. The unmanaged-plugin list T6 §3.6 adds is a
+     * SIBLING top-level key instead — see pluginsWithoutAdapter().
      *
-     * This is a stated two-shape reader with a stated end, not a silent
-     * fallback: neither shape is guessed at, both are exact, and a `plugins`
-     * value that is neither yields an empty list from a document that had no
-     * usable rows to give. When the agent's shape settles, delete the branch
-     * that is no longer produced — the three callers do not move.
+     * One reader all the same, so the three call sites share one definition
+     * of "a plugin row" and a malformed entry is skipped in one place.
      *
      * @param array<string,mixed> $inventory
      * @return list<array<string,mixed>>
      */
     public static function pluginRows(array $inventory): array {
         $plugins = $inventory['plugins'] ?? null;
-        if (!is_array($plugins)) {
-            return [];
-        }
-        $rows = array_is_list($plugins) ? $plugins : ($plugins['rows'] ?? []);
-        if (!is_array($rows) || !array_is_list($rows)) {
+        if (!is_array($plugins) || !array_is_list($plugins)) {
             return [];
         }
         $out = [];
-        foreach ($rows as $row) {
+        foreach ($plugins as $row) {
             if (is_array($row)) {
                 $out[] = $row;
             }
@@ -232,28 +223,33 @@ final class StackInventory {
     }
 
     /**
-     * Active plugins no installed manifest declares (T6 §3.6).
+     * Active plugins no PINNED manifest declares (T6 §3.6).
      *
      * The target decides this, not the host: only the target can see
-     * WP_PLUGIN_DIR, the active list, and the bundled-adapter source, and
-     * only the engine knows which manifests its pins resolved. So this reads
-     * a published list rather than deriving one — a host-side derivation
-     * would be a second, weaker answer that disagreed with `duo init`'s
-     * refusal on exactly the sites where it mattered.
+     * WP_PLUGIN_DIR and the active list, and only the engine knows which
+     * manifests its pins resolved. So this reads a published list rather than
+     * deriving one — a host-side derivation would be a second, weaker answer
+     * that disagreed with `duo init`'s refusal on exactly the sites where it
+     * mattered.
      *
-     * Each row is normalised to `{slug, file, basename}`. A row that is just
-     * the WordPress plugin basename (`wpforms-lite/wpforms.php`) is accepted
-     * and split, because that string is the identity WordPress itself uses
-     * and both halves are derivable from it without a guess.
+     * `plugins_without_adapter[]` rows are `{basename, file, slug}` — all
+     * three identity parts published, so nothing is split or guessed here,
+     * and `basename` carries the same meaning it does on an ordinary
+     * `plugins[]` row. Note the judgement is against PINNED manifests: an
+     * adapter that is installed but unpinned leaves the plugin on this list,
+     * which is correct (an unpinned adapter governs nothing) and is reported
+     * separately by `adapter_survey` with its own certification word.
+     *
+     * A row missing `slug` is skipped rather than reconstructed. The agent
+     * publishes all three parts; a row without them is a malformed document,
+     * and inventing a slug from a basename that was not published would put a
+     * surface id into the assessment that no target ever named.
      *
      * @param array<string,mixed> $inventory
      * @return list<array{slug:string,file:string,basename:string}>
      */
     public static function pluginsWithoutAdapter(array $inventory): array {
-        $plugins = $inventory['plugins'] ?? null;
-        $raw = is_array($plugins) && !array_is_list($plugins)
-            ? ($plugins['active_without_adapter'] ?? null)
-            : ($inventory['plugins_without_adapter'] ?? null);
+        $raw = $inventory['plugins_without_adapter'] ?? null;
         if (!is_array($raw) || !array_is_list($raw)) {
             return [];
         }
@@ -261,31 +257,19 @@ final class StackInventory {
         $out = [];
         $seen = [];
         foreach ($raw as $row) {
-            $basename = is_string($row) ? $row : (is_array($row) ? ($row['basename'] ?? null) : null);
-            $slug = is_array($row) && is_string($row['slug'] ?? null) ? $row['slug'] : null;
-            $file = is_array($row) && is_string($row['file'] ?? null) ? $row['file'] : null;
-            if (is_string($basename) && $basename !== '') {
-                // WordPress's own `slug/file.php`; a single-file plugin has
-                // no directory half, and its slug is the file's own stem.
-                $slug ??= str_contains($basename, '/')
-                    ? explode('/', $basename, 2)[0]
-                    : basename($basename, '.php');
-                $file ??= str_contains($basename, '/')
-                    ? explode('/', $basename, 2)[1]
-                    : $basename;
-            }
-            if (!is_string($slug) || $slug === '') {
+            if (!is_array($row)) {
                 continue;
             }
-            $file ??= $slug . '.php';
-            $basename = is_string($basename) && $basename !== '' ? $basename : $slug . '/' . $file;
-            if (isset($seen[$slug])) {
+            $slug = is_string($row['slug'] ?? null) ? $row['slug'] : '';
+            $file = is_string($row['file'] ?? null) ? $row['file'] : '';
+            $basename = is_string($row['basename'] ?? null) ? $row['basename'] : '';
+            if ($slug === '' || $file === '' || $basename === '' || isset($seen[$slug])) {
                 continue;
             }
             $seen[$slug] = true;
             $out[] = ['slug' => $slug, 'file' => $file, 'basename' => $basename];
         }
-        usort($out, static fn (array $a, array $b): int => strcmp($a['slug'], $b['slug']));
+        usort($out, static fn (array $a, array $b): int => strcmp($a['basename'], $b['basename']));
 
         return $out;
     }

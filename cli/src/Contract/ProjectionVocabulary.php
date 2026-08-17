@@ -164,16 +164,17 @@ final class ProjectionVocabulary {
     /**
      * MUP §1.4 row 2: signed evidence that is not a CERTIFIED claim.
      *
-     * The remaining case after T6 §3.2 is narrow and worth naming precisely:
-     * the certificate verifies, but the repository pin is not the exact
-     * `{name,source,digest}` object, so the engine reports `signed_unpinned`
-     * and the claim never reaches `certified`. The signature is real; what is
-     * missing is the operator's deliberate statement that THESE bytes are the
-     * ones this site runs. That is one command, and the gap action says so.
+     * Reached only after the `Site-certified` test above has failed, so a
+     * real signature is present and something else is missing: usually the
+     * exact `{name,source,digest}` pin (the engine reports `signed_unpinned`
+     * and the claim never reaches `certified`), sometimes evidence that went
+     * stale. Both are one operator command away, and the gap action says
+     * which. Without this annotation the row would print `Uncertified` beside
+     * a valid certificate with nothing explaining the gap.
      */
     public const ANNOTATION_SITE_SIGNED_UNPINNED =
-        'this adapter carries valid signed evidence, but its repository pin does not bind both source "site" '
-        . 'and the certificate-derived digest, so the claim is not certified';
+        'this adapter carries valid signed evidence that is not a certified claim: its repository pin does not '
+        . 'bind both source "site" and the certificate-derived digest, or its evidence is no longer current';
 
     /**
      * T6 §3.6's literal sentence, printed once per principal.
