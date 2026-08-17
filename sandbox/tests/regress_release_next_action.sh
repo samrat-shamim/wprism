@@ -7,7 +7,9 @@
 # The two sets are deliberately not interchangeable. A refusal BEFORE the
 # authorization plan is frozen is an assessment gap and carries a §2.1 gap
 # action (`classify`, `declare in contract`, `qualify in rehearsal`,
-# `exclude`, `install adapter`, `provision env value`, `nothing — supported`);
+# `exclude`, `install adapter`, `certify adapter`, `provision env value`,
+# `nothing — supported` — T6 §3.6 added the sixth and stopped EMITTING the
+# third, which stays in the set so an older stored projection still validates);
 # only a failure AFTER the freeze carries a release next action. Mixing them
 # would tell an operator to `retry` a site that needs a contract declaration,
 # or to `declare in contract` a target that is mid-rollback.
