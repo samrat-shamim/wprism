@@ -129,6 +129,12 @@ $expect = [
   "option_group:sample-adapter:env" => ["environment-bound","rebind","Ready with conditions","unknown","not applicable"],
   "option_group:core:managed"     => ["authored","block","Ready","unknown","unknown"],
   "table:sample_log"              => ["unclassified","block","Not qualified","unknown","unknown"],
+  // T6 SS3.6 new row kind. An ACTIVE plugin no pinned manifest declares
+  // projects with no claim at all, which is the honest reading of: Duo has no
+  // authority over any state this plugin owns.
+  // (No apostrophes in this block -- it lives inside a shell single-quoted
+  // php -r script, where one would close the quote.)
+  "plugin:unmanaged-widget"       => ["unclassified","block","Not qualified","unknown","unknown"],
 ];
 foreach ($expect as $id => [$class, $handling, $readiness, $containment, $recovery]) {
     if (!isset($rows[$id])) { $fail("surface row $id is missing from the catalog"); }
@@ -189,6 +195,17 @@ if (count($d["unknown"]["names_sample"]) > 200) { $fail("the names sample is unb
 // emitted set entirely, so nothing in the document may carry it.
 if ($rows["table:sample_log"]["next_action"] !== "classify") {
     $fail("an unowned unclassified table names {$rows["table:sample_log"]["next_action"]}, expected classify");
+}
+// The plugin IS its own probable owner, so the answer is the adapter, never
+// classification -- there is nothing to classify about a plugin.
+if ($rows["plugin:unmanaged-widget"]["next_action"] !== "install adapter") {
+    $fail("an unmanaged plugin names {$rows["plugin:unmanaged-widget"]["next_action"]}, expected install adapter");
+}
+if ($rows["plugin:unmanaged-widget"]["kind"] !== "plugin") {
+    $fail("the unmanaged-plugin row does not carry kind plugin");
+}
+if ($rows["plugin:unmanaged-widget"]["operations"]["release"]["certification_provenance"] !== "Uncertified") {
+    $fail("an unmanaged plugin must be Uncertified");
 }
 foreach ($d["surfaces"] as $row) {
     if (($row["next_action"] ?? null) === "qualify in rehearsal") {
@@ -286,6 +303,14 @@ check "$([ "$ROLLUP_TOTAL" = "$EXPECTED_TOTAL" ] && echo 0 || echo 1)" \
 # own next action, which is a different thing and the one that would be a lie.
 assert_absent "$TMP/outh.txt" 'next action: qualify in rehearsal' \
   'no surface row names the retired action'
+
+# T6 §3.6's row, as the operator reads it. The whole line is asserted because
+# the walk greps for the id and because `plugin:<slug>` is the one surface id
+# whose shape an operator has to recognise without being told.
+assert_contains "$TMP/outh.txt" 'plugin:unmanaged-widget' \
+  'an active plugin with no adapter appears as a surface row'
+assert_contains "$TMP/outh.txt" 'next action: install adapter (capture, merge, release, verify, delete, recover)' \
+  'and its next action is the adapter, for every operation'
 
 # Nothing here is certified by a site key, so the evidence block says nothing
 # about a principal. The positive case is regress_adapter_certify.php's.
