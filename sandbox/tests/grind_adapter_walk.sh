@@ -80,7 +80,7 @@
 #   plugin:wpforms-lite                                 assess surface id           §3.6
 #   plugin                                              that surface's `kind`       WALK
 #   install adapter                                     gap action, plugin + tables §3.6
-#   certify adapter                                     gap action, uncertified     §3.6
+#   certify adapter                                     gap action, uncertified (S4) §3.6
 #   option-prefix:wpforms_                              assess unknown sample       §4
 #   table:<logical_name>                                assess surface id           §3.7
 #   logical_name                                        coverage undeclared row key §3.7
@@ -1169,7 +1169,6 @@ R2="siterepo/${PAIR}2"
 ORIGIN="$SANDBOX/siterepo/origin-${PAIR}.git"
 HOST_R1="$SANDBOX/$R1"
 HOST_R2="$SANDBOX/$R2"
-BASE1="http://localhost:${PORT1}"
 
 preflight
 
@@ -1268,10 +1267,11 @@ duo_refused() {
     || fail "duo $1 refused with [${code:-no typed reason code was printed}], not the expected [$expect]; see $out"
 }
 
-# wp_ok / wp_refused — the same discipline for the agent's own verbs, which the
-# walk reaches directly when the fact it needs exists only on the target (the
-# plugin adapter source is the case that forces this: a WordPress-free host
-# process cannot read WP_PLUGIN_DIR).
+# wp_ok — the same discipline for the agent's own verbs, which the walk reaches
+# directly when the fact it needs exists only on the target. The plugin adapter
+# source is the case that forces this: a WordPress-free host process cannot
+# read WP_PLUGIN_DIR, so `wp duo adapter-survey` is the only command that can
+# answer S3's first question.
 wp_ok() {
   local out="$1" side="$2"; shift 2
   if dry; then
@@ -1284,20 +1284,6 @@ wp_ok() {
   local code
   code="$(walk_refusal_code "$out" 2>/dev/null || true)"
   fail "wp $1 $2 refused unexpectedly on side $side [${code:-no typed reason code was printed}]; see $out"
-}
-wp_refused() {
-  local out="$1" expect="$2" side="$3"; shift 3
-  if dry; then
-    plan "$(quoted "${COMPOSE[@]}" run --rm -T "cli${side}" sh -c 'umask 000; exec wp "$@"' sh "$@") > $out 2>&1   # MUST refuse $expect"
-    return 0
-  fi
-  if "${COMPOSE[@]}" run --rm -T "cli${side}" sh -c 'umask 000; exec wp "$@"' sh "$@" > "$out" 2>&1; then
-    fail "wp $1 $2 was expected to refuse with $expect on side $side, but it succeeded; see $out"
-  fi
-  local code
-  code="$(walk_refusal_code "$out" 2>/dev/null || true)"
-  [ "$code" = "$expect" ] \
-    || fail "wp $1 $2 refused with [${code:-no typed reason code was printed}], not [$expect]; see $out"
 }
 
 # The candidate-source gate, honoured exactly as conformance/run.sh honours it:
@@ -2682,6 +2668,32 @@ scenario_s4() {
       || fail "$S: the loaded woocommerce adapter's source is '$got', not the site copy the pin selected"
   fi
   pass "$S — the site copy answers to the shipped name and the shipped copy is shadowed_by_site"
+
+  # §3.6's new gap action, asserted where it can be asserted LIVE: the site
+  # copy governs these surfaces now and is not certified yet, so their
+  # readiness is `Not qualified` caused by `adapter_source_uncertified` — and
+  # the smallest safe next action is `certify adapter`, never `install adapter`
+  # (the adapter exists; the operator just installed it). S4 is the only
+  # scenario that can make this claim without a conditional: its repository was
+  # initialized before the override, so the WooCommerce surfaces are already in
+  # policy scope while the adapter governing them is uncertified.
+  say "$S — duo assess ${PAIR}1 with the override pinned but not yet certified"
+  assess_both "$S" "${PAIR}1" "$HOST_R1" override-uncertified
+  if ! dry; then
+    local expect got
+    expect=$'Not qualified\tUncertified'
+    got="$(walk_assess_projection "$ASSESS_JSON" post_type:product release | cut -f3-4)"
+    [ "$got" = "$expect" ] \
+      || fail "$S: an uncertified site override must project '$expect' for post_type:product, not '$got'"
+    got="$(walk_assess_next_action "$ASSESS_JSON" post_type:product)"
+    [ "$got" = 'certify adapter' ] \
+      || fail "$S: §3.6 — the next action for a Not-qualified surface caused by adapter_source_uncertified is 'certify adapter', not '$got'.
+The adapter exists; telling the operator to install one is telling them to redo what they just did."
+    got="$(walk_gap_count "$EVIDENCE/$S/assess-override-uncertified.txt" 'certify adapter')"
+    [ "$got" -ge 1 ] \
+      || fail "$S: the next-actions roll-up counted $got 'certify adapter' findings"
+    pass "$S — the uncertified override reads Not qualified / Uncertified, next action 'certify adapter'"
+  fi
 
   keygen_and_certify "$S" woocommerce
   adapter_catalog "$S" certified
