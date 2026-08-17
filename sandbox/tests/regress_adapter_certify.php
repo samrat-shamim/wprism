@@ -627,19 +627,27 @@ duo_check_throws(
     'a repository that already pins one name twice refuses rather than silently collapsing it'
 );
 
-// A site.duo.json that is not canonical is refused rather than rewritten: the
-// engine reads those bytes exactly, and quietly canonicalising an operator's
-// file is an edit they did not ask for.
+// A site.duo.json that is valid but not canonical (the operator hand-pasted
+// the previous pin, exactly as the guide tells them to) is admitted: the pin
+// write is canonical whatever the input was, only `manifests` changes, and
+// the engine then reads canonical bytes. Refusing here sent the author to
+// reformat a file this command was about to rewrite (T6 walk S2).
 $roughRepo = $root . '/roughsite';
 mkdir($roughRepo . '/adapters', 0755, true);
 file_put_contents(
     $roughRepo . '/site.duo.json',
     "{\"spec_version\": 2, \"manifests\": [\"core\"], \"policy\": {}}\n"
 );
-duo_check_throws(
-    static fn() => cert_private('writePin', [$roughRepo, $pin]),
-    RuntimeException::class,
-    'a non-canonical site.duo.json is refused, not silently rewritten'
+duo_check_same(true, cert_private('writePin', [$roughRepo, $pin]), 'a valid non-canonical site.duo.json takes the pin');
+$roughAfter = (string) file_get_contents($roughRepo . '/site.duo.json');
+duo_check(
+    hash_equals(Canon::encode(json_decode($roughAfter)), $roughAfter),
+    'and is canonical afterwards, with its other keys re-encoded unchanged'
+);
+duo_check_same(
+    ['core', $pin],
+    json_decode($roughAfter, true)['manifests'],
+    'the pin joins the existing name-only core pin'
 );
 
 // ---------------------------------------------------------- argument grammar
@@ -671,6 +679,45 @@ duo_check(
     str_contains($missingAdapter['err'], 'certification signs an installed site adapter'),
     'and the refusal names the thing to do first, including the draft command that produces one'
 );
+
+// -------------------------------------------- hand-edited files (T6 walk S2)
+// An operator finishes a draft by hand and hand-pastes into site.duo.json, so
+// both are valid JSON and almost never canonical. certify rewrites the
+// adapter canonically before it signs (same declarations) and says so;
+// --pin admits a non-canonical site.duo.json because its write is canonical
+// whatever the input was. Invalid JSON is still refused with the parser's words.
+$handRepo = cert_site($root, 'handsite', $rich);
+$handPretty = json_encode($rich, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+file_put_contents($handRepo . '/adapters/acme-catalog.json', "  " . $handPretty . "\n\n");
+$handSite = json_decode((string) file_get_contents($handRepo . '/site.duo.json'), true);
+file_put_contents($handRepo . '/site.duo.json', json_encode($handSite, JSON_PRETTY_PRINT) . "\n");
+duo_check(
+    !hash_equals(Canon::encode($rich), (string) file_get_contents($handRepo . '/adapters/acme-catalog.json')),
+    'the fixture adapter is genuinely non-canonical before certify'
+);
+cert_private('registerAuthority', [
+    $handRepo, $signKeyId, $signPublic, 'acme-catalog', AdapterSources::TIER_DECLARATIVE,
+]);
+$handRun = cert_run(['certify', $handRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath,
+    '--key-id=' . $signKeyId, '--reason=' . $reason, '--pin']);
+duo_check_same(0, $handRun['exit'], 'certify --pin succeeds on a hand-edited adapter and a hand-edited site.duo.json');
+duo_check(
+    str_contains($handRun['out'], 'rewrote site adapter acme-catalog.json canonically'),
+    'certify says it rewrote the adapter canonically'
+);
+duo_check(
+    hash_equals(Canon::encode($rich), (string) file_get_contents($handRepo . '/adapters/acme-catalog.json')),
+    'the adapter on disk is now the canonical bytes of the same declarations'
+);
+$handPins = json_decode((string) file_get_contents($handRepo . '/site.duo.json'), true)['manifests'] ?? [];
+duo_check(
+    count(array_filter($handPins, static fn ($m) => is_array($m) && ($m['name'] ?? '') === 'acme-catalog' && ($m['source'] ?? '') === 'site')) === 1,
+    'the pin landed in the previously non-canonical site.duo.json'
+);
+file_put_contents($handRepo . '/adapters/acme-catalog.json', "{ not json");
+$handBad = cert_run_cli(['certify', $handRepo, '--name=acme-catalog', '--secret-key-file=' . $secretPath, '--key-id=' . $signKeyId]);
+duo_check_same(2, $handBad['exit'], 'invalid JSON is still refused');
+duo_check(str_contains($handBad['err'], 'is not valid JSON'), 'and named as such, never rewritten');
 
 // ------------------------------------------------------------------ closure
 

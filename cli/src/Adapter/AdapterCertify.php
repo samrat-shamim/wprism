@@ -243,6 +243,14 @@ final class AdapterCertify {
             );
         }
         $adapterRaw = (string) file_get_contents($adapterPath);
+        // An operator finishes a draft by hand (jq, an editor), and the engine
+        // reads out-of-tree bytes EXACTLY: a hand-edited file is valid JSON
+        // and almost never canonical. Refusing here sent every author to
+        // "rewrite it canonically" by hand (the T6 walk's S2 stopped there);
+        // the canonical form is a formatting of the same declarations, so
+        // certify writes it — before any digest, signature or trust root — and
+        // says so. Invalid JSON is still refused with the parser's own words.
+        $adapterRaw = self::canonicalizeSiteAdapter($adapterPath, $adapterRaw, "site adapter $name.json");
         $manifest = self::canonicalObject($adapterRaw, "site adapter $name.json");
 
         $secret = self::readSecretKey($secretFile);
@@ -451,8 +459,12 @@ final class AdapterCertify {
         // distinction the moment an empty object becomes an empty array —
         // which would rewrite a valid policy block into a list the engine
         // refuses. Only `manifests` is touched; every other node is the
-        // operator's own decoded value, re-encoded unchanged.
-        $site = self::canonicalTyped($raw, 'site.duo.json');
+        // operator's own decoded value, re-encoded unchanged. A hand-edited
+        // (valid, non-canonical) site.duo.json is admitted: the write below
+        // is canonical whatever the input was, and refusing here sent the
+        // author to reformat a file this command was about to rewrite (the T6
+        // walk's S2 stopped on exactly that).
+        $site = self::typedObject($raw, 'site.duo.json');
         $manifests = $site->manifests ?? [];
         if (!is_array($manifests)) {
             throw new \RuntimeException('duo: site.duo.json manifests must be a JSON array');
@@ -780,6 +792,32 @@ final class AdapterCertify {
         return $out;
     }
 
+    /**
+     * Rewrite a valid-but-not-canonical site adapter canonically, in place,
+     * and return the bytes the engine will read. Nothing but formatting
+     * changes: the JSON object/array distinction is kept by decoding typed.
+     */
+    private static function canonicalizeSiteAdapter(string $path, string $raw, string $label): string {
+        try {
+            $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+        }
+        if (!$typed instanceof \stdClass) {
+            throw new \RuntimeException("duo: $label must be a JSON object");
+        }
+        $canonical = Canon::encode($typed);
+        if (hash_equals($canonical, $raw)) {
+            return $raw;
+        }
+        if (@file_put_contents($path, $canonical, LOCK_EX) !== strlen($canonical)) {
+            throw new \RuntimeException("duo: could not rewrite $label canonically at $path");
+        }
+        echo "rewrote $label canonically (same declarations; the engine reads these bytes exactly)\n";
+
+        return $canonical;
+    }
+
     /** @return array<string,mixed> */
     private static function canonicalObject(string $raw, string $label): array {
         self::canonicalTyped($raw, $label);
@@ -787,6 +825,20 @@ final class AdapterCertify {
         $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
 
         return $decoded;
+    }
+
+    /** Valid JSON object, typed (object/array distinction kept); canonical or not. */
+    private static function typedObject(string $raw, string $label): \stdClass {
+        try {
+            $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException $e) {
+            throw new \RuntimeException("duo: $label is not valid JSON: " . $e->getMessage());
+        }
+        if (!$typed instanceof \stdClass) {
+            throw new \RuntimeException("duo: $label must be a JSON object");
+        }
+
+        return $typed;
     }
 
     /**

@@ -1806,6 +1806,41 @@ $result = duo([$repo . '/manifests', '--format=json']);
 check($result['exit'] === 0 && $result['stderr'] === '', 'a clean run writes nothing to stderr and exits 0');
 
 // ======================================================================
+echo "\n== the site's own adapters/ with --site validates as the SITE source (T6 walk S2) ==\n";
+// `manifest-validate <repo>/adapters --site=<repo>` is the authoring guide's
+// own spelling. Before T6 the directory handed in became the shipped dir for
+// every load, so AdapterSources saw each site adapter twice and refused it as
+// "shadows the shipped adapter <name>". Now that directory is recognised as
+// the site source: the shipped library stays what the agent ships and the
+// site adapters load through the site source, exactly as the engine will.
+$siteAuthored = site_repo([], ['core']);
+mkdir($siteAuthored . '/adapters', 0777, true);
+Canon::write_file($siteAuthored . '/adapters/acme-widgets.json', Canon::encode([
+    'name' => 'acme-widgets',
+    'option_autoload' => 'preserve',
+    'option_namespaces' => [['match' => '^acme_widgets_']],
+    'options' => ['acme_widgets_layout' => ['class' => 'authored']],
+    'plugin' => 'acme-widgets/acme-widgets.php',
+    'spec_version' => DUO_SPEC_VERSION,
+    'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
+]));
+register_shutdown_function(function () use ($siteAuthored) {
+    @unlink($siteAuthored . '/adapters/acme-widgets.json');
+    @rmdir($siteAuthored . '/adapters');
+});
+$siteRun = duo([$siteAuthored . '/adapters', '--site=' . $siteAuthored, '--format=json']);
+$siteReport = json_decode($siteRun['stdout'], true);
+check($siteRun['exit'] === 0, 'a site adapter directory validated with --site exits 0 (got ' . $siteRun['exit'] . ': ' . substr($siteRun['stderr'], 0, 200) . ')');
+check(
+    !str_contains($siteRun['stdout'] . $siteRun['stderr'], 'shadows the shipped adapter'),
+    'the site adapter is never reported as shadowing itself'
+);
+check(
+    is_array($siteReport) && ($siteReport['summary']['ok'] ?? null) === 1,
+    'the one site adapter reads ok'
+);
+
+// ======================================================================
 echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

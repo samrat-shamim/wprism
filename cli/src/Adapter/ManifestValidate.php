@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\NativeActions;
 use Duo\Policy;
@@ -346,7 +347,21 @@ final class ManifestValidate {
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
         }
-        putenv('DUO_MANIFESTS_DIR=' . $resolved);
+        // The directory handed in is normally a MANIFEST LIBRARY (the shipped
+        // set, or a candidate library) and becomes the shipped dir for every
+        // load below. When it is the site's own `adapters/` and --site names
+        // that site, it is the SITE source, not a second shipped library:
+        // pointing the shipped dir at it too made AdapterSources see every
+        // file twice and refuse each as "shadows the shipped adapter <name>"
+        // (grind_adapter_walk.sh S2, `manifest-validate <repo>/adapters
+        // --site=<repo>` — the guide's own spelling for authoring). In that
+        // case the shipped library stays what the agent ships and the site
+        // adapters load through the site source, exactly as the engine will.
+        $siteAdaptersDir = $site === null ? false : realpath($site . '/' . AdapterSources::SITE_DIR);
+        $validatingSiteSource = $siteAdaptersDir !== false && $siteAdaptersDir === $resolved;
+        if (!$validatingSiteSource) {
+            putenv('DUO_MANIFESTS_DIR=' . $resolved);
+        }
 
         // Pre-flight the site half ALONE, before any manifest is judged against
         // it. A malformed site.duo.json is an input this command was handed, not
