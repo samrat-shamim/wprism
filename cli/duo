@@ -328,9 +328,11 @@ Verbs:
     --name=<n>            proposers over the site repo's captured state/**, emitting
     [--match=<regex>]     grammar-shaped CANDIDATES a human ratifies by hand. Facts
     [--evidence=<file>]   land in real classification sections; proposals and
-    [--format=json]       unsupported surfaces nest INERT under a `_draft` sidecar
-    [--check-proposals]   (trigger keys renamed so no validator mis-collects them),
-                          each carrying status/confidence/evidence/questions. Every
+    [--seed=<file>]       unsupported surfaces nest INERT under a `_draft` sidecar
+    [--out=<path>]        (trigger keys renamed so no validator mis-collects them),
+    [--force]             each carrying status/confidence/evidence/questions. Every
+    [--format=json]
+    [--check-proposals]
                           fact needing a live target (column types, real PK, id
                           resolution, natural-key uniqueness) stays a proposal with a
                           question; --evidence is the deferred live seam, accepted and
@@ -339,6 +341,27 @@ Verbs:
                           validators, writing nothing live. WordPress-free, no
                           environment, no transport; the generator never applies or
                           promotes a proposal and never emits PHP.
+                          --seed takes a `duo coverage <env> --format=json`
+                          document (or the richer `wp duo assess-inventory
+                          --format=json`) and proposes the surfaces the OFFLINE
+                          proposers structurally cannot see, because Duo never
+                          captured them: an option prefix invisible to every
+                          installed adapter becomes an option_namespaces +
+                          option_patterns candidate, an undeclared live table
+                          becomes a tables candidate, and — from an inventory
+                          seed only, since coverage reports no post types — a
+                          scope-gate-refused post type becomes a post_types
+                          candidate. Names and counts only, never values, and
+                          every one lands as a low-confidence proposal whose
+                          safe `runtime` class is stated as a default rather
+                          than an observation.
+                          --out writes the draft (canonical bytes, the form
+                          manifest-validate and Policy::load both read) and
+                          REFUSES to replace an existing file without --force,
+                          because a draft is reviewed by hand and the file it
+                          would replace holds the author's ratifications.
+                          Re-running with --force is safe: human edits in the
+                          prior draft are carried forward.
   adapter list            The installed adapter catalog, from the two sources
     [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
     [--format=json]       manifest library and, with --repo, that site

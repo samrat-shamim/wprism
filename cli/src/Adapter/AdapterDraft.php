@@ -93,7 +93,16 @@ final class AdapterDraft {
      * design envelope; `unsupported` is handled separately (it never lifts as
      * grammar — it needs executable semantics).
      */
-    private const BUCKETS = ['tables', 'references', 'deletions', 'block_paths', 'shortcode_paths', 'actions', 'providers'];
+    private const BUCKETS = [
+        'tables', 'references', 'deletions', 'block_paths', 'shortcode_paths', 'actions', 'providers',
+        // DUO T6 §3.5's --seed families. They are separate buckets rather than
+        // folded into `references` because a seeded candidate answers a
+        // different question: `references` proposes how an already-captured
+        // value points at an entity, while these three propose that a surface
+        // the site HAS should be modelled at all. An author reviewing a draft
+        // needs those two piles apart.
+        'option_namespaces', 'option_patterns', 'post_types',
+    ];
 
     /**
      * The whole ownership contract for regeneration. This is intentionally a
@@ -114,6 +123,20 @@ final class AdapterDraft {
     /** The classification sections Policy::export_manifest() owns as facts. */
     private const FACT_SECTIONS = ['options', 'post_meta', 'term_meta', 'user_meta'];
 
+    /** `duo coverage <env> --format=json` — the seed document's primary shape. */
+    public const SEED_COVERAGE_FORMAT = 'duo-coverage-report/v1';
+
+    /**
+     * `wp duo assess-inventory --format=json` is also accepted, and is the
+     * RICHER seed: it embeds the whole coverage report AND the `pending`
+     * queue, which is where the scope-gate's unclassified post types live.
+     * Coverage alone cannot seed a `post_types` proposal because it does not
+     * report post types at all — so an operator seeding from coverage gets
+     * two of the three families and is told which one is missing, rather than
+     * silently getting a shorter draft.
+     */
+    public const SEED_INVENTORY_FORMAT = 'duo-assess-inventory/v1';
+
     /**
      * @param list<string> $args everything after the verb
      * @return int 0 ok, 2 usage/IO
@@ -123,6 +146,9 @@ final class AdapterDraft {
         $name = null;
         $match = null;
         $evidence = null;
+        $seed = null;
+        $out = null;
+        $force = false;
         $json = false;
         $checkProposals = false;
 
@@ -142,6 +168,18 @@ final class AdapterDraft {
                 $json = true;
             } elseif ($arg === '--check-proposals') {
                 $checkProposals = true;
+            } elseif ($arg === '--force') {
+                $force = true;
+            } elseif (str_starts_with($arg, '--out=')) {
+                $out = trim(substr($arg, strlen('--out=')));
+                if ($out === '') {
+                    return self::fail('--out needs the path to write the draft to');
+                }
+            } elseif (str_starts_with($arg, '--seed=')) {
+                $seed = trim(substr($arg, strlen('--seed=')));
+                if ($seed === '') {
+                    return self::fail('--seed needs the path of a `duo coverage --format=json` document');
+                }
             } elseif (str_starts_with($arg, '--name=')) {
                 $name = trim(substr($arg, strlen('--name=')));
                 if ($name === '') {
@@ -184,6 +222,61 @@ final class AdapterDraft {
             return self::fail("'$resolved' has no site.duo.json — <site-repo> is the duo SITE REPO (the directory holding site.duo.json)");
         }
 
+        // --force is a modifier on --out and means nothing without it. Refusing
+        // rather than ignoring is the difference between an author learning
+        // their overwrite guard is off and believing it is on.
+        if ($force && $out === null) {
+            return self::fail('--force modifies --out; it has no meaning on its own');
+        }
+        $outPath = null;
+        if ($out !== null) {
+            $outDir = dirname($out);
+            $resolvedOutDir = is_dir($outDir) ? realpath($outDir) : false;
+            if ($resolvedOutDir === false) {
+                return self::fail("--out '$out' names a directory that does not exist: $outDir");
+            }
+            $outPath = $resolvedOutDir . '/' . basename($out);
+            if (file_exists($outPath) && !$force) {
+                // A draft is REVIEWED by hand — an author's ratifications live
+                // in the file this would replace. Overwriting silently is the
+                // one way this command can destroy work, so it never does it
+                // without being told twice. (Re-running WITH --force is safe by
+                // design: preserve_human_edits() reads the prior artifact and
+                // carries ratified candidates forward.)
+                return self::fail(
+                    "--out '$outPath' already exists; adapter-draft never replaces a reviewed draft silently. "
+                    . 're-run with --force to regenerate over it (human edits in the prior draft are preserved), '
+                    . 'or name a different path'
+                );
+            }
+            if (is_link($outPath)) {
+                return self::fail("--out '$outPath' is a symbolic link; adapter-draft writes regular files only");
+            }
+        }
+
+        // The seed is a document another duo command already produced. It is
+        // read for NAMES ONLY — prefixes, table names, post-type names — never
+        // for values, exactly as `duo coverage` publishes it.
+        $seedDocument = null;
+        if ($seed !== null) {
+            if (!is_file($seed) || !is_readable($seed)) {
+                return self::fail("--seed '$seed' is not a readable file");
+            }
+            $decoded = json_decode((string) file_get_contents($seed), true);
+            if (!is_array($decoded) || array_is_list($decoded)) {
+                return self::fail("--seed '$seed' is not a JSON object");
+            }
+            $seedFormat = $decoded['format'] ?? null;
+            if (!in_array($seedFormat, [self::SEED_COVERAGE_FORMAT, self::SEED_INVENTORY_FORMAT], true)) {
+                return self::fail(
+                    "--seed '$seed' is not a " . self::SEED_COVERAGE_FORMAT . ' document ('
+                    . '`duo coverage <env> --format=json`) or a ' . self::SEED_INVENTORY_FORMAT
+                    . ' document (`wp duo assess-inventory --format=json`)'
+                );
+            }
+            $seedDocument = $decoded;
+        }
+
         // The single seam for LIVE-only inputs (deferred slice). Presence is
         // validated so a typo fails loudly; contents are NOT read here — every
         // live-dependent fact stays a proposal+question regardless.
@@ -216,7 +309,9 @@ final class AdapterDraft {
             $exported = Policy::export_manifest($resolved, $match, $name);
             [$manifest, $factConflicts] = self::merge_prior_manifest_intent($exported, $prior);
             $priorDraft = $prior === null ? null : ($prior['_draft'] ?? null);
-            $manifest['_draft'] = self::build_draft($resolved, $name, $evidenceNote, $priorDraft, $factConflicts);
+            $manifest['_draft'] = self::build_draft(
+                $resolved, $name, $evidenceNote, $priorDraft, $factConflicts, $seedDocument
+            );
             self::assert_output_is_safe($manifest);
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
@@ -226,12 +321,60 @@ final class AdapterDraft {
             return self::emit_check($manifest, $json);
         }
 
+        if ($outPath !== null) {
+            // Canonical bytes, exactly what --format=json prints: the file an
+            // author edits is the file `duo manifest-validate` and
+            // `Policy::load()` will read, so it is written in the form both
+            // demand rather than a pretty one they refuse.
+            $encoded = Canon::encode($manifest);
+            if (!self::write_atomic($outPath, $encoded)) {
+                return self::fail("cannot write the draft to $outPath");
+            }
+            echo "wrote $outPath (" . strlen($encoded) . " bytes)\n";
+            $relative = str_starts_with($outPath, $resolved . '/')
+                ? substr($outPath, strlen($resolved) + 1)
+                : $outPath;
+            echo "\nThis is a DRAFT. Everything under `_draft` is inert — Policy::load() never applies a\n"
+                . "proposal. Read each candidate's questions, promote what you ratify into the real\n"
+                . "sections by hand, delete the rest, then:\n";
+            if (str_starts_with($relative, AdapterSources::SITE_DIR . '/')) {
+                // The draft is INSTALLED, so the command that judges it is the
+                // one that reads the site source. `manifest-validate <dir>`
+                // would point DUO_MANIFESTS_DIR at the same adapters/ the
+                // --site half also scans, and the engine correctly refuses
+                // that as a site adapter shadowing a "shipped" one — a
+                // refusal about the invocation, not about the draft.
+                echo "  duo adapter inspect $name --repo=$resolved\n";
+                echo "  duo adapter certify $resolved --name=$name --secret-key-file=<key> --pin\n";
+            } else {
+                echo "  duo manifest-validate " . dirname($outPath) . " --site=$resolved --manifest=$name\n";
+            }
+            return 0;
+        }
         if ($json) {
             echo rtrim(Canon::encode($manifest)) . "\n";
         } else {
             self::render($manifest, $resolved);
         }
         return 0;
+    }
+
+    /**
+     * Write the draft atomically so a crash mid-write cannot leave an author
+     * holding a half-file that `manifest-validate` then blames them for.
+     */
+    private static function write_atomic(string $path, string $contents): bool {
+        $temporary = tempnam(dirname($path), '.duo-adapter-draft-');
+        if ($temporary === false) {
+            return false;
+        }
+        $ok = file_put_contents($temporary, $contents, LOCK_EX) !== false
+            && chmod($temporary, 0644)
+            && rename($temporary, $path);
+        if (is_file($temporary)) {
+            unlink($temporary);
+        }
+        return $ok;
     }
 
     /**
@@ -541,7 +684,8 @@ final class AdapterDraft {
         string $name,
         ?string $evidenceNote,
         ?array $priorDraft,
-        array $factConflicts
+        array $factConflicts,
+        ?array $seed = null
     ): array {
         $stateDir = $repo . '/state';
 
@@ -555,6 +699,12 @@ final class AdapterDraft {
             self::propose_references($stateDir),
             self::propose_deletions($stateDir),
             self::propose_generated_surfaces($stateDir),
+            // The one proposer whose input is another duo command's OUTPUT
+            // rather than the repository's captured state. It is last so a
+            // seeded candidate loses a target collision to an observation of
+            // real captured bytes — a table Duo already captured is better
+            // evidence than a table Duo merely knows exists.
+            self::propose_from_seed($seed),
         ] as $group) {
             foreach ($group as $candidate) {
                 $raw[] = $candidate;
@@ -575,8 +725,22 @@ final class AdapterDraft {
                 throw new \RuntimeException('adapter-draft: proposer emitted a candidate with no target');
             }
             // Every proposal identity is structural. A duplicate here is an
-            // ambiguous attachment, never a safe last-wins replacement.
+            // ambiguous attachment, never a safe last-wins replacement — with
+            // one stated exception: a --seed candidate YIELDS to an
+            // observation of the same target. The seed's input is another
+            // command's summary of the live site; the observers' input is the
+            // repository's own captured bytes. Where both describe one surface
+            // the captured bytes say strictly more, so this is a precedence
+            // rule between two known sources rather than the ambiguity the
+            // refusal above exists for.
             if (isset($candidates[$target])) {
+                if (($candidate['_seeded'] ?? false) === true) {
+                    continue;
+                }
+                if (($candidates[$target]['_seeded'] ?? false) === true) {
+                    $candidates[$target] = $candidate;
+                    continue;
+                }
                 throw new \RuntimeException(
                     "adapter-draft: proposal identity '$target' collided; refusing to attach either observation"
                 );
@@ -592,6 +756,11 @@ final class AdapterDraft {
         $proposals = array_fill_keys(self::BUCKETS, []);
         $unsupported = [];
         foreach ($candidates as $candidate) {
+            // `_seeded` is the precedence marker the collision rule above
+            // reads; it is an internal fact about where a candidate came
+            // from, not something an author ratifies, so it never reaches the
+            // artifact. The seed itself is recorded once in `_meta`.
+            unset($candidate['_seeded']);
             if (($candidate['status'] ?? '') === 'unsupported') {
                 $unsupported[] = $candidate;
                 continue;
@@ -619,6 +788,18 @@ final class AdapterDraft {
         // top-level key) so a reader sees the flag was honored and ignored.
         $draft['evidence_seam'] = $evidenceNote
             ?? 'no --evidence given; this is the offline slice — live-dependent facts are proposals with questions';
+        // The seed is recorded for the same reason: a reader of a committed
+        // draft must be able to tell which candidates came from the
+        // repository's own captured bytes and which came from a report about
+        // a live site — and, when a coverage-only seed was used, that no
+        // post-type family could be seeded at all.
+        $draft['seed'] = $seed === null
+            ? 'no --seed given; candidates come only from this repository\'s captured state/**'
+            : ((string) ($seed['format'] ?? 'unknown') . ' — option prefixes and undeclared tables seeded'
+                . (($seed['format'] ?? null) === self::SEED_INVENTORY_FORMAT
+                    ? ', scope-gate post types seeded'
+                    : '; scope-gate post types NOT seeded (coverage reports no post types — seed from '
+                        . self::SEED_INVENTORY_FORMAT . ' for those)'));
         return $draft;
     }
 
@@ -633,7 +814,10 @@ final class AdapterDraft {
         if ($head === 'shortcode_paths') {
             return 'shortcode_paths';
         }
-        if (in_array($head, ['tables', 'block_paths', 'deletions', 'actions', 'providers'], true)) {
+        if (in_array($head, [
+            'tables', 'block_paths', 'deletions', 'actions', 'providers',
+            'option_namespaces', 'option_patterns', 'post_types',
+        ], true)) {
             return $head;
         }
         // Meta-ref candidates carry a section-shaped head
@@ -821,6 +1005,204 @@ final class AdapterDraft {
                 '_screen' => $screen,
             ];
         }
+        return $out;
+    }
+
+    // ------------------------------------------------------------ seed proposer
+
+    /**
+     * Candidates seeded from another duo command's report (T6 §3.5).
+     *
+     * This is the one proposer whose evidence is not the repository's own
+     * captured bytes. The reason it exists is the gap `duo coverage` names
+     * and nothing closes: an option prefix invisible to every installed
+     * adapter, and a live table no manifest declares, are exactly the
+     * surfaces an operator is authoring an adapter FOR — and they are the
+     * surfaces the offline observers cannot see, because Duo never captured
+     * them. Coverage saw them on the live site; this turns each into a
+     * candidate the author ratifies by hand, with the observation quoted.
+     *
+     * Names and counts only, exactly as coverage publishes them. No value
+     * from the seed reaches a fragment, so the secret screen has nothing new
+     * to catch here — which is a property of the input, not a skipped check:
+     * every candidate still goes through `screen_secrets()` with the rest.
+     *
+     * Confidence is deliberately low across the board. A prefix grouping is
+     * `Coverage::guess_prefix()`'s heuristic, an undeclared table's class is
+     * unknown by construction, and a scope-gate post type is a name the site
+     * refused to capture rather than one it classified.
+     *
+     * @param array<string,mixed>|null $seed a coverage or assess-inventory document
+     * @return list<array<string,mixed>>
+     */
+    private static function propose_from_seed(?array $seed): array {
+        if ($seed === null) {
+            return [];
+        }
+        // An inventory embeds the whole coverage report under `coverage`; a
+        // coverage report IS the report. Both spellings are read here so a
+        // caller can seed from whichever document they already have.
+        $coverage = ($seed['format'] ?? null) === self::SEED_INVENTORY_FORMAT
+            ? (is_array($seed['coverage'] ?? null) ? $seed['coverage'] : [])
+            : $seed;
+        $out = [];
+
+        foreach (($coverage['options']['invisible_groups'] ?? []) as $group) {
+            if (!is_array($group) || !is_string($group['prefix'] ?? null) || $group['prefix'] === '') {
+                continue;
+            }
+            $prefix = $group['prefix'];
+            // `guess_prefix()` strips a leading underscore for GROUPING only,
+            // so the namespace has to match both spellings or every private
+            // option in the family stays invisible after the author ratifies.
+            $regex = '^_?' . preg_quote($prefix, '/') . '_';
+            $count = is_int($group['count'] ?? null) ? $group['count'] : 0;
+            $owner = is_string($group['probable_owner'] ?? null) ? $group['probable_owner'] : null;
+            $observation = "coverage reported $count option name(s) under prefix '$prefix' that no installed "
+                . 'adapter can see'
+                . ($owner === null ? '' : ", probably owned by the active plugin '$owner'");
+
+            $out[] = [
+                'target' => 'option_namespaces[' . $prefix . ']',
+                'candidate' => ['match' => $regex],
+                'status' => 'proposal',
+                'confidence' => 0.35,
+                'evidence' => [[
+                    'source' => 'seed: ' . self::SEED_COVERAGE_FORMAT,
+                    'locator' => 'options.invisible_groups[' . $prefix . ']',
+                    'observation' => $observation,
+                ]],
+                'questions' => [
+                    "claiming the '$prefix' namespace makes every option under it VISIBLE to this adapter, "
+                    . 'which is not the same as classifying it: each name still needs a rule, an '
+                    . 'option_patterns entry, or an interpreter, or it lands in the `duo pending` queue',
+                    "confirm the regex '$regex' does not also match another plugin's options on this site",
+                ],
+                '_seeded' => true,
+            ];
+            $out[] = [
+                'target' => 'option_patterns[' . $prefix . ']',
+                'candidate' => ['class' => 'runtime', 'match' => $regex],
+                'status' => 'proposal',
+                'confidence' => 0.2,
+                'evidence' => [[
+                    'source' => 'seed: ' . self::SEED_COVERAGE_FORMAT,
+                    'locator' => 'options.invisible_groups[' . $prefix . ']',
+                    'observation' => $observation,
+                ]],
+                'questions' => [
+                    "class 'runtime' is the SAFE default, not an observation: it excludes the whole family "
+                    . 'from capture. Whatever in it is authored configuration must be narrowed to its own '
+                    . 'authored pattern or exact option rule BEFORE this is ratified, or that configuration '
+                    . 'stops being versioned',
+                ],
+                '_seeded' => true,
+            ];
+        }
+
+        foreach (($coverage['tables']['undeclared'] ?? []) as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            // `logical_name` is the unprefixed name a manifest declares;
+            // `table` is the live prefixed name. A manifest section keys off
+            // the logical one, so a row carrying only the live name cannot be
+            // turned into a declaration — say so rather than guessing the
+            // prefix off, which would be wrong on any site whose prefix is
+            // itself a substring of the table name.
+            $logical = is_string($row['logical_name'] ?? null) ? $row['logical_name'] : null;
+            $live = is_string($row['table'] ?? null) ? $row['table'] : null;
+            if ($logical === null || $logical === '') {
+                continue;
+            }
+            $rows = is_int($row['row_count'] ?? null) ? $row['row_count'] : 0;
+            $owner = is_string($row['probable_owner'] ?? null) ? $row['probable_owner'] : null;
+            $out[] = [
+                'target' => 'tables.' . $logical,
+                // `runtime` because nothing here is evidence of authorship.
+                // An undeclared table is invisible to every adapter, so Duo
+                // has never read a row of it; declaring it `authored` on that
+                // basis would put live operational rows into the repository.
+                'candidate' => ['class' => 'runtime'],
+                'status' => 'proposal',
+                'confidence' => 0.25,
+                'evidence' => [[
+                    'source' => 'seed: ' . self::SEED_COVERAGE_FORMAT,
+                    'locator' => 'tables.undeclared[' . $logical . ']',
+                    'observation' => 'coverage reported live table '
+                        . ($live ?? $logical) . " with $rows row(s) that no manifest declares"
+                        . ($owner === null ? '' : ", probably owned by the active plugin '$owner'"),
+                ]],
+                'questions' => [
+                    "class 'runtime' is the SAFE default: it declares the table VISIBLE and excluded, which "
+                    . 'is what stops it reading `unclassified / block` in assess. If this table holds '
+                    . 'authored configuration, promote it to a typed authored class — and then its columns, '
+                    . 'PRIMARY KEY and identity are LIVE facts this offline draft cannot supply',
+                ],
+                '_seeded' => true,
+            ];
+        }
+
+        foreach (self::seed_scope_post_types($seed) as $postType => $observation) {
+            $out[] = [
+                'target' => 'post_types.' . $postType,
+                'candidate' => ['class' => 'runtime'],
+                'status' => 'proposal',
+                'confidence' => 0.25,
+                'evidence' => [[
+                    'source' => 'seed: ' . self::SEED_INVENTORY_FORMAT,
+                    'locator' => 'pending.rows[scope:post_type:' . $postType . ']',
+                    'observation' => $observation,
+                ]],
+                'questions' => [
+                    "class 'runtime' records a deliberate EXCLUSION from capture — the same decision "
+                    . "`duo classify <env> --set='scope:post_type:$postType=runtime'` writes site-locally, "
+                    . 'but declared by this adapter so every site running it inherits it. Ratify '
+                    . "'authored' instead only if these entities are content an operator edits and expects "
+                    . 'to branch',
+                ],
+                '_seeded' => true,
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Post types the scope gate refused to capture, from a seed rich enough to
+     * carry them.
+     *
+     * `duo coverage` reports options and tables and nothing else, so a
+     * coverage-only seed yields no post types at all — the fact is in the
+     * `pending` queue, which only `duo-assess-inventory/v1` embeds. Returning
+     * an empty map for a coverage seed is therefore correct rather than
+     * lossy, and `render()` states which families a seed supplied.
+     *
+     * @param array<string,mixed> $seed
+     * @return array<string,string> post type => observation
+     */
+    private static function seed_scope_post_types(array $seed): array {
+        $out = [];
+        foreach (($seed['pending']['rows'] ?? []) as $row) {
+            if (!is_array($row) || ($row['section'] ?? null) !== 'scope'
+                || !is_string($row['key'] ?? null)) {
+                continue;
+            }
+            // `spec/repo-format.md`'s own spelling: `scope:post_type:book` in
+            // the pending queue, `post_type:book` as the row key underneath.
+            if (!str_starts_with($row['key'], 'post_type:')) {
+                continue;
+            }
+            $postType = substr($row['key'], strlen('post_type:'));
+            if ($postType === '' || preg_match('/^[a-zA-Z0-9_-]+$/D', $postType) !== 1) {
+                continue;
+            }
+            $entities = $row['evidence']['entities'] ?? null;
+            $out[$postType] = 'the capture scope gate refused this post type as unclassified'
+                . (is_int($entities) ? " ($entities live entit(ies))" : '')
+                . '; it is registered on the site and no pinned manifest declares it';
+        }
+
         return $out;
     }
 
@@ -1472,7 +1854,7 @@ final class AdapterDraft {
         }
         $unknownRoot = array_values(array_diff(
             array_keys($priorDraft),
-            ['format', 'proposals', 'unsupported', '_meta', 'classification_conflicts', 'evidence_seam']
+            ['format', 'proposals', 'unsupported', '_meta', 'classification_conflicts', 'evidence_seam', 'seed']
         ));
         if ($unknownRoot !== []) {
             throw new \RuntimeException(
@@ -1487,6 +1869,9 @@ final class AdapterDraft {
         }
         if (array_key_exists('evidence_seam', $priorDraft) && !is_string($priorDraft['evidence_seam'])) {
             throw new \RuntimeException('adapter-draft: prior _draft.evidence_seam must be a string');
+        }
+        if (array_key_exists('seed', $priorDraft) && !is_string($priorDraft['seed'])) {
+            throw new \RuntimeException('adapter-draft: prior _draft.seed must be a string');
         }
         $priorIndex = [];
         $priorMeta = [];
@@ -1943,6 +2328,16 @@ final class AdapterDraft {
                 return ['actions' => [$fragment]];
             case 'providers':
                 return ['providers' => [$fragment]];
+            // These two sections are LISTS in the manifest grammar, not maps,
+            // so the candidate lifts as a one-element list exactly like
+            // actions/providers. The prefix rides in the target's `[...]`
+            // identity so two seeded prefixes cannot collide.
+            case 'option_namespaces':
+                return ['option_namespaces' => [$fragment]];
+            case 'option_patterns':
+                return ['option_patterns' => [$fragment]];
+            case 'post_types':
+                return ['post_types' => [$tail => $fragment]];
             case 'options':
             case 'post_meta':
             case 'term_meta':
@@ -2092,6 +2487,7 @@ final class AdapterDraft {
         }
 
         echo "\nevidence seam: " . ($draft['evidence_seam'] ?? '') . "\n";
+        echo 'seed:          ' . ($draft['seed'] ?? '') . "\n";
         echo "\nsummary: $facts fact(s) validated; $pCount proposal(s) + " . count($unsupported)
             . ' unsupported + ' . count($conflicts)
             . " conflict record(s) are INERT and unvalidated here — run 'duo adapter-draft --check-proposals' or "
