@@ -295,10 +295,16 @@ final class AdapterCertify {
         AdapterSources::assert_name($keyId, 'adapter certify --key-id');
 
         $tier = AdapterSources::trust_tier($manifest);
-        $registered = self::registerAuthority($repo, $keyId, $public, $name, $tier);
 
         // The grammar half of the evidence triple: the REAL loader, over the
         // real site repository, exactly as `duo manifest-validate` runs it.
+        //
+        // BEFORE the authority is registered, and that order is load-bearing.
+        // Registering first meant a manifest the engine refuses still left
+        // `adapters/authorities.json` written — and until the engine excludes
+        // that file from its adapter scan, its mere presence makes every
+        // subsequent command in the repository refuse. A failed certify must
+        // leave the repository exactly as it found it. (Found by running it.)
         $grammar = self::grammarVerdict($repo, $name);
         if ($grammar['status'] !== 'ok') {
             return self::fail(
@@ -307,6 +313,8 @@ final class AdapterCertify {
                 . AdapterSources::SITE_DIR . " --site=$repo --manifest=$name` and fix it first"
             );
         }
+
+        $registered = self::registerAuthority($repo, $keyId, $public, $name, $tier);
 
         $bundleDir = self::buildBundle($repo, $name, $manifest, $adapterRaw, $grammar, $reason);
         try {
