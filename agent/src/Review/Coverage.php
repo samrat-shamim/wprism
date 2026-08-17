@@ -168,6 +168,16 @@ final class Coverage {
             $count = (int) $wpdb->get_var('SELECT COUNT(*) FROM `' . esc_sql($t['table']) . '`');
             $rows[] = [
                 'table' => $t['table'],
+                // The unprefixed name, published rather than recomputed by the
+                // reader: `wp_` is this install's prefix, not a constant, so a
+                // consumer stripping it itself would mis-name every row on a
+                // site whose prefix is anything else. It is also the identity
+                // `duo assess` builds its `table:<logical_name>` surface row
+                // from (cli/src/Assess/SurfaceCatalog.php:326 and
+                // AssessReport.php:156 both require the key and skip the row
+                // without it) — dropping it here is why an undeclared table
+                // never appeared in a live assessment.
+                'logical_name' => $t['logical_name'],
                 'row_count' => $count,
                 'probable_owner' => self::attribute($t['logical_name'], $activeSlugs),
             ];
