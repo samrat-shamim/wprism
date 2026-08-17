@@ -76,6 +76,61 @@ final class TaxonomyPatternResolver {
         return $effective;
     }
 
+    /**
+     * The manifest-declared REGISTRATION facts for one exact taxonomy name:
+     * `taxonomies.<tax>.object_type` (and optionally `.update_count_callback`),
+     * a statement about the plugin's own `register_taxonomy()` call, exactly
+     * as a `taxonomy_patterns` entry states them for a dynamic name.
+     *
+     * Why it exists: `wp duo refresh-export` runs under the isolated control
+     * bootstrap (no plugins), where `get_taxonomy('product_cat')` is false
+     * and `ScopeDiscovery::taxonomyOwnership()` has no other way to learn
+     * which object keyspace a policy-scoped exact taxonomy's relationships
+     * belong to — its strict read-only mode refuses and names "a
+     * plugin-owned object_type declaration" as the remedy. Patterns cannot
+     * carry that for an exact name without also widening scope (a matching
+     * pattern pulls live names INTO Policy::taxonomies()), so the exact
+     * declaration lives on the `taxonomies.<tax>` rule the manifest already
+     * classifies, and changes nothing about scope.
+     *
+     * Two manifests that both declare registration facts for one taxonomy
+     * must agree, for the same reason two matching patterns must.
+     *
+     * @return ?array{object_type:string[],update_count_callback:?string,source:string}
+     */
+    public function declaredRegistration(string $tax): ?array {
+        $effective = null;
+        foreach ($this->manifests as $m) {
+            $rule = $m['taxonomies'][$tax] ?? null;
+            if (!is_array($rule) || !array_key_exists('object_type', $rule)) {
+                continue;
+            }
+            $objectTypes = array_values(array_unique(array_map('strval', (array) $rule['object_type'])));
+            sort($objectTypes, SORT_STRING);
+            $candidate = [
+                'object_type' => $objectTypes,
+                'update_count_callback' => isset($rule['update_count_callback'])
+                    ? (string) $rule['update_count_callback']
+                    : null,
+                'source' => "manifest '" . (string) ($m['name'] ?? '?') . "' taxonomies.$tax",
+            ];
+            if ($effective === null) {
+                $effective = $candidate;
+                continue;
+            }
+            foreach (['object_type', 'update_count_callback'] as $field) {
+                if ($effective[$field] != $candidate[$field]) {
+                    throw new \RuntimeException(
+                        "duo: taxonomy '$tax' has ambiguous registration declarations: "
+                        . "{$effective['source']} and {$candidate['source']} disagree on $field; "
+                        . 'pin order may not choose runtime relationship behavior'
+                    );
+                }
+            }
+        }
+        return $effective;
+    }
+
     /** taxonomy_patterns stores an undelimited PCRE fragment by contract. */
     public static function matches(string $match, string $tax): bool {
         return @preg_match('/' . $match . '/', $tax) === 1;

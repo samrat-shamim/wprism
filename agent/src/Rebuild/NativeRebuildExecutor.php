@@ -82,8 +82,8 @@ final class NativeRebuildExecutor {
                 continue;
             }
 
-            $callback = $this->policy->pattern_update_count_callback($taxonomy);
-            $objectTypes = $this->policy->pattern_object_type($taxonomy);
+            $callback = $this->policy->declared_update_count_callback($taxonomy);
+            $objectTypes = $this->policy->declared_object_type($taxonomy);
             if ($callback === null || $objectTypes === null || !is_callable($callback)) {
                 throw new \RuntimeException(
                     "duo: required taxonomy '$taxonomy' is not registered during recount and has no callable manifest count contract"

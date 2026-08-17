@@ -85,6 +85,7 @@ return [
     'Duo\\Orchestrator\\RehearseCommand' => 'src/Command/RehearseCommand.php',
     'Duo\\Orchestrator\\ReleaseCommand' => 'src/Command/ReleaseCommand.php',
     'Duo\\Orchestrator\\ReleaseOutcome' => 'src/Release/ReleaseOutcome.php',
+    'Duo\\Orchestrator\\RetainedCheckpoints' => 'src/Recovery/RetainedCheckpoints.php',
     'Duo\\Orchestrator\\RollbackAuthority' => 'src/Recovery/RollbackAuthority.php',
     'Duo\\Orchestrator\\ScopeCommand' => 'src/Command/ScopeCommand.php',
     'Duo\\Orchestrator\\ScopedRollbackProfile' => 'src/Recovery/ScopedRollbackProfile.php',

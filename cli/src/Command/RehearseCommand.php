@@ -129,7 +129,9 @@ final class RehearseCommand {
 
             return 0;
         }
-        foreach (RehearsalPlanPreview::render($preview, $flags['limit']) as $line) {
+        // The disclosure was printed first, above, before the provider ran;
+        // the preview follows without repeating it.
+        foreach (RehearsalPlanPreview::render($preview, $flags['limit'], false) as $line) {
             echo $line . "\n";
         }
 

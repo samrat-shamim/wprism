@@ -5,6 +5,7 @@ namespace Duo\Orchestrator;
 
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once __DIR__ . '/RecoveryClaim.php';
+require_once __DIR__ . '/RetainedCheckpoints.php';
 require_once __DIR__ . '/RollbackAuthority.php';
 
 use Duo\CommandRefusalException;
@@ -48,6 +49,17 @@ use Duo\CommandRefusalException;
  *    that evidence; a scoped receipt covers the database checkpoint and
  *    nothing else, because `ScopedRollbackProfile` never prepares the other
  *    providers.
+ *
+ * ## The second source: retained release checkpoints
+ *
+ * The signed authority is one source of rows; the plain database checkpoints
+ * every operator-directed promotion retains under `.duo/checkpoints/` are
+ * the other (`RetainedCheckpoints`). They are the only rows a local, docker
+ * or plain SSH target has, and they are what the operator-directed claim in
+ * every frozen authorization plan on those transports refers to. `list()`
+ * therefore reads the authority only where one can exist (an SSH transport)
+ * and the retained checkpoints everywhere, and says which of the two it
+ * could not read rather than printing an empty table.
  */
 final class CheckpointCatalog {
     public const FORMAT = 'duo-checkpoint-catalog/v1';
@@ -84,6 +96,10 @@ final class CheckpointCatalog {
         'the rollback authority answered, but its evidence did not verify; treat this target as unknown '
         . 'and inspect private operator evidence before recovering';
 
+    public const DISCLOSURE_NO_AUTHORITY_TRANSPORT =
+        'this transport carries no rollback authority runtime, so only the database checkpoints its releases '
+        . 'retained are listed';
+
     /**
      * Read the catalog from a target.
      *
@@ -94,24 +110,70 @@ final class CheckpointCatalog {
      *
      * @return array<string,mixed>
      */
-    public static function list(SshTransport $transport, ?string $now = null): array {
-        $status = RollbackAuthority::status($transport);
-        $audit = null;
-        if (($status['available'] ?? false) === true
-            && ($status['ok'] ?? false) === true
-            && ($status['active'] ?? false) === true) {
-            try {
-                $audit = RollbackAuthority::audit($transport);
-            } catch (\Throwable $failure) {
-                // A missing or refused audit does not invalidate the status
-                // read; it only means the event-chain digest is unavailable
-                // for this listing. Losing the whole catalog over it would
-                // be worse than printing the row without that column.
-                $audit = null;
+    public static function list(EnvironmentDriver $driver, ?string $now = null): array {
+        $now ??= gmdate('Y-m-d\TH:i:s\Z');
+        if ($driver instanceof SshTransport) {
+            $status = RollbackAuthority::status($driver);
+            $audit = null;
+            if (($status['available'] ?? false) === true
+                && ($status['ok'] ?? false) === true
+                && ($status['active'] ?? false) === true) {
+                try {
+                    $audit = RollbackAuthority::audit($driver);
+                } catch (\Throwable $failure) {
+                    // A missing or refused audit does not invalidate the status
+                    // read; it only means the event-chain digest is unavailable
+                    // for this listing. Losing the whole catalog over it would
+                    // be worse than printing the row without that column.
+                    $audit = null;
+                }
+            }
+            $catalog = self::fromStatus($status, $audit, $now);
+        } else {
+            $catalog = [
+                'disclosures' => [self::DISCLOSURE_NO_AUTHORITY_TRANSPORT],
+                'format' => self::FORMAT,
+                'rows' => [],
+            ];
+        }
+
+        return self::withRetained($catalog, RetainedCheckpoints::list($driver, $now));
+    }
+
+    /**
+     * Append the retained release checkpoints to an authority catalog. Pure.
+     *
+     * Authority rows stay first (they are the signed, in-progress facts an
+     * operator must see before any plain file); retained rows follow in the
+     * order `RetainedCheckpoints::parse()` fixed. The retained disclosure is
+     * added only when there is at least one such row, and the no-identity
+     * disclosure only when one of them cannot be restored.
+     *
+     * @param array<string,mixed> $catalog a `fromStatus()` result
+     * @param list<array<string,mixed>> $retained `RetainedCheckpoints` rows
+     * @return array<string,mixed>
+     */
+    public static function withRetained(array $catalog, array $retained): array {
+        if ($retained === []) {
+            return $catalog;
+        }
+        $disclosures = is_array($catalog['disclosures'] ?? null) ? array_values($catalog['disclosures']) : [];
+        $disclosures[] = RetainedCheckpoints::DISCLOSURE_RETAINED;
+        foreach ($retained as $row) {
+            if ((string) ($row['artifact_hash'] ?? '') === '') {
+                $disclosures[] = RetainedCheckpoints::DISCLOSURE_NO_IDENTITY;
+                break;
             }
         }
 
-        return self::fromStatus($status, $audit, $now ?? gmdate('Y-m-d\TH:i:s\Z'));
+        return [
+            'disclosures' => $disclosures,
+            'format' => self::FORMAT,
+            'rows' => array_merge(
+                is_array($catalog['rows'] ?? null) ? array_values($catalog['rows']) : [],
+                $retained
+            ),
+        ];
     }
 
     /**
@@ -237,8 +299,10 @@ final class CheckpointCatalog {
                 // an operator a name they can only mistype. It stays in
                 // `--format=json`, alongside `artifact_hash`, which this line
                 // already omits for the same reason.
+                // A retained checkpoint has no signed generation to print.
                 $lines[] = '  ' . (string) $row['id'] . '  ' . (string) $row['state']
-                    . '  ' . (string) $row['kind'] . '  generation ' . (string) $row['generation']
+                    . '  ' . (string) $row['kind']
+                    . (RetainedCheckpoints::isRetained($row) ? '' : '  generation ' . (string) $row['generation'])
                     . '  ' . $age;
                 $lines[] = '    covers: ' . implode(', ', array_map('strval', (array) $row['covers']));
             }

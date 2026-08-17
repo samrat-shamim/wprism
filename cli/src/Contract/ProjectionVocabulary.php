@@ -135,6 +135,7 @@ final class ProjectionVocabulary {
     /** Prefixes so callers can recognise a generated annotation without string archaeology. */
     public const ANNOTATION_NO_REPAIR_PATH_PREFIX = 'no declared repair path; the registry states: ';
     public const ANNOTATION_RESTORED_BY_PREFIX = 'restored by: ';
+    public const ANNOTATION_PRESERVE_LOCAL_UNSUPPORTED = 'preserve local: this surface stays on the target; Duo does not copy or write it, so no readiness claim applies';
 
     /** Condition-string shapes this class mints itself. */
     public const CONDITION_PROVIDER_NEGOTIATION_PREFIX = 'unmet: provider negotiation ';
@@ -213,6 +214,21 @@ final class ProjectionVocabulary {
             $unsupportedReason,
             $annotations
         );
+        // The product spec's own worked row ("Orders and inventory | Capture
+        // from preview | Runtime | Preserve local | Unsupported | … | Live
+        // operational state is not copied"): a surface Duo deliberately leaves
+        // to the target is not an operation Duo performs, so a certified claim
+        // for the adapter that OWNS the surface must not project `Ready` onto
+        // it. Handling `preserve local` therefore forces `Unsupported` for
+        // every mutating or copying operation. Found live by grind_mup.sh step
+        // 3 (orders projected `runtime / preserve local / Ready` before this).
+        if ($handling === 'preserve local'
+            && in_array($operation, ['capture', 'merge', 'release', 'delete'], true)
+            && $readiness !== 'Unsupported'
+        ) {
+            $annotations[] = self::ANNOTATION_PRESERVE_LOCAL_UNSUPPORTED;
+            $readiness = 'Unsupported';
+        }
 
         $provenance = self::projectProvenance($registry, $annotations);
         $recovery = self::projectRecovery($recoveryFacts, $stateClass, $containment, $annotations);
@@ -295,6 +311,14 @@ final class ProjectionVocabulary {
             ? array_values($projection['conditions'])
             : [];
 
+        if ($handling === 'preserve local') {
+            // The handling IS the resolution: the surface stays on the
+            // target and Duo never copies or writes it, so its `Unsupported`
+            // readiness for a copying operation is a boundary statement, not
+            // a gap an operator can close (the spec's worked orders row
+            // prints a meaning line and no next action).
+            return 'nothing — supported';
+        }
         if ($readiness === 'Unsupported') {
             return 'exclude';
         }

@@ -260,6 +260,35 @@ duo_check_same(
     'a projection row without a stored gap action is recomputed through the one vocabulary, not guessed'
 );
 
+// A preserve-local surface (the spec's orders row) projects `Unsupported`
+// for release because Duo never copies it — that is the boundary the release
+// respects, not a gap: the row is outside the release's mutation scope, so
+// neither the readiness gate nor the recovery-semantics gate applies to it.
+$preserved = $projection;
+$preserved[0]['handling'] = 'preserve local';
+$preserved[0]['operations']['release']['handling'] = 'preserve local';
+$preserved[0]['operations']['release']['readiness'] = 'Unsupported';
+$preserved[0]['operations']['release']['gap_action'] = 'nothing — supported';
+$preserved[0]['operations']['release']['effect_recovery_semantics'] = 'not applicable';
+duo_check_same(
+    null,
+    gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $preserved])), 'release_surface_not_releasable'),
+    'a preserve-local surface projecting Unsupported does not refuse the release: it is outside the mutation scope'
+);
+$preservedUnknown = $preserved;
+$preservedUnknown[0]['operations']['release']['effect_recovery_semantics'] = 'unknown';
+duo_check_same(
+    null,
+    gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $preservedUnknown])), 'release_recovery_semantics_unknown'),
+    'a preserve-local surface is skipped by the recovery-semantics gate too: the release never mutates it'
+);
+$preservedManaged = $preserved;
+$preservedManaged[0]['operations']['release']['handling'] = 'manage';
+duo_check(
+    gate_find(AuthorizationPlan::refusals(gate_inputs(['projection' => $preservedManaged])), 'release_surface_not_releasable') !== null,
+    'only the literal handling word `preserve local` takes a surface out of scope; a managed Unsupported row still refuses'
+);
+
 $unknownRecovery = $projection;
 $unknownRecovery[0]['operations']['release']['effect_recovery_semantics'] = 'unknown';
 duo_check(

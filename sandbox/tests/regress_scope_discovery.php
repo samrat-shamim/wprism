@@ -110,6 +110,18 @@ namespace Duo {
             return $taxonomy === 'dynamic_link' ? ['page'] : null;
         }
 
+        /**
+         * The manifest-declared registration facts ScopeDiscovery consults
+         * when get_taxonomy() cannot answer: an exact `taxonomies.<tax>.object_type`
+         * declaration first (`exact_link`, round-3 T5 — the isolated control
+         * bootstrap case), then the pattern fallback (`dynamic_link`).
+         *
+         * @return string[]|null
+         */
+        public function declared_object_type(string $taxonomy): ?array {
+            return $taxonomy === 'exact_link' ? ['page'] : $this->pattern_object_type($taxonomy);
+        }
+
         /** @param string[] $objectTypes */
         public function taxonomy_object_keyspace(string $taxonomy, array $objectTypes): string {
             $this->keyspaceCalls[] = [$taxonomy, $objectTypes];
@@ -254,6 +266,22 @@ namespace Duo {
         'strict read-only discovery refuses an unregistered taxonomy instead of returning partial production truth'
     );
     $check($strictWarnings === [], 'strict read-only refusal cannot degrade into a warning');
+    $throws(
+        static fn() => $strict->taxonomyOwnership(['missing_link'], ['page'], true),
+        'taxonomies.<name>.object_type or taxonomy_patterns object_type declaration',
+        'the strict refusal names both manifest declarations that would have resolved it'
+    );
+    // Round-3 T5: an unregistered EXACT taxonomy whose manifest declares its
+    // registration facts (`taxonomies.<tax>.object_type`) resolves in strict
+    // read-only mode exactly like a registered one — this is what lets
+    // refresh-export attribute WooCommerce's product_cat under the isolated
+    // control bootstrap, where no plugin is loaded.
+    $exact = $strict->taxonomyOwnership(['exact_link', 'dynamic_link'], ['page'], true);
+    $check(
+        $exact['by_post_type'] === ['page' => ['exact_link', 'dynamic_link']] && $exact['term_object'] === [],
+        'strict read-only discovery attributes an unregistered exact taxonomy through its manifest object_type declaration, then the pattern fallback'
+    );
+    $check($strictWarnings === [], 'a declared exact taxonomy produces no warning in strict mode');
 
     $wpdb->queries = [];
     $checkpointFailure = new ScopeDiscovery(

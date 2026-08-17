@@ -1235,6 +1235,27 @@ final class Policy {
     }
 
     /**
+     * The manifest-declared object_type for $tax when `get_taxonomy()` cannot
+     * answer: the exact `taxonomies.<tax>.object_type` declaration first (a
+     * fact about the plugin's own registration, needed under the isolated
+     * control bootstrap where no plugin is loaded — refresh-export's strict
+     * read-only ownership resolution), then the `taxonomy_patterns` fallback
+     * above. Same authority order as get_taxonomy() itself: exact
+     * registration before dynamic-name registration. Never consulted while
+     * get_taxonomy() succeeds.
+     */
+    public function declared_object_type(string $tax): ?array {
+        return $this->taxonomy_pattern_resolver()->declaredRegistration($tax)['object_type']
+            ?? $this->pattern_object_type($tax);
+    }
+
+    /** The exact-then-pattern count callback, mirroring declared_object_type(). */
+    public function declared_update_count_callback(string $tax): ?string {
+        return $this->taxonomy_pattern_resolver()->declaredRegistration($tax)['update_count_callback']
+            ?? $this->pattern_update_count_callback($tax);
+    }
+
+    /**
      * Registered taxonomy state can lag a taxonomy_patterns-backed table
      * write until the next request. A version-pinned manifest may declare
      * the plugin's real count callback so Apply can honor the identical

@@ -214,10 +214,27 @@ $cases[] = ['1.3 an excluded claim is Unsupported',
     duo_facts(['registry' => ['claim_status' => 'excluded']]),
     ['readiness' => 'Unsupported'], 'exclude'];
 $cases[] = ['1.3 an unsupported claim is Unsupported',
+    duo_facts(['registry' => ['claim_status' => 'unsupported']]),
+    ['readiness' => 'Unsupported', 'handling' => 'manage'],
+    'exclude'];
+$cases[] = ['1.3 an unsupported claim on a preserve-local surface is Unsupported with no next action',
     duo_facts(['policy_class' => 'runtime', 'registry' => ['claim_status' => 'unsupported']]),
     ['readiness' => 'Unsupported', 'handling' => 'preserve local',
         'meaning' => 'Live operational state is never copied; the target keeps its own.'],
-    'exclude'];
+    'nothing — supported'];
+// The product spec's worked row (§2.1 "Orders and inventory | … | Runtime |
+// Preserve local | Unsupported | Platform-certified") — the certified claim
+// belongs to the adapter that OWNS the runtime surface, but Duo does not copy
+// or write a preserve-local surface, so no readiness claim applies to it.
+// grind_mup.sh step 3 caught the projection saying `Ready` here.
+foreach (['capture', 'merge', 'release', 'delete'] as $op) {
+    $cases[] = ["1.3 preserve local forces Unsupported for {$op} even under a certified claim",
+        duo_facts(['operation' => $op, 'policy_class' => 'runtime']),
+        ['readiness' => 'Unsupported', 'handling' => 'preserve local', 'state_class' => 'runtime',
+            'certification_provenance' => 'Platform-certified',
+            'meaning' => 'Live operational state is never copied; the target keeps its own.'],
+        'nothing — supported'];
+}
 $cases[] = ['1.3 surface_explicitly_unsupported is Unsupported',
     duo_facts(['registry' => ['blockers' => ['surface_explicitly_unsupported']]]),
     ['readiness' => 'Unsupported'], 'exclude'];
@@ -348,7 +365,7 @@ $cases[] = ['2.1 orders row',
         'certification_provenance' => 'Uncertified', 'effect_containment' => 'prevented',
         'effect_recovery_semantics' => 'not applicable',
     ],
-    'exclude'];
+    'nothing — supported'];
 $cases[] = ['2.1 derived lookup table row',
     duo_facts([
         'policy_class' => 'derived',

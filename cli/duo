@@ -687,6 +687,15 @@ Verbs:
                           a checkpoint taken around a code phase refuses a
                           database import until code is reconciled to the
                           pre-release revision, which the refusal names.
+                          Two catalog sources: the signed receipt of the
+                          rollback authority (SSH-adopted targets only) and
+                          the plain database checkpoints every operator-
+                          directed release RETAINED under .duo/checkpoints
+                          (every transport; id promote-<owner>, restored
+                          through the same four steps under the lease
+                          identity read from the retained artifact). Only a
+                          signed rollback is SSH-only, and refuses with
+                          recovery_authority_unavailable elsewhere.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with

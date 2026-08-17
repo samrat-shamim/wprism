@@ -502,6 +502,30 @@ function ref_dump_database(array $config, string $database): string {
     return ref_checked(ref_dump_command($config, $database));
 }
 
+/**
+ * The freeze-witness digest of a database dump: the dump with WordPress
+ * core's own cron lock neutralised.
+ *
+ * `spawn_cron()` rewrites the `doing_cron` transient's value (a float
+ * timestamp) on any WordPress bootstrap that finds cron due — ordinary
+ * traffic on a live source does it, and so does the orchestrator's own
+ * `wp duo refresh-export` on the source between snapshot-prepare and
+ * snapshot-create. That row is a lock, not authored or runtime state; a
+ * witness that treated its timestamp as "the source changed" refused every
+ * live WordPress source (grind_mup.sh step 5). The snapshot bytes
+ * themselves stay raw and complete — only the two-sided comparison ignores
+ * the lock's value. Nothing else is normalised: a real write between prepare
+ * and create still refuses.
+ */
+function ref_freeze_witness(string $dump): string {
+    $normalised = preg_replace(
+        "/\\((\\d+),'_transient_doing_cron','[^']*','([^']*)'\\)/",
+        "(\\1,'_transient_doing_cron','<cron-lock>','\\2')",
+        $dump
+    );
+    return hash('sha256', is_string($normalised) ? $normalised : $dump);
+}
+
 /** @param array<string,mixed> $config */
 function ref_restore_database(array $config, string $database, string $dump): void {
     ref_checked(
@@ -754,6 +778,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             $databaseHash = hash_file('sha256', $staging . '/database.sql');
             ref_require(is_string($databaseHash), 'could not hash source database evidence');
             $prepared['database_sha256'] = $databaseHash;
+            $prepared['database_witness_sha256'] = ref_freeze_witness($dump);
             $prepared['media_sha256'] = ref_tree_hash($staging . '/media');
             $prepared['state'] = 'prepared';
             $state['sessions'][$key] = $prepared;
@@ -794,7 +819,8 @@ function ref_dispatch(array $request, array $config, array &$state): array {
             // witness is the whole freeze this provider can offer, and it is
             // stated rather than implied.
             $changed = [];
-            if ($currentDb !== $prepared['database_sha256']) $changed[] = 'database';
+            $preparedWitness = (string) ($prepared['database_witness_sha256'] ?? $prepared['database_sha256']);
+            if (ref_freeze_witness($currentDump) !== $preparedWitness) $changed[] = 'database';
             if ($currentMedia !== $prepared['media_sha256']) $changed[] = 'media';
             ref_require(
                 $changed === [],

@@ -111,6 +111,51 @@ function mup_leak_walk(mixed $node, string $path, array &$into): void {
     }
 }
 
+/**
+ * Whether `$value` occurs in the human view anywhere OUTSIDE an occurrence
+ * of an allowlisted value.
+ *
+ * The same rule scan 2 already applies to shapes, applied to values: a token
+ * that is *part of* an allowlisted identifier is that identifier being
+ * printed, not a second one leaking. The case that needs it is a consumable
+ * id that embeds an internal one by construction — `duo recover --list`'s
+ * retained checkpoint id is `promote-<lease owner>`, because that is the
+ * file name promote wrote and the name `--restore=<id>` takes; the owner
+ * itself is never printed on its own. An occurrence of the owner anywhere
+ * else in the page (a sentence that quotes it, a second column) is still a
+ * leak, and this returns true for it.
+ *
+ * @param list<string> $allowedValues
+ */
+function mup_leak_appears_outside_allowed(string $human, string $value, array $allowedValues): bool {
+    $offset = 0;
+    while (($at = strpos($human, $value, $offset)) !== false) {
+        $covered = false;
+        foreach ($allowedValues as $allowedValue) {
+            if ($allowedValue === $value || !str_contains($allowedValue, $value)) {
+                continue;
+            }
+            // Every occurrence of the allowlisted value that would contain
+            // this occurrence of $value.
+            $inner = strpos($allowedValue, $value);
+            while ($inner !== false) {
+                $start = $at - $inner;
+                if ($start >= 0 && substr($human, $start, strlen($allowedValue)) === $allowedValue) {
+                    $covered = true;
+                    break 2;
+                }
+                $inner = strpos($allowedValue, $value, $inner + 1);
+            }
+        }
+        if (!$covered) {
+            return true;
+        }
+        $offset = $at + 1;
+    }
+
+    return false;
+}
+
 /** The leaf of a dotted path: `rows.0.owner` -> `owner`. */
 function mup_leak_leaf(string $path): string {
     $parts = explode('.', $path);
@@ -178,7 +223,7 @@ foreach ($values as $path => $value) {
     if (strlen($value) < 8) {
         continue;
     }
-    if (str_contains($human, $value)) {
+    if (mup_leak_appears_outside_allowed($human, $value, array_keys($allowed))) {
         $leaked[] = "$path = $value";
     }
 }

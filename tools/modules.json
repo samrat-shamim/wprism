@@ -1287,13 +1287,14 @@
       },
       "Recovery": {
         "layer": "engine",
-        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds.",
+        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds. Round-3 T5 adds the retained release checkpoints (RetainedCheckpoints), the second catalog source every transport has.",
         "status": "populated",
         "entry_points": [
           "RollbackAuthority",
           "RecoveryProfileSelection",
           "RecoveryClaim",
-          "CheckpointCatalog"
+          "CheckpointCatalog",
+          "RetainedCheckpoints"
         ],
         "depends_on": [
           "Recovery",
@@ -1301,11 +1302,12 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 6,
+        "file_count": 7,
         "files": [
           "CheckpointCatalog.php",
           "RecoveryClaim.php",
           "RecoveryProfileSelection.php",
+          "RetainedCheckpoints.php",
           "RollbackAuthority.php",
           "ScopedRollbackProfile.php",
           "VerifiedRollbackProfile.php"

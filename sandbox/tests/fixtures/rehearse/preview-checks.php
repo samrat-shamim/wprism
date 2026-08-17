@@ -236,6 +236,24 @@ duo_check_same(
     'the containment banner is printed once, at the very top of the report'
 );
 duo_check_same(RehearsalDisclosure::CONSEQUENCE, $lines[1], 'the consequence follows it immediately');
+duo_check_same(
+    1,
+    substr_count(implode("\n", $lines), RehearsalDisclosure::BANNER),
+    'the standalone report carries the banner exactly once'
+);
+// The command prints the banner itself, first, before the provider runs, and
+// renders its tail without it (T5): the page an operator reads carries the
+// banner exactly once, at the top.
+$tail = RehearsalPlanPreview::render($preview, RehearsalPlanPreview::DEFAULT_LIMIT, false);
+duo_check(
+    !str_contains(implode("\n", $tail), RehearsalDisclosure::BANNER),
+    'render() without the disclosure carries no banner, so the command can print it once at the top'
+);
+duo_check_same(
+    array_slice($lines, count(RehearsalDisclosure::lines())),
+    $tail,
+    'the disclosure-free render is the standalone report minus its opening disclosure, byte for byte'
+);
 $body = implode("\n", $lines);
 duo_check(str_contains($body, 'what a release would touch'), 'the human view says what it is showing');
 duo_check(str_contains($body, 'surfaces in scope: 8 of 10'), 'the human view prints the true totals beside the restricted list');

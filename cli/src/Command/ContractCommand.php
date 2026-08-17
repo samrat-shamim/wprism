@@ -338,7 +338,17 @@ final class ContractCommand {
      * @param list<string> $paths repository-relative
      */
     private static function stage(string $siteRepo, array $paths): bool {
-        $command = array_merge(['git', '-C', $siteRepo, 'add', '--'], $paths);
+        // `-f`: the site repository's own boundary (`duo init`'s required
+        // `/.duo/` rule, InitRepositoryBoundary::ensure_gitignore()) ignores
+        // Duo's whole private working area — checkpoints, artifacts, env
+        // values, control state — and that boundary is right. The two review
+        // artifacts are the deliberate exception MUP §3.1 names as committed:
+        // the contract is a reviewed declaration and the projection its
+        // review record, and a `git add` that silently obeyed the boundary
+        // left every product-initialized site with a contract nothing
+        // versioned (grind_mup.sh step 4). Force-adding exactly these two
+        // paths tracks them from here on; nothing else under .duo/ is touched.
+        $command = array_merge(['git', '-C', $siteRepo, 'add', '-f', '--'], $paths);
         $process = @proc_open(
             $command,
             [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],

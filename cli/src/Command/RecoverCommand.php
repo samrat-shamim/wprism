@@ -8,6 +8,7 @@ require_once __DIR__ . '/../Transport/EnvironmentDriver.php';
 require_once __DIR__ . '/../Transport/CodeDeploy.php';
 require_once __DIR__ . '/../Recovery/CheckpointCatalog.php';
 require_once __DIR__ . '/../Recovery/RecoveryClaim.php';
+require_once __DIR__ . '/../Recovery/RetainedCheckpoints.php';
 require_once __DIR__ . '/../Recovery/RollbackAuthority.php';
 require_once __DIR__ . '/../Recovery/ScopedRollbackProfile.php';
 require_once __DIR__ . '/../Recovery/VerifiedRollbackProfile.php';
@@ -66,6 +67,19 @@ use Duo\CommandRefusalException;
  * the instant came from, because the receipt's own creation time and the
  * plan's release-start instant answer slightly different questions.
  *
+ * ## Which targets
+ *
+ * Every transport. The signed catalog and the signed rollback need the
+ * adopted rollback authority runtime, which only an SSH-adopted target has;
+ * the retained release checkpoints (`RetainedCheckpoints`) exist on every
+ * target that ever ran an operator-directed promotion, and they are restored
+ * through the operator-directed four steps, which need nothing but `wp`.
+ * A local or docker target therefore lists and restores its retained
+ * checkpoints, and the frozen plan's `operator-directed` claim on that
+ * transport is a claim this verb honours — `grind_mup.sh` step 11 is that
+ * property as a gate. The `recovery_authority_unavailable` refusal is kept
+ * for the one thing a non-SSH target genuinely cannot do: a signed rollback.
+ *
  * Exit status: `0` a completed listing or recovery, `1` any refusal or a
  * recovery that did not reach its terminal state.
  */
@@ -97,9 +111,8 @@ final class RecoverCommand {
         $json = AssessCommand::wantsJson($extra);
         try {
             $flags = self::flags($extra);
-            $transport = self::authorityTransport($driver);
             $catalog = CheckpointCatalog::list(
-                $transport,
+                $driver,
                 ($clock ?? static fn (): string => gmdate('Y-m-d\TH:i:s\Z'))()
             );
         } catch (CommandRefusalException $refusal) {
@@ -120,7 +133,7 @@ final class RecoverCommand {
         }
 
         try {
-            $outcome = self::restore($transport, $catalog, $flags, $json);
+            $outcome = self::restore($driver, $catalog, $flags, $json);
         } catch (CommandRefusalException $refusal) {
             return AssessCommand::renderRefusal($refusal, $json, 'recover');
         }
@@ -145,7 +158,7 @@ final class RecoverCommand {
      * @return array<string,mixed>
      */
     private static function restore(
-        SshTransport $transport,
+        EnvironmentDriver $transport,
         array $catalog,
         array $flags,
         bool $json
@@ -195,12 +208,13 @@ final class RecoverCommand {
         // false. `--operator-directed` forces that path explicitly.
         $signed = $row['kind'] === CheckpointCatalog::KIND_VERIFIED
             && $flags['operator_directed'] !== true
+            && $transport instanceof SshTransport
             && $transport->rollbackConfigured();
 
         self::assertCodeFirst($transport, $row, $signed);
 
         $steps = $signed
-            ? self::signedRollback($transport)
+            ? self::signedRollback(self::authorityTransport($transport))
             : self::operatorDirected($transport, $row);
 
         return [
@@ -256,14 +270,25 @@ final class RecoverCommand {
      * @param array<string,mixed> $row a catalog row
      * @return array{recovered:bool,steps:list<array<string,mixed>>}
      */
-    private static function operatorDirected(SshTransport $transport, array $row): array {
+    private static function operatorDirected(EnvironmentDriver $transport, array $row): array {
         $owner = (string) $row['owner'];
         $artifactHash = (string) $row['artifact_hash'];
+        if (preg_match('/^[a-f0-9]{64}$/D', $artifactHash) !== 1) {
+            // A retained checkpoint whose compiled artifact is gone. The lease
+            // `promotion-begin` takes is bound to (owner, artifact hash); a
+            // lease this command cannot name is a lease it must not take.
+            throw new CommandRefusalException(
+                'checkpoint_identity_unknown',
+                'this checkpoint has no artifact identity, so the promotion lease its recovery needs cannot be named',
+                'recover this environment through the provider that owns its backups; a retained checkpoint is '
+                    . 'restorable only while its compiled artifact under .duo/artifacts is present'
+            );
+        }
         // Proved BEFORE step 1. An absent or truncated checkpoint means there
         // is nothing to import, and finding that out after the lease has been
         // aborted and re-begun would leave the target opened up for a
         // recovery that was never possible.
-        $checkpoint = self::checkpointPath($transport, $owner);
+        $checkpoint = self::checkpointPath($transport, $row);
         $steps = [];
         $recovered = false;
 
@@ -304,9 +329,15 @@ final class RecoverCommand {
      *
      * @param array<string,mixed> $row
      */
-    private static function assertCodeFirst(SshTransport $transport, array $row, bool $signed): void {
+    private static function assertCodeFirst(EnvironmentDriver $transport, array $row, bool $signed): void {
         $covers = array_values(array_map('strval', (array) ($row['covers'] ?? [])));
-        if (!in_array(self::CODE_COVERAGE, $covers, true)) {
+        // A retained checkpoint's own row carries no code evidence — it is a
+        // database file — so the code question is asked of the frozen plan
+        // for the release that took it: a plan that entered a code lifecycle
+        // phase makes this checkpoint one taken around a code phase.
+        $aroundCode = in_array(self::CODE_COVERAGE, $covers, true)
+            || (RetainedCheckpoints::isRetained($row) && self::planHadCodePhase($row));
+        if (!$aroundCode) {
             return;
         }
         if ($signed) {
@@ -341,7 +372,7 @@ final class RecoverCommand {
      *
      * @param array<string,mixed> $row
      */
-    private static function priorCodeRevision(SshTransport $transport, array $row): ?string {
+    private static function priorCodeRevision(EnvironmentDriver $transport, array $row): ?string {
         unset($transport);
         foreach (self::frozenPlans() as $plan) {
             if ((string) ($plan['artifact_hash'] ?? '') !== (string) ($row['artifact_hash'] ?? '')) {
@@ -354,6 +385,31 @@ final class RecoverCommand {
         }
 
         return null;
+    }
+
+    /**
+     * Whether the frozen authorization plan for this checkpoint's release
+     * entered a code lifecycle phase (`AuthorizationPlan`'s
+     * `scope.code.lifecycle_phases`), matched by artifact hash. Unknown
+     * (no matching plan) is treated as no code phase: the plan is the only
+     * durable record, and a checkpoint with no plan at all is one an
+     * operator-directed release never froze, which the ordinary lease
+     * machinery already refuses to import under a different code revision.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function planHadCodePhase(array $row): bool {
+        foreach (self::frozenPlans() as $plan) {
+            if ((string) ($plan['artifact_hash'] ?? '') !== (string) ($row['artifact_hash'] ?? '')) {
+                continue;
+            }
+            $phases = $plan['scope']['code']['lifecycle_phases'] ?? [];
+            if (is_array($phases) && array_intersect($phases, AuthorizationPlan::CODE_LIFECYCLE_PHASES) !== []) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -506,15 +562,18 @@ final class RecoverCommand {
      * non-emptiness are proved before the import: an empty checkpoint is
      * evidence of an interrupted export, not a checkpoint.
      */
-    private static function checkpointPath(SshTransport $transport, string $owner): string {
-        if (preg_match('/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D', $owner) !== 1) {
+    private static function checkpointPath(EnvironmentDriver $transport, array $row): string {
+        $owner = (string) ($row['owner'] ?? '');
+        if (preg_match(RetainedCheckpoints::OWNER_PATTERN, $owner) !== 1) {
             throw new CommandRefusalException(
                 'checkpoint_owner_invalid',
                 'the active receipt names an owner this build will not turn into a filesystem path',
                 'inspect private operator evidence for this target before recovering'
             );
         }
-        $path = rtrim($transport->repoPath(), '/') . '/.duo/checkpoints/promote-' . $owner . '.sql';
+        // Both sources agree on the path: promote wrote it, and the signed
+        // receipt's owner names the same file.
+        $path = RetainedCheckpoints::checkpointPath($transport->repoPath(), $row);
         $probe = $transport->captureRaw('test -s ' . escapeshellarg($path));
         if (($probe['exit'] ?? 1) !== 0) {
             throw new CommandRefusalException(
@@ -530,7 +589,7 @@ final class RecoverCommand {
     }
 
     /** The target repository's current revision, for the code-first compare. */
-    private static function targetHead(SshTransport $transport): ?string {
+    private static function targetHead(EnvironmentDriver $transport): ?string {
         $result = $transport->captureRaw(
             'git -C ' . escapeshellarg($transport->repoPath()) . ' rev-parse HEAD'
         );
@@ -547,7 +606,7 @@ final class RecoverCommand {
      * @param list<string> $args
      * @return array<string,mixed>
      */
-    private static function step(SshTransport $transport, string $name, array $args): array {
+    private static function step(EnvironmentDriver $transport, string $name, array $args): array {
         $result = $transport->captureWp($args);
 
         return [
@@ -562,7 +621,8 @@ final class RecoverCommand {
     /**
      * Only an SSH target carries the rollback authority runtime, which is
      * what every action in `recovery/rollback-control.php` is reached
-     * through. Saying so is more useful than a missing catalog.
+     * through. It is needed for the signed rollback alone; the listing and
+     * the operator-directed restore work on every transport.
      */
     private static function authorityTransport(EnvironmentDriver $driver): SshTransport {
         if ($driver instanceof SshTransport) {
@@ -570,10 +630,9 @@ final class RecoverCommand {
         }
         throw new CommandRefusalException(
             'recovery_authority_unavailable',
-            'this transport carries no rollback authority runtime, so there is no signed checkpoint catalog to '
-                . 'list or restore',
-            'recover this environment through the provider that owns its backups; duo recover drives the '
-                . 'adopted rollback authority, which only an SSH-adopted target has'
+            'this transport carries no rollback authority runtime, so a signed rollback cannot be driven here',
+            'restore a retained release checkpoint with --restore=<id> instead, or recover this environment '
+                . 'through the provider that owns its backups; the signed rollback needs an SSH-adopted target'
         );
     }
 

@@ -251,6 +251,27 @@ else
   fail "the provider accepted a config-less invocation (exit $STATUS)"
 fi
 
+# The freeze witness ignores WordPress core's cron lock and nothing else.
+# `spawn_cron()` rewrites the `doing_cron` transient's timestamp on any
+# bootstrap that finds cron due — live traffic does, and so does the
+# orchestrator's own refresh-export between snapshot-prepare and
+# snapshot-create — so a witness that counted it refused every live source
+# (grind_mup.sh step 5). A real write between the two dumps must still refuse.
+php -r '
+$code = (string) file_get_contents($argv[1]);
+if (!preg_match("/function ref_freeze_witness\\(string \\\$dump\\): string \\{.*?\\n\\}/s", $code, $m)) { fwrite(STDERR, "ref_freeze_witness not found\n"); exit(1); }
+eval(str_replace("function ref_freeze_witness", "function witness", $m[0]));
+$q = chr(39);
+$a = "INSERT INTO `wp_options` VALUES (1,{$q}siteurl{$q},{$q}http://x{$q},{$q}on{$q}),(125,{$q}_transient_doing_cron{$q},{$q}1786978834.28991{$q},{$q}on{$q}),(126,{$q}x{$q},{$q}y{$q},{$q}on{$q});\n";
+$cronBumped = str_replace("1786978834.28991", "1786978920.39308", $a);
+$realWrite = str_replace("(126,{$q}x{$q},{$q}y{$q},{$q}on{$q})", "(126,{$q}x{$q},{$q}z{$q},{$q}on{$q})", $a);
+$ok = witness($a) === witness($cronBumped) && witness($a) !== witness($realWrite) && witness($a) !== hash("sha256", $a);
+if (!$ok) { fwrite(STDERR, "witness semantics wrong\n"); exit(1); }
+echo "ok\n";
+' "$PROVIDER" > /dev/null 2> "$TMP/witness.err" \
+  && pass 'the freeze witness ignores the doing_cron lock timestamp and still refuses a real write' \
+  || { fail "the freeze witness semantics are wrong: $(cat "$TMP/witness.err")"; }
+
 # ------------------------------------------------------ 4: the disclosure
 say 'the containment disclosure and the rehearsal preview'
 mkdir -p "$TMP/fixture"

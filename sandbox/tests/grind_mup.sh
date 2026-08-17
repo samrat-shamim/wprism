@@ -56,25 +56,31 @@
 #       call goes through `run`/`capture`, which print instead of executing
 #       when DRY_RUN=1.
 #
-# ## The step-11 transport gate
+# ## The step-11 gate
 #
-# `duo recover` drives the adopted rollback-authority runtime, and
-# `RecoverCommand::authorityTransport()` accepts an SSH transport and nothing
-# else — every other transport gets the typed refusal
-# `recovery_authority_unavailable`. `sandbox/bin/pair.sh` publishes no sshd, so
-# on this pair `duo recover mup2 --list` refuses by construction. That is a
-# real gap between MUP §6.1's grind and MUP §2.5's verb, not a defect in this
-# script, and it is not papered over:
+# `duo recover` lists two sources: the signed receipt of the adopted rollback
+# authority (an SSH-adopted target only) and the plain database checkpoint
+# every operator-directed release RETAINS under `.duo/checkpoints/` (every
+# transport — round-3 T5, `RetainedCheckpoints`). `sandbox/bin/pair.sh`
+# publishes no sshd, so on this pair the release at step 9 runs the
+# operator-directed profile, its frozen plan claims `restores: database
+# checkpoint`, and step 11 restores exactly that retained checkpoint through
+# the four ordered steps. Before T5 this pair could not reach step 11 at all
+# (`recovery_authority_unavailable` by construction); the knob that recorded
+# that gap is kept for a target that genuinely refuses:
 #
 #   MUP_STEP11=required   (default) step 11 runs exactly as §6.1 writes it and
-#                         FAILS, naming the gap, if `duo recover --list` cannot
-#                         list the checkpoint the release just took.
-#   MUP_STEP11=record-gap steps 1-10 and 12-13 still produce evidence; step 11
-#                         asserts the refusal is the typed, named one and that
-#                         the frozen plan's claim is literal, then prints
-#                         THESIS GATE NOT EXECUTED on stdout and stderr and in
-#                         the final summary. It is not a pass of step 11 and
-#                         says so three times.
+#                         FAILS if `duo recover --list` cannot list the
+#                         checkpoint the release just took, or the restore does
+#                         not make the printed boundary literally true.
+#   MUP_STEP11=record-gap steps 1-10 and 12-13 still produce evidence; if step
+#                         11's listing refuses with the typed
+#                         `recovery_authority_unavailable`, the frozen plan's
+#                         claim is asserted literal and THESIS GATE NOT
+#                         EXECUTED is printed on stdout and stderr and in the
+#                         final summary. It is not a pass of step 11 and says
+#                         so three times. If the listing succeeds, step 11 runs
+#                         in full regardless of this knob.
 #
 # Bash + docker + jq + php. Never `make`; never another agent's pair.
 set -euo pipefail
@@ -289,7 +295,7 @@ mup_boundary_expectation() {
   local boundary="$1"
   case "$boundary" in
     'writes committed after checkpoint '*) printf 'lost\n' ;;
-    'writes committed after the checkpoint this release takes immediately before mutation') printf 'lost\n' ;;
+    'writes committed after the checkpoint this release takes immediately before mutation'*) printf 'lost\n' ;;
     'everything this release writes: no checkpoint is taken, so nothing bounds the loss') printf 'unbounded\n' ;;
     *) printf 'the recovery claim printed a maximum_loss_boundary this grind cannot read literally: %s\n' \
          "$boundary" >&2; return 1 ;;
@@ -363,14 +369,23 @@ mup_projection_subset() {
 
 # mup_write_registry <envs-file> <compose-file> <one> <two> <php> <provider> <config>
 # The machine-local overlay MUP §6.1 needs: the two pair sides, plus the
-# `preview` entry that carries the privileged provider block. Extracted so the
-# run path and --self-check write the SAME bytes; a registry the grind can
-# write but the orchestrator cannot load is a failure worth finding offline.
+# `preview` entry that carries the privileged provider block. The SOURCE side
+# carries the same block: `EnvironmentCommand` builds a provider client for
+# `--from <env>` as well as for the target (the source provider answers
+# `inspect`, `snapshot-prepare` and `snapshot-create`), and the reference
+# provider's config names ${PAIR}1 as its `source_environment`. Only the
+# release target `${PAIR}2` carries none — `duo release`/`verify`/`recover`
+# need no provider. Extracted so the run path and --self-check write the SAME
+# bytes; a registry the grind can write but the orchestrator cannot load is a
+# failure worth finding offline.
 mup_write_registry() {
   jq -n --arg compose "$2" --arg one "$3" --arg two "$4" \
         --arg php "$5" --arg provider "$6" --arg config "$7" '
     {envs: {
-      ($one): {transport: "docker", compose_file: $compose, service: "cli1", repo_path: "/siterepo"},
+      ($one): {
+        transport: "docker", compose_file: $compose, service: "cli1", repo_path: "/siterepo",
+        environment_provider: {command: [$php, $provider, $config], timeout_seconds: 60}
+      },
       ($two): {transport: "docker", compose_file: $compose, service: "cli2", repo_path: "/siterepo"},
       preview: {
         transport: "docker", compose_file: $compose, service: "cli2", repo_path: "/siterepo",
@@ -379,7 +394,7 @@ mup_write_registry() {
     }}' > "$1"
 }
 
-# mup_validate_registry <envs-file> — load it through the REAL orchestrator
+# mup_validate_registry <envs-file> <source-env> — load it through the REAL orchestrator
 # registry and construct the REAL provider client from the `preview` entry.
 #
 # `CommandEnvironmentProvider::fromEnvironment()` is EnvironmentLifecycle's own
@@ -393,15 +408,19 @@ mup_validate_registry() {
     require $argv[2] . "/cli/src/Environment/Registry.php";
     require $argv[2] . "/cli/src/Environment/EnvironmentLifecycle.php";
     $envs = \Duo\Orchestrator\Registry::load($argv[1], dirname($argv[1]));
-    foreach (["preview"] as $name) {
+    $source = $argv[3];
+    foreach (["preview", $source] as $name) {
         if (!is_array($envs[$name] ?? null)) {
             fwrite(STDERR, "the registry has no $name environment\n");
             exit(1);
         }
     }
+    // The materializer builds a provider client for BOTH ends of a
+    // rehearsal, so both entries must be loadable as provider-bearing.
     \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment("preview", $envs["preview"]);
-    echo "preview provider config accepted by EnvironmentLifecycle\n";
-  ' "$1" "$REPO_ROOT"
+    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($source, $envs[$source]);
+    echo "preview and source provider config accepted by EnvironmentLifecycle\n";
+  ' "$1" "$REPO_ROOT" "$2"
 }
 
 # ---------------------------------------------------------------------------
@@ -568,14 +587,21 @@ self_check() {
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/grind-mup-selfcheck.XXXXXX")"
   mup_write_registry "$tmp/.duo-envs.json" "$SANDBOX/pair.yml" mup1 mup2 \
     "$(command -v php)" "$REPO_ROOT/tools/reference-env-provider.php" "$tmp/config.json"
-  if mup_validate_registry "$tmp/.duo-envs.json" >/dev/null 2>&1; then
-    pass "the registry this grind writes is accepted by EnvironmentLifecycle's provider-config schema"
+  if mup_validate_registry "$tmp/.duo-envs.json" mup1 >/dev/null 2>&1; then
+    pass "the registry this grind writes is accepted by EnvironmentLifecycle's provider-config schema, source and preview"
   else
-    soft_fail "the registry this grind writes is rejected by EnvironmentLifecycle: $(mup_validate_registry "$tmp/.duo-envs.json" 2>&1)"
+    soft_fail "the registry this grind writes is rejected by EnvironmentLifecycle: $(mup_validate_registry "$tmp/.duo-envs.json" mup1 2>&1)"
+  fi
+  # The release target carries no provider: it needs none, and a provider
+  # block is privileged host configuration nothing else should carry.
+  if jq -e '.envs.mup2 | has("environment_provider") | not' "$tmp/.duo-envs.json" >/dev/null; then
+    pass "the release target carries no provider block"
+  else
+    soft_fail "the release target carries a provider block it does not need"
   fi
   # A relative provider executable is the mistake this schema exists to catch.
   jq '.envs.preview.environment_provider.command[0] = "php"' "$tmp/.duo-envs.json" > "$tmp/relative.json"
-  if mup_validate_registry "$tmp/relative.json" >/dev/null 2>&1; then
+  if mup_validate_registry "$tmp/relative.json" mup1 >/dev/null 2>&1; then
     soft_fail "EnvironmentLifecycle accepted a relative provider executable"
   else
     pass "a relative provider executable is refused before any provider call"
@@ -775,6 +801,22 @@ run mkdir -p "$PROVIDER_STATE" "$EVIDENCE"
 say "step 1/13 — pair '$PAIR' up on :$PORT1/:$PORT2, pinned extensions, seeded catalog"
 if ! dry; then validate_artifact_lock "$SANDBOX/conformance/artifacts.lock.json" \
   || fail "artifact lock is malformed; the grind refused before pair reset"; fi
+# The pair's cli containers need Git: `duo init` (step 2 in its §6.1 form)
+# proves Git on the target before confirming, and `duo rehearse` reads the
+# production side's HEAD commit inside its own environment
+# (EnvironmentLifecycle::productionCommit()). The stock wordpress:cli image
+# ships none, so the same evidence-only image `regress_duo_init.sh` builds is
+# used here — `sandbox/init-cli.Dockerfile`, wordpress:cli-php8.3 plus git —
+# and handed to pair.sh through DUO_CLI_IMAGE. Every later `duo` call in this
+# grind inherits the variable, so the docker transport runs the same image.
+DUO_CLI_IMAGE="${DUO_CLI_IMAGE:-duo-mup-cli-git:${PAIR}}"
+export DUO_CLI_IMAGE
+if ! dry; then
+  docker build -q -f init-cli.Dockerfile -t "$DUO_CLI_IMAGE" . >/dev/null \
+    || fail "could not build the Git-enabled cli image $DUO_CLI_IMAGE from sandbox/init-cli.Dockerfile"
+else
+  plan "docker build -q -f init-cli.Dockerfile -t $DUO_CLI_IMAGE .   # wordpress:cli-php8.3 + git"
+fi
 PAIR_UP=1
 run bash bin/pair.sh reset "$PAIR"
 run bash bin/pair.sh up "$PAIR" "$PORT1" "$PORT2" "${PAIR_UP_FLAGS[@]}"
@@ -852,14 +894,15 @@ say "registry — .duo-envs.json for ${PAIR}1, ${PAIR}2 and preview"
 # sides. They are two registry entries because only one of them carries the
 # privileged `environment_provider` block — a provider config is machine-local
 # authority (EnvironmentLifecycle refuses it anywhere but .duo-envs.json), and
-# `duo release`/`duo verify`/`duo recover` need none of it.
+# `duo release`/`duo verify`/`duo recover` need none of it. `${PAIR}1`, the
+# rehearsal SOURCE, carries the block too (see mup_write_registry).
 if dry; then
   plan "write $ENVS_FILE (docker cli1/cli2; preview carries environment_provider -> php $PROVIDER $PROVIDER_CONFIG)"
   plan "write $PROVIDER_CONFIG (duo-reference-env-provider-config/v1, pair $PAIR)"
 else
   mup_write_registry "$ENVS_FILE" "${COMPOSE_FILES[0]}" "${PAIR}1" "${PAIR}2" \
     "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG"
-  mup_validate_registry "$ENVS_FILE" \
+  mup_validate_registry "$ENVS_FILE" "${PAIR}1" \
     || fail "the .duo-envs.json this grind wrote is not loadable as a machine-local provider registry"
   jq -n \
     --arg pair "$PAIR" --arg script "$SANDBOX/bin/pair.sh" --arg dir "$SANDBOX" \
@@ -917,9 +960,17 @@ if ! dry; then
   if duo_in "$HOST_R1" adopt "${PAIR}1" > "$ADOPT_OUT" 2>&1; then
     note "duo adopt ${PAIR}1 succeeded on this transport"
   else
-    grep -Fq 'adopt requires a transport with explicit control-plane transfer authority' "$ADOPT_OUT" \
-      || fail "duo adopt failed for a reason this grind does not recognize; see $ADOPT_OUT"
-    pass "duo adopt refuses the pair's docker transport by name (the pair side already carries the agent)"
+    # Two typed refusals are legitimate here and both name the cause: the
+    # driver preflight (docker implements neither code.transfer nor
+    # environment.bootstrap, and no emulation is permitted) fires first; the
+    # AdoptCommand transport check is what fires on a driver that passes
+    # preflight without adoption authority.
+    if grep -Fq "driver preflight blocked 'adopt'" "$ADOPT_OUT" \
+      || grep -Fq 'adopt requires a transport with explicit control-plane transfer authority' "$ADOPT_OUT"; then
+      pass "duo adopt refuses the pair's docker transport with a typed reason (the pair side already carries the agent): $(head -1 "$ADOPT_OUT")"
+    else
+      fail "duo adopt failed for a reason this grind does not recognize; see $ADOPT_OUT"
+    fi
   fi
 else
   plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE adopt ${PAIR}1)"
@@ -1153,6 +1204,17 @@ pass "step 7 — origin main is $MAIN_SHA"
 # target is actually in: the repository carries the change, the site does not
 # yet. Nothing else on the target is touched, and the revert is asserted
 # afterwards so it cannot silently no-op.
+#
+# The revert alone is not enough, and `duo release` said so (run 13): the
+# target's identity ledger recorded the EDITED values at step 6's capture, so
+# reverting the live rows underneath it reads as `drift` (the site moved
+# since its last capture/apply), and a drifted target is refused
+# (`release_target_not_clean` -> capture first). A real release target's
+# ledger agrees with its live rows; the repository is what is ahead. So the
+# revert is followed by one capture on the target — the ledger now records
+# the pre-release values, the same capture-first workflow the refusal names —
+# and the working tree that capture wrote is discarded back to main, which
+# carries the edit. The plan then reads `2 update`, never `drift`.
 # ---------------------------------------------------------------------------
 say "step 7b/13 — revert the two live values on ${PAIR}2 so the release has something to apply"
 PRE_PRICE=24.00
@@ -1163,10 +1225,18 @@ if ! dry; then
   wp2 post update "$PREVIEW_PAGE_ID" --post_content="$PRE_BODY"
   [ "$(wp2 post meta get "$PREVIEW_PRODUCT_ID" _regular_price | tr -d '\r')" = "$PRE_PRICE" ] \
     || fail "step 7b: the live price revert did not take"
+  duo_in "$HOST_R2" capture "${PAIR}2" > "$SCRATCH/capture-7b.txt" 2>&1 \
+    || { cat "$SCRATCH/capture-7b.txt" >&2; fail "step 7b: the capture that records the reverted values in the target ledger failed"; }
+  git2 checkout -q -- .
+  git2 clean -fdq
+  [ -z "$(git -C "$HOST_R2" status --porcelain)" ] \
+    || fail "step 7b: the target clone is not back at main after discarding the ledger-updating capture"
 else
   plan "wp2 post meta update <product> _regular_price $PRE_PRICE  # and _price, and the page body"
+  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE capture ${PAIR}2)   # ledger records the pre-release values"
+  plan "git -C $HOST_R2 checkout -- . && git -C $HOST_R2 clean -fd          # working tree back to main"
 fi
-pass "step 7b — the target's live price and page body are back at their pre-release values"
+pass "step 7b — the target's live price and page body are back at their pre-release values, and its ledger knows"
 
 # ---------------------------------------------------------------------------
 # Step 8 — the frozen authorization plan, --plan-only.
@@ -1323,11 +1393,10 @@ if [ "$LIST_RC" != 0 ] && ! dry; then
       STEP11_EXECUTED=0
     else
       fail "step 11: duo recover ${PAIR}2 --list refused with recovery_authority_unavailable.
-RecoverCommand::authorityTransport() accepts an SSH transport and nothing else, and
-sandbox/bin/pair.sh publishes no sshd, so MUP §2.5's verb cannot reach the checkpoint
-MUP §6.1's own grind just took. That is the gap; it is not worked around here.
-Run with MUP_STEP11=record-gap to collect the other twelve steps' evidence while it
-is open, or point ${PAIR}2 at an SSH-adopted target."
+Since round-3 T5 the operator-directed release checkpoint promote retains under
+.duo/checkpoints is listed and restorable on every transport (RetainedCheckpoints),
+so this refusal means the verb regressed, not that the pair cannot carry it.
+Run with MUP_STEP11=record-gap only to collect the other twelve steps' evidence."
     fi
   else
     cat "$RECOVER_LIST" >&2
@@ -1338,16 +1407,31 @@ elif ! dry; then
     || cp "$SCRATCH/recover-list.raw" "$CATALOG_JSON"
   RECEIPT_ID="$(mup_checkpoint_id "$CATALOG_JSON")" \
     || fail "step 11: the checkpoint catalog names no receipt to restore"
-  pass "step 11 — the release's checkpoint is listed as receipt $RECEIPT_ID"
+  # "The checkpoint the release just took", literally: promote printed the
+  # retained checkpoint's path at step 9, and the catalog's first row must be
+  # that file — not an older checkpoint, not a fabricated receipt.
+  RETAINED_LINE="$(grep -F 'database checkpoint retained: ' "$RELEASE_OUT" | tail -1 || true)"
+  if [ -n "$RETAINED_LINE" ]; then
+    RETAINED_ID="$(basename "${RETAINED_LINE#*database checkpoint retained: }" .sql | tr -d '\r')"
+    [ "$RETAINED_ID" = "$RECEIPT_ID" ] \
+      || fail "step 11: the catalog lists '$RECEIPT_ID' first, but the release retained '$RETAINED_ID'"
+    pass "step 11 — the listed checkpoint is the one the release printed at step 9 ($RECEIPT_ID)"
+  else
+    pass "step 11 — the release's checkpoint is listed as receipt $RECEIPT_ID (a signed receipt; promote printed no retained path)"
+  fi
 
   duo_in "$HOST_R2" recover "${PAIR}2" --restore="$RECEIPT_ID" --writers-excluded \
     > "$RECOVER_OUT" 2>&1 \
     || { cat "$RECOVER_OUT" >&2; fail "step 11: duo recover --restore did not complete"; }
 
-  # The claim is printed BEFORE acting. `restores:` precedes the first driven
-  # step in the output, or the operator read it too late to stop.
-  CLAIM_LINE="$(grep -n -m1 -E '^(restores|does not restore)' "$RECOVER_OUT" | cut -d: -f1 || true)"
-  ACTION_LINE="$(grep -n -m1 -E 'abort|begin|import|signed-rollback' "$RECOVER_OUT" | cut -d: -f1 || true)"
+  # The claim is printed BEFORE acting. `recovery profile:` (the claim's
+  # first line, RecoveryClaim::humanLines()) precedes the first driven step —
+  # the indented `<step>: ok|FAILED — …` lines RecoverCommand prints under
+  # `recover <env>:` — or the operator read it too late to stop. The step
+  # regex is anchored to that exact shape: the claim's own does-not-restore
+  # prose contains the words "import" and "abort" and must not count.
+  CLAIM_LINE="$(grep -n -m1 -E '^recovery profile: ' "$RECOVER_OUT" | cut -d: -f1 || true)"
+  ACTION_LINE="$(grep -n -m1 -E '^  (abort|begin|import|final-abort|signed-rollback): ' "$RECOVER_OUT" | cut -d: -f1 || true)"
   [ -n "$CLAIM_LINE" ] \
     || fail "step 11: duo recover printed no recovery claim; see $RECOVER_OUT"
   if [ -n "$ACTION_LINE" ]; then

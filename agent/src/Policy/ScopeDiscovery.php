@@ -183,20 +183,24 @@ final class ScopeDiscovery {
         $termObject = [];
         foreach ($taxonomies as $taxonomy) {
             $taxonomyObject = get_taxonomy($taxonomy);
-            // A pattern-matched taxonomy can be in policy scope before its
-            // plugin has registered it in this request. The manifest-owned
-            // pattern contract is the only accepted fallback; exact names
-            // without that evidence remain unknown below.
+            // A taxonomy can be in policy scope without being registered in
+            // this request: a pattern-matched name before its plugin's
+            // `init` caught up, or — under the isolated control bootstrap
+            // refresh-export runs in — every plugin taxonomy, because no
+            // plugin is loaded there at all. The manifest-owned registration
+            // declaration (`taxonomies.<tax>.object_type`, then a matching
+            // `taxonomy_patterns` object_type) is the only accepted
+            // fallback; names without that evidence remain unknown below.
             $objectTypes = $taxonomyObject !== false
                 ? (array) $taxonomyObject->object_type
-                : $this->policy->pattern_object_type($taxonomy);
+                : $this->policy->declared_object_type($taxonomy);
             if ($objectTypes === null) {
                 if ($strictReadOnly) {
                     throw new \RuntimeException(
                         "duo: refresh export refused — taxonomy '$taxonomy' is in policy scope but is not registered "
-                        . 'under the isolated control bootstrap, and no plugin-owned taxonomy_patterns '
-                        . 'object_type declaration can prove which post or term relationships belong to it; '
-                        . 'add that manifest/provider contract before refreshing production'
+                        . 'under the isolated control bootstrap, and no plugin-owned taxonomies.<name>.object_type '
+                        . 'or taxonomy_patterns object_type declaration can prove which post or term relationships '
+                        . 'belong to it; add that manifest/provider contract before refreshing production'
                     );
                 }
                 ($this->warn)(

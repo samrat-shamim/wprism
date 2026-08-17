@@ -28,7 +28,11 @@ final class TaxonomyGrammar {
     public static function validate_taxonomy_object_keyspace_declarations(array $manifest): void {
         $name = (string) ($manifest['name'] ?? '?');
         foreach ((array) ($manifest['taxonomies'] ?? []) as $tax => $rule) {
-            if (!is_array($rule) || !array_key_exists('object_keyspace', $rule)) {
+            if (!is_array($rule)) {
+                continue;
+            }
+            self::validate_taxonomy_registration_declaration($rule, "manifest '$name' taxonomies.$tax");
+            if (!array_key_exists('object_keyspace', $rule)) {
                 continue;
             }
             self::validate_taxonomy_object_keyspace_value(
@@ -104,6 +108,42 @@ final class TaxonomyGrammar {
                         . 'sub-key values (post-type/taxonomy slugs, never ids)'
                     );
                 }
+            }
+        }
+    }
+
+    /**
+     * `taxonomies.<tax>.object_type` / `.update_count_callback` — the exact
+     * registration facts `TaxonomyPatternResolver::declaredRegistration()`
+     * serves (the plugin's own `register_taxonomy()` arguments, needed where
+     * the plugin is not loaded). Same shape a `taxonomy_patterns` entry uses:
+     * a non-empty list of non-empty object-type strings, and a non-empty
+     * callback name when present. `update_count_callback` without
+     * `object_type` is refused: a count contract for a taxonomy whose
+     * relationships cannot be attributed is a contract about nothing.
+     */
+    private static function validate_taxonomy_registration_declaration(array $rule, string $where): void {
+        $hasObjectType = array_key_exists('object_type', $rule);
+        if ($hasObjectType) {
+            $types = $rule['object_type'];
+            if (!is_array($types) || !array_is_list($types) || $types === []) {
+                throw new \RuntimeException("duo: $where.object_type must be a non-empty list of object type names");
+            }
+            foreach ($types as $type) {
+                if (!is_string($type) || $type === '') {
+                    throw new \RuntimeException("duo: $where.object_type must contain only non-empty strings");
+                }
+            }
+        }
+        if (array_key_exists('update_count_callback', $rule)) {
+            if (!$hasObjectType) {
+                throw new \RuntimeException(
+                    "duo: $where.update_count_callback requires an object_type declaration beside it"
+                );
+            }
+            $callback = $rule['update_count_callback'];
+            if (!is_string($callback) || $callback === '') {
+                throw new \RuntimeException("duo: $where.update_count_callback must be a non-empty callback name");
             }
         }
     }

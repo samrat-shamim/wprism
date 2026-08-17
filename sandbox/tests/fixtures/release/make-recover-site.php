@@ -5,14 +5,18 @@ declare(strict_types=1);
  * Build the offline fixture `regress_recover_ordering.sh` drives
  * `php cli/duo recover` against.
  *
- * `duo recover` only exists on an SSH-adopted target, because the adopted
- * rollback authority runtime is what every action in
- * `recovery/rollback-control.php` is reached through. This fixture therefore
- * builds a real `ssh` environment entry and puts a fake `ssh` on PATH that
- * runs the remote command locally — the same shape
+ * The signed catalog and the signed rollback exist only on an SSH-adopted
+ * target, because the adopted rollback authority runtime is what every
+ * action in `recovery/rollback-control.php` is reached through. This fixture
+ * therefore builds a real `ssh` environment entry and puts a fake `ssh` on
+ * PATH that runs the remote command locally — the same shape
  * `sandbox/tests/fixtures/duo3344-scoped-promote-unit.php` uses, kept small
  * here because the subject under test is the HOST'S ordering, not the signed
  * runtime (which `regress_scoped_promote_unit.sh` already covers end to end).
+ * A second, `local` environment (`plain`) points at the same target
+ * repository with no authority runtime in play, so the retained release
+ * checkpoints — the rows every transport has — are exercised on a transport
+ * that has nothing else.
  *
  * What it produces under `<dir>`:
  *
@@ -25,6 +29,16 @@ declare(strict_types=1);
  *                     .duo/checkpoints/promote-<owner>.sql
  *                       — the operator-directed checkpoint; a suite deletes
  *                         it to exercise the absent-checkpoint refusal
+ *                     .duo/artifacts/promote-<owner>.json
+ *                       — the compiled artifact the same promotion retained,
+ *                         whose top-level artifact_hash is the lease identity
+ *                         a retained checkpoint is restored under; a suite
+ *                         deletes it to exercise the no-identity refusal
+ *                     .duo/checkpoints/promote-<code-owner>.sql (+ artifact)
+ *                       — a second retained checkpoint whose frozen plan
+ *                         entered a code lifecycle phase, for code-first
+ *   envs.json       one `ssh` environment named `fixture`, one `local`
+ *                   environment named `plain` on the same target repository
  *   bin/ssh         runs the remote command locally
  *   bin/wp          records every call and honours the injected exit codes
  *   envs.json       one `ssh` environment named `fixture`
@@ -60,6 +74,9 @@ if (!is_string($dir) || $dir === '') {
 const RECOVER_OWNER = 'recover-fixture-owner';
 const RECOVER_RECEIPT = 'receipt-recover-fixture';
 const RECOVER_ARTIFACT = 'a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1';
+/** The second retained checkpoint: a release that entered a code lifecycle phase. */
+const RECOVER_CODE_OWNER = 'recover-fixture-code';
+const RECOVER_CODE_ARTIFACT = 'b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2';
 
 foreach (['site', 'target', 'bin', 'wordpress', 'status'] as $child) {
     if (!is_dir("$dir/$child") && !mkdir("$dir/$child", 0700, true) && !is_dir("$dir/$child")) {
@@ -120,6 +137,43 @@ AuthorizationPlan::freeze($document, "$dir/site");
 file_put_contents("$dir/plan-digest", (string) $document['plan_digest']);
 file_put_contents("$dir/claim.json", RecoveryClaim::encode($claim));
 
+// A second frozen plan, for a release that entered the code lifecycle
+// window: its retained checkpoint is one taken around a code phase, so
+// restoring it is subject to code-first even though the checkpoint file
+// itself carries no code evidence.
+$codePlan = json_decode((string) file_get_contents(__DIR__ . '/plan-clean.json'), true, 512, JSON_THROW_ON_ERROR);
+$codeDocument = AuthorizationPlan::build([
+    'authority' => [],
+    'capabilities' => [],
+    'contract' => [
+        'contract_digest' => 'sha256:' . str_repeat('cd', 32),
+        'declarations' => ['external_effects' => [[
+            'containment' => 'live',
+            'effect_recovery_semantics' => 'compensatable',
+            'reason' => 'the plugin lifecycle window fires WordPress hooks',
+            'surfaces' => [AuthorizationPlan::LIFECYCLE_WINDOW_SURFACE],
+        ]]],
+    ],
+    'deletion_semantics' => [],
+    'environment' => 'fixture',
+    'flags' => ['plan_only' => false, 'with_deletes' => false],
+    'frozen_at' => '2026-08-17T10:00:00Z',
+    'plan' => $codePlan,
+    'projection' => [],
+    'recovery' => [
+        'checkpoint_at' => '2026-08-17T10:00:00Z',
+        'claim' => $claim,
+        'selected' => RecoveryClaim::OPERATOR_DIRECTED,
+        'selected_because' => 'the fixture target proves a database checkpoint and nothing more',
+    ],
+    'scope' => ['code' => ['lifecycle_phases' => ['retire', 'activate'], 'plugins_changed' => 1, 'themes_changed' => 0], 'surfaces' => []],
+    'target' => [
+        'artifact_hash' => RECOVER_CODE_ARTIFACT,
+        'code_revision_from' => str_repeat('e1', 20),
+    ],
+]);
+AuthorizationPlan::freeze($codeDocument, "$dir/site");
+
 // ----------------------------------------------------------- the target repo
 file_put_contents("$dir/target/site.duo.json", json_encode([
     'code' => ['format' => 1, 'layout' => 'wp-content', 'source' => 'code/wp-content'],
@@ -131,7 +185,7 @@ exec('git -C ' . escapeshellarg("$dir/target") . ' init -q 2>/dev/null');
 exec('git -C ' . escapeshellarg("$dir/target")
     . ' -c user.email=f@example.invalid -c user.name=f commit -q --allow-empty -m target 2>/dev/null');
 
-foreach (['.duo/control/recovery-runtime', '.duo/checkpoints'] as $child) {
+foreach (['.duo/control/recovery-runtime', '.duo/checkpoints', '.duo/artifacts'] as $child) {
     if (!is_dir("$dir/target/$child") && !mkdir("$dir/target/$child", 0700, true)) {
         fwrite(STDERR, "make-recover-site: could not create $dir/target/$child\n");
         exit(2);
@@ -140,6 +194,24 @@ foreach (['.duo/control/recovery-runtime', '.duo/checkpoints'] as $child) {
 file_put_contents(
     "$dir/target/.duo/checkpoints/promote-" . RECOVER_OWNER . '.sql',
     "-- fixture checkpoint\n"
+);
+// The compiled artifact promote retained beside the checkpoint, in the
+// agent's own encoding (CompiledArtifact::write() -> Canon::encode(), the
+// pretty-printed canonical form): its top-level artifact_hash is what a
+// retained checkpoint's lease identity is read from.
+file_put_contents(
+    "$dir/target/.duo/artifacts/promote-" . RECOVER_OWNER . '.json',
+    \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
+);
+// The code-phase release's pair, dated earlier so the listing order is fixed.
+file_put_contents(
+    "$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql',
+    "-- fixture checkpoint (code phase)\n"
+);
+touch("$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql', 1_700_000_000);
+file_put_contents(
+    "$dir/target/.duo/artifacts/promote-" . RECOVER_CODE_OWNER . '.json',
+    \Duo\Canon::encode(['artifact_hash' => RECOVER_CODE_ARTIFACT, 'format' => 'duo-compiled/fixture'])
 );
 
 // The stub runtime. It answers only the two read-only actions the checkpoint
@@ -248,6 +320,13 @@ file_put_contents("$dir/envs.json", json_encode([
         'fixture' => [
             'transport' => 'ssh',
             'host' => 'fixture.invalid',
+            'wp_path' => realpath("$dir/wordpress") ?: "$dir/wordpress",
+            'repo_path' => realpath("$dir/target") ?: "$dir/target",
+        ],
+        // The same target through a transport that carries no rollback
+        // authority runtime: only the retained checkpoints exist here.
+        'plain' => [
+            'transport' => 'local',
             'wp_path' => realpath("$dir/wordpress") ?: "$dir/wordpress",
             'repo_path' => realpath("$dir/target") ?: "$dir/target",
         ],
