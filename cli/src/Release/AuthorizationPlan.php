@@ -552,6 +552,13 @@ final class AuthorizationPlan {
                 continue;
             }
             $readiness = (string) ($operation['readiness'] ?? '');
+            if (self::isPreservedLocal($operation)) {
+                // Not in this release's scope: Duo neither copies nor writes
+                // a preserve-local surface, so its `Unsupported` (spec's
+                // orders row) is the boundary the release respects, not a
+                // gap the release must refuse over.
+                continue;
+            }
             if (in_array($readiness, self::BLOCKING_READINESS, true)) {
                 $refusals[] = self::refusalSpec(
                     'release_surface_not_releasable',
@@ -568,6 +575,9 @@ final class AuthorizationPlan {
             $id = (string) ($row['id'] ?? '');
             $operation = self::releaseOperation($row);
             if ($operation === null) {
+                continue;
+            }
+            if (self::isPreservedLocal($operation)) {
                 continue;
             }
             if ((string) ($operation['effect_recovery_semantics'] ?? '') === self::BLOCKING_RECOVERY_SEMANTICS) {
@@ -691,6 +701,19 @@ final class AuthorizationPlan {
      * @param array<string,mixed> $row
      * @return ?array<string,mixed>
      */
+    /**
+     * A surface whose release handling is `preserve local` is outside the
+     * release's mutation scope by definition — the target keeps its own copy
+     * and the plan never reads or writes it — so none of the per-surface
+     * gates apply to it. Only the literal handling word counts; a missing or
+     * different word keeps the surface in scope.
+     *
+     * @param array<string,mixed> $operation
+     */
+    private static function isPreservedLocal(array $operation): bool {
+        return (string) ($operation['handling'] ?? '') === 'preserve local';
+    }
+
     private static function releaseOperation(array $row): ?array {
         $operations = $row['operations'] ?? null;
         if (!is_array($operations) || !is_array($operations['release'] ?? null)) {

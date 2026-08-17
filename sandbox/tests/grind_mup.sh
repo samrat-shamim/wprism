@@ -917,9 +917,17 @@ if ! dry; then
   if duo_in "$HOST_R1" adopt "${PAIR}1" > "$ADOPT_OUT" 2>&1; then
     note "duo adopt ${PAIR}1 succeeded on this transport"
   else
-    grep -Fq 'adopt requires a transport with explicit control-plane transfer authority' "$ADOPT_OUT" \
-      || fail "duo adopt failed for a reason this grind does not recognize; see $ADOPT_OUT"
-    pass "duo adopt refuses the pair's docker transport by name (the pair side already carries the agent)"
+    # Two typed refusals are legitimate here and both name the cause: the
+    # driver preflight (docker implements neither code.transfer nor
+    # environment.bootstrap, and no emulation is permitted) fires first; the
+    # AdoptCommand transport check is what fires on a driver that passes
+    # preflight without adoption authority.
+    if grep -Fq "driver preflight blocked 'adopt'" "$ADOPT_OUT" \
+      || grep -Fq 'adopt requires a transport with explicit control-plane transfer authority' "$ADOPT_OUT"; then
+      pass "duo adopt refuses the pair's docker transport with a typed reason (the pair side already carries the agent): $(head -1 "$ADOPT_OUT")"
+    else
+      fail "duo adopt failed for a reason this grind does not recognize; see $ADOPT_OUT"
+    fi
   fi
 else
   plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE adopt ${PAIR}1)"

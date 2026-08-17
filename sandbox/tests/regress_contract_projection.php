@@ -279,20 +279,46 @@ $flipped = ContractProjection::generate($contract, $movedRegistry, $probe, duo_i
 duo_check_same(false, $flipped['evidence_pins']['current'], 'a moved registry hash is reported as stale');
 duo_check_same(true, $flipped['evidence_pins']['stale_registry'], 'the stale registry is named');
 $flippedRows = duo_rows_by_id($flipped);
-foreach (['products', 'orders'] as $id) {
-    foreach (['capture', 'release'] as $operation) {
-        duo_check_same(
-            'Requalification required',
-            $flippedRows[$id]['operations'][$operation]['readiness'],
-            "a moved registry hash flips $id/$operation to Requalification required"
-        );
-        duo_check_same(
-            'qualify in rehearsal',
-            $flippedRows[$id]['operations'][$operation]['gap_action'],
-            "the flipped $id/$operation row names a requalification gap action"
-        );
-    }
+foreach (['capture', 'release'] as $operation) {
+    duo_check_same(
+        'Requalification required',
+        $flippedRows['products']['operations'][$operation]['readiness'],
+        "a moved registry hash flips products/$operation to Requalification required"
+    );
+    duo_check_same(
+        'qualify in rehearsal',
+        $flippedRows['products']['operations'][$operation]['gap_action'],
+        "the flipped products/$operation row names a requalification gap action"
+    );
+    // A preserve-local surface never depended on the evidence: Duo copies
+    // nothing either way, so its word is `Unsupported` before and after the
+    // flip (the spec's orders row), and it carries no next action.
+    duo_check_same(
+        'Unsupported',
+        $flippedRows['orders']['operations'][$operation]['readiness'],
+        "a preserve-local surface stays Unsupported for $operation under a moved registry hash"
+    );
+    duo_check_same(
+        'nothing — supported',
+        $flippedRows['orders']['operations'][$operation]['gap_action'],
+        "a preserve-local surface carries no next action for $operation, stale evidence or not"
+    );
 }
+// The registry-wide flip reaches a surface with no evidence subject as
+// well: the same no-subject surface, projected as a managed one, flips.
+$managedNoSubject = $movedRegistry;
+$managedNoSubject['surfaces']['orders']['operations'] = [
+    'capture' => ['facts' => duo_vector('capture')],
+    'release' => ['facts' => duo_vector('release')],
+];
+$managedRows = duo_rows_by_id(
+    ContractProjection::generate($contract, $managedNoSubject, $probe, duo_inventory(), DUO_GENERATED_AT)
+);
+duo_check_same(
+    'Requalification required',
+    $managedRows['orders']['operations']['release']['readiness'],
+    'a moved registry hash flips a managed surface that pinned no bundle subject: the registry is everyone\'s pin'
+);
 duo_check_same(
     're-certify the pinned evidence, then re-run assess',
     $flippedRows['products']['operations']['release']['remediation'],
@@ -312,9 +338,22 @@ duo_check_same(
     'the surface that pinned the stale bundle flips'
 );
 duo_check_same(
-    'Ready',
+    'Unsupported',
     $partialRows['orders']['operations']['release']['readiness'],
-    'a surface that never pinned that bundle does not flip'
+    'a preserve-local surface stays Unsupported under a stale bundle: nothing about it was ever pinned or copied'
+);
+$partialManaged = $staleBundle;
+$partialManaged['surfaces']['orders']['operations'] = [
+    'capture' => ['facts' => duo_vector('capture')],
+    'release' => ['facts' => duo_vector('release')],
+];
+$partialManagedRows = duo_rows_by_id(
+    ContractProjection::generate($contract, $partialManaged, $probe, duo_inventory(), DUO_GENERATED_AT)
+);
+duo_check_same(
+    'Ready',
+    $partialManagedRows['orders']['operations']['release']['readiness'],
+    'a managed surface that never pinned that bundle does not flip'
 );
 
 $movedDigest = duo_projection_facts();
