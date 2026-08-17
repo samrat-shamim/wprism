@@ -1,0 +1,644 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    ca94e365a53f7c462169ae3edd5da94df5d8a2a8
+  invoked from:   <source-root>/sandbox
+  expected SHA:   ca94e365a53f7c462169ae3edd5da94df5d8a2a8 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly ca94e365a53f7c462169ae3edd5da94df5d8a2a8, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rtwocert2': reset ==[0m
+[1;32mok: wp_rtwocert21/wp_rtwocert22 dropped + recreated empty; siterepo/rtwocert2{1,2} cleared in place and origin-rtwocert2.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rtwocert2{1,2}, origin-rtwocert2.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rtwocert2 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rtwocert2{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9304) / conf2 (:9305), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    ca94e365a53f7c462169ae3edd5da94df5d8a2a8
+  invoked from:   <source-root>/sandbox
+  expected SHA:   ca94e365a53f7c462169ae3edd5da94df5d8a2a8 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly ca94e365a53f7c462169ae3edd5da94df5d8a2a8, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtwocert2': databases ==[0m
+[1;32mok: wp_rtwocert21, wp_rtwocert22 exist[0m
+
+[1;36m== pair 'rtwocert2': site-repo directories ==[0m
+
+[1;36m== pair 'rtwocert2': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtwocert2_wp1 Creating
+ Volume duo-rtwocert2_wp1 Created
+ Volume duo-rtwocert2_wp2 Creating
+ Volume duo-rtwocert2_wp2 Created
+ Container duo-rtwocert2-wp2-1 Creating
+ Container duo-rtwocert2-wp1-1 Creating
+ Container duo-rtwocert2-wp1-1 Created
+ Container duo-rtwocert2-wp2-1 Created
+ Container duo-rtwocert2-wp2-1 Starting
+ Container duo-rtwocert2-wp1-1 Starting
+ Container duo-rtwocert2-wp1-1 Started
+ Container duo-rtwocert2-wp2-1 Started
+ Container duo-rtwocert2-cli1-1 Creating
+ Container duo-rtwocert2-cli2-1 Creating
+ Container duo-rtwocert2-cli2-1 Created
+ Container duo-rtwocert2-cli1-1 Created
+ Container duo-rtwocert2-cli2-1 Starting
+ Container duo-rtwocert2-cli1-1 Starting
+ Container duo-rtwocert2-cli1-1 Started
+ Container duo-rtwocert2-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtwocert2': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtwocert2': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rtwocert21.needs-install present — reset emptied wp_rtwocert21, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtwocert2-cli1-run-f661ed176365 Creating
+ Container duo-rtwocert2-cli1-run-f661ed176365 Created
+Success: WordPress installed successfully.
+ Container duo-rtwocert2-cli1-run-ee6907e24fde Creating
+ Container duo-rtwocert2-cli1-run-ee6907e24fde Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocert2-cli1-run-cd82323db169 Creating
+ Container duo-rtwocert2-cli1-run-cd82323db169 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert2-cli1-run-f4f3b689fa8d Creating
+ Container duo-rtwocert2-cli1-run-f4f3b689fa8d Created
+ Container duo-rtwocert2-cli1-run-d83c20dc7e7b Creating
+ Container duo-rtwocert2-cli1-run-d83c20dc7e7b Created
+ Container duo-rtwocert2-cli1-run-a5e8e09f22b2 Creating
+ Container duo-rtwocert2-cli1-run-a5e8e09f22b2 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtwocert2-cli1-run-be64c9a555cb Creating
+ Container duo-rtwocert2-cli1-run-be64c9a555cb Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9304)
+  side 2: siterepo/.rtwocert22.needs-install present — reset emptied wp_rtwocert22, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtwocert2-cli2-run-b30daec3defd Creating
+ Container duo-rtwocert2-cli2-run-b30daec3defd Created
+Success: WordPress installed successfully.
+ Container duo-rtwocert2-cli2-run-dd669469d69f Creating
+ Container duo-rtwocert2-cli2-run-dd669469d69f Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocert2-cli2-run-a789b8536356 Creating
+ Container duo-rtwocert2-cli2-run-a789b8536356 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert2-cli2-run-b1832a67eeac Creating
+ Container duo-rtwocert2-cli2-run-b1832a67eeac Created
+ Container duo-rtwocert2-cli2-run-1cd915c2bb77 Creating
+ Container duo-rtwocert2-cli2-run-1cd915c2bb77 Created
+ Container duo-rtwocert2-cli2-run-e9e3537be569 Creating
+ Container duo-rtwocert2-cli2-run-e9e3537be569 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtwocert2-cli2-run-744176e66ac9 Creating
+ Container duo-rtwocert2-cli2-run-744176e66ac9 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9305)
+
+[1;36m== pair 'rtwocert2' ready ==[0m
+  wp1: http://localhost:9304 (published on host port 9304)
+  wp2: http://localhost:9305 (published on host port 9305)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtwocert2 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtwocert2 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtwocert2 must stay exported, or pass -p duo-rtwocert2 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rtwocert2-cli1-run-2013d2a1dd5b Creating
+ Container duo-rtwocert2-cli1-run-2013d2a1dd5b Created
+Success: Updated 'blogname' option.
+ Container duo-rtwocert2-cli1-run-4ccae2b6e3ed Creating
+ Container duo-rtwocert2-cli1-run-4ccae2b6e3ed Created
+Success: The site at 'http://localhost:9304' was emptied.
+ Container duo-rtwocert2-cli1-run-a668d7f8246b Creating
+ Container duo-rtwocert2-cli1-run-a668d7f8246b Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocert2-cli1-run-193e72b924ec Creating
+ Container duo-rtwocert2-cli1-run-193e72b924ec Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert2-cli1-run-0db835edbb5d Creating
+ Container duo-rtwocert2-cli1-run-0db835edbb5d Created
+ Container duo-rtwocert2-cli1-run-29925475b8ab Creating
+ Container duo-rtwocert2-cli1-run-29925475b8ab Created
+ Container duo-rtwocert2-cli1-run-84abb09b3e91 Creating
+ Container duo-rtwocert2-cli1-run-84abb09b3e91 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-rtwocert2-cli1-run-bf17cf9fddbb Creating
+ Container duo-rtwocert2-cli1-run-bf17cf9fddbb Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert2-cli1-run-658343b3afaf Creating
+ Container duo-rtwocert2-cli1-run-658343b3afaf Created
+ Container duo-rtwocert2-cli1-run-8751414908dc Creating
+ Container duo-rtwocert2-cli1-run-8751414908dc Created
+env conf1 installed, role=author (core: 0 pinned plugins, 2 pinned themes)
+ Container duo-rtwocert2-cli2-run-7b3d0c2ecf76 Creating
+ Container duo-rtwocert2-cli2-run-7b3d0c2ecf76 Created
+Success: Updated 'blogname' option.
+ Container duo-rtwocert2-cli2-run-a37649dd3674 Creating
+ Container duo-rtwocert2-cli2-run-a37649dd3674 Created
+Success: The site at 'http://localhost:9305' was emptied.
+ Container duo-rtwocert2-cli2-run-c3d5e88b8f66 Creating
+ Container duo-rtwocert2-cli2-run-c3d5e88b8f66 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocert2-cli2-run-74ed34b45233 Creating
+ Container duo-rtwocert2-cli2-run-74ed34b45233 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert2-cli2-run-965ca3359e5f Creating
+ Container duo-rtwocert2-cli2-run-965ca3359e5f Created
+ Container duo-rtwocert2-cli2-run-a4db5f8f4ece Creating
+ Container duo-rtwocert2-cli2-run-a4db5f8f4ece Created
+ Container duo-rtwocert2-cli2-run-49d186a260fa Creating
+ Container duo-rtwocert2-cli2-run-49d186a260fa Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-rtwocert2-cli2-run-e890bbed6181 Creating
+ Container duo-rtwocert2-cli2-run-e890bbed6181 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert2-cli2-run-8143b66f3d20 Creating
+ Container duo-rtwocert2-cli2-run-8143b66f3d20 Created
+ Container duo-rtwocert2-cli2-run-4ac3e63268b0 Creating
+ Container duo-rtwocert2-cli2-run-4ac3e63268b0 Created
+env conf2 installed, role=target (core: 0 pinned plugins, 2 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/core.sh) ==[0m
+ Container duo-rtwocert2-cli1-run-5928ace7d100 Creating
+ Container duo-rtwocert2-cli1-run-5928ace7d100 Created
+ Container duo-rtwocert2-cli1-run-c2d21561a696 Creating
+ Container duo-rtwocert2-cli1-run-c2d21561a696 Created
+ Container duo-rtwocert2-cli1-run-2ccb8873f146 Creating
+ Container duo-rtwocert2-cli1-run-2ccb8873f146 Created
+ Container duo-rtwocert2-cli1-run-199c1cfd4708 Creating
+ Container duo-rtwocert2-cli1-run-199c1cfd4708 Created
+ Container duo-rtwocert2-cli1-run-903ff46b0ed3 Creating
+ Container duo-rtwocert2-cli1-run-903ff46b0ed3 Created
+ Container duo-rtwocert2-cli1-run-6c9537f346b0 Creating
+ Container duo-rtwocert2-cli1-run-6c9537f346b0 Created
+ Container duo-rtwocert2-cli1-run-124a4a3fba1e Creating
+ Container duo-rtwocert2-cli1-run-124a4a3fba1e Created
+ Container duo-rtwocert2-cli2-run-7cf6b541b3bf Creating
+ Container duo-rtwocert2-cli2-run-7cf6b541b3bf Created
+ Container duo-rtwocert2-cli1-run-368ebbebb6de Creating
+ Container duo-rtwocert2-cli1-run-368ebbebb6de Created
+ Container duo-rtwocert2-cli1-run-b340640a596f Creating
+ Container duo-rtwocert2-cli1-run-b340640a596f Created
+ Container duo-rtwocert2-cli1-run-9207e89762db Creating
+ Container duo-rtwocert2-cli1-run-9207e89762db Created
+ Container duo-rtwocert2-cli1-run-636aa1cd7b7b Creating
+ Container duo-rtwocert2-cli1-run-636aa1cd7b7b Created
+ Container duo-rtwocert2-cli1-run-621bb27233e9 Creating
+ Container duo-rtwocert2-cli1-run-621bb27233e9 Created
+ Container duo-rtwocert2-cli1-run-b4c41091edea Creating
+ Container duo-rtwocert2-cli1-run-b4c41091edea Created
+ Container duo-rtwocert2-cli1-run-2ea06d8fd6b3 Creating
+ Container duo-rtwocert2-cli1-run-2ea06d8fd6b3 Created
+ Container duo-rtwocert2-cli1-run-0f1e2d90b25c Creating
+ Container duo-rtwocert2-cli1-run-0f1e2d90b25c Created
+ Container duo-rtwocert2-cli1-run-31c8d826a6f9 Creating
+ Container duo-rtwocert2-cli1-run-31c8d826a6f9 Created
+Warning: The 'Twenty Twenty-One' theme is already active.
+ Container duo-rtwocert2-cli1-run-47c9f697653f Creating
+ Container duo-rtwocert2-cli1-run-47c9f697653f Created
+ Container duo-rtwocert2-cli1-run-6a1d782d033e Creating
+ Container duo-rtwocert2-cli1-run-6a1d782d033e Created
+ Container duo-rtwocert2-cli1-run-b65550cf5a23 Creating
+ Container duo-rtwocert2-cli1-run-b65550cf5a23 Created
+ Container duo-rtwocert2-cli1-run-75a857c433e6 Creating
+ Container duo-rtwocert2-cli1-run-75a857c433e6 Created
+ Container duo-rtwocert2-cli1-run-76dac4398157 Creating
+ Container duo-rtwocert2-cli1-run-76dac4398157 Created
+ Container duo-rtwocert2-cli1-run-fcda825a85fd Creating
+ Container duo-rtwocert2-cli1-run-fcda825a85fd Created
+core seed: news=2 home=1 att=6 hello=7 widget-menu=3 hierarchy=2/4,3/5 theme_mods: twentytwentyone(residue)+twentytwentyfive(active)
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rtwocert2-cli1-run-3070959f25f2 Creating
+ Container duo-rtwocert2-cli1-run-3070959f25f2 Created
+Success: captured 8 posts, 2 terms, 1 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rtwocert2-cli1-run-00c670165afd Creating
+ Container duo-rtwocert2-cli1-run-00c670165afd Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rtwocert2-cli1-run-39a745b04eb7 Creating
+ Container duo-rtwocert2-cli1-run-39a745b04eb7 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rtwocert2-cli2-run-6153121e0e5b Creating
+ Container duo-rtwocert2-cli2-run-6153121e0e5b Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "168f90407281431241aa643adf933c0b4affa5f11a13ab38fa45b8414efc38e0",
+    "revision": "08f08c6a7fd45ad02a701f79fde3e99cb7272ea0f97aed4dc5bb067ebc5727a1",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "activated": [],
+  "deactivated": [],
+  "theme_switched": "twentytwentyfive",
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "theme",
+      "theme": "twentytwentyfive",
+      "message": "stylesheet in state/options/core.json declares 'twentytwentyfive', and its code is installed, but this environment has theme 'twentytwentyone' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-b341d6386237b2b9ba518a4d78894211",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rtwocert2-cli2-run-bc570fb83a38 Creating
+ Container duo-rtwocert2-cli2-run-bc570fb83a38 Created
+ Container duo-rtwocert2-cli2-run-7425c2dbc809 Creating
+ Container duo-rtwocert2-cli2-run-7425c2dbc809 Created
+ Container duo-rtwocert2-cli2-run-1e581ce5b512 Creating
+ Container duo-rtwocert2-cli2-run-1e581ce5b512 Created
+[1;32mok: conf2 active plugins (none) and theme (template=twentytwentyfive, stylesheet=twentytwentyfive) match canonical — deploy alone did this[0m
+
+[1;36m== post-deploy conf2 fixup (conformance/postdeploy/core.sh) ==[0m
+ Container duo-rtwocert2-cli2-run-ee127bbc6748 Creating
+ Container duo-rtwocert2-cli2-run-ee127bbc6748 Created
+ Container duo-rtwocert2-cli2-run-f81f10061483 Creating
+ Container duo-rtwocert2-cli2-run-f81f10061483 Created
+ Container duo-rtwocert2-cli2-run-e6941bb60a2d Creating
+ Container duo-rtwocert2-cli2-run-e6941bb60a2d Created
+ Container duo-rtwocert2-cli2-run-c99e67342193 Creating
+ Container duo-rtwocert2-cli2-run-c99e67342193 Created
+ Container duo-rtwocert2-cli2-run-1a83d2f237dc Creating
+ Container duo-rtwocert2-cli2-run-1a83d2f237dc Created
+ Container duo-rtwocert2-cli2-run-c3c4334f14eb Creating
+ Container duo-rtwocert2-cli2-run-c3c4334f14eb Created
+ Container duo-rtwocert2-cli2-run-eaf9a18c1070 Creating
+ Container duo-rtwocert2-cli2-run-eaf9a18c1070 Created
+ Container duo-rtwocert2-cli2-run-be69e7624790 Creating
+ Container duo-rtwocert2-cli2-run-be69e7624790 Created
+ Container duo-rtwocert2-cli2-run-8fa9456ed454 Creating
+ Container duo-rtwocert2-cli2-run-8fa9456ed454 Created
+target hierarchy and colliding widget defaults seeded; ambiguous-key refusal verified
+[1;32mok: post-deploy fixup applied[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rtwocert2-cli2-run-1a06987701ba Creating
+ Container duo-rtwocert2-cli2-run-1a06987701ba Created
+{
+  "artifact": {
+    "hash": "168f90407281431241aa643adf933c0b4affa5f11a13ab38fa45b8414efc38e0",
+    "revision": "08f08c6a7fd45ad02a701f79fde3e99cb7272ea0f97aed4dc5bb067ebc5727a1",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "plan": {
+    "create": 6,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 5,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 5,
+    "adapter_dispositions": 1,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 13,
+  "drift": [],
+  "warnings": [
+    "adopted env post 3 as 01a00e64-f6c8-7d4e-b7d6-408702f704cd (posts/page/01a00e64-f6c8-7d4e-b7d6-408702f704cd--branch-a.md)",
+    "adopted env post 1 as 01a00e64-f6cc-77db-a804-f43ceee4d9d8 (posts/page/01a00e64-f6cc-77db-a804-f43ceee4d9d8--branch-b.md)",
+    "adopted env post 4 as 01a00e64-f6dd-735b-bda1-81945904303f (posts/page/01a00e64-f6dd-735b-bda1-81945904303f--shared-child.md)",
+    "adopted env post 2 as 01a00e64-f6de-7e77-b5db-59ec8cf0ed04 (posts/page/01a00e64-f6de-7e77-b5db-59ec8cf0ed04--shared-child.md)",
+    "adopted env term 1 as 01a00e64-f7d4-741f-a13f-2380210935b7 (terms/category/01a00e64-f7d4-741f-a13f-2380210935b7--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 13,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-c7e17f5fe995220bcefb173eddbdebb2",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rtwocert2-cli2-run-7af0de98ba69 Creating
+ Container duo-rtwocert2-cli2-run-7af0de98ba69 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/core.sh) ==[0m
+ Container duo-rtwocert2-cli2-run-89bc7dd2fc38 Creating
+ Container duo-rtwocert2-cli2-run-89bc7dd2fc38 Created
+[1;32mok: theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids[0m
+[1;32mok: conf2's own runtime-excluded sub-keys (sidebars_widgets, wp_classic_sidebars) survived the merge into the live blob untouched -- sub_keys apply is a merge, never a whole-value replace[0m
+[1;32mok: theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared[0m
+ Container duo-rtwocert2-cli2-run-637f7bb73656 Creating
+ Container duo-rtwocert2-cli2-run-637f7bb73656 Created
+[1;32mok: wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly[0m
+
+[1;36m== (DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean ==[0m
+ Container duo-rtwocert2-cli1-run-d2b0654b5ddd Creating
+ Container duo-rtwocert2-cli1-run-d2b0654b5ddd Created
+ Container duo-rtwocert2-cli1-run-26df999b8c06 Creating
+ Container duo-rtwocert2-cli1-run-26df999b8c06 Created
+ Container duo-rtwocert2-cli1-run-566856cf1f69 Creating
+ Container duo-rtwocert2-cli1-run-566856cf1f69 Created
+ Container duo-rtwocert2-cli1-run-5da8f0b59200 Creating
+ Container duo-rtwocert2-cli1-run-5da8f0b59200 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed[0m
+ Container duo-rtwocert2-cli1-run-28bbeef41063 Creating
+ Container duo-rtwocert2-cli1-run-28bbeef41063 Created
+ Container duo-rtwocert2-cli2-run-89f45eedb66d Creating
+ Container duo-rtwocert2-cli2-run-89f45eedb66d Created
+ Container duo-rtwocert2-cli1-run-35b10d8ecd46 Creating
+ Container duo-rtwocert2-cli1-run-35b10d8ecd46 Created
+ Container duo-rtwocert2-cli2-run-1f47ec943639 Creating
+ Container duo-rtwocert2-cli2-run-1f47ec943639 Created
+ Container duo-rtwocert2-cli1-run-13f4c21de8e1 Creating
+ Container duo-rtwocert2-cli1-run-13f4c21de8e1 Created
+ Container duo-rtwocert2-cli2-run-0ae48f745736 Creating
+ Container duo-rtwocert2-cli2-run-0ae48f745736 Created
+ Container duo-rtwocert2-cli2-run-e9440851fbe7 Creating
+ Container duo-rtwocert2-cli2-run-e9440851fbe7 Created
+ Container duo-rtwocert2-cli2-run-f2338d428621 Creating
+ Container duo-rtwocert2-cli2-run-f2338d428621 Created
+[1;32mok: block/text/nav-menu widgets use portable refs, ledger-only identity, free target counters, and replace target defaults[0m
+ Container duo-rtwocert2-cli1-run-ede32674480b Creating
+ Container duo-rtwocert2-cli1-run-ede32674480b Created
+ Container duo-rtwocert2-cli1-run-7139704beffb Creating
+ Container duo-rtwocert2-cli1-run-7139704beffb Created
+ Container duo-rtwocert2-cli1-run-402f5a67b9ac Creating
+ Container duo-rtwocert2-cli1-run-402f5a67b9ac Created
+ Container duo-rtwocert2-cli1-run-959f96d13a93 Creating
+ Container duo-rtwocert2-cli1-run-959f96d13a93 Created
+ Container duo-rtwocert2-cli1-run-1fa43b77f936 Creating
+ Container duo-rtwocert2-cli1-run-1fa43b77f936 Created
+ Container duo-rtwocert2-cli1-run-8a403b6159ea Creating
+ Container duo-rtwocert2-cli1-run-8a403b6159ea Created
+ Container duo-rtwocert2-cli1-run-bf185675ee78 Creating
+ Container duo-rtwocert2-cli1-run-bf185675ee78 Created
+ Container duo-rtwocert2-cli1-run-fbf01806a70d Creating
+ Container duo-rtwocert2-cli1-run-fbf01806a70d Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically[0m
+ Container duo-rtwocert2-cli2-run-85f4fa034279 Creating
+ Container duo-rtwocert2-cli2-run-85f4fa034279 Created
+ Container duo-rtwocert2-cli2-run-92dd181ad7de Creating
+ Container duo-rtwocert2-cli2-run-92dd181ad7de Created
+ Container duo-rtwocert2-cli1-run-35980e3b58d0 Creating
+ Container duo-rtwocert2-cli1-run-35980e3b58d0 Created
+ Container duo-rtwocert2-cli1-run-81500e7902c6 Creating
+ Container duo-rtwocert2-cli1-run-81500e7902c6 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-rtwocert2-cli2-run-606d03e25c6e Creating
+ Container duo-rtwocert2-cli2-run-606d03e25c6e Created
+ Container duo-rtwocert2-cli2-run-49bd35356de1 Creating
+ Container duo-rtwocert2-cli2-run-49bd35356de1 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-rtwocert2-cli2-run-a5b6cbc042a4 Creating
+ Container duo-rtwocert2-cli2-run-a5b6cbc042a4 Created
+ Container duo-rtwocert2-cli2-run-92bb6c37d9f7 Creating
+ Container duo-rtwocert2-cli2-run-92bb6c37d9f7 Created
+ Container duo-rtwocert2-cli2-run-7049d829fabc Creating
+ Container duo-rtwocert2-cli2-run-7049d829fabc Created
+[1;32mok: public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)[0m
+ Container duo-rtwocert2-cli2-run-52566eaf30fc Creating
+ Container duo-rtwocert2-cli2-run-52566eaf30fc Created
+ Container duo-rtwocert2-cli2-run-5d919a54543d Creating
+ Container duo-rtwocert2-cli2-run-5d919a54543d Created
+ Container duo-rtwocert2-cli2-run-dba206f077fb Creating
+ Container duo-rtwocert2-cli2-run-dba206f077fb Created
+ Container duo-rtwocert2-cli2-run-3d21404bb20a Creating
+ Container duo-rtwocert2-cli2-run-3d21404bb20a Created
+ Container duo-rtwocert2-cli2-run-ad1277b758b1 Creating
+ Container duo-rtwocert2-cli2-run-ad1277b758b1 Created
+ Container duo-rtwocert2-cli2-run-872427a22435 Creating
+ Container duo-rtwocert2-cli2-run-872427a22435 Created
+[1;32mok: plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)[0m
+ Container duo-rtwocert2-cli1-run-1f640371d4e0 Creating
+ Container duo-rtwocert2-cli1-run-1f640371d4e0 Created
+ Container duo-rtwocert2-cli2-run-55d2558e57ab Creating
+ Container duo-rtwocert2-cli2-run-55d2558e57ab Created
+ Container duo-rtwocert2-cli2-run-5e95dc267fef Creating
+ Container duo-rtwocert2-cli2-run-5e95dc267fef Created
+ Container duo-rtwocert2-cli1-run-5e24fb61951e Creating
+ Container duo-rtwocert2-cli1-run-5e24fb61951e Created
+ Container duo-rtwocert2-cli1-run-bc296f11d236 Creating
+ Container duo-rtwocert2-cli1-run-bc296f11d236 Created
+ Container duo-rtwocert2-cli2-run-f813489ae459 Creating
+ Container duo-rtwocert2-cli2-run-f813489ae459 Created
+ Container duo-rtwocert2-cli2-run-1ea17af9f8e4 Creating
+ Container duo-rtwocert2-cli2-run-1ea17af9f8e4 Created
+ Container duo-rtwocert2-cli2-run-d8030657bc1b Creating
+ Container duo-rtwocert2-cli2-run-d8030657bc1b Created
+ Container duo-rtwocert2-cli2-run-963d8f96ad20 Creating
+ Container duo-rtwocert2-cli2-run-963d8f96ad20 Created
+[1;32mok: explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently[0m
+ Container duo-rtwocert2-cli1-run-162a8fbf4e6b Creating
+ Container duo-rtwocert2-cli1-run-162a8fbf4e6b Created
+ Container duo-rtwocert2-cli2-run-61000aacc24e Creating
+ Container duo-rtwocert2-cli2-run-61000aacc24e Created
+ Container duo-rtwocert2-cli2-run-9e08b4511380 Creating
+ Container duo-rtwocert2-cli2-run-9e08b4511380 Created
+ Container duo-rtwocert2-cli2-run-a2baa2f95274 Creating
+ Container duo-rtwocert2-cli2-run-a2baa2f95274 Created
+ Container duo-rtwocert2-cli1-run-a44117dfbdce Creating
+ Container duo-rtwocert2-cli1-run-a44117dfbdce Created
+ Container duo-rtwocert2-cli1-run-5c2f707febc6 Creating
+ Container duo-rtwocert2-cli1-run-5c2f707febc6 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-rtwocert2-cli2-run-6ef281cabb95 Creating
+ Container duo-rtwocert2-cli2-run-6ef281cabb95 Created
+ Container duo-rtwocert2-cli2-run-26fac5cc71ee Creating
+ Container duo-rtwocert2-cli2-run-26fac5cc71ee Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-rtwocert2-cli2-run-ced9f50c0d0e Creating
+ Container duo-rtwocert2-cli2-run-ced9f50c0d0e Created
+ Container duo-rtwocert2-cli2-run-66cb0588220c Creating
+ Container duo-rtwocert2-cli2-run-66cb0588220c Created
+ Container duo-rtwocert2-cli2-run-8a6fac470241 Creating
+ Container duo-rtwocert2-cli2-run-8a6fac470241 Created
+[1;32mok: guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation[0m
+ Container duo-rtwocert2-cli2-run-30f6f6518bdb Creating
+ Container duo-rtwocert2-cli2-run-30f6f6518bdb Created
+ Container duo-rtwocert2-cli2-run-60d5da6e6660 Creating
+ Container duo-rtwocert2-cli2-run-60d5da6e6660 Created
+ Container duo-rtwocert2-cli2-run-3c26998ff4da Creating
+ Container duo-rtwocert2-cli2-run-3c26998ff4da Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-rtwocert2-cli2-run-6dcb82409ebe Creating
+ Container duo-rtwocert2-cli2-run-6dcb82409ebe Created
+ Container duo-rtwocert2-cli2-run-b500622eeb1b Creating
+ Container duo-rtwocert2-cli2-run-b500622eeb1b Created
+ Container duo-rtwocert2-cli2-run-5a1d2f7f01c0 Creating
+ Container duo-rtwocert2-cli2-run-5a1d2f7f01c0 Created
+[1;32mok: entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation[0m
+ Container duo-rtwocert2-cli2-run-d96baaa481bc Creating
+ Container duo-rtwocert2-cli2-run-d96baaa481bc Created
+ Container duo-rtwocert2-cli2-run-887e5bd6cbf1 Creating
+ Container duo-rtwocert2-cli2-run-887e5bd6cbf1 Created
+[1;32mok: delete-vs-local-edit conflicts; force-theirs is loud and revision children cascade exactly[0m
+ Container duo-rtwocert2-cli1-run-9c5352dbc59e Creating
+ Container duo-rtwocert2-cli1-run-9c5352dbc59e Created
+ Container duo-rtwocert2-cli1-run-04f04b296be4 Creating
+ Container duo-rtwocert2-cli1-run-04f04b296be4 Created
+ Container duo-rtwocert2-cli1-run-8626e9aac368 Creating
+ Container duo-rtwocert2-cli1-run-8626e9aac368 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-rtwocert2-cli1-run-5cb0413ba3e8 Creating
+ Container duo-rtwocert2-cli1-run-5cb0413ba3e8 Created
+ Container duo-rtwocert2-cli1-run-29c5c008ba9e Creating
+ Container duo-rtwocert2-cli1-run-29c5c008ba9e Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtwocert2-cli2-run-afd728d49744 Creating
+ Container duo-rtwocert2-cli2-run-afd728d49744 Created
+ Container duo-rtwocert2-cli2-run-d25d31f141ec Creating
+ Container duo-rtwocert2-cli2-run-d25d31f141ec Created
+ Container duo-rtwocert2-cli2-run-768889532c80 Creating
+ Container duo-rtwocert2-cli2-run-768889532c80 Created
+[1;32mok: delete-vs-branch-edit conflicts on the tombstone expected base[0m
+ Container duo-rtwocert2-cli1-run-bf55a381c52c Creating
+ Container duo-rtwocert2-cli1-run-bf55a381c52c Created
+ Container duo-rtwocert2-cli1-run-f1ef8fc220f0 Creating
+ Container duo-rtwocert2-cli1-run-f1ef8fc220f0 Created
+ Container duo-rtwocert2-cli1-run-5de644d819a4 Creating
+ Container duo-rtwocert2-cli1-run-5de644d819a4 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtwocert2-cli2-run-9b43f37b5474 Creating
+ Container duo-rtwocert2-cli2-run-9b43f37b5474 Created
+ Container duo-rtwocert2-cli2-run-59c949785e6a Creating
+ Container duo-rtwocert2-cli2-run-59c949785e6a Created
+ Container duo-rtwocert2-cli2-run-7f959061e482 Creating
+ Container duo-rtwocert2-cli2-run-7f959061e482 Created
+ Container duo-rtwocert2-cli2-run-8ba848c56e91 Creating
+ Container duo-rtwocert2-cli2-run-8ba848c56e91 Created
+[1;32mok: missing reverse-reference guard infrastructure fails closed[0m
+ Container duo-rtwocert2-cli1-run-9e03d4d6f6e6 Creating
+ Container duo-rtwocert2-cli1-run-9e03d4d6f6e6 Created
+ Container duo-rtwocert2-cli1-run-9b7d75cf3bf1 Creating
+ Container duo-rtwocert2-cli1-run-9b7d75cf3bf1 Created
+ Container duo-rtwocert2-cli1-run-9b92ddab5b43 Creating
+ Container duo-rtwocert2-cli1-run-9b92ddab5b43 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtwocert2-cli2-run-c61b91d02cf8 Creating
+ Container duo-rtwocert2-cli2-run-c61b91d02cf8 Created
+ Container duo-rtwocert2-cli2-run-b943e08403d0 Creating
+ Container duo-rtwocert2-cli2-run-b943e08403d0 Created
+ Container duo-rtwocert2-cli2-run-7607c1df5be5 Creating
+ Container duo-rtwocert2-cli2-run-7607c1df5be5 Created
+ Container duo-rtwocert2-cli1-run-d858f927afa9 Creating
+ Container duo-rtwocert2-cli1-run-d858f927afa9 Created
+ Container duo-rtwocert2-cli1-run-0101524c69b5 Creating
+ Container duo-rtwocert2-cli1-run-0101524c69b5 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtwocert2-cli2-run-bea97b805f2c Creating
+ Container duo-rtwocert2-cli2-run-bea97b805f2c Created
+ Container duo-rtwocert2-cli2-run-25e3dff17f13 Creating
+ Container duo-rtwocert2-cli2-run-25e3dff17f13 Created
+ Container duo-rtwocert2-cli2-run-1d7ccc05303b Creating
+ Container duo-rtwocert2-cli2-run-1d7ccc05303b Created
+ Container duo-rtwocert2-cli2-run-4d370a5ca79f Creating
+ Container duo-rtwocert2-cli2-run-4d370a5ca79f Created
+ Container duo-rtwocert2-cli2-run-01b83e2ff4e4 Creating
+ Container duo-rtwocert2-cli2-run-01b83e2ff4e4 Created
+ Container duo-rtwocert2-cli2-run-655a25f45e4d Creating
+ Container duo-rtwocert2-cli2-run-655a25f45e4d Created
+ Container duo-rtwocert2-cli2-run-7a6902e80151 Creating
+ Container duo-rtwocert2-cli2-run-7a6902e80151 Created
+ Container duo-rtwocert2-cli2-run-8c43ca00c913 Creating
+ Container duo-rtwocert2-cli2-run-8c43ca00c913 Created
+ Container duo-rtwocert2-cli2-run-c141625c504e Creating
+ Container duo-rtwocert2-cli2-run-c141625c504e Created
+[1;32mok: partial delete failure rolls the transaction back; retry completes exactly[0m
+ Container duo-rtwocert2-cli2-run-52029ea95ad4 Creating
+ Container duo-rtwocert2-cli2-run-52029ea95ad4 Created
+ Container duo-rtwocert2-cli2-run-960f77ef2b3b Creating
+ Container duo-rtwocert2-cli2-run-960f77ef2b3b Created
+[1;32mok: fresh and previously mapped targets make the same repository-level deletion decision[0m
+
+[1;32m✔ CONFORMANCE PASSED (core)[0m
