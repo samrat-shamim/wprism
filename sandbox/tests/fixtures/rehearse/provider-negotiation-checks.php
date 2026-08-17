@@ -174,10 +174,13 @@ duo_check(
     str_contains($errors, 'repository.materialize') && str_contains($errors, 'refusing rather than emulating it'),
     'the provider names the missing capability id and says it refuses rather than emulating it'
 );
-// The capability probe above legitimately published state (it is a normal
-// action), so "nothing was performed" is checked where it is visible: the
-// refused action acquired no resource and no fence.
-$state = json_decode((string) @file_get_contents($subset['state'] . '/state.json'), true);
+// Capability negotiation is state-independent, and the refused action reaches
+// no mutation capability. An absent state document is therefore the strongest
+// no-mutation evidence; tolerate a pre-existing empty document as well.
+$stateBytes = @file_get_contents($subset['state'] . '/state.json');
+$state = $stateBytes === false
+    ? ['fences' => [], 'resources' => [], 'sessions' => [], 'snapshots' => [], 'ttls' => []]
+    : json_decode($stateBytes, true, 512, JSON_THROW_ON_ERROR);
 duo_check_same(
     [[], [], [], [], []],
     [$state['fences'], $state['resources'], $state['sessions'], $state['snapshots'], $state['ttls']],

@@ -50,9 +50,12 @@
 // `reference-env-provider.php --print-plan <config.json>` (alias `--dry-run`)
 // reads the same request from stdin, performs the same capability negotiation
 // and the same argument validation, and then prints a
-// `duo-reference-env-provider-plan/v1` document naming the exact external
-// commands it WOULD run — without running any of them, without touching the
-// pair, and without writing provider state. It exists so the provider's
+// `duo-reference-env-provider-plan/v1` document naming the external command
+// boundary the action may use — without running any command, touching the
+// pair, or writing provider state. Acquisition/reap plans consult provider
+// state and distinguish fresh, retry and receipt-replay paths; other
+// state-dependent retry suppression remains explicitly marked. It exists so
+// the provider's
 // negotiation and validation paths are covered by an offline suite
 // (sandbox/tests/regress_rehearse_provider.sh) on a machine with no docker at
 // all. The flag is never passed by CommandEnvironmentProvider: the argv it is
@@ -74,7 +77,7 @@
 //   "db_container": "duo-shared-db",        // sandbox/db.yml's container_name
 //   "state_root": "/abs/sandbox/tmp/reference-env-provider/mup",
 //   "source_environment": "mup1",
-//   "destroy_scope": "side",                // "side" (default) or "pair"
+//   "destroy_scope": "side",                // the only safe scope for one target lease
 //   "withheld_capabilities": [],            // dev-only; see above
 //   "environments": {
 //     "mup1": {"role":"source","side":1,"port":8181,
@@ -91,15 +94,33 @@
 //
 // WHY THE PAIR MAPPING IS WHAT IT IS
 // ----------------------------------
-// `pair.sh` has no per-SIDE lifecycle: `up` converges both sides, `reset` and
-// `destroy` act on the whole pair. A branch environment is one side. So:
+// `pair.sh` has no per-SIDE lifecycle: `up` converges both sides, while this
+// provider's target lease owns only one side. A branch environment is one side.
+// So:
 //
-//   attach  -> `pair.sh up <pair> <port1> <port2>` (idempotent converge)
-//   create  -> the same converge, then clear exactly this side (drop/create
+//   attach  -> prove the configured side already exists through its port map;
+//              never run `pair.sh up` or allocate it
+//   create  -> `pair.sh up <pair> <port1> <port2>`, then clear exactly this side (drop/create
 //              its database, empty its uploads, empty its site repo)
-//   destroy -> clear exactly this side and leave the pair running, unless
-//              `destroy_scope` is "pair", in which case `pair.sh destroy`
+//   destroy -> clear exactly this side and leave the pair running
 //   detach  -> no physical action; the absence proof records the release
+//
+// A side is therefore one reusable preview slot, not one allocation per
+// branch. Its physical resource id stays stable, while every absent->present
+// acquisition increments a persisted lease generation and rotates ownership.
+// Exact terminal reap requests retain their old receipts after reuse; any new
+// request carrying an old lease refuses before physical cleanup. The state
+// lock covers that compare and every pair/docker action for processes sharing
+// this config's state_root. A production provider needs one canonical,
+// provider-owned state authority; separate state roots cannot safely control
+// the same physical slot.
+//
+// This development provider passes its state-lock descriptor to each
+// synchronous Docker/Git child, so killing the PHP parent does not let a retry
+// overlap that child. A CLI or daemon-side job that closes the descriptor or
+// returns before its mutation completes is outside that local proof.
+// Production fixed-slot providers must bind such host jobs to the lease
+// generation (or cancel and await them) at the resource service.
 //
 // That mapping is stated rather than hidden because it is the one place this
 // reference provider is weaker than a real host: `create` cannot allocate a
@@ -141,27 +162,74 @@ function ref_require(bool $condition, string $message): void {
  */
 function ref_run(array $argv, ?string $stdin = null, ?string $cwd = null): array {
     $pipes = [];
+    $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
+    $stateLock = $GLOBALS['duo_reference_provider_state_lock'] ?? null;
+    if (is_resource($stateLock)) {
+        // Explicit inheritance keeps the physical-mutation lock alive if the
+        // controller kills this PHP parent while its child is still running.
+        $descriptors[3] = $stateLock;
+    }
     $proc = proc_open(
         $argv,
-        [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+        $descriptors,
         $pipes,
         $cwd,
         null,
         ['bypass_shell' => true]
     );
     if (!is_resource($proc)) throw new RuntimeException('could not start reference provider command');
-    if ($stdin !== null && fwrite($pipes[0], $stdin) !== strlen($stdin)) {
+    foreach ($pipes as $pipe) stream_set_blocking($pipe, false);
+    $input = $stdin ?? '';
+    $inputOffset = 0;
+    $open = [true, true, true];
+    $stdout = '';
+    $stderr = '';
+    if ($input === '') {
         fclose($pipes[0]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_terminate($proc);
-        throw new RuntimeException('could not send reference provider command input');
+        $open[0] = false;
     }
-    fclose($pipes[0]);
-    $stdout = (string) stream_get_contents($pipes[1]);
-    $stderr = (string) stream_get_contents($pipes[2]);
-    fclose($pipes[1]);
-    fclose($pipes[2]);
+    try {
+        while ($open[0] || $open[1] || $open[2]) {
+            $read = [];
+            if ($open[1]) $read[] = $pipes[1];
+            if ($open[2]) $read[] = $pipes[2];
+            $write = $open[0] ? [$pipes[0]] : [];
+            $except = [];
+            $selected = stream_select($read, $write, $except, 1);
+            if ($selected === false) throw new RuntimeException('could not multiplex reference provider command pipes');
+            foreach ($write as $pipe) {
+                $written = fwrite($pipe, substr($input, $inputOffset, 65536));
+                if ($written === false) throw new RuntimeException('could not send reference provider command input');
+                $inputOffset += $written;
+                if ($inputOffset === strlen($input)) {
+                    fclose($pipes[0]);
+                    $open[0] = false;
+                }
+            }
+            foreach ($read as $pipe) {
+                $bytes = fread($pipe, 65536);
+                if ($bytes === false) throw new RuntimeException('could not read reference provider command output');
+                if ($pipe === $pipes[1]) {
+                    $stdout .= $bytes;
+                    $index = 1;
+                } else {
+                    $stderr .= $bytes;
+                    $index = 2;
+                }
+                if (feof($pipe)) {
+                    fclose($pipe);
+                    $open[$index] = false;
+                }
+            }
+        }
+    } catch (Throwable $error) {
+        foreach ($pipes as $index => $pipe) {
+            if ($open[$index] && is_resource($pipe)) fclose($pipe);
+        }
+        proc_terminate($proc, 9);
+        proc_close($proc);
+        throw $error;
+    }
     return ['exit' => proc_close($proc), 'stdout' => $stdout, 'stderr' => $stderr];
 }
 
@@ -361,6 +429,39 @@ function ref_assert_capability(array $config, string $action): void {
 // Config, identity and the pair
 // --------------------------------------------------------------------------
 
+function ref_config_path(string $path, string $label): string {
+    ref_require(str_starts_with($path, '/') && $path !== '/', "reference provider $label must be absolute and non-root");
+    $segments = array_values(array_filter(explode('/', substr(rtrim($path, '/'), 1)), static fn (string $segment): bool => $segment !== ''));
+    ref_require($segments !== [], "reference provider $label must be absolute and non-root");
+    foreach ($segments as $segment) {
+        ref_require($segment !== '.' && $segment !== '..', "reference provider $label must be lexically normalized");
+    }
+
+    // Resolve the longest existing prefix. This catches `/tmp`-style aliases
+    // without requiring a repository or state leaf to exist yet, and it keeps
+    // overlap checks tied to the path the kernel will actually traverse.
+    $probe = '/' . implode('/', $segments);
+    $tail = [];
+    while (!file_exists($probe) && !is_link($probe)) {
+        array_unshift($tail, basename($probe));
+        $parent = dirname($probe);
+        ref_require($parent !== $probe, "reference provider $label has no resolvable ancestor");
+        $probe = $parent;
+    }
+    $resolved = realpath($probe);
+    ref_require(is_string($resolved) && $resolved !== '/', "reference provider $label has no safe non-root ancestor");
+    return rtrim($resolved, '/') . ($tail === [] ? '' : '/' . implode('/', $tail));
+}
+
+function ref_paths_overlap(string $left, string $right): bool {
+    return $left === $right || str_starts_with($left, $right . '/') || str_starts_with($right, $left . '/');
+}
+
+/** Removing $target is unsafe only when it would also remove $protected. */
+function ref_target_contains_path(string $target, string $protected): bool {
+    return $target === $protected || str_starts_with($protected, $target . '/');
+}
+
 /** @return array<string,mixed> */
 function ref_config(string $path): array {
     $config = ref_json_file($path, null);
@@ -375,33 +476,137 @@ function ref_config(string $path): array {
             "reference provider config is missing '$key'"
         );
     }
+    foreach (['compose_dir', 'controller_repo', 'pair_script', 'state_root'] as $pathKey) {
+        $config[$pathKey] = ref_config_path((string) $config[$pathKey], $pathKey);
+    }
+    $config['_config_path'] = ref_config_path($path, 'config file');
     ref_require(
         preg_match('/^[a-z][a-z0-9]*$/D', (string) $config['pair']) === 1,
         'reference provider pair name must match pair.sh\'s own grammar (lowercase letters/digits, leading letter)'
     );
     ref_require(is_array($config['compose_files'] ?? null) && array_is_list($config['compose_files']) && $config['compose_files'] !== [], 'reference provider config needs a non-empty compose_files list');
-    foreach ($config['compose_files'] as $file) {
-        ref_require(is_string($file) && $file !== '', 'reference provider compose_files entry is invalid');
+    foreach ($config['compose_files'] as $index => $file) {
+        ref_require(is_string($file), 'reference provider compose_files entry must be a string');
+        $config['compose_files'][$index] = ref_config_path($file, 'compose_files entry');
     }
     $scope = $config['destroy_scope'] ?? 'side';
-    ref_require(in_array($scope, ['side', 'pair'], true), "reference provider destroy_scope must be 'side' or 'pair'");
+    ref_require($scope === 'side', "reference provider destroy_scope must be 'side'; one target lease cannot authorize pair-wide source deletion");
     $environments = $config['environments'] ?? null;
     ref_require(is_array($environments) && !array_is_list($environments) && $environments !== [], 'reference provider config has no environments');
+    ref_require(count($environments) === 2, 'reference provider config must map exactly the pair\'s two physical sides');
+    $roles = [];
+    $sides = [];
     foreach ($environments as $name => $environment) {
+        ref_require(is_string($name) && $name !== '', 'reference provider environment name is invalid');
         ref_require(is_array($environment) && !array_is_list($environment), "environment '$name' is malformed");
         foreach (['role', 'container', 'service', 'database', 'repo'] as $key) {
             ref_require(is_string($environment[$key] ?? null) && $environment[$key] !== '', "environment '$name' is missing '$key'");
         }
+        $environment['repo'] = ref_config_path((string) $environment['repo'], "environment '$name' repo");
         ref_require(in_array($environment['role'], ['source', 'target'], true), "environment '$name' role must be source or target");
         ref_require(in_array($environment['side'] ?? null, [1, 2], true), "environment '$name' side must be 1 or 2");
+        ref_require(!isset($sides[$environment['side']]), "environment '$name' aliases an already configured physical side");
+        $roles[] = $environment['role'];
+        $sides[$environment['side']] = true;
         $port = $environment['port'] ?? null;
         ref_require(is_int($port) && $port >= 1 && $port <= 65535, "environment '$name' port must be a published host port");
+        $side = (int) $environment['side'];
+        $pair = (string) $config['pair'];
+        ref_require($name === $pair . $side, "environment '$name' must use pair.sh's canonical logical name '$pair$side'");
+        ref_require($environment['container'] === "duo-$pair-wp$side-1", "environment '$name' container does not belong to its pair side");
+        ref_require($environment['service'] === "cli$side", "environment '$name' service does not belong to its pair side");
+        ref_require($environment['database'] === "wp_$pair$side", "environment '$name' database does not belong to its pair side");
+        ref_require(
+            $environment['repo'] === $config['compose_dir'] . "/siterepo/$name",
+            "environment '$name' repo does not belong to pair.sh's canonical siterepo root"
+        );
+        $environments[$name] = $environment;
+    }
+    sort($roles, SORT_STRING);
+    ref_require(isset($sides[1], $sides[2]), 'reference provider config must map physical sides 1 and 2 exactly once');
+    ref_require($roles === ['source', 'target'], 'reference provider config must map exactly one source and one target');
+    foreach (['container', 'database', 'port', 'repo', 'service'] as $field) {
+        $values = array_map(static fn (array $environment): mixed => $environment[$field], array_values($environments));
+        ref_require(count(array_unique($values, SORT_REGULAR)) === 2, "reference provider source and target must not share '$field'");
     }
     ref_require(
         isset($environments[(string) $config['source_environment']]),
         'reference provider source_environment names no configured environment'
     );
+    ref_require(
+        $environments[(string) $config['source_environment']]['role'] === 'source',
+        'reference provider source_environment must name the configured source role'
+    );
+    ref_require($config['db_container'] === 'duo-shared-db', 'reference provider db_container must name sandbox/db.yml\'s canonical database container');
+    $source = $environments[(string) $config['source_environment']];
+    $target = current(array_filter($environments, static fn (array $environment): bool => $environment['role'] === 'target'));
+    ref_require(is_array($target), 'reference provider config has no target environment');
+    ref_require(!ref_paths_overlap((string) $source['repo'], (string) $target['repo']), 'reference provider source and target repo paths overlap');
+    ref_require(
+        !ref_paths_overlap((string) $config['state_root'], (string) $source['repo']),
+        "reference provider state authority path '{$config['state_root']}' overlaps the source repo"
+    );
+    foreach ([(string) $config['controller_repo'], (string) $config['state_root']] as $protectedPath) {
+        ref_require(!ref_paths_overlap($protectedPath, (string) $target['repo']), "reference provider authority path '$protectedPath' overlaps the target repo");
+    }
+    $containedPaths = [
+        (string) $config['compose_dir'],
+        (string) $config['_config_path'],
+        (string) $config['pair_script'],
+        ...array_map('strval', $config['compose_files']),
+    ];
+    foreach ($containedPaths as $protectedPath) {
+        ref_require(!ref_target_contains_path((string) $target['repo'], $protectedPath), "reference provider target repo contains protected path '$protectedPath'");
+    }
+    $config['environments'] = $environments;
     return $config;
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $environment */
+function ref_resource_id(array $config, array $environment): string {
+    return 'duo-' . (string) $config['pair'] . '-wp' . (int) $environment['side'];
+}
+
+/** @param array<string,mixed> $environment */
+function ref_configured_url(array $environment): string {
+    return 'http://127.0.0.1:' . (int) $environment['port'];
+}
+
+/**
+ * Bind every path/name that can redirect a pair, database, media or repository
+ * mutation. Capability withholding changes negotiation, not configured mutation topology,
+ * and is intentionally excluded.
+ *
+ * @param array<string,mixed> $config
+ */
+function ref_resource_config_sha256(array $config): string {
+    return ref_hash([
+        'compose_dir' => $config['compose_dir'],
+        'compose_files' => $config['compose_files'],
+        'controller_repo' => $config['controller_repo'],
+        'db_container' => $config['db_container'],
+        'destroy_scope' => $config['destroy_scope'] ?? 'side',
+        'environments' => $config['environments'],
+        'format' => $config['format'],
+        'pair' => $config['pair'],
+        'pair_script' => $config['pair_script'],
+        'source_environment' => $config['source_environment'],
+        'state_root' => $config['state_root'],
+    ]);
+}
+
+/** @param array<string,mixed> $config @param array<string,mixed> $environment */
+function ref_source_config_sha256(array $config, string $environmentName, array $environment): string {
+    return ref_hash([
+        'compose_dir' => $config['compose_dir'],
+        'compose_files' => $config['compose_files'],
+        'db_container' => $config['db_container'],
+        'environment' => $environmentName,
+        'environment_config' => $environment,
+        'format' => $config['format'],
+        'pair' => $config['pair'],
+        'state_root' => $config['state_root'],
+    ]);
 }
 
 /**
@@ -414,18 +619,125 @@ function ref_config(string $path): array {
  * @param array<string,mixed> $environment
  * @return array<string,mixed>
  */
-function ref_identity(array $config, array $environment, string $url): array {
+function ref_identity(array $config, array $environment, string $url, ?array $resource = null): array {
     $pair = (string) $config['pair'];
     $side = (int) $environment['side'];
     $environmentIdentity = 'duo-pair-' . $pair . '-side-' . $side;
+    if (($environment['role'] ?? null) === 'source') {
+        // Preserve the public pre-slot source identity byte-for-byte. New
+        // operations pin the configured source topology separately.
+        return [
+            'environment_identity' => $environmentIdentity,
+            'lease_generation' => 1,
+            'lease_id' => 'pair-lease-' . substr(hash('sha256', $environmentIdentity), 0, 20),
+            'ownership_receipt_sha256' => ref_hash('ownership:' . $environmentIdentity),
+            'resource_id' => ref_resource_id($config, $environment),
+            'url' => $url,
+        ];
+    }
+    ref_require(is_array($resource), 'target identity requires preview-slot state');
+    $generation = (int) ($resource['generation'] ?? 1);
+    $operation = (string) ($resource['operation_id'] ?? 'unallocated-target');
+    $resourceConfig = (string) ($resource['resource_config_sha256'] ?? '');
+    ref_require($generation >= 1, 'resource lease generation must be positive');
+    ref_require(preg_match('/^[a-f0-9]{64}$/D', $resourceConfig) === 1, 'target identity has no configured-topology receipt');
     return [
         'environment_identity' => $environmentIdentity,
-        'lease_generation' => 1,
-        'lease_id' => 'pair-lease-' . substr(hash('sha256', $environmentIdentity), 0, 20),
-        'ownership_receipt_sha256' => ref_hash('ownership:' . $environmentIdentity),
-        'resource_id' => 'duo-' . $pair . '-wp' . $side,
+        'lease_generation' => $generation,
+        'lease_id' => 'pair-lease-' . substr(hash('sha256', $environmentIdentity . '|' . $generation . '|' . $operation . '|' . $resourceConfig), 0, 20),
+        'ownership_receipt_sha256' => ref_hash([
+            'environment' => $environmentIdentity,
+            'generation' => $generation,
+            'operation' => $operation,
+            'resource_config_sha256' => $resourceConfig,
+        ]),
+        'resource_id' => ref_resource_id($config, $environment),
         'url' => $url,
     ];
+}
+
+function ref_acquisition_key(string $resourceId, string $operation): string {
+    return hash('sha256', ref_json(['operation_id' => $operation, 'resource_id' => $resourceId]));
+}
+
+/**
+ * The physical target survives reap, so its logical owner must not. A missing
+ * record is generation zero/absent; every later acquisition rotates the lease
+ * while retaining the stable resource id that identifies the reusable slot.
+ *
+ * @param array<string,mixed> $state
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $environment
+ * @return array<string,mixed>
+ */
+function ref_resource(array &$state, array $config, string $environmentName, array $environment): array {
+    if (($environment['role'] ?? null) === 'source') {
+        return [
+            'acquisition_input_sha256' => ref_hash('stable-source'),
+            'generation' => 1,
+            'mode' => 'source',
+            'operation_id' => 'stable-source',
+            'resource_config_sha256' => ref_resource_config_sha256($config),
+            'state' => 'present',
+            'url' => ref_configured_url($environment),
+        ];
+    }
+    $slot = ref_resource_id($config, $environment);
+    $resource = $state['resources'][$slot] ?? null;
+    $legacy = $state['resources'][$environmentName] ?? null;
+    if ($resource === null && is_array($legacy)) {
+        ref_require(
+            false,
+            'legacy preview-slot state has no acquisition history; exclude all controllers, prove the side absent, then remove the legacy resource row before reuse'
+        );
+    }
+    if ($resource === null) {
+        return [
+            'acquisition_input_sha256' => null,
+            'generation' => 0,
+            'mode' => null,
+            'operation_id' => null,
+            'resource_config_sha256' => null,
+            'state' => 'absent',
+            'url' => ref_configured_url($environment),
+        ];
+    }
+    ref_require(is_array($resource) && !array_is_list($resource), 'preview slot resource state is malformed');
+    foreach (['acquisition_input_sha256', 'generation', 'mode', 'operation_id', 'resource_config_sha256', 'state', 'url'] as $key) {
+        ref_require(array_key_exists($key, $resource), "preview slot resource state is missing '$key'");
+    }
+    ref_require(is_int($resource['generation']) && $resource['generation'] >= 1, 'preview slot resource generation is invalid');
+    ref_require(in_array($resource['mode'], ['attach', 'create'], true), 'preview slot acquisition mode is invalid');
+    ref_require(is_string($resource['operation_id']) && $resource['operation_id'] !== '', 'preview slot operation is invalid');
+    ref_require(is_string($resource['acquisition_input_sha256']) && preg_match('/^[a-f0-9]{64}$/D', $resource['acquisition_input_sha256']) === 1, 'preview slot acquisition receipt is invalid');
+    ref_require(in_array($resource['state'], ['absent', 'acquiring', 'present', 'reaping'], true), 'preview slot presence state is invalid');
+    ref_require(
+        is_string($resource['resource_config_sha256'])
+            && preg_match('/^[a-f0-9]{64}$/D', $resource['resource_config_sha256']) === 1,
+        'preview slot configured-topology receipt is invalid'
+    );
+    ref_require(
+        is_string($resource['url']) && preg_match('#^http://127\.0\.0\.1:[1-9][0-9]{0,4}$#D', $resource['url']) === 1,
+        'preview slot URL state is invalid'
+    );
+    if ($resource['state'] === 'reaping') {
+        foreach (['reap_action', 'reap_input_sha256', 'reap_operation_id'] as $key) {
+            ref_require(is_string($resource[$key] ?? null) && $resource[$key] !== '', "preview slot reaping state is missing '$key'");
+        }
+        ref_require(in_array($resource['reap_action'], ['destroy', 'detach'], true), 'preview slot reap action is invalid');
+        ref_require(preg_match('/^[a-f0-9]{64}$/D', $resource['reap_input_sha256']) === 1, 'preview slot reap input receipt is invalid');
+    }
+    return $resource;
+}
+
+/** @param array<string,mixed> $request */
+function ref_reap_receipt_key(array $request): string {
+    return hash('sha256', ref_json([
+        'action' => $request['action'],
+        'environment' => $request['environment'],
+        'input' => $request['input'],
+        'operation_id' => $request['operation_id'],
+    ]));
 }
 
 /**
@@ -574,13 +886,43 @@ function ref_restore_media_to_container(string $source, string $container): void
 // --------------------------------------------------------------------------
 
 /** @return array<string,mixed> */
+function ref_empty_state(): array {
+    return [
+        'acquisitions' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
+        'sessions' => [], 'slot_authorities' => [], 'snapshots' => [], 'source_inspections' => [], 'ttls' => [],
+    ];
+}
+
+function ref_path_entry_exists(string $path): bool {
+    return file_exists($path) || is_link($path);
+}
+
+/** @return array<string,mixed> */
 function ref_load_state(string $root): array {
-    $state = ref_json_file($root . '/state.json', [
-        'fences' => [], 'sessions' => [], 'snapshots' => [], 'ttls' => [], 'resources' => [],
-    ]);
+    $path = $root . '/state.json';
+    $marker = $root . '/state.initialized';
+    $stateExists = ref_path_entry_exists($path);
+    $markerExists = ref_path_entry_exists($marker);
+    ref_require(!$stateExists || is_file($path), 'reference provider state path is malformed');
+    ref_require(!$markerExists || is_file($marker), 'reference provider initialization marker is malformed');
+    ref_require(
+        $stateExists || !$markerExists,
+        'reference provider state is missing after initialization; exclude all controllers and restore its last durable state before reuse'
+    );
+    $state = ref_json_file($path, ref_empty_state());
     ref_require(is_array($state) && !array_is_list($state), 'reference provider state is malformed');
-    foreach (['fences', 'sessions', 'snapshots', 'ttls', 'resources'] as $key) {
-        ref_require(is_array($state[$key] ?? null), "reference provider state '$key' is malformed");
+    // These maps are additive provider evidence. Every legacy resource row
+    // fails closed in ref_resource(): its acquisition lineage and safe lease
+    // generation cannot be reconstructed from the old tombstone.
+    if (!array_key_exists('acquisitions', $state)) $state['acquisitions'] = [];
+    if (!array_key_exists('reap_receipts', $state)) $state['reap_receipts'] = [];
+    if (!array_key_exists('slot_authorities', $state)) $state['slot_authorities'] = [];
+    if (!array_key_exists('source_inspections', $state)) $state['source_inspections'] = [];
+    foreach (['acquisitions', 'fences', 'reap_receipts', 'resources', 'sessions', 'slot_authorities', 'snapshots', 'source_inspections', 'ttls'] as $key) {
+        ref_require(
+            is_array($state[$key] ?? null) && ($state[$key] === [] || !array_is_list($state[$key])),
+            "reference provider state '$key' is malformed"
+        );
     }
     return $state;
 }
@@ -590,11 +932,48 @@ function ref_save_state(string $root, array $state): void {
     $path = $root . '/state.json';
     $tmp = $path . '.tmp-' . bin2hex(random_bytes(6));
     $bytes = ref_json($state) . "\n";
-    if (file_put_contents($tmp, $bytes, LOCK_EX) !== strlen($bytes) || !rename($tmp, $path)) {
+    $handle = fopen($tmp, 'x+b');
+    if ($handle === false) throw new RuntimeException('could not create reference provider state staging file');
+    try {
+        chmod($tmp, 0600);
+        if (fwrite($handle, $bytes) !== strlen($bytes) || !fflush($handle) || !fsync($handle)) {
+            throw new RuntimeException('could not durably stage reference provider state');
+        }
+    } catch (Throwable $error) {
+        fclose($handle);
+        @unlink($tmp);
+        throw $error;
+    }
+    fclose($handle);
+    if (!rename($tmp, $path)) {
         @unlink($tmp);
         throw new RuntimeException('could not publish reference provider state');
     }
     chmod($path, 0600);
+    $marker = $root . '/state.initialized';
+    if (!is_file($marker)) {
+        $markerHandle = fopen($marker, 'x+b');
+        if ($markerHandle === false) throw new RuntimeException('could not create reference provider initialization marker');
+        $markerBytes = "duo-reference-env-provider-state/v1\n";
+        try {
+            chmod($marker, 0600);
+            if (fwrite($markerHandle, $markerBytes) !== strlen($markerBytes) || !fflush($markerHandle) || !fsync($markerHandle)) {
+                throw new RuntimeException('could not durably publish reference provider initialization marker');
+            }
+        } catch (Throwable $error) {
+            fclose($markerHandle);
+            @unlink($marker);
+            throw $error;
+        }
+        fclose($markerHandle);
+    }
+    $directory = fopen($root, 'r');
+    if ($directory === false) throw new RuntimeException('could not open reference provider state directory for durability');
+    try {
+        if (!fsync($directory)) throw new RuntimeException('could not durably publish reference provider state directory entries');
+    } finally {
+        fclose($directory);
+    }
 }
 
 /** @param array<string,mixed> $request */
@@ -667,6 +1046,7 @@ function ref_require_fence(
     array &$state,
     array $input,
     array $identity,
+    string $resourceConfig,
     bool $mustBeHeld = true,
     bool $allowHeldReceiptAfterRelease = false
 ): array {
@@ -677,8 +1057,12 @@ function ref_require_fence(
     $id = (string) $input['expected_mutation_id'];
     $fence = $state['fences'][$id] ?? null;
     ref_require(is_array($fence), 'mutation fence is unknown');
+    foreach (ref_lease_tuple($identity, $resourceConfig) as $key => $value) {
+        ref_require(($fence[$key] ?? null) === $value, "mutation fence lease differs at '$key'");
+    }
     ref_require(
-        $fence['generation'] === $input['expected_mutation_generation'] && $fence['owner'] === $input['expected_mutation_owner'],
+        $fence['generation'] === $input['expected_mutation_generation']
+            && $fence['owner'] === $input['expected_mutation_owner'],
         'mutation fence lineage changed'
     );
     // A released->released read must authenticate the release acknowledgement,
@@ -694,16 +1078,119 @@ function ref_require_fence(
 
 /** @param array<string,mixed> $config @param array<string,mixed> $environment */
 function ref_clear_side(array $config, array $environment): void {
-    if (($config['destroy_scope'] ?? 'side') === 'pair') {
-        ref_checked(['bash', (string) $config['pair_script'], 'destroy', (string) $config['pair']]);
-        return;
-    }
     ref_restore_database($config, (string) $environment['database'], '');
     ref_checked(ref_media_clear_command((string) $environment['container']));
     $repo = (string) $environment['repo'];
     ref_remove_tree($repo);
     if (!mkdir($repo, 0777, true) && !is_dir($repo)) throw new RuntimeException('could not recreate the cleared side repository');
     chmod($repo, 0777);
+}
+
+/** @param array<string,mixed> $environment */
+function ref_assert_action_role(string $action, array $environment): void {
+    $source = ['snapshot-abort', 'snapshot-create', 'snapshot-prepare', 'snapshot-read'];
+    $target = [
+        'attach', 'create', 'destroy', 'detach', 'mutation-acquire', 'mutation-read',
+        'mutation-release', 'repository-materialize', 'snapshot-restore', 'ttl-read',
+        'ttl-set', 'url-set',
+    ];
+    if (in_array($action, $source, true)) {
+        ref_require(($environment['role'] ?? null) === 'source', "action '$action' requires the configured source role");
+    }
+    if (in_array($action, $target, true)) {
+        ref_require(($environment['role'] ?? null) === 'target', "action '$action' requires the configured target role");
+    }
+}
+
+/** @param array<string,mixed> $resource @param array<string,mixed> $config */
+function ref_assert_resource_config(array $resource, array $config): void {
+    ref_require(
+        ($resource['resource_config_sha256'] ?? null) === ref_resource_config_sha256($config),
+        'preview-slot configured mutation topology changed while its lease is active'
+    );
+}
+
+/**
+ * One state authority owns exactly one target side for its lifetime. Otherwise
+ * changing `pair` or `side` creates a fresh map key while retaining access to
+ * the old database/container/repository endpoints.
+ *
+ * @param array<string,mixed> $state
+ * @param array<string,mixed> $config
+ * @param array<string,mixed> $environment
+ */
+function ref_assert_slot_authority(array &$state, array $config, array $environment, bool $initialize): void {
+    $expected = [
+        'resource_config_sha256' => ref_resource_config_sha256($config),
+        'resource_id' => ref_resource_id($config, $environment),
+    ];
+    $authority = $state['slot_authorities']['target'] ?? null;
+    if ($authority === null) {
+        if ($initialize) $state['slot_authorities']['target'] = $expected + ['generation' => 0];
+        return;
+    }
+    ref_require(is_array($authority) && !array_is_list($authority), 'preview-slot state authority is malformed');
+    ref_require(
+        ($authority['resource_config_sha256'] ?? null) === $expected['resource_config_sha256']
+            && ($authority['resource_id'] ?? null) === $expected['resource_id'],
+        'preview-slot state authority is bound to another configured target'
+    );
+    ref_require(is_int($authority['generation'] ?? null) && $authority['generation'] >= 0, 'preview-slot state authority generation is invalid');
+    $resource = $state['resources'][$expected['resource_id']] ?? null;
+    if ($authority['generation'] > 0) {
+        ref_require(is_array($resource), 'preview-slot resource state is missing beneath its initialized authority');
+        ref_require(($resource['generation'] ?? null) === $authority['generation'], 'preview-slot resource generation differs from its state authority');
+    } else {
+        ref_require($resource === null, 'preview-slot generation-zero authority has unexpected resource state');
+    }
+}
+
+/** @param array<string,mixed> $record */
+function ref_assert_acquisition(array $record): void {
+    foreach (['generation', 'input_sha256', 'mode', 'operation_id', 'resource_config_sha256', 'resource_id', 'state'] as $key) {
+        ref_require(array_key_exists($key, $record), "preview-slot acquisition history is missing '$key'");
+    }
+    ref_require(is_int($record['generation']) && $record['generation'] >= 1, 'preview-slot acquisition generation is invalid');
+    ref_require(is_string($record['input_sha256']) && preg_match('/^[a-f0-9]{64}$/D', $record['input_sha256']) === 1, 'preview-slot acquisition input receipt is invalid');
+    ref_require(in_array($record['mode'], ['attach', 'create'], true), 'preview-slot acquisition history mode is invalid');
+    ref_require(is_string($record['operation_id']) && $record['operation_id'] !== '', 'preview-slot acquisition history operation is invalid');
+    ref_require(
+        is_string($record['resource_config_sha256']) && preg_match('/^[a-f0-9]{64}$/D', $record['resource_config_sha256']) === 1,
+        'preview-slot acquisition configured-topology receipt is invalid'
+    );
+    ref_require(is_string($record['resource_id']) && $record['resource_id'] !== '', 'preview-slot acquisition resource is invalid');
+    ref_require(in_array($record['state'], ['acquiring', 'present', 'terminal'], true), 'preview-slot acquisition history state is invalid');
+}
+
+/** @param array<string,mixed> $state @param array<string,mixed> $resource */
+function ref_assert_absent_lineage(array $state, string $resourceId, array $resource): void {
+    if ($resource['state'] !== 'absent' || (int) $resource['generation'] === 0) return;
+    $key = ref_acquisition_key($resourceId, (string) $resource['operation_id']);
+    $acquisition = $state['acquisitions'][$key] ?? null;
+    ref_require(is_array($acquisition), 'absent preview slot has no terminal acquisition history');
+    ref_assert_acquisition($acquisition);
+    ref_require(
+        $acquisition['generation'] === $resource['generation']
+            && $acquisition['input_sha256'] === $resource['acquisition_input_sha256']
+            && $acquisition['mode'] === $resource['mode']
+            && $acquisition['operation_id'] === $resource['operation_id']
+            && $acquisition['resource_config_sha256'] === $resource['resource_config_sha256']
+            && $acquisition['resource_id'] === $resourceId
+            && $acquisition['state'] === 'terminal',
+        'absent preview-slot lineage differs from its terminal acquisition'
+    );
+}
+
+/** @param array<string,mixed> $identity @return array<string,mixed> */
+function ref_lease_tuple(array $identity, string $resourceConfig): array {
+    return [
+        'environment_identity' => $identity['environment_identity'],
+        'lease_generation' => $identity['lease_generation'],
+        'lease_id' => $identity['lease_id'],
+        'ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
+        'resource_config_sha256' => $resourceConfig,
+        'resource_id' => $identity['resource_id'],
+    ];
 }
 
 // --------------------------------------------------------------------------
@@ -726,18 +1213,180 @@ function ref_dispatch(array $request, array $config, array &$state): array {
 
     if ($action === 'capabilities') return ['capabilities' => ref_advertised_capabilities($config)];
     ref_assert_capability($config, $action);
+    ref_assert_action_role($action, $environment);
 
-    $identity = ref_identity($config, $environment, ref_discover_url($environment, false));
+    if (in_array($action, ['destroy', 'detach'], true)) {
+        $receiptKey = ref_reap_receipt_key($request);
+        $cached = $state['reap_receipts'][$receiptKey] ?? null;
+        if (is_array($cached)) return $cached;
+    }
 
-    if ($action === 'inspect') return $identity + ['presence' => 'present'];
+    $resourceId = ref_resource_id($config, $environment);
+    $resourceConfig = ref_resource_config_sha256($config);
+    if (($environment['role'] ?? null) === 'target') {
+        ref_assert_slot_authority($state, $config, $environment, true);
+    }
+    $resource = ref_resource($state, $config, $environmentName, $environment);
+    if (($environment['role'] ?? null) === 'target') {
+        ref_assert_absent_lineage($state, $resourceId, $resource);
+        if ($resource['state'] === 'reaping' && !in_array($action, ['destroy', 'detach'], true)) {
+            ref_require(false, 'preview-slot reap is incomplete; retry the exact reap request');
+        }
+    }
+    if (($environment['role'] ?? null) === 'source'
+        && in_array($action, ['snapshot-abort', 'snapshot-create', 'snapshot-prepare', 'snapshot-read'], true)) {
+        $sourceConfig = ref_source_config_sha256($config, $environmentName, $environment);
+        ref_require(
+            ($state['source_inspections'][ref_snapshot_key($environmentName, $operation)] ?? null) === $sourceConfig,
+            'source topology differs from the inspected operation; inspect again under a new operation'
+        );
+    }
 
     if ($action === 'attach' || $action === 'create') {
         ref_require(($input['mode'] ?? null) === $action, 'target acquisition mode is malformed');
-        ref_checked(ref_pair_up_command($config));
-        if ($action === 'create') ref_clear_side($config, $environment);
-        $state['resources'][$environmentName] = ['mode' => $action, 'operation_id' => $operation, 'state' => 'present'];
+        $inputSha = ref_hash($input);
+        $acquisitionKey = ref_acquisition_key($resourceId, $operation);
+        $acquisition = $state['acquisitions'][$acquisitionKey] ?? null;
+        if (is_array($acquisition)) {
+            ref_assert_acquisition($acquisition);
+            ref_require(
+                $acquisition['operation_id'] === $operation
+                    && $acquisition['resource_id'] === $resourceId
+                    && $acquisition['mode'] === $action
+                    && $acquisition['input_sha256'] === $inputSha
+                    && $acquisition['resource_config_sha256'] === $resourceConfig,
+                'preview-slot acquisition retry differs from its persisted intent'
+            );
+            ref_require($acquisition['state'] !== 'terminal', 'a terminal preview-slot acquisition cannot be resurrected');
+            ref_require(
+                in_array($resource['state'], ['acquiring', 'present'], true)
+                    && $resource['generation'] === $acquisition['generation']
+                    && $resource['mode'] === $acquisition['mode']
+                    && $resource['operation_id'] === $operation
+                    && $resource['acquisition_input_sha256'] === $inputSha
+                    && $resource['state'] === $acquisition['state'],
+                'preview-slot acquisition history differs from current ownership'
+            );
+            ref_assert_resource_config($resource, $config);
+        } else {
+            ref_require($resource['state'] === 'absent', 'preview slot is already owned by another acquisition');
+            ref_require((int) $resource['generation'] < PHP_INT_MAX, 'preview slot lease generation is exhausted');
+            $resource = [
+                'acquisition_input_sha256' => $inputSha,
+                'generation' => (int) $resource['generation'] + 1,
+                'mode' => $action,
+                'operation_id' => $operation,
+                'resource_config_sha256' => $resourceConfig,
+                'state' => $action === 'create' ? 'acquiring' : 'present',
+                'url' => ref_configured_url($environment),
+            ];
+            $acquisition = [
+                'generation' => $resource['generation'],
+                'input_sha256' => $inputSha,
+                'mode' => $action,
+                'operation_id' => $operation,
+                'resource_config_sha256' => $resourceConfig,
+                'resource_id' => $resourceId,
+                'state' => $resource['state'],
+            ];
+            $state['acquisitions'][$acquisitionKey] = $acquisition;
+            $state['resources'][$resourceId] = $resource;
+            $state['slot_authorities']['target']['generation'] = $resource['generation'];
+            unset($state['ttls'][$resourceId]);
+            if ($action === 'create') {
+                // Publish create intent before allocation/cleanup. A crash may
+                // make the exact operation clear its unpopulated side again,
+                // but another operation cannot claim an ambiguous slot.
+                ref_save_state((string) $config['state_root'], $state);
+            }
+        }
+
+        if ($action === 'attach') {
+            // Attach is proof of an independently existing slot, never an
+            // allocation alias. Failed discovery publishes no new ownership.
+            $observedUrl = ref_discover_url($environment, false);
+            ref_require($observedUrl === $resource['url'], 'preview-slot URL changed during attach');
+            $resource['state'] = 'present';
+            $acquisition['state'] = 'present';
+            $state['acquisitions'][$acquisitionKey] = $acquisition;
+            $state['resources'][$resourceId] = $resource;
+            ref_save_state((string) $config['state_root'], $state);
+            return ref_identity($config, $environment, $observedUrl, $resource) + ['presence' => 'present'];
+        }
+
+        // Only an acquiring intent may allocate/converge the pair. A retry of
+        // a present lease proves the existing side and never recreates either
+        // source or target under old ownership evidence.
+        if ($resource['state'] === 'acquiring') ref_checked(ref_pair_up_command($config));
+        $observedUrl = ref_discover_url($environment, false);
+        ref_require($observedUrl === $resource['url'], 'preview-slot URL changed during acquisition');
+        $identity = ref_identity($config, $environment, $observedUrl, $resource);
+        if ($resource['state'] === 'acquiring') {
+            ref_clear_side($config, $environment);
+            $resource['state'] = 'present';
+            $acquisition['state'] = 'present';
+            $state['acquisitions'][$acquisitionKey] = $acquisition;
+            $state['resources'][$resourceId] = $resource;
+            ref_save_state((string) $config['state_root'], $state);
+        }
         return $identity + ['presence' => 'present'];
     }
+
+    if (in_array($action, ['destroy', 'detach'], true) && in_array($resource['state'], ['present', 'reaping'], true)) {
+        $expectedAction = $resource['mode'] === 'create' ? 'destroy' : 'detach';
+        ref_require($action === $expectedAction, "preview slot acquired with '{$resource['mode']}' must be reaped with '$expectedAction'");
+    }
+
+    if ($action === 'inspect') {
+        if (array_key_exists('role', $input)) {
+            ref_require($input['role'] === $environment['role'], 'inspect role differs from configured environment role');
+        }
+        ref_require($resource['state'] !== 'acquiring', 'preview slot acquisition is incomplete; retry the exact acquisition');
+        ref_require($resource['state'] !== 'reaping', 'preview-slot reap is incomplete; retry the exact reap request');
+        if (($environment['role'] ?? null) === 'source') {
+            $sourceKey = ref_snapshot_key($environmentName, $operation);
+            $sourceConfig = ref_source_config_sha256($config, $environmentName, $environment);
+            $inspectedConfig = $state['source_inspections'][$sourceKey] ?? null;
+            ref_require(
+                $inspectedConfig === null || $inspectedConfig === $sourceConfig,
+                'source topology changed after its operation identity was inspected'
+            );
+            $state['source_inspections'][$sourceKey] = $sourceConfig;
+            $url = ref_discover_url($environment, false);
+            $identityResource = $resource;
+        } elseif ((int) $resource['generation'] === 0) {
+            $url = ref_configured_url($environment);
+            $identityResource = $resource;
+            $identityResource['generation'] = 1;
+            $identityResource['operation_id'] = 'unallocated-target';
+            $identityResource['resource_config_sha256'] = $resourceConfig;
+        } else {
+            $url = (string) $resource['url'];
+            $identityResource = $resource;
+            if ($resource['state'] === 'present') {
+                ref_assert_resource_config($resource, $config);
+                ref_require(ref_discover_url($environment, false) === $url, 'active preview-slot URL differs from its lease');
+            }
+        }
+        $identity = ref_identity($config, $environment, $url, $identityResource);
+        if (array_key_exists('expected_environment_identity', $input)) ref_assert_identity_input($input, $identity);
+        return $identity + ['presence' => $resource['state'] === 'present' ? 'present' : 'absent'];
+    }
+
+    if (($environment['role'] ?? null) === 'target') {
+        ref_require(
+            $resource['state'] === 'present'
+                || $resource['state'] === 'reaping' && in_array($action, ['destroy', 'detach'], true),
+            'preview slot has no active owner'
+        );
+        ref_assert_resource_config($resource, $config);
+    }
+    $identity = ref_identity(
+        $config,
+        $environment,
+        ($environment['role'] ?? null) === 'target' ? (string) $resource['url'] : ref_discover_url($environment, false),
+        $resource
+    );
 
     if ($action === 'snapshot-prepare') {
         ref_require(($environment['role'] ?? null) === 'source', 'only the source can prepare a snapshot');
@@ -745,6 +1394,11 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         $session = $input['snapshot_session_id'] ?? null;
         ref_require(is_string($session) && $session !== '', 'snapshot session is absent');
         $key = ref_snapshot_key($environmentName, $operation);
+        $sourceConfig = ref_source_config_sha256($config, $environmentName, $environment);
+        ref_require(
+            ($state['source_inspections'][$key] ?? null) === $sourceConfig,
+            'source topology differs from the inspected operation; inspect again under a new operation'
+        );
         $prepared = $state['sessions'][$key] ?? null;
         if (!is_array($prepared)) {
             $staging = (string) $config['state_root'] . '/prepared/' . hash('sha256', $key);
@@ -756,6 +1410,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
                 'lease_receipt_sha256' => ref_hash('snapshot-lease:' . $key),
                 'path' => $staging,
                 'snapshot_session_id' => $session,
+                'source_config_sha256' => $sourceConfig,
                 'source_identity' => $identity['environment_identity'],
                 'state' => 'preparing',
             ];
@@ -764,6 +1419,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         }
         ref_require(($prepared['snapshot_session_id'] ?? null) === $session, 'snapshot prepare session changed');
         ref_require(($prepared['source_identity'] ?? null) === $identity['environment_identity'], 'snapshot prepare source changed');
+        ref_require(($prepared['source_config_sha256'] ?? null) === $sourceConfig, 'snapshot prepare source topology changed');
         ref_require(in_array($prepared['state'] ?? null, ['preparing', 'prepared'], true), 'snapshot prepare session is no longer resumable');
         if (($prepared['state'] ?? null) === 'preparing') {
             $staging = (string) $prepared['path'];
@@ -798,6 +1454,10 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         $key = ref_snapshot_key($environmentName, $operation);
         $prepared = $state['sessions'][$key] ?? null;
         ref_require(is_array($prepared) && $prepared['state'] === 'prepared', 'snapshot create has no prepared source session');
+        ref_require(
+            ($prepared['source_config_sha256'] ?? null) === ref_source_config_sha256($config, $environmentName, $environment),
+            'snapshot create source topology changed after prepare'
+        );
         foreach ([
             'expected_snapshot_session_id' => 'snapshot_session_id', 'expected_source_identity' => 'source_identity',
             'expected_source_lease_generation' => 'lease_generation', 'expected_source_lease_id' => 'lease_id',
@@ -920,23 +1580,42 @@ function ref_dispatch(array $request, array $config, array &$state): array {
         ref_assert_identity_input($input, $identity);
         $owner = $input['mutation_owner'] ?? null;
         ref_require(is_string($owner) && $owner !== '', 'mutation acquire has no owner');
-        $id = 'mutation-' . substr(hash('sha256', $environmentName . '|' . $operation), 0, 20);
+        $leaseTuple = ref_lease_tuple($identity, $resourceConfig);
+        $id = 'mutation-' . substr(hash('sha256', $resourceId . '|' . $identity['lease_generation'] . '|' . $operation), 0, 20);
         $fence = $state['fences'][$id] ?? null;
         if (!is_array($fence)) {
+            foreach ($state['fences'] as $candidate) {
+                if (is_array($candidate)
+                    && ($candidate['resource_id'] ?? null) === $identity['resource_id']
+                    && ($candidate['lease_generation'] ?? null) === $identity['lease_generation']
+                    && ($candidate['state'] ?? null) === 'held') {
+                    ref_require(false, 'preview slot already has a held mutation fence');
+                }
+            }
             $receipt = ref_hash('held:' . $id . ':' . $owner);
-            $fence = ['generation' => 1, 'held_receipt' => $receipt, 'id' => $id, 'owner' => $owner, 'receipt' => $receipt, 'state' => 'held'];
+            $fence = $leaseTuple + [
+                'generation' => 1,
+                'held_receipt' => $receipt,
+                'id' => $id,
+                'owner' => $owner,
+                'receipt' => $receipt,
+                'state' => 'held',
+            ];
             $state['fences'][$id] = $fence;
+        }
+        foreach ($leaseTuple as $key => $value) {
+            ref_require(($fence[$key] ?? null) === $value, "mutation acquire lease differs at '$key'");
         }
         ref_require($fence['owner'] === $owner && $fence['state'] === 'held', 'mutation acquire is not idempotent/exclusive');
         return ref_fence_result($identity, $fence);
     }
 
     if ($action === 'mutation-read') {
-        return ref_fence_result($identity, ref_require_fence($state, $input, $identity, false));
+        return ref_fence_result($identity, ref_require_fence($state, $input, $identity, $resourceConfig, false));
     }
 
     if ($action === 'mutation-release') {
-        $fence = ref_require_fence($state, $input, $identity, false, true);
+        $fence = ref_require_fence($state, $input, $identity, $resourceConfig, false, true);
         if ($fence['state'] === 'held') {
             $fence['state'] = 'released';
             $fence['receipt'] = ref_hash('released:' . $fence['id'] . ':' . $fence['owner']);
@@ -947,7 +1626,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     }
 
     if ($action === 'snapshot-restore') {
-        ref_require_fence($state, $input, $identity);
+        ref_require_fence($state, $input, $identity, $resourceConfig);
         $snapshotId = $input['snapshot_set_id'] ?? null;
         $snapshot = null;
         foreach ($state['snapshots'] as $candidate) {
@@ -966,7 +1645,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     }
 
     if ($action === 'repository-materialize') {
-        ref_require_fence($state, $input, $identity);
+        ref_require_fence($state, $input, $identity, $resourceConfig);
         $commit = $input['branch_commit'] ?? null;
         ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
         $repo = (string) $environment['repo'];
@@ -981,7 +1660,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     }
 
     if ($action === 'url-set') {
-        ref_require_fence($state, $input, $identity);
+        ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_require(($input['url'] ?? null) === $identity['url'], 'provider URL differs from target identity');
         foreach (['home', 'siteurl'] as $option) {
             ref_checked(
@@ -994,21 +1673,21 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     }
 
     if ($action === 'ttl-set') {
-        ref_require_fence($state, $input, $identity);
+        ref_require_fence($state, $input, $identity, $resourceConfig);
         $seconds = $input['ttl_seconds'] ?? null;
         ref_require(is_int($seconds) && $seconds >= 60, 'TTL set is invalid');
-        $ttl = $state['ttls'][$environmentName] ?? null;
+        $ttl = $state['ttls'][$resourceId] ?? null;
         if (!is_array($ttl) || ($ttl['operation_id'] ?? null) !== $operation) {
             $ttl = [
                 'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + $seconds), 'generation' => 1,
-                'lease_id' => 'ttl-lease-' . substr(hash('sha256', $environmentName . '|' . $operation), 0, 20),
+                'lease_id' => 'ttl-lease-' . substr(hash('sha256', $resourceId . '|' . $operation), 0, 20),
                 'operation_id' => $operation,
             ];
             $ttl['receipt'] = ref_hash([
                 'expires_at' => $ttl['expires_at'], 'generation' => $ttl['generation'],
                 'lease_id' => $ttl['lease_id'], 'operation_id' => $ttl['operation_id'],
             ]);
-            $state['ttls'][$environmentName] = $ttl;
+            $state['ttls'][$resourceId] = $ttl;
         }
         return $identity + [
             'expires_at' => $ttl['expires_at'], 'ttl_generation' => $ttl['generation'], 'ttl_lease_id' => $ttl['lease_id'],
@@ -1018,7 +1697,7 @@ function ref_dispatch(array $request, array $config, array &$state): array {
 
     if ($action === 'ttl-read') {
         ref_assert_identity_input($input, $identity);
-        $ttl = $state['ttls'][$environmentName] ?? null;
+        $ttl = $state['ttls'][$resourceId] ?? null;
         ref_require(is_array($ttl), 'TTL read has no active lease');
         foreach ([
             'expected_expires_at' => 'expires_at', 'expected_ttl_generation' => 'generation',
@@ -1033,17 +1712,63 @@ function ref_dispatch(array $request, array $config, array &$state): array {
     }
 
     if ($action === 'destroy' || $action === 'detach') {
-        ref_require_fence($state, $input, $identity);
+        ref_require_fence($state, $input, $identity, $resourceConfig);
         ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
+        $acquisitionKey = ref_acquisition_key($resourceId, (string) $resource['operation_id']);
+        $acquisition = $state['acquisitions'][$acquisitionKey] ?? null;
+        ref_require(is_array($acquisition), 'preview-slot reap has no acquisition history');
+        ref_assert_acquisition($acquisition);
+        ref_require(
+            $acquisition['generation'] === $resource['generation']
+                && $acquisition['input_sha256'] === $resource['acquisition_input_sha256']
+                && $acquisition['mode'] === $resource['mode']
+                && $acquisition['operation_id'] === $resource['operation_id']
+                && $acquisition['resource_config_sha256'] === $resource['resource_config_sha256']
+                && $acquisition['resource_id'] === $resourceId
+                && $acquisition['state'] === 'present',
+            'preview-slot reap acquisition history differs from current ownership'
+        );
+        $reapInputSha = ref_hash($input);
+        if ($resource['state'] === 'reaping') {
+            ref_require(
+                $resource['reap_action'] === $action
+                    && $resource['reap_input_sha256'] === $reapInputSha
+                    && $resource['reap_operation_id'] === $operation,
+                'preview-slot reap retry differs from its persisted intent'
+            );
+        } else {
+            $resource['reap_action'] = $action;
+            $resource['reap_input_sha256'] = $reapInputSha;
+            $resource['reap_operation_id'] = $operation;
+            $resource['state'] = 'reaping';
+            $state['resources'][$resourceId] = $resource;
+            // Persist the exact reap intent before cleanup. Any partial clear
+            // can then only be resumed by this compare-and-reap request under
+            // the same held mutation fence.
+            ref_save_state((string) $config['state_root'], $state);
+        }
+        // Every provider-owned comparison precedes physical cleanup. A corrupt
+        // history row is a refusal, never a delete-then-discover-the-gap path.
         if ($action === 'destroy') ref_clear_side($config, $environment);
-        $state['resources'][$environmentName] = ['mode' => $action, 'operation_id' => $operation, 'state' => 'absent'];
-        return [
+        $resource['state'] = 'absent';
+        unset($resource['reap_action'], $resource['reap_input_sha256'], $resource['reap_operation_id']);
+        $state['resources'][$resourceId] = $resource;
+        unset($state['ttls'][$resourceId]);
+        $acquisition['state'] = 'terminal';
+        $state['acquisitions'][$acquisitionKey] = $acquisition;
+        $result = [
             'absence_proof_sha256' => ref_hash([$action, $identity['environment_identity'], $identity['resource_id'], $operation]),
             'disposition' => $action === 'destroy' ? 'destroyed' : 'detached',
             'environment_identity' => $identity['environment_identity'], 'lease_generation' => $identity['lease_generation'],
             'lease_id' => $identity['lease_id'], 'ownership_receipt_sha256' => $identity['ownership_receipt_sha256'],
             'resource_id' => $identity['resource_id'],
         ];
+        $state['reap_receipts'][ref_reap_receipt_key($request)] = $result;
+        // Persist terminal evidence before acknowledging the destructive call.
+        // An exact replay can now return this receipt without touching a later
+        // generation that reuses the same physical container.
+        ref_save_state((string) $config['state_root'], $state);
+        return $result;
     }
 
     throw new RuntimeException("unsupported reference provider action '$action'");
@@ -1054,53 +1779,194 @@ function ref_dispatch(array $request, array $config, array &$state): array {
 // --------------------------------------------------------------------------
 
 /**
- * Validate one request exactly as ref_dispatch() would, then describe the
- * external commands it would run. No docker, no git, no filesystem write.
+ * Validate one request's static boundary as ref_dispatch() would, then
+ * describe its external-command boundary. No docker, git or filesystem write.
  *
  * State-dependent checks (is there a prepared snapshot session, is the fence
- * held) are deliberately NOT performed: they are facts about a live pair, and
- * asserting them here would either require provider state or invent it. The
- * document records that boundary in `state_dependent` so a reader is never
- * left believing a dry run proved more than it did.
+ * held) are deliberately NOT performed. If atomic provider state exists, it is
+ * read only to validate the target's real generation-bound identity; otherwise
+ * a fenced target plan refuses instead of inventing an identity. The document
+ * records the remaining boundary in `state_dependent`.
  *
  * @param array<string,mixed> $request
  * @param array<string,mixed> $config
+ * @param ?array<string,mixed> $state
  * @return array<string,mixed>
  */
-function ref_plan(array $request, array $config): array {
+function ref_plan(array $request, array $config, ?array $state = null): array {
     $environmentName = (string) $request['environment'];
     $environment = $config['environments'][$environmentName] ?? null;
     ref_require(is_array($environment), "unknown reference environment '$environmentName'");
     $action = (string) $request['action'];
     $input = $request['input'];
+    $operation = (string) $request['operation_id'];
     ref_require(
         $action === 'capabilities' || isset(ref_action_capability()[$action]),
         "unsupported reference provider action '$action'"
     );
     ref_assert_capability($config, $action);
+    if ($action !== 'capabilities') ref_assert_action_role($action, $environment);
 
-    $url = ref_discover_url($environment, true);
-    $identity = ref_identity($config, $environment, $url);
+    $planState = $state ?? [
+        'acquisitions' => [], 'fences' => [], 'reap_receipts' => [], 'resources' => [],
+        'sessions' => [], 'slot_authorities' => [], 'snapshots' => [], 'source_inspections' => [], 'ttls' => [],
+    ];
+    $url = ref_configured_url($environment);
+    $urlSource = 'config';
+    $identityAuthoritative = ($environment['role'] ?? null) === 'source';
+    $identityResource = null;
+    $cachedReap = null;
+
+    // Capabilities are deliberately state-independent. A corrupt/legacy slot
+    // must not prevent the client from learning the provider's protocol, and a
+    // target identity shown here is explicitly non-authoritative.
+    if ($action === 'capabilities') {
+        if (($environment['role'] ?? null) === 'target') {
+            $identityResource = [
+                'generation' => 1,
+                'operation_id' => 'unallocated-target',
+                'resource_config_sha256' => ref_resource_config_sha256($config),
+            ];
+        }
+    } elseif (($environment['role'] ?? null) === 'target') {
+        if (in_array($action, ['destroy', 'detach'], true)) {
+            $cached = $planState['reap_receipts'][ref_reap_receipt_key($request)] ?? null;
+            if (is_array($cached)) $cachedReap = $cached;
+        }
+        if (is_array($cachedReap)) {
+            $identity = [
+                'environment_identity' => $cachedReap['environment_identity'],
+                'lease_generation' => $cachedReap['lease_generation'],
+                'lease_id' => $cachedReap['lease_id'],
+                'ownership_receipt_sha256' => $cachedReap['ownership_receipt_sha256'],
+                'resource_id' => $cachedReap['resource_id'],
+                'url' => $url,
+            ];
+            $identityAuthoritative = true;
+        } else {
+            ref_assert_slot_authority($planState, $config, $environment, false);
+            $identityResource = ref_resource($planState, $config, $environmentName, $environment);
+            ref_assert_absent_lineage($planState, ref_resource_id($config, $environment), $identityResource);
+            if (in_array($identityResource['state'], ['acquiring', 'present', 'reaping'], true)) {
+                ref_assert_resource_config($identityResource, $config);
+                $url = (string) $identityResource['url'];
+                $urlSource = 'provider-state';
+                $identityAuthoritative = true;
+            } else {
+                $identityResource['generation'] = max(1, (int) $identityResource['generation']);
+                $identityResource['operation_id'] = $identityResource['operation_id'] ?? 'unallocated-target';
+                $identityResource['resource_config_sha256'] = $identityResource['resource_config_sha256']
+                    ?? ref_resource_config_sha256($config);
+            }
+        }
+    }
+    if (!isset($identity)) $identity = ref_identity($config, $environment, $url, $identityResource);
     $commands = [];
+    if ($action !== 'capabilities' && ($environment['role'] ?? null) === 'source') {
+        $commands[] = ['argv' => ref_port_command($environment)];
+    }
     $stateDependent = true;
     $identityChecked = false;
 
-    if (is_array($input) && array_key_exists('expected_environment_identity', $input)) {
+    if ($action === 'repository-materialize') {
+        $commit = $input['branch_commit'] ?? null;
+        ref_require(is_string($commit) && preg_match('/^[a-f0-9]{40}$/D', $commit) === 1, 'repository materialization commit is invalid');
+    }
+    if ($action === 'ttl-set') {
+        ref_require(is_int($input['ttl_seconds'] ?? null) && $input['ttl_seconds'] >= 60, 'TTL set is invalid');
+    }
+    if (in_array($action, ['destroy', 'detach'], true)) {
+        ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
+    }
+    if (!is_array($cachedReap) && is_array($input) && array_key_exists('expected_environment_identity', $input)) {
+        ref_require($identityAuthoritative, 'cannot validate a fenced target plan without an active provider lease');
         ref_assert_identity_input($input, $identity);
         $identityChecked = true;
     }
 
+    if ($action !== 'capabilities' && !is_array($cachedReap) && ($environment['role'] ?? null) === 'target' && is_array($identityResource)) {
+        if ($identityResource['state'] === 'reaping' && !in_array($action, ['destroy', 'detach'], true)) {
+            ref_require(false, 'preview-slot reap is incomplete; retry the exact reap request');
+        }
+        if ($action === 'inspect') {
+            ref_require($identityResource['state'] !== 'acquiring', 'preview slot acquisition is incomplete; retry the exact acquisition');
+            ref_require($identityResource['state'] !== 'reaping', 'preview-slot reap is incomplete; retry the exact reap request');
+        }
+        if (!in_array($action, ['attach', 'capabilities', 'create', 'inspect'], true)) {
+            ref_require(
+                $identityResource['state'] === 'present'
+                    || $identityResource['state'] === 'reaping' && in_array($action, ['destroy', 'detach'], true),
+                'preview slot has no active owner'
+            );
+        }
+    }
+
+    if (!is_array($cachedReap) && $identityAuthoritative && in_array($action, ['destroy', 'detach'], true) && is_array($identityResource)) {
+        $expectedAction = $identityResource['mode'] === 'create' ? 'destroy' : 'detach';
+        ref_require($action === $expectedAction, "preview slot acquired with '{$identityResource['mode']}' must be reaped with '$expectedAction'");
+        if ($identityResource['state'] === 'reaping') {
+            ref_require(
+                $identityResource['reap_action'] === $action
+                    && $identityResource['reap_input_sha256'] === ref_hash($input)
+                    && $identityResource['reap_operation_id'] === $operation,
+                'preview-slot reap retry differs from its persisted intent'
+            );
+        }
+    }
+
     switch ($action) {
         case 'capabilities':
+            $stateDependent = false;
+            break;
         case 'inspect':
+            if (($environment['role'] ?? null) === 'target'
+                && is_array($identityResource) && $identityResource['state'] === 'present') {
+                $commands[] = ['argv' => ref_port_command($environment)];
+            }
+            break;
         case 'detach':
-            $stateDependent = $action !== 'capabilities';
+            ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
             break;
         case 'attach':
         case 'create':
             ref_require(($input['mode'] ?? null) === $action, 'target acquisition mode is malformed');
-            $commands[] = ['argv' => ref_pair_up_command($config)];
-            if ($action === 'create') {
+            $resourceId = ref_resource_id($config, $environment);
+            $inputSha = ref_hash($input);
+            $acquisition = $planState['acquisitions'][ref_acquisition_key($resourceId, $operation)] ?? null;
+            $phase = 'fresh';
+            if (is_array($acquisition)) {
+                ref_assert_acquisition($acquisition);
+                ref_require(
+                    $acquisition['operation_id'] === $operation
+                        && $acquisition['resource_id'] === $resourceId
+                        && $acquisition['mode'] === $action
+                        && $acquisition['input_sha256'] === $inputSha
+                        && $acquisition['resource_config_sha256'] === ref_resource_config_sha256($config),
+                    'preview-slot acquisition retry differs from its persisted intent'
+                );
+                ref_require($acquisition['state'] !== 'terminal', 'a terminal preview-slot acquisition cannot be resurrected');
+                ref_require(
+                    is_array($identityResource)
+                        && in_array($identityResource['state'], ['acquiring', 'present'], true)
+                        && $identityResource['generation'] === $acquisition['generation']
+                        && $identityResource['mode'] === $acquisition['mode']
+                        && $identityResource['operation_id'] === $operation
+                        && $identityResource['acquisition_input_sha256'] === $inputSha
+                        && $identityResource['state'] === $acquisition['state'],
+                    'preview-slot acquisition history differs from current ownership'
+                );
+                $phase = (string) $identityResource['state'];
+            } else {
+                ref_require(
+                    is_array($identityResource) && $identityResource['state'] === 'absent',
+                    'preview slot is already owned by another acquisition'
+                );
+            }
+            if ($action === 'create' && $phase !== 'present') {
+                $commands[] = ['argv' => ref_pair_up_command($config)];
+            }
+            $commands[] = ['argv' => ref_port_command($environment)];
+            if ($action === 'create' && $phase !== 'present') {
                 $commands = array_merge($commands, ref_clear_side_plan($config, $environment));
             }
             break;
@@ -1144,15 +2010,13 @@ function ref_plan(array $request, array $config): array {
             break;
         case 'destroy':
             ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
-            $commands = array_merge($commands, ref_clear_side_plan($config, $environment));
+            if (!is_array($cachedReap)) {
+                $commands = array_merge($commands, ref_clear_side_plan($config, $environment));
+            }
             break;
         default:
             break;
     }
-    if ($action === 'detach') {
-        ref_require(($input['compare_and_reap'] ?? null) === true, 'reap lacks compare-and-reap intent');
-    }
-
     return [
         'action' => $action,
         'capabilities_advertised' => ref_advertised_capabilities($config),
@@ -1162,11 +2026,12 @@ function ref_plan(array $request, array $config): array {
         'executed' => false,
         'format' => 'duo-reference-env-provider-plan/v1',
         'identity' => $identity,
+        'identity_authoritative' => $identityAuthoritative,
         'identity_input_checked' => $identityChecked,
         'operation_id' => (string) $request['operation_id'],
         'provider' => ['id' => 'duo-reference-env-provider', 'protocol' => 1],
         'state_dependent' => $stateDependent,
-        'url_source' => 'config',
+        'url_source' => $urlSource,
     ];
 }
 
@@ -1176,11 +2041,9 @@ function ref_plan(array $request, array $config): array {
  * @return list<array<string,mixed>>
  */
 function ref_clear_side_plan(array $config, array $environment): array {
-    if (($config['destroy_scope'] ?? 'side') === 'pair') {
-        return [['argv' => ['bash', (string) $config['pair_script'], 'destroy', (string) $config['pair']]]];
-    }
     return [
         ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot'], 'stdin' => 'drop-create'],
+        ['argv' => ['docker', 'exec', '-i', (string) $config['db_container'], 'mariadb', '-uroot', '-proot', (string) $environment['database']], 'stdin' => 'empty-dump'],
         ['argv' => ref_media_clear_command((string) $environment['container'])],
     ];
 }
@@ -1211,13 +2074,13 @@ function ref_assert_request(array $request): void {
 }
 
 $configPath = null;
+$planOnly = false;
 try {
     // $_SERVER['argv'] rather than the bare $argv superglobal: PHPStan cannot
     // prove $argv is defined at file scope (it depends on register_argc_argv),
     // and tools/codemod/move-modules.php already settled that question the
     // same way.
     $arguments = array_slice(is_array($_SERVER['argv'] ?? null) ? $_SERVER['argv'] : [], 1);
-    $planOnly = false;
     if ($arguments !== [] && in_array($arguments[0], ['--print-plan', '--dry-run'], true)) {
         $planOnly = true;
         array_shift($arguments);
@@ -1235,22 +2098,33 @@ try {
     ref_assert_request($request);
 
     if ($planOnly) {
-        echo ref_json(ref_plan($request, $config)) . "\n";
+        $planRoot = (string) $config['state_root'];
+        $hasPlanEvidence = ref_path_entry_exists($planRoot . '/state.json')
+            || ref_path_entry_exists($planRoot . '/state.initialized');
+        $planState = $request['action'] !== 'capabilities' && $hasPlanEvidence ? ref_load_state($planRoot) : null;
+        echo ref_json(ref_plan($request, $config, $planState)) . "\n";
         exit(0);
     }
 
-    $root = (string) $config['state_root'];
-    ref_require(is_dir($root), 'reference provider state root is unavailable');
-    $lock = fopen($root . '/state.lock', 'c');
-    if ($lock === false || !flock($lock, LOCK_EX)) throw new RuntimeException('could not lock reference provider state');
-    try {
-        $state = ref_load_state($root);
-        ref_log($root, $request);
+    if ($request['action'] === 'capabilities') {
+        $state = ref_empty_state();
         $result = ref_dispatch($request, $config, $state);
-        ref_save_state($root, $state);
-    } finally {
-        flock($lock, LOCK_UN);
-        fclose($lock);
+    } else {
+        $root = (string) $config['state_root'];
+        ref_require(is_dir($root), 'reference provider state root is unavailable');
+        $lock = fopen($root . '/state.lock', 'c');
+        if ($lock === false || !flock($lock, LOCK_EX)) throw new RuntimeException('could not lock reference provider state');
+        $GLOBALS['duo_reference_provider_state_lock'] = $lock;
+        try {
+            $state = ref_load_state($root);
+            ref_log($root, $request);
+            $result = ref_dispatch($request, $config, $state);
+            ref_save_state($root, $state);
+        } finally {
+            unset($GLOBALS['duo_reference_provider_state_lock']);
+            flock($lock, LOCK_UN);
+            fclose($lock);
+        }
     }
     $response = [
         'action' => $request['action'], 'environment' => $request['environment'],
@@ -1262,7 +2136,7 @@ try {
     // Provider output is redacted by CommandEnvironmentProvider on every
     // failure, so the operator-readable detail is kept beside the state root
     // exactly the way the duo3324 fixture does it.
-    if (isset($config) && is_array($config) && is_string($config['state_root'] ?? null) && is_dir($config['state_root'])) {
+    if (!$planOnly && isset($config) && is_array($config) && is_string($config['state_root'] ?? null) && is_dir($config['state_root'])) {
         @file_put_contents($config['state_root'] . '/provider-errors.log', $error->getMessage() . "\n", FILE_APPEND | LOCK_EX);
     }
     fwrite(STDERR, 'duo reference env provider: ' . $error->getMessage() . "\n");
