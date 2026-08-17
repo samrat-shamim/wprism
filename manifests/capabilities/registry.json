@@ -3,7 +3,7 @@
     "generated_from": {
         "compatibility_sha256": "8890e74f412c7ed07e1454c1abd2bd24e330a87990d8832cfe89e9860679b2be",
         "dispositions_sha256": "94769c86414dc677b3ead30405a82b2ea8288359191c04d949d371778a12549b",
-        "evidence_sha256": "a847c8af0097336e44752e855bace33c4b5323b7d30902ad74ce99d96085c5b9"
+        "evidence_sha256": "18f41083a57786420400c60e6cae86646f405c879808a1c6e6a5cddb50fb96b3"
     },
     "manifests": {
         "acf": {
@@ -231,11 +231,11 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "cfd149fda8f677c5f89ce59407d6bf412d3b852ff5b204be8470c4cfa0c0ea69",
+                "bundle_digest": "5bfe10a13b5babb5c30c13a4c26cf4a23059f551385cbf59384909702ee21cf3",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
                 "closure_digest": "ed455a8a6b237c814c10792dacb6199f3160146249dae82d318e35a17c6a0baf",
                 "force_hatches": [],
-                "git_revision": "27935373869e22c4a71af77371a16e5f78cf7c39",
+                "git_revision": "2ba966164a66bed307be9fb8357f16468542f2fd",
                 "status": "current",
                 "subject": "manifests.core",
                 "subject_digest": "d71f4849eea52b8ec30138cfff4d3bfaca579a3bbdf300ea5d45cc50bed7d4f7",
@@ -1336,14 +1336,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": null,
+                "bundle_digest": "0b3e6c61ba3cfaf0f884dec4f4509f974502ae97c8c5346819b2e3e23e6fafc4",
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": null,
+                "closure_digest": "68cf9e63be6428847210de3cfe38ee1d7306b9626ae0fa1402d9225f4a640b74",
                 "force_hatches": [],
-                "git_revision": null,
-                "status": "candidate",
+                "git_revision": "2ba966164a66bed307be9fb8357f16468542f2fd",
+                "status": "current",
                 "subject": "manifests.woocommerce",
-                "subject_digest": null,
+                "subject_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
                 "tests": [
                     "conformance-woocommerce",
                     "exact-artifact-version-matrix"
