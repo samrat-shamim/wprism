@@ -89,14 +89,27 @@ final class ScopeDiscovery {
      * silently omit. Explicit non-authored whole-type rules are exclusions;
      * missing dispositions remain blocking gaps.
      *
+     * A candidate is a registered type that is `public` OR has an admin UI
+     * (`show_ui`), plus every declared type. `public` alone was the original
+     * rule and it missed the commonest authored plugin store: WPForms keeps
+     * its forms in `wpforms` (public:false, show_ui:true), the T6 adapter walk
+     * found capture accepting a site with two forms in it and no gap
+     * (grind_adapter_walk.sh S1). A type a human edits through an admin
+     * screen is authored-looking by construction; storage-only types with no
+     * UI (WooCommerce's `scheduled-action`, Polylang's `polylang_mo`,
+     * core's revisions/changesets) stay out of the gate — they are named by
+     * coverage, never captured by surprise.
+     *
      * @return array<string,array{entities:int}> keyed post_type:<name> or taxonomy:<name>
      */
     public function gaps(): array {
         global $wpdb;
 
         $publicPostTypes = array_values(get_post_types(['public' => true], 'names'));
+        $uiPostTypes = array_values(get_post_types(['show_ui' => true, '_builtin' => false], 'names'));
         $postCandidates = array_fill_keys(array_unique(array_merge(
             $publicPostTypes,
+            $uiPostTypes,
             $this->policy->declared_post_types()
         )), true);
         $scopedPostTypes = array_fill_keys($this->policy->post_types(), true);
@@ -123,8 +136,10 @@ final class ScopeDiscovery {
         }
 
         $publicTaxonomies = array_values(get_taxonomies(['public' => true], 'names'));
+        $uiTaxonomies = array_values(get_taxonomies(['show_ui' => true, '_builtin' => false], 'names'));
         $taxCandidates = array_fill_keys(array_unique(array_merge(
             $publicTaxonomies,
+            $uiTaxonomies,
             $this->policy->declared_taxonomies()
         )), true);
         $scopedTaxonomies = array_fill_keys($this->policy->taxonomies(), true);
