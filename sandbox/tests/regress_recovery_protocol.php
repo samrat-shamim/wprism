@@ -185,8 +185,8 @@ foreach ($wiring as $relative => $needles) {
     }
     ok(!str_contains($source, 'proc_open('), "$relative has no private provider process loop");
 }
-$bootstrap = (string) file_get_contents($repoRoot . '/cli/src/BootstrapEligibility.php');
-$adopt = (string) file_get_contents($repoRoot . '/cli/src/Adopt.php');
+$bootstrap = (string) file_get_contents($repoRoot . '/cli/src/Onboarding/BootstrapEligibility.php');
+$adopt = (string) file_get_contents($repoRoot . '/cli/src/Onboarding/Adopt.php');
 foreach (['CanonicalJson.php', 'AtomicStore.php', 'ProtocolLock.php', 'ProviderClient.php'] as $file) {
     ok(str_contains($bootstrap, $file) && str_contains($adopt, $file), "$file is part of local and adopted runtime completeness");
 }

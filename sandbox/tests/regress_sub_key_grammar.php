@@ -21,9 +21,9 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/SubKeyGrammar.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Grammar/SubKeyGrammar.php';
 
 use Duo\Policy;
 use Duo\SubKeyGrammar;

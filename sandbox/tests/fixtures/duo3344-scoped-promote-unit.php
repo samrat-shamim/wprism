@@ -23,7 +23,7 @@ if (!is_string($root) || $root === '' || !is_file($root . '/cli/duo')) {
     exit(1);
 }
 
-require_once $root . '/agent/src/Canon.php';
+require_once $root . '/agent/src/Kernel/Canon.php';
 require_once $root . '/recovery/rollback-control.php';
 
 function scoped_host_fail(string $message): never {

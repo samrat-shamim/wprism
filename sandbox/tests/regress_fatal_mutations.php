@@ -5,9 +5,9 @@
  * wpdb return-value semantics that made the original defect possible.
  */
 
-require_once __DIR__ . '/../../agent/src/TransientDbException.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../cli/src/PlanSummary.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 
 use Duo\DatabaseMutationException;
 use Duo\Db;

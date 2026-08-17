@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/OptionNameReferenceResolver.php";
+$resolverPath = "$root/agent/src/Grammar/OptionNameReferenceResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -196,9 +196,9 @@ $check(
     'strict positive local-id parser accepts only exact nonzero decimal strings'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
@@ -217,9 +217,9 @@ $check(
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/OptionNameReferenceResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/OptionNameReferenceResolver.php';") === 1
         && str_contains($policySource, 'return $this->option_name_reference_resolver()->rules();')
         && str_contains($policySource, 'return $this->option_name_reference_resolver()->match_details($realOptionName);')
         && str_contains($policySource, 'return OptionNameReferenceResolver::strict_positive_local_id($value);')

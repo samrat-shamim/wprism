@@ -80,11 +80,11 @@ final class CertImpactTest extends TestCase
 
     public function testAgentSourceExpiresEverySubject(): void
     {
-        $report = self::json(['--paths=agent/src/Canon.php', '--json']);
+        $report = self::json(['--paths=agent/src/Kernel/Canon.php', '--json']);
         self::assertCount(self::SUBJECT_COUNT, $report['subjects']);
         self::assertCount(self::SUBJECT_COUNT, self::expiredKeys($report));
         foreach ($report['subjects'] as $key => $row) {
-            self::assertSame(['agent/src/Canon.php'], $row['paths'], "subject $key");
+            self::assertSame(['agent/src/Kernel/Canon.php'], $row['paths'], "subject $key");
         }
         self::assertSame([], $report['free_zone']);
         self::assertSame(1, $report['categories']['agent']);

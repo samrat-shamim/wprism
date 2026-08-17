@@ -60,9 +60,9 @@ if (preg_match("/define\('DUO_SPEC_VERSION', ([0-9]+)\)/", (string) file_get_con
 }
 define('DUO_SPEC_VERSION', (int) $m[1]);
 
-require $repo . '/agent/src/Canon.php';
-require $repo . '/agent/src/OptionState.php';
-require $repo . '/agent/src/Policy.php';
+require $repo . '/agent/src/Kernel/Canon.php';
+require $repo . '/agent/src/Kernel/OptionState.php';
+require $repo . '/agent/src/Policy/Policy.php';
 require __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
@@ -963,8 +963,13 @@ check(
 // naming a function this engine no longer has would still LOOK authoritative,
 // which is the failure mode a static list invites.
 $engine = '';
-foreach (glob($repo . '/agent/src/*.php') ?: [] as $file) {
-    $engine .= (string) file_get_contents($file);
+// Recursive since the module move (ROUND 3 TRAIN 1): agent/src is a tree of
+// module directories now, and a flat glob would leave $engine empty and make
+// every symbol check below pass vacuously.
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($repo . '/agent/src', FilesystemIterator::SKIP_DOTS)) as $file) {
+    if ($file instanceof SplFileInfo && $file->isFile() && $file->getExtension() === 'php') {
+        $engine .= (string) file_get_contents($file->getPathname());
+    }
 }
 $namedSymbols = 0;
 $resolved = 0;
@@ -1647,9 +1652,9 @@ check(
 // Policy retains the shared cast vocabulary because classification and
 // deletion guards also consume it. Keep both loader paths and both published
 // attribute vocabularies wired directly to the extracted collaborator.
-$policySource = file_get_contents($repo . '/agent/src/Policy.php');
-$manifestValidatorSource = file_get_contents($repo . '/agent/src/ManifestValidator.php');
-$sitePolicyValidatorSource = file_get_contents($repo . '/agent/src/SitePolicyValidator.php');
+$policySource = file_get_contents($repo . '/agent/src/Policy/Policy.php');
+$manifestValidatorSource = file_get_contents($repo . '/agent/src/Policy/ManifestValidator.php');
+$sitePolicyValidatorSource = file_get_contents($repo . '/agent/src/Policy/SitePolicyValidator.php');
 $attributeGrammar = new \ReflectionClass('Duo\\AttributeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(

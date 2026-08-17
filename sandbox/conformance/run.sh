@@ -375,7 +375,7 @@ git -C "$R1" -c user.name=duo -c user.email=duo@example.test commit -qm "capture
 git -C "$R1" push -qu origin main
 
 # --- suspicious-ref lint gate ------------------------------------------------
-# Generalized suspicious-ref linter (agent/src/Lint.php / `wp duo lint`):
+# Generalized suspicious-ref linter (agent/src/Review/Lint.php / `wp duo lint`):
 # flags ref-shaped values that reached canonical state without a declared
 # rewrite path — exactly the blind spot the byte-diff acceptance checks
 # below cannot see (docs/frontier/{fse,polylang,elementor}.md). HARD GATE:

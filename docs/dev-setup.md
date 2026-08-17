@@ -52,7 +52,7 @@ Each record in `manifests/capabilities/evidence.json` carries a
 `bundle.git_revision`. `ScopedCertificationBundle::assertGitRevisionInputs()`
 proves the recorded closure bytes existed at that commit by running
 `git cat-file -t <sha>` and `git ls-tree -r <sha>` **locally**
-(`agent/src/ScopedCertificationBundle.php:419`).
+(`agent/src/Adapter/ScopedCertificationBundle.php:419`).
 
 Those revisions are PR heads, and this project merges with `gh pr merge
 --squash`, which discards them: no branch or tag points at them, so a plain
@@ -77,7 +77,7 @@ agent refuses every command out of `assertRuntimeInputsCurrent()` during
 
 Membership is defined in exactly one place —
 `\Duo\ScopedCertificationBundle::subjectInputPaths()`
-(`agent/src/ScopedCertificationBundle.php:144`). Never re-derive it by hand;
+(`agent/src/Adapter/ScopedCertificationBundle.php:144`). Never re-derive it by hand;
 run `php tools/cert-impact.php`, which calls that function. For orientation:
 
 **Walked whole, as directory trees, with no gitignore awareness:**
@@ -127,7 +127,7 @@ above, `scripts/` other than `capability-registry.php`,
 
 ### Tooling lives outside the closure — deliberately
 
-`tools/` and `tests/` are dev-only entry points, and `cli/src/Adopt.php` tars
+`tools/` and `tests/` are dev-only entry points, and `cli/src/Onboarding/Adopt.php` tars
 exactly `agent manifests recovery`, so nothing at the repo root can reach a
 managed site. That is what makes it safe for the toolchain to depend on
 composer while the drop-in itself stays dependency-free (asserted by
@@ -297,7 +297,7 @@ Two properties are load-bearing and must survive any edit:
 - **A missing file stays a missing class, not a fatal.** The closure tests
   `is_file()` before `require_once`. Without that, a stale entry would turn a
   graceful "support is not loaded" diagnostic into an uncatchable require
-  failure — `cli/src/RefreshPlan.php` is required under an `is_file()` guard
+  failure — `cli/src/Refresh/RefreshPlan.php` is required under an `is_file()` guard
   for exactly that reason.
 
 Two types are deliberately excluded, each documented in `CM_EXCLUSIONS` in the

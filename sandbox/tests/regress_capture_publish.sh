@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression — DUO-3213: atomic capture publication.
 #
-# agent/src/Publish.php (new) owns the filesystem half of this issue's fix:
+# agent/src/Publication/Publish.php (new) owns the filesystem half of this issue's fix:
 # a per-destination capture lock (flock, non-blocking), a staging directory
 # the candidate tree is built and validated in BEFORE it ever touches the
 # published dir, an atomic two-step rename swap (POSIX rename() can't
@@ -29,9 +29,9 @@ say "php -l syntax check (harness + support driver + the code under test)"
 php -l regress_capture_publish.php >/dev/null || fail "regress_capture_publish.php has a syntax error"
 php -l fixtures/duo-publish-stale-is-file.php >/dev/null || fail "duo-publish-stale-is-file.php has a syntax error"
 php -l support/capture_publish_kill_driver.php >/dev/null || fail "support/capture_publish_kill_driver.php has a syntax error"
-php -l ../../agent/src/Publish.php >/dev/null || fail "agent/src/Publish.php has a syntax error"
-php -l ../../agent/src/TransientDbException.php >/dev/null || fail "agent/src/TransientDbException.php has a syntax error"
-php -l ../../agent/src/Capture.php >/dev/null || fail "agent/src/Capture.php has a syntax error"
+php -l ../../agent/src/Publication/Publish.php >/dev/null || fail "agent/src/Publication/Publish.php has a syntax error"
+php -l ../../agent/src/Kernel/TransientDbException.php >/dev/null || fail "agent/src/Kernel/TransientDbException.php has a syntax error"
+php -l ../../agent/src/Capture/Capture.php >/dev/null || fail "agent/src/Capture/Capture.php has a syntax error"
 pass "no syntax errors"
 
 say "running the offline harness (lock, recover, staged write, atomic swap, real SIGKILL, retry-error matching)"

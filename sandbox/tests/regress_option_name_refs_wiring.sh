@@ -39,7 +39,7 @@ say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
 pass() { printf '\033[1;32mok: %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*"; exit 1; }
 
-CAPTURE_SRC=../../agent/src/OptionsCapture.php
+CAPTURE_SRC=../../agent/src/Capture/OptionsCapture.php
 [ -f "$CAPTURE_SRC" ] || fail "expected $CAPTURE_SRC to exist"
 
 check_wiring() { # check_wiring <path> <label> -- exits 0 (wired correctly) or 1 (broken), never fail()s itself
@@ -96,11 +96,11 @@ if check_wiring "$TMP/Capture_broken.php" "synthetic-broken"; then
 fi
 pass "self-test: synthetic copy carrying the historical \$liveOptionNames defect correctly FAILS this check"
 
-say "real check: agent/src/OptionsCapture.php's option_name_refs (task #93) discovery loop"
+say "real check: agent/src/Capture/OptionsCapture.php's option_name_refs (task #93) discovery loop"
 if check_wiring "$CAPTURE_SRC" "real"; then
   pass "OptionsCapture correctly iterates array_keys(\$allOptionValues) for option_name_ref_match_details() -- the DUO-3286 class of defect is not present"
 else
-  fail "agent/src/OptionsCapture.php's option_name_refs consumer loop does not iterate array_keys(\$allOptionValues) -- see output above; this is the exact DUO-3286/713fc56 defect shape, real this time"
+  fail "agent/src/Capture/OptionsCapture.php's option_name_refs consumer loop does not iterate array_keys(\$allOptionValues) -- see output above; this is the exact DUO-3286/713fc56 defect shape, real this time"
 fi
 
 printf '\n\033[1;32m✔ REGRESS_OPTION_NAME_REFS_WIRING PASSED\033[0m\n'

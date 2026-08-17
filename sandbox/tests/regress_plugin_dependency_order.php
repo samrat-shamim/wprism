@@ -2,7 +2,7 @@
 /** Offline proof that lifecycle topology follows Requires Plugins, not list order. */
 
 $root = dirname(__DIR__, 2);
-require_once $root . '/agent/src/Deploy.php';
+require_once $root . '/agent/src/Promotion/Deploy.php';
 
 use Duo\Deploy;
 

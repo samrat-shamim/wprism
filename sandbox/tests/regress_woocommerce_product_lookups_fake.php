@@ -1203,13 +1203,13 @@ namespace {
         return apply_filters("option_{$key}", $fakeOptions[$key], $key);
     }
 
-    require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-    require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
-    require dirname(__DIR__, 2) . '/agent/src/Policy.php';
-    require dirname(__DIR__, 2) . '/agent/src/ProviderSdk.php';
+    require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+    require dirname(__DIR__, 2) . '/agent/src/Kernel/OptionState.php';
+    require dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
+    require dirname(__DIR__, 2) . '/agent/src/Adapter/ProviderSdk.php';
     // invoke() reads the engine's reserved batch-argument name from the
     // contract itself rather than restating the literal.
-    require dirname(__DIR__, 2) . '/agent/src/Providers.php';
+    require dirname(__DIR__, 2) . '/agent/src/Adapter/Providers.php';
     require dirname(__DIR__, 2) . '/manifests/providers/woocommerce-product-lookups.php';
 
     $reflection = new \ReflectionClass(\Duo\Policy::class);

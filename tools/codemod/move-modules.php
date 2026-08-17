@@ -250,9 +250,14 @@ function mm_load_map(string $mapPath, array $wantedTrees): array
     $trees = [];
     foreach ($decoded as $treeName => $treeSpec) {
         $treeName = (string) $treeName;
-        if ($wantedTrees !== ['all'] && !in_array($treeName, $wantedTrees, true)) {
-            continue;
-        }
+        // An unselected tree is still PARSED (flagged move=false) so the
+        // rewriters know its file names: agent/src and cli/src both end in a
+        // `src` leaf and share basenames (Init.php, PlanView.php, Pending.php,
+        // AdapterObservation.php), so a single-tree run must be able to see the
+        // other tree's names to refuse an ambiguous `. '/src/Name.php'` rather
+        // than silently rewriting it with the wrong module. Only selected trees
+        // move and get placements.
+        $moveThisTree = $wantedTrees === ['all'] || in_array($treeName, $wantedTrees, true);
         // The map is a documented file, not a bare tree list: it also carries
         // `$comment`, `ladder`, `rules` and `not_moved` at top level. A key is
         // a tree only when it carries BOTH a string `root` and a `modules`
@@ -263,7 +268,7 @@ function mm_load_map(string $mapPath, array $wantedTrees): array
             && isset($treeSpec['root']) && is_string($treeSpec['root'])
             && isset($treeSpec['modules']) && is_array($treeSpec['modules']);
         if (!$isTree) {
-            if ($wantedTrees !== ['all']) {
+            if ($wantedTrees !== ['all'] && $moveThisTree) {
                 throw new RuntimeException(
                     "move-modules: '$treeName' is not a tree in $mapPath — a tree carries a string 'root' and a 'modules' object"
                 );
@@ -287,10 +292,11 @@ function mm_load_map(string $mapPath, array $wantedTrees): array
             'root' => rtrim(str_replace('\\', '/', $treeSpec['root']), '/'),
             'modules' => $modules,
             'keep' => $keep,
+            'move' => $moveThisTree,
         ];
     }
 
-    if ($trees === []) {
+    if (array_filter($trees, static fn(array $t): bool => $t['move']) === []) {
         throw new RuntimeException('move-modules: the module map selects no trees');
     }
     return ['trees' => $trees];
@@ -325,6 +331,19 @@ function mm_build_moves(string $root, array $map, bool $allowPartial = false): a
 
     foreach ($map['trees'] as $treeName => $tree) {
         $treeRoot = $tree['root'];
+        if (!$tree['move']) {
+            // Known-but-not-moving: register every basename with an empty
+            // segment so the rewriters can detect a cross-tree ambiguity and
+            // leave the line for review instead of rewriting it wrongly.
+            $roots[$treeName] = $treeRoot;
+            $index[$treeName] = [];
+            foreach ($tree['modules'] as $files) {
+                foreach ($files as $file) {
+                    $index[$treeName][basename((string) $file, '.php')] = '';
+                }
+            }
+            continue;
+        }
         $roots[$treeName] = $treeRoot;
         $index[$treeName] = [];
         $assignedBy = [];
@@ -1902,7 +1921,11 @@ function mm_compute(string $root, array $map, bool $allowPartial = false): array
             foreach ($scannerFixes[$relative] as [$needle, $replacement, $occurrences]) {
                 $seen = substr_count($text, $needle);
                 if ($seen === 0) {
-                    if (!str_contains($text, $replacement)) {
+                    // Already applied? Match on the replacement's first line:
+                    // later rewriters legitimately re-path literals inside the
+                    // replacement's own comments, so the full text can drift.
+                    $firstLine = trim((string) strtok(trim($replacement), "\n"));
+                    if (!str_contains($text, $replacement) && ($firstLine === '' || !str_contains($text, $firstLine))) {
                         throw new RuntimeException(
                             "move-modules: expected scanner snippet not found in $relative — "
                             . 'the source drifted; update mm_scanner_fixes() rather than shipping a vacuous guard'

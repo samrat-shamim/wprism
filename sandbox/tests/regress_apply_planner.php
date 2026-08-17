@@ -14,10 +14,10 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Uuid.php';
-require_once __DIR__ . '/../../agent/src/ApplyPlanner.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Apply.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Uuid.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyPlanner.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 use Duo\ApplyPlanner;
 use Duo\ApplyPlanBuilder;
@@ -1111,11 +1111,11 @@ $check(
     'collision planner: typed-table refs use the declared token kind without loading Ledger directly'
 );
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/ApplyRequestCoordinator.php');
-$builderSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanBuilder.php');
-$plannerSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanner.php');
-$preparationSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPreparationCoordinator.php');
-$planEnvironmentSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanEnvironment.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyRequestCoordinator.php');
+$builderSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyPlanBuilder.php');
+$plannerSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyPlanner.php');
+$preparationSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyPreparationCoordinator.php');
+$planEnvironmentSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyPlanEnvironment.php');
 $check(
     !preg_match('/private function find_collision\(/', $applySource),
     'collision planner: Apply no longer owns the collision implementation'
@@ -1154,7 +1154,7 @@ $check(
     preg_match('/public function natural_key_continuity_annotations\(/', $plannerSource) === 1
         && preg_match('/private function annotate_natural_key_continuity\(.*?natural_key_continuity_annotations\(.*?\$row\[\'annotations\'\]\[\]/s', $builderSource) === 1
         && !str_contains($builderSource, "\$row['identity_notes']")
-        && str_contains($plannerSource, "require_once __DIR__ . '/IdentityNotes.php';"),
+        && str_contains($plannerSource, "require_once __DIR__ . '/../Repository/IdentityNotes.php';"),
     'natural-key annotation: planner owns the projection and the builder preserves the rendered plan-row field'
 );
 $check(

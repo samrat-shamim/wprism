@@ -7,7 +7,7 @@ declare(strict_types=1);
  *
  * The only autoloader in this repository lives here. agent/, cli/ and
  * recovery/ deliberately have none — they are a WordPress drop-in installed by
- * `tar -cf … agent manifests recovery` (cli/src/Adopt.php:120), so a managed
+ * `tar -cf … agent manifests recovery` (cli/src/Onboarding/Adopt.php:120), so a managed
  * site never receives vendor/ and the drop-in must resolve every symbol with
  * its own require_once chains. Composer's autoload-dev therefore maps ONLY
  * Duo\Tests\ => tests/; tests that need product code require the specific file,

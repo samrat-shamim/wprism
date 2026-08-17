@@ -35,10 +35,10 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 function is_multisite(): bool { return false; }
 
-require $repo . '/agent/src/Canon.php';
-require $repo . '/agent/src/ManifestDispositions.php';
-require $repo . '/agent/src/CapabilityRegistry.php';
-require_once $repo . '/agent/src/ScopedCertificationBundle.php';
+require $repo . '/agent/src/Kernel/Canon.php';
+require $repo . '/agent/src/Policy/ManifestDispositions.php';
+require $repo . '/agent/src/Adapter/CapabilityRegistry.php';
+require_once $repo . '/agent/src/Adapter/ScopedCertificationBundle.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;

@@ -39,17 +39,17 @@ function maybe_serialize($value) {
         : $value;
 }
 
-require __DIR__ . '/../../agent/src/TransientDbException.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/Uuid.php';
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OrderPreserved.php';
-require __DIR__ . '/../../agent/src/Secrets.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/EntityMetaCapture.php';
-require __DIR__ . '/../../agent/src/Apply.php';
+require __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Kernel/Uuid.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OrderPreserved.php';
+require __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../agent/src/Capture/EntityMetaCapture.php';
+require __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 use Duo\Apply;
 use Duo\EntityMetaCapture;

@@ -11,13 +11,13 @@ declare(strict_types=1);
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
-require_once __DIR__ . '/../../agent/src/CommandRefusal.php';
-require_once __DIR__ . '/../../agent/src/PlanExplanation.php';
-require_once __DIR__ . '/../../agent/src/PlanCategorySummary.php';
-require_once __DIR__ . '/../../agent/src/PlanView.php';
-require_once __DIR__ . '/../../cli/src/PlanContract.php';
-require_once __DIR__ . '/../../cli/src/PlanSummary.php';
-require_once __DIR__ . '/../../cli/src/PlanView.php';
+require_once __DIR__ . '/../../agent/src/Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../../agent/src/Review/PlanExplanation.php';
+require_once __DIR__ . '/../../agent/src/Review/PlanCategorySummary.php';
+require_once __DIR__ . '/../../agent/src/Review/PlanView.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanContract.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanView.php';
 
 use Duo\CommandRefusalException;
 use Duo\PlanCategorySummary;

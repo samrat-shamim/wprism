@@ -10,7 +10,7 @@
 # builder's own ui-state scratch flags). A raw $wpdb->delete() fires no
 # WordPress hooks, so this was silent and canary-invisible: every ordinary
 # re-apply of an already-managed form quietly wiped those keys. The fix
-# (agent/src/Snapshot.php, meta_key_rule()/reconcile_meta()) gates the
+# (agent/src/Repository/Snapshot.php, meta_key_rule()/reconcile_meta()) gates the
 # delete loop on class==='authored', mirroring Apply::finalize_post()'s
 # postmeta delete (Apply.php:806-811) and reusing capture_meta_rows()'s
 # exact classification lookup so the two paths can never disagree.

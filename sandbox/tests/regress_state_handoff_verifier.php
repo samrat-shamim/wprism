@@ -18,8 +18,8 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$deploySource = file_get_contents($root . '/agent/src/Deploy.php');
-$verifierSource = file_get_contents($root . '/agent/src/StateHandoffVerifier.php');
+$deploySource = file_get_contents($root . '/agent/src/Promotion/Deploy.php');
+$verifierSource = file_get_contents($root . '/agent/src/Promotion/StateHandoffVerifier.php');
 if (!is_string($deploySource) || !is_string($verifierSource)) {
     fwrite(STDERR, "FAIL: could not read Deploy/StateHandoffVerifier sources\n");
     exit(1);
@@ -74,8 +74,8 @@ check(
 
 // The three entry points keep exactly their original parameter shapes, all
 // now public on the new class so Deploy's private facades can call them.
-require_once $root . '/agent/src/StateHandoffVerifier.php';
-require_once $root . '/agent/src/Deploy.php';
+require_once $root . '/agent/src/Promotion/StateHandoffVerifier.php';
+require_once $root . '/agent/src/Promotion/Deploy.php';
 $verifier = new ReflectionClass(\Duo\StateHandoffVerifier::class);
 check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $verifier->getMethod('options_snapshot')->getParameters())

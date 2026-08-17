@@ -36,7 +36,7 @@ if (!defined('DUO_AGENT_VERSION') || !defined('DUO_SPEC_VERSION')) {
     }
 }
 
-require_once $repoRoot . '/agent/src/AdapterCertification.php';
+require_once $repoRoot . '/agent/src/Adapter/AdapterCertification.php';
 
 use Duo\AdapterCertification;
 use Duo\Canon;

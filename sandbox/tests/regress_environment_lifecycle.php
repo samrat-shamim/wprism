@@ -2,8 +2,8 @@
 // DUO-3324: offline provider/journal safety contract for branch environments.
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/Registry.php';
-require_once __DIR__ . '/../../cli/src/EnvironmentLifecycle.php';
+require_once __DIR__ . '/../../cli/src/Environment/Registry.php';
+require_once __DIR__ . '/../../cli/src/Environment/EnvironmentLifecycle.php';
 
 use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\EnvironmentLifecycleCanon;

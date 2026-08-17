@@ -16,10 +16,10 @@ function check(bool $condition, string $message): void {
 }
 
 require __DIR__ . '/support/wp-shortcode-stub.php';
-require __DIR__ . '/../../agent/src/Shortcodes.php';
-require __DIR__ . '/../../agent/src/Pending.php';
-require __DIR__ . '/../../agent/src/LintFinding.php';
-require __DIR__ . '/../../agent/src/ShortcodeReferenceScanner.php';
+require __DIR__ . '/../../agent/src/Grammar/Shortcodes.php';
+require __DIR__ . '/../../agent/src/Review/Pending.php';
+require __DIR__ . '/../../agent/src/Review/LintFinding.php';
+require __DIR__ . '/../../agent/src/Review/ShortcodeReferenceScanner.php';
 
 use Duo\ShortcodeReferenceScanner;
 
@@ -60,7 +60,7 @@ check(
     'scanner preserves declared/unregistered classes, locator spelling, csv ordering, resolver shape, positional rules, escaped-shortcode skipping, and declared-tag scope'
 );
 
-$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
+$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Review/Lint.php');
 check(str_contains($lintSource, "require_once __DIR__ . '/ShortcodeReferenceScanner.php';"), 'Lint requires the extracted shortcode scanner');
 check(str_contains($lintSource, 'ShortcodeReferenceScanner::scan('), 'Lint delegates shortcode findings to the extracted scanner');
 

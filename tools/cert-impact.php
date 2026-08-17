@@ -66,10 +66,10 @@ if (!function_exists('is_multisite')) {
     function is_multisite(): bool { return false; }
 }
 
-require_once $repo . '/agent/src/Canon.php';
-require_once $repo . '/agent/src/ManifestDispositions.php';
-require_once $repo . '/agent/src/CapabilityRegistry.php';
-require_once $repo . '/agent/src/ScopedCertificationBundle.php';
+require_once $repo . '/agent/src/Kernel/Canon.php';
+require_once $repo . '/agent/src/Policy/ManifestDispositions.php';
+require_once $repo . '/agent/src/Adapter/CapabilityRegistry.php';
+require_once $repo . '/agent/src/Adapter/ScopedCertificationBundle.php';
 
 use Duo\Canon;
 use Duo\ManifestDispositions;

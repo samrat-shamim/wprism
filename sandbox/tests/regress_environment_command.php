@@ -11,7 +11,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/EnvironmentCommand.php';
+require_once __DIR__ . '/../../cli/src/Command/EnvironmentCommand.php';
 
 use Duo\Orchestrator\EnvironmentCommand;
 
@@ -118,7 +118,7 @@ $exit = EnvironmentCommand::run(
 $check($exit === 1, 'direct command invocation refuses incomplete intent before registry/provider/journal or promotion work');
 
 $facade = (string) file_get_contents(__DIR__ . '/../../cli/duo');
-$command = (string) file_get_contents(__DIR__ . '/../../cli/src/EnvironmentCommand.php');
+$command = (string) file_get_contents(__DIR__ . '/../../cli/src/Command/EnvironmentCommand.php');
 $facadeStart = strpos($facade, 'function cmd_environment(');
 $facadeEnd = $facadeStart === false ? false : strpos($facade, "\n}\n", $facadeStart);
 $facadeBody = $facadeStart === false || $facadeEnd === false ? '' : substr($facade, $facadeStart, $facadeEnd - $facadeStart + 3);

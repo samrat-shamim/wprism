@@ -20,7 +20,7 @@
  */
 declare(strict_types=1);
 
-require __DIR__ . '/../../agent/src/PinResolver.php';
+require __DIR__ . '/../../agent/src/Policy/PinResolver.php';
 
 use Duo\AdapterSources;
 use Duo\PinResolver;
@@ -159,9 +159,9 @@ $check_throws(
 // \Duo\Policy::class as a symbol needs the class defined) -- required here
 // for exactly that, and for nothing else this suite still deliberately
 // avoids requiring (RepositoryCompiler.php is never required in this file).
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
 }
@@ -191,8 +191,8 @@ try {
 
 // === Prove the extraction itself: Policy.php no longer inlines these bodies,
 // and its call sites now reach PinResolver.
-$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$finalizerSource = file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$finalizerSource = file_get_contents(__DIR__ . '/../../agent/src/Policy/PolicyLoadFinalizer.php');
 $check(
     !str_contains($policySource, "private static function normalize_manifest_pins("),
     'Policy.php no longer defines normalize_manifest_pins() itself (moved to PinResolver.php)'

@@ -454,7 +454,7 @@ say "round-trip: clone into r1b2, deploy (DUO-3216: code lifecycle before state 
 git clone -q siterepo/origin-r1b.git siterepo/r1b2
 # DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
 # finding (theme/plugin installed but not active) that Apply::apply()'s
-# refuse-gate (agent/src/Apply.php:592) hard-blocks on unconditionally, with
+# refuse-gate (agent/src/Apply/Apply.php:592) hard-blocks on unconditionally, with
 # no subset filtering — every code_mismatch row blocks apply, unlike
 # Deploy::run()'s own gate, which excludes exactly this issue from ITS
 # blocking set since reconciling it is deploy's whole job (agent/src/
@@ -475,7 +475,7 @@ grep -q 'COLLISION' <<<"$PLAN_TXT" || fail "expected installer-created page/term
 REV=$(git -C siterepo/r1b2 rev-parse HEAD)
 APPLY1_OUT=$($COMPOSE run --rm -T cli-r1b2 wp duo apply --repo=/siterepo --adopt-by-slug=terms,posts --force-theirs --default-author=admin --revision="$REV" 2>&1)
 echo "$APPLY1_OUT"
-# Task #92 gave Apply::taxes_by_object_type() (agent/src/Apply.php) the same
+# Task #92 gave Apply::taxes_by_object_type() (agent/src/Apply/Apply.php) the same
 # pattern_object_type() fallback Capture's own copy already had: when
 # get_taxonomy() hasn't caught up yet within this SAME apply request (a
 # taxonomy_patterns-matched name landed by Snapshot's own phase-1 write,

@@ -12,7 +12,7 @@ tears down containers.*
 A real little business site — a community makerspace, "Riverside Commons" —
 built on **The Events Calendar** (free, wp.org) and **Paid Memberships Pro**
 (free, but see the plugin-sourcing finding below) to stress-test the
-brand-new typed-snapshot custom-table grammar (`agent/src/Snapshot.php`,
+brand-new typed-snapshot custom-table grammar (`agent/src/Repository/Snapshot.php`,
 task #75, previously proven only on Ninja Forms' `nf3_*` and WooCommerce's
 `woocommerce_attribute_taxonomies`) against two schemas it was never
 designed around. The task brief's own expected shapes turned out to be
@@ -190,7 +190,7 @@ removes it).
 
 ### Gap 2 — composite-primary-key join tables had no representation in the typed-snapshot grammar (closed by DUO-3235)
 
-Confirmed by reading `agent/src/Snapshot.php::assert_row_schema()`
+Confirmed by reading `agent/src/Repository/Snapshot.php::assert_row_schema()`
 directly: `$pk = (string) ($decl['pk'] ?? '')` reads and stores exactly
 **one** column name, later cast straight to `(int) $row[$pk]` as the row's
 scalar `local_id` for the `duo_map` ledger lookup. There is no path for a

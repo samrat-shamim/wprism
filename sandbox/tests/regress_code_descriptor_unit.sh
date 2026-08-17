@@ -8,8 +8,20 @@ DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
 $root = getenv('DUO_ROOT');
 define('DUO_SPEC_VERSION', 2);
+$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
+if (!is_array($duoAgentClassmap)) {
+    throw new \RuntimeException('regress_code_descriptor_unit: agent/duo-classmap.php did not return a map');
+}
+$duoAgentFiles = [];
+foreach ($duoAgentClassmap as $duoAgentPath) {
+    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+}
 foreach (['Canon', 'OptionState', 'Uuid', 'Db', 'Ledger', 'Policy', 'Snapshot', 'Deletion', 'RepositoryAuthorization', 'SidebarState', 'Code', 'RepositoryCompiler', 'CodeStateContract'] as $file) {
-    require_once "$root/agent/src/$file.php";
+    $duoAgentFile = $duoAgentFiles[$file] ?? null;
+    if (!is_string($duoAgentFile)) {
+        throw new \RuntimeException('regress_code_descriptor_unit: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    }
+    require_once $root . '/agent/' . $duoAgentFile;
 }
 
 use Duo\Canon;

@@ -53,8 +53,8 @@ declare(strict_types=1);
  * stub otherwise -- see as_bootstrap_stubs()), defines just enough WP
  * constants for agent/duo.php's own top-level guard
  * (`if (!defined('ABSPATH') && !(defined('WP_CLI') && WP_CLI)) return;`,
- * agent/duo.php:8) and agent/src/Cli.php's file-scope
- * `WP_CLI::add_command('duo', Cli::class)` (agent/src/Cli.php:2954) to both
+ * agent/duo.php:8) and agent/src/Command/Cli.php's file-scope
+ * `WP_CLI::add_command('duo', Cli::class)` (agent/src/Command/Cli.php:2954) to both
  * load, requires agent/duo.php, then requires cli/duo's own bootstrap
  * requires in cli/duo's own order (as_cli_bootstrap_paths() regex-parses
  * them straight out of cli/duo rather than hand-duplicating the list, so it
@@ -64,7 +64,7 @@ declare(strict_types=1);
  * in that list (cli/duo never requires it -- it is a standalone worker
  * script invoked via proc_open, confirmed by grepping cli/ for its
  * filename) and recovery/rollback-control.php loads naturally via
- * cli/src/AdoptCommand.php's own require_once, exactly as it would under a
+ * cli/src/Command/AdoptCommand.php's own require_once, exactly as it would under a
  * real `duo` invocation. The child then reflects every declared symbol
  * whose name starts with `Duo\` and prints canonical JSON
  * (\Duo\Canon::encode(), already loaded transitively -- sorted keys, LF,
@@ -107,7 +107,7 @@ function as_fixture_path(string $repo): string
 
 /**
  * Enough WordPress + WP-CLI surface for agent/duo.php's top-level guard and
- * agent/src/Cli.php's file-scope `WP_CLI::add_command(...)` call to both
+ * agent/src/Command/Cli.php's file-scope `WP_CLI::add_command(...)` call to both
  * load without a real WordPress runtime -- and nothing more. Every OTHER
  * agent/src|cli/src top-level statement that reads ABSPATH/WP_CONTENT_DIR/
  * WP_PLUGIN_DIR is guarded by `defined(...)` INSIDE a function or method
@@ -136,7 +136,7 @@ function as_bootstrap_stubs(string $repo): void
         // on vendor/ (AGENTS.md non-negotiable 1), so this dev tool falls
         // back rather than hard-requiring it. Only the one file-scope call
         // this snapshot's own include chain actually reaches
-        // (add_command(), agent/src/Cli.php:2954) needs to be a real no-op;
+        // (add_command(), agent/src/Command/Cli.php:2954) needs to be a real no-op;
         // every other WP_CLI:: call in the tree lives inside a method body
         // that reflection never executes.
         if (!class_exists('WP_CLI_Command', false)) {

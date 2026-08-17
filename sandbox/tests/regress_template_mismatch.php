@@ -35,7 +35,7 @@ namespace Duo {
         public function theme_ranges(): array { return []; }
     }
 
-    require_once __DIR__ . '/../../agent/src/Deploy.php';
+    require_once __DIR__ . '/../../agent/src/Promotion/Deploy.php';
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {

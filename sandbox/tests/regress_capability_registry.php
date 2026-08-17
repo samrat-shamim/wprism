@@ -4,11 +4,11 @@
 define('DUO_AGENT_VERSION', '0.5.0');
 define('DUO_SPEC_VERSION', 2);
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/ManifestDispositions.php';
-require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
-require __DIR__ . '/../../cli/src/CodeDeploy.php';
-require __DIR__ . '/../../cli/src/PlanSummary.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
+require __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
+require __DIR__ . '/../../cli/src/Transport/CodeDeploy.php';
+require __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;

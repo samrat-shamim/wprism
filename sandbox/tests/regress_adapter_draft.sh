@@ -29,10 +29,10 @@ command -v php >/dev/null || fail "php required on PATH"
 say "php -l syntax check (harness, the verb, and everything it exercises)"
 php -l regress_adapter_draft.php >/dev/null || fail "regress_adapter_draft.php has a syntax error"
 php -l ../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
-php -l ../../cli/src/AdapterDraft.php >/dev/null || fail "cli/src/AdapterDraft.php has a syntax error"
-php -l ../../cli/src/ManifestValidate.php >/dev/null || fail "cli/src/ManifestValidate.php has a syntax error"
-php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
-php -l ../../agent/src/Secrets.php >/dev/null || fail "agent/src/Secrets.php has a syntax error"
+php -l ../../cli/src/Adapter/AdapterDraft.php >/dev/null || fail "cli/src/Adapter/AdapterDraft.php has a syntax error"
+php -l ../../cli/src/Adapter/ManifestValidate.php >/dev/null || fail "cli/src/Adapter/ManifestValidate.php has a syntax error"
+php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
+php -l ../../agent/src/Kernel/Secrets.php >/dev/null || fail "agent/src/Kernel/Secrets.php has a syntax error"
 pass "no syntax errors"
 
 say "the verb is WordPress-free by construction — assert no WordPress reach in the handler or the files it adds to boot()'s load set"
@@ -58,9 +58,9 @@ scan_wp() {
     END { exit (bad > 0 ? 1 : 0) }
   ' "$@"
 }
-scan_wp ../../cli/src/AdapterDraft.php \
-  || fail "cli/src/AdapterDraft.php reaches WordPress — the handler must be free of it"
-scan_wp ../../agent/src/Secrets.php ../../agent/src/CommandRefusal.php \
+scan_wp ../../cli/src/Adapter/AdapterDraft.php \
+  || fail "cli/src/Adapter/AdapterDraft.php reaches WordPress — the handler must be free of it"
+scan_wp ../../agent/src/Kernel/Secrets.php ../../agent/src/Kernel/CommandRefusal.php \
   || fail "a boot()-load-set addition (Secrets/CommandRefusal) reaches WordPress"
 pass "no WordPress reach in the handler or the files it adds to the load set"
 

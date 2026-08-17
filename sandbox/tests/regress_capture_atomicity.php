@@ -244,20 +244,20 @@ final class CaptureAtomicityFakeWpdb {
 }
 
 $root = dirname(__DIR__, 2);
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/PlainData.php";
-require_once "$root/agent/src/Uuid.php";
-require_once "$root/agent/src/TransientDbException.php";
-require_once "$root/agent/src/Db.php";
-require_once "$root/agent/src/Ledger.php";
-require_once "$root/agent/src/Policy.php";
-require_once "$root/agent/src/Snapshot.php";
-require_once "$root/agent/src/SidebarState.php";
-require_once "$root/agent/src/RepositoryCompiler.php";
-require_once "$root/agent/src/Deletion.php";
-require_once "$root/agent/src/Publish.php";
-require_once "$root/agent/src/Capture.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Kernel/PlainData.php";
+require_once "$root/agent/src/Kernel/Uuid.php";
+require_once "$root/agent/src/Kernel/TransientDbException.php";
+require_once "$root/agent/src/Kernel/Db.php";
+require_once "$root/agent/src/Repository/Ledger.php";
+require_once "$root/agent/src/Policy/Policy.php";
+require_once "$root/agent/src/Repository/Snapshot.php";
+require_once "$root/agent/src/Repository/SidebarState.php";
+require_once "$root/agent/src/Repository/RepositoryCompiler.php";
+require_once "$root/agent/src/Delete/Deletion.php";
+require_once "$root/agent/src/Publication/Publish.php";
+require_once "$root/agent/src/Capture/Capture.php";
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
@@ -282,8 +282,8 @@ function assert_capture_atomicity(bool $condition, string $message): void {
     echo "ok: $message\n";
 }
 
-$captureSource = (string) file_get_contents("$root/agent/src/Capture.php");
-$transactionSource = (string) file_get_contents("$root/agent/src/CaptureTransaction.php");
+$captureSource = (string) file_get_contents("$root/agent/src/Capture/Capture.php");
+$transactionSource = (string) file_get_contents("$root/agent/src/Capture/CaptureTransaction.php");
 assert_capture_atomicity(
     str_contains($captureSource, "require_once __DIR__ . '/CaptureTransaction.php';"),
     'Capture directly loads its transaction collaborator without bootstrap-order coupling'
@@ -310,7 +310,7 @@ assert_capture_atomicity(
 );
 
 $consistentSnapshot = new ReflectionMethod(Capture::class, 'run_in_consistent_snapshot');
-$captureLines = file("$root/agent/src/Capture.php");
+$captureLines = file("$root/agent/src/Capture/Capture.php");
 $facadeSource = implode('', array_slice(
     $captureLines === false ? [] : $captureLines,
     $consistentSnapshot->getStartLine() - 1,

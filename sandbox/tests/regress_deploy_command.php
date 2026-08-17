@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/DeployCommand.php';
+require_once __DIR__ . '/../../cli/src/Command/DeployCommand.php';
 
 use Duo\Orchestrator\DeployCommand;
 use Duo\Orchestrator\DriverCapabilityReport;

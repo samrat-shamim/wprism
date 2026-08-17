@@ -12,7 +12,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/DeleteGuardValueCodec.php';
+require_once __DIR__ . '/../../agent/src/Delete/DeleteGuardValueCodec.php';
 
 use Duo\DeleteGuardValueCodec;
 
@@ -74,8 +74,8 @@ $check(
     'codec exposes only the two pure guard contracts and has no runtime dependencies'
 );
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardLockCoordinator.php');
-$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardReferenceScanner.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Delete/DeleteGuardLockCoordinator.php');
+$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/Delete/DeleteGuardReferenceScanner.php');
 $check(
     str_contains($applySource, "require_once __DIR__ . '/DeleteGuardReferenceScanner.php';")
         && str_contains($scannerSource, "require_once __DIR__ . '/DeleteGuardValueCodec.php';")

@@ -65,8 +65,8 @@ final class PromotionLock {
     public static function release(string $owner, string $artifact): void { self::$releases++; }
 }
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/Code.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Code/Code.php";
 
 function remove_stage_lock(string $path): void {
     if (!file_exists($path) && !is_link($path)) { return; }

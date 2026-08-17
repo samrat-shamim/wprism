@@ -42,8 +42,8 @@ namespace {
     $wpdb = new ReferenceScopeFakeWpdb();
     $GLOBALS['wpdb'] = $wpdb;
 
-    require __DIR__ . '/../../agent/src/Policy.php';
-    require __DIR__ . '/../../agent/src/ReferenceScopeClassifier.php';
+    require __DIR__ . '/../../agent/src/Policy/Policy.php';
+    require __DIR__ . '/../../agent/src/Kernel/ReferenceScopeClassifier.php';
 
     $policy = new \Duo\Policy();
     $wpdb->postsById = [

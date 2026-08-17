@@ -45,9 +45,9 @@ final class Code {
     }
 }
 
-require_once __DIR__ . '/../../agent/src/Deploy.php';
-require_once __DIR__ . '/../../agent/src/ApplyPreparationCoordinator.php';
-require_once __DIR__ . '/../../agent/src/Apply.php';
+require_once __DIR__ . '/../../agent/src/Promotion/Deploy.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyPreparationCoordinator.php';
+require_once __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {

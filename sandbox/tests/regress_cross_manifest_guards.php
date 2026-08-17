@@ -22,8 +22,8 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/CrossManifestGuards.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Policy/CrossManifestGuards.php';
 
 use Duo\CrossManifestGuards;
 use Duo\Policy;

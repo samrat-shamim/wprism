@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/OptionNamespaceResolver.php";
+$resolverPath = "$root/agent/src/Grammar/OptionNamespaceResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -67,9 +67,9 @@ $throws(
     "duo: option 'shared_name' is claimed by overlapping namespaces from bravo, alpha — discovery ownership must not depend on manifest load order"
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
@@ -84,10 +84,10 @@ $check(
     'Policy constructs a fresh resolver so mutable fixture manifests remain observable'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $oldBody = "        \$matches = [];\n        foreach (\$this->manifests as \$m) {";
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/OptionNamespaceResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/OptionNamespaceResolver.php';") === 1
         && substr_count($policySource, 'return $this->option_namespace_resolver()->owner_for($name);') === 1
         && substr_count($policySource, 'new OptionNamespaceResolver($this->manifests)') === 1
         && !str_contains($policySource, $oldBody),

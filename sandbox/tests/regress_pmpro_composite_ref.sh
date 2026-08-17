@@ -8,7 +8,7 @@
 #     (membership_id, page_id — no surrogate id column) is PMPro's REAL
 #     content-restriction mechanism (pmpro_update_post_level_restrictions(),
 #     the code behind the real wp-admin "Require Membership" meta box).
-#     New identity.mode=composite_ref (agent/src/Snapshot.php).
+#     New identity.mode=composite_ref (agent/src/Repository/Snapshot.php).
 #   - task #126 (sidecar PK override): pmpro_membership_levelmeta's real PK
 #     column is `meta_id`, not `id` — the new `id_column` manifest field.
 #

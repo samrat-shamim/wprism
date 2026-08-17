@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Lint smoke test (task #11's linter half): asserts the generalized
-# suspicious-ref linter (agent/src/Lint.php, `wp duo lint`) is silent on
+# suspicious-ref linter (agent/src/Review/Lint.php, `wp duo lint`) is silent on
 # real, already-captured state, then that it flags EXACTLY the four
 # detection classes (bare_id, escaped_home, unregistered_block_attr,
 # serialized_desc_ids) when each is deliberately planted.
@@ -127,7 +127,7 @@ Canon::write_file($argv[5], Canon::encode($front));
 
 fwrite(STDOUT, "planted 4 fixtures\n");
 PHP
-php "$PLANT_SCRIPT" ../agent/src/Canon.php "$CONTENT_FILE" "$TARGET_ONE_FILE" "$TARGET_TWO_FILE" "$TERM_FILE" \
+php "$PLANT_SCRIPT" ../agent/src/Kernel/Canon.php "$CONTENT_FILE" "$TARGET_ONE_FILE" "$TARGET_TWO_FILE" "$TERM_FILE" \
   "$TARGET_ONE_ID" "$TARGET_TWO_ID" "$CONTENT_ID" "$HOME_URL"
 pass "planted: bare_id(->#$TARGET_ONE_ID) in $(basename "$CONTENT_FILE"), escaped_home in $(basename "$TARGET_ONE_FILE"), fake/widget(id=$TARGET_TWO_ID) in $(basename "$TARGET_TWO_FILE"), serialized desc(->#$CONTENT_ID) in $(basename "$TERM_FILE")"
 

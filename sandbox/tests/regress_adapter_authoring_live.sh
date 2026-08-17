@@ -210,7 +210,7 @@ SAFE_PAYLOAD=$(jq -cn --arg marker "$SAFE_MARKER" \
 [ "${#SAFE_PAYLOAD}" -ge 120 ] || fail "safe generated-looking payload is not large enough for the draft proposer"
 SECRET='sk_live_DUO3340AUTHORINGONLY1234567890'
 php -r 'require $argv[1]; exit(\Duo\Secrets::hard_match($argv[2]) === "stripe key" ? 0 : 1);' \
-  '../agent/src/Secrets.php' "$SECRET" \
+  '../agent/src/Kernel/Secrets.php' "$SECRET" \
   || fail "the controlled secret fixture no longer matches the engine hard-secret boundary"
 APP_PASS=$(wp1 user application-password create admin duo-3340-authoring --porcelain | tr -d '\r')
 REST_BODY=$(jq -cn --arg notes "$SAFE_PAYLOAD" --arg api_key "$SECRET" \
@@ -292,7 +292,7 @@ jq -e --arg site_hash "$SITE_POLICY_HASH" '
 ' "$OBSERVE_FILE" >/dev/null || fail "adapter-observe did not project the target journal, pending, catalog, policy, and repository facts exercised above"
 OBSERVATION_HASH=$(jq -r '.observation_hash' "$OBSERVE_FILE")
 OBSERVATION_HASH_RECOMPUTED=$(php -r '
-require "../agent/src/Canon.php";
+require "../agent/src/Kernel/Canon.php";
 $document = json_decode((string) file_get_contents($argv[1]), true, 512, JSON_THROW_ON_ERROR);
 unset($document["observation_hash"]);
 echo "sha256:" . hash("sha256", \Duo\Canon::encode($document));

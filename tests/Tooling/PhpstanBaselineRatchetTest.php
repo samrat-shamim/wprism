@@ -29,7 +29,7 @@ use PHPUnit\Framework\TestCase;
  *
  * The third test here is unrelated to PHPStan and is the reason this whole
  * toolchain is allowed to exist at the repo root at all: the drop-in must stay
- * dependency-free. cli/src/Adopt.php:120 installs a managed site with
+ * dependency-free. cli/src/Onboarding/Adopt.php:120 installs a managed site with
  * `tar -cf … agent manifests recovery` — no vendor/, no composer.json, no
  * autoloader ever reaches the site. If a drop-in file ever grew a
  * `require vendor/autoload.php`, every adoption would fatal at load time on a
@@ -181,7 +181,7 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 $source,
                 sprintf(
                     '%s references "%s". The drop-in ships via `tar -cf … agent manifests recovery` '
-                    . '(cli/src/Adopt.php) and never receives vendor/, so this would fatal on every '
+                    . '(cli/src/Onboarding/Adopt.php) and never receives vendor/, so this would fatal on every '
                     . 'adopted site while staying green here.',
                     $relative,
                     $needle

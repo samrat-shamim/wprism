@@ -57,7 +57,7 @@ function check(bool $cond, string $msg): void {
 // ======================================================================
 echo "\n== direct DynamicOptionResolver boundary ==\n";
 
-require __DIR__ . '/../../agent/src/DynamicOptionResolver.php';
+require __DIR__ . '/../../agent/src/Grammar/DynamicOptionResolver.php';
 
 check(
     class_exists(\Duo\DynamicOptionResolver::class, false)
@@ -114,9 +114,9 @@ try {
 }
 check($missingResolverRefused, 'direct resolver refuses a missing engine resolver value rather than silently returning an unclassified row');
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 
@@ -432,8 +432,8 @@ expect_load_failure($fixtureDir, 'bad_no_autoload', 'dynamic_options.widgets');
 // ======================================================================
 echo "\n== Policy compatibility facades ==\n";
 
-$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$resolverSource = (string) file_get_contents(__DIR__ . '/../../agent/src/DynamicOptionResolver.php');
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$resolverSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Grammar/DynamicOptionResolver.php');
 $facades = [
     'dynamic_options' => 'dynamic_options()',
     'resolve_dynamic_option' => 'resolve_dynamic_option($key, $resolvedValue)',

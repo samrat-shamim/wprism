@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/RebaseCommand.php';
+require_once __DIR__ . '/../../cli/src/Command/RebaseCommand.php';
 
 use Duo\Canon;
 use Duo\Orchestrator\DriverCapabilityReport;
@@ -72,7 +72,7 @@ $source = file_get_contents(__DIR__ . '/../../cli/duo');
 assert_rebase_command(is_string($source) && str_contains($source, 'return RebaseCommand::run($t, $extra);'), 'cli/duo retains only the rebase facade');
 assert_rebase_command(!str_contains($source, 'function rebase_flags(') && !str_contains($source, 'function interactive_tty_available('), 'rebase parser helpers moved out of cli/duo');
 assert_rebase_command((new ReflectionMethod(RebaseCommand::class, 'run'))->isStatic(), 'rebase handler exposes a standalone static boundary');
-$refreshSource = file_get_contents(__DIR__ . '/../../cli/src/Refresh.php');
+$refreshSource = file_get_contents(__DIR__ . '/../../cli/src/Refresh/Refresh.php');
 assert_rebase_command(is_string($refreshSource)
     && !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh rebase')"),
     'public rebase reaches the record-aware scoped-refresh path instead of rejecting a valid option root at its host boundary');

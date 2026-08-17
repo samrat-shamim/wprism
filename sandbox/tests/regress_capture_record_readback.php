@@ -16,7 +16,7 @@
  * write_record() `finally` cleanup's is_file($tmp) miss the owned temp hard
  * link and leak it.
  *
- * The fix (agent/src/PublicationJournal.php): read_record() uses a fresh lstat regular-file
+ * The fix (agent/src/Publication/PublicationJournal.php): read_record() uses a fresh lstat regular-file
  * check, opens the path read-only, and binds the opened descriptor to the named
  * inode before and after reading. write_record() likewise fresh-lstats its
  * owned temp before cleanup. Cached path predicates therefore grant neither
@@ -42,8 +42,8 @@
 declare(strict_types=1);
 
 $repoRoot = dirname(__DIR__, 2);
-require "$repoRoot/agent/src/Canon.php";
-require "$repoRoot/agent/src/Publish.php";
+require "$repoRoot/agent/src/Kernel/Canon.php";
+require "$repoRoot/agent/src/Publication/Publish.php";
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
@@ -208,8 +208,8 @@ echo "\n== R1': mutation proof (restore cached path predicates -> the boundary f
 if ($pcntl) {
     $root = fresh_root('mutation');
     $realSrc = "$repoRoot/agent/src";
-    $realEngine = "$realSrc/PublicationJournal.php";
-    $realFacade = "$realSrc/Publish.php";
+    $realEngine = "$realSrc/Publication/PublicationJournal.php";
+    $realFacade = "$realSrc/Publication/Publish.php";
 
     // A standalone copy of the engine tree so a mutated PublicationJournal.php still finds
     // its own require_once __DIR__ .'/CommandRefusal.php' + Canon.php siblings.
@@ -222,8 +222,8 @@ if ($pcntl) {
     fclose($pipes[2]);
     $cpRc = proc_close($p);
     check($cpRc === 0, 'R1\'a: engine source tree copied for mutation' . ($cpRc === 0 ? '' : " ($cpErr)"));
-    $mutantEngine = "$mutantSrc/PublicationJournal.php";
-    $mutantFacade = "$mutantSrc/Publish.php";
+    $mutantEngine = "$mutantSrc/Publication/PublicationJournal.php";
+    $mutantFacade = "$mutantSrc/Publication/Publish.php";
 
     $srcText = (string) file_get_contents($mutantEngine);
     // The implementation now belongs to PublicationJournal and is public so

@@ -8,8 +8,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 FIXTURE="$ROOT/sandbox/tests/fixtures/duo3344-scoped-promote-unit.php"
 
 printf '== syntax ==\n'
-for file in "$FIXTURE" "$ROOT/cli/duo" "$ROOT/cli/src/ScopedRollbackProfile.php" \
-  "$ROOT/cli/src/RollbackAuthority.php" "$ROOT/recovery/rollback-control.php"; do
+for file in "$FIXTURE" "$ROOT/cli/duo" "$ROOT/cli/src/Recovery/ScopedRollbackProfile.php" \
+  "$ROOT/cli/src/Recovery/RollbackAuthority.php" "$ROOT/recovery/rollback-control.php"; do
   php -l "$file" >/dev/null
 done
 printf 'ok: PHP syntax\n'

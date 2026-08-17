@@ -524,7 +524,7 @@ final class OfflineRunnerCli
         // Per-worker TMPDIRs deliberately live OUTSIDE the worktree, not under
         // sandbox/tmp/. Measured: with TMPDIR inside the repo, four suites fail
         // that pass serially -- regress-environment-lifecycle is the clearest,
-        // because cli/src/Registry.php refuses "a nested site.duo.json outside
+        // because cli/src/Environment/Registry.php refuses "a nested site.duo.json outside
         // Git worktree root", which is true of any scratch tree placed inside
         // the checkout. That is a real property of the code under test, not a
         // harness bug, so isolation moves rather than switching off. Keyed by

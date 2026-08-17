@@ -10,7 +10,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-require_once __DIR__ . '/../../agent/src/EntityMetaCapture.php';
+require_once __DIR__ . '/../../agent/src/Capture/EntityMetaCapture.php';
 
 use Duo\EntityMetaCapture;
 use Duo\OrderPreserved;
@@ -299,9 +299,9 @@ $check($trace === [
     'secret:post_meta:secret_value: on post 7:string',
 ], 'secret refusal performs no codec work');
 
-$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
-$termCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/TermCapture.php');
+$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/Capture.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureCandidateBuilder.php');
+$termCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/TermCapture.php');
 $check(is_string($candidateSource)
     && str_contains($candidateSource, "require_once __DIR__ . '/EntityMetaCapture.php';"),
     'candidate builder explicitly requires its extracted entity-meta collaborator');

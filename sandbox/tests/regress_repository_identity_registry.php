@@ -39,7 +39,7 @@ namespace Duo {
 
 namespace {
     $root = dirname(__DIR__, 2);
-    $registryPath = "$root/agent/src/RepositoryIdentityRegistry.php";
+    $registryPath = "$root/agent/src/Repository/RepositoryIdentityRegistry.php";
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -120,9 +120,9 @@ namespace {
         'post natural keys and complete ordered table tuples reject only exact first-wins collisions'
     );
 
-    $compiler = (string) file_get_contents("$root/agent/src/RepositoryCompiler.php");
+    $compiler = (string) file_get_contents("$root/agent/src/Repository/RepositoryCompiler.php");
     $registrySource = (string) file_get_contents($registryPath);
-    $graphValidatorSource = (string) file_get_contents("$root/agent/src/RepositoryReferenceGraphValidator.php");
+    $graphValidatorSource = (string) file_get_contents("$root/agent/src/Repository/RepositoryReferenceGraphValidator.php");
     $check(
         substr_count($compiler, 'new RepositoryIdentityRegistry(') === 1
         && substr_count($compiler, '->identityRegistry->register(') === 3

@@ -13,17 +13,17 @@ declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
 foreach ([
-    '/agent/src/Canon.php',
-    '/agent/src/DurableFilesystem.php',
-    '/agent/src/ProcessFence.php',
-    '/agent/src/PromotionLock.php',
-    '/agent/src/PromotionLease.php',
-    '/agent/src/PromotionSessionJournal.php',
-    '/agent/src/LifecycleJournal.php',
-    '/agent/src/StateTransitionJournal.php',
-    '/agent/src/Publish.php',
-    '/agent/src/AtomicTreePublisher.php',
-    '/agent/src/PublicationJournal.php',
+    '/agent/src/Kernel/Canon.php',
+    '/agent/src/Kernel/DurableFilesystem.php',
+    '/agent/src/Kernel/ProcessFence.php',
+    '/agent/src/Promotion/PromotionLock.php',
+    '/agent/src/Promotion/PromotionLease.php',
+    '/agent/src/Promotion/PromotionSessionJournal.php',
+    '/agent/src/Promotion/LifecycleJournal.php',
+    '/agent/src/Promotion/StateTransitionJournal.php',
+    '/agent/src/Publication/Publish.php',
+    '/agent/src/Publication/AtomicTreePublisher.php',
+    '/agent/src/Publication/PublicationJournal.php',
 ] as $relative) {
     require_once $root . $relative;
 }
@@ -246,10 +246,10 @@ $check(
     'legacy session transitions preserve the immutable begun-at identity'
 );
 
-$lockSource = file_get_contents($root . '/agent/src/PromotionLease.php');
-$lifecycleSource = file_get_contents($root . '/agent/src/LifecycleJournal.php');
-$publicationSource = file_get_contents($root . '/agent/src/PublicationJournal.php');
-$atomicFacadeSource = file_get_contents($root . '/agent/src/AtomicTreePublisher.php');
+$lockSource = file_get_contents($root . '/agent/src/Promotion/PromotionLease.php');
+$lifecycleSource = file_get_contents($root . '/agent/src/Promotion/LifecycleJournal.php');
+$publicationSource = file_get_contents($root . '/agent/src/Publication/PublicationJournal.php');
+$atomicFacadeSource = file_get_contents($root . '/agent/src/Publication/AtomicTreePublisher.php');
 $check(is_string($lockSource) && str_contains($lockSource, 'PromotionSessionJournal::readAny()'), 'PromotionLease reads promotion_session through PromotionSessionJournal');
 $check(is_string($lockSource) && str_contains($lockSource, 'PromotionSessionJournal::start('), 'PromotionLease starts promotion_session through PromotionSessionJournal');
 $check(is_string($lockSource) && str_contains($lockSource, 'ProcessFence::acquire(') && str_contains($lockSource, 'ProcessFence::release()') && str_contains($lockSource, 'invalidate_process_fence_witnesses'), 'PromotionLease delegates advisory-fence ownership to ProcessFence and clears witnesses on discontinuity');

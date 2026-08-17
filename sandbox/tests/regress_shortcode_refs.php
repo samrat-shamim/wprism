@@ -3,16 +3,16 @@
  * Offline (no docker, no WordPress bootstrap) regression harness for
  * DUO-3259's shortcode-attribute reference codec:
  *
- *  - agent/src/Shortcodes.php (new): structure-aware capture/apply
+ *  - agent/src/Grammar/Shortcodes.php (new): structure-aware capture/apply
  *    rewriting of declared shortcode_attrs refs, mirroring Blocks.php's
  *    own block_attrs mechanism and task #73's dangling-vs-unscoped triage
  *    a third time (Capture::classify_unscoped_ref()).
- *  - agent/src/Blocks.php's $rewriteString closure: now also threads
+ *  - agent/src/Grammar/Blocks.php's $rewriteString closure: now also threads
  *    every innerContent chunk through Shortcodes::capture_rewrite_text()/
  *    apply_rewrite_text() — proven here via Blocks::capture_rewrite()
  *    directly (S18), not just Shortcodes.php in isolation, since the
  *    wiring itself is new, untested surface.
- *  - agent/src/Lint.php's new scan_shortcodes(): the shortcode twins of
+ *  - agent/src/Review/Lint.php's new scan_shortcodes(): the shortcode twins of
  *    unregistered_block_attr / unrewritten_registered_ref.
  *
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Tokens,Ledger,Pending,
@@ -208,22 +208,22 @@ $GLOBALS['wpdb'] = $wpdb;
 
 // ----------------------------------------------------------- engine + fixtures
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Pending.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/Blocks.php';
-require __DIR__ . '/../../agent/src/Shortcodes.php';
-require __DIR__ . '/../../agent/src/Lint.php';
-require __DIR__ . '/../../agent/src/Apply.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Review/Pending.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../agent/src/Grammar/Blocks.php';
+require __DIR__ . '/../../agent/src/Grammar/Shortcodes.php';
+require __DIR__ . '/../../agent/src/Review/Lint.php';
+require __DIR__ . '/../../agent/src/Apply/Apply.php';
 // DUO-3259: Shortcodes::queue_unscoped() calls Capture::
 // classify_unscoped_ref() directly (public static, itself built on the
 // zero-instance-dependency ref_target_type() -- see both docblocks)
 // rather than duplicating the query shapes it encapsulates. Loading the
 // class definition only; nothing here ever instantiates Capture or calls
 // any of its other (WordPress-dependent) methods.
-require_once __DIR__ . '/../../agent/src/Capture.php';
+require_once __DIR__ . '/../../agent/src/Capture/Capture.php';
 
 use Duo\Canon;
 use Duo\Policy;

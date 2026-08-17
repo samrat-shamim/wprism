@@ -6,8 +6,8 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/Transport.php';
-require_once __DIR__ . '/../../cli/src/Doctor.php';
+require_once __DIR__ . '/../../cli/src/Transport/Transport.php';
+require_once __DIR__ . '/../../cli/src/Onboarding/Doctor.php';
 
 use Duo\Orchestrator\Doctor;
 use Duo\Orchestrator\Transport;

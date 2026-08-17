@@ -14,7 +14,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-require_once __DIR__ . '/../../agent/src/UserMetaCapture.php';
+require_once __DIR__ . '/../../agent/src/Capture/UserMetaCapture.php';
 
 use Duo\UserMetaCapture;
 use Duo\UserMetaState;
@@ -274,8 +274,8 @@ $throws(
     'a transient DB checkpoint aborts before classifying any returned row'
 );
 
-$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
+$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/Capture.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureCandidateBuilder.php');
 $check(
     is_string($candidateSource) && str_contains($candidateSource, "require_once __DIR__ . '/UserMetaCapture.php';"),
     'candidate builder explicitly requires its extracted user-meta collaborator'

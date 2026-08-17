@@ -21,7 +21,7 @@ function apply_filters(string $tag, $source, ...$args) {
 }
 
 $root = dirname(__DIR__, 2);
-require_once "$root/agent/src/MediaCapture.php";
+require_once "$root/agent/src/Capture/MediaCapture.php";
 
 use Duo\CommandRefusalException;
 use Duo\MediaCapture;
@@ -176,10 +176,10 @@ foreach ($invalidCases as $label => $case) {
     $check($rejected, "provider $label shape keeps its exact fail-closed diagnostic");
 }
 
-$mediaSource = file_get_contents("$root/agent/src/MediaCapture.php");
-$captureSource = file_get_contents("$root/agent/src/Capture.php");
-$candidateSource = file_get_contents("$root/agent/src/CaptureCandidateBuilder.php");
-$postCaptureSource = file_get_contents("$root/agent/src/PostCapture.php");
+$mediaSource = file_get_contents("$root/agent/src/Capture/MediaCapture.php");
+$captureSource = file_get_contents("$root/agent/src/Capture/Capture.php");
+$candidateSource = file_get_contents("$root/agent/src/Capture/CaptureCandidateBuilder.php");
+$postCaptureSource = file_get_contents("$root/agent/src/Capture/PostCapture.php");
 $check(
     !str_contains($mediaSource, 'Db::')
         && !str_contains($mediaSource, 'Ledger::')

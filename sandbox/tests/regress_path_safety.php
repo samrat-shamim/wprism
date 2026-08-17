@@ -13,8 +13,8 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/PathSafety.php';
-require_once __DIR__ . '/../../agent/src/Code.php';
+require_once __DIR__ . '/../../agent/src/Kernel/PathSafety.php';
+require_once __DIR__ . '/../../agent/src/Code/Code.php';
 
 use Duo\Code;
 use Duo\PathSafety;
@@ -205,7 +205,7 @@ $check(
 // source-scraped, since these are private static methods invoked through
 // Code's own runtime paths, and a Reflection call proves only that the
 // public CONTRACT still exists, not that the body stayed a delegate.
-$codeSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Code.php');
+$codeSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Code/Code.php');
 $delegations = [
     'safe_join' => 'return PathSafety::safe_join($root, $relative);',
     'same_target_path' => 'return PathSafety::same_target_path($actual, $expected);',

@@ -36,12 +36,12 @@ declare(strict_types=1);
  *  - Every declaration in a file is mapped, not just the one whose name
  *    matches the filename: 14 agent/src files and 6 cli/src files declare
  *    more than one type, and 3 agent/src + 15 cli/src files have a primary
- *    type whose name differs from the filename (cli/src/CommandOutput.php
+ *    type whose name differs from the filename (cli/src/Command/CommandOutput.php
  *    alone carries CommandOutput plus its exception types). A
  *    filename-derived map would silently miss all of them, which is exactly
  *    the class of bug an autoloader must not have.
  *  - Files that declare no type are skipped rather than treated as an error:
- *    cli/src/RefreshPlanCompile.php is a `php <file> <args>` worker script
+ *    cli/src/Refresh/RefreshPlanCompile.php is a `php <file> <args>` worker script
  *    with no namespace and no class, and must never be reachable by
  *    autoload (it executes on include).
  *  - Two files declaring the same FQCN is a refusal (exit 1), not a
@@ -66,7 +66,7 @@ declare(strict_types=1);
 /**
  * FQCN => reason it is deliberately absent from the generated map.
  *
- * Duo\Cli: agent/src/Cli.php's last line is
+ * Duo\Cli: agent/src/Command/Cli.php's last line is
  * `WP_CLI::add_command('duo', Cli::class);` — a top-level side effect. Today
  * that file is required from exactly one place, agent/duo.php's closing
  * `if (defined('WP_CLI') && WP_CLI)` block, so the call only ever runs with a
@@ -78,8 +78,8 @@ declare(strict_types=1);
  *
  * Duo\InitialStateBoundaryException: declared three times, each behind
  * `if (!class_exists(InitialStateBoundaryException::class, false))` —
- * agent/src/DurableFilesystem.php:8, agent/src/PublicationJournal.php:7 and
- * agent/src/Publish.php:6. Whichever file loads first wins, deliberately
+ * agent/src/Kernel/DurableFilesystem.php:8, agent/src/Publication/PublicationJournal.php:7 and
+ * agent/src/Publication/Publish.php:6. Whichever file loads first wins, deliberately
  * (Publish/PublicationJournal keep the historical declaration site that
  * Cli::PUBLIC_REFUSAL_CLASSES audits; DurableFilesystem keeps a copy so it is
  * independently loadable). A classmap has exactly one path per name, so any
@@ -91,7 +91,7 @@ declare(strict_types=1);
  * @var array<string,string>
  */
 const CM_EXCLUSIONS = [
-    'Duo\\Cli' => 'agent/src/Cli.php ends in a top-level WP_CLI::add_command() call; it must stay gated behind duo.php\'s WP_CLI require',
+    'Duo\\Cli' => 'agent/src/Command/Cli.php ends in a top-level WP_CLI::add_command() call; it must stay gated behind duo.php\'s WP_CLI require',
     'Duo\\InitialStateBoundaryException' => 'declared three times behind class_exists(..., false) guards (DurableFilesystem.php, PublicationJournal.php, Publish.php); no single file is its home',
 ];
 

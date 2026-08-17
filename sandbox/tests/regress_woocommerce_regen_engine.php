@@ -425,12 +425,12 @@ $wpdb->lookupRows = [
     305 => true, 306 => true, 307 => true,
 ];
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Apply.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 $policy = \Duo\Policy::load(null, ['batch', 'legacy']);
 $apply = new \Duo\RegenerationContextStore(
@@ -1297,7 +1297,7 @@ $check(!isset($wpdb->kv['regen_reparent_context:' . $widgetMoved])
 // args), so the engine brackets the whole invocation instead. Asserted against
 // the source because an offline Apply carries no lease identity, which is the
 // same idiom this suite uses for run()'s own threading.
-$rebuildSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RebuildActionDispatcher.php');
+$rebuildSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Rebuild/RebuildActionDispatcher.php');
 $check((bool) preg_match(
     '/\(\$this->renewLease\)\(\);\s*\$receipt = Providers::invoke\(/',
     $rebuildSource

@@ -59,7 +59,7 @@ escape hatch instead of the old quiet drop. Spec: "Unscoped references"
 Two unrelated plugins hit the identical root gap in round 1 — Ninja Forms'
 `nf3_forms`/`nf3_fields`/`nf3_actions` (+ EAV `_meta` sidecars) and WooCommerce's
 `woocommerce_attribute_taxonomies` — the confirmation DESIGN.md §3.3's "middle
-tier" needed. Now real (`agent/src/Snapshot.php` + manifest `"tables"` grammar,
+tier" needed. Now real (`agent/src/Repository/Snapshot.php` + manifest `"tables"` grammar,
 spec v0.10):
 
 - Two classes: `authored_snapshot` (row tables; **every live column must be

@@ -16,8 +16,8 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$deploySource = file_get_contents($root . '/agent/src/Deploy.php');
-$executorSource = file_get_contents($root . '/agent/src/LifecycleExecutor.php');
+$deploySource = file_get_contents($root . '/agent/src/Promotion/Deploy.php');
+$executorSource = file_get_contents($root . '/agent/src/Promotion/LifecycleExecutor.php');
 if (!is_string($deploySource) || !is_string($executorSource)) {
     fwrite(STDERR, "FAIL: could not read Deploy/LifecycleExecutor sources\n");
     exit(1);
@@ -96,8 +96,8 @@ check(
 // The extracted method keeps a clean parameter/return shape: every scalar
 // and array run() threaded into the old inline block is now an explicit
 // parameter, and every produced value comes back through one return array.
-require_once $root . '/agent/src/LifecycleExecutor.php';
-require_once $root . '/agent/src/Deploy.php';
+require_once $root . '/agent/src/Promotion/LifecycleExecutor.php';
+require_once $root . '/agent/src/Promotion/Deploy.php';
 $executor = new ReflectionClass(\Duo\LifecycleExecutor::class);
 $execute = $executor->getMethod('execute');
 check($execute->isPublic(), 'execute() is public on LifecycleExecutor');

@@ -7,14 +7,14 @@
 $root = realpath(__DIR__ . '/../..');
 if ($root === false) throw new RuntimeException('FAIL: root missing');
 define('ARRAY_A', 'ARRAY_A');
-require_once $root . '/agent/src/Uuid.php';
-require_once $root . '/agent/src/Db.php';
-require_once $root . '/agent/src/Ledger.php';
-require_once $root . '/agent/src/RefreshExport.php';
-require_once $root . '/agent/src/Snapshot.php';
-require_once $root . '/agent/src/Policy.php';
-require_once $root . '/agent/src/Tokens.php';
-require_once $root . '/agent/src/ScopeDiscovery.php';
+require_once $root . '/agent/src/Kernel/Uuid.php';
+require_once $root . '/agent/src/Kernel/Db.php';
+require_once $root . '/agent/src/Repository/Ledger.php';
+require_once $root . '/agent/src/Review/RefreshExport.php';
+require_once $root . '/agent/src/Repository/Snapshot.php';
+require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Grammar/Tokens.php';
+require_once $root . '/agent/src/Policy/ScopeDiscovery.php';
 
 use Duo\Canon;
 use Duo\Ledger;
@@ -181,7 +181,7 @@ try {
     check_re(str_contains($e->getMessage(), 'contradicts'), 'contradiction did not fail loudly');
 }
 
-$source = file_get_contents($root . '/agent/src/RefreshExport.php');
+$source = file_get_contents($root . '/agent/src/Review/RefreshExport.php');
 if ($source === false) fail_re('cannot read exporter source');
 $code = '';
 foreach (token_get_all($source) as $token) {

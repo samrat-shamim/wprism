@@ -5,7 +5,7 @@
  * <stateDir>`) — never included directly by the harness.
  *
  * Runs the exact same sequence Capture::run() does around
- * agent/src/Publish.php (lock -> recover -> write staged entities -> swap),
+ * agent/src/Publication/Publish.php (lock -> recover -> write staged entities -> swap),
  * deliberately slowed down (usleep between each staged file) so the parent
  * test has a wide, reliable window to SIGKILL this process partway through
  * writing the staging directory — well before it could reach swap(), the
@@ -14,8 +14,8 @@
  * function, no catch block, nothing — exactly what a real OOM-kill does.
  */
 
-require __DIR__ . '/../../../agent/src/Canon.php';
-require __DIR__ . '/../../../agent/src/Publish.php';
+require __DIR__ . '/../../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../../agent/src/Publication/Publish.php';
 
 use Duo\Canon;
 use Duo\Publish;

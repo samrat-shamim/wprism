@@ -15,8 +15,8 @@ $repo = dirname(__DIR__, 2);
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
-require_once $repo . '/agent/src/OptionState.php';
-require_once $repo . '/agent/src/Policy.php';
+require_once $repo . '/agent/src/Kernel/OptionState.php';
+require_once $repo . '/agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 use Duo\PostTypeGrammar;
@@ -156,8 +156,8 @@ post_type_check(
     'Policy publishes the extracted vocabularies without a second spelling'
 );
 
-$policySource = (string) file_get_contents($repo . '/agent/src/Policy.php');
-$manifestValidatorSource = (string) file_get_contents($repo . '/agent/src/ManifestValidator.php');
+$policySource = (string) file_get_contents($repo . '/agent/src/Policy/Policy.php');
+$manifestValidatorSource = (string) file_get_contents($repo . '/agent/src/Policy/ManifestValidator.php');
 post_type_check(
     substr_count($policySource, 'PostTypeGrammar::validate_post_type_contracts($manifest)') === 0
         && substr_count($policySource, 'PostTypeGrammar::validate_post_type_children($manifest)') === 0

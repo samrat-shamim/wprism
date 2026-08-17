@@ -61,11 +61,11 @@ function is_multisite(): bool {
     return (bool) $GLOBALS['duo_test_is_multisite'];
 }
 
-require $repo . '/agent/src/Canon.php';
-require $repo . '/agent/src/OptionState.php';
-require $repo . '/agent/src/ManifestDispositions.php';
-require $repo . '/agent/src/CapabilityRegistry.php';
-require $repo . '/agent/src/Policy.php';
+require $repo . '/agent/src/Kernel/Canon.php';
+require $repo . '/agent/src/Kernel/OptionState.php';
+require $repo . '/agent/src/Policy/ManifestDispositions.php';
+require $repo . '/agent/src/Adapter/CapabilityRegistry.php';
+require $repo . '/agent/src/Policy/Policy.php';
 
 use Duo\AdapterSources;
 use Duo\Canon;
@@ -961,7 +961,7 @@ foreach (['certification_source', 'certificate_invalid', 'out_of_tree_privilege'
 // predicates. A real Ed25519 fixture is regress_site_adapter_certification's
 // subject and is not rebuilt here; what this suite owns is that the catalog
 // reads the same state rather than inventing a parallel vocabulary.
-$surveySource = (string) file_get_contents($repo . '/agent/src/AdapterSources.php');
+$surveySource = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterSources.php');
 check(
     str_contains($surveySource, "? 'third_party_signed' : 'signed_unpinned'")
     && str_contains($surveySource, '$sources->is_certified($name)'),
@@ -1330,7 +1330,7 @@ if (in_array("$escapeName.json", scandir("$escapeRepo/adapters") ?: [], true)) {
 // regress_provider_contract.php:1082-1090 sets for a branch that cannot be
 // reached from here — while `wp duo adapter-survey` drives it for real in
 // regress_plugin_adapter_source.php.
-$catalogSource = (string) file_get_contents(dirname(__DIR__, 2) . '/cli/src/AdapterCatalog.php');
+$catalogSource = (string) file_get_contents(dirname(__DIR__, 2) . '/cli/src/Adapter/AdapterCatalog.php');
 preg_match('/private static function render_not_installed.*?\n    \}/s', $catalogSource, $notInstalledRenderer);
 check(
     isset($notInstalledRenderer[0])

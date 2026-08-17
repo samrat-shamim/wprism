@@ -31,9 +31,9 @@ register_shutdown_function(function () use ($fixtureDir) {
 });
 putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 
@@ -235,9 +235,9 @@ check(($resolved->env_options()['shared_name']['required'] ?? null) === true,
 // The pure declaration checks belong to OptionGrammar, while Policy retains
 // only the runtime effective-rule/query behavior. Keep both loader paths and
 // the published sentinel vocabulary wired directly to the collaborator.
-$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
-$sitePolicyValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/SitePolicyValidator.php');
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/Policy/ManifestValidator.php');
+$sitePolicyValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/Policy/SitePolicyValidator.php');
 $optionGrammar = new \ReflectionClass('Duo\\OptionGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(

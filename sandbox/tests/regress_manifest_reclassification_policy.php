@@ -33,9 +33,9 @@ register_shutdown_function(function () use ($fixtureDir) {
 });
 putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 

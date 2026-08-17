@@ -31,70 +31,70 @@
  * F1 — canonical pretty repository/file bytes.
  *   JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE over a
  *   recursively ksort(SORT_STRING)ed structure, plus exactly one trailing "\n".
- *   REFERENCE: \Duo\Canon::encode() (agent/src/Canon.php).
+ *   REFERENCE: \Duo\Canon::encode() (agent/src/Kernel/Canon.php).
  *   Members, all required byte-identical to the reference:
- *     - \Duo\ScopedApplySession::canonical_encode()  agent/src/ScopedApplySession.php:1660
+ *     - \Duo\ScopedApplySession::canonical_encode()  agent/src/Scope/ScopedApplySession.php:1660
  *     - \Duo\ScopedApplySession::canonical_copy()    …:1664 (decode∘encode round trip)
  *     - \Duo\ScopedApplySession::digest()            …:1656 (sha256 of the reference bytes)
- *     - \Duo\AdapterCertification::bundlePretty()    agent/src/AdapterCertification.php:523
+ *     - \Duo\AdapterCertification::bundlePretty()    agent/src/Adapter/AdapterCertification.php:523
  *     - \Duo\AdapterCertification::canonicalHash()   …:572 (sha256 of the reference bytes)
  *
  * F2 — canonical compact hashing/wire bytes.
  *   JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE over the same recursive
  *   ksort, no pretty-printing, no trailing newline.
  *   REFERENCE: \Duo\Orchestrator\EnvironmentLifecycleCanon::encode()
- *   (cli/src/EnvironmentLifecycle.php:2207) — chosen because it is the widest
+ *   (cli/src/Environment/EnvironmentLifecycle.php:2207) — chosen because it is the widest
  *   domain (public, `mixed`, no value-class restriction), so it can encode
  *   every vector the narrower members accept.
  *   Members:
- *     - \Duo\Orchestrator\BootstrapEligibilityReport::canonicalJson()  cli/src/BootstrapEligibility.php:480
- *     - \Duo\Orchestrator\DriverCapabilityReport::canonicalJson()      cli/src/EnvironmentDriver.php:249
- *     - \Duo\Orchestrator\ClassificationBatch::queueHash()             cli/src/ClassificationBatch.php:48 (sha256 of the reference bytes)
+ *     - \Duo\Orchestrator\BootstrapEligibilityReport::canonicalJson()  cli/src/Onboarding/BootstrapEligibility.php:480
+ *     - \Duo\Orchestrator\DriverCapabilityReport::canonicalJson()      cli/src/Transport/EnvironmentDriver.php:249
+ *     - \Duo\Orchestrator\ClassificationBatch::queueHash()             cli/src/Onboarding/ClassificationBatch.php:48 (sha256 of the reference bytes)
  *     - \Duo\Recovery\CanonicalJson::encode()                          recovery/CanonicalJson.php:47, on its narrowed domain
- *     - \Duo\AdapterCertification::bundleDigest()                      agent/src/AdapterCertification.php:1041 (sha256 of reference bytes . "\n")
+ *     - \Duo\AdapterCertification::bundleDigest()                      agent/src/Adapter/AdapterCertification.php:1041 (sha256 of reference bytes . "\n")
  *
  * F3 — the `duo-command-refusal/v1` envelope.
- *   Producers: \Duo\Cli::halt_json_failure() (agent/src/Cli.php:28),
- *   \Duo\Orchestrator\CommandOutput::renderRefusalJson() (cli/src/CommandOutput.php:44),
- *   \Duo\Orchestrator\AdapterObservation::refusal() (cli/src/AdapterObservation.php:576).
- *   Parsers: cli/src/StatusCommand.php:42, cli/src/PendingCommand.php:17,
- *   cli/src/Init.php:159 — all three the same `is_array() && format === …` test.
+ *   Producers: \Duo\Cli::halt_json_failure() (agent/src/Command/Cli.php:28),
+ *   \Duo\Orchestrator\CommandOutput::renderRefusalJson() (cli/src/Command/CommandOutput.php:44),
+ *   \Duo\Orchestrator\AdapterObservation::refusal() (cli/src/Adapter/AdapterObservation.php:576).
+ *   Parsers: cli/src/Command/StatusCommand.php:42, cli/src/Command/PendingCommand.php:17,
+ *   cli/src/Onboarding/Init.php:159 — all three the same `is_array() && format === …` test.
  *
  * F4 — the plan-row human label.
- *   REFERENCE: \Duo\PlanView::humanLabel() (agent/src/PlanView.php:444).
- *   Members: \Duo\Orchestrator\PlanView::humanLabel() (cli/src/PlanView.php:676),
- *   \Duo\Orchestrator\PlanSummary::label() (cli/src/PlanSummary.php:590).
+ *   REFERENCE: \Duo\PlanView::humanLabel() (agent/src/Review/PlanView.php:444).
+ *   Members: \Duo\Orchestrator\PlanView::humanLabel() (cli/src/Plan/PlanView.php:676),
+ *   \Duo\Orchestrator\PlanSummary::label() (cli/src/Plan/PlanSummary.php:590).
  *
- * F5 — cli/src/PlanSummary.php's five "keep lockstep with agent/src/Cli.php"
+ * F5 — cli/src/Plan/PlanSummary.php's five "keep lockstep with agent/src/Command/Cli.php"
  *   comments (lines 211, 280, 388, 406, 598). See the section body for the
  *   agent fragment each one names and how it is pinned.
  *
  * F6 — the version-range predicate: \Duo\Deploy::in_range()
- *   (agent/src/Deploy.php:819) vs \Duo\Orchestrator\Doctor::in_range()
- *   (cli/src/Doctor.php:289), an intentional independent copy.
+ *   (agent/src/Promotion/Deploy.php:819) vs \Duo\Orchestrator\Doctor::in_range()
+ *   (cli/src/Onboarding/Doctor.php:289), an intentional independent copy.
  *
  * F7 — the relative-path safety predicate: \Duo\PathSafety::safe_relative()
- *   (agent/src/PathSafety.php:68) vs its one verbatim copy,
- *   \Duo\CodeCompatibility::safe_relative() (agent/src/CodeCompatibility.php:806).
+ *   (agent/src/Kernel/PathSafety.php:68) vs its one verbatim copy,
+ *   \Duo\CodeCompatibility::safe_relative() (agent/src/Code/CodeCompatibility.php:806).
  *
  * DELIBERATELY NOT PINNED AS EQUAL (asserted as DIFFERENT, so a unification
  * has to come here and say so on purpose)
  * -------------------------------------------------------------------------
- *  1. \Duo\PromotionSessionJournal::canonical() (agent/src/PromotionSessionJournal.php:250)
+ *  1. \Duo\PromotionSessionJournal::canonical() (agent/src/Promotion/PromotionSessionJournal.php:250)
  *     is a hand-rolled compact serializer that omits JSON_UNESCAPED_UNICODE
  *     and runs object KEYS through a bare json_encode() (so a key's "/" comes
  *     back "\/"). It is an equality basis for self::same() only — never
  *     persisted, never hashed — so it is pinned as byte-equal to F2 on ASCII,
  *     slash-free-key vectors and pinned as DIFFERENT on the unicode and
  *     slash-key vectors.
- *  2. \Duo\Orchestrator\AdapterCatalog::encode() (cli/src/AdapterCatalog.php:981),
+ *  2. \Duo\Orchestrator\AdapterCatalog::encode() (cli/src/Adapter/AdapterCatalog.php:981),
  *     ::inline() (…:969) and \Duo\Orchestrator\ManifestValidate::encode()
- *     (cli/src/ManifestValidate.php:710) pretty-print or compact WITHOUT any
+ *     (cli/src/Adapter/ManifestValidate.php:710) pretty-print or compact WITHOUT any
  *     key sort: their own docblocks state that declared/engine key order is
  *     load-bearing in the refusal messages that print the same sets. They are
  *     pinned as F1/F2 minus the sort (equal on pre-sorted input, different on
  *     unsorted input) and minus F1's trailing newline.
- *  3. \Duo\Orchestrator\ClassificationBatch::encode() (cli/src/ClassificationBatch.php:56)
+ *  3. \Duo\Orchestrator\ClassificationBatch::encode() (cli/src/Onboarding/ClassificationBatch.php:56)
  *     is F1's flags plus the trailing newline but no normalize() — the batch
  *     document's key order is built by ::build(). Pinned the same way.
  *  4. \Duo\Recovery\CanonicalJson::encode() narrows the domain: floats,
@@ -106,12 +106,12 @@
  *     `stdclass-vs-array` and `empty-array-vs-empty-object` vectors pin that
  *     split (it is the same PHP-type-vs-JSON-shape asymmetry Canon's own
  *     post_hash_basis() docblock documents).
- *  6. agent/src/Cli.php:1038-1043's UNFILTERED plan line renderer collapses
+ *  6. agent/src/Command/Cli.php:1038-1043's UNFILTERED plan line renderer collapses
  *     /\s+/ but does NOT strip C0/DEL — its own comment says the unfiltered
  *     renderer stays byte-compatible with its established behaviour, and the
  *     C0/DEL strip lives in the FILTERED path (PlanView::humanLabel). F4
  *     pins the three humanLabel/label copies against each other and pins the
- *     absence of the C0/DEL literal from agent/src/Cli.php as source text.
+ *     absence of the C0/DEL literal from agent/src/Command/Cli.php as source text.
  *  7. The host-side producers have no sensitivity screen: given a
  *     secret-looking tuple, CommandOutput::renderRefusalJson() and
  *     AdapterObservation::refusal() publish it verbatim while the agent
@@ -121,11 +121,11 @@
  *
  * RECORDED GAP, DELIBERATELY NOT ASSERTED
  * ---------------------------------------
- * cli/src/AdapterObservation.php:588 encodes its envelope WITHOUT
+ * cli/src/Adapter/AdapterObservation.php:588 encodes its envelope WITHOUT
  * JSON_INVALID_UTF8_SUBSTITUTE, which both other producers set. Given a
  * message carrying invalid UTF-8, json_encode() returns false and the site
- * echoes a bare "\n" — no envelope, no fallback — while agent/src/Cli.php and
- * cli/src/CommandOutput.php both substitute and, failing that, emit their
+ * echoes a bare "\n" — no envelope, no fallback — while agent/src/Command/Cli.php and
+ * cli/src/Command/CommandOutput.php both substitute and, failing that, emit their
  * constant fallback document (both of which ARE pinned below). All four
  * self::refusal() call sites in that file pass constant ASCII, so nothing
  * reaches it today; the gap is recorded here rather than asserted, because
@@ -134,11 +134,11 @@
  * NOT MECHANICALLY PINNED (no callable entry; recorded here as the migration
  * target)
  * -------------------------------------------------------------------------
- *  - agent/src/PromotionSessionJournal.php:175 — `json_encode($payload,
+ *  - agent/src/Promotion/PromotionSessionJournal.php:175 — `json_encode($payload,
  *    JSON_UNESCAPED_SLASHES)` is an inline expression inside write(), which
  *    needs a durable journal directory; only ::canonical() below it is
  *    reachable without one.
- *  - agent/src/AdapterCertification.php:527 — bundlePretty()'s sibling
+ *  - agent/src/Adapter/AdapterCertification.php:527 — bundlePretty()'s sibling
  *    four-space pretty asset writer is reached only through a signed bundle
  *    import; bundlePretty() itself IS pinned and is the byte authority.
  *  - The 20 open-coded relative-path checks that \Duo\PathSafety should
@@ -148,20 +148,20 @@
  *
  *      grep -rn "'\.\.'" agent/src cli/src recovery | grep -v PathSafety.php
  *
- *    agent/src/RepositoryMediaCatalog.php:65      agent/src/PublicationJournal.php:2553
- *    agent/src/CodeCompatibility.php:812          agent/src/RefreshExport.php:429
- *    agent/src/AdapterSources.php:1284            agent/src/InitCodeBaseline.php:300
- *    agent/src/AdapterSources.php:2686            agent/src/InitCodeInventory.php:141
- *    agent/src/ScopedCertificationBundle.php:171  agent/src/AdapterCertification.php:439
- *    agent/src/ScopedCertificationBundle.php:717  agent/src/AdapterContractGrammar.php:62
- *    agent/src/ScopedCertificationBundle.php:826  agent/src/CodeDescriptorCompiler.php:115
- *    agent/src/ActionProviderGrammar.php:670      cli/src/RefreshPlan.php:1082
- *    agent/src/PublicationJournal.php:1124        recovery/UploadBundle.php:620
- *    agent/src/PublicationJournal.php:1163        recovery/EffectBundle.php:561
+ *    agent/src/Repository/RepositoryMediaCatalog.php:65      agent/src/Publication/PublicationJournal.php:2553
+ *    agent/src/Code/CodeCompatibility.php:812          agent/src/Review/RefreshExport.php:429
+ *    agent/src/Adapter/AdapterSources.php:1284            agent/src/Init/InitCodeBaseline.php:300
+ *    agent/src/Adapter/AdapterSources.php:2686            agent/src/Init/InitCodeInventory.php:141
+ *    agent/src/Adapter/ScopedCertificationBundle.php:171  agent/src/Adapter/AdapterCertification.php:439
+ *    agent/src/Adapter/ScopedCertificationBundle.php:717  agent/src/Adapter/AdapterContractGrammar.php:62
+ *    agent/src/Adapter/ScopedCertificationBundle.php:826  agent/src/Code/CodeDescriptorCompiler.php:115
+ *    agent/src/Adapter/ActionProviderGrammar.php:670      cli/src/Refresh/RefreshPlan.php:1082
+ *    agent/src/Publication/PublicationJournal.php:1124        recovery/UploadBundle.php:620
+ *    agent/src/Publication/PublicationJournal.php:1163        recovery/EffectBundle.php:561
  *
  *    Two of them are known-narrower on purpose and must NOT be migrated
- *    blindly: cli/src/RefreshPlan.php:1082 accepts "\\" and C0 bytes that
- *    PathSafety::safe_relative() refuses, and agent/src/AdapterSources.php:2686
+ *    blindly: cli/src/Refresh/RefreshPlan.php:1082 accepts "\\" and C0 bytes that
+ *    PathSafety::safe_relative() refuses, and agent/src/Adapter/AdapterSources.php:2686
  *    additionally bounds depth and requires a ".php" tail.
  *
  * REGENERATING THE GOLDENS
@@ -180,7 +180,7 @@
  * local interpreter) and would print a "Deprecated:" line that
  * sandbox/tests/offline_diagnostics_guard.sh refuses. Nothing here writes to
  * the filesystem, opens a socket, or needs WordPress; the minimal WP_CLI stub
- * below is declared BEFORE agent/src/Cli.php is required because that file's
+ * below is declared BEFORE agent/src/Command/Cli.php is required because that file's
  * last statement is WP_CLI::add_command('duo', Cli::class).
  */
 declare(strict_types=1);
@@ -188,7 +188,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/check.php';
 
 /**
- * The whole WP-CLI surface agent/src/Cli.php touches at require time and
+ * The whole WP-CLI surface agent/src/Command/Cli.php touches at require time and
  * inside halt_json_failure(): line() collects, halt() unwinds without
  * exiting, add_command() absorbs the file's last statement. __callStatic()
  * swallows the rest so a future renderer call cannot fatal this suite.
@@ -232,30 +232,30 @@ final class DuoParityHalt extends RuntimeException {
 
 $duoRoot = dirname(__DIR__, 2);
 
-require_once $duoRoot . '/agent/src/Canon.php';
-require_once $duoRoot . '/agent/src/OrderPreserved.php';
-require_once $duoRoot . '/agent/src/Cli.php';
-require_once $duoRoot . '/agent/src/PlanView.php';
-require_once $duoRoot . '/agent/src/PathSafety.php';
-require_once $duoRoot . '/agent/src/CodeCompatibility.php';
-require_once $duoRoot . '/agent/src/Deploy.php';
-require_once $duoRoot . '/agent/src/ScopedApplySession.php';
-require_once $duoRoot . '/agent/src/PromotionSessionJournal.php';
-require_once $duoRoot . '/agent/src/AdapterCertification.php';
+require_once $duoRoot . '/agent/src/Kernel/Canon.php';
+require_once $duoRoot . '/agent/src/Kernel/OrderPreserved.php';
+require_once $duoRoot . '/agent/src/Command/Cli.php';
+require_once $duoRoot . '/agent/src/Review/PlanView.php';
+require_once $duoRoot . '/agent/src/Kernel/PathSafety.php';
+require_once $duoRoot . '/agent/src/Code/CodeCompatibility.php';
+require_once $duoRoot . '/agent/src/Promotion/Deploy.php';
+require_once $duoRoot . '/agent/src/Scope/ScopedApplySession.php';
+require_once $duoRoot . '/agent/src/Promotion/PromotionSessionJournal.php';
+require_once $duoRoot . '/agent/src/Adapter/AdapterCertification.php';
 require_once $duoRoot . '/recovery/CanonicalJson.php';
-require_once $duoRoot . '/cli/src/EnvironmentLifecycle.php';
-require_once $duoRoot . '/cli/src/BootstrapEligibility.php';
-require_once $duoRoot . '/cli/src/EnvironmentDriver.php';
-require_once $duoRoot . '/cli/src/ClassificationBatch.php';
-require_once $duoRoot . '/cli/src/AdapterCatalog.php';
-require_once $duoRoot . '/cli/src/ManifestValidate.php';
-require_once $duoRoot . '/cli/src/CommandOutput.php';
-require_once $duoRoot . '/cli/src/AdapterObservation.php';
-require_once $duoRoot . '/cli/src/PlanSummary.php';
-require_once $duoRoot . '/cli/src/PlanView.php';
-require_once $duoRoot . '/cli/src/Doctor.php';
-require_once $duoRoot . '/cli/src/StatusCommand.php';
-require_once $duoRoot . '/cli/src/PendingCommand.php';
+require_once $duoRoot . '/cli/src/Environment/EnvironmentLifecycle.php';
+require_once $duoRoot . '/cli/src/Onboarding/BootstrapEligibility.php';
+require_once $duoRoot . '/cli/src/Transport/EnvironmentDriver.php';
+require_once $duoRoot . '/cli/src/Onboarding/ClassificationBatch.php';
+require_once $duoRoot . '/cli/src/Adapter/AdapterCatalog.php';
+require_once $duoRoot . '/cli/src/Adapter/ManifestValidate.php';
+require_once $duoRoot . '/cli/src/Command/CommandOutput.php';
+require_once $duoRoot . '/cli/src/Adapter/AdapterObservation.php';
+require_once $duoRoot . '/cli/src/Plan/PlanSummary.php';
+require_once $duoRoot . '/cli/src/Plan/PlanView.php';
+require_once $duoRoot . '/cli/src/Onboarding/Doctor.php';
+require_once $duoRoot . '/cli/src/Command/StatusCommand.php';
+require_once $duoRoot . '/cli/src/Command/PendingCommand.php';
 
 use Duo\AdapterCertification;
 use Duo\Canon;
@@ -377,7 +377,7 @@ function parity_literals(string $file): array {
  * The source text of the first `WP_CLI::line(…)` argument in $file that
  * contains $needle, with the outer parentheses stripped.
  *
- * agent/src/Cli.php's plan() renderer is not callable offline — it needs a
+ * agent/src/Command/Cli.php's plan() renderer is not callable offline — it needs a
  * repository, a Policy, a $wpdb and an Apply run before it reaches a single
  * line. Its LINE-BUILDING EXPRESSIONS are pure string concatenation over one
  * $r row, though, so lifting the expression out of the shipped file and
@@ -1010,7 +1010,7 @@ foreach ($refusalVectors['tuples'] as $tuple) {
     duo_check_same(
         json_decode((string) $tuple['agent'], true),
         $statusSeen,
-        "F3 cli/src/StatusCommand.php routes the agent envelope to the refusal renderer, not the stderr fallback [$name]"
+        "F3 cli/src/Command/StatusCommand.php routes the agent envelope to the refusal renderer, not the stderr fallback [$name]"
     );
 
     $pendingSeen = null;
@@ -1023,15 +1023,15 @@ foreach ($refusalVectors['tuples'] as $tuple) {
     duo_check_same(
         json_decode((string) $tuple['agent'], true),
         $pendingSeen,
-        "F3 cli/src/PendingCommand.php routes the agent envelope to the refusal renderer [$name]"
+        "F3 cli/src/Command/PendingCommand.php routes the agent envelope to the refusal renderer [$name]"
     );
 }
 
-// The third parser, cli/src/Init.php, applies the identical predicate but
+// The third parser, cli/src/Onboarding/Init.php, applies the identical predicate but
 // only inside a transport phase that needs a repository on disk. Pin its
 // predicate as source text: all three parsers must keep testing the same
 // literal, and none of them may drift to a different format string.
-foreach (['StatusCommand', 'PendingCommand', 'Init'] as $parser) {
+foreach (['Command/StatusCommand', 'Command/PendingCommand', 'Onboarding/Init'] as $parser) {
     duo_check(
         in_array('duo-command-refusal/v1', parity_literals($duoRoot . '/cli/src/' . $parser . '.php'), true),
         "F3 cli/src/$parser.php still tests for the literal duo-command-refusal/v1 (source-text pin)"
@@ -1059,18 +1059,18 @@ foreach ($planVectors['label_vectors'] as $index => $row) {
     );
 }
 
-// Divergence 6: the UNFILTERED renderer in agent/src/Cli.php collapses
+// Divergence 6: the UNFILTERED renderer in agent/src/Command/Cli.php collapses
 // whitespace but does not strip C0/DEL, by its own comment. Pinned as the
 // absence of the strip literal there and its presence in all three
 // oneLine() copies.
 duo_check(
-    !in_array('/[\x00-\x1F\x7F]/', parity_literals($duoRoot . '/agent/src/Cli.php'), true),
-    'F4 agent/src/Cli.php has no C0/DEL strip — its unfiltered plan renderer is deliberately unchanged (source-text pin)'
+    !in_array('/[\x00-\x1F\x7F]/', parity_literals($duoRoot . '/agent/src/Command/Cli.php'), true),
+    'F4 agent/src/Command/Cli.php has no C0/DEL strip — its unfiltered plan renderer is deliberately unchanged (source-text pin)'
 );
 foreach ([
-    'agent/src/PlanView.php',
-    'cli/src/PlanView.php',
-    'cli/src/PlanSummary.php',
+    'agent/src/Review/PlanView.php',
+    'cli/src/Plan/PlanView.php',
+    'cli/src/Plan/PlanSummary.php',
 ] as $oneLineOwner) {
     duo_check(
         in_array('/[\x00-\x1F\x7F]/', parity_literals($duoRoot . '/' . $oneLineOwner), true),
@@ -1079,7 +1079,7 @@ foreach ([
 }
 
 // ---------------------------------------------------------------------------
-// F5 — the five cli/src/PlanSummary.php lockstep comments
+// F5 — the five cli/src/Plan/PlanSummary.php lockstep comments
 // ---------------------------------------------------------------------------
 
 $plan = [];
@@ -1094,25 +1094,25 @@ duo_check_same($planVectors['expected_lines'], $rendered['lines'], 'F5 PlanSumma
 duo_check_same($planVectors['expected_ok'], $rendered['ok'], 'F5 the plan fixture keeps readiness blocked');
 $renderedText = implode("\n", $rendered['lines']);
 
-$agentCli = $duoRoot . '/agent/src/Cli.php';
-$planSummary = $duoRoot . '/cli/src/PlanSummary.php';
+$agentCli = $duoRoot . '/agent/src/Command/Cli.php';
+$planSummary = $duoRoot . '/cli/src/Plan/PlanSummary.php';
 $agentLiterals = parity_literals($agentCli);
 
-// Comment 1 (cli/src/PlanSummary.php:211) — "Verbatim match of
-// agent/src/Cli.php's plan() warning for the identical condition".
-// Agent fragment: agent/src/Cli.php:1228, WP_CLI::warning(...) under $plan['drift'].
+// Comment 1 (cli/src/Plan/PlanSummary.php:211) — "Verbatim match of
+// agent/src/Command/Cli.php's plan() warning for the identical condition".
+// Agent fragment: agent/src/Command/Cli.php:1228, WP_CLI::warning(...) under $plan['drift'].
 $driftWarning = 'environment drift detected — capture-first workflow recommended';
-duo_check(in_array($driftWarning, $agentLiterals, true), 'F5.1 the agent drift warning literal is still in agent/src/Cli.php');
-duo_check(in_array($driftWarning, $rendered['lines'], true), 'F5.1 cli/src/PlanSummary.php emits that exact drift warning line');
+duo_check(in_array($driftWarning, $agentLiterals, true), 'F5.1 the agent drift warning literal is still in agent/src/Command/Cli.php');
+duo_check(in_array($driftWarning, $rendered['lines'], true), 'F5.1 cli/src/Plan/PlanSummary.php emits that exact drift warning line');
 
-// Comment 2 (cli/src/PlanSummary.php:280) — "Verbatim match of
-// agent/src/Cli.php's plan() warning". Agent fragment: agent/src/Cli.php:1234.
+// Comment 2 (cli/src/Plan/PlanSummary.php:280) — "Verbatim match of
+// agent/src/Command/Cli.php's plan() warning". Agent fragment: agent/src/Command/Cli.php:1234.
 $codeMismatchWarning = 'code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)';
-duo_check(in_array($codeMismatchWarning, $agentLiterals, true), 'F5.2 the agent code_mismatch warning literal is still in agent/src/Cli.php');
-duo_check(in_array($codeMismatchWarning, $rendered['lines'], true), 'F5.2 cli/src/PlanSummary.php emits that exact code_mismatch warning line');
+duo_check(in_array($codeMismatchWarning, $agentLiterals, true), 'F5.2 the agent code_mismatch warning literal is still in agent/src/Command/Cli.php');
+duo_check(in_array($codeMismatchWarning, $rendered['lines'], true), 'F5.2 cli/src/Plan/PlanSummary.php emits that exact code_mismatch warning line');
 
-// Comment 3 (cli/src/PlanSummary.php:388, DUO-3314) — the adapter-disposition
-// row. Agent fragment: the WP_CLI::line() call at agent/src/Cli.php:1134-1140.
+// Comment 3 (cli/src/Plan/PlanSummary.php:388, DUO-3314) — the adapter-disposition
+// row. Agent fragment: the WP_CLI::line() call at agent/src/Command/Cli.php:1134-1140.
 // The two rows differ only in their leading label — the agent puts the status
 // in a 'CAPABILITY_<STATUS>' prefix, the host renders '  - <name> [<status>]'
 // — so the lockstep claim is precisely that everything from ' [source=' on is
@@ -1152,8 +1152,8 @@ duo_check(
     'F5.3 the adapter-disposition remediation gets its own line (host indents four spaces, the agent two — both are nested one level deeper than their row)'
 );
 
-// Comment 4 (cli/src/PlanSummary.php:406, DUO-3339) — the provider-problem
-// row. Agent fragment: the WP_CLI::line() call at agent/src/Cli.php:1153-1158.
+// Comment 4 (cli/src/Plan/PlanSummary.php:406, DUO-3339) — the provider-problem
+// row. Agent fragment: the WP_CLI::line() call at agent/src/Command/Cli.php:1153-1158.
 $providerRow = (array) $planVectors['plan']['provider_problems'][0];
 $agentProviderExpression = parity_wp_cli_line_expression($agentCli, ' [manifest=');
 $agentProviderLine = parity_eval_row_expression($agentProviderExpression, $providerRow);
@@ -1185,9 +1185,9 @@ duo_check_same(
     'F5.4 the host provider-problem row is byte-stable'
 );
 
-// Comment 5 (cli/src/PlanSummary.php:598) — the plan LINE renderer. Its
+// Comment 5 (cli/src/Plan/PlanSummary.php:598) — the plan LINE renderer. Its
 // byte-compatible agent partner is PlanView::humanLabel() (the filtered path
-// agent/src/Cli.php:1037 delegates to), which F4 above pins directly; here we
+// agent/src/Command/Cli.php:1037 delegates to), which F4 above pins directly; here we
 // only pin that PlanSummary's own rows go through that same label.
 foreach ((array) $planVectors['plan']['drift'] as $driftRow) {
     duo_check(
@@ -1285,7 +1285,7 @@ duo_check_same(
 // migrating them without widening the callers would be a behaviour change.
 duo_check(
     !PathSafety::safe_relative('a\\b') && !PathSafety::safe_relative("a\x01b"),
-    'F7 PathSafety::safe_relative refuses a backslash and a control byte, which cli/src/RefreshPlan.php:1082 accepts'
+    'F7 PathSafety::safe_relative refuses a backslash and a control byte, which cli/src/Refresh/RefreshPlan.php:1082 accepts'
 );
 
 duo_check_summary('canonical json parity');

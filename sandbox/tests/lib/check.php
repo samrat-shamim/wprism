@@ -37,7 +37,7 @@
  *
  * NO DEPENDENCIES: this file must run under a plain `php sandbox/tests/X.php`
  * with no composer autoloader and no WordPress. The only lazy require is
- * agent/src/CommandRefusal.php, and only inside duo_check_refuses().
+ * agent/src/Kernel/CommandRefusal.php, and only inside duo_check_refuses().
  */
 declare(strict_types=1);
 
@@ -341,19 +341,19 @@ if (!function_exists('duo_check_refuses')) {
      * Assert $fn throws \Duo\CommandRefusalException with exactly $reasonCode.
      *
      * The reason code -- not the message -- is the machine-readable public
-     * contract (see agent/src/CommandRefusal.php). Asserting on the message
+     * contract (see agent/src/Kernel/CommandRefusal.php). Asserting on the message
      * would pin operator-only text that the class is explicitly allowed to
      * redact, so this helper reports the message only as failure evidence.
      *
      * CommandRefusal.php is required lazily and only when the class is not
      * already declared: a suite that never asserts a refusal must not pull
-     * agent/src/Secrets.php (CommandRefusal's own dependency) into its
+     * agent/src/Kernel/Secrets.php (CommandRefusal's own dependency) into its
      * process, because several suites assert exactly which agent classes a
      * boundary loads.
      */
     function duo_check_refuses(callable $fn, string $reasonCode, string $message): void {
         if (!class_exists('\\Duo\\CommandRefusalException', false)) {
-            require_once __DIR__ . '/../../../agent/src/CommandRefusal.php';
+            require_once __DIR__ . '/../../../agent/src/Kernel/CommandRefusal.php';
         }
         try {
             $fn();

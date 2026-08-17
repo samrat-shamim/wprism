@@ -55,9 +55,9 @@ putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 // Policy.php itself. Deliberately NOT requiring CapabilityRegistry.php here
 // — the whole point of one check below is proving Policy.php's own require
 // chain (through the new AdapterRegistry.php) supplies it without help.
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 use Duo\AdapterRegistry;
 use Duo\Policy;
@@ -151,7 +151,7 @@ $check(
     "calling AdapterRegistry::capability_report() directly matches Policy's own facade result exactly"
 );
 
-$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
 $check(
     !str_contains($policySource, '$this->capabilityRegistry->blockers('),
     'Policy.php no longer inlines certification_readiness_blockers()\'s body (moved to AdapterRegistry.php)'

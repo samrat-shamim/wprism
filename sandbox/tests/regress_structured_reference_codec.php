@@ -14,7 +14,7 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/StructuredReferenceCodec.php';
+require __DIR__ . '/../../agent/src/Kernel/StructuredReferenceCodec.php';
 
 use Duo\StructuredReferenceCodec;
 
@@ -138,8 +138,8 @@ final class StructuredCodecFakeWpdb {
     }
 }
 
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
 
 $GLOBALS['wpdb'] = new StructuredCodecFakeWpdb();
 $tokens = new Duo\Tokens();
@@ -164,7 +164,7 @@ check(
     'Tokens facade detokenizes leaves before structural restoration as before'
 );
 
-$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Tokens.php');
+$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Grammar/Tokens.php');
 check(str_contains($tokenSource, 'StructuredReferenceCodec::capture('), 'Tokens delegates capture structural rewriting to the codec');
 check(str_contains($tokenSource, 'StructuredReferenceCodec::apply('), 'Tokens delegates apply structural rewriting to the codec');
 check(!str_contains($tokenSource, 'private function rewrite_keys'), 'Tokens no longer owns duplicate key-reference rewrite implementation');

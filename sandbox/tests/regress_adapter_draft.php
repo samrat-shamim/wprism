@@ -35,9 +35,9 @@ define('SPEC', (int) $m[1]);
 // exact refusal a draft-turned-site-adapter must pass, so test 8 calls it. (Every
 // other check runs the real CLI as a subprocess.) Requiring Policy pulls
 // NativeActions/AdapterSources/ReferenceRules; none reaches WordPress at load.
-require $repo . '/agent/src/Canon.php';
-require $repo . '/agent/src/OptionState.php';
-require $repo . '/agent/src/Policy.php';
+require $repo . '/agent/src/Kernel/Canon.php';
+require $repo . '/agent/src/Kernel/OptionState.php';
+require $repo . '/agent/src/Policy/Policy.php';
 
 $root = sys_get_temp_dir() . '/duo_regress_adapter_draft_' . bin2hex(random_bytes(4));
 mkdir($root, 0777, true);
@@ -362,7 +362,7 @@ echo "\n== 5. deletion candidates: required-cascade set matches Deletion::capabi
     check(($del['deletions.post:page']['status'] ?? '') === 'proposal' && H::json_has($del['deletions.post:page']['questions'], 'never inferred'), 'a deletion candidate is an inert proposal with a "never inferred" authority question');
     // Drift guard: the static set must still be what Deletion.php declares.
     global $repo;
-    $delSrc = (string) file_get_contents($repo . '/agent/src/Deletion.php');
+    $delSrc = (string) file_get_contents($repo . '/agent/src/Delete/Deletion.php');
     check(str_contains($delSrc, "'post' => ['postmeta', 'post_revisions', 'term_relationships']"), 'Deletion.php still declares the post arm this proposer mirrors (drift guard)');
     check(str_contains($delSrc, "'term' => ['termmeta', 'term_taxonomy', 'term_relationships']"), 'Deletion.php still declares the term arm this proposer mirrors (drift guard)');
     check(str_contains($delSrc, "'menu' => ['termmeta', 'term_taxonomy', 'term_relationships', 'menu_items']"), 'Deletion.php still declares the menu arm this proposer mirrors (drift guard)');

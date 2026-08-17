@@ -2,12 +2,12 @@
 # Regression — DUO-3212: two reference-hygiene defects in the block-attrs
 # path, fixed together (a stale capture and a silent gap would otherwise
 # re-hide each other):
-#   (1) agent/src/Lint.php's scan_blocks() exempted ANY registered
+#   (1) agent/src/Review/Lint.php's scan_blocks() exempted ANY registered
 #       block_attrs path from the suspicious-ref check unconditionally,
 #       regardless of whether the value actually got rewritten to a token
 #       — so a declared ref whose rewrite silently failed was invisible to
 #       `wp duo lint`. New finding class 'unrewritten_registered_ref'.
-#   (2) agent/src/Blocks.php's walk() kept the raw env-local id
+#   (2) agent/src/Grammar/Blocks.php's walk() kept the raw env-local id
 #       (`id_to_token(...) ?? (int) $v`) when a block ref failed to map,
 #       instead of dropping it the way options/post_meta refs already do
 #       (spec/repo-format.md "Dangling references") — the exact gap (1)'s

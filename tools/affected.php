@@ -67,10 +67,10 @@ declare(strict_types=1);
  *       without needing a case for each call shape.
  *   (c) a known agent/src|cli/src|recovery class token (`Duo\X`, bare `X::`,
  *       `new X(`) maps to X's declaring file(s) -- this is NOT redundant
- *       with (a)/(b): a suite that requires only agent/src/Code.php and
+ *       with (a)/(b): a suite that requires only agent/src/Code/Code.php and
  *       calls `PathSafety::assert_no_symlinked_target_path(...)` through
  *       Code's own internal require chain never spells
- *       "agent/src/PathSafety.php" itself, so only the class token proves
+ *       "agent/src/Kernel/PathSafety.php" itself, so only the class token proves
  *       the dependency.
  *   (d) a rooted DIRECTORY literal (`$repo . '/manifests'`,
  *       `'manifests/providers'`) recorded as a whole-directory dependency,
@@ -136,6 +136,31 @@ declare(strict_types=1);
 const AF_ROOT_DIRS = ['agent', 'cli', 'recovery', 'manifests', 'scripts', 'sandbox', 'docs', 'spec'];
 const AF_ROOT_EXTS = ['php', 'json', 'sh', 'md', 'yml', 'Dockerfile'];
 const AF_SRC_DIRS = ['agent/src', 'cli/src', 'recovery'];
+
+/**
+ * Recursive since the module move (ROUND 3 TRAIN 1): agent/src and cli/src are
+ * module directories now, so the previous `glob($dir . '/*.php')` would have
+ * returned zero files and silently emptied both the class map and the source
+ * graph. Returns repo-relative paths, which is what both callers key on.
+ *
+ * @return list<string>
+ */
+function af_tree_php_files(string $root, string $dir): array
+{
+    $base = $root . '/' . $dir;
+    if (!is_dir($base)) {
+        return [];
+    }
+    $out = [];
+    $walk = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base, FilesystemIterator::SKIP_DOTS));
+    foreach ($walk as $entry) {
+        if ($entry instanceof SplFileInfo && $entry->isFile() && $entry->getExtension() === 'php') {
+            $out[] = $dir . '/' . str_replace('\\', '/', substr($entry->getPathname(), strlen($base) + 1));
+        }
+    }
+    sort($out, SORT_STRING);
+    return $out;
+}
 const AF_CACHE_RELATIVE = 'sandbox/tmp/affected-index.json';
 const AF_REASON_PRIORITY = ['self' => 0, 'require' => 1, 'class' => 2, 'path' => 3];
 
@@ -199,7 +224,7 @@ function af_lines(string $blob): array
  * The collapse is the load-bearing half. Every selection decision in this
  * tool is an exact string comparison between an indexed reference and a path
  * git printed, and git only ever prints the collapsed spelling. A resolver
- * that stored `sandbox/tests/../../agent/src/Ledger.php` produced a key that
+ * that stored `sandbox/tests/../../agent/src/Repository/Ledger.php` produced a key that
  * is_file() happily accepts (the OS resolves it) yet no changed file can
  * ever equal -- a silently dead index entry, which is the exact false
  * negative this selector exists to prevent. Lexical rather than realpath()
@@ -617,7 +642,7 @@ const AF_DIR_SIGNAL_EXCLUDED = [
  *      slash (`$repo . '/manifests'`), so the English word "docs" or "spec"
  *      in a comment cannot register the whole tree;
  *   2. it must actually be a directory on disk (which is also what rejects
- *      `agent/src/Canon.php`: the greedy match consumes the filename, is_dir
+ *      `agent/src/Kernel/Canon.php`: the greedy match consumes the filename, is_dir
  *      fails, and no dependency on the containing directory is invented);
  *   3. it must not be an already-precisely-covered tree (see above).
  *
@@ -665,7 +690,13 @@ function af_extract_dirs(string $root, string $text): array
 function af_dir_signal_excluded(string $dir): bool
 {
     foreach (AF_DIR_SIGNAL_EXCLUDED as $precise) {
-        if ($dir === $precise || str_starts_with($precise . '/', $dir . '/')) {
+        // The third arm is new with the module move (ROUND 3 TRAIN 1):
+        // agent/src and cli/src have module subdirectories now, and
+        // `agent/src/Kernel` must be excluded for the same reason its parent
+        // is — its contents are already resolved file-by-file.
+        if ($dir === $precise
+            || str_starts_with($precise . '/', $dir . '/')
+            || str_starts_with($dir . '/', $precise . '/')) {
             return true;
         }
     }
@@ -744,8 +775,8 @@ function af_class_map(string $root): array
 {
     $map = [];
     foreach (AF_SRC_DIRS as $dir) {
-        foreach (glob($root . '/' . $dir . '/*.php') ?: [] as $file) {
-            $relative = $dir . '/' . basename($file);
+        foreach (af_tree_php_files($root, $dir) as $relative) {
+            $file = $root . '/' . $relative;
             $text = (string) file_get_contents($file);
             if (preg_match_all(
                 '/^\s*(?:abstract\s+|final\s+)?(?:class|interface|trait|enum)\s+([A-Za-z0-9_]+)/m',
@@ -805,7 +836,7 @@ function af_extract_class_files(string $text, array $classMap): array
 
 /**
  * One-time require graph over agent/src + cli/src + recovery, so a target
- * that only requires agent/src/Code.php also picks up everything Code.php
+ * that only requires agent/src/Code/Code.php also picks up everything Code.php
  * requires internally (PathSafety.php, CodeMaterializer.php, ...).
  *
  * @return array<string,list<string>>
@@ -814,8 +845,8 @@ function af_source_graph(string $root): array
 {
     $graph = [];
     foreach (AF_SRC_DIRS as $dir) {
-        foreach (glob($root . '/' . $dir . '/*.php') ?: [] as $file) {
-            $relative = $dir . '/' . basename($file);
+        foreach (af_tree_php_files($root, $dir) as $relative) {
+            $file = $root . '/' . $relative;
             $text = (string) file_get_contents($file);
             $edges = [];
             foreach (af_extract_paths($root, $text) as $ref) {
@@ -826,7 +857,7 @@ function af_source_graph(string $root): array
             }
             // Not redundant with the require extractor above: a source file
             // can name a sibling it never requires, because it runs it as a
-            // FRESH PROCESS instead -- cli/src/RefreshPlan.php holds
+            // FRESH PROCESS instead -- cli/src/Refresh/RefreshPlan.php holds
             // `$worker = __DIR__ . '/RefreshPlanCompile.php';` and that
             // worker is the entire compile body of `duo refresh --plan`.
             // Without this edge the worker file had no inbound reference at

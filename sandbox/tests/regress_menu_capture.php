@@ -118,7 +118,7 @@ function menu_item(int $id, string $status, int $position, string $uuid, string 
 }
 
 $root = dirname(__DIR__, 2);
-require_once "$root/agent/src/MenuCapture.php";
+require_once "$root/agent/src/Capture/MenuCapture.php";
 
 use Duo\MenuCapture;
 
@@ -403,10 +403,10 @@ $check(
     'an empty menu roster returns before stylesheet, item, identity, or metadata work'
 );
 
-$menuSource = file_get_contents("$root/agent/src/MenuCapture.php");
-$captureSource = file_get_contents("$root/agent/src/Capture.php");
-$workflowSource = file_get_contents("$root/agent/src/CapturePublicationWorkflow.php");
-$candidateSource = file_get_contents("$root/agent/src/CaptureCandidateBuilder.php");
+$menuSource = file_get_contents("$root/agent/src/Capture/MenuCapture.php");
+$captureSource = file_get_contents("$root/agent/src/Capture/Capture.php");
+$workflowSource = file_get_contents("$root/agent/src/Capture/CapturePublicationWorkflow.php");
+$candidateSource = file_get_contents("$root/agent/src/Capture/CaptureCandidateBuilder.php");
 $check(
     !str_contains($menuSource, 'Ledger::')
         && !str_contains($menuSource, 'Db::')

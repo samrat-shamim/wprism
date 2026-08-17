@@ -12,6 +12,14 @@ declare(strict_types=1);
 
 $root = $argv[1] ?? dirname(__DIR__, 2);
 define('DUO_SPEC_VERSION', 2);
+$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
+if (!is_array($duoAgentClassmap)) {
+    throw new \RuntimeException('regress_scope_contract: agent/duo-classmap.php did not return a map');
+}
+$duoAgentFiles = [];
+foreach ($duoAgentClassmap as $duoAgentPath) {
+    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+}
 foreach ([
     'Uuid', 'OrderPreserved', 'Canon', 'OptionState', 'UserMetaState', 'Db', 'Secrets',
     'PersonalData', 'ManifestDispositions', 'AdapterSources', 'CapabilityRegistry',
@@ -21,9 +29,13 @@ foreach ([
     'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'CanonicalSurfaces', 'ScopeContract',
     'ScopedStateOverlay', 'ScopedApplySession', 'ScopedApply', 'Capture',
 ] as $file) {
-    require_once "$root/agent/src/$file.php";
+    $duoAgentFile = $duoAgentFiles[$file] ?? null;
+    if (!is_string($duoAgentFile)) {
+        throw new \RuntimeException('regress_scope_contract: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    }
+    require_once $root . '/agent/' . $duoAgentFile;
 }
-require_once "$root/cli/src/RefreshPlan.php";
+require_once "$root/cli/src/Refresh/RefreshPlan.php";
 
 function get_option($name): never { throw new RuntimeException("TARGET CONTACT: get_option($name)"); }
 function wp_upload_dir(...$args): never { throw new RuntimeException('TARGET CONTACT: wp_upload_dir'); }
@@ -665,7 +677,7 @@ expect_throw(
     'names no compiled tombstone', 'missing exact tombstone selector is refused'
 );
 
-$cliSource = file_get_contents($root . '/agent/src/Cli.php');
+$cliSource = file_get_contents($root . '/agent/src/Command/Cli.php');
 $captureSlice = is_string($cliSource)
     ? strstr(strstr($cliSource, 'public function capture') ?: '', 'public function refresh_export', true)
     : false;
@@ -804,8 +816,8 @@ try {
     ScopedStateOverlay::discard_state_view($badOptionOverlayState);
 }
 
-$captureSource = Canon::read_file("$root/agent/src/CapturePublicationWorkflow.php");
-$scopeProjectorSource = Canon::read_file("$root/agent/src/ScopedCaptureProjector.php");
+$captureSource = Canon::read_file("$root/agent/src/Capture/CapturePublicationWorkflow.php");
+$scopeProjectorSource = Canon::read_file("$root/agent/src/Scope/ScopedCaptureProjector.php");
 $finalAssociation = strpos($captureSource, 'ScopeContract::assert_associated($scopeContract, $currentSource, $currentPolicy);');
 $candidateCompile = strpos($captureSource, '$compiledCandidate = RepositoryCompiler::compile_staged(');
 $firstMediaWrite = strpos($captureSource, "foreach (\$candidate['media'] as \$file => \$source)");
@@ -821,7 +833,7 @@ check(is_int($candidateCompile) && is_int($firstMediaWrite) && is_int($sourceMed
 check(str_contains($captureSource, 'if ($scopeContract === null && $intoRepo)')
     && str_contains($captureSource, 'scoped capture publishes a bounded overlay into its associated repository; --out is unsupported'),
     'legacy output-only capture skips repo-media compilation while scoped --out refuses explicitly');
-$refreshExportSource = Canon::read_file("$root/agent/src/RefreshExport.php");
+$refreshExportSource = Canon::read_file("$root/agent/src/Review/RefreshExport.php");
 check(str_contains($scopeProjectorSource, "array_is_list(\$request['selectors'])")
     && str_contains($refreshExportSource, "array_is_list(\$request['selectors'])"),
     'compact capture and refresh requests require selector lists rather than accepting associative objects');

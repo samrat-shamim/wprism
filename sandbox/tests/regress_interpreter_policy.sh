@@ -12,8 +12,8 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check"
 php -l regress_interpreter_policy.php >/dev/null || fail "regress_interpreter_policy.php has a syntax error"
-php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
-php -l ../../agent/src/Capture.php >/dev/null || fail "agent/src/Capture.php has a syntax error"
+php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
+php -l ../../agent/src/Capture/Capture.php >/dev/null || fail "agent/src/Capture/Capture.php has a syntax error"
 pass "no syntax errors"
 
 say "running offline interpreter-policy harness"

@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/WidgetTypeResolver.php";
+$resolverPath = "$root/agent/src/Grammar/WidgetTypeResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -67,9 +67,9 @@ $check(
     'resolver preserves lexical registry order, last-pin rules/provenance, historical array casting, and absent details'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
@@ -87,13 +87,13 @@ $check(
     'Policy constructs a fresh resolver per call so mutable fixture manifests remain observable'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $oldTypesLoop = '        foreach ($this->manifests as $manifest) {' . "\n"
     . "            foreach ((array) (\$manifest['widgets'] ?? []) as \$type => \$rule) {";
 $oldDetailsLoop = '        foreach ($this->manifests as $manifest) {' . "\n"
     . "            if (isset(\$manifest['widgets'][\$type]) && is_array(\$manifest['widgets'][\$type])) {";
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/WidgetTypeResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/WidgetTypeResolver.php';") === 1
         && str_contains($policySource, 'return $this->widget_type_resolver()->types();')
         && str_contains($policySource, 'return $this->widget_type_resolver()->details($type);')
         && str_contains($policySource, 'new WidgetTypeResolver($this->manifests)')

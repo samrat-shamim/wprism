@@ -33,10 +33,10 @@ final class FakeWpdbCompleted {
     }
 }
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/Code.php";
-require_once "$root/agent/src/RepositoryCompiler.php";
-require_once "$root/agent/src/Ledger.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Code/Code.php";
+require_once "$root/agent/src/Repository/RepositoryCompiler.php";
+require_once "$root/agent/src/Repository/Ledger.php";
 
 use Duo\Canon;
 use Duo\Code;

@@ -95,7 +95,7 @@ assert_phase_order() {
 }
 canonicalize_json() {
   local path="$1" tmp="${1}.canon.${BASHPID}"
-  DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+  DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $path = $argv[1];
 $raw = file_get_contents($path);
@@ -491,7 +491,7 @@ jq '
 ' "$STATE" > "$STATE.next"
 mv "$STATE.next" "$STATE"
 OPTION_RECORD="$(jq -c '.records.duo_code_half_probe_settings' "$STATE")"
-OPTION_EXPECTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+OPTION_EXPECTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $record = json_decode($argv[1], true, 512, JSON_THROW_ON_ERROR);
 echo hash("sha256", Duo\Canon::encode($record));

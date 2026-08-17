@@ -18,7 +18,7 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Publish.php';
+require_once __DIR__ . '/../../agent/src/Publication/Publish.php';
 
 use Duo\BoundHelper;
 use Duo\InitialStateBoundaryException;

@@ -2,7 +2,7 @@
 # Regression — DUO-3235: identity.mode=composite_ref, the typed-snapshot
 # grammar's new representation for a PURE JOIN table with no surrogate
 # primary key (task #125; proving fixture PMPro's pmpro_memberships_pages —
-# see manifests/paid-memberships-pro.json and agent/src/Snapshot.php's own
+# see manifests/paid-memberships-pro.json and agent/src/Repository/Snapshot.php's own
 # docblock, "Identity: three modes").
 #
 # Pure PHP, no docker, no WordPress bootstrap: regress_composite_ref.php

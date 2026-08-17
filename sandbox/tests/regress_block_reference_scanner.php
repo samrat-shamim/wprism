@@ -15,9 +15,9 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/Pending.php';
-require __DIR__ . '/../../agent/src/LintFinding.php';
-require __DIR__ . '/../../agent/src/BlockReferenceScanner.php';
+require __DIR__ . '/../../agent/src/Review/Pending.php';
+require __DIR__ . '/../../agent/src/Review/LintFinding.php';
+require __DIR__ . '/../../agent/src/Review/BlockReferenceScanner.php';
 
 use Duo\BlockReferenceScanner;
 
@@ -84,7 +84,7 @@ check(
     'scanner preserves declared/unregistered gates, resolver shape, attr and inner-block order, csv locators, home leak truncation, lint_ok/tokenize exemptions, and safe id-key heuristic'
 );
 
-$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
+$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Review/Lint.php');
 check(str_contains($lintSource, "require_once __DIR__ . '/BlockReferenceScanner.php';"), 'Lint requires the extracted block scanner');
 check(str_contains($lintSource, 'BlockReferenceScanner::scan('), 'Lint delegates block findings to the extracted scanner');
 

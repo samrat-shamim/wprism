@@ -433,58 +433,24 @@ SH);
 
     // --------------------------------------------------- real-repo dry run
 
-    public function testPlanAgainstTheRealRepositoryChangesNothing(): void
+    public function testPlanAgainstTheRealRepositoryIsANoOpAfterTheMove(): void
     {
+        // Post ROUND 3 TRAIN 1 the real tree IS the module layout. Planning the
+        // shipped map against it must therefore move nothing and rewrite
+        // nothing (idempotence), and must not touch the working tree.
         $repo = self::repoRoot();
-        self::assertFileExists($repo . '/agent/src/Canon.php', 'the real tree is not in its pre-move shape');
-
-        $mapPath = (string) tempnam(sys_get_temp_dir(), 'duo-mm-realmap-');
-        file_put_contents($mapPath, json_encode([
-            'agent' => [
-                'root' => 'agent/src',
-                'modules' => [
-                    'Kernel' => ['layer' => 'kernel', 'files' => ['Canon.php', 'Uuid.php', 'OrderPreserved.php']],
-                    'Policy' => ['layer' => 'policy', 'files' => ['Policy.php', 'OptionState.php']],
-                ],
-            ],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        self::assertFileExists($repo . '/agent/src/Kernel/Canon.php', 'the real tree is not in its post-move shape');
+        self::assertFileDoesNotExist($repo . '/agent/src/Canon.php');
 
         exec('git -C ' . escapeshellarg($repo) . ' status --porcelain', $statusBefore);
-
-        try {
-            $result = self::runCodemod(['--plan', '--allow-partial', '--root=' . $repo, '--map=' . $mapPath, '--tree=agent']);
-        } finally {
-            unlink($mapPath);
-        }
-
+        $result = self::runCodemod(['--plan', '--root=' . $repo, '--map=' . $repo . '/tools/modules.json', '--tree=all']);
         self::assertSame(0, $result['status'], $result['stderr']);
         $plan = $result['stdout'];
-
-        // The five files move.
-        self::assertStringContainsString('git mv agent/src/Canon.php agent/src/Kernel/Canon.php', $plan);
-        self::assertStringContainsString('git mv agent/src/Policy.php agent/src/Policy/Policy.php', $plan);
-
-        // agent/duo.php's loader lines are found and re-pointed.
-        self::assertStringContainsString("require_once __DIR__ . '/src/Kernel/Canon.php';", $plan);
-        self::assertStringContainsString("require_once __DIR__ . '/src/Policy/Policy.php';", $plan);
-
-        // The sandbox suites' cross-repo requires are found.
-        self::assertMatchesRegularExpression(
-            '#sandbox/tests/\S+\.php#',
-            $plan,
-            'the plan must name the sandbox suites that require the moved files'
-        );
-        self::assertStringContainsString('agent/src/Kernel/Canon.php', $plan);
-
-        // manifests/ is reported, never rewritten.
-        self::assertStringContainsString('manifests/ (left untouched, digest-bound)', $plan);
-        self::assertStringContainsString('manifests/capabilities/evidence.json', $plan);
-
+        self::assertStringNotContainsString('git mv ', $plan, 'a second plan over the moved tree must move nothing');
+        self::assertMatchesRegularExpression('/\b0 file\(s\) rewritten|\b0 rewritten/', $plan . "\n" . $result['stderr'], 'a second plan over the moved tree must rewrite nothing');
         exec('git -C ' . escapeshellarg($repo) . ' status --porcelain', $statusAfter);
-        self::assertSame($statusBefore, $statusAfter, '--plan must leave the real working tree untouched');
+        self::assertSame($statusBefore, $statusAfter, '--plan must not touch the working tree');
     }
-
-    // ------------------------------------------------------- pure helpers
 
     public function testRelativePathHelper(): void
     {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Regression — DUO-3214(b) / task #123: Canon::normalize()'s alphabetical
 # ksort() silently reorders order-sensitive serialized meta values.
-# agent/src/OrderPreserved.php (new marker wrapper) + Canon::normalize()'s
+# agent/src/Kernel/OrderPreserved.php (new marker wrapper) + Canon::normalize()'s
 # new branch fix this for any meta rule declaring "order_preserving": true
 # (manifests/woocommerce.json's `_product_attributes` is the first user,
 # closing the causation-proven WooCommerce variation-title word-reordering
@@ -24,8 +24,8 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check"
 php -l regress_order_preserving.php >/dev/null || fail "regress_order_preserving.php has a syntax error"
-php -l ../../agent/src/Canon.php >/dev/null || fail "agent/src/Canon.php has a syntax error"
-php -l ../../agent/src/OrderPreserved.php >/dev/null || fail "agent/src/OrderPreserved.php has a syntax error"
+php -l ../../agent/src/Kernel/Canon.php >/dev/null || fail "agent/src/Kernel/Canon.php has a syntax error"
+php -l ../../agent/src/Kernel/OrderPreserved.php >/dev/null || fail "agent/src/Kernel/OrderPreserved.php has a syntax error"
 pass "no syntax errors"
 
 say "running the offline harness (Canon::normalize()'s order-preserving branch)"

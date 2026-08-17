@@ -49,7 +49,22 @@ foreach ([
     'StructuredValue.php',
     'JsonRefs.php',
 ] as $engineFile) {
-    $path = rtrim($engineRoot, '/') . '/' . $engineFile;
+    // Since the module move (ROUND 3 TRAIN 1) the engine tree is not flat. The
+    // classmap beside it still knows where a class lives; the flat path stays
+    // as the fallback so DUO3316_ENGINE_ROOT can point at a pre-move checkout.
+    $engineBase = rtrim($engineRoot, '/');
+    if (!isset($engineFiles)) {
+        $engineFiles = [];
+        if (is_file(dirname($engineBase) . '/duo-classmap.php')) {
+            foreach ((array) (require dirname($engineBase) . '/duo-classmap.php') as $mappedPath) {
+                $engineFiles[basename((string) $mappedPath, '.php')] = (string) $mappedPath;
+            }
+        }
+    }
+    $engineMapped = $engineFiles[basename($engineFile, '.php')] ?? null;
+    $path = is_string($engineMapped)
+        ? dirname($engineBase) . '/' . $engineMapped
+        : $engineBase . '/' . $engineFile;
     if (is_file($path)) {
         require_once $path;
     }

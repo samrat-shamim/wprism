@@ -2,7 +2,7 @@
 /** One-subject certification currentness is closed and isolated. */
 declare(strict_types=1);
 
-require __DIR__ . '/../../agent/src/ScopedCertificationBundle.php';
+require __DIR__ . '/../../agent/src/Adapter/ScopedCertificationBundle.php';
 require __DIR__ . '/certification_fixture.php';
 
 use Duo\Canon;
@@ -155,9 +155,9 @@ declare(strict_types=1);
 
 $agentDir = $argv[1];
 $dir = $argv[2];
-require $agentDir . '/src/Canon.php';
-require $agentDir . '/src/ManifestDispositions.php';
-require $agentDir . '/src/CapabilityRegistry.php';
+require $agentDir . '/src/Kernel/Canon.php';
+require $agentDir . '/src/Policy/ManifestDispositions.php';
+require $agentDir . '/src/Adapter/CapabilityRegistry.php';
 
 try {
     $dispositions = Duo\ManifestDispositions::load($dir);
@@ -301,7 +301,7 @@ try {
     // The repo root grew a developer toolchain (composer.json/.lock,
     // phpstan.neon.dist, phpunit.xml.dist, .php-cs-fixer.dist.php, tools/,
     // tests/, vendor/). None of it may ever reach a managed site: adoption
-    // installs with `tar -cf ... agent manifests recovery` (cli/src/Adopt.php),
+    // installs with `tar -cf ... agent manifests recovery` (cli/src/Onboarding/Adopt.php),
     // so the deployed tree is structurally incapable of carrying it. Asserting
     // that here rather than in the tooling's own PHPUnit suite is deliberate —
     // this is the test that already owns the real deployed-runtime layout, and

@@ -5,8 +5,8 @@ declare(strict_types=1);
 // collaborator. This fixture intentionally bypasses Code's materializer and
 // ledger paths, then proves the historical Code facade is byte-identical.
 $root = dirname(__DIR__, 2);
-require_once $root . '/agent/src/CodeDescriptorCompiler.php';
-require_once $root . '/agent/src/Code.php';
+require_once $root . '/agent/src/Code/CodeDescriptorCompiler.php';
+require_once $root . '/agent/src/Code/Code.php';
 
 use Duo\Canon;
 use Duo\Code;

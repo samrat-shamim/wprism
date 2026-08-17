@@ -3,7 +3,7 @@
 `duo` is the host-agnostic, multi-environment front end for the Duo agent.
 Git stays git — branching, merging, and history all happen on the site repo
 exactly as before. `duo` only adds two things on top of the per-environment
-`wp duo capture|plan|explain|apply` commands (see [agent/src/Cli.php](../agent/src/Cli.php)):
+`wp duo capture|plan|explain|apply` commands (see [agent/src/Command/Cli.php](../agent/src/Command/Cli.php)):
 
 1. **Environment drivers** — one narrow workflow boundary with local,
    container, and SSH transports, plus a closed capability report so Duo can
@@ -72,7 +72,7 @@ are rejected when the registry is loaded.
 
 - **`duo manifest-validate <manifests-dir>`** — the one verb here that takes no
   environment, because it needs none: it runs the engine's real manifest
-  validators (`agent/src/Policy.php`'s load-time battery) over a directory of
+  validators (`agent/src/Policy/Policy.php`'s load-time battery) over a directory of
   manifest files with no WordPress, no database, and no transport. Each manifest
   is loaded on its own, then the requested pin set is co-loaded so the
   cross-manifest guards run too; engine refusals are surfaced verbatim with
@@ -307,7 +307,7 @@ are rejected when the registry is loaded.
 - **`duo status <env>`** — runs `wp duo plan --repo=<repo_path>
   --format=json` (note: `--format=json`, not `--json` — wp-cli's dispatcher
   rewrites a bare `--json` into `--format=json` before the command ever sees
-  `$assoc['json']`; see the comments in `agent/src/Cli.php`) and renders a
+  `$assoc['json']`; see the comments in `agent/src/Command/Cli.php`) and renders a
   human summary: counts per plan bucket (create/update/adopt/unchanged/
   drift/conflict/collision/delete/code_mismatch/code_drift/incomplete_apply/
   incomplete_lifecycle/regen_pending/env_missing/adapter_dispositions), drift paths, blocked-delete
@@ -405,7 +405,7 @@ are rejected when the registry is loaded.
   Also non-zero if the underlying `wp duo plan` call itself failed or
   returned unparseable JSON. Plain warnings are rendered but never flip this
   by themselves — see the decision-matrix comment in
-  `cli/src/PlanSummary.php::render()`.
+  `cli/src/Plan/PlanSummary.php::render()`.
 
   `code_revision_stale` is stricter than a lifecycle compatibility finding:
   the current artifact's code payload has not completed the host
@@ -658,7 +658,7 @@ are rejected when the registry is loaded.
 
 ### Refresh semantic-planner contract
 
-`cli/src/Refresh.php` has no plugin-specific or raw-Git state merge logic. A
+`cli/src/Refresh/Refresh.php` has no plugin-specific or raw-Git state merge logic. A
 `Duo\Orchestrator\RefreshPlan` implementation provides these static methods:
 
 1. `normalizeProductionSnapshot(array $export): array` validates and
@@ -986,8 +986,8 @@ in manifests, native actions, or plugin-owned providers—not this shell.
   joined `--set` value (`--set 'post_meta:foo=runtime;options:bar=authored,ref=post'`),
   never as repeated `--set=<spec>` flags — wp-cli's assoc-arg parser keeps
   only the *last* occurrence of a repeated flag, confirmed against
-  `agent/src/Cli.php`'s `classify()` docblock. `ClassifyCommand`'s
-  `SET_MODE` constant (`cli/src/ClassifyCommand.php`) is the one place that
+  `agent/src/Command/Cli.php`'s `classify()` docblock. `ClassifyCommand`'s
+  `SET_MODE` constant (`cli/src/Command/ClassifyCommand.php`) is the one place that
   decision lives.</sub>
 
 ## The environment registry
@@ -1341,15 +1341,15 @@ materializing ordinary `wp duo` commands have no structural reason to carry
 one, while the `duo init` workflow explicitly requires it. This project's
 base sandbox images verifiably omit Git, so outside init the check degrades to an honest
 advisory "could not verify" in that case rather than a false-clean PASS
-— see `cli/src/Doctor.php`.
+— see `cli/src/Onboarding/Doctor.php`.
 
 **Nothing in this codebase reads this file yet.** No `env-set` variant
-loads it, and `agent/src/Secrets.php`'s own scanning never inspects it
+loads it, and `agent/src/Kernel/Secrets.php`'s own scanning never inspects it
 either — that class exists to catch a secret-SHAPED value being captured
 under the wrong classification from a *live WordPress environment*, and
 this file is orchestrator/operator-side, never captured, so it was never
 in scope for that scanner to begin with (documented explicitly in
-`agent/src/Secrets.php`'s own docblock, not left as an implicit gap). The
+`agent/src/Kernel/Secrets.php`'s own docblock, not left as an implicit gap). The
 reserved name and gitignore/doctor protection exist now, ahead of any
 consumer, so that protection is already in place the day a batch-loader
 (most naturally `wp duo env-set --from-file=.duo-env-values.json`,
@@ -1399,7 +1399,7 @@ A second suggestion, for wherever `spec/repo-format.md` documents a
 manifest's `options` section and its `class` values (`authored`,
 `runtime`, `derived`, `env`, `managed`) — unlike `envs` above, this one
 *is* part of the branchable-state contract the agent itself interprets
-(`agent/src/Policy.php`, `agent/src/Apply.php`), not orchestrator-only:
+(`agent/src/Policy/Policy.php`, `agent/src/Apply/Apply.php`), not orchestrator-only:
 
 > #### `class: "env"` options (DUO-3232)
 >

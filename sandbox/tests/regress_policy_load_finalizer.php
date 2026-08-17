@@ -9,7 +9,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/PolicyLoadFinalizer.php';
+require_once __DIR__ . '/../../agent/src/Policy/PolicyLoadFinalizer.php';
 
 use Duo\Policy;
 use Duo\PolicyLoadFinalizer;
@@ -68,8 +68,8 @@ try {
     $check(false, 'cross-manifest refusal remains before a later digest-pin path (wrong exception: ' . $e::class . ')');
 }
 
-$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$finalizerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$finalizerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/PolicyLoadFinalizer.php');
 $calls = [
     'CrossManifestGuards::validate_no_conflicting_option_rules(',
     'OptionReferenceGrammar::validate_no_overlapping_option_name_refs(',

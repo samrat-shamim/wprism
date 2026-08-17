@@ -239,7 +239,7 @@ namespace {
         }
     }
 
-    require __DIR__ . '/../../agent/src/TypedTableMaterializer.php';
+    require __DIR__ . '/../../agent/src/Apply/TypedTableMaterializer.php';
 
     use Duo\TypedTableMaterializer;
 
@@ -490,9 +490,9 @@ namespace {
     materializer_check($wpdb->tables['membership_pages']['rows'] === [],
         'composite deletion unpacks current-environment bookkeeping and verification passes');
 
-    $snapshotSource = file_get_contents(__DIR__ . '/../../agent/src/Snapshot.php');
+    $snapshotSource = file_get_contents(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
     materializer_check(is_string($snapshotSource)
-        && str_contains($snapshotSource, "require_once __DIR__ . '/TypedTableMaterializer.php';")
+        && str_contains($snapshotSource, "require_once __DIR__ . '/../Apply/TypedTableMaterializer.php';")
         && str_contains($snapshotSource, 'typed_table_materializer($policy)->ensureRow($entity)')
         && str_contains($snapshotSource, 'typed_table_materializer($policy)->finalizeRow($tokens, $entity)')
         && str_contains($snapshotSource, 'typed_table_materializer($policy)->deleteLocalRow($table, $localId)')

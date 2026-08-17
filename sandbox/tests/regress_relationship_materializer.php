@@ -19,11 +19,11 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/RelationshipMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Apply/RelationshipMaterializer.php';
 
 use Duo\Policy;
 use Duo\RelationshipMaterializer;
@@ -95,7 +95,7 @@ $check(
 // (including reflection-based callers, not just bare method-name mentions)
 // found no other caller of either, so both facades were removed entirely
 // too -- the identical treatment, one slice later.
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
 $check(
     !str_contains($applySource, 'private function delete_post_relationships(')
         && !str_contains($applySource, 'private function delete_term_relationships('),

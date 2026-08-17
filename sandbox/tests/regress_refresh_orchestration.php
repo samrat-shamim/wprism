@@ -5,8 +5,8 @@ declare(strict_types=1);
  * and unresolved semantic rebase work never creates/replaces a source ref. */
 
 namespace Duo\Orchestrator {
-    require_once dirname(__DIR__, 2) . '/agent/src/Canon.php';
-    require_once dirname(__DIR__, 2) . '/cli/src/RefreshFieldDiff.php';
+    require_once dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+    require_once dirname(__DIR__, 2) . '/cli/src/Refresh/RefreshFieldDiff.php';
 
     final class RefreshPlan {
         public static array $roles = [];
@@ -117,9 +117,9 @@ namespace Duo\Orchestrator {
 }
 
 namespace {
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
-require dirname(__DIR__, 2) . '/cli/src/CodeDeploy.php';
-require dirname(__DIR__, 2) . '/cli/src/Refresh.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/CodeDeploy.php';
+require dirname(__DIR__, 2) . '/cli/src/Refresh/Refresh.php';
 
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\Transport;

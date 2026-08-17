@@ -349,15 +349,15 @@ namespace Duo {
 namespace {
     $repoRoot = dirname(__DIR__, 2);
 
-    require_once $repoRoot . '/agent/src/Canon.php';
-    require_once $repoRoot . '/agent/src/Secrets.php';
-    require_once $repoRoot . '/agent/src/CommandRefusal.php';
-    require_once $repoRoot . '/agent/src/Journal.php';
-    require_once $repoRoot . '/agent/src/Pending.php';
-    require_once $repoRoot . '/agent/src/AdapterObservation.php';
-    require_once $repoRoot . '/agent/src/Cli.php';
-    require_once $repoRoot . '/cli/src/EnvironmentDriver.php';
-    require_once $repoRoot . '/cli/src/AdapterObservation.php';
+    require_once $repoRoot . '/agent/src/Kernel/Canon.php';
+    require_once $repoRoot . '/agent/src/Kernel/Secrets.php';
+    require_once $repoRoot . '/agent/src/Kernel/CommandRefusal.php';
+    require_once $repoRoot . '/agent/src/Review/Journal.php';
+    require_once $repoRoot . '/agent/src/Review/Pending.php';
+    require_once $repoRoot . '/agent/src/Adapter/AdapterObservation.php';
+    require_once $repoRoot . '/agent/src/Command/Cli.php';
+    require_once $repoRoot . '/cli/src/Transport/EnvironmentDriver.php';
+    require_once $repoRoot . '/cli/src/Adapter/AdapterObservation.php';
 
     use Duo\AdapterObservation as TargetObservation;
     use Duo\CommandRefusalException;
@@ -472,7 +472,7 @@ namespace {
             && $GLOBALS['duo_observation_hooks']['removed_actions'] !== [],
         'malformed adapter-observe detaches both query and shutdown callbacks'
     );
-    $cliSource = (string) file_get_contents($repoRoot . '/agent/src/Cli.php');
+    $cliSource = (string) file_get_contents($repoRoot . '/agent/src/Command/Cli.php');
     $entry = strpos($cliSource, 'public function adapter_observe');
     $suspend = $entry === false ? false : strpos($cliSource, 'Journal::suspend_for_observation()', $entry);
     $argumentGate = $entry === false ? false : strpos($cliSource, 'if ($args !== []', $entry);
@@ -550,8 +550,8 @@ namespace {
             && all_select_only($wpdb->queries),
         'target Journal/Pending observation uses no Ledger repair or DB mutation and issues SELECT/SHOW queries only'
     );
-    $journalReadSource = method_source($repoRoot . '/agent/src/Journal.php', Journal::class, 'report_read_only');
-    $pendingReadSource = method_source($repoRoot . '/agent/src/Pending.php', Pending::class, 'scan_read_only');
+    $journalReadSource = method_source($repoRoot . '/agent/src/Review/Journal.php', Journal::class, 'report_read_only');
+    $pendingReadSource = method_source($repoRoot . '/agent/src/Review/Pending.php', Pending::class, 'scan_read_only');
     check(
         !str_contains($journalReadSource, 'Ledger::ensure') && !str_contains($pendingReadSource, 'Ledger::ensure'),
         'narrow read-only Journal/Pending entry points cannot call Ledger::ensure'

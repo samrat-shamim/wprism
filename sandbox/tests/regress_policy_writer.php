@@ -13,10 +13,10 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/PolicyWriter.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/PolicyWriter.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -126,7 +126,7 @@ foreach ($it as $file) {
 }
 rmdir($root);
 
-$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
 $writerReflection = new ReflectionClass(PolicyWriter::class);
 $policyReflection = new ReflectionClass(Policy::class);
 $check(

@@ -4,16 +4,16 @@
  * DUO-3260's URL-query reference codec (`?p=`/`?page_id=`/
  * `?attachment_id=`):
  *
- *  - agent/src/UrlQueryReferenceCodec.php, driven through Tokens.php's
+ *  - agent/src/Kernel/UrlQueryReferenceCodec.php, driven through Tokens.php's
  *    tokenize_text()/detokenize_text() facade, now also
  *    rewrite/restore these three WordPress-core query-string parameters
  *    within {{home}}-anchored URL spans, mirroring Blocks.php's/
  *    Shortcodes.php's own dangling-vs-unscoped triage (Capture::
  *    classify_unscoped_ref()) a third time.
- *  - agent/src/Lint.php's new unrewritten_url_query_ref finding.
+ *  - agent/src/Review/Lint.php's new unrewritten_url_query_ref finding.
  *
  * Runs the REAL, unmodified agent/src/{Canon,Policy,Tokens,Ledger,Pending,
- * Lint}.php against hand-built fixtures, plus agent/src/Capture.php
+ * Lint}.php against hand-built fixtures, plus agent/src/Capture/Capture.php
  * (class-definition only, for its zero-instance-dependency classify_
  * unscoped_ref()/ref_target_type() statics — same precedent regress_
  * block_refs.php/regress_shortcode_refs.php already established). A
@@ -159,19 +159,19 @@ $GLOBALS['wpdb'] = $wpdb;
 
 // ----------------------------------------------------------- engine + fixtures
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Pending.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/Lint.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Review/Pending.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../agent/src/Review/Lint.php';
 // DUO-3260: Tokens::queue_unscoped_url_query_ref() calls Capture::
 // classify_unscoped_ref() directly (public static, itself built on the
 // zero-instance-dependency ref_target_type() -- see both docblocks)
 // rather than duplicating the query shapes it encapsulates. Loading the
 // class definition only; nothing here ever instantiates Capture or calls
 // any of its other (WordPress-dependent) methods.
-require __DIR__ . '/../../agent/src/Capture.php';
+require __DIR__ . '/../../agent/src/Capture/Capture.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -402,7 +402,7 @@ try {
 }
 check($q17threw !== null, 'Q17: a genuinely dangling ref on an unconfigured instance ALSO throws (not just the unscoped sub-case)');
 
-$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Tokens.php');
+$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Grammar/Tokens.php');
 check(str_contains($tokenSource, 'UrlQueryReferenceCodec::capture('), 'Q18: Tokens delegates query-reference capture to the codec');
 check(str_contains($tokenSource, 'UrlQueryReferenceCodec::apply('), 'Q18: Tokens delegates query-reference apply to the codec');
 check(!str_contains($tokenSource, 'private function tokenize_url_query_refs'), 'Q18: Tokens no longer owns the query-reference capture implementation');

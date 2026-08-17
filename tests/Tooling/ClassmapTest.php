@@ -167,7 +167,7 @@ final class ClassmapTest extends TestCase
         self::assertArrayHasKey(
             'Duo\\Cli',
             CM_EXCLUSIONS,
-            'agent/src/Cli.php ends in a top-level WP_CLI::add_command() call and must never be autoloadable'
+            'agent/src/Command/Cli.php ends in a top-level WP_CLI::add_command() call and must never be autoloadable'
         );
     }
 
@@ -288,7 +288,7 @@ PHP;
 
     /**
      * Duo\Cli is the one type whose file has a top-level side effect
-     * (WP_CLI::add_command at agent/src/Cli.php's last line). Autoloading it
+     * (WP_CLI::add_command at agent/src/Command/Cli.php's last line). Autoloading it
      * outside a WP-CLI runtime is an immediate fatal, so the fallback must
      * decline to resolve it and leave it to duo.php's WP_CLI-gated require.
      */
@@ -315,7 +315,7 @@ PHP;
      * every file it loaded before, with the autoloader as a net underneath
      * rather than a replacement. 222 of the 224 agent/src files load eagerly
      * here (Cli.php is WP_CLI-gated, AdapterCertification.php is deliberately
-     * lazy — see agent/src/AdapterSources.php:898), and only one mapped name
+     * lazy — see agent/src/Adapter/AdapterSources.php:898), and only one mapped name
      * is left for the fallback to answer.
      */
     public function testDuoPhpStillLoadsEagerlyWithExactlyOneExtraAutoloader(): void
@@ -373,13 +373,13 @@ PHP;
 
     /**
      * A file with no namespace and no type declaration is skipped, not an
-     * error: cli/src/RefreshPlanCompile.php is a worker script that executes
+     * error: cli/src/Refresh/RefreshPlanCompile.php is a worker script that executes
      * on include and must never be reachable by autoload.
      */
     public function testFilesWithoutTypeDeclarationsAreSkipped(): void
     {
         $repo = self::repoRoot();
-        $worker = $repo . '/cli/src/RefreshPlanCompile.php';
+        $worker = $repo . '/cli/src/Refresh/RefreshPlanCompile.php';
         self::assertFileExists($worker);
         self::assertSame([], cm_declared_types((string) file_get_contents($worker)));
         /** @var array<string,string> $cli */

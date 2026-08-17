@@ -124,7 +124,7 @@ file_put_contents(
     $root . '/wp-content/mu-plugins/duo/duo.php',
     '<?php file_put_contents(' . var_export($loaded, true) . ', "loaded");'
 );
-require getenv('DUO_ROOT') . '/cli/src/CodeDeploy.php';
+require getenv('DUO_ROOT') . '/cli/src/Transport/CodeDeploy.php';
 $args = \Duo\Orchestrator\CodeDeploy::controlArgs(['duo', 'code-stage']);
 $exec = null;
 foreach ($args as $arg) {

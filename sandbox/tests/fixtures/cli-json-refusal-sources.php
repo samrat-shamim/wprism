@@ -1,10 +1,10 @@
 <?php
 /** Real-source refusal factories/gates used by regress_cli_json_refusals.php. */
 
-require __DIR__ . '/../../../agent/src/Ledger.php';
-require __DIR__ . '/../../../agent/src/Tokens.php';
-require __DIR__ . '/../../../agent/src/Capture.php';
-require_once __DIR__ . '/../../../agent/src/CaptureSafetyGates.php';
+require __DIR__ . '/../../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../../agent/src/Capture/Capture.php';
+require_once __DIR__ . '/../../../agent/src/Capture/CaptureSafetyGates.php';
 
 use Duo\Capture;
 use Duo\CaptureSafetyGates;

@@ -64,14 +64,14 @@ namespace Duo\Orchestrator {
 
 namespace {
     $rrRoot = dirname(__DIR__, 2);
-    require_once $rrRoot . '/cli/src/EnvironmentDriver.php';
-    require_once $rrRoot . '/cli/src/PlanContract.php';
+    require_once $rrRoot . '/cli/src/Transport/EnvironmentDriver.php';
+    require_once $rrRoot . '/cli/src/Plan/PlanContract.php';
     // A protocol-lane path is only a local validation aid while this test is
     // developed independently. The checked-in default is always the product
     // file, so CI exercises the same public contract after integration.
     $rrLifecycle = getenv('DUO_ENVIRONMENT_LIFECYCLE_PATH');
     if (!is_string($rrLifecycle) || $rrLifecycle === '') {
-        $rrLifecycle = $rrRoot . '/cli/src/EnvironmentLifecycle.php';
+        $rrLifecycle = $rrRoot . '/cli/src/Environment/EnvironmentLifecycle.php';
     }
     if (!is_file($rrLifecycle)) {
         fwrite(STDERR, "FAIL: environment lifecycle source is unavailable: $rrLifecycle\n");
@@ -94,7 +94,7 @@ namespace {
 
     /**
      * One complete, clean `wp duo plan --format=json` envelope, spelled out
-     * the way agent/src/Apply.php emits it. Branch convergence refuses
+     * the way agent/src/Apply/Apply.php emits it. Branch convergence refuses
      * anything less (DUO-3384).
      */
     function rr_plan(): string {

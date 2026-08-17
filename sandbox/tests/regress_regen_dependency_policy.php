@@ -69,9 +69,9 @@ PHP
 
 putenv("DUO_MANIFESTS_DIR=$fixtureDir");
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 
@@ -338,8 +338,8 @@ check_throws(fn() => $policy4->regenerators(), 'must define', 'a regenerator fil
 // The load-time calls must target the extracted pure grammar directly. Keep
 // this seam asserted so a future compatibility facade cannot silently put the
 // validator back into Policy.php while the behavior suite remains green.
-$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/Policy/ManifestValidator.php');
 $postTypeGrammar = new \ReflectionClass('Duo\\PostTypeGrammar');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(

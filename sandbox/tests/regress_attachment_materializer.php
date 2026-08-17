@@ -20,14 +20,14 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/CompiledArtifact.php';
-require_once __DIR__ . '/../../agent/src/AttachmentMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Repository/CompiledArtifact.php';
+require_once __DIR__ . '/../../agent/src/Apply/AttachmentMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\AttachmentMaterializer;
@@ -89,7 +89,7 @@ $check(
 // kept, the same "no other caller, no facade needed" treatment
 // TermMaterializer's encode_description()/reconcile_term_relationships()
 // already established (slice 6).
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
 $check(
     !str_contains($applySource, 'private function place_attachment('),
     'Apply.php no longer defines place_attachment() at all (moved to PostMaterializer\'s own call site, no facade needed -- it had no other caller)'

@@ -18,7 +18,7 @@
  * and the script exits 1.
  */
 
-require __DIR__ . '/../../agent/src/Coverage.php';
+require __DIR__ . '/../../agent/src/Review/Coverage.php';
 
 $failures = 0;
 function check(bool $cond, string $msg): void {

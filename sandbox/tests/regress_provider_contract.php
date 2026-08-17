@@ -227,18 +227,18 @@ function delete_transient($transient): bool {
     return $wasPresent;
 }
 
-require $root . '/agent/src/Canon.php';
-require $root . '/agent/src/OptionState.php';
-require $root . '/agent/src/ManifestDispositions.php';
-require $root . '/agent/src/CapabilityRegistry.php';
-require $root . '/agent/src/Policy.php';
-require $root . '/agent/src/CodeCompatibility.php';
-require $root . '/agent/src/Deploy.php';
-require $root . '/agent/src/ProviderSdk.php';
-require $root . '/agent/src/Providers.php';
+require $root . '/agent/src/Kernel/Canon.php';
+require $root . '/agent/src/Kernel/OptionState.php';
+require $root . '/agent/src/Policy/ManifestDispositions.php';
+require $root . '/agent/src/Adapter/CapabilityRegistry.php';
+require $root . '/agent/src/Policy/Policy.php';
+require $root . '/agent/src/Code/CodeCompatibility.php';
+require $root . '/agent/src/Promotion/Deploy.php';
+require $root . '/agent/src/Adapter/ProviderSdk.php';
+require $root . '/agent/src/Adapter/Providers.php';
 // DUO-3339: `duo status`'s renderer is pure and is one half of the documented
 // two-renderer lockstep for plan rows, so it is driven directly below.
-require $root . '/cli/src/PlanSummary.php';
+require $root . '/cli/src/Plan/PlanSummary.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
@@ -925,7 +925,7 @@ $check(array_column($diagnosed['problems'], 'code') === ['inactive_plugin'],
     'and it is the real problem row, with the real code, not an empty stand-in');
 
 $negotiateSource = implode("\n", array_slice(
-    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (array) file($root . '/agent/src/Adapter/Providers.php', FILE_IGNORE_NEW_LINES),
     (new \ReflectionMethod(\Duo\Providers::class, 'negotiate'))->getStartLine() - 1,
     2
 ));
@@ -1079,7 +1079,7 @@ $check(array_column($wide, 'code') === ['inactive_plugin'],
 // from Policy.php into AdapterRegistry.php; Policy::provider_readiness_
 // blockers() is still the public entry point this comment block describes,
 // but the bytes pinned below now live in the file that actually builds them.
-$adapterRegistrySource = (string) file_get_contents($root . '/agent/src/AdapterRegistry.php');
+$adapterRegistrySource = (string) file_get_contents($root . '/agent/src/Adapter/AdapterRegistry.php');
 $check(str_contains($adapterRegistrySource, "'name' => \$manifest,")
     && str_contains($adapterRegistrySource, "'provider' => (string) (\$problem['provider'] ?? '?'),")
     && str_contains($adapterRegistrySource, "'manifest' => \$manifest,")
@@ -1125,12 +1125,12 @@ $root = dirname(__DIR__, 1);
 PROBE
 . "\n\$engine = " . var_export($root, true) . ";\n"
 . <<<'PROBE'
-require $engine . '/agent/src/Canon.php';
-require $engine . '/agent/src/OptionState.php';
-require $engine . '/agent/src/Policy.php';
-require $engine . '/agent/src/CodeCompatibility.php';
-require $engine . '/agent/src/Deploy.php';
-require $engine . '/agent/src/Providers.php';
+require $engine . '/agent/src/Kernel/Canon.php';
+require $engine . '/agent/src/Kernel/OptionState.php';
+require $engine . '/agent/src/Policy/Policy.php';
+require $engine . '/agent/src/Code/CodeCompatibility.php';
+require $engine . '/agent/src/Promotion/Deploy.php';
+require $engine . '/agent/src/Adapter/Providers.php';
 putenv('DUO_MANIFESTS_DIR=' . __DIR__);
 $manifest = json_decode(getenv('DUO_PROBE_MANIFEST'), true);
 $policy = Duo\Policy::from_snapshot([
@@ -1200,7 +1200,7 @@ $check(($faultProblems[0]['provider'] ?? '') === 'probe-cache'
 // throw is NOT labelled as the adapter's packaging fault and does NOT invent a
 // providers/<id>.php coordinate for an identity nobody established.
 $problemsSource = implode("\n", array_slice(
-    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (array) file($root . '/agent/src/Adapter/Providers.php', FILE_IGNORE_NEW_LINES),
     (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() - 1,
     (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getEndLine()
         - (new \ReflectionMethod(\Duo\Providers::class, 'problems'))->getStartLine() + 1
@@ -1212,7 +1212,7 @@ $check(str_contains($problemsSource, "'provider_diagnosis_failed'")
     && str_contains($problemsSource, "'see the message"),
     'and the generic branch has its own code and points at the message instead of inventing a file to repair');
 $packagingSource = implode("\n", array_slice(
-    (array) file($root . '/agent/src/Providers.php', FILE_IGNORE_NEW_LINES),
+    (array) file($root . '/agent/src/Adapter/Providers.php', FILE_IGNORE_NEW_LINES),
     (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getStartLine() - 1,
     (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getEndLine()
         - (new \ReflectionMethod(\Duo\Providers::class, 'packaging_problem'))->getStartLine() + 1
@@ -1258,7 +1258,7 @@ $reset();
 // reflection because Apply.php is not loaded until the batch-assembly group
 // below; the slice boundaries are the two method signatures themselves, so a
 // moved method does not silently widen what is being asserted.
-$applySource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
+$applySource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRequestCoordinator.php');
 $planAt = strpos($applySource, 'public static function plan(');
 $buildPlanAt = strpos($applySource, 'private function build_plan(');
 $check($planAt !== false && $buildPlanAt !== false && $planAt < $buildPlanAt,
@@ -1285,7 +1285,7 @@ $check(!str_contains($afterPlan, 'Providers::problems') && !str_contains($afterP
 
 // The two plan-row renderers are required to stay in lockstep (they are the
 // same advice to one operator through two commands). PlanSummary::render() is
-// pure and is driven for real; agent/src/Cli.php's half runs only inside a
+// pure and is driven for real; agent/src/Command/Cli.php's half runs only inside a
 // wp-cli plan, so it is asserted against its source.
 $summary = \Duo\Orchestrator\PlanSummary::render(['provider_problems' => $planProblems]);
 $summaryText = implode("\n", $summary['lines']);
@@ -1302,7 +1302,7 @@ $check($summary['ok'] === true,
 $check(\Duo\Orchestrator\PlanSummary::render(['conflict' => [['uuid' => 'x', 'type' => 'post']]])['ok'] === false,
     'while a bucket that DOES predict a refusal still flips it — the exclusion above is about width, not severity');
 
-$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$cliSource = (string) file_get_contents($root . '/agent/src/Command/Cli.php');
 $check(str_contains($cliSource, "foreach (\$plan['provider_problems'] ?? [] as \$r) {")
     && str_contains($cliSource, "'PROVIDER_PROBLEM '")
     && str_contains($cliSource, "count(\$plan['provider_problems'] ?? []) . ' provider_problems'"),
@@ -1755,7 +1755,7 @@ $check(
     . 'line where the whole summary should be, so bounding closes a correctness hole as well as a secrecy one'
 );
 
-$providersSource = (string) file_get_contents($root . '/agent/src/Providers.php');
+$providersSource = (string) file_get_contents($root . '/agent/src/Adapter/Providers.php');
 $check(
     str_contains($providersSource, 'CommandRefusalException::containsSensitivePublicDetail($value)')
     && preg_match('/sk_live_|AKIA|ghp_|xox[baprs]|BEGIN [A-Z ]*PRIVATE KEY/', $providersSource) !== 1,
@@ -2205,9 +2205,9 @@ echo "\n== the engine half: what Apply assembles for each declared channel ==\n"
 // rebuild() pass through the same fake, so the edges BETWEEN these projections
 // and Providers::invoke() are covered too; what stays live-only is the rest of
 // that pass (term recounts, attachment metadata, cron rescheduling).
-require $root . '/agent/src/Db.php';
-require $root . '/agent/src/Ledger.php';
-require $root . '/agent/src/Apply.php';
+require $root . '/agent/src/Kernel/Db.php';
+require $root . '/agent/src/Repository/Ledger.php';
+require $root . '/agent/src/Apply/Apply.php';
 
 final class ProbeBatchWpdb {
     public string $prefix = 'wp_';
@@ -2635,7 +2635,7 @@ $wpdb->kv = [];
 // regress_woocommerce_regen_engine.php uses for the same class of claim.
 // Isolate the coordinator's actual private run() source so an unrelated
 // constructor, comment, or dead helper cannot satisfy these named mappings.
-$runSource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
+$runSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRequestCoordinator.php');
 $runMethodStart = strpos($runSource, 'private function run(');
 $rebuildRequestStart = strpos($runSource, 'new RebuildRequest(', (int) $runMethodStart);
 $rebuildRequestEnd = strpos($runSource, "\n            ),\n            \$this->warnings", (int) $rebuildRequestStart);
@@ -2716,8 +2716,8 @@ $check(
 // same public list and persists only a hash-bound outer receipt in its closed
 // recovery session. These pins keep either path from acquiring a second raw
 // provider-value sink or a host re-renderer.
-$applyReceiptLines = (array) file($root . '/agent/src/ApplyRequestCoordinator.php', FILE_IGNORE_NEW_LINES);
-$dispatcherReceiptLines = (array) file($root . '/agent/src/RebuildActionDispatcher.php', FILE_IGNORE_NEW_LINES);
+$applyReceiptLines = (array) file($root . '/agent/src/Apply/ApplyRequestCoordinator.php', FILE_IGNORE_NEW_LINES);
+$dispatcherReceiptLines = (array) file($root . '/agent/src/Rebuild/RebuildActionDispatcher.php', FILE_IGNORE_NEW_LINES);
 $check(
     count(array_filter(
         $applyReceiptLines,
@@ -2738,7 +2738,7 @@ $check(
     'Apply holds public receipts in exactly one in-memory list: three legacy bounded projections and three scoped '
     . 'hash-only projections, returned once; no durable scoped record keeps provider before/after values'
 );
-$scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/ScopedApplyCoordinator.php');
+$scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/Scope/ScopedApplyCoordinator.php');
 $scopedReceiptMethodStart = strpos($scopedCoordinatorSource, 'public static function public_action_receipt(');
 $scopedReceiptMethodEnd = $scopedReceiptMethodStart === false
     ? false
@@ -2754,7 +2754,7 @@ $check(
     && !str_contains($scopedReceiptMethod, "'after' =>"),
     'the scoped public receipt helper exposes operation/receipt hashes and never provider before/after values'
 );
-$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$cliSource = (string) file_get_contents($root . '/agent/src/Command/Cli.php');
 $check(
     !str_contains($cliSource, "\$summary['actions']"),
     "the agent's human apply render never reads the receipt rows at all — its JSON arm publishes the summary whole, "
@@ -3233,7 +3233,7 @@ $wpdb->kv = [];
 
 // The status half, driven through the real summariser: a plan carrying one of
 // these rows must render it and must not report ok.
-require_once $root . '/cli/src/PlanSummary.php';
+require_once $root . '/cli/src/Plan/PlanSummary.php';
 $statusPlan = array_fill_keys([
     'create', 'update', 'adopt', 'unchanged', 'drift', 'conflict',
     'collision', 'delete', 'delete_conflict', 'deleted',
@@ -3278,7 +3278,7 @@ $check((bool) preg_match(
 // Lockstep with the agent-side renderer and the precondition hash: `duo status`
 // and a plain `wp duo plan` must never give an operator different advice, and a
 // receipt appearing between plan and apply must invalidate the plan.
-$cliSource = (string) file_get_contents($root . '/agent/src/Cli.php');
+$cliSource = (string) file_get_contents($root . '/agent/src/Command/Cli.php');
 $check(str_contains($cliSource, "REGEN_CONTEXT ")
     && str_contains($cliSource, "count(\$plan['regen_context'] ?? []) . ' regen_context'"),
     'the agent-side plan renderer carries the same bucket, count line included');

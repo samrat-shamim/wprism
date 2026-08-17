@@ -163,7 +163,7 @@ adapter diagnostics.
 Those six words are this doctrine's, and the shipped vocabulary is smaller by
 design — a status word minted to match prose would read as reviewed evidence
 next to `dispositions.json`, which is precisely the substitution the
-certification separation exists to refuse (`agent/src/AdapterSources.php`
+certification separation exists to refuse (`agent/src/Adapter/AdapterSources.php`
 states the same rationale for the fourth word `uncertified`). So the mapping is
 stated here instead of being invented in code:
 

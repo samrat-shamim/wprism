@@ -15,11 +15,11 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/Code.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/CodeConfigGrammar.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Code/Code.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Policy/CodeConfigGrammar.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
@@ -161,8 +161,8 @@ manifest_fixture_code_cleanup($loadManifests);
 @unlink($loadRoot . '/site.duo.json');
 @rmdir($loadRoot);
 
-$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$sitePolicyValidatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/SitePolicyValidator.php');
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$sitePolicyValidatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/SitePolicyValidator.php');
 $policyReflection = new ReflectionClass(Policy::class);
 $grammarReflection = new ReflectionClass(CodeConfigGrammar::class);
 $check(

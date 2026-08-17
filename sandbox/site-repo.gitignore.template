@@ -2,7 +2,7 @@
 # site-repo .gitignore (siterepo/<pair>N/.gitignore) -- copy this file
 # rather than hand-rolling a printf. Mirrors the OUTER duo-wp repo's own
 # .gitignore exactly (state.capture.lock/-staging/-backup/-intent/-receipt
-# are agent/src/Publish.php's capture-publication artifacts, DUO-3213): a fixture
+# are agent/src/Publication/Publish.php's capture-publication artifacts, DUO-3213): a fixture
 # missing state.capture.lock here hits a real, structural failure the
 # moment a test captures on both sides of a pair before a git pull on the
 # second side -- see DUO-3244 for the concrete repro.
@@ -30,5 +30,5 @@
 # the branchable-state contract above -- it exists purely as an optional,
 # per-environment operator scratch file (name -> value) sitting next to
 # site.duo.json on ONE environment's own checkout, never shared via git.
-# See cli/README.md and cli/src/Doctor.php's own git-tracked hygiene check.
+# See cli/README.md and cli/src/Onboarding/Doctor.php's own git-tracked hygiene check.
 /.duo-env-values.json

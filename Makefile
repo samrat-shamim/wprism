@@ -248,7 +248,7 @@ certify-version-matrix:
 	bash sandbox/tests/certify_version_matrix.sh
 
 # DUO-3213 (atomic capture publication): offline, no docker -- exercises
-# agent/src/Publish.php's capture lock, staging dir, atomic swap, and crash
+# agent/src/Publication/Publish.php's capture lock, staging dir, atomic swap, and crash
 # recovery directly, including a real SIGKILL of a child process mid-
 # publish. See the script's own header for what is/isn't covered here vs.
 # by live sandbox evidence (the InnoDB engine check + real transaction
@@ -1444,7 +1444,7 @@ regress-frozen-materialization-promotion:
 # DUO-3384: PlanSummary::render() tolerates partial fixtures by design, so a
 # valid `{}` renders clean. This drives an empty, a missing-bucket, and a
 # complete plan through both promotion reconciliation boundaries, and pins the
-# validator's required buckets to what agent/src/Apply.php actually emits.
+# validator's required buckets to what agent/src/Apply/Apply.php actually emits.
 # Offline: the ssh/wp pair it needs are fixture scripts on PATH.
 regress-plan-contract-trust:
 	php sandbox/tests/regress_plan_contract_trust.php

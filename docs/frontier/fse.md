@@ -73,7 +73,7 @@ FSE is the **closest of the three frontiers to branchable**: three of its four c
 
 ## Status: implemented (2026-08-05)
 
-Both proposed engine capabilities landed in `agent/src/Blocks.php`, generalized (not FSE-specific) for reuse by the Elementor wave:
+Both proposed engine capabilities landed in `agent/src/Grammar/Blocks.php`, generalized (not FSE-specific) for reuse by the Elementor wave:
 
 - **Polymorphic kind dispatch**: a `block_attrs` rule may replace `"kind"` with `"kind_from": {"attr": ..., "map": {sibling-value: kind}, "default"?: kind}`, resolving the ref kind from a sibling attribute's *current* value at rewrite time. Dispatch producing no kind (no map hit, no default) leaves the attribute untouched rather than guessing.
 - **String-attribute tokenization**: a rule of the form `{"path": ..., "tokenize": "text"}` routes a plain string attribute through the same `tokenize_text()`/`detokenize_text()` pass body content already gets. Both shapes are additive and fully backward-compatible — every pre-existing `{kind, path, type}` rule is untouched, verified by regression runs.

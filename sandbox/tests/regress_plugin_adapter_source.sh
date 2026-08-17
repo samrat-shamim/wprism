@@ -39,12 +39,12 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (harness + every file it exercises)"
 php -l regress_plugin_adapter_source.php >/dev/null || fail "regress_plugin_adapter_source.php has a syntax error"
-php -l ../../agent/src/AdapterSources.php >/dev/null || fail "agent/src/AdapterSources.php has a syntax error"
-php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
-php -l ../../agent/src/Cli.php >/dev/null || fail "agent/src/Cli.php has a syntax error"
-php -l ../../agent/src/RepositoryCompiler.php >/dev/null || fail "agent/src/RepositoryCompiler.php has a syntax error"
-php -l ../../cli/src/AdapterCatalog.php >/dev/null || fail "cli/src/AdapterCatalog.php has a syntax error"
-php -l ../../cli/src/PlanSummary.php >/dev/null || fail "cli/src/PlanSummary.php has a syntax error"
+php -l ../../agent/src/Adapter/AdapterSources.php >/dev/null || fail "agent/src/Adapter/AdapterSources.php has a syntax error"
+php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
+php -l ../../agent/src/Command/Cli.php >/dev/null || fail "agent/src/Command/Cli.php has a syntax error"
+php -l ../../agent/src/Repository/RepositoryCompiler.php >/dev/null || fail "agent/src/Repository/RepositoryCompiler.php has a syntax error"
+php -l ../../cli/src/Adapter/AdapterCatalog.php >/dev/null || fail "cli/src/Adapter/AdapterCatalog.php has a syntax error"
+php -l ../../cli/src/Plan/PlanSummary.php >/dev/null || fail "cli/src/Plan/PlanSummary.php has a syntax error"
 pass "no syntax errors"
 
 say "the plugin source's two WordPress surfaces must be the only ones it reaches"
@@ -58,7 +58,7 @@ say "the plugin source's two WordPress surfaces must be the only ones it reaches
 reach="$(awk '
   /^[ \t]*(\*|\/\/|\/\*)/ { next }
   { if ($0 ~ /(get_bloginfo|delete_transient|get_taxonomies|get_option|is_multisite|apply_filters|add_action|add_filter|wp_[a-z_]+|validate_plugin|get_plugins)[ \t]*\(|[$]wpdb|WP_PLUGIN_DIR|WP_CONTENT_DIR|ABSPATH/) print FNR": "$0 }
-' ../../agent/src/AdapterSources.php)"
+' ../../agent/src/Adapter/AdapterSources.php)"
 [ -n "$reach" ] || fail "expected AdapterSources.php to reach WP_PLUGIN_DIR/get_option — the plugin source is missing"
 if printf '%s\n' "$reach" | grep -Ev "WP_PLUGIN_DIR|get_option" >/dev/null; then
   printf '%s\n' "$reach" | grep -Ev "WP_PLUGIN_DIR|get_option"
@@ -70,7 +70,7 @@ fi
 if ! printf '%s\n' "$reach" | grep -q "function_exists('get_option')"; then
   fail "AdapterSources.php reads get_option() without a function_exists() guard — off-WordPress callers would fatal"
 fi
-if grep -nE '^[^*/]*Deploy::' ../../agent/src/AdapterSources.php; then
+if grep -nE '^[^*/]*Deploy::' ../../agent/src/Adapter/AdapterSources.php; then
   fail "AdapterSources.php calls into Deploy — that pulls the lifecycle half into the pure loader graph (see plugin_source()'s own comment)"
 fi
 pass "the plugin source reaches WP_PLUGIN_DIR and get_option only, both guarded, and pulls in no Deploy"

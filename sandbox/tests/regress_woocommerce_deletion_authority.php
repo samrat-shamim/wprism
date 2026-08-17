@@ -20,36 +20,36 @@ if (!defined('ARRAY_A')) {
 $root = dirname(__DIR__, 2);
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
-require $root . '/agent/src/Canon.php';
-require $root . '/agent/src/OptionState.php';
-require $root . '/agent/src/Db.php';
-require $root . '/agent/src/Uuid.php';
-require $root . '/agent/src/Ledger.php';
-require $root . '/agent/src/Policy.php';
-require $root . '/agent/src/Deletion.php';
-require $root . '/agent/src/JsonRefs.php';
-require $root . '/agent/src/Tokens.php';
-require $root . '/agent/src/Blocks.php';
-require $root . '/agent/src/SidebarState.php';
-require $root . '/agent/src/Shortcodes.php';
-require $root . '/agent/src/Canary.php';
-require $root . '/agent/src/IdentityNotes.php';
-require $root . '/agent/src/Snapshot.php';
-require $root . '/agent/src/TransientDbException.php';
-require $root . '/agent/src/Publish.php';
-require $root . '/agent/src/PersonalData.php';
-require $root . '/agent/src/PromotionLock.php';
-require $root . '/agent/src/Identity.php';
-require $root . '/agent/src/IdentityBackup.php';
-require $root . '/agent/src/Orphans.php';
-require $root . '/agent/src/Capture.php';
-require_once $root . '/agent/src/RepositoryAuthorization.php';
-require_once $root . '/agent/src/CodeCompatibility.php';
-require_once $root . '/agent/src/Code.php';
-require_once $root . '/agent/src/CodeStateContract.php';
-require_once $root . '/agent/src/RepositoryCompiler.php';
-require_once $root . '/agent/src/DeleteGuardValueCodec.php';
-require_once $root . '/agent/src/Apply.php';
+require $root . '/agent/src/Kernel/Canon.php';
+require $root . '/agent/src/Kernel/OptionState.php';
+require $root . '/agent/src/Kernel/Db.php';
+require $root . '/agent/src/Kernel/Uuid.php';
+require $root . '/agent/src/Repository/Ledger.php';
+require $root . '/agent/src/Policy/Policy.php';
+require $root . '/agent/src/Delete/Deletion.php';
+require $root . '/agent/src/Kernel/JsonRefs.php';
+require $root . '/agent/src/Grammar/Tokens.php';
+require $root . '/agent/src/Grammar/Blocks.php';
+require $root . '/agent/src/Repository/SidebarState.php';
+require $root . '/agent/src/Grammar/Shortcodes.php';
+require $root . '/agent/src/Review/Canary.php';
+require $root . '/agent/src/Repository/IdentityNotes.php';
+require $root . '/agent/src/Repository/Snapshot.php';
+require $root . '/agent/src/Kernel/TransientDbException.php';
+require $root . '/agent/src/Publication/Publish.php';
+require $root . '/agent/src/Kernel/PersonalData.php';
+require $root . '/agent/src/Promotion/PromotionLock.php';
+require $root . '/agent/src/Repository/Identity.php';
+require $root . '/agent/src/Repository/IdentityBackup.php';
+require $root . '/agent/src/Review/Orphans.php';
+require $root . '/agent/src/Capture/Capture.php';
+require_once $root . '/agent/src/Repository/RepositoryAuthorization.php';
+require_once $root . '/agent/src/Code/CodeCompatibility.php';
+require_once $root . '/agent/src/Code/Code.php';
+require_once $root . '/agent/src/Code/CodeStateContract.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $root . '/agent/src/Delete/DeleteGuardValueCodec.php';
+require_once $root . '/agent/src/Apply/Apply.php';
 
 use Duo\Deletion;
 use Duo\DeleteGuardValueCodec;
@@ -578,7 +578,7 @@ check(($cacheProviderDeclaration['source'] ?? '') === 'manifest'
 check(($policy->manifests[0]['version_range']['min'] ?? '') === '11.0.0'
     && ($policy->manifests[0]['version_range']['max'] ?? '') === '12.0.0',
     'Woo cache boundary remains pinned to the certified 11.x manifest range');
-check(str_contains((string) file_get_contents($root . '/agent/src/Providers.php'),
+check(str_contains((string) file_get_contents($root . '/agent/src/Adapter/Providers.php'),
     "\$provider->invoke(\$capability, \$args)"),
     'provider capabilities are invoked through the engine contract, never as an engine-executed string');
 // The retired channel ran every payload in a freshly launched WP-CLI process
@@ -590,7 +590,7 @@ check(str_contains((string) file_get_contents($root . '/agent/src/Providers.php'
 // deleted fresh-process assertion with the invariant that now carries its
 // job: if the flush disappears, this fails, and whoever removes it must
 // re-argue the execution-context question on purpose.
-$actionDispatcherSource = (string) file_get_contents($root . '/agent/src/RebuildActionDispatcher.php');
+$actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionDispatcher.php');
 check(str_contains($actionDispatcherSource, "Db::checkpoint('rebuild object cache (pre-action)')")
     && preg_match(
         "/rebuild object cache \\(pre-action\\)'.{0,200}wp_cache_flush\\(\\)/s",

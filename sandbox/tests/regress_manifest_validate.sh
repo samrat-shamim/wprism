@@ -44,9 +44,9 @@ say "php -l syntax check (harness, fixtures, and every file it exercises)"
 php -l regress_manifest_validate.php >/dev/null || fail "regress_manifest_validate.php has a syntax error"
 php -l manifest_fixtures.php >/dev/null || fail "manifest_fixtures.php has a syntax error"
 php -l ../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
-php -l ../../cli/src/ManifestValidate.php >/dev/null || fail "cli/src/ManifestValidate.php has a syntax error"
-php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
-php -l ../../agent/src/NativeActions.php >/dev/null || fail "agent/src/NativeActions.php has a syntax error"
+php -l ../../cli/src/Adapter/ManifestValidate.php >/dev/null || fail "cli/src/Adapter/ManifestValidate.php has a syntax error"
+php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
+php -l ../../agent/src/Rebuild/NativeActions.php >/dev/null || fail "agent/src/Rebuild/NativeActions.php has a syntax error"
 pass "no syntax errors"
 
 say "the command is WordPress-free by construction — assert it over everything boot() loads"
@@ -61,23 +61,30 @@ engine_files=$(php <<'PHP'
 <?php
 // cwd is sandbox/tests; the suite cd'd there.
 $repo = dirname(getcwd(), 2);
-$src = (string) file_get_contents($repo . '/cli/src/ManifestValidate.php');
+$src = (string) file_get_contents($repo . '/cli/src/Adapter/ManifestValidate.php');
 $queue = [];
-// boot() requires "<repo>/agent/src/$class.php" for each name in the list its
-// own foreach walks. Both halves are read out of the handler, never restated.
-if (preg_match_all('/require_once \$repo \. "\/agent\/src\/\$(\w+)\.php"/', $src, $m) > 0) {
-    foreach ($m[1] as $var) {
-        if (preg_match('/foreach \(\[([^\]]*)\] as \$' . preg_quote($var, '/') . '\)/', $src, $list) === 1) {
-            foreach (explode(',', $list[1]) as $class) {
-                $queue[] = $repo . '/agent/src/' . trim($class, " \t'\"") . '.php';
-            }
+// Since the module move (ROUND 3 TRAIN 1) boot() resolves every name through
+// agent/duo-classmap.php. Both halves are still read out of the handler —
+// the classmap lookup that opens the loop body proves the shape, the foreach
+// list supplies the names. Anchoring on that lookup rather than on the first
+// foreach in the file matters: ManifestValidate.php has earlier list loops
+// ('options', 'post_meta', ...) that a looser pattern would match instead.
+$classFiles = [];
+foreach ((array) (require $repo . '/agent/duo-classmap.php') as $mappedPath) {
+    $classFiles[basename((string) $mappedPath, '.php')] = (string) $mappedPath;
+}
+if (preg_match('/foreach \(\[([^\]]*)\] as \$\w+\) \{\s*\$duoAgentFile = \$duoAgentFiles/', $src, $list) === 1) {
+    foreach (explode(',', $list[1]) as $class) {
+        $name = trim($class, " \t'\"");
+        if (isset($classFiles[$name])) {
+            $queue[] = $repo . '/agent/' . $classFiles[$name];
         }
     }
 }
 // A literal single-file require, should boot() ever grow one.
-if (preg_match_all("/require(?:_once)? \\\$repo \\. '\\/agent\\/src\\/(\\w+)\\.php'/", $src, $m2) > 0) {
-    foreach ($m2[1] as $class) {
-        $queue[] = $repo . '/agent/src/' . $class . '.php';
+if (preg_match_all("/require(?:_once)? \\\$repo \\. '\\/agent\\/src\\/((?:\\w+\\/)?\\w+)\\.php'/", $src, $m2) > 0) {
+    foreach ($m2[1] as $rel) {
+        $queue[] = $repo . '/agent/src/' . $rel . '.php';
     }
 }
 $seen = [];
@@ -87,9 +94,13 @@ while ($queue !== []) {
         continue;
     }
     $seen[$file] = true;
-    if (preg_match_all("/require_once __DIR__ \\. '\\/(\\w+)\\.php'/", (string) file_get_contents($file), $r) > 0) {
-        foreach ($r[1] as $class) {
-            $queue[] = $repo . '/agent/src/' . $class . '.php';
+    // A cross-module require is `__DIR__ . '/../<Module>/X.php'` since the
+    // move; resolving it against the requiring file's own directory keeps this
+    // closure module-agnostic.
+    if (preg_match_all("/require_once __DIR__ \\. '\\/((?:\\.\\.\\/\\w+\\/)?\\w+)\\.php'/", (string) file_get_contents($file), $r) > 0) {
+        foreach ($r[1] as $rel) {
+            $resolved = realpath(dirname($file) . '/' . $rel . '.php');
+            $queue[] = is_string($resolved) ? $resolved : dirname($file) . '/' . $rel . '.php';
         }
     }
 }
@@ -98,7 +109,7 @@ sort($files);
 echo implode("\n", $files), "\n";
 PHP
 )
-[ -n "$engine_files" ] || fail "could not enumerate boot()'s require list from cli/src/ManifestValidate.php"
+[ -n "$engine_files" ] || fail "could not enumerate boot()'s require list from cli/src/Adapter/ManifestValidate.php"
 for required in Policy.php NativeActions.php CapabilityRegistry.php Canon.php; do
   grep -q "/$required\$" <<<"$engine_files" \
     || fail "boot() enumeration missed $required — the scan below would be checking the wrong files"
@@ -181,8 +192,8 @@ scan_wp() {
 }
 
 # shellcheck disable=SC2086
-scan_wp "" ../../cli/src/ManifestValidate.php \
-  || fail "cli/src/ManifestValidate.php reaches WordPress — the handler itself must be free of it"
+scan_wp "" ../../cli/src/Adapter/ManifestValidate.php \
+  || fail "cli/src/Adapter/ManifestValidate.php reaches WordPress — the handler itself must be free of it"
 scan_wp "$wp_allow" $engine_files \
   || fail "an unguarded WordPress reach in boot()'s load set is neither guarded nor allowlisted (see above)"
 pass "every WordPress reach in the handler and its whole load set is guarded or explicitly allowlisted"

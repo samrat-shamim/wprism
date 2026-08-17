@@ -8,7 +8,7 @@
 // complete envelope first. This suite drives `{}`, a plan missing one
 // required bucket, and a valid complete plan through the two promotion
 // reconciliation boundaries in cli/duo, then pins the validator's bucket
-// list to what agent/src/Apply.php actually emits. The third boundary,
+// list to what agent/src/Apply/Apply.php actually emits. The third boundary,
 // branch-environment convergence, is exercised in
 // regress_environment_materializer.php, which already owns the materializer
 // harness that reaches it.
@@ -569,9 +569,9 @@ pct_ok($contract::requireComplete(pct_plan(), 'unit surface') === pct_plan(),
 // bucket assignment or append, and plan()'s own `warnings`, must equal the contract
 // exactly — an emitter that grows a bucket without teaching the validator
 // about it would silently widen what a promotion receipt is allowed to trust.
-$applySource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/ApplyRequestCoordinator.php');
+$applySource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/Apply/ApplyRequestCoordinator.php');
 if (!is_string($applySource)) pct_fail('could not read the plan emitter');
-$builderSource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/ApplyPlanBuilder.php');
+$builderSource = file_get_contents(dirname(__DIR__, 2) . '/agent/src/Apply/ApplyPlanBuilder.php');
 if (!is_string($builderSource)) pct_fail('could not read the plan builder');
 // The derivation is bounded to plan() + build_plan(): those two methods are
 // the wire emitter. A $plan local elsewhere in the file (e.g. run() holds

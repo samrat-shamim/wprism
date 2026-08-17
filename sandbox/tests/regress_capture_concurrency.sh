@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Live regression — DUO-3223 (concurrency-scenario arm): DUO-3213's capture
-# lock (agent/src/Publish.php's flock()-based mutual exclusion) under REAL
+# lock (agent/src/Publication/Publish.php's flock()-based mutual exclusion) under REAL
 # concurrent `wp duo capture` processes, not simulated.
 #
 # regress_capture_publish.php already proves Publish::lock()'s primitives
@@ -17,7 +17,7 @@
 # this project's own discipline refuses to ship. Reuses the SAME idiom
 # DUO-3217 established for its own live PromotionLock races
 # (sandbox/tests/regress_promotion_lock.sh): a DUO_TEST_MODE-gated,
-# env-var-controlled deterministic release gate (agent/src/Capture.php's own
+# env-var-controlled deterministic release gate (agent/src/Capture/Capture.php's own
 # DUO_TEST_CAPTURE_WAIT_FOR_RELEASE hook, immediately after Publish::lock()
 # succeeds) plus a DB-backed (Ledger::kv_set(), cross-process-visible —
 # unlike the lock itself, which is a local flock() invisible to another

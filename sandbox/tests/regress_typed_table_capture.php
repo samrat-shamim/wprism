@@ -13,7 +13,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-require_once __DIR__ . '/../../agent/src/TypedTableCapture.php';
+require_once __DIR__ . '/../../agent/src/Capture/TypedTableCapture.php';
 
 use Duo\Canon;
 use Duo\IdentityNotes;
@@ -360,8 +360,8 @@ $check(($mappingCalls[0][4] ?? null) === true,
 $check(in_array('SELECT * FROM `wp_joins` ORDER BY `left_id`, `right_id` ASC', $wpdb->queries, true),
     'composite reads are deterministic in declared identity-column order');
 
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
-$snapshotLines = file(__DIR__ . '/../../agent/src/Snapshot.php');
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
+$snapshotLines = file(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
 $methodSource = static function (string $name) use ($snapshotLines): string {
     $method = new \ReflectionMethod(Snapshot::class, $name);
     return implode('', array_slice(
@@ -380,9 +380,9 @@ foreach (['self::snapshot_identity', 'Ledger::require_read_only_mapping', 'Ledge
     'IdentityNotes::natural_key_continuity', 'sanitize_title'] as $capability) {
     $check(str_contains($factory, $capability), "Snapshot capture adapter injects $capability explicitly");
 }
-$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Snapshot.php');
-$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/TypedTableCapture.php');
-$check(str_contains($snapshotSource, "require_once __DIR__ . '/TypedTableCapture.php';"),
+$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture/TypedTableCapture.php');
+$check(str_contains($snapshotSource, "require_once __DIR__ . '/../Capture/TypedTableCapture.php';"),
     'Snapshot directly requires its typed-table capture collaborator');
 $check(!preg_match('/\b(?:Snapshot|Policy|Ledger|IdentityNotes|Tokens|Uuid)::/', $captureSource),
     'TypedTableCapture has no hidden runtime-service dependency');

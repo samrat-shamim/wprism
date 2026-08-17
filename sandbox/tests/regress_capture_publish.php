@@ -3,7 +3,7 @@
  * Offline (no docker, no WordPress bootstrap) regression harness for
  * DUO-3213: capture's atomic tree publication.
  *
- * agent/src/Publish.php is the filesystem half of this issue's fix and was
+ * agent/src/Publication/Publish.php is the filesystem half of this issue's fix and was
  * deliberately written with ZERO WordPress/$wpdb dependency (see its own
  * docblock) specifically so every guarantee it makes — the capture lock,
  * the staging directory, the atomic two-step rename swap, and deterministic
@@ -21,7 +21,7 @@
  * filesystem guarantee: a crash/disk-full/kill at any point before the
  * final swap must never touch the previously-published tree.
  *
- * DUO-3236 addendum (P8 below): agent/src/RepositoryCompiler.php's own
+ * DUO-3236 addendum (P8 below): agent/src/Repository/RepositoryCompiler.php's own
  * docblock confirms it too is target-DB-free, so the new staged-candidate
  * compile gate Capture::run() now performs before Publish::swap() is
  * provable here as well — no docker, no WordPress bootstrap needed for it
@@ -38,7 +38,7 @@
 // through duo.php or another fixture. The call deliberately stops at the
 // next legitimate dependency wall in this WordPress-free harness; the
 // regression is that Canary must not be the first failure.
-$captureStandalone = __DIR__ . '/../../agent/src/Capture.php';
+$captureStandalone = __DIR__ . '/../../agent/src/Capture/Capture.php';
 $probeCode = 'require_once ' . var_export($captureStandalone, true) . ';'
     . 'if (!class_exists("Duo\\\\Canary", false)) {'
     . ' fwrite(STDERR, "Capture.php did not load Duo\\\\Canary\\n"); exit(2);'
@@ -70,37 +70,37 @@ if ($probeExit !== 0) {
 }
 fwrite(STDOUT, "ok: Capture standalone load reaches its next dependency wall without a Canary class failure\n");
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/fixtures/duo-publish-stale-is-file.php';
-require_once __DIR__ . '/../../agent/src/Publish.php';
-require_once __DIR__ . '/../../agent/src/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Publication/Publish.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
 // Capture is intentionally standalone-loadable. Its direct scoped overlay
 // dependency may already load Policy/Snapshot through the real planner, so the
 // harness support list must be idempotent rather than depending on a former
 // bootstrap order.
-require_once __DIR__ . '/../../agent/src/Capture.php';
+require_once __DIR__ . '/../../agent/src/Capture/Capture.php';
 // DUO-3236 (P8 below): RepositoryCompiler::compile_staged() is the new gate
 // Capture.php now runs against the staged candidate before Publish::swap().
-// Confirmed target-DB-free (agent/src/RepositoryCompiler.php's own
+// Confirmed target-DB-free (agent/src/Repository/RepositoryCompiler.php's own
 // docblock: "no $wpdb, no get_plugins()/wp_get_theme() calls anywhere in
 // this compiler") — same offline-testability precedent already established
 // by sandbox/tests/regress_repository_compiler.sh, whose dependency list
 // this mirrors exactly.
-require_once __DIR__ . '/../../agent/src/Uuid.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Uuid.php';
 // CaptureTransaction and the scoped overlay self-load direct dependencies.
 // Keep this legacy fixture load idempotent for either dependency layout.
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
-require_once __DIR__ . '/../../agent/src/Deletion.php';
-require_once __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
-require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Delete/Deletion.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryAuthorization.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
 // RepositoryEntityParser closes the compiler's sidebar dependency. Keep this
 // support load idempotent so the capture/publish harness remains valid both
 // before and after the compiler parser boundary is loaded transitively.
-require_once __DIR__ . '/../../agent/src/SidebarState.php';
+require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2); // agent/duo.php's own value; not required here to avoid its ABSPATH/WP_CLI bootstrap guard
 }
@@ -570,7 +570,7 @@ echo "\n== P7: Capture::check_transient_db_error() (Reflection, stub \$wpdb) ==\
 // ======================================================================
 // P8 — DUO-3236: RepositoryCompiler::compile_staged() gates a staged
 // candidate before Publish::swap() ever runs. This exercises the actual
-// sequence agent/src/Capture.php's run() now performs around its own
+// sequence agent/src/Capture/Capture.php's run() now performs around its own
 // write_entities() -> [media copy] -> compile_staged() -> swap() steps
 // (P1-P6 above cover Publish.php's primitives in isolation; this covers
 // the new integration between them).
@@ -597,7 +597,7 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
     ]);
     // Simulate Capture::run()'s own DUO-3236 ordering: the media blob this
     // run discovered is copied to the REAL media/ root BEFORE the gate
-    // runs (agent/src/Capture.php's relocated foreach), never staged
+    // runs (agent/src/Capture/Capture.php's relocated foreach), never staged
     // itself (Publish.php's own class docblock).
     $mediaBytes = "p8 media\n";
     $mediaHash = hash('sha256', $mediaBytes);
@@ -654,7 +654,7 @@ echo "\n== P8: staged-candidate compile gate (DUO-3236) ==\n";
     // proving why Capture.php's own copy-media-BEFORE-the-gate reordering
     // (P8a's setup) is load-bearing, not cosmetic: getting that ordering
     // backwards (media copied only AFTER a successful gate+swap, which is
-    // what agent/src/Capture.php did before DUO-3236) would make EVERY
+    // what agent/src/Capture/Capture.php did before DUO-3236) would make EVERY
     // capture containing a brand-new media reference fail this gate
     // spuriously, every time.
     $root2 = fresh_root('p8_missing_media');

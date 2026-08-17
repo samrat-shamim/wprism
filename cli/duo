@@ -6,74 +6,74 @@ declare(strict_types=1);
  * duo — host-agnostic multi-environment orchestrator.
  *
  * Git stays git; this wraps the per-environment `wp duo capture|plan|apply`
- * agent commands (agent/src/Cli.php) over local/docker/ssh transports, plus
+ * agent commands (agent/src/Command/Cli.php) over local/docker/ssh transports, plus
  * `envs`/`doctor`/`status` conveniences. Dependency-free PHP 8+ — no
  * composer, no WordPress required on the machine running `duo` itself.
  *
  * See cli/README.md for the environment registry format.
  */
 
-require __DIR__ . '/src/Registry.php';
-require __DIR__ . '/src/EnvironmentDriver.php';
-require __DIR__ . '/src/EnvironmentLifecycle.php';
-require __DIR__ . '/src/CommandOutput.php';
-require __DIR__ . '/src/EnvironmentCommandPreflight.php';
-require __DIR__ . '/src/PassthroughCommand.php';
-require __DIR__ . '/src/PromoteCommand.php';
-require __DIR__ . '/src/CaptureCommand.php';
-require __DIR__ . '/src/EnvironmentCommandOptions.php';
-require __DIR__ . '/src/DriverCapabilitiesCommand.php';
-require __DIR__ . '/src/Transport.php';
-require __DIR__ . '/src/LocalTransport.php';
-require __DIR__ . '/src/DockerTransport.php';
-require __DIR__ . '/src/SshTransport.php';
-require __DIR__ . '/src/EnvironmentCommand.php';
-require __DIR__ . '/src/EnvironmentListCommand.php';
+require __DIR__ . '/src/Environment/Registry.php';
+require __DIR__ . '/src/Transport/EnvironmentDriver.php';
+require __DIR__ . '/src/Environment/EnvironmentLifecycle.php';
+require __DIR__ . '/src/Command/CommandOutput.php';
+require __DIR__ . '/src/Command/EnvironmentCommandPreflight.php';
+require __DIR__ . '/src/Command/PassthroughCommand.php';
+require __DIR__ . '/src/Command/PromoteCommand.php';
+require __DIR__ . '/src/Command/CaptureCommand.php';
+require __DIR__ . '/src/Command/EnvironmentCommandOptions.php';
+require __DIR__ . '/src/Command/DriverCapabilitiesCommand.php';
+require __DIR__ . '/src/Transport/Transport.php';
+require __DIR__ . '/src/Transport/LocalTransport.php';
+require __DIR__ . '/src/Transport/DockerTransport.php';
+require __DIR__ . '/src/Transport/SshTransport.php';
+require __DIR__ . '/src/Command/EnvironmentCommand.php';
+require __DIR__ . '/src/Command/EnvironmentListCommand.php';
 require dirname(__DIR__) . '/recovery/rollback-control.php';
-require __DIR__ . '/src/RollbackAuthority.php';
-require __DIR__ . '/src/VerifiedRollbackProfile.php';
-require __DIR__ . '/src/ScopedRollbackProfile.php';
-require __DIR__ . '/src/BootstrapEligibility.php';
-require __DIR__ . '/src/Adopt.php';
-require __DIR__ . '/src/Init.php';
-require __DIR__ . '/src/InitCommand.php';
-require __DIR__ . '/src/Doctor.php';
-require __DIR__ . '/src/DoctorCommand.php';
-require __DIR__ . '/src/CodeDeploy.php';
-require __DIR__ . '/src/DeployCommand.php';
-require __DIR__ . '/src/AdoptCommand.php';
-require __DIR__ . '/src/ScopeCommand.php';
-require __DIR__ . '/src/PlanContract.php';
-require __DIR__ . '/src/PlanSummary.php';
-require __DIR__ . '/src/PlanView.php';
-require __DIR__ . '/src/Pending.php';
-require __DIR__ . '/src/PendingCommand.php';
-require __DIR__ . '/src/StatusCommand.php';
-require __DIR__ . '/src/Triage.php';
-require __DIR__ . '/src/ClassificationBatch.php';
-require __DIR__ . '/src/ClassifyCommand.php';
-require __DIR__ . '/src/ManifestValidate.php';
-require __DIR__ . '/src/AdapterDraft.php';
-require __DIR__ . '/src/AdapterCatalog.php';
-require __DIR__ . '/src/AdapterObservation.php';
+require __DIR__ . '/src/Recovery/RollbackAuthority.php';
+require __DIR__ . '/src/Recovery/VerifiedRollbackProfile.php';
+require __DIR__ . '/src/Recovery/ScopedRollbackProfile.php';
+require __DIR__ . '/src/Onboarding/BootstrapEligibility.php';
+require __DIR__ . '/src/Onboarding/Adopt.php';
+require __DIR__ . '/src/Onboarding/Init.php';
+require __DIR__ . '/src/Command/InitCommand.php';
+require __DIR__ . '/src/Onboarding/Doctor.php';
+require __DIR__ . '/src/Command/DoctorCommand.php';
+require __DIR__ . '/src/Transport/CodeDeploy.php';
+require __DIR__ . '/src/Command/DeployCommand.php';
+require __DIR__ . '/src/Command/AdoptCommand.php';
+require __DIR__ . '/src/Command/ScopeCommand.php';
+require __DIR__ . '/src/Plan/PlanContract.php';
+require __DIR__ . '/src/Plan/PlanSummary.php';
+require __DIR__ . '/src/Plan/PlanView.php';
+require __DIR__ . '/src/Onboarding/Pending.php';
+require __DIR__ . '/src/Command/PendingCommand.php';
+require __DIR__ . '/src/Command/StatusCommand.php';
+require __DIR__ . '/src/Onboarding/Triage.php';
+require __DIR__ . '/src/Onboarding/ClassificationBatch.php';
+require __DIR__ . '/src/Command/ClassifyCommand.php';
+require __DIR__ . '/src/Adapter/ManifestValidate.php';
+require __DIR__ . '/src/Adapter/AdapterDraft.php';
+require __DIR__ . '/src/Adapter/AdapterCatalog.php';
+require __DIR__ . '/src/Adapter/AdapterObservation.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
-if (is_file(__DIR__ . '/src/RefreshPlan.php')) {
-    require __DIR__ . '/src/RefreshPlan.php';
+if (is_file(__DIR__ . '/src/Refresh/RefreshPlan.php')) {
+    require __DIR__ . '/src/Refresh/RefreshPlan.php';
 }
-require __DIR__ . '/src/Refresh.php';
-require __DIR__ . '/src/RefreshCommand.php';
-require __DIR__ . '/src/RebaseCommand.php';
+require __DIR__ . '/src/Refresh/Refresh.php';
+require __DIR__ . '/src/Command/RefreshCommand.php';
+require __DIR__ . '/src/Command/RebaseCommand.php';
 // Pure immutable-contract validation for host-local --scope-contract files.
 // These classes perform no WordPress bootstrap or target access here.
-require_once dirname(__DIR__) . '/agent/src/Canon.php';
-require_once dirname(__DIR__) . '/agent/src/Secrets.php';
-require_once dirname(__DIR__) . '/agent/src/ReferenceGraph.php';
-require_once dirname(__DIR__) . '/agent/src/ScopeClosure.php';
-require_once dirname(__DIR__) . '/agent/src/CanonicalSurfaces.php';
-require_once dirname(__DIR__) . '/agent/src/Deletion.php';
-require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
+require_once dirname(__DIR__) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__) . '/agent/src/Kernel/Secrets.php';
+require_once dirname(__DIR__) . '/agent/src/Repository/ReferenceGraph.php';
+require_once dirname(__DIR__) . '/agent/src/Policy/ScopeClosure.php';
+require_once dirname(__DIR__) . '/agent/src/Repository/CanonicalSurfaces.php';
+require_once dirname(__DIR__) . '/agent/src/Delete/Deletion.php';
+require_once dirname(__DIR__) . '/agent/src/Policy/ScopeContract.php';
 
 /**
  * Additive classmap fallback for both trees (DUO-3481, owner rulings D3/D4).
@@ -86,7 +86,7 @@ require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
  * Duo\* types under agent/src, of which this bootstrap declares only ten —
  * the seven agent/src files required directly above plus what they pull in.
  * The remaining 228 arrive later and by hand: RefreshPlan::loadCompiler()
- * require_once's 39 agent/src files (cli/src/RefreshPlan.php:1028), and
+ * require_once's 39 agent/src files (cli/src/Refresh/RefreshPlan.php:1028), and
  * AdapterCatalog/AdapterDraft/ManifestValidate each have their own boot()
  * that requires the Canon/OptionState/ManifestDispositions/CapabilityRegistry/
  * Policy set. Those hand-written lists stay exactly as they are — this only
@@ -98,10 +98,10 @@ require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
  * map, which is what keeps Policy.php:1455/1519 and Providers.php:2047 —
  * the "your manifest's PHP must define this class" diagnostics — reachable.
  *
- * The is_file() test is load-bearing here specifically. cli/src/RefreshPlan.php
+ * The is_file() test is load-bearing here specifically. cli/src/Refresh/RefreshPlan.php
  * is required under an `is_file()` guard above because the semantic planner is
  * a separately-reviewable layer that may be absent, and Refresh::planner()
- * (cli/src/Refresh.php:673) turns that absence into an actionable
+ * (cli/src/Refresh/Refresh.php:673) turns that absence into an actionable
  * "refresh semantic planner is unavailable" refusal via class_exists(). A bare
  * require_once through the map would replace that refusal with an uncatchable
  * failed-to-open fatal in exactly the degraded tree the guard exists for.
@@ -393,7 +393,7 @@ Verbs:
                           snapshot, verifies its additive value-free plan view,
                           itemizes only matching ordinary rows (default/max
                           200), and retains every safety/global diagnostic.
-                          See cli/src/PlanSummary.php's decision-matrix
+                          See cli/src/Plan/PlanSummary.php's decision-matrix
                           comment. Underlying plan failure/unparseable JSON is
                           also non-zero. Warnings alone never flip this.
   capabilities <env>      Evaluate the evidence-bound generated registry for

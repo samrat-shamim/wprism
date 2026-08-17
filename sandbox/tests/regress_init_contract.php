@@ -3,8 +3,8 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/Transport.php';
-require_once __DIR__ . '/../../cli/src/Init.php';
+require_once __DIR__ . '/../../cli/src/Transport/Transport.php';
+require_once __DIR__ . '/../../cli/src/Onboarding/Init.php';
 
 use Duo\Orchestrator\Init;
 use Duo\Orchestrator\Transport;
@@ -350,7 +350,7 @@ try {
     );
 }
 $initCommandSource = (string) file_get_contents(__DIR__ . '/../../cli/duo');
-$initHandlerSource = (string) file_get_contents(__DIR__ . '/../../cli/src/InitCommand.php');
+$initHandlerSource = (string) file_get_contents(__DIR__ . '/../../cli/src/Command/InitCommand.php');
 check(
     substr_count($initCommandSource, 'return InitCommand::run(') === 1
         && substr_count($initCommandSource, 'function cmd_init(EnvironmentDriver $t, array $extra, ?string $envsFileOverride = null): int {') === 1
@@ -418,34 +418,34 @@ try {
     check(str_contains($expected->getMessage(), 'adapter unsupported'), 'target refusal remains visible to the operator');
 }
 
-$initFacadeSource = file_get_contents(__DIR__ . '/../../agent/src/Init.php');
+$initFacadeSource = file_get_contents(__DIR__ . '/../../agent/src/Init/Init.php');
 check(is_string($initFacadeSource), 'target init source is readable');
-$plannerSource = file_get_contents(__DIR__ . '/../../agent/src/InitPlanner.php');
+$plannerSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitPlanner.php');
 check(is_string($plannerSource), 'target init planner source is readable');
-$confirmationSource = file_get_contents(__DIR__ . '/../../agent/src/InitConfirmation.php');
+$confirmationSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitConfirmation.php');
 check(is_string($confirmationSource), 'target init confirmation source is readable');
-$codeBaselineSource = file_get_contents(__DIR__ . '/../../agent/src/InitCodeBaseline.php');
+$codeBaselineSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitCodeBaseline.php');
 check(is_string($codeBaselineSource), 'target init code-baseline source is readable');
-$initExceptionSource = file_get_contents(__DIR__ . '/../../agent/src/InitExceptions.php');
+$initExceptionSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitExceptions.php');
 check(is_string($initExceptionSource), 'target init exception source is readable');
-$siteProbeSource = file_get_contents(__DIR__ . '/../../agent/src/InitSiteProbe.php');
+$siteProbeSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitSiteProbe.php');
 check(is_string($siteProbeSource), 'target init site-probe source is readable');
-$codeInventorySource = file_get_contents(__DIR__ . '/../../agent/src/InitCodeInventory.php');
+$codeInventorySource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitCodeInventory.php');
 check(is_string($codeInventorySource), 'target init code-inventory source is readable');
-$ownedArtifactsSource = file_get_contents(__DIR__ . '/../../agent/src/InitOwnedArtifacts.php');
+$ownedArtifactsSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitOwnedArtifacts.php');
 check(is_string($ownedArtifactsSource), 'target init owned-artifact source is readable');
-$faultSource = file_get_contents(__DIR__ . '/../../agent/src/InitFaults.php');
+$faultSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitFaults.php');
 check(is_string($faultSource), 'target init fault-checkpoint source is readable');
-$repositorySource = file_get_contents(__DIR__ . '/../../agent/src/InitRepositoryBoundary.php');
+$repositorySource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitRepositoryBoundary.php');
 check(is_string($repositorySource), 'target init repository-boundary source is readable');
-$attemptJournalSource = file_get_contents(__DIR__ . '/../../agent/src/InitAttemptJournal.php');
+$attemptJournalSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitAttemptJournal.php');
 check(is_string($attemptJournalSource), 'target init attempt-journal source is readable');
-$recoverySource = file_get_contents(__DIR__ . '/../../agent/src/InitRecovery.php');
+$recoverySource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitRecovery.php');
 check(is_string($recoverySource), 'target init recovery source is readable');
-$protocolSource = file_get_contents(__DIR__ . '/../../agent/src/InitProtocol.php');
+$protocolSource = file_get_contents(__DIR__ . '/../../agent/src/Init/InitProtocol.php');
 check(is_string($protocolSource), 'target init protocol source is readable');
 
-require_once __DIR__ . '/../../agent/src/Init.php';
+require_once __DIR__ . '/../../agent/src/Init/Init.php';
 $agentInit = new ReflectionClass(\Duo\Init::class);
 $proposalMethod = $agentInit->getMethod('proposal');
 $confirmMethod = $agentInit->getMethod('confirm');
@@ -457,7 +457,7 @@ $publicAgentInitMethods = array_map(
 );
 sort($publicAgentInitMethods, SORT_STRING);
 check(
-    $agentInit->getFileName() === realpath(__DIR__ . '/../../agent/src/Init.php')
+    $agentInit->getFileName() === realpath(__DIR__ . '/../../agent/src/Init/Init.php')
         && $publicAgentInitMethods === ['confirm', 'proposal']
         && $proposalMethod->isPublic() && $proposalMethod->isStatic()
         && count($proposalParameters) === 1
@@ -476,7 +476,7 @@ check(
     'target Init facade preserves its exact public API and delegates both operations to their owning collaborators'
 );
 
-require_once __DIR__ . '/../../agent/src/InitAttemptJournal.php';
+require_once __DIR__ . '/../../agent/src/Init/InitAttemptJournal.php';
 check(
     \Duo\Init::FORMAT === 'duo-init-plan/v1'
         && \Duo\InitPlanner::FORMAT === \Duo\Init::FORMAT
@@ -606,9 +606,9 @@ check(
         && str_contains($confirmationSource, "rename(\$stagedCode, \$codeRoot . '/wp-content')"),
     'code baseline reserves an owned root before publishing its verified child'
 );
-$publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
-$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php')
-    . (string) file_get_contents(__DIR__ . '/../../agent/src/InitialCaptureBoundary.php');
+$publishSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Publication/PublicationJournal.php');
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture/CapturePublicationWorkflow.php')
+    . (string) file_get_contents(__DIR__ . '/../../agent/src/Capture/InitialCaptureBoundary.php');
 $liveHarness = (string) file_get_contents(__DIR__ . '/regress_duo_init.sh');
 check(
     str_contains($publishSource, 'public static function lock_new(')
@@ -807,7 +807,7 @@ check(
         && substr_count($captureSource, 'InitialCaptureBoundary::assertNoInterruptedInit($repoPath);') === 2,
     'the pre-lock init-recovery gate fires only where acquiring the lock would create it; a live race is answered by the lock itself'
 );
-$publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/PublicationJournal.php');
+$publishSourceLock = (string) file_get_contents(__DIR__ . '/../../agent/src/Publication/PublicationJournal.php');
 check(
     str_contains($publishSourceLock, "'capture_lock_held',")
         && str_contains($publishSourceLock, "'capture refused because another publisher holds the destination lock',")
@@ -832,16 +832,16 @@ check(
         && str_contains($repositorySource, "'state.capture-intent', 'state.capture-receipt'"),
     'final Git readiness allowlists the retained capture receipt and ignores no in-flight publication root'
 );
-$cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
+$cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php');
 check(
     str_contains($cliSource, "CommandRefusalException::invalidArgument('init', '--repo')")
         && str_contains($cliSource, "self::halt_json_failure(\$t, \$assoc, 'init');"),
     'target init owns the stable JSON invalid-argument and exception-refusal contract'
 );
-$adapterSource = (string) file_get_contents(__DIR__ . '/../../agent/src/AdapterSources.php');
+$adapterSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Adapter/AdapterSources.php');
 check(str_contains($adapterSource, 'file_exists($siteDir) || is_link($siteDir)'), 'adapter allowlist refuses every present non-directory boundary');
 
-$codeSource = file_get_contents(__DIR__ . '/../../agent/src/Code.php');
+$codeSource = file_get_contents(__DIR__ . '/../../agent/src/Code/Code.php');
 check(is_string($codeSource), 'code lifecycle source is readable');
 check(str_contains($codeSource, 'public static function complete_initial_baseline'), 'code lifecycle exposes a narrow initial-baseline primitive');
 check(str_contains($codeSource, 'complete_initial_baseline_in_active_transaction'), 'initial lifecycle can join capture transaction without a nested commit');
@@ -1080,12 +1080,12 @@ check(is_file($unsafeSentinel), 'invalid live pair name cannot escape siterepo a
 // Exercise the target-only bounded risk probe without WordPress. Query
 // failures must not become clean zero counts, and oversized omissions must be
 // explicit even when the bounded row queries themselves return no rows.
-require_once __DIR__ . '/../../agent/src/Secrets.php';
-require_once __DIR__ . '/../../agent/src/PersonalData.php';
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/AdapterSources.php';
-require_once __DIR__ . '/../../agent/src/InitSiteProbe.php';
-require_once __DIR__ . '/../../agent/src/Init.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require_once __DIR__ . '/../../agent/src/Kernel/PersonalData.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Adapter/AdapterSources.php';
+require_once __DIR__ . '/../../agent/src/Init/InitSiteProbe.php';
+require_once __DIR__ . '/../../agent/src/Init/Init.php';
 if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 
 // The proposal-time manual-recovery gate and the recovery-time deletion
@@ -1096,7 +1096,7 @@ if (!defined('ARRAY_A')) define('ARRAY_A', 'ARRAY_A');
 // real private predicate with real directory identities, offline: no docker,
 // no WordPress.
 // The predicate resolves the fixed capture-record slots through Publish.
-require_once __DIR__ . '/../../agent/src/Publish.php';
+require_once __DIR__ . '/../../agent/src/Publication/Publish.php';
 $ignoreFixture = sys_get_temp_dir() . '/duo-init-ignore-' . bin2hex(random_bytes(6));
 if (!mkdir($ignoreFixture, 0777, true)) fail('could not create the init ignore fixture');
 register_shutdown_function(static function () use ($ignoreFixture): void {
@@ -1304,7 +1304,7 @@ check(
 // file-level twin — already compared canonically, both since the same commit.
 // Exercised against the real predicate with a real tree and a real journal
 // round trip, offline.
-require_once __DIR__ . '/../../agent/src/Publish.php';
+require_once __DIR__ . '/../../agent/src/Publication/Publish.php';
 $manifestFixture = sys_get_temp_dir() . '/duo-init-manifest-order-' . bin2hex(random_bytes(6));
 if (!mkdir($manifestFixture . '/posts/page', 0777, true)) fail('could not create the manifest-order fixture');
 register_shutdown_function(static function () use ($manifestFixture): void {
@@ -1476,7 +1476,7 @@ check(
 // this exact marker cross-process; a run requesting neither seam writes no
 // marker. Pinned as an ordering, because the behaviour itself needs a
 // database: gate, then marker, then the wait branch, then the pause.
-$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php');
+$captureSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Capture/CapturePublicationWorkflow.php');
 $markerGate = strpos($captureSource, '&& (($pauseMs > 0 && $pauseMs <= 10000) || $waitForRelease)) {');
 $markerSet = strpos($captureSource, "Ledger::kv_set('capture_test_phase', 'locked');");
 $markerWait = strpos($captureSource, 'if ($waitForRelease) {');
@@ -1593,7 +1593,7 @@ check(
 // as "init refused at an unclassified safety gate" with details_redacted:
 // DUO-3398's shape on the recovery path. It has a reviewable shape, so per
 // DUO-3399 it carries one.
-require_once __DIR__ . '/../../agent/src/CommandRefusal.php';
+require_once __DIR__ . '/../../agent/src/Kernel/CommandRefusal.php';
 check(
     str_contains($initCompensationSource, "throw new CommandRefusalException(\n                    'interrupted_init_rolled_back',")
         && !str_contains(
@@ -1621,9 +1621,9 @@ check(
 // golden path after the journal and lock existed. Staging components now use
 // the traversal/control-byte predicate the code half applies to these exact
 // paths for the rest of their lifecycle (Code::safe_relative()).
-require_once __DIR__ . '/../../agent/src/Code.php';
-require_once __DIR__ . '/../../agent/src/InitCodeInventory.php';
-require_once __DIR__ . '/../../agent/src/InitCodeBaseline.php';
+require_once __DIR__ . '/../../agent/src/Code/Code.php';
+require_once __DIR__ . '/../../agent/src/Init/InitCodeInventory.php';
+require_once __DIR__ . '/../../agent/src/Init/InitCodeBaseline.php';
 $stageComponent = (new ReflectionClass(\Duo\InitCodeBaseline::class))->getMethod('safe_stage_component');
 $codeComponent = (new ReflectionClass(\Duo\Code::class))->getMethod('safe_component');
 $ecosystemNames = [

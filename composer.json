@@ -1,6 +1,6 @@
 {
     "name": "duotronic/duo-wp-dev",
-    "description": "Developer-only toolchain for the Duo WordPress drop-in. Never shipped: cli/src/Adopt.php tars exactly 'agent manifests recovery', so nothing at the repo root can reach a managed site.",
+    "description": "Developer-only toolchain for the Duo WordPress drop-in. Never shipped: cli/src/Onboarding/Adopt.php tars exactly 'agent manifests recovery', so nothing at the repo root can reach a managed site.",
     "type": "project",
     "license": "proprietary",
     "require": {

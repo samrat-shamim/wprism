@@ -20,7 +20,7 @@
 # actually wired unconditionally in the real source file — Reflection
 # invokes guard_secret() directly, bypassing whatever gates its real
 # callers. That gap is real, not hypothetical: a rebase onto DUO-3211
-# (agent/src/Capture.php's build_options() rewrite) silently reverted one
+# (agent/src/Capture/Capture.php's build_options() rewrite) silently reverted one
 # of the two options-loop call sites back to an is_string()-gated shape via
 # a no-conflict-marker auto-merge — git's 3-way merge considered that hunk
 # already resolved because the surrounding lines changed on both sides of
@@ -73,19 +73,19 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check"
 php -l regress_capture_secret_scan.php >/dev/null || fail "regress_capture_secret_scan.php has a syntax error"
-php -l ../../agent/src/CaptureCandidateBuilder.php >/dev/null || fail "agent/src/CaptureCandidateBuilder.php has a syntax error"
-php -l ../../agent/src/CaptureSafetyGates.php >/dev/null || fail "agent/src/CaptureSafetyGates.php has a syntax error"
-php -l ../../agent/src/OptionsCapture.php >/dev/null || fail "agent/src/OptionsCapture.php has a syntax error"
-php -l ../../agent/src/UserMetaCapture.php >/dev/null || fail "agent/src/UserMetaCapture.php has a syntax error"
-php -l ../../agent/src/EntityMetaCapture.php >/dev/null || fail "agent/src/EntityMetaCapture.php has a syntax error"
-php -l ../../agent/src/Secrets.php >/dev/null || fail "agent/src/Secrets.php has a syntax error"
+php -l ../../agent/src/Capture/CaptureCandidateBuilder.php >/dev/null || fail "agent/src/Capture/CaptureCandidateBuilder.php has a syntax error"
+php -l ../../agent/src/Capture/CaptureSafetyGates.php >/dev/null || fail "agent/src/Capture/CaptureSafetyGates.php has a syntax error"
+php -l ../../agent/src/Capture/OptionsCapture.php >/dev/null || fail "agent/src/Capture/OptionsCapture.php has a syntax error"
+php -l ../../agent/src/Capture/UserMetaCapture.php >/dev/null || fail "agent/src/Capture/UserMetaCapture.php has a syntax error"
+php -l ../../agent/src/Capture/EntityMetaCapture.php >/dev/null || fail "agent/src/Capture/EntityMetaCapture.php has a syntax error"
+php -l ../../agent/src/Kernel/Secrets.php >/dev/null || fail "agent/src/Kernel/Secrets.php has a syntax error"
 pass "no syntax errors"
 
 say "running the offline harness (guard_secret() widened to deep-scan arrays)"
 php regress_capture_secret_scan.php || fail "regress_capture_secret_scan.php reported failing checks (see output above)"
 
 say "call-site wiring: CaptureCandidateBuilder binds every extracted security callback unconditionally"
-CAPTURE_SRC=../../agent/src/CaptureCandidateBuilder.php
+CAPTURE_SRC=../../agent/src/Capture/CaptureCandidateBuilder.php
 mapfile -t CALL_LINES < <(grep -n '\$this->safetyGates->guardSecret(' "$CAPTURE_SRC")
 [ "${#CALL_LINES[@]}" -eq 3 ] || fail "expected exactly 3 CaptureCandidateBuilder guardSecret() callback bindings (user meta, entity meta, options), got ${#CALL_LINES[@]} — a handoff was added or removed"
 for entry in "${CALL_LINES[@]}"; do
@@ -100,7 +100,7 @@ done
 pass "all three extracted-capturer bindings have no nearby is_string() gate"
 
 say "call-site wiring: OptionsCapture keeps both unconditional option guards and the sub-key split"
-OPTIONS_SRC=../../agent/src/OptionsCapture.php
+OPTIONS_SRC=../../agent/src/Capture/OptionsCapture.php
 mapfile -t OPTION_CALL_LINES < <(grep -n '(\$this->guardSecret)(' "$OPTIONS_SRC")
 OPTION_UNCONDITIONAL=()
 OPTION_EXCEPTION=()
@@ -132,7 +132,7 @@ grep -q 'hard_match_deep(\$subVal)' <<<"$after_window" \
   || fail "expected Secrets::hard_match_deep(\$subVal) within 15 lines after the sub_keys exception at OptionsCapture.php:$exc_line -- its own array-scan branch may have been silently deleted"
 pass "the one deliberate sub_keys exception (line $exc_line) still has both halves of its is_string()/hard_match_deep() split intact"
 
-USER_META_SRC=../../agent/src/UserMetaCapture.php
+USER_META_SRC=../../agent/src/Capture/UserMetaCapture.php
 USER_SECRET_LINE=$(grep -n "(\$this->guardSecret)('user_meta'" "$USER_META_SRC" | cut -d: -f1)
 [ -n "$USER_SECRET_LINE" ] || fail "UserMetaCapture lost its authored user-meta secret callback"
 user_start=$((USER_SECRET_LINE - 2))
@@ -144,7 +144,7 @@ grep -q '(\$this->guardPersonalData)' "$USER_META_SRC" \
   || fail "UserMetaCapture lost the personal-data gate paired with its secret gate"
 pass "the extracted user-meta capturer keeps unconditional deep-secret and personal-data gates"
 
-ENTITY_META_SRC=../../agent/src/EntityMetaCapture.php
+ENTITY_META_SRC=../../agent/src/Capture/EntityMetaCapture.php
 ENTITY_SECRET_LINE=$(grep -n '(\$this->guardSecret)(' "$ENTITY_META_SRC" | cut -d: -f1)
 [ -n "$ENTITY_SECRET_LINE" ] || fail "EntityMetaCapture lost its authored post/term-meta secret callback"
 entity_start=$((ENTITY_SECRET_LINE - 2))

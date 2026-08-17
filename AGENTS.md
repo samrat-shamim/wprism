@@ -20,7 +20,7 @@ about CI belongs in a PR, an issue, or this file.
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `capability-registry.php` (the release gate), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
 
-`cli/src/Adopt.php` tars exactly `agent manifests recovery` — that is the whole
+`cli/src/Onboarding/Adopt.php` tars exactly `agent manifests recovery` — that is the whole
 list of what reaches a managed site.
 
 ## Non-negotiables

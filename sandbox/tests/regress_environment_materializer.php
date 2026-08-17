@@ -46,9 +46,9 @@ namespace Duo\Orchestrator {
 }
 
 namespace {
-require_once __DIR__ . '/../../cli/src/EnvironmentDriver.php';
-require_once __DIR__ . '/../../cli/src/PlanContract.php';
-require_once __DIR__ . '/../../cli/src/EnvironmentLifecycle.php';
+require_once __DIR__ . '/../../cli/src/Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanContract.php';
+require_once __DIR__ . '/../../cli/src/Environment/EnvironmentLifecycle.php';
 
 use Duo\Orchestrator\CommandEnvironmentProvider;
 use Duo\Orchestrator\DriverCapability;
@@ -82,7 +82,7 @@ function em_actions(string $log): array {
 
 /**
  * One complete `wp duo plan --format=json` envelope, spelled out the way
- * agent/src/Apply.php emits it. Branch convergence refuses anything less.
+ * agent/src/Apply/Apply.php emits it. Branch convergence refuses anything less.
  *
  * @param array<string,list<mixed>> $overrides
  * @return array<string,list<mixed>>

@@ -16,11 +16,11 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/ScopedApplySession.php';
-require_once __DIR__ . '/../../agent/src/ConvergenceVerifier.php';
-require_once __DIR__ . '/../../agent/src/Apply.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Scope/ScopedApplySession.php';
+require_once __DIR__ . '/../../agent/src/Review/ConvergenceVerifier.php';
+require_once __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 use Duo\Apply;
 use Duo\Canon;
@@ -61,8 +61,8 @@ $check(
 
 // ---- 2. The public facade contains no duplicate convergence implementation;
 // the request coordinator constructs the real collaborator at both call sites.
-$applySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
-$coordinatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/ApplyRequestCoordinator.php');
+$applySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
+$coordinatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyRequestCoordinator.php');
 $check(
     !str_contains($applySource, 'verification_hash') && !str_contains($applySource, 'verify_convergence'),
     'Apply must not retain private convergence compatibility facades'
@@ -173,7 +173,7 @@ $isolatedProbeCheck = static function (string $requiredFile, string $probeBody, 
 };
 
 $isolatedProbeCheck(
-    __DIR__ . '/../../agent/src/ApplyRequestCoordinator.php',
+    __DIR__ . '/../../agent/src/Apply/ApplyRequestCoordinator.php',
     <<<'PHP'
 echo \Duo\ConvergenceVerifier::hash(['type' => 'post', 'hash' => 'duo-3440-isolation-probe']);
 PHP,
@@ -192,13 +192,13 @@ PHP,
 // way. Canon is different: requiring it is enough, full stop, because
 // Canon.php is itself a dependency-free leaf.
 $isolatedProbeCheck(
-    __DIR__ . '/../../agent/src/ConvergenceVerifier.php',
+    __DIR__ . '/../../agent/src/Review/ConvergenceVerifier.php',
     <<<'PHP'
 echo \Duo\ConvergenceVerifier::hash(['type' => 'term', 'data' => ['name' => 'duo-3441-isolation-probe']]);
 PHP,
     hash('sha256', \Duo\Canon::encode(['name' => 'duo-3441-isolation-probe'])),
     'ConvergenceVerifier.php must carry its OWN Canon.php require when required standalone: a fresh '
-        . 'process requiring only agent/src/ConvergenceVerifier.php must reach the non-post hash() path '
+        . 'process requiring only agent/src/Review/ConvergenceVerifier.php must reach the non-post hash() path '
         . '(the only path that touches Canon) without a "Class ...Canon not found" fatal'
 );
 

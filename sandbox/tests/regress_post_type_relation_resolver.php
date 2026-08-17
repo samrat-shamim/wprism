@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/PostTypeRelationResolver.php";
+$resolverPath = "$root/agent/src/Grammar/PostTypeRelationResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -77,9 +77,9 @@ $check(
     'closure is transitive, bidirectional, lexical, root-preserving, and never guesses unknown types'
 );
 
-$policy = (string) file_get_contents("$root/agent/src/Policy.php");
+$policy = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(
-    substr_count($policy, "require_once __DIR__ . '/PostTypeRelationResolver.php';") === 1
+    substr_count($policy, "require_once __DIR__ . '/../Grammar/PostTypeRelationResolver.php';") === 1
     && substr_count($policy, 'new PostTypeRelationResolver($this->manifests)') === 3
     && str_contains($policy, '->children($postType)')
     && str_contains($policy, '->parents($postType)')

@@ -6,9 +6,9 @@ declare(strict_types=1);
 // read-after-restore under the signed external rollback receipt.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
-require dirname(__DIR__, 2) . '/cli/src/SshTransport.php';
-require dirname(__DIR__, 2) . '/cli/src/RollbackAuthority.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/SshTransport.php';
+require dirname(__DIR__, 2) . '/cli/src/Recovery/RollbackAuthority.php';
 
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\SshTransport;

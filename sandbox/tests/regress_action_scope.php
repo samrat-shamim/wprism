@@ -15,12 +15,12 @@ declare(strict_types=1);
  */
 
 define('DUO_SPEC_VERSION', 2);
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
-require dirname(__DIR__, 2) . '/agent/src/Policy.php';
-require dirname(__DIR__, 2) . '/agent/src/SidebarState.php';
-require dirname(__DIR__, 2) . '/agent/src/Snapshot.php';
-require dirname(__DIR__, 2) . '/agent/src/Apply.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/OptionState.php';
+require dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
+require dirname(__DIR__, 2) . '/agent/src/Repository/SidebarState.php';
+require dirname(__DIR__, 2) . '/agent/src/Repository/Snapshot.php';
+require dirname(__DIR__, 2) . '/agent/src/Apply/Apply.php';
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {

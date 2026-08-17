@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CLI status-truth test (DUO-3221) — proves `duo status`'s exit code is
-# fail-closed. Before this fix, cli/src/PlanSummary.php's BUCKETS omitted
+# fail-closed. Before this fix, cli/src/Plan/PlanSummary.php's BUCKETS omitted
 # code_mismatch entirely and render() never read $plan['code_mismatch'] or
 # $plan['warnings']; `ok` was computed as `conflict===0 && collision===0`
 # only. That meant `duo status <env>` exited 0 while: a canonically-active
@@ -9,7 +9,7 @@
 # (capture-first), or a delete was blocked by a referential guard — every
 # one of those is a condition `wp duo apply` itself either refuses on
 # outright, or (drift) a condition that means this plan's own comparison is
-# already stale. The agent-side human output (agent/src/Cli.php's plan())
+# already stale. The agent-side human output (agent/src/Command/Cli.php's plan())
 # already rendered code_mismatch/drift correctly; only the orchestrator's
 # own summary — and therefore its exit code — lied by omission.
 #
@@ -18,7 +18,7 @@
 # core.json that doesn't exist in this environment's wp-content/plugins/)
 # -> exit non-zero, naming the missing plugin; (c) drift (a post edited
 # directly on the environment, bypassing the repo) -> exit non-zero with
-# the "capture-first" hint, mirroring agent/src/Cli.php's own wording; (d)
+# the "capture-first" hint, mirroring agent/src/Command/Cli.php's own wording; (d)
 # malformed JSON from the agent still fails `duo status` (regression check
 # — this path was already correct and must stay that way), tested in
 # complete isolation via a fake `wp` binary, no docker/live env needed.

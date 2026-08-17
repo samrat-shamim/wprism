@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require __DIR__ . '/../../agent/src/CaptureSafetyGates.php';
+require __DIR__ . '/../../agent/src/Capture/CaptureSafetyGates.php';
 
 use Duo\CaptureSafetyGates;
 use Duo\CommandRefusalException;

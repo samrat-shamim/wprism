@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/TableDeclarationResolver.php";
+$resolverPath = "$root/agent/src/Grammar/TableDeclarationResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -59,9 +59,9 @@ $check(
     'resolver preserves last declaration/site precedence, provenance, overwritten-key order, and first effective sidecar lookup'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->site = $site;
@@ -83,13 +83,13 @@ $check(
     'Policy builds a fresh resolver per call so mutable fixture declarations stay observable without changing first-sidecar order'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $oldDetailsLoop = '        foreach ($this->manifests as $m) {' . "\n"
     . "            if (isset(\$m['tables'][\$name])) {";
 $oldTablesLoop = '        foreach ($this->manifests as $m) {' . "\n"
     . "            foreach (\$m['tables'] ?? [] as \$name => \$r) {";
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/TableDeclarationResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/TableDeclarationResolver.php';") === 1
         && str_contains($policySource, 'return $this->table_declaration_resolver()->details($name);')
         && str_contains($policySource, 'return $this->table_declaration_resolver()->tables();')
         && str_contains($policySource, 'return $this->table_declaration_resolver()->attached_meta_table_for_owner($ownerTable);')

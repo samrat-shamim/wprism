@@ -2,7 +2,7 @@
 # Grind round R3-B (task #91) — an events + memberships site: The Events
 # Calendar (free, wp.org) + Paid Memberships Pro (free, but no longer on
 # wp.org — see docs/grind/r3b-events-memberships.md) stress-testing the
-# brand-new typed-snapshot custom-table grammar (agent/src/Snapshot.php,
+# brand-new typed-snapshot custom-table grammar (agent/src/Repository/Snapshot.php,
 # task #75) against schemas it was NOT designed around. Three distinct
 # engine gaps were found this round: (1) TEC's tec_events/tec_occurrences
 # are derived with a HARD per-entity query-availability dependency, not a

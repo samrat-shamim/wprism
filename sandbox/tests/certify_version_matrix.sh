@@ -1030,7 +1030,7 @@ fi
 # OUT-OF-range version is actually refused rather than silently accepted.
 # Both properties together are what "the matrix proves the pins honest, not
 # just the plugin functional" means. Deploy::code_mismatch()
-# (agent/src/Deploy.php) is the real enforcement: it reads the ACTUALLY-
+# (agent/src/Promotion/Deploy.php) is the real enforcement: it reads the ACTUALLY-
 # installed plugin version via WordPress's own get_plugins(), compares it
 # against the manifest's declared version_range, and — triggered by both
 # `wp duo deploy` and `wp duo apply` — throws an 'outside_version_range'

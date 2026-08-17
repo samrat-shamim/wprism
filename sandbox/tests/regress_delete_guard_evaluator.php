@@ -13,7 +13,7 @@ declare(strict_types=1);
 if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
-require_once __DIR__ . '/../../agent/src/DeleteGuardEvaluator.php';
+require_once __DIR__ . '/../../agent/src/Delete/DeleteGuardEvaluator.php';
 
 use Duo\DeleteGuardEvaluator;
 
@@ -476,9 +476,9 @@ $check(
     'evaluator exposes dependency-free static index, storage-engine, isolation, reference, plan, witness, and recheck contracts'
 );
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardLockCoordinator.php');
-$planBuilderSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyPlanBuilder.php');
-$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteGuardReferenceScanner.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Delete/DeleteGuardLockCoordinator.php');
+$planBuilderSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyPlanBuilder.php');
+$scannerSource = file_get_contents(__DIR__ . '/../../agent/src/Delete/DeleteGuardReferenceScanner.php');
 $engineFacade = substr(
     $applySource,
     strpos($applySource, 'public function assert_guard_engines('),

@@ -312,11 +312,11 @@ namespace {
 
     $root = dirname(__DIR__, 2);
     $GLOBALS['wpdb'] = new ScopedPromotionTargetFakeWpdb();
-    require_once "$root/agent/src/PromotionLock.php";
-    require_once "$root/agent/src/ScopedPromotionAuthority.php";
-    require_once "$root/agent/src/Apply.php";
-    require_once "$root/agent/src/Cli.php";
-    require_once "$root/cli/src/CodeDeploy.php";
+    require_once "$root/agent/src/Promotion/PromotionLock.php";
+    require_once "$root/agent/src/Promotion/ScopedPromotionAuthority.php";
+    require_once "$root/agent/src/Apply/Apply.php";
+    require_once "$root/agent/src/Command/Cli.php";
+    require_once "$root/cli/src/Transport/CodeDeploy.php";
 
     $checks = 0;
     $failures = 0;
@@ -449,7 +449,7 @@ namespace {
     ScopedPromotionTargetLedger::$values['promotion_session'] = $sessionBytes;
     // DUO-3353 keeps PromotionLock as a compatibility facade; the lease
     // implementation owns the scoped handoff and replacement transaction.
-    $lockSource = (string) file_get_contents("$root/agent/src/PromotionLease.php");
+    $lockSource = (string) file_get_contents("$root/agent/src/Promotion/PromotionLease.php");
     $beginScopedOffset = strpos($lockSource, 'public static function begin_scoped');
     $profileAssertionOffset = strpos($lockSource, '/** Prove the live target session');
     $acquireInternalOffset = strpos($lockSource, 'private static function acquire_internal');
@@ -1063,10 +1063,10 @@ namespace {
         'structured scoped promotion refuses every widening force flag'
     );
 
-    $cliSource = (string) file_get_contents("$root/agent/src/Cli.php");
-    $applySource = (string) file_get_contents("$root/agent/src/ApplyRequestCoordinator.php");
-    $preparationSource = (string) file_get_contents("$root/agent/src/ApplyPreparationCoordinator.php");
-    $nativeRebuildSource = (string) file_get_contents("$root/agent/src/NativeRebuildExecutor.php");
+    $cliSource = (string) file_get_contents("$root/agent/src/Command/Cli.php");
+    $applySource = (string) file_get_contents("$root/agent/src/Apply/ApplyRequestCoordinator.php");
+    $preparationSource = (string) file_get_contents("$root/agent/src/Apply/ApplyPreparationCoordinator.php");
+    $nativeRebuildSource = (string) file_get_contents("$root/agent/src/Rebuild/NativeRebuildExecutor.php");
     $cliBeginStart = strpos($cliSource, 'public function promotion_begin_scoped');
     $cliBeginEnd = strpos($cliSource, 'public function promotion_complete_scoped');
     $cliBeginSource = substr($cliSource, (int) $cliBeginStart, (int) $cliBeginEnd - (int) $cliBeginStart);
@@ -1078,7 +1078,7 @@ namespace {
             && str_contains($cliSource, "'scoped_promotion_receipt' => \$assoc['scoped-promotion-receipt'] ?? ''"),
         'CLI verifies the adoption-pinned signed witness before begin can ensure ledger schema'
     );
-    $authoritySource = (string) file_get_contents("$root/agent/src/ScopedPromotionAuthority.php");
+    $authoritySource = (string) file_get_contents("$root/agent/src/Promotion/ScopedPromotionAuthority.php");
     $check(
         str_contains($authoritySource, "& 0777) !== 0600")
             && str_contains($authoritySource, 'scoped promotion control configuration is not protected mode 0600'),
@@ -1287,8 +1287,8 @@ namespace {
         'taxonomy-sensitive tombstones still require a taxonomy recount'
     );
 
-    $applySource = (string) file_get_contents("$root/agent/src/ApplyRequestCoordinator.php");
-    $actionDispatcherSource = (string) file_get_contents("$root/agent/src/RebuildActionDispatcher.php");
+    $applySource = (string) file_get_contents("$root/agent/src/Apply/ApplyRequestCoordinator.php");
+    $actionDispatcherSource = (string) file_get_contents("$root/agent/src/Rebuild/RebuildActionDispatcher.php");
     $check(
         str_contains($applySource, 'scopedCoreComplete: $scopedCoreComplete === null')
             && preg_match('/if \(\$selectedActions !== \[\]\) \{.{0,320}wp_cache_flush\(\)/s', $actionDispatcherSource) === 1,

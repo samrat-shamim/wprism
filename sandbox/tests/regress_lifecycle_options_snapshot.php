@@ -302,23 +302,23 @@ function get_option($name, $default = false) {
     return $row === null ? $default : maybe_unserialize($row['option_value']);
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Secrets.php';
-require_once __DIR__ . '/../../agent/src/Uuid.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/TransientDbException.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Identity.php';
-require_once __DIR__ . '/../../agent/src/Canary.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
-require_once __DIR__ . '/../../agent/src/SidebarState.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/Capture.php';
-require_once __DIR__ . '/../../agent/src/Deploy.php';
-require_once __DIR__ . '/../../agent/src/Apply.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Uuid.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Repository/Identity.php';
+require_once __DIR__ . '/../../agent/src/Review/Canary.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Capture/Capture.php';
+require_once __DIR__ . '/../../agent/src/Promotion/Deploy.php';
+require_once __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 use Duo\Canon;
 use Duo\Capture;
@@ -470,7 +470,7 @@ $deleteLocationWrite = $wpdb->writes[array_key_last($wpdb->writes)] ?? null;
 // reasoning every sibling extraction in this series applies) -- so the
 // exact call-site text this sanity check looks for now lives in
 // DeleteExecutor.php, not Apply.php.
-$deleteExecutorSourceForMenuDelete = file_get_contents(__DIR__ . '/../../agent/src/DeleteExecutor.php');
+$deleteExecutorSourceForMenuDelete = file_get_contents(__DIR__ . '/../../agent/src/Delete/DeleteExecutor.php');
 $check(
     is_array($deleteLocationWrite)
         && PlainData::decode(
@@ -913,7 +913,7 @@ foreach ($wpdb->queryCalls as $call) {
         $allocatedWidgetUuids[] = (string) ($call['args'][0] ?? '');
     }
 }
-$authoredExecutorSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$authoredExecutorSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/AuthoredTransactionExecutor.php');
 $normalizedAuthoredExecutorSource = is_string($authoredExecutorSource)
     ? preg_replace('/\s+/', ' ', $authoredExecutorSource)
     : null;

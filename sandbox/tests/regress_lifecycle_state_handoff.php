@@ -8,10 +8,10 @@
  */
 
 $root = dirname(__DIR__, 2);
-require_once $root . '/agent/src/Canon.php';
-require_once $root . '/agent/src/OptionState.php';
-require_once $root . '/agent/src/Deploy.php';
-require_once $root . '/agent/src/ApplyPlanner.php';
+require_once $root . '/agent/src/Kernel/Canon.php';
+require_once $root . '/agent/src/Kernel/OptionState.php';
+require_once $root . '/agent/src/Promotion/Deploy.php';
+require_once $root . '/agent/src/Apply/ApplyPlanner.php';
 
 use Duo\ApplyPlanner;
 use Duo\Canon;

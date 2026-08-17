@@ -14,9 +14,9 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/ManifestValidator.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/ManifestValidator.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
@@ -79,8 +79,8 @@ $assertThrows(
     'direct validator consumes the caller-supplied engine vocabulary'
 );
 
-$validatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
-$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
+$validatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/ManifestValidator.php');
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
 $check(
     substr_count($policySource, 'ManifestValidator::validate_manifest(') === 2
         && !str_contains($policySource, 'FieldGrammar::validate_field_classes($manifest,')

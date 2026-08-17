@@ -9,13 +9,13 @@ declare(strict_types=1);
  * rollback runtime operate on disposable local directories.
  */
 
-require dirname(__DIR__, 2) . '/cli/src/EnvironmentDriver.php';
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
-require dirname(__DIR__, 2) . '/cli/src/LocalTransport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/EnvironmentDriver.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/LocalTransport.php';
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/cli/src/BootstrapEligibility.php';
-require dirname(__DIR__, 2) . '/cli/src/CodeDeploy.php';
-require dirname(__DIR__, 2) . '/cli/src/Adopt.php';
+require dirname(__DIR__, 2) . '/cli/src/Onboarding/BootstrapEligibility.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/CodeDeploy.php';
+require dirname(__DIR__, 2) . '/cli/src/Onboarding/Adopt.php';
 
 use Duo\Orchestrator\AdoptionTransport;
 use Duo\Orchestrator\Adopt;
@@ -213,7 +213,7 @@ SH;
         '_machine_local' => true,
     ]);
     local_bootstrap_ok($transport->capabilityReport('adopt')->ready(), 'the exact machine-local opt-in advertises the bootstrap mechanism');
-    $uploaderSource = file_get_contents($source . '/cli/src/LocalTransport.php');
+    $uploaderSource = file_get_contents($source . '/cli/src/Transport/LocalTransport.php');
     $openedDestinationIdentity = is_string($uploaderSource)
         ? strpos($uploaderSource, '$openedDestinationStat = fstat($destination);')
         : false;

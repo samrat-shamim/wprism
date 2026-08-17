@@ -3,9 +3,9 @@ declare(strict_types=1);
 
 define('DUO_SPEC_VERSION', 2);
 $root = dirname(__DIR__, 2);
-require_once $root . '/agent/src/Canon.php';
-require_once $root . '/agent/src/OptionState.php';
-require_once $root . '/cli/src/RefreshPlan.php';
+require_once $root . '/agent/src/Kernel/Canon.php';
+require_once $root . '/agent/src/Kernel/OptionState.php';
+require_once $root . '/cli/src/Refresh/RefreshPlan.php';
 
 use Duo\Canon;
 use Duo\OptionState;

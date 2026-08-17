@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/ExactOptionResolver.php";
+$resolverPath = "$root/agent/src/Grammar/ExactOptionResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -101,9 +101,9 @@ $check(
     'authored, env, and sub-key inventories share the exact-only projection without enumerating patterns'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->site = $site;
@@ -123,10 +123,10 @@ $check(
     'Policy constructs a fresh exact-option resolver so mutable fixture declarations remain observable'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $oldCollection = "        \$names = [];\n        foreach (\$this->manifests as \$manifest) {";
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/ExactOptionResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/ExactOptionResolver.php';") === 1
         && substr_count($policySource, 'return $this->exact_option_resolver()->authored();') === 1
         && substr_count($policySource, 'return $this->exact_option_resolver()->env();') === 1
         && substr_count($policySource, 'return $this->exact_option_resolver()->sub_keyed();') === 1

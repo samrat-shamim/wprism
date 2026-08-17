@@ -6,13 +6,13 @@ declare(strict_types=1);
 // and fresh-process inverse verification for a real lifecycle fixture.
 
 define('DUO_SPEC_VERSION', 2);
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-require dirname(__DIR__, 2) . '/agent/src/Code.php';
-require dirname(__DIR__, 2) . '/agent/src/Policy.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 2) . '/agent/src/Code/Code.php';
+require dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
-require dirname(__DIR__, 2) . '/cli/src/SshTransport.php';
-require dirname(__DIR__, 2) . '/cli/src/RollbackAuthority.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/SshTransport.php';
+require dirname(__DIR__, 2) . '/cli/src/Recovery/RollbackAuthority.php';
 require __DIR__ . '/fixtures/effect-lifecycle.php';
 
 use Duo\Policy;

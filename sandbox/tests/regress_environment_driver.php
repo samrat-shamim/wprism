@@ -3,16 +3,16 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/EnvironmentDriver.php';
-require_once __DIR__ . '/../../cli/src/Transport.php';
-require_once __DIR__ . '/../../cli/src/LocalTransport.php';
-require_once __DIR__ . '/../../cli/src/DockerTransport.php';
-require_once __DIR__ . '/../../cli/src/SshTransport.php';
-require_once __DIR__ . '/../../cli/src/Doctor.php';
-require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
-require_once __DIR__ . '/../../cli/src/ScopeCommand.php';
-require_once __DIR__ . '/../../cli/src/Refresh.php';
-require_once __DIR__ . '/../../cli/src/EnvironmentCommandPreflight.php';
+require_once __DIR__ . '/../../cli/src/Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../../cli/src/Transport/Transport.php';
+require_once __DIR__ . '/../../cli/src/Transport/LocalTransport.php';
+require_once __DIR__ . '/../../cli/src/Transport/DockerTransport.php';
+require_once __DIR__ . '/../../cli/src/Transport/SshTransport.php';
+require_once __DIR__ . '/../../cli/src/Onboarding/Doctor.php';
+require_once __DIR__ . '/../../cli/src/Transport/CodeDeploy.php';
+require_once __DIR__ . '/../../cli/src/Command/ScopeCommand.php';
+require_once __DIR__ . '/../../cli/src/Refresh/Refresh.php';
+require_once __DIR__ . '/../../cli/src/Command/EnvironmentCommandPreflight.php';
 
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DockerTransport;

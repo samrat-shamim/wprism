@@ -10,8 +10,8 @@ $root = getenv('DUO_ROOT');
 $target = sys_get_temp_dir() . '/duo-code-target-' . bin2hex(random_bytes(6));
 define('WP_CONTENT_DIR', $target);
 define('WP_PLUGIN_DIR', $target . '/custom-plugins');
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/Code.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Code/Code.php";
 
 use Duo\Code;
 use Duo\CodeMaterializer;

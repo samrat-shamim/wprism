@@ -6,11 +6,11 @@ declare(strict_types=1);
 // detection, and retry after every receipt/event/target publication boundary.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
-require dirname(__DIR__, 2) . '/cli/src/SshTransport.php';
-require dirname(__DIR__, 2) . '/cli/src/RollbackAuthority.php';
-require dirname(__DIR__, 2) . '/cli/src/VerifiedRollbackProfile.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/SshTransport.php';
+require dirname(__DIR__, 2) . '/cli/src/Recovery/RollbackAuthority.php';
+require dirname(__DIR__, 2) . '/cli/src/Recovery/VerifiedRollbackProfile.php';
 
 use Duo\Canon;
 use Duo\Orchestrator\RollbackAuthority;

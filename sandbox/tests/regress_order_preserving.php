@@ -10,7 +10,7 @@
  * target (a real, permanent divergence — not #72/#88's self-heal timing
  * issue, which is a separate, already-closed bug).
  *
- * The fix: agent/src/OrderPreserved.php (a marker wrapper) + Canon::
+ * The fix: agent/src/Kernel/OrderPreserved.php (a marker wrapper) + Canon::
  * normalize()'s new branch that recognizes it and recurses without ever
  * calling ksort(), at any depth. Capture::build_post()'s post_meta loop
  * wraps a value in it when the meta rule declares "order_preserving":
@@ -32,8 +32,8 @@
  * and the script exits 1.
  */
 
-require __DIR__ . '/../../agent/src/OrderPreserved.php';
-require __DIR__ . '/../../agent/src/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OrderPreserved.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
 
 use Duo\Canon;
 use Duo\OrderPreserved;

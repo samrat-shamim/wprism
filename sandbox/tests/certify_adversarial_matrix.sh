@@ -11,7 +11,7 @@
 #   PART 2 — restored target: an environment whose database (and therefore
 #     its identity ledger) was restored from an older backup fails closed
 #     on capture rather than silently re-minting identities, and
-#     identity-export/identity-import (agent/src/IdentityBackup.php) turns
+#     identity-export/identity-import (agent/src/Repository/IdentityBackup.php) turns
 #     that refusal into a clean, byte-identical continuation.
 #
 # Provenance, PART 1: DUO-3228's Required-behavior bullet 2 named this case as an
@@ -21,7 +21,7 @@
 # semantic compiler) merged to main during DUO-3228's own development,
 # which is what makes this case cheap now: RepositoryCompiler.php already
 # implements exactly the check this needs
-# (validate_natural_identities(), agent/src/RepositoryCompiler.php). This
+# (validate_natural_identities(), agent/src/Repository/RepositoryCompiler.php). This
 # script only certifies the existing mechanism against the real product
 # path, on core entities alone — no plugin required, matching DUO-3228's
 # own sizing note.
@@ -198,7 +198,7 @@ pass "PART 1's collision resolved; env A's repo is valid again"
 # sidecar, so capture fails closed and asks for recovery") — this proves
 # BOTH halves of that sentence: the fail-closed refusal (adversarial —
 # proven first, not assumed), and the recovery path
-# (identity-export/identity-import, agent/src/IdentityBackup.php) that
+# (identity-export/identity-import, agent/src/Repository/IdentityBackup.php) that
 # turns the refusal into a clean, byte-identical continuation.
 #
 # MUST be a typed-snapshot TABLE entity (class: authored_snapshot,

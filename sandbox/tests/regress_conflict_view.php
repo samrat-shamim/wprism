@@ -4,8 +4,8 @@ declare(strict_types=1);
 $planSummaryPath = getenv('DUO_PLAN_SUMMARY_PATH');
 require_once is_string($planSummaryPath) && $planSummaryPath !== ''
     ? $planSummaryPath
-    : __DIR__ . '/../../cli/src/PlanSummary.php';
-require_once __DIR__ . '/../../agent/src/Apply.php';
+    : __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
+require_once __DIR__ . '/../../agent/src/Apply/Apply.php';
 
 use Duo\ApplyPlanner;
 use Duo\Orchestrator\PlanSummary;

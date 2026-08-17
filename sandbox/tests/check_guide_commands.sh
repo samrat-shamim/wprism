@@ -13,7 +13,7 @@
 #   1. every `duo <verb>` token must be a real host verb (cli/duo's dispatch
 #      list plus the verbs main() compares before it), and
 #   2. every `wp duo <command>` token must be a real agent registration
-#      (agent/src/Cli.php's public methods, with @subcommand overrides), and
+#      (agent/src/Command/Cli.php's public methods, with @subcommand overrides), and
 #   3. a token that is neither is a FAILURE naming the guide and line —
 #      UNLESS that same line carries the literal `**Planned (DUO-NNNN)**`
 #      label, which is precisely how the guides are required to mark
@@ -49,8 +49,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HOST_CLI="$ROOT/cli/duo"
-HOST_PREFLIGHT="$ROOT/cli/src/EnvironmentCommandPreflight.php"
-AGENT_CLI="$ROOT/agent/src/Cli.php"
+HOST_PREFLIGHT="$ROOT/cli/src/Command/EnvironmentCommandPreflight.php"
+AGENT_CLI="$ROOT/agent/src/Command/Cli.php"
 GUIDE_DIR="$ROOT/docs/guides"
 
 TMPDIR_SELFTEST=""
@@ -84,7 +84,7 @@ host_verbs() {
         -e "/^[a-z][a-z0-9-]*$/p" | sort -u
 }
 
-# agent/src/Cli.php registers the whole class as `wp duo`, so every public
+# agent/src/Command/Cli.php registers the whole class as `wp duo`, so every public
 # method is a subcommand: underscores become hyphens unless an explicit
 # @subcommand annotation names it.
 agent_commands() {
@@ -174,7 +174,7 @@ scan_guides() {
                 continue
             fi
             echo "FAIL: $(basename "$file"):$lineno cites '$label', which is not a"\
-                 "$([ "$kind" = 'agent' ] && echo 'wp duo subcommand in agent/src/Cli.php' || echo 'verb in cli/duo')" >&2
+                 "$([ "$kind" = 'agent' ] && echo 'wp duo subcommand in agent/src/Command/Cli.php' || echo 'verb in cli/duo')" >&2
             status=1
         done < <(awk "$AWK_EXTRACT" "$f")
     done

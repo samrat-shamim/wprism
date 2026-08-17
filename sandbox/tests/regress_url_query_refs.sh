@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Regression — DUO-3260: URL-query reference codec (?p=/?page_id=/
 # ?attachment_id=).
-#   (1) agent/src/Tokens.php's tokenize_text()/detokenize_text(): now
+#   (1) agent/src/Grammar/Tokens.php's tokenize_text()/detokenize_text(): now
 #       also rewrite/restore these three WordPress-core query-string
 #       parameters, {{home}}-anchored (never touches an external URL's
 #       own unrelated ?p=), mirroring Blocks.php's/Shortcodes.php's own
 #       dangling-vs-unscoped triage a third time.
-#   (2) agent/src/Lint.php's new unrewritten_url_query_ref finding
+#   (2) agent/src/Review/Lint.php's new unrewritten_url_query_ref finding
 #       (deliberately un-anchored -- a wide-net signal, not a rewrite;
 #       see its own docblock for why that's not an inconsistency with
 #       (1)'s own safety-anchored scope).

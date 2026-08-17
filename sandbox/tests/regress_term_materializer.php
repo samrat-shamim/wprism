@@ -18,13 +18,13 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/TermMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/TermMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\Policy;
@@ -86,13 +86,13 @@ $check(
 
 // === Prove the extraction itself: Apply.php no longer inlines these bodies,
 // and its one remaining call site is a thin facade.
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
 $check(
     !str_contains($applySource, 'private function encode_description(')
         && !str_contains($applySource, 'private function reconcile_term_relationships('),
     'Apply.php no longer defines encode_description()/reconcile_term_relationships() itself (moved to TermMaterializer.php, no facade needed -- neither had any other caller)'
 );
-$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/AuthoredTransactionExecutor.php');
 $check(!str_contains($applySource, 'function finalize_term(')
     && str_contains($transactionSource, '$this->termMaterializer->finalize_term('),
     'AuthoredTransactionExecutor calls TermMaterializer directly without an Apply facade');
