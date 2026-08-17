@@ -22,11 +22,12 @@ namespace {
 namespace Duo {
     /** @var string[] */
     $scopeDiscoveryPublicPostTypes = ['page', 'book', 'runtime_type'];
-    // Registered with an admin UI but public:false — the WPForms `wpforms`
-    // shape (T6 walk S1). A type a human edits through an admin screen is a
-    // gap candidate; a storage-only type (no UI) is not.
-    $scopeDiscoveryUiPostTypes = ['form_store'];
-    $scopeDiscoveryUiTaxonomies = ['form_group'];
+    // Registered by a plugin (`_builtin` false) but public:false — the
+    // WPForms `wpforms` shape (T6 walk S1). Any plugin-registered type is a
+    // gap candidate until a rule names it; core's own non-public types are
+    // builtin and are not.
+    $scopeDiscoveryPluginPostTypes = ['form_store'];
+    $scopeDiscoveryPluginTaxonomies = ['form_group'];
     /** @var string[] */
     $scopeDiscoveryPublicTaxonomies = ['category', 'genre', 'runtime_tax'];
     /** @var array<string,object> */
@@ -37,15 +38,15 @@ namespace Duo {
 
     /** @return string[] */
     function get_post_types(array $args, string $_output): array {
-        return !empty($args['show_ui'])
-            ? $GLOBALS['scopeDiscoveryUiPostTypes']
+        return array_key_exists('_builtin', $args) && $args['_builtin'] === false
+            ? $GLOBALS['scopeDiscoveryPluginPostTypes']
             : $GLOBALS['scopeDiscoveryPublicPostTypes'];
     }
 
     /** @return string[] */
     function get_taxonomies(array $args, string $_output): array {
-        return !empty($args['show_ui'])
-            ? $GLOBALS['scopeDiscoveryUiTaxonomies']
+        return array_key_exists('_builtin', $args) && $args['_builtin'] === false
+            ? $GLOBALS['scopeDiscoveryPluginTaxonomies']
             : $GLOBALS['scopeDiscoveryPublicTaxonomies'];
     }
 
@@ -213,7 +214,7 @@ namespace Duo {
             'taxonomy:form_group' => ['entities' => 1],
             'taxonomy:genre' => ['entities' => 6],
         ],
-        'scope gaps retain absent authored dispositions — public OR admin-UI types — and exclude scoped, explicit-runtime, and unrelated rows'
+        'scope gaps retain absent authored dispositions — public OR plugin-registered types — and exclude scoped, explicit-runtime, and unrelated rows'
     );
     $check(
         array_map(static fn(object $row): int => (int) $row->ID, $scope['posts']) === [2, 9],
