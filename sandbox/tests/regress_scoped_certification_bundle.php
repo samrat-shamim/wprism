@@ -97,6 +97,55 @@ function remove_tree(string $root): void {
     }
     rmdir($root);
 }
+/**
+ * Every path under $root, repo-relative, directories included.
+ *
+ * @return list<string>
+ */
+function deployed_tree_paths(string $root): array {
+    if (!is_dir($root)) {
+        return [];
+    }
+    $prefix = strlen(rtrim($root, '/')) + 1;
+    $paths = [];
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($entries as $entry) {
+        $paths[] = substr($entry->getPathname(), $prefix);
+    }
+    sort($paths);
+    return $paths;
+}
+
+/**
+ * Paths under $root whose bytes contain $needle.
+ *
+ * @return list<string>
+ */
+function deployed_files_containing(string $root, string $needle): array {
+    if (!is_dir($root)) {
+        return [];
+    }
+    $prefix = strlen(rtrim($root, '/')) + 1;
+    $hits = [];
+    $entries = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($entries as $entry) {
+        if (!$entry->isFile()) {
+            continue;
+        }
+        $bytes = file_get_contents($entry->getPathname());
+        if (is_string($bytes) && str_contains($bytes, $needle)) {
+            $hits[] = substr($entry->getPathname(), $prefix);
+        }
+    }
+    sort($hits);
+    return $hits;
+}
+
 /** @return array{exit:int,stdout:string,stderr:string} */
 function runtime_registry_load(string $agentDir, string $manifestDir, string $scratch): array {
     $runner = $scratch . '/runtime-registry-loader.php';
@@ -247,6 +296,79 @@ try {
         && !file_exists($runtimeRoot . '/cli')
         && !file_exists($runtimeRoot . '/sandbox'),
         'runtime fixture contains split deployed agent, loader, and manifests mounts without host certification inputs'
+    );
+
+    // The repo root grew a developer toolchain (composer.json/.lock,
+    // phpstan.neon.dist, phpunit.xml.dist, .php-cs-fixer.dist.php, tools/,
+    // tests/, vendor/). None of it may ever reach a managed site: adoption
+    // installs with `tar -cf ... agent manifests recovery` (cli/src/Adopt.php),
+    // so the deployed tree is structurally incapable of carrying it. Asserting
+    // that here rather than in the tooling's own PHPUnit suite is deliberate —
+    // this is the test that already owns the real deployed-runtime layout, and
+    // the failure mode being guarded (a dev-only dependency shipped to a live
+    // site, fataling at mu-plugin load) is a deployment property, not a
+    // tooling one.
+    $devToolingNames = [
+        '.php-cs-fixer.dist.php',
+        'composer.json',
+        'composer.lock',
+        'phpstan-baseline.neon',
+        'phpstan.neon.dist',
+        'phpunit.xml.dist',
+        'tests',
+        'tools',
+        'vendor',
+    ];
+    // A witness set: if the repo root did not actually carry these, the
+    // exclusion assertion below would pass vacuously forever.
+    $witnessed = [];
+    foreach ($devToolingNames as $name) {
+        if (file_exists($repo . '/' . $name)) {
+            $witnessed[] = $name;
+        }
+    }
+    check(
+        in_array('composer.json', $witnessed, true)
+            && in_array('phpstan.neon.dist', $witnessed, true)
+            && in_array('phpunit.xml.dist', $witnessed, true)
+            && in_array('tests', $witnessed, true),
+        'the host checkout really does carry root dev tooling, so its absence downstream is a measured exclusion'
+            . ' (witnessed: ' . implode(', ', $witnessed) . ')'
+    );
+    $leakedTooling = [];
+    foreach (deployed_tree_paths($runtimeRoot) as $deployedPath) {
+        foreach ($devToolingNames as $name) {
+            if ($deployedPath === $name || basename($deployedPath) === $name || str_starts_with($deployedPath, $name . '/')) {
+                $leakedTooling[] = $deployedPath;
+                break;
+            }
+        }
+    }
+    check(
+        $leakedTooling === [],
+        'the deployed runtime carries no root dev toolchain'
+            . ($leakedTooling === [] ? '' : ' (leaked: ' . implode(', ', $leakedTooling) . ')')
+    );
+
+    // The drop-in has no autoloader by design; agent/src's flat `namespace Duo;`
+    // files resolve every symbol through their own require_once chains. A single
+    // `require vendor/autoload.php` would load fine on any developer checkout
+    // (vendor/ is present there) and fatal on every adopted site, where it can
+    // never exist. Only a byte scan catches that asymmetry.
+    $autoloadRefs = [];
+    foreach ([
+        'agent' => $repo . '/agent',
+        'recovery' => $repo . '/recovery',
+        'deployed agent' => $runtimeAgent,
+    ] as $label => $scanRoot) {
+        foreach (deployed_files_containing($scanRoot, 'vendor/autoload.php') as $hit) {
+            $autoloadRefs[] = $label . '/' . $hit;
+        }
+    }
+    check(
+        $autoloadRefs === [],
+        'no agent/ or recovery/ source references vendor/autoload.php'
+            . ($autoloadRefs === [] ? '' : ' (found: ' . implode(', ', $autoloadRefs) . ')')
     );
     $runtimeLoad = runtime_registry_load($runtimeAgent, $runtimeManifests, $scratch);
     check(

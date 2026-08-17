@@ -1,0 +1,32 @@
+# EditorConfig for duo-wp. Values are transcribed from what the tree already
+# does, not from a house style: 555 committed .php files are 4-space (zero
+# contain a tab), 128 of 188 .sh files indent 2, every .json/.yml is 2, and
+# the Makefile is necessarily tab-indented. Anything here that disagreed with
+# the tree would silently reformat certification-closure files on save — a
+# byte change under agent/, cli/, sandbox/bin/ or Makefile expires nine
+# certifications, so this file is deliberately descriptive, never aspirational.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.php]
+indent_style = space
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+
+[*.{yml,yaml,json}]
+indent_style = space
+indent_size = 2
+
+[*.sh]
+indent_style = space
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false

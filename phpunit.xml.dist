@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit 11 configuration for the Duo dev toolchain.
+
+  These are TOOLING self-tests, not product tests. Duo's product suite is the
+  1,000-file sandbox/tests corpus driven by `make regress-offline-all`; nothing
+  here replaces it, and no test in this suite may add a Makefile target (each
+  one would cost a certification round). The single testsuite therefore points
+  at the whole tests/ directory so agents adding tools/*.php can drop a
+  matching tests/Tooling/*Test.php in without touching this file.
+
+  fail-on-* are all true because a tooling harness that tolerates its own
+  deprecations is how a toolchain silently stops working across a PHP minor.
+  The certified floor is PHP 8.3 and developers here run 8.5, so a
+  deprecation raised on 8.5 is exactly the signal worth failing on.
+-->
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true"
+         executionOrder="depends,defects"
+         beStrictAboutOutputDuringTests="true"
+         failOnWarning="true"
+         failOnDeprecation="true"
+         failOnNotice="true"
+         failOnRisky="true"
+         failOnEmptyTestSuite="true"
+         displayDetailsOnTestsThatTriggerWarnings="true"
+         displayDetailsOnTestsThatTriggerDeprecations="true"
+         displayDetailsOnTestsThatTriggerErrors="true"
+         displayDetailsOnTestsThatTriggerNotices="true"
+         displayDetailsOnIncompleteTests="true"
+         displayDetailsOnSkippedTests="true"
+         displayDetailsOnPhpunitDeprecations="true">
+  <testsuites>
+    <testsuite name="tooling">
+      <directory>tests</directory>
+    </testsuite>
+  </testsuites>
+  <source>
+    <include>
+      <directory suffix=".php">tools</directory>
+    </include>
+  </source>
+</phpunit>

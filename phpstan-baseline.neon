@@ -1,0 +1,655 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Static method Duo\\AdapterSources\:\:refuse\(\) invoked with 6 parameters, 7 required\.$#'
+			identifier: arguments.count
+			count: 1
+			path: agent/src/AdapterSources.php
+
+		-
+			message: '#^Constructor of class Duo\\Capture has an unused parameter \$policy\.$#'
+			identifier: constructor.unusedParameter
+			count: 1
+			path: agent/src/Capture.php
+
+		-
+			message: '#^Constructor of class Duo\\Capture has an unused parameter \$repo\.$#'
+			identifier: constructor.unusedParameter
+			count: 1
+			path: agent/src/Capture.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:backup_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:intent_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:stage_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationRecovery.php
+
+		-
+			message: '#^Anonymous function has an unused use \$initialMediaIdentity\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:assert_lock_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 7
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:assert_owned_tree\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 7
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:backup_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 3
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:begin_intent\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:cleanup_committed\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:cleanup_committed_initial\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:file_ownership_identity\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:intent_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 9
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:lock\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:lock_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:mark_commit_ready\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:mark_swapped\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:receipt_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 7
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:recover_initial\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:remove_owned_file\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:remove_owned_tree\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:stage_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 4
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:swap\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:swap_initial\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:tree_digest\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:tree_ownership_manifest\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:unlock\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:write_entities\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:write_entities_fresh\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:write_file_fresh\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:write_receipt\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CapturePublicationWorkflow.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:mark_committing\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/CaptureTransaction.php
+
+		-
+			message: '#^Variable \$artifact might not be defined\.$#'
+			identifier: variable.undefined
+			count: 6
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$contract might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$document might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$export might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$findings might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$items might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$manifest might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$pin might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$plan might not be defined\.$#'
+			identifier: variable.undefined
+			count: 5
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$repo might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$report might not be defined\.$#'
+			identifier: variable.undefined
+			count: 13
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$result might not be defined\.$#'
+			identifier: variable.undefined
+			count: 4
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$summary might not be defined\.$#'
+			identifier: variable.undefined
+			count: 31
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$survey might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$table might not be defined\.$#'
+			identifier: variable.undefined
+			count: 2
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Variable \$viewRequest might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: agent/src/Cli.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:directory_ownership_identity\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitAttemptJournal.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:remove_owned_file\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitAttemptJournal.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:sync_parent\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitAttemptJournal.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:write_file_fresh\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitAttemptJournal.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:copy_file_fresh\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitCodeBaseline.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:create_directory_fresh\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitCodeBaseline.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:directory_ownership_identity\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitCodeBaseline.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:assert_lock_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 7
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:intent_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:lock\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:lock_new\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:lock_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 3
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:receipt_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:unlock\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitConfirmation.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:sync_parent\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitOwnedArtifacts.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:assert_lock_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:assert_no_record_temps\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:backup_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 7
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:intent_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 9
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:intent_record\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:lock_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:receipt_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 6
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:receipt_record\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:record_temp_is_resolvable\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:recover_initial\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:recover_initial_unpublished_intent_next\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:remove_owned_tree\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:stage_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 8
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:tree_digest\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:tree_ownership_manifest\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 2
+			path: agent/src/InitRecovery.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:backup_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitialCaptureBoundary.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:intent_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 3
+			path: agent/src/InitialCaptureBoundary.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:receipt_path\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 3
+			path: agent/src/InitialCaptureBoundary.php
+
+		-
+			message: '#^Call to an undefined static method Duo\\Publish\:\:stage_dir\(\)\.$#'
+			identifier: staticMethod.notFound
+			count: 1
+			path: agent/src/InitialCaptureBoundary.php
+
+		-
+			message: '#^PHPDoc tag @var with type array\{category\: list\<string\>, action\: list\<string\>, entity\: list\<string\>, limit\: int\} is not subtype of native type array\{category\: array, action\: array, entity\: array, limit\: int\<1, 200\>\}\.$#'
+			identifier: varTag.nativeType
+			count: 1
+			path: agent/src/PlanView.php
+
+		-
+			message: '#^Variable \$typedFailure on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: agent/src/PromotionLease.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$identities$#'
+			identifier: parameter.notFound
+			count: 1
+			path: agent/src/ScopedApplySession.php
+
+		-
+			message: '#^Anonymous function has an unused use \$paths\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: agent/src/ScopedCertificationBundle.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$localByCol$#'
+			identifier: parameter.notFound
+			count: 1
+			path: agent/src/Snapshot.php
+
+		-
+			message: '#^PHPDoc tag @param references unknown parameter\: \$tokensByCol$#'
+			identifier: parameter.notFound
+			count: 1
+			path: agent/src/Snapshot.php
+
+		-
+			message: '#^Variable \$argv might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: cli/duo
+
+		-
+			message: '#^PHPDoc tag @param for parameter \$promote with type \(callable\)\|int is not subtype of native type callable\.$#'
+			identifier: parameter.phpDocType
+			count: 1
+			path: cli/src/EnvironmentCommand.php
+
+		-
+			message: '#^Variable \$observedExit on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: cli/src/EnvironmentLifecycle.php
+
+		-
+			message: '#^Variable \$written might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: cli/src/LocalTransport.php
+
+		-
+			message: '#^Anonymous function has an unused use \$handler\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: cli/src/PassthroughCommand.php
+
+		-
+			message: '#^PHPDoc tag @param for parameter \$readStdin with type \(callable\)\|false\|null is not subtype of native type \(callable\)\|null\.$#'
+			identifier: parameter.phpDocType
+			count: 1
+			path: cli/src/PassthroughCommand.php
+
+		-
+			message: '#^PHPDoc tag @param for parameter \$ordinary with type \(callable\)\|int is not subtype of native type callable\.$#'
+			identifier: parameter.phpDocType
+			count: 1
+			path: cli/src/PromoteCommand.php
+
+		-
+			message: '#^Anonymous function has an unused use \$entry\.$#'
+			identifier: closure.unusedUse
+			count: 1
+			path: cli/src/RefreshFieldDiff.php
+
+		-
+			message: '#^PHPDoc tag @return has invalid value \(array\{content\:string,fields\:array\<string,array\{raw\:string,start\:int,end\:int\}\}\>\)\: Unexpected token "\:", expected ''\}'' at offset 39 on line 1$#'
+			identifier: phpDoc.parseError
+			count: 1
+			path: cli/src/RefreshFieldDiff.php
+
+		-
+			message: '#^Variable \$argc might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: cli/src/RefreshPlanCompile.php
+
+		-
+			message: '#^Variable \$argv might not be defined\.$#'
+			identifier: variable.undefined
+			count: 3
+			path: cli/src/RefreshPlanCompile.php
+
+		-
+			message: '#^Template type T of method Duo\\Recovery\\CheckpointBundle\:\:withLock\(\) is not referenced in a parameter\.$#'
+			identifier: method.templateTypeNotInParameter
+			count: 1
+			path: recovery/CheckpointBundle.php
+
+		-
+			message: '#^Template type T of method Duo\\Recovery\\CodeRelease\:\:withLock\(\) is not referenced in a parameter\.$#'
+			identifier: method.templateTypeNotInParameter
+			count: 1
+			path: recovery/CodeRelease.php
+
+		-
+			message: '#^Template type T of method Duo\\Recovery\\EffectBundle\:\:withLock\(\) is not referenced in a parameter\.$#'
+			identifier: method.templateTypeNotInParameter
+			count: 1
+			path: recovery/EffectBundle.php
+
+		-
+			message: '#^Template type T of method Duo\\Recovery\\ProtocolLock\:\:withExclusive\(\) is not referenced in a parameter\.$#'
+			identifier: method.templateTypeNotInParameter
+			count: 1
+			path: recovery/ProtocolLock.php
+
+		-
+			message: '#^Variable \$observedExit on left side of \?\? always exists and is not nullable\.$#'
+			identifier: nullCoalesce.variable
+			count: 1
+			path: recovery/ProviderClient.php
+
+		-
+			message: '#^Template type T of method Duo\\Recovery\\UploadBundle\:\:withLock\(\) is not referenced in a parameter\.$#'
+			identifier: method.templateTypeNotInParameter
+			count: 1
+			path: recovery/UploadBundle.php
+
+		-
+			message: '#^Variable \$argv might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: recovery/rollback-control.php
+
+		-
+			message: '#^Variable \$argv might not be defined\.$#'
+			identifier: variable.undefined
+			count: 1
+			path: scripts/adapter-certification.php

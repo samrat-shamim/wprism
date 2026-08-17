@@ -53,3 +53,17 @@ sandbox/conformance/artifacts-cache/*
 # builder, verifier, and reference harness are committed; each run's logs and
 # environment evidence are immutable outputs published by digest, not source.
 sandbox/certification-bundles/
+
+# DUO WP-4: the repo-root dev toolchain (composer.json / phpstan.neon.dist /
+# .php-cs-fixer.dist.php / phpunit.xml.dist) is structurally unshippable —
+# cli/src/Adopt.php tars exactly `agent manifests recovery`, so none of this
+# can reach a managed site. What follows is the toolchain's *machine-local*
+# output: installed vendor code and analyser caches. composer.lock is NOT
+# ignored — it is the pinned, reproducible input every developer must
+# resolve identically, and tests/Tooling asserts the drop-in itself
+# never references vendor/autoload.php.
+/vendor/
+/.phpstan/
+/.php-cs-fixer.cache
+/.phpunit.cache
+/.phpunit.result.cache

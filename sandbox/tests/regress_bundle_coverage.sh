@@ -47,14 +47,60 @@ def code_lines(path):
 
 contents = {b: code_lines(f) for b, f in zip(basenames, files)}
 
+# A file is a helper (not its own primary suite) if some OTHER file's CODE
+# actually runs it: `php <name>` or `bash <name>`, optionally with a path
+# prefix -- the only two invocation shapes this codebase uses. A bare
+# textual mention (a comment, a filename in prose) doesn't count -- which is
+# exactly why code_lines() above strips full-line comments before any of
+# this runs.
+#
+# One regex pass per file (not one pass per basename) replaces what was an
+# O(n^2) survey: originally, for EACH of the ~n basenames, a fresh regex was
+# compiled (via re.escape(basename)) and searched against EVERY other file's
+# text again from scratch. To stay a single pass while still accepting
+# exactly the same basenames as that per-basename check -- not a guessed
+# shape like `regress_[a-z0-9_]+\.(?:sh|php)`, which would silently narrow
+# acceptance (rejecting a real but unusually-shaped basename, e.g. one with
+# a dash or an embedded dot, is a false "needs its own Makefile entry", not
+# a hidden gap -- but still wrong either way) -- the alternation below is
+# built FROM basenames itself: one regex whose acceptable-basename set is
+# exactly the on-disk `regress_*.{sh,php}` glob result, nothing guessed.
+# Longest-first ordering (key=len, reverse=True) resolves the one ambiguity
+# a combined alternation can introduce that independent per-basename
+# searches never had: when one on-disk basename is a strict string prefix
+# of another (e.g. `regress_a.sh`, matching the `regress_*.sh` glob, is a
+# literal prefix of `regress_a.sh.php`, which independently matches
+# `regress_*.php`), trying the longer alternative first at a given position
+# stops the match from being reported under the shorter name instead.
+# invoked_by maps a basename to the set of files
+# whose code invokes it. Self-invocation is still excluded (a file naming
+# itself doesn't count -- checked via `inv != basename` below, matching the
+# old `other != basename` guard), and comment lines are still stripped
+# first via code_lines() before this pass ever sees the text.
+#
+# Residual, inherited from the original per-basename check and NOT fixed
+# here: `\b` is a word/non-word boundary, not an end-of-name anchor, so a
+# stray `regress_x.sh.bak`-named file (never itself a match target, since
+# it doesn't fit the `regress_*.{sh,php}` glob) can still make a genuine
+# `regress_x.sh` basename register as "invoked" if some file's code
+# happens to write `bash regress_x.sh.bak` -- `\b` is satisfied right
+# after `.sh`, same as it always was. This is unchanged behaviour, not a
+# regression, and is a false "covered" (safe direction) rather than a
+# hidden gap.
+if basenames:
+    alternation = '|'.join(sorted((re.escape(b) for b in basenames), key=len, reverse=True))
+    GENERIC_INVOCATION_RX = re.compile(
+        r'(?:php|bash)\s+(?:\S*/)?(' + alternation + r')\b'
+    )
+else:
+    GENERIC_INVOCATION_RX = re.compile(r'(?!)')  # no basenames on disk -> never matches
+invoked_by = {}  # basename -> set of files whose code invokes it
+for owner, text in contents.items():
+    for m in GENERIC_INVOCATION_RX.finditer(text):
+        invoked_by.setdefault(m.group(1), set()).add(owner)
+
 def invoked_elsewhere(basename):
-    # A file is a helper (not its own primary suite) if some OTHER file's
-    # CODE actually runs it: `php <name>` or `bash <name>`, optionally with
-    # a path prefix -- the only two invocation shapes this codebase uses.
-    # A bare textual mention (a comment, a filename in prose) doesn't count.
-    pat = re.escape(basename)
-    rx = re.compile(rf'(?:php|bash)\s+(?:\S*/)?{pat}\b')
-    return any(other != basename and rx.search(text) for other, text in contents.items())
+    return any(inv != basename for inv in invoked_by.get(basename, ()))
 
 primary = {}  # target name -> source file, for every file that is its own suite
 for b in basenames:
