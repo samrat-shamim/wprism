@@ -115,6 +115,7 @@ final class InitPlanner {
         $selected = array_merge($selected, $plugins['selected']);
         $unsupported = array_merge($unsupported, $plugins['unsupported']);
         $advisories = array_merge($advisories, $plugins['advisories']);
+        $unmanagedPluginsPresent = $plugins['advisories'] !== [];
 
         $template = (string) get_option('template', '');
         $stylesheet = (string) get_option('stylesheet', '');
@@ -215,6 +216,66 @@ final class InitPlanner {
         sort($postTypes, SORT_STRING);
         sort($taxonomies, SORT_STRING);
 
+        // The same decision, carried through to the types those plugins
+        // register. Init's own confirmation runs the baseline capture, and
+        // capture's scope gate refuses any plugin-registered type with rows
+        // that no rule names — so "leave the plugin unmanaged" has to mean
+        // "its types stay local" or init cannot finish (grind_adapter_walk.sh
+        // S1: `[incomplete_policy_scope] … scope:post_type:wpforms` inside
+        // `duo init --allow-unmanaged-plugins --yes`). Each such type gets a
+        // reviewed-looking scope rule of class runtime — the exact rule
+        // `duo classify` would write — and is printed as an advisory so the
+        // operator sees what was left local; `duo classify` re-decides it in
+        // one line when an adapter arrives.
+        $scope = ['post_type' => [], 'taxonomy' => []];
+        if ($unmanagedPluginsPresent) {
+            $declaredPostTypes = [];
+            $declaredTaxonomies = [];
+            foreach ($selected as $name) {
+                $manifest = $manifests[$name] ?? null;
+                if (!is_array($manifest)) {
+                    continue;
+                }
+                $declaredPostTypes = array_merge($declaredPostTypes, array_keys((array) ($manifest['post_types'] ?? [])));
+                $declaredTaxonomies = array_merge($declaredTaxonomies, array_keys((array) ($manifest['taxonomies'] ?? [])));
+            }
+            $postCounts = [];
+            foreach ($wpdb->get_results(
+                "SELECT post_type, COUNT(*) AS entities FROM {$wpdb->posts}
+                 WHERE (post_status IN ('publish','draft','pending','private','future')
+                        OR (post_type = 'attachment' AND post_status = 'inherit'))
+                 GROUP BY post_type",
+                ARRAY_A
+            ) ?: [] as $row) {
+                $postCounts[(string) $row['post_type']] = (int) $row['entities'];
+            }
+            $taxCounts = [];
+            foreach ($wpdb->get_results(
+                "SELECT taxonomy, COUNT(*) AS entities FROM {$wpdb->term_taxonomy} GROUP BY taxonomy",
+                ARRAY_A
+            ) ?: [] as $row) {
+                $taxCounts[(string) $row['taxonomy']] = (int) $row['entities'];
+            }
+            $unmanagedScope = self::unmanaged_scope(
+                array_values(array_unique(array_merge(
+                    array_values(get_post_types(['public' => true], 'names')),
+                    array_values(get_post_types(['_builtin' => false], 'names'))
+                ))),
+                array_values(array_unique(array_merge(
+                    array_values(get_taxonomies(['public' => true], 'names')),
+                    array_values(get_taxonomies(['_builtin' => false], 'names'))
+                ))),
+                $postTypes,
+                $taxonomies,
+                array_map('strval', $declaredPostTypes),
+                array_map('strval', $declaredTaxonomies),
+                $postCounts,
+                $taxCounts
+            );
+            $scope = $unmanagedScope['scope'];
+            $advisories = array_merge($advisories, $unmanagedScope['advisories']);
+        }
+
         $resolved = RepositoryCompiler::resolved_adapters($policy);
         $adapterRows = [];
         foreach ($resolved as $row) {
@@ -239,6 +300,12 @@ final class InitPlanner {
             ],
             'spec_version' => DUO_SPEC_VERSION,
         ];
+        if ($scope['post_type'] !== [] || $scope['taxonomy'] !== []) {
+            $config['policy']['scope'] = array_filter([
+                'post_type' => $scope['post_type'] !== [] ? $scope['post_type'] : null,
+                'taxonomy' => $scope['taxonomy'] !== [] ? $scope['taxonomy'] : null,
+            ]);
+        }
 
         $dbVersion = (string) $wpdb->get_var('SELECT VERSION()');
         if (!empty($wpdb->last_error)) {
@@ -488,7 +555,8 @@ final class InitPlanner {
             // is a different fact — there IS an adapter and the engine cannot
             // say which — and leaving it unmanaged is not its remedy.
             if ($owners === [] && $allowUnmanagedPlugins) {
-                $row['remediation'] = 'nothing about this plugin is written by init; decide its state class in '
+                $row['remediation'] = 'init selects no adapter and no authored scope for this plugin; its registered '
+                    . 'types that hold rows are left local (see UNMANAGED SCOPE); decide its state class in '
                     . 'the contract (assess reports it as plugin:' . self::plugin_slug($plugin) . ')';
                 $advisories[] = $row;
                 continue;
@@ -496,6 +564,66 @@ final class InitPlanner {
             $unsupported[] = $row;
         }
         return ['advisories' => $advisories, 'selected' => $selected, 'unsupported' => $unsupported];
+    }
+
+    /**
+     * The types an unmanaged plugin's decision leaves local. Pure — the
+     * offline seam for the rule above.
+     *
+     * A registered type (public, or any plugin-registered one) that has rows,
+     * is not in the proposed authored scope, and is not declared by any
+     * selected manifest with a class of its own, is exactly what capture's
+     * scope gate would refuse. It receives `{class: runtime}` — the same
+     * whole-type exclusion `duo classify --set=scope:<kind>:<name>=runtime`
+     * writes — and one advisory naming it. Types with no rows are left alone:
+     * nothing is decided about a type that holds nothing yet, and the gate
+     * only fires on rows.
+     *
+     * @param list<string> $registeredPostTypes
+     * @param list<string> $registeredTaxonomies
+     * @param list<string> $proposedPostTypes   the proposal's authored post_types
+     * @param list<string> $proposedTaxonomies  the proposal's authored taxonomies
+     * @param list<string> $declaredPostTypes   every post type a selected manifest declares (any class)
+     * @param list<string> $declaredTaxonomies  every taxonomy a selected manifest declares (any class)
+     * @param array<string,int> $postCounts     post type => capturable rows
+     * @param array<string,int> $taxCounts      taxonomy => term rows
+     * @return array{scope:array{post_type:array<string,array{class:string}>,taxonomy:array<string,array{class:string}>},advisories:list<array<string,string>>}
+     */
+    public static function unmanaged_scope(
+        array $registeredPostTypes,
+        array $registeredTaxonomies,
+        array $proposedPostTypes,
+        array $proposedTaxonomies,
+        array $declaredPostTypes,
+        array $declaredTaxonomies,
+        array $postCounts,
+        array $taxCounts
+    ): array {
+        $scope = ['post_type' => [], 'taxonomy' => []];
+        $advisories = [];
+        foreach ([
+            ['post_type', $registeredPostTypes, $proposedPostTypes, $declaredPostTypes, $postCounts, 'row(s)'],
+            ['taxonomy', $registeredTaxonomies, $proposedTaxonomies, $declaredTaxonomies, $taxCounts, 'term(s)'],
+        ] as [$kind, $registered, $proposed, $declared, $counts, $unit]) {
+            $registered = array_values(array_unique(array_map('strval', $registered)));
+            sort($registered, SORT_STRING);
+            $skip = array_fill_keys(array_map('strval', array_merge($proposed, $declared)), true);
+            foreach ($registered as $name) {
+                if (isset($skip[$name]) || (int) ($counts[$name] ?? 0) < 1) {
+                    continue;
+                }
+                $scope[$kind][$name] = ['class' => 'runtime'];
+                $advisories[] = [
+                    'code' => 'unmanaged_scope_left_local',
+                    'extension' => "$kind:$name",
+                    'kind' => 'scope',
+                    'reason' => 'registered by no selected adapter and holding ' . (int) $counts[$name] . " $unit; "
+                        . 'left local (class runtime) by the unmanaged-plugins decision',
+                    'remediation' => "to manage it later, run duo classify and decide scope:$kind:$name, or install an adapter that declares it",
+                ];
+            }
+        }
+        return ['advisories' => $advisories, 'scope' => $scope];
     }
 
     /**

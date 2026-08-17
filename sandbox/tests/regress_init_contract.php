@@ -1853,9 +1853,46 @@ check(
 );
 check(
     str_contains($allowed['advisories'][0]['remediation'], 'plugin:wpforms-lite')
-        && str_contains($allowed['advisories'][0]['remediation'], 'nothing about this plugin is written by init'),
-    'the advisory says nothing is written and points at the assess surface that carries the decision'
+        && str_contains($allowed['advisories'][0]['remediation'], 'left local (see UNMANAGED SCOPE)'),
+    'the advisory says what init selects (nothing) and leaves local (its typed rows), and points at the assess surface that carries the decision'
 );
+// The same decision, carried through to the types those plugins register:
+// init's own confirmation runs the baseline capture, and capture's scope gate
+// refuses any plugin-registered type with rows that no rule names, so
+// "leave the plugin unmanaged" must mean "its types stay local" or init
+// cannot finish (grind_adapter_walk.sh S1 found exactly that).
+$left = \Duo\InitPlanner::unmanaged_scope(
+    ['post', 'page', 'attachment', 'product', 'wpforms', 'wpforms-template', 'scheduled-action'],
+    ['category', 'post_tag', 'product_cat', 'form_group'],
+    ['attachment', 'page', 'post', 'product'],
+    ['category', 'post_tag', 'product_cat'],
+    ['product', 'product_variation', 'shop_order', 'scheduled-action'],
+    ['product_cat', 'product_visibility'],
+    ['post' => 3, 'page' => 2, 'product' => 4, 'wpforms' => 2, 'scheduled-action' => 9],
+    ['category' => 1, 'product_cat' => 2, 'form_group' => 1]
+);
+check(
+    $left['scope'] === [
+        'post_type' => ['wpforms' => ['class' => 'runtime']],
+        'taxonomy' => ['form_group' => ['class' => 'runtime']],
+    ],
+    'a registered type with rows outside the proposed scope and undeclared by every selected adapter is left local as runtime; '
+    . 'proposed, declared (any class) and empty types are not touched'
+);
+check(
+    array_column($left['advisories'], 'extension') === ['post_type:wpforms', 'taxonomy:form_group']
+        && $left['advisories'][0]['code'] === 'unmanaged_scope_left_local'
+        && $left['advisories'][0]['kind'] === 'scope'
+        && str_contains($left['advisories'][0]['reason'], 'holding 2 row(s)')
+        && str_contains($left['advisories'][0]['remediation'], 'scope:post_type:wpforms'),
+    'each left-local type is an advisory naming the type, its row count and the classify decision that re-manages it'
+);
+check(
+    \Duo\InitPlanner::unmanaged_scope(['wpforms'], [], [], [], [], [], ['wpforms' => 0], [])
+        === ['advisories' => [], 'scope' => ['post_type' => [], 'taxonomy' => []]],
+    'a type with no rows is left alone: nothing is decided about a type that holds nothing yet'
+);
+
 check(
     \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
         && str_contains(

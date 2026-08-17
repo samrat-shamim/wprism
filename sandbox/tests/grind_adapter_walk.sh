@@ -2018,48 +2018,45 @@ scenario_s1() {
   if ! dry; then
     walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED PLUGIN' "$WPFORMS_BASENAME" active_plugin_without_adapter \
       || fail "$S: §3.4 — --allow-unmanaged-plugins must print UNMANAGED PLUGIN $WPFORMS_BASENAME [active_plugin_without_adapter]"
-    # §3.4: nothing is written about an unmanaged plugin. The decision lives in
-    # assess and the contract, so the generated policy must not have quietly
-    # taken its post type into scope.
+    # The decision carries through to the plugin's registered types: init's
+    # own confirmation runs the baseline capture, whose scope gate refuses any
+    # plugin-registered type with rows that no rule names, so "leave the
+    # plugin unmanaged" means "its types stay local" — the same
+    # `scope:post_type:<name>=runtime` rule `duo classify` would write, printed
+    # as an advisory rather than taken silently. The forms CPT must NOT have
+    # been taken into authored scope.
+    walk_assert_init_line "$EVIDENCE/$S/init.txt" 'UNMANAGED SCOPE' "post_type:$WPFORMS_CPT" unmanaged_scope_left_local \
+      || fail "$S: init did not print UNMANAGED SCOPE post_type:$WPFORMS_CPT [unmanaged_scope_left_local] for the plugin's forms type"
     jq -e --arg t "$WPFORMS_CPT" '[.policy.post_types[]] | index($t) == null' "$HOST_R1/site.duo.json" >/dev/null \
-      || fail "$S: init took the unmanaged plugin's post type into policy scope; §3.4 says nothing is written about it"
+      || fail "$S: init took the unmanaged plugin's post type into authored policy scope"
+    jq -e --arg t "$WPFORMS_CPT" '.policy.scope.post_type[$t].class == "runtime"' "$HOST_R1/site.duo.json" >/dev/null \
+      || fail "$S: site.duo.json does not record policy.scope.post_type.$WPFORMS_CPT.class = runtime after --allow-unmanaged-plugins"
   fi
   baseline_commit "$S"
 
-  say "$S — duo capture ${PAIR}1 refuses: the plugin's CPT is outside reviewed scope"
-  duo_refused "$EVIDENCE/$S/capture-refused.txt" incomplete_policy_scope "$HOST_R1" capture "${PAIR}1" --format=json
+  say "$S — duo capture ${PAIR}1 is green, and the review queue holds no scope gap"
+  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
   duo_ok "$EVIDENCE/$S/pending.txt" "$HOST_R1" pending "${PAIR}1" --format=json
   if ! dry; then
+    grep -Fq "scope:post_type:$WPFORMS_CPT" "$EVIDENCE/$S/pending.txt" \
+      && fail "$S: the review queue still carries scope:post_type:$WPFORMS_CPT after init decided it runtime"
+    # The gate itself is proven live in the negative: a site.duo.json WITHOUT
+    # that rule refuses capture by name. Take the rule away in a scratch copy
+    # of the repository's policy and ask the target — nothing on the target
+    # moves, and the refusal is the exact one an operator who removed the
+    # rule by hand would read.
+    local stripped="$SCRATCH/$S-site.duo.without-scope.json"
+    jq --arg t "$WPFORMS_CPT" 'del(.policy.scope.post_type[$t]) | if (.policy.scope.post_type // {}) == {} then del(.policy.scope.post_type) else . end | if (.policy.scope // {}) == {} then del(.policy.scope) else . end' \
+      "$HOST_R1/site.duo.json" > "$stripped"
+    cp "$HOST_R1/site.duo.json" "$SCRATCH/$S-site.duo.keep.json"
+    cp "$stripped" "$HOST_R1/site.duo.json"
+    duo_refused "$EVIDENCE/$S/capture-refused.txt" incomplete_policy_scope "$HOST_R1" capture "${PAIR}1" --format=json
     grep -Fq "scope:post_type:$WPFORMS_CPT" "$EVIDENCE/$S/capture-refused.txt" \
       || fail "$S: the capture refusal does not name scope:post_type:$WPFORMS_CPT"
+    cp "$SCRATCH/$S-site.duo.keep.json" "$HOST_R1/site.duo.json"
+    duo_ok "$EVIDENCE/$S/capture-again.txt" "$HOST_R1" capture "${PAIR}1"
   fi
-  pass "$S — capture is loud and names the exact scope gap"
-
-  say "$S — duo classify ${PAIR}1: scope:post_type:$WPFORMS_CPT=runtime, non-interactively"
-  local batch="$SCRATCH/$S-classification-batch.json"
-  local reviewed="$SCRATCH/$S-classification-batch.reviewed.json"
-  duo_ok "$EVIDENCE/$S/classify-export.txt" "$HOST_R1" classify "${PAIR}1" --export-batch="$batch"
-  if dry; then
-    plan "jq: review $batch — decisions[scope:post_type:$WPFORMS_CPT].class = runtime"
-    plan "cp $reviewed $batch"
-  else
-    walk_batch_decide "$batch" scope "post_type:$WPFORMS_CPT" runtime "$reviewed" \
-      || fail "$S: the exported batch carries no scope:post_type:$WPFORMS_CPT decision to review"
-    [ "$(walk_batch_class "$reviewed" scope "post_type:$WPFORMS_CPT")" = runtime ] \
-      || fail "$S: the reviewed batch does not record the runtime decision"
-    # The batch is digest-bound to the queue it was exported from, so the
-    # reviewed copy replaces the original IN PLACE rather than travelling under
-    # a second path the product would have to re-bind.
-    mv "$reviewed" "$batch"
-  fi
-  duo_ok "$EVIDENCE/$S/classify-apply.txt" "$HOST_R1" classify "${PAIR}1" --apply-batch="$batch"
-  if ! dry; then
-    jq -e --arg t "$WPFORMS_CPT" '.policy.scope.post_type[$t].class == "runtime"' \
-      "$HOST_R1/site.duo.json" >/dev/null \
-      || fail "$S: site.duo.json does not record policy.scope.post_type.$WPFORMS_CPT.class = runtime"
-  fi
-  duo_ok "$EVIDENCE/$S/capture.txt" "$HOST_R1" capture "${PAIR}1"
-  pass "$S — one reviewed classification turned the refusal into a green capture"
+  pass "$S — capture is green with the reviewed rule and loud without it, naming the exact scope gap"
 
   say "$S — duo coverage ${PAIR}1 and duo assess ${PAIR}1"
   duo_ok "$SCRATCH/$S-coverage.raw" "$HOST_R1" coverage "${PAIR}1" --format=json

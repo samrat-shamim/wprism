@@ -171,6 +171,13 @@ final class Init {
         if ($code === self::UNMANAGED_PLUGIN_CODE) {
             return 'UNMANAGED PLUGIN ' . $extension . ' [' . $code . ']';
         }
+        if ($code === 'unmanaged_scope_left_local') {
+            // The unmanaged-plugin decision carried through to a registered
+            // type with rows: `UNMANAGED SCOPE post_type:wpforms` reads as the
+            // sentence it is, beside its plugin's own line.
+            return 'UNMANAGED SCOPE ' . $extension . ' [' . $code . ']: '
+                . ($row['reason'] ?? '') . '. ' . ($row['remediation'] ?? '');
+        }
 
         return 'ADVISORY ' . strtoupper((string) ($row['kind'] ?? 'coverage')) . ' '
             . $extension . ' [' . $code . ']: '

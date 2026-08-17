@@ -99,8 +99,15 @@ never `Platform-certified`). `CrossManifestGuards` run over the loaded set only.
 - `duo init <env> --allow-unmanaged-plugins`: proceed when active plugins have
   no owning adapter; each is printed as `UNMANAGED PLUGIN <slug>/<file>.php
   [active_plugin_without_adapter]` under an `advisories` heading instead of
-  `unsupported`; nothing is written about them (assess and the contract carry
-  the decision, §3.6). Without the flag the refusal is unchanged but its
+  `unsupported`. Init selects no adapter and no authored scope for such a
+  plugin; but init's own confirmation runs the baseline capture, whose scope
+  gate refuses any plugin-registered type with rows that no rule names, so the
+  decision carries through: every registered type with rows that is outside the
+  proposed scope and undeclared by every selected adapter is left local with
+  `policy.scope.<kind>.<name>: {class: runtime}` (the rule `duo classify` would
+  write) and printed as `UNMANAGED SCOPE <kind>:<name>
+  [unmanaged_scope_left_local]`. Assess and the contract carry the plugin
+  decision (§3.6). Without the flag the refusal is unchanged but its
   remediation now names the flag and `duo adapter certify`.
 - An installed but uncertified adapter still blocks init; the blocker's
   remediation is `certify it with duo adapter certify <site-repo> --name=<n>, or
