@@ -1,0 +1,1481 @@
+{
+  "$comment": "Module map for the agent/src and cli/src directory move (round 3). tools/layers.json remains the layer of record per file until the move lands; after it, module `layer` here is authoritative and the directory lint replaces the file-level map.",
+  "ladder": [
+    "kernel",
+    "policy",
+    "repository",
+    "engine",
+    "adapter",
+    "surface"
+  ],
+  "rules": [
+    "Every file under a root belongs to exactly one module directory.",
+    "A module has exactly one layer; that is what lets a directory-level lint replace the file-level layer map.",
+    "Within a root, a module may reference only modules in a strictly lower layer, plus itself; every same-layer or upward edge that exists today is listed in that module's `exceptions` and is a ratchet (may shrink, never grow).",
+    "cli modules may reference agent modules named in `depends_on` (written `agent:<Module>`); the agent root must never reference cli.",
+    "`entry_points` are the classes other modules already reference; a new cross-module reference to a non-entry-point class is a design change, not a refactor.",
+    "Namespaces do not change in this move: agent/src stays `namespace Duo;`, cli/src stays `namespace Duo\\Orchestrator;`. The additive classmap (agent/duo-classmap.php, cli/duo-classmap.php) maps FQCN to path, so directory != namespace is legal. Sub-namespaces migrate later, per module, Kernel first.",
+    "A reserved (0-file) module carries no `exceptions`: composition across engine modules happens in the surface module (`cli/src/Command/`, `agent/src/Command/`), which is where every verb boundary class lives. The one designed exception is a surface->surface dispatch edge the ladder cannot avoid (agent Command -> Assess); when a reserved module lands, any exception it actually needs is a reviewed map change, not a pre-authorised budget."
+  ],
+  "agent": {
+    "root": "agent/src",
+    "namespace": "Duo",
+    "modules": {
+      "Kernel": {
+        "layer": "kernel",
+        "purpose": "Dependency-free primitives \u2014 canonical JSON, database access, reference codecs, durable filesystem, identifiers, secrets and PII redaction \u2014 that everything else is built on.",
+        "status": "populated",
+        "entry_points": [
+          "Canon",
+          "Db",
+          "OptionState",
+          "CommandRefusal",
+          "Secrets",
+          "PlainData",
+          "StructuredValue",
+          "Uuid",
+          "ReferenceRules",
+          "DurableFilesystem",
+          "ReferenceScopeClassifier",
+          "PathSafety",
+          "UserMetaState",
+          "OrderPreserved",
+          "PersonalData",
+          "JsonRefs",
+          "ReferenceKindGrammar",
+          "ReferenceShapeGrammar",
+          "TableGraph",
+          "TableSchema",
+          "IdentityTokenCodec",
+          "ProcessFence",
+          "ReferenceKeyspaceGrammar",
+          "StructuredReferenceCodec",
+          "TextTokenizer",
+          "TransientDbException",
+          "UrlQueryReferenceCodec"
+        ],
+        "depends_on": [
+          "Kernel"
+        ],
+        "exceptions": [
+          {
+            "module": "Policy",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "Canon.php -> Policy.php"
+            ]
+          },
+          {
+            "module": "Publication",
+            "kind": "upward",
+            "count": 2,
+            "edges": [
+              "DurableFilesystem.php -> PublicationJournal.php",
+              "DurableFilesystem.php -> Publish.php"
+            ]
+          }
+        ],
+        "file_count": 28,
+        "files": [
+          "Canon.php",
+          "CommandRefusal.php",
+          "Db.php",
+          "DurableFilesystem.php",
+          "IdentityTokenCodec.php",
+          "JsonRefs.php",
+          "OptionState.php",
+          "OrderPreserved.php",
+          "PathSafety.php",
+          "PersonalData.php",
+          "PlainData.php",
+          "ProcessFence.php",
+          "ReferenceKeyspaceGrammar.php",
+          "ReferenceKindGrammar.php",
+          "ReferencePath.php",
+          "ReferenceRules.php",
+          "ReferenceScopeClassifier.php",
+          "ReferenceShapeGrammar.php",
+          "Secrets.php",
+          "StructuredReferenceCodec.php",
+          "StructuredValue.php",
+          "TableGraph.php",
+          "TableSchema.php",
+          "TextTokenizer.php",
+          "TransientDbException.php",
+          "UrlQueryReferenceCodec.php",
+          "UserMetaState.php",
+          "Uuid.php"
+        ]
+      },
+      "Policy": {
+        "layer": "policy",
+        "purpose": "Loads, validates and pins the manifest and site policy that decides which WordPress state Duo owns, and answers every ownership question the engine asks.",
+        "status": "populated",
+        "entry_points": [
+          "Policy",
+          "ScopeContract",
+          "ManifestDispositions",
+          "ScopeClosure",
+          "ArtifactPolicyIdentity",
+          "ScopeDiscovery",
+          "PolicyRuleResolver"
+        ],
+        "depends_on": [
+          "Kernel",
+          "Policy"
+        ],
+        "exceptions": [
+          {
+            "module": "Adapter",
+            "kind": "upward",
+            "count": 11,
+            "edges": [
+              "ArtifactPolicyIdentity.php -> AdapterSources.php",
+              "ArtifactPolicyIdentity.php -> CapabilityRegistry.php",
+              "ManifestValidator.php -> ActionProviderGrammar.php",
+              "ManifestValidator.php -> AdapterContractGrammar.php",
+              "PinResolver.php -> AdapterSources.php",
+              "Policy.php -> ActionProviderGrammar.php",
+              "Policy.php -> AdapterRegistry.php",
+              "Policy.php -> AdapterSources.php",
+              "Policy.php -> CapabilityRegistry.php",
+              "PolicyLoadFinalizer.php -> ActionProviderGrammar.php",
+              "PolicyLoadFinalizer.php -> AdapterContractGrammar.php"
+            ]
+          },
+          {
+            "module": "Code",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "CodeConfigGrammar.php -> Code.php"
+            ]
+          },
+          {
+            "module": "Delete",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "ScopeContract.php -> Deletion.php"
+            ]
+          },
+          {
+            "module": "Grammar",
+            "kind": "intra-layer",
+            "count": 30,
+            "edges": [
+              "DeletionCapabilityResolver.php -> OptionNameReferenceResolver.php",
+              "ManifestValidator.php -> AttributeGrammar.php",
+              "ManifestValidator.php -> FieldGrammar.php",
+              "ManifestValidator.php -> OptionGrammar.php",
+              "ManifestValidator.php -> OptionReferenceGrammar.php",
+              "ManifestValidator.php -> PostTypeGrammar.php",
+              "ManifestValidator.php -> SubKeyGrammar.php",
+              "ManifestValidator.php -> TaxonomyGrammar.php",
+              "ManifestValidator.php -> UserMetaGrammar.php",
+              "Policy.php -> AttributeGrammar.php",
+              "Policy.php -> ContentAttributeRuleResolver.php",
+              "Policy.php -> DynamicOptionResolver.php",
+              "Policy.php -> ExactOptionResolver.php",
+              "Policy.php -> OptionGrammar.php",
+              "Policy.php -> OptionNameReferenceResolver.php",
+              "Policy.php -> OptionNamespaceResolver.php",
+              "Policy.php -> PostTypeGrammar.php",
+              "Policy.php -> PostTypeRelationResolver.php",
+              "Policy.php -> SubKeyGrammar.php",
+              "Policy.php -> TableDeclarationResolver.php",
+              "Policy.php -> TaxonomyDescriptionReferenceResolver.php",
+              "Policy.php -> TaxonomyKeyspaceResolver.php",
+              "Policy.php -> TaxonomyObjectTypeOptionResolver.php",
+              "Policy.php -> TaxonomyPatternResolver.php",
+              "Policy.php -> UserMetaGrammar.php",
+              "Policy.php -> WidgetTypeResolver.php",
+              "PolicyLoadFinalizer.php -> OptionReferenceGrammar.php",
+              "SitePolicyValidator.php -> OptionGrammar.php",
+              "SitePolicyValidator.php -> SubKeyGrammar.php",
+              "SitePolicyValidator.php -> UserMetaGrammar.php"
+            ]
+          },
+          {
+            "module": "Repository",
+            "kind": "upward",
+            "count": 7,
+            "edges": [
+              "PinResolver.php -> RepositoryCompiler.php",
+              "ScopeClosure.php -> CompiledArtifact.php",
+              "ScopeClosure.php -> ReferenceGraph.php",
+              "ScopeClosure.php -> SidebarState.php",
+              "ScopeContract.php -> CanonicalSurfaces.php",
+              "ScopeContract.php -> CompiledArtifact.php",
+              "ScopeContract.php -> ReferenceGraph.php"
+            ]
+          }
+        ],
+        "file_count": 18,
+        "files": [
+          "ArtifactPolicyIdentity.php",
+          "CodeConfigGrammar.php",
+          "CrossManifestGuards.php",
+          "DeletionCapabilityResolver.php",
+          "DiscoveryGrammar.php",
+          "ManifestDispositions.php",
+          "ManifestGrammar.php",
+          "ManifestValidator.php",
+          "PinResolver.php",
+          "Policy.php",
+          "PolicyLoadFinalizer.php",
+          "PolicyRuleResolver.php",
+          "PolicyWriter.php",
+          "ScopeClosure.php",
+          "ScopeContract.php",
+          "ScopeDiscovery.php",
+          "ScopeGrammar.php",
+          "SitePolicyValidator.php"
+        ]
+      },
+      "Grammar": {
+        "layer": "policy",
+        "purpose": "Declarative grammars and resolvers that turn manifest declarations and WordPress content syntax (blocks, shortcodes, tokens, options, taxonomies, user meta) into typed policy structures.",
+        "status": "populated",
+        "entry_points": [
+          "Tokens",
+          "Blocks",
+          "OptionGrammar",
+          "SubKeyGrammar",
+          "UserMetaGrammar",
+          "AttributeGrammar",
+          "OptionNameReferenceResolver",
+          "OptionReferenceGrammar",
+          "PostTypeGrammar",
+          "ContentAttributeRuleResolver",
+          "DynamicOptionResolver",
+          "ExactOptionResolver",
+          "FieldGrammar",
+          "OptionNamespaceResolver",
+          "PostTypeRelationResolver",
+          "ShortcodeAlternateRegistrar",
+          "Shortcodes",
+          "TableDeclarationResolver",
+          "TaxonomyDescriptionReferenceResolver",
+          "TaxonomyGrammar",
+          "TaxonomyKeyspaceResolver",
+          "TaxonomyObjectTypeOptionResolver",
+          "TaxonomyPatternResolver",
+          "WidgetTypeResolver"
+        ],
+        "depends_on": [
+          "Grammar",
+          "Kernel"
+        ],
+        "exceptions": [
+          {
+            "module": "Policy",
+            "kind": "intra-layer",
+            "count": 7,
+            "edges": [
+              "Blocks.php -> Policy.php",
+              "ExactOptionResolver.php -> PolicyRuleResolver.php",
+              "OptionReferenceGrammar.php -> Policy.php",
+              "ShortcodeAlternateRegistrar.php -> Policy.php",
+              "Shortcodes.php -> Policy.php",
+              "SubKeyGrammar.php -> Policy.php",
+              "Tokens.php -> Policy.php"
+            ]
+          },
+          {
+            "module": "Repository",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "Tokens.php -> Ledger.php"
+            ]
+          }
+        ],
+        "file_count": 24,
+        "files": [
+          "AttributeGrammar.php",
+          "Blocks.php",
+          "ContentAttributeRuleResolver.php",
+          "DynamicOptionResolver.php",
+          "ExactOptionResolver.php",
+          "FieldGrammar.php",
+          "OptionGrammar.php",
+          "OptionNameReferenceResolver.php",
+          "OptionNamespaceResolver.php",
+          "OptionReferenceGrammar.php",
+          "PostTypeGrammar.php",
+          "PostTypeRelationResolver.php",
+          "ShortcodeAlternateRegistrar.php",
+          "Shortcodes.php",
+          "SubKeyGrammar.php",
+          "TableDeclarationResolver.php",
+          "TaxonomyDescriptionReferenceResolver.php",
+          "TaxonomyGrammar.php",
+          "TaxonomyKeyspaceResolver.php",
+          "TaxonomyObjectTypeOptionResolver.php",
+          "TaxonomyPatternResolver.php",
+          "Tokens.php",
+          "UserMetaGrammar.php",
+          "WidgetTypeResolver.php"
+        ]
+      },
+      "Repository": {
+        "layer": "repository",
+        "purpose": "The durable repository of owned state: compiled artifacts, identity registry, ledger, reference graph, snapshots and their validators.",
+        "status": "populated",
+        "entry_points": [
+          "Ledger",
+          "CompiledArtifact",
+          "Snapshot",
+          "RepositoryCompiler",
+          "SidebarState",
+          "CanonicalSurfaces",
+          "ReferenceGraph",
+          "Identity",
+          "StateTreeWalker",
+          "IdentityBackup",
+          "IdentityNotes",
+          "RepositoryAuthorization"
+        ],
+        "depends_on": [
+          "Grammar",
+          "Kernel",
+          "Policy",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Apply",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "Snapshot.php -> TypedTableMaterializer.php"
+            ]
+          },
+          {
+            "module": "Capture",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "Snapshot.php -> TypedTableCapture.php"
+            ]
+          },
+          {
+            "module": "Code",
+            "kind": "intra-layer",
+            "count": 6,
+            "edges": [
+              "CompiledArtifact.php -> Code.php",
+              "CompiledArtifactReader.php -> CodeStateContract.php",
+              "RepositoryCompiler.php -> Code.php",
+              "RepositoryCompiler.php -> CodeCompatibility.php",
+              "RepositoryCompiler.php -> CodeDescriptorCompiler.php",
+              "RepositoryCompiler.php -> CodeStateContract.php"
+            ]
+          },
+          {
+            "module": "Delete",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "RepositoryDeletionParser.php -> Deletion.php"
+            ]
+          }
+        ],
+        "file_count": 24,
+        "files": [
+          "CanonicalSurfaces.php",
+          "CompiledArtifact.php",
+          "CompiledArtifactReader.php",
+          "Identity.php",
+          "IdentityBackup.php",
+          "IdentityNotes.php",
+          "Ledger.php",
+          "ReferenceGraph.php",
+          "RepositoryAuthorization.php",
+          "RepositoryCompiler.php",
+          "RepositoryDeletionParser.php",
+          "RepositoryEntityParser.php",
+          "RepositoryIdentityRegistry.php",
+          "RepositoryMediaCatalog.php",
+          "RepositoryMenuLocationValidator.php",
+          "RepositoryPortableShapeValidator.php",
+          "RepositoryReferenceGraphValidator.php",
+          "RepositorySchemaValidator.php",
+          "RepositoryStateFileCatalog.php",
+          "SidebarState.php",
+          "Snapshot.php",
+          "SnapshotIdentity.php",
+          "SnapshotPruner.php",
+          "StateTreeWalker.php"
+        ]
+      },
+      "Code": {
+        "layer": "repository",
+        "purpose": "Ownership, staging, compatibility and materialization of code artifacts (themes, plugins, mu-plugins) as repository state.",
+        "status": "populated",
+        "entry_points": [
+          "Code",
+          "CodeStateContract",
+          "CodeCompatibility",
+          "CodeDescriptorCompiler"
+        ],
+        "depends_on": [
+          "Code",
+          "Kernel"
+        ],
+        "exceptions": [
+          {
+            "module": "Promotion",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "Code.php -> PromotionLock.php"
+            ]
+          },
+          {
+            "module": "Repository",
+            "kind": "intra-layer",
+            "count": 4,
+            "edges": [
+              "Code.php -> CompiledArtifact.php",
+              "Code.php -> Ledger.php",
+              "CodeStageTransaction.php -> Ledger.php",
+              "CodeStateContract.php -> CompiledArtifact.php"
+            ]
+          }
+        ],
+        "file_count": 7,
+        "files": [
+          "Code.php",
+          "CodeCompatibility.php",
+          "CodeDescriptorCompiler.php",
+          "CodeMaterializer.php",
+          "CodeOwnershipPruner.php",
+          "CodeStageTransaction.php",
+          "CodeStateContract.php"
+        ]
+      },
+      "Capture": {
+        "layer": "engine",
+        "purpose": "Reads owned state out of a live site into repository shape behind safety gates, a capture identity and a capture transaction.",
+        "status": "populated",
+        "entry_points": [
+          "Capture",
+          "TypedTableCapture"
+        ],
+        "depends_on": [
+          "Capture",
+          "Code",
+          "Grammar",
+          "Kernel",
+          "Policy",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Delete",
+            "kind": "intra-layer",
+            "count": 1,
+            "edges": [
+              "CapturePublicationWorkflow.php -> Deletion.php"
+            ]
+          },
+          {
+            "module": "Init",
+            "kind": "intra-layer",
+            "count": 1,
+            "edges": [
+              "InitialCaptureBoundary.php -> InitProtocol.php"
+            ]
+          },
+          {
+            "module": "Promotion",
+            "kind": "intra-layer",
+            "count": 1,
+            "edges": [
+              "CapturePublicationWorkflow.php -> Deploy.php"
+            ]
+          },
+          {
+            "module": "Publication",
+            "kind": "intra-layer",
+            "count": 6,
+            "edges": [
+              "CapturePublicationRecovery.php -> Publish.php",
+              "CapturePublicationWorkflow.php -> PublicationJournal.php",
+              "CapturePublicationWorkflow.php -> Publish.php",
+              "CaptureTransaction.php -> Publish.php",
+              "InitialCaptureBoundary.php -> PublicationJournal.php",
+              "InitialCaptureBoundary.php -> Publish.php"
+            ]
+          },
+          {
+            "module": "Review",
+            "kind": "intra-layer",
+            "count": 3,
+            "edges": [
+              "CapturePublicationWorkflow.php -> Canary.php",
+              "CapturePublicationWorkflow.php -> Lint.php",
+              "CaptureSnapshotService.php -> Canary.php"
+            ]
+          },
+          {
+            "module": "Scope",
+            "kind": "intra-layer",
+            "count": 4,
+            "edges": [
+              "Capture.php -> ScopedCaptureProjector.php",
+              "CapturePublicationWorkflow.php -> ScopedApply.php",
+              "CapturePublicationWorkflow.php -> ScopedCaptureProjector.php",
+              "CapturePublicationWorkflow.php -> ScopedStateOverlay.php"
+            ]
+          }
+        ],
+        "file_count": 18,
+        "files": [
+          "Capture.php",
+          "CaptureCandidateBuilder.php",
+          "CaptureGateScanner.php",
+          "CaptureIdentity.php",
+          "CapturePublicationRecovery.php",
+          "CapturePublicationWorkflow.php",
+          "CaptureSafetyGates.php",
+          "CaptureSnapshotService.php",
+          "CaptureTransaction.php",
+          "EntityMetaCapture.php",
+          "InitialCaptureBoundary.php",
+          "MediaCapture.php",
+          "MenuCapture.php",
+          "OptionsCapture.php",
+          "PostCapture.php",
+          "TermCapture.php",
+          "TypedTableCapture.php",
+          "UserMetaCapture.php"
+        ]
+      },
+      "Apply": {
+        "layer": "engine",
+        "purpose": "Plans and executes writes of repository state into a live site: apply planning, services, the authored transaction and the per-entity materializers.",
+        "status": "populated",
+        "entry_points": [
+          "ApplyPlanner",
+          "Apply",
+          "MenuMaterializer",
+          "RelationshipMaterializer",
+          "TypedTableMaterializer"
+        ],
+        "depends_on": [
+          "Apply",
+          "Code",
+          "Grammar",
+          "Kernel",
+          "Policy",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Adapter",
+            "kind": "upward",
+            "count": 4,
+            "edges": [
+              "ApplyPlanEnvironment.php -> ProviderActionBatchBuilder.php",
+              "ApplyRequestCoordinator.php -> Providers.php",
+              "ApplyServices.php -> ProviderActionBatchBuilder.php",
+              "AuthoredTransactionExecutor.php -> ProviderActionBatchBuilder.php"
+            ]
+          },
+          {
+            "module": "Capture",
+            "kind": "intra-layer",
+            "count": 3,
+            "edges": [
+              "ApplyPlanBuilder.php -> Capture.php",
+              "ApplyPreparationCoordinator.php -> Capture.php",
+              "ApplyRequestCoordinator.php -> Capture.php"
+            ]
+          },
+          {
+            "module": "Delete",
+            "kind": "intra-layer",
+            "count": 10,
+            "edges": [
+              "ApplyPlanBuilder.php -> DeleteGuardEvaluator.php",
+              "ApplyPlanBuilder.php -> DeleteGuardReferenceScanner.php",
+              "ApplyPlanBuilder.php -> Deletion.php",
+              "ApplyPreparationCoordinator.php -> DeleteGuardLockCoordinator.php",
+              "ApplyRequestCoordinator.php -> DeleteGuardLockCoordinator.php",
+              "ApplyRequestCoordinator.php -> DeletionAuthority.php",
+              "ApplyServices.php -> DeleteExecutor.php",
+              "ApplyServices.php -> DeleteGuardReferenceScanner.php",
+              "AuthoredTransactionExecutor.php -> DeleteExecutor.php",
+              "AuthoredTransactionRequest.php -> DeletionAuthority.php"
+            ]
+          },
+          {
+            "module": "Promotion",
+            "kind": "intra-layer",
+            "count": 6,
+            "edges": [
+              "ApplyPlanBuilder.php -> Deploy.php",
+              "ApplyPlanBuilder.php -> PromotionLock.php",
+              "ApplyPreparationCoordinator.php -> PromotionLock.php",
+              "ApplyPreparationCoordinator.php -> ScopedPromotionAuthority.php",
+              "ApplyRequestCoordinator.php -> PromotionLock.php",
+              "ApplyRequestCoordinator.php -> ScopedPromotionAuthority.php"
+            ]
+          },
+          {
+            "module": "Rebuild",
+            "kind": "intra-layer",
+            "count": 13,
+            "edges": [
+              "ApplyPlanEnvironment.php -> RebuildSelection.php",
+              "ApplyPlanEnvironment.php -> RegenerationContextStore.php",
+              "ApplyPreparationCoordinator.php -> RebuildSelection.php",
+              "ApplyRebuildCoordinator.php -> RebuildRequest.php",
+              "ApplyRebuildCoordinator.php -> RebuildSelection.php",
+              "ApplyRequestCoordinator.php -> RebuildRequest.php",
+              "ApplyRequestCoordinator.php -> RebuildSelection.php",
+              "ApplyServices.php -> DependencyRegenerator.php",
+              "ApplyServices.php -> NativeRebuildExecutor.php",
+              "ApplyServices.php -> RebuildActionDispatcher.php",
+              "ApplyServices.php -> RebuildActionNegotiator.php",
+              "ApplyServices.php -> RegenerationContextStore.php",
+              "AuthoredTransactionExecutor.php -> RegenerationContextStore.php"
+            ]
+          },
+          {
+            "module": "Review",
+            "kind": "intra-layer",
+            "count": 6,
+            "edges": [
+              "ApplyRequestCoordinator.php -> Canary.php",
+              "ApplyRequestCoordinator.php -> ConvergenceVerifier.php",
+              "ApplyRequestCoordinator.php -> PlanCategorySummary.php",
+              "ApplyRequestCoordinator.php -> PlanExplanation.php",
+              "ApplyRequestCoordinator.php -> PlanView.php",
+              "AuthoredTransactionExecutor.php -> Canary.php"
+            ]
+          },
+          {
+            "module": "Scope",
+            "kind": "intra-layer",
+            "count": 12,
+            "edges": [
+              "ApplyLedgerFinalizer.php -> ScopedApply.php",
+              "ApplyLedgerFinalizer.php -> ScopedApplySession.php",
+              "ApplyPlanBuilder.php -> ScopedApply.php",
+              "ApplyPreparationCoordinator.php -> ScopedApply.php",
+              "ApplyPreparationCoordinator.php -> ScopedApplySession.php",
+              "ApplyPreparationCoordinator.php -> ScopedApplyWorkProjector.php",
+              "ApplyPreparationCoordinator.php -> ScopedApplyWorkflow.php",
+              "ApplyRequestCoordinator.php -> ScopedApply.php",
+              "ApplyRequestCoordinator.php -> ScopedApplySession.php",
+              "ApplyRequestCoordinator.php -> ScopedApplyWorkflow.php",
+              "ApplyRequestCoordinator.php -> ScopedStateOverlay.php",
+              "AuthoredTransactionExecutor.php -> ScopedApply.php"
+            ]
+          }
+        ],
+        "file_count": 26,
+        "files": [
+          "Apply.php",
+          "ApplyFieldMaterializer.php",
+          "ApplyLedgerFinalizer.php",
+          "ApplyPlanBuilder.php",
+          "ApplyPlanEnvironment.php",
+          "ApplyPlanner.php",
+          "ApplyPreparationCoordinator.php",
+          "ApplyPreparationRequest.php",
+          "ApplyRebuildCoordinator.php",
+          "ApplyRequestCoordinator.php",
+          "ApplyServiceCallbacks.php",
+          "ApplyServices.php",
+          "ApplyWorkset.php",
+          "AttachmentMaterializer.php",
+          "AuthoredTransactionExecutor.php",
+          "AuthoredTransactionRequest.php",
+          "EntityAdopter.php",
+          "MenuMaterializer.php",
+          "OptionsMaterializer.php",
+          "PostMaterializer.php",
+          "PreparedApply.php",
+          "RelationshipMaterializer.php",
+          "TaxonomyApplyContext.php",
+          "TermMaterializer.php",
+          "TypedTableMaterializer.php",
+          "UserMetaMaterializer.php"
+        ]
+      },
+      "Scope": {
+        "layer": "engine",
+        "purpose": "Scoped (partial-site) execution \u2014 the state overlay, session and work projection that let apply and capture run over a subset of the repository.",
+        "status": "populated",
+        "entry_points": [
+          "ScopedApply",
+          "ScopedApplySession",
+          "ScopedStateOverlay",
+          "ScopedApplyWorkflow",
+          "ScopedCaptureProjector",
+          "ScopedApplyCoordinator",
+          "ScopedApplyWorkProjector"
+        ],
+        "depends_on": [
+          "Kernel",
+          "Policy",
+          "Repository",
+          "Scope"
+        ],
+        "exceptions": [
+          {
+            "module": "Adapter",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "ScopedApplyCoordinator.php -> Providers.php"
+            ]
+          },
+          {
+            "module": "Apply",
+            "kind": "intra-layer",
+            "count": 3,
+            "edges": [
+              "ScopedApply.php -> ApplyPlanner.php",
+              "ScopedApplyCoordinator.php -> ApplyPlanner.php",
+              "ScopedApplyWorkProjector.php -> ApplyPlanner.php"
+            ]
+          },
+          {
+            "module": "Promotion",
+            "kind": "intra-layer",
+            "count": 1,
+            "edges": [
+              "ScopedApplyCoordinator.php -> PromotionLock.php"
+            ]
+          },
+          {
+            "module": "Review",
+            "kind": "intra-layer",
+            "count": 2,
+            "edges": [
+              "ScopedApplyCoordinator.php -> ConvergenceVerifier.php",
+              "ScopedApplyWorkProjector.php -> ConvergenceVerifier.php"
+            ]
+          }
+        ],
+        "file_count": 7,
+        "files": [
+          "ScopedApply.php",
+          "ScopedApplyCoordinator.php",
+          "ScopedApplySession.php",
+          "ScopedApplyWorkProjector.php",
+          "ScopedApplyWorkflow.php",
+          "ScopedCaptureProjector.php",
+          "ScopedStateOverlay.php"
+        ]
+      },
+      "Rebuild": {
+        "layer": "engine",
+        "purpose": "Derived-state regeneration: negotiating, selecting and dispatching native or provider rebuild actions after a write.",
+        "status": "populated",
+        "entry_points": [
+          "RebuildSelection",
+          "NativeActions",
+          "RegenerationContextStore",
+          "RebuildRequest",
+          "DependencyRegenerator",
+          "NativeRebuildExecutor",
+          "RebuildActionDispatcher",
+          "RebuildActionNegotiator",
+          "RegenerationContext"
+        ],
+        "depends_on": [
+          "Kernel",
+          "Policy",
+          "Rebuild",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Adapter",
+            "kind": "upward",
+            "count": 6,
+            "edges": [
+              "DependencyRegenerator.php -> ProviderActionBatchBuilder.php",
+              "NativeActions.php -> Providers.php",
+              "RebuildActionDispatcher.php -> ProviderActionBatchBuilder.php",
+              "RebuildActionDispatcher.php -> Providers.php",
+              "RebuildActionNegotiator.php -> Providers.php",
+              "RebuildSelection.php -> Providers.php"
+            ]
+          },
+          {
+            "module": "Scope",
+            "kind": "intra-layer",
+            "count": 3,
+            "edges": [
+              "RebuildActionDispatcher.php -> ScopedApplyCoordinator.php",
+              "RebuildActionDispatcher.php -> ScopedApplySession.php",
+              "RebuildRequest.php -> ScopedApplySession.php"
+            ]
+          }
+        ],
+        "file_count": 9,
+        "files": [
+          "DependencyRegenerator.php",
+          "NativeActions.php",
+          "NativeRebuildExecutor.php",
+          "RebuildActionDispatcher.php",
+          "RebuildActionNegotiator.php",
+          "RebuildRequest.php",
+          "RebuildSelection.php",
+          "RegenerationContext.php",
+          "RegenerationContextStore.php"
+        ]
+      },
+      "Publication": {
+        "layer": "engine",
+        "purpose": "Atomic publication of a state tree to disk plus the journal that makes an interrupted publication recoverable.",
+        "status": "populated",
+        "entry_points": [
+          "Publish",
+          "PublicationJournal"
+        ],
+        "depends_on": [
+          "Kernel",
+          "Publication"
+        ],
+        "exceptions": [],
+        "file_count": 3,
+        "files": [
+          "AtomicTreePublisher.php",
+          "PublicationJournal.php",
+          "Publish.php"
+        ]
+      },
+      "Promotion": {
+        "layer": "engine",
+        "purpose": "Deploy, lifecycle and promotion mechanics \u2014 planners, leases, locks, session journals and state handoff between environments.",
+        "status": "populated",
+        "entry_points": [
+          "PromotionLock",
+          "Deploy",
+          "ScopedPromotionAuthority"
+        ],
+        "depends_on": [
+          "Code",
+          "Kernel",
+          "Policy",
+          "Promotion",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Capture",
+            "kind": "intra-layer",
+            "count": 1,
+            "edges": [
+              "StateHandoffVerifier.php -> Capture.php"
+            ]
+          },
+          {
+            "module": "Review",
+            "kind": "intra-layer",
+            "count": 1,
+            "edges": [
+              "Deploy.php -> Canary.php"
+            ]
+          }
+        ],
+        "file_count": 11,
+        "files": [
+          "Deploy.php",
+          "DeployPlanner.php",
+          "LifecycleExecutor.php",
+          "LifecycleJournal.php",
+          "LifecyclePlanner.php",
+          "PromotionLease.php",
+          "PromotionLock.php",
+          "PromotionSessionJournal.php",
+          "ScopedPromotionAuthority.php",
+          "StateHandoffVerifier.php",
+          "StateTransitionJournal.php"
+        ]
+      },
+      "Delete": {
+        "layer": "engine",
+        "purpose": "Deletion authority, deletion guards and the executor that removes owned entities and records tombstones.",
+        "status": "populated",
+        "entry_points": [
+          "Deletion",
+          "DeleteExecutor",
+          "DeleteGuardLockCoordinator",
+          "DeleteGuardReferenceScanner",
+          "DeletionAuthority",
+          "DeleteGuardEvaluator"
+        ],
+        "depends_on": [
+          "Delete",
+          "Kernel",
+          "Policy",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Apply",
+            "kind": "intra-layer",
+            "count": 2,
+            "edges": [
+              "DeleteExecutor.php -> MenuMaterializer.php",
+              "DeleteExecutor.php -> RelationshipMaterializer.php"
+            ]
+          }
+        ],
+        "file_count": 7,
+        "files": [
+          "DeleteExecutor.php",
+          "DeleteGuardEvaluator.php",
+          "DeleteGuardLockCoordinator.php",
+          "DeleteGuardReferenceScanner.php",
+          "DeleteGuardValueCodec.php",
+          "Deletion.php",
+          "DeletionAuthority.php"
+        ]
+      },
+      "Init": {
+        "layer": "engine",
+        "purpose": "First-contact onboarding of a site: probing, planning, confirming, journalling and recovering the initial owned baseline.",
+        "status": "populated",
+        "entry_points": [
+          "Init",
+          "InitProtocol"
+        ],
+        "depends_on": [
+          "Code",
+          "Init",
+          "Kernel",
+          "Policy",
+          "Repository"
+        ],
+        "exceptions": [
+          {
+            "module": "Adapter",
+            "kind": "upward",
+            "count": 1,
+            "edges": [
+              "InitPlanner.php -> AdapterSources.php"
+            ]
+          },
+          {
+            "module": "Capture",
+            "kind": "intra-layer",
+            "count": 2,
+            "edges": [
+              "InitConfirmation.php -> Capture.php",
+              "InitRecovery.php -> Capture.php"
+            ]
+          },
+          {
+            "module": "Publication",
+            "kind": "intra-layer",
+            "count": 7,
+            "edges": [
+              "InitAttemptJournal.php -> Publish.php",
+              "InitCodeBaseline.php -> PublicationJournal.php",
+              "InitCodeBaseline.php -> Publish.php",
+              "InitConfirmation.php -> PublicationJournal.php",
+              "InitConfirmation.php -> Publish.php",
+              "InitOwnedArtifacts.php -> Publish.php",
+              "InitRecovery.php -> Publish.php"
+            ]
+          }
+        ],
+        "file_count": 13,
+        "files": [
+          "Init.php",
+          "InitAttemptJournal.php",
+          "InitCodeBaseline.php",
+          "InitCodeInventory.php",
+          "InitConfirmation.php",
+          "InitExceptions.php",
+          "InitFaults.php",
+          "InitOwnedArtifacts.php",
+          "InitPlanner.php",
+          "InitProtocol.php",
+          "InitRecovery.php",
+          "InitRepositoryBoundary.php",
+          "InitSiteProbe.php"
+        ]
+      },
+      "Review": {
+        "layer": "engine",
+        "purpose": "Read-only projections over plans and state \u2014 lint and its reference scanners, coverage, pending, journal, orphans, canary, convergence verification and refresh export.",
+        "status": "populated",
+        "entry_points": [
+          "Canary",
+          "ConvergenceVerifier",
+          "Journal",
+          "Lint",
+          "Pending",
+          "PlanCategorySummary",
+          "PlanExplanation",
+          "PlanView",
+          "Coverage",
+          "Orphans",
+          "RefreshExport"
+        ],
+        "depends_on": [
+          "Code",
+          "Grammar",
+          "Kernel",
+          "Policy",
+          "Repository",
+          "Review"
+        ],
+        "exceptions": [
+          {
+            "module": "Capture",
+            "kind": "intra-layer",
+            "count": 3,
+            "edges": [
+              "ConvergenceVerifier.php -> Capture.php",
+              "Pending.php -> Capture.php",
+              "RefreshExport.php -> Capture.php"
+            ]
+          },
+          {
+            "module": "Delete",
+            "kind": "intra-layer",
+            "count": 2,
+            "edges": [
+              "PlanExplanation.php -> Deletion.php",
+              "RefreshExport.php -> Deletion.php"
+            ]
+          },
+          {
+            "module": "Scope",
+            "kind": "intra-layer",
+            "count": 3,
+            "edges": [
+              "ConvergenceVerifier.php -> ScopedApply.php",
+              "ConvergenceVerifier.php -> ScopedApplySession.php",
+              "RefreshExport.php -> ScopedStateOverlay.php"
+            ]
+          }
+        ],
+        "file_count": 17,
+        "files": [
+          "BlockReferenceScanner.php",
+          "Canary.php",
+          "ConvergenceVerifier.php",
+          "Coverage.php",
+          "Journal.php",
+          "Lint.php",
+          "LintFinding.php",
+          "MenuReferenceScanner.php",
+          "Orphans.php",
+          "Pending.php",
+          "PlanCategorySummary.php",
+          "PlanExplanation.php",
+          "PlanView.php",
+          "RefreshExport.php",
+          "SerializedTermDescriptionScanner.php",
+          "ShortcodeReferenceScanner.php",
+          "StructuredReferenceScanner.php"
+        ]
+      },
+      "Adapter": {
+        "layer": "adapter",
+        "purpose": "The plugin-facing boundary: manifest sources, adapter registry, observation, certification bundles, capability registry and the provider SDK the engine calls through.",
+        "status": "populated",
+        "entry_points": [
+          "AdapterSources",
+          "Providers",
+          "ProviderActionBatchBuilder",
+          "CapabilityRegistry",
+          "ActionProviderGrammar",
+          "AdapterContractGrammar",
+          "AdapterObservation",
+          "AdapterRegistry"
+        ],
+        "depends_on": [
+          "Adapter",
+          "Kernel",
+          "Policy",
+          "Promotion",
+          "Rebuild",
+          "Repository",
+          "Review"
+        ],
+        "exceptions": [],
+        "file_count": 11,
+        "files": [
+          "ActionProviderGrammar.php",
+          "AdapterCertification.php",
+          "AdapterContractGrammar.php",
+          "AdapterObservation.php",
+          "AdapterRegistry.php",
+          "AdapterSources.php",
+          "CapabilityRegistry.php",
+          "ProviderActionBatchBuilder.php",
+          "ProviderSdk.php",
+          "Providers.php",
+          "ScopedCertificationBundle.php"
+        ]
+      },
+      "Command": {
+        "layer": "surface",
+        "purpose": "The `wp duo \u2026` WP-CLI surface: verb dispatch, argument parsing, refusal envelopes and operator output.",
+        "status": "populated",
+        "entry_points": [
+          "Cli"
+        ],
+        "depends_on": [
+          "Adapter",
+          "Apply",
+          "Capture",
+          "Code",
+          "Command",
+          "Init",
+          "Kernel",
+          "Policy",
+          "Promotion",
+          "Publication",
+          "Repository",
+          "Review",
+          "Scope"
+        ],
+        "exceptions": [
+          {
+            "module": "Assess",
+            "kind": "intra-layer",
+            "count": 0,
+            "reason": "designed (reserved): Command dispatches the Assess projections; the reverse edge is forbidden.",
+            "edges": []
+          }
+        ],
+        "file_count": 1,
+        "files": [
+          "Cli.php"
+        ]
+      },
+      "Assess": {
+        "layer": "surface",
+        "purpose": "RESERVED (round 3): read-only inventory and projection commands answering 'what is here, and what can Duo do with it' before any write.",
+        "status": "reserved",
+        "entry_points": [],
+        "depends_on": [
+          "Adapter",
+          "Assess",
+          "Code",
+          "Grammar",
+          "Kernel",
+          "Policy",
+          "Repository",
+          "Review"
+        ],
+        "exceptions": [],
+        "file_count": 0,
+        "files": []
+      }
+    }
+  },
+  "cli": {
+    "root": "cli/src",
+    "namespace": "Duo\\Orchestrator",
+    "modules": {
+      "Transport": {
+        "layer": "kernel",
+        "purpose": "Carries bytes and commands to a target environment: the transport implementations, the environment driver handle and code deployment.",
+        "status": "populated",
+        "entry_points": [
+          "EnvironmentDriver",
+          "Transport",
+          "CodeDeploy",
+          "SshTransport",
+          "LocalTransport"
+        ],
+        "depends_on": [
+          "Transport"
+        ],
+        "exceptions": [],
+        "file_count": 6,
+        "files": [
+          "CodeDeploy.php",
+          "DockerTransport.php",
+          "EnvironmentDriver.php",
+          "LocalTransport.php",
+          "SshTransport.php",
+          "Transport.php"
+        ]
+      },
+      "Plan": {
+        "layer": "kernel",
+        "purpose": "The plan wire contract and its operator/JSON renderings, with no I/O of its own.",
+        "status": "populated",
+        "entry_points": [
+          "PlanContract",
+          "PlanSummary",
+          "PlanView"
+        ],
+        "depends_on": [
+          "Plan"
+        ],
+        "exceptions": [],
+        "file_count": 3,
+        "files": [
+          "PlanContract.php",
+          "PlanSummary.php",
+          "PlanView.php"
+        ]
+      },
+      "Refresh": {
+        "layer": "repository",
+        "purpose": "The B/P/W refresh planner, field diff and local state materializer that reconciles git, production and working state.",
+        "status": "populated",
+        "entry_points": [
+          "Refresh",
+          "RefreshFieldDiff"
+        ],
+        "depends_on": [
+          "Refresh",
+          "Transport",
+          "agent:Code",
+          "agent:Kernel",
+          "agent:Policy",
+          "agent:Repository",
+          "agent:Scope"
+        ],
+        "exceptions": [],
+        "file_count": 4,
+        "files": [
+          "Refresh.php",
+          "RefreshFieldDiff.php",
+          "RefreshPlan.php",
+          "RefreshPlanCompile.php"
+        ]
+      },
+      "Environment": {
+        "layer": "engine",
+        "purpose": "The environment registry and lifecycle that materialize, bind and reap the environments the orchestrator drives.",
+        "status": "populated",
+        "entry_points": [
+          "Registry",
+          "EnvironmentLifecycle"
+        ],
+        "depends_on": [
+          "Environment",
+          "Plan",
+          "Refresh",
+          "Transport"
+        ],
+        "exceptions": [],
+        "file_count": 2,
+        "files": [
+          "EnvironmentLifecycle.php",
+          "Registry.php"
+        ]
+      },
+      "Recovery": {
+        "layer": "engine",
+        "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds.",
+        "status": "populated",
+        "entry_points": [
+          "RollbackAuthority"
+        ],
+        "depends_on": [
+          "Recovery",
+          "Transport",
+          "agent:Kernel"
+        ],
+        "exceptions": [],
+        "file_count": 3,
+        "files": [
+          "RollbackAuthority.php",
+          "ScopedRollbackProfile.php",
+          "VerifiedRollbackProfile.php"
+        ]
+      },
+      "Onboarding": {
+        "layer": "engine",
+        "purpose": "Adopting, initializing, diagnosing and triaging a site \u2014 the first-run and health mechanics behind adopt/init/doctor/classify/pending.",
+        "status": "populated",
+        "entry_points": [
+          "Doctor",
+          "Adopt",
+          "BootstrapEligibility",
+          "ClassificationBatch",
+          "Init",
+          "Pending",
+          "Triage"
+        ],
+        "depends_on": [
+          "Onboarding",
+          "Transport"
+        ],
+        "exceptions": [],
+        "file_count": 7,
+        "files": [
+          "Adopt.php",
+          "BootstrapEligibility.php",
+          "ClassificationBatch.php",
+          "Doctor.php",
+          "Init.php",
+          "Pending.php",
+          "Triage.php"
+        ]
+      },
+      "Adapter": {
+        "layer": "adapter",
+        "purpose": "Authoring-side adapter tooling: catalog, draft, observation and manifest validation against the agent's policy.",
+        "status": "populated",
+        "entry_points": [
+          "AdapterCatalog",
+          "AdapterDraft",
+          "AdapterObservation",
+          "ManifestValidate"
+        ],
+        "depends_on": [
+          "Adapter",
+          "Transport",
+          "agent:Adapter",
+          "agent:Delete",
+          "agent:Kernel",
+          "agent:Policy",
+          "agent:Rebuild"
+        ],
+        "exceptions": [],
+        "file_count": 4,
+        "files": [
+          "AdapterCatalog.php",
+          "AdapterDraft.php",
+          "AdapterObservation.php",
+          "ManifestValidate.php"
+        ]
+      },
+      "Command": {
+        "layer": "surface",
+        "purpose": "The `duo` verb handlers, agent passthrough, option parsing, preflight and operator output. Composition across engine modules happens here: a `*Command` calls each engine module downward and hands the results to the next, which is why the populated cli modules need no intra-layer exceptions.",
+        "status": "populated",
+        "entry_points": [
+          "PassthroughCommand",
+          "CommandOutput",
+          "EnvironmentCommandPreflight",
+          "EnvironmentCommandOptions"
+        ],
+        "depends_on": [
+          "Adapter",
+          "Assess",
+          "Command",
+          "Contract",
+          "Environment",
+          "Onboarding",
+          "Plan",
+          "Recovery",
+          "Refresh",
+          "Rehearse",
+          "Release",
+          "Transport",
+          "agent:Kernel",
+          "agent:Policy"
+        ],
+        "exceptions": [],
+        "file_count": 19,
+        "files": [
+          "AdoptCommand.php",
+          "CaptureCommand.php",
+          "ClassifyCommand.php",
+          "CommandOutput.php",
+          "DeployCommand.php",
+          "DoctorCommand.php",
+          "DriverCapabilitiesCommand.php",
+          "EnvironmentCommand.php",
+          "EnvironmentCommandOptions.php",
+          "EnvironmentCommandPreflight.php",
+          "EnvironmentListCommand.php",
+          "InitCommand.php",
+          "PassthroughCommand.php",
+          "PendingCommand.php",
+          "PromoteCommand.php",
+          "RebaseCommand.php",
+          "RefreshCommand.php",
+          "ScopeCommand.php",
+          "StatusCommand.php"
+        ]
+      },
+      "Assess": {
+        "layer": "engine",
+        "purpose": "RESERVED (round 3): the assess mechanism \u2014 stack inventory, surface catalog, gap actions and the assess report \u2014 over agent Assess projections and driver capabilities. The verb boundary (`AssessCommand`) lives in `cli/src/Command/`; Doctor, the environment registry and the adapter catalog are called there and passed in as data.",
+        "status": "reserved",
+        "entry_points": [],
+        "depends_on": [
+          "Assess",
+          "Contract",
+          "Plan",
+          "Transport",
+          "agent:Adapter",
+          "agent:Assess",
+          "agent:Kernel"
+        ],
+        "exceptions": [],
+        "file_count": 0,
+        "files": []
+      },
+      "Release": {
+        "layer": "engine",
+        "purpose": "RESERVED (round 3): the frozen authorization plan, its renderer, the closed next-action set and the journey oracle. The verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`) live in `cli/src/Command/`, which composes them with Environment, Recovery and the existing promote/deploy handlers; the recovery claim reaches the plan as a canonical array, not as a Recovery class reference.",
+        "status": "reserved",
+        "entry_points": [],
+        "depends_on": [
+          "Contract",
+          "Plan",
+          "Release",
+          "Transport",
+          "agent:Kernel",
+          "agent:Policy"
+        ],
+        "exceptions": [],
+        "file_count": 0,
+        "files": []
+      },
+      "Rehearse": {
+        "layer": "engine",
+        "purpose": "RESERVED (round 3): rehearsal mechanism \u2014 the plan preview of what a release would touch and the containment disclosure. The verb boundary (`RehearseCommand`) lives in `cli/src/Command/` and drives Environment's materialize/reap there.",
+        "status": "reserved",
+        "entry_points": [],
+        "depends_on": [
+          "Contract",
+          "Plan",
+          "Rehearse",
+          "Transport",
+          "agent:Kernel"
+        ],
+        "exceptions": [],
+        "file_count": 0,
+        "files": []
+      },
+      "Contract": {
+        "layer": "policy",
+        "purpose": "RESERVED (round 3): the per-site application contract as one object \u2014 manifests, site policy, evidence pins, bindings and capability report composed and addressable \u2014 plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
+        "status": "reserved",
+        "entry_points": [],
+        "depends_on": [
+          "Contract",
+          "Plan",
+          "agent:Adapter",
+          "agent:Kernel",
+          "agent:Policy"
+        ],
+        "exceptions": [],
+        "file_count": 0,
+        "files": []
+      }
+    }
+  },
+  "not_moved": {
+    "cli/duo": "stays at cli/duo (the executable); its require list is rewritten by the codemod",
+    "recovery/": "untouched by this move"
+  }
+}
