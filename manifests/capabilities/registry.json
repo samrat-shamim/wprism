@@ -1299,7 +1299,7 @@
             ]
         },
         "woocommerce": {
-            "adapter_digest": "d98f01c5a30406687b959c99fb90e7cdf27d5f520ce1cf857e9ff494f66860e4",
+            "adapter_digest": "44f72ffb2af02bfa6439b3ef17b64f4c534f2178848772c8ec9350d9cd88aaaa",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1480,8 +1480,11 @@
                 "post_types",
                 "post_types.product",
                 "post_types.product_variation",
+                "post_types.scheduled-action",
                 "post_types.shop_coupon",
                 "post_types.shop_order",
+                "post_types.shop_order_placehold",
+                "post_types.shop_order_refund",
                 "tables",
                 "tables.actionscheduler_actions",
                 "tables.actionscheduler_claims",
