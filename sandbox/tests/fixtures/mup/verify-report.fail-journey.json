@@ -1,0 +1,40 @@
+{
+    "convergence": {
+        "deletions": 0,
+        "entities": 213,
+        "status": "pass",
+        "verifier": "plan-reconciliation/v1"
+    },
+    "disclosures": [
+        "verification is byte-level only for store settings; declare a journey in the contract to make this a business check"
+    ],
+    "environment": "mup2",
+    "format": "duo-verify-report/v1",
+    "journeys": [
+        {
+            "detail": "",
+            "expect_contains": "Duo Ceramic Mug",
+            "expect_status": 200,
+            "http_status": 200,
+            "id": "shop-index",
+            "ok": true,
+            "status": "pass",
+            "url": "/?post_type=product"
+        },
+        {
+            "detail": "expected HTTP 200, got 404",
+            "expect_contains": "Duo grind landing page",
+            "expect_status": 200,
+            "http_status": 404,
+            "id": "landing-page",
+            "ok": false,
+            "status": "fail",
+            "url": "/?page_id=1"
+        }
+    ],
+    "plan_digest": "sha256:ff60eb1cf5619ffb1449819c403ba88262ac8e1229d8248f146e454f4ed90b2c",
+    "uncovered_surfaces": [
+        "store settings"
+    ],
+    "verdict": "fail"
+}

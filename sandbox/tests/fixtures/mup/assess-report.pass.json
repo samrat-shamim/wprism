@@ -1,0 +1,130 @@
+{
+    "assess_digest": "sha256:6324ba6f8caa11fb767f6ee0bdc0f6cb8d3bb0479f2e892da039d56ba813b2bc",
+    "authority": {
+        "read_only": true,
+        "repo": "/siterepo",
+        "transport": "docker"
+    },
+    "env": "mup1",
+    "evidence": {
+        "bundles": [],
+        "generated_from": {
+            "compatibility_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "evidence_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+    },
+    "format": "duo-assess-report/v1",
+    "generated_at": "2026-08-17T09:14:02Z",
+    "surfaces": [
+        {
+            "decided_by": "platform-default",
+            "handling": "manage",
+            "id": "post_type:product",
+            "kind": "post_type",
+            "label": "post_type:product",
+            "meaning": "authored catalog content Duo manages end to end",
+            "next_action": "nothing — supported",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Platform-certified",
+                    "conditions": [],
+                    "effect_containment": "prevented",
+                    "effect_containment_basis": "no WordPress hooks fire in the apply window",
+                    "effect_recovery_semantics": "provider-state restorable",
+                    "expiry_and_dependencies": [
+                        "woocommerce 10.0.0–12.0.0",
+                        "wordpress 6.8.2",
+                        "php 8.3.x",
+                        "MariaDB 11.x"
+                    ],
+                    "handling": "manage",
+                    "meaning": "authored catalog content Duo manages end to end",
+                    "readiness": "Ready",
+                    "remediation": null,
+                    "state_class": "authored"
+                }
+            },
+            "state_class": "authored"
+        },
+        {
+            "decided_by": "platform-default",
+            "handling": "preserve local",
+            "id": "post_type:shop_order",
+            "kind": "post_type",
+            "label": "post_type:shop_order",
+            "meaning": "live operational state is never copied",
+            "next_action": "nothing — supported",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Platform-certified",
+                    "conditions": [],
+                    "effect_containment": "prevented",
+                    "effect_containment_basis": "no WordPress hooks fire in the apply window",
+                    "effect_recovery_semantics": "not applicable",
+                    "expiry_and_dependencies": [
+                        "woocommerce 10.0.0–12.0.0",
+                        "wordpress 6.8.2",
+                        "php 8.3.x",
+                        "MariaDB 11.x"
+                    ],
+                    "handling": "preserve local",
+                    "meaning": "live operational state is never copied",
+                    "readiness": "Unsupported",
+                    "remediation": null,
+                    "state_class": "runtime"
+                }
+            },
+            "state_class": "runtime"
+        },
+        {
+            "decided_by": "unresolved",
+            "handling": "block",
+            "id": "table:acme_catalog",
+            "kind": "table",
+            "label": "table:acme_catalog",
+            "meaning": "no installed adapter can see this table",
+            "next_action": "qualify in rehearsal",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Uncertified",
+                    "conditions": [],
+                    "effect_containment": "unknown",
+                    "effect_containment_basis": "unknown — not enforced in this profile",
+                    "effect_recovery_semantics": "unknown",
+                    "expiry_and_dependencies": [
+                        "woocommerce 10.0.0–12.0.0",
+                        "wordpress 6.8.2",
+                        "php 8.3.x",
+                        "MariaDB 11.x"
+                    ],
+                    "handling": "block",
+                    "meaning": "no installed adapter can see this table",
+                    "readiness": "Not qualified",
+                    "remediation": null,
+                    "state_class": "unclassified"
+                }
+            },
+            "state_class": "unclassified"
+        }
+    ],
+    "target": {
+        "database": {
+            "engine": "MariaDB",
+            "version": "11.8.8"
+        },
+        "home": "http://localhost:9400",
+        "php": "8.3.33",
+        "site_mode": "single-site",
+        "siteurl": "http://localhost:9400",
+        "wordpress": "6.8.2"
+    },
+    "unknown": {
+        "invisible_names_count": 41,
+        "names_sample": [
+            "acme_widget_cache"
+        ],
+        "pending_count": 3
+    }
+}

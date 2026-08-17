@@ -1,5 +1,18 @@
 # Quickstart: getting a site under Duo
 
+Start by asking what Duo can honestly do with this site. `duo assess <env>` is
+read-only, refuses nothing, mutates nothing, and answers that question one
+WordPress surface at a time — and it answers it *before* you have committed to
+a baseline. It needs the agent to be reachable, which is the one thing adoption
+provides, so the order for a new site is:
+
+**adopt (deliver the agent) → assess (decide) → init (commit to a baseline).**
+
+On a Docker or local target whose control plane already carries the agent,
+`duo assess` is the very first Duo command you run. [assess.md](assess.md) is
+the guide to reading its output; this page is how you get there and what
+happens after.
+
 `duo init <env>` is the shipped first-run path once the Duo agent is reachable
 on an existing WordPress target. How the agent gets there is transport-specific:
 
@@ -132,7 +145,37 @@ site's policy untouched. The privileged machine-local bootstrap is
 initial-only and refuses a second adoption rather than racing an installed
 recovery authority.
 
-### 3. Review and confirm the first baseline
+### 3. Assess before you initialize
+
+```sh
+cli/duo assess production
+```
+
+Adoption made the agent reachable; assessment is what tells you whether
+initializing is a good idea. One read-only run composes doctor, the adoption
+and initialization probes, the target's own inventory, the capability registry
+per operation, coverage, the review queue and the adapter catalog into one row
+per WordPress surface, each carrying its state class, handling, technical
+readiness, certification provenance, effect containment and effect recovery
+semantics, plus the smallest safe next action for every gap.
+
+Nothing here writes to the target, and a site full of blocked surfaces is a
+**successful** assessment that exits 0 — an assessment is not a completeness
+claim. What you are looking for is whether the surfaces you actually care about
+read `Ready` or `Ready with conditions` for the operations you intend, and
+whether the unknown section is a queue you are willing to work through.
+
+Assess also writes `.duo/contract/proposed.json` in your local site repository.
+That is the beginning of the reviewed application contract that `duo release`,
+`duo verify` and `duo recover` all read later; you do not have to deal with it
+now, and [assess.md](assess.md#record-the-decision-the-application-contract)
+picks it up when you do.
+
+If the assessment says the site is not a fit, you have learned that before
+creating a baseline, which is the whole reason this step is here rather than
+after step 7.
+
+### 4. Review and confirm the first baseline
 
 ```sh
 cli/duo init production
@@ -159,7 +202,7 @@ limited to the selected managed adapters; unsupported site state is never
 silently promoted into that claim, and the initial state capture is not a
 promotion rollback checkpoint.
 
-### 4. Record what must not move
+### 5. Record what must not move
 
 Before capture, record checksums for state that has to stay local to this
 runtime: plugin tokens, caches, derived indexes, custom-table rows. The exact
@@ -167,7 +210,7 @@ query is plugin-specific — keep both the command and its output with the chang
 record. You will re-run it after capture, and the comparison is the actual
 acceptance test.
 
-### 5. Measure, then review
+### 6. Measure, then review
 
 ```sh
 cli/duo coverage production --format=json > production-coverage.json
@@ -206,7 +249,7 @@ environment-local operational state, `derived` for state a declared
 regeneration path rebuilds, `env` for separately provisioned per-environment
 values, and `managed` for lifecycle-managed options.
 
-### 6. Apply the batch — then look again
+### 7. Apply the batch — then look again
 
 ```sh
 cli/duo classify production --apply-batch=production-review.json
@@ -222,13 +265,13 @@ the same reason.
 decisions routinely exposes another, so keep looping until `duo pending` prints
 `review queue is empty`.
 
-### 7. Capture, then check the checksums again
+### 8. Capture, then check the checksums again
 
 ```sh
 cli/duo capture production
 ```
 
-Then re-run the runtime checksums from step 4. **Any changed runtime checksum
+Then re-run the runtime checksums from step 5. **Any changed runtime checksum
 is a failed adoption, even when capture exits 0.** Capture is supposed to
 observe the site, not to perturb it; a moved checksum means something in the
 classification is wrong, and a green exit code does not overrule that.
@@ -240,10 +283,12 @@ copied, which was never in question.
 ## Path B — a Docker site or a local site without bootstrap authority
 
 Install or mount the Duo agent and manifest library through that environment's
-own control-plane setup, declare the environment, and run the same public
-initializer:
+own control-plane setup, declare the environment, then assess before you
+initialize — the agent is already there, so the assessment costs one read-only
+run and comes before any baseline:
 
 ```sh
+cli/duo assess dev
 cli/duo init dev
 ```
 
@@ -374,7 +419,11 @@ a convenience flag.
 
 ## Where to go next
 
+- [assess.md](assess.md) — reading the assessment properly, and turning it into
+  a reviewed application contract.
 - [daily-workflow.md](daily-workflow.md) — the loop your team runs after this.
+- [release.md](release.md) — rehearse, authorize, release, verify: the loop the
+  contract unlocks.
 - [capabilities-and-limits.md](capabilities-and-limits.md) — what Duo manages,
   what it refuses, and how to read a red plan.
 - [docs/adoption.md](../adoption.md) — the full adoption contract, including

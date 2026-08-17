@@ -15,7 +15,12 @@
  *  - **its digest is an identity, not a timestamp** — the same authorization
  *    re-computed produces the same `plan_digest`, so `.duo/releases/` holds
  *    one file per decision and `duo verify --plan=<digest>` has a stable
- *    name to cite;
+ *    name to cite. Checked against the CLOCK, not only against `frozen_at`:
+ *    the two runs below are a real second apart and every clock value in the
+ *    document moves between them, because the way this property broke once
+ *    already was a timestamp reaching the digest through a nested document
+ *    (the recovery claim's loss-boundary sentence) rather than through
+ *    `frozen_at`;
  *  - **any input change invalidates it** (`plan_changed`) — the product
  *    spec's *Authorization* paragraph says "any", so this suite moves each
  *    input in turn, including ones the printed document never shows;
@@ -169,6 +174,101 @@ duo_check_same(
     $first['plan_digest'],
     AuthorizationPlan::build($reordered)['plan_digest'],
     'the digest is independent of the order a caller built its input arrays in'
+);
+
+// ------------------------------------------------- the digest under a clock
+// Two full builds a real second apart, driven the way `duo release` drives
+// them: one clock value, handed to the plan as `frozen_at` and to the recovery
+// selection as `checkpoint_at`. This is the defect's exact shape — the claim
+// interpolated the checkpoint instant into `maximum_loss_boundary`, the claim
+// is digested inside the plan, and `.duo/releases/` therefore collected one
+// file per SECOND for one unchanged decision while `duo verify --plan=` had no
+// stable name to cite. A `sleep 1` rather than an injected clock on purpose:
+// the property is about the wall clock reaching the digest, and a fake clock
+// is the one thing that cannot prove it does not.
+/** @return array<string,mixed> a {plan, selection} pair built at $at */
+function release_at(string $at): array {
+    global $proof, $contract;
+
+    $selection = RecoveryProfileSelection::decide($proof, [
+        'checkpoint_at' => $at,
+        'covered_resources' => ['code release e2f1a09', 'upload bundle (3 entries)'],
+        'declared_external_effects' => $contract['declarations']['external_effects'],
+    ]);
+
+    return [
+        'plan' => AuthorizationPlan::build(release_inputs(['frozen_at' => $at, 'recovery' => $selection])),
+        'selection' => $selection,
+    ];
+}
+
+$tick = release_at(gmdate('Y-m-d\TH:i:s\Z'));
+sleep(1);
+$tock = release_at(gmdate('Y-m-d\TH:i:s\Z'));
+
+duo_check(
+    $tick['plan']['frozen_at'] !== $tock['plan']['frozen_at'],
+    'the two builds really are a clock second apart, so the checks below are not vacuous'
+);
+duo_check_same(
+    $tick['plan']['plan_digest'],
+    $tock['plan']['plan_digest'],
+    'two builds a second apart against an unchanged target produce one plan_digest, not two'
+);
+duo_check_same(
+    $tick['selection']['claim']['claim_digest'],
+    $tock['selection']['claim']['claim_digest'],
+    'the embedded recovery claim carries no clock value either, so its digest is stable too'
+);
+duo_check_same(
+    RecoveryClaim::encode($tick['selection']['claim']),
+    RecoveryClaim::encode($tock['selection']['claim']),
+    'the claim built a second later is the same bytes, which is what §2.5 byte-identity rests on'
+);
+duo_check(
+    !str_contains(
+        Canon::encode(AuthorizationPlan::build(
+            release_inputs(['frozen_at' => $tick['plan']['frozen_at'], 'recovery' => $tick['selection']])
+        )['recovery_profile']['claim']),
+        $tick['plan']['frozen_at']
+    ),
+    'no clock value reaches the digested claim at all — the boundary sentence names the checkpoint, not its instant'
+);
+
+// The instant itself is still on the page, beside the claim and outside the
+// digest: excluding it from the plan entirely would answer "what will I lose"
+// with less than the operator had before.
+duo_check_same(
+    $tick['plan']['frozen_at'],
+    $tick['plan']['recovery_profile']['checkpoint_at'],
+    'the concrete checkpoint instant is carried at recovery_profile.checkpoint_at'
+);
+duo_check(
+    $tick['plan']['recovery_profile']['checkpoint_at'] !== $tock['plan']['recovery_profile']['checkpoint_at'],
+    'checkpoint_at moves with the clock, which is precisely why it may not be inside the digest'
+);
+duo_check(
+    AuthorizationPlan::encode($tick['plan']) !== AuthorizationPlan::encode($tock['plan']),
+    'the frozen bytes still record both clock values; only the identity is stable'
+);
+$redated = $tick['plan'];
+$redated['recovery_profile']['checkpoint_at'] = '2099-01-01T00:00:00Z';
+duo_check_same(
+    (string) $tick['plan']['plan_digest'],
+    AuthorizationPlan::digest($redated),
+    'digest() excludes recovery_profile.checkpoint_at exactly as it excludes frozen_at'
+);
+AuthorizationPlan::validate($redated);
+duo_check(true, 'a plan whose excluded clock value moved still validates against its own digest');
+duo_check_refuses(
+    static fn () => AuthorizationPlan::validate(
+        array_replace($tick['plan'], ['recovery_profile' => array_replace(
+            $tick['plan']['recovery_profile'],
+            ['checkpoint_at' => '']
+        )])
+    ),
+    'authorization_plan_shape_invalid',
+    'a checkpoint_at outside the digest is still shape-checked, because no digest can catch it'
 );
 
 // ------------------------------------------------------------------ freeze

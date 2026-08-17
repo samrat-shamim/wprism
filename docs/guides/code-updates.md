@@ -173,22 +173,41 @@ of after the fact.
 
 ### The promotion-recovery sequence
 
-When `duo promote` fails, it prints the checkpoint path and the exact recovery
-commands. The preconditions come first:
+When a promotion fails, one verb performs the recovery:
 
-- If code may have been staged or partially finalized, reconcile or restore
-  code to a known pre-promotion revision **before** the database import.
-- Establish external maintenance/exclusion preventing every Duo writer for the
-  full recovery window. The commands below repair a row; they are not a
-  substitute for that exclusion.
+```sh
+duo recover production --list
+duo recover production --restore=<receipt-id> --writers-excluded
+```
 
-Then, in this order: abort the exact owner/artifact pair (idempotent); re-begin
-that same pair; run the fatal-safe isolated `wp db import <checkpoint>`, which
-skips plugins, themes, and user MU code; and abort once more to clear the lease
-row the import restored. **Run that fourth step even if the import fails.**
+`--list` names the checkpoint and what its profile restores; `--restore`
+drives the sequence. Two preconditions are yours, not Duo's, and `--restore`
+enforces both rather than advising them:
+
+- **Code first.** If code may have been staged or partially finalized,
+  reconcile or restore code to its known pre-promotion revision **before** the
+  database import. `duo recover` refuses the import until you have, and names
+  the exact revision — a database describing one code revision underneath
+  another is the state nobody can reason about afterwards.
+- **External writer exclusion.** Every successful checkpoint contains the
+  temporary promotion lease row, so a lock stored inside the database being
+  imported cannot protect the recovery window. Establish real
+  maintenance/exclusion preventing every Duo writer for the whole window, then
+  assert it with `--writers-excluded`. Without that flag nothing runs.
+
+Underneath, the profile drives the same ordered steps a human used to type —
+abort the exact owner/artifact pair, re-begin it, perform the fatal-safe
+isolated database import that skips plugins, themes and user MU code, then
+abort once more to clear the lease row the import restored. The final abort
+runs even when the import fails, which is precisely the step people skipped by
+hand. Those raw actions are named, as internals, in
+[internals.md](internals.md); running them yourself is outside the supported
+workflow.
 
 The first abort refuses if a newer session has superseded this checkpoint,
-rather than presenting an obsolete dump as a safe recovery source.
+rather than presenting an obsolete dump as a safe recovery source. The whole
+path, including what a profile does *not* restore, is
+[recovery.md](recovery.md).
 
 ### Automatic code rollback
 

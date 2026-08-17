@@ -21,6 +21,16 @@
  *    safety invariant forbids.
  *  - **The profile enum is closed** — `verified-automatic | operator-directed
  *    | none` — and `none` is only ever requested, never proved.
+ *
+ * A fourth property joined them once the first one was found to be reachable
+ * only by luck: **the claim carries no clock value**. It is embedded in the
+ * DIGESTED part of the frozen plan, so a timestamp anywhere in it makes
+ * `plan_digest` change every second for one unchanged decision — and a claim
+ * whose bytes move cannot be byte-identical at two printings either. The
+ * checkpoint instant therefore travels beside the claim
+ * (`recovery_profile.checkpoint_at`, excluded from the digest exactly like
+ * `frozen_at`), and `regress_authorization_plan.php` holds the clock-second
+ * gate over the plan. Here the claim is checked for the absence itself.
  */
 declare(strict_types=1);
 
@@ -31,11 +41,13 @@ require_once __DIR__ . '/../../cli/src/Contract/ApplicationContract.php';
 require_once __DIR__ . '/../../cli/src/Recovery/CheckpointCatalog.php';
 require_once __DIR__ . '/../../cli/src/Recovery/RecoveryClaim.php';
 require_once __DIR__ . '/../../cli/src/Recovery/RecoveryProfileSelection.php';
+require_once __DIR__ . '/../../cli/src/Command/RecoverCommand.php';
 require_once __DIR__ . '/../../cli/src/Release/AuthorizationPlan.php';
 
 use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\AuthorizationPlan;
 use Duo\Orchestrator\CheckpointCatalog;
+use Duo\Orchestrator\RecoverCommand;
 use Duo\Orchestrator\RecoveryClaim;
 use Duo\Orchestrator\RecoveryProfileSelection;
 
@@ -132,7 +144,6 @@ duo_check_throws(
 
 // ------------------------------------------- the site's own declared effects
 $verified = RecoveryClaim::build([
-    'checkpoint_at' => '2026-08-17T09:14:02Z',
     'covered_resources' => ['code release e2f1a09', 'upload bundle (3 entries)'],
     'declared_external_effects' => $effects,
     'profile' => RecoveryClaim::VERIFIED_AUTOMATIC,
@@ -167,14 +178,15 @@ duo_check(
 );
 
 duo_check_same(
-    'writes committed after checkpoint 2026-08-17T09:14:02Z',
+    'writes committed after the checkpoint this release takes immediately before mutation; '
+        . 'the instant that checkpoint pins is printed beside this claim',
     $verified['maximum_loss_boundary'],
-    'the maximum loss boundary is literal about which writes are lost'
+    'the maximum loss boundary is literal about which writes are lost, and about where its instant is'
 );
 duo_check_same(
-    'writes committed after the checkpoint this release takes immediately before mutation',
+    $verified['maximum_loss_boundary'],
     RecoveryClaim::build(['profile' => RecoveryClaim::VERIFIED_AUTOMATIC])['maximum_loss_boundary'],
-    'without a checkpoint timestamp the boundary says so rather than inventing one'
+    'the boundary sentence is a fact about the profile alone, so no caller fact can move it'
 );
 duo_check(
     str_contains(
@@ -182,6 +194,69 @@ duo_check(
         'nothing bounds the loss'
     ),
     'the none profile states that nothing bounds the loss'
+);
+
+// --------------------------------------------------- the claim carries no clock
+// Checked on the ENCODED claim rather than field by field, because the defect
+// this closes did not arrive through a field named for a time: it arrived
+// inside a prose sentence. Any future one would too.
+duo_check_throws(
+    static fn () => RecoveryClaim::build([
+        'checkpoint_at' => '2026-08-17T09:14:02Z',
+        'profile' => RecoveryClaim::VERIFIED_AUTOMATIC,
+    ]),
+    InvalidArgumentException::class,
+    'checkpoint_at is not a claim fact at all: a caller offering one is a caller bug, not a silently ignored key'
+);
+foreach (RecoveryClaim::PROFILES as $profile) {
+    $encoded = RecoveryClaim::encode(RecoveryClaim::build([
+        'covered_resources' => ['code release e2f1a09'],
+        'declared_external_effects' => $effects,
+        'profile' => $profile,
+    ]));
+    if (preg_match('/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z/', $encoded) === 1) {
+        duo_check(false, "the $profile claim carries a timestamp, which puts a clock inside plan_digest");
+    }
+}
+duo_check(true, 'no profile puts a canonical UTC instant anywhere in the claim it builds');
+duo_check_same(
+    RecoveryClaim::encode(RecoveryClaim::build(['profile' => RecoveryClaim::VERIFIED_AUTOMATIC])),
+    RecoveryClaim::encode(RecoveryClaim::build(['profile' => RecoveryClaim::VERIFIED_AUTOMATIC])),
+    'two claims built from the same facts at different moments are the same bytes'
+);
+
+// The selection is where the instant surfaces instead — beside the claim, and
+// null for the profile that takes no checkpoint at all.
+$dated = RecoveryProfileSelection::decide([
+    'automatic' => true,
+    'profile' => RecoveryClaim::VERIFIED_AUTOMATIC,
+    'reason' => 'all verified rollback capabilities are ready',
+    'scoped' => false,
+    'status' => [],
+], ['checkpoint_at' => '2026-08-17T09:14:02Z']);
+duo_check_same(
+    '2026-08-17T09:14:02Z',
+    $dated['checkpoint_at'],
+    'the selection publishes the checkpoint instant beside the claim, where no digest covers it'
+);
+duo_check(
+    !str_contains(RecoveryClaim::encode($dated['claim']), '2026-08-17T09:14:02Z'),
+    'the same selection keeps that instant out of the claim it embeds in the plan'
+);
+duo_check_same(
+    null,
+    RecoveryProfileSelection::decide([
+        'automatic' => true,
+        'profile' => RecoveryClaim::VERIFIED_AUTOMATIC,
+        'reason' => 'all verified rollback capabilities are ready',
+        'scoped' => false,
+        'status' => [],
+    ], [
+        'accept_weaker_recovery' => true,
+        'checkpoint_at' => '2026-08-17T09:14:02Z',
+        'requested_profile' => RecoveryClaim::NONE,
+    ])['checkpoint_at'],
+    'the none profile takes no checkpoint, so it publishes no instant however the caller dated the request'
 );
 
 duo_check_same(
@@ -281,6 +356,87 @@ duo_check_same(
 );
 RecoveryClaim::validate($frozen['recovery_profile']['claim']);
 duo_check(true, 'the claim read back off disk still validates as literal');
+duo_check_same(
+    '2026-08-17T09:14:02Z',
+    $frozen['recovery_profile']['checkpoint_at'],
+    'the instant the claim no longer carries is on the frozen plan, one key away, for duo recover to print'
+);
+duo_check_same(
+    (string) $document['plan_digest'],
+    AuthorizationPlan::digest(array_replace(
+        $document,
+        ['recovery_profile' => array_replace($document['recovery_profile'], ['checkpoint_at' => '2099-01-01T00:00:00Z'])]
+    )),
+    'and it sits outside plan_digest, so re-dating it cannot re-identify the authorization'
+);
+
+// ------------------------------- what duo recover prints beside the claim
+// The instant is not in the claim any more, so where `duo recover` gets it is
+// now a decision with an order, and the order is the point: the receipt's own
+// creation time is evidence about THIS checkpoint, the frozen plan's
+// `checkpoint_at` is the release-start instant the operator was shown, and a
+// full promotion receipt publishes no creation time at all
+// (CheckpointCatalog::DISCLOSURE_NO_CREATION_TIME) — which is exactly the case
+// the plan covers and the one no fixture with a `created_at` can reach.
+$verifiedRow = [
+    'artifact_hash' => (string) $document['artifact_hash'],
+    'covers' => RecoveryClaim::RESOURCES,
+    'created_at' => null,
+    'kind' => CheckpointCatalog::KIND_VERIFIED,
+];
+$fromPlan = RecoverCommand::resolveClaim($verifiedRow, [$frozen]);
+duo_check_same(
+    RecoveryClaim::encode($selection['claim']),
+    RecoveryClaim::encode($fromPlan['claim']),
+    'a receipt matching a frozen plan is recovered under that plan claim, byte for byte'
+);
+duo_check_same(
+    '2026-08-17T09:14:02Z',
+    $fromPlan['checkpoint_at'],
+    'a receipt that publishes no creation time is dated from the frozen plan instead of from nothing'
+);
+duo_check_same(
+    RecoverCommand::SOURCE_PLAN,
+    $fromPlan['checkpoint_source'],
+    'and the printing says which of the two instants it is'
+);
+duo_check(
+    str_contains(RecoverCommand::checkpointLine($fromPlan), 'release start, from the frozen authorization plan'),
+    'the printed line names the plan as its source rather than implying the receipt published it'
+);
+
+$fromReceipt = RecoverCommand::resolveClaim(
+    array_replace($verifiedRow, ['created_at' => '2026-08-17T09:31:44Z']),
+    [$frozen]
+);
+duo_check_same(
+    '2026-08-17T09:31:44Z',
+    $fromReceipt['checkpoint_at'],
+    'when the receipt does publish its creation time, that beats the plan: it is when this checkpoint was pinned'
+);
+duo_check_same(
+    RecoveryClaim::encode($selection['claim']),
+    RecoveryClaim::encode($fromReceipt['claim']),
+    'and the claim is still the frozen plan claim, unchanged by which instant was printed beside it'
+);
+
+$unplanned = RecoverCommand::resolveClaim(
+    array_replace($verifiedRow, ['artifact_hash' => str_repeat('7', 64)]),
+    [$frozen]
+);
+duo_check_same(
+    null,
+    $unplanned['checkpoint_at'],
+    'a receipt no frozen plan matches and no creation time carries no instant at all'
+);
+duo_check(
+    str_contains(RecoverCommand::checkpointLine($unplanned), 'not published by this receipt'),
+    'and the absence is printed rather than filled in with the wall clock or the plan of another release'
+);
+duo_check(
+    !str_contains(RecoveryClaim::encode($unplanned['claim']), '2026'),
+    'the claim rebuilt from a receipt is clock-free too, so it cannot re-date anything it is embedded in'
+);
 
 // ------------------------------------------------ selection warning lines
 $degraded = RecoveryProfileSelection::decide([

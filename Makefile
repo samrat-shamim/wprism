@@ -2,6 +2,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-recovery-protocol
 .PHONY: regress-canonical-json-parity
+.PHONY: regress-mup-leak-audit grind-mup
 .PHONY: regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering
 .PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
@@ -1244,6 +1245,19 @@ grind-code-half-ecosystem:
 grind-code-half-first-sync:
 	bash sandbox/tests/grind_first_sync_hook_recovery.sh
 
+# ROUND 3 T4 (docs/proposals/round-3-minimum-usable-platform.md §6.1; narrative
+# in docs/grind/mup.md): the end-to-end minimum-usable-platform grind on a
+# dedicated docker pair — assess → contract → rehearse → capture → merge →
+# release (authorization plan, deploy-before-apply) → verify → recover → assess
+# → reap. Live-only (docker); NOT auto-bundled (regress-live-list). Step 11
+# (recover) needs an SSH-adopted target: on a plain pair it fails by default
+# (MUP_STEP11=required) or records the gap (MUP_STEP11=record-gap).
+# Usage: make grind-mup [MUP_PAIR=mup MUP_PORT1=9400 MUP_PORT2=9401 MUP_STEP11=…]
+grind-mup:
+	MUP_PAIR="$(MUP_PAIR)" MUP_PORT1="$(MUP_PORT1)" MUP_PORT2="$(MUP_PORT2)" MUP_STEP11="$(MUP_STEP11)" \
+	MUP_THEME_SLUG="$(MUP_THEME_SLUG)" MUP_THEME_VERSION="$(MUP_THEME_VERSION)" \
+	bash sandbox/tests/grind_mup.sh
+
 # DUO-3216: live activation/deactivation/order gate, deploy-window mail/HTTP
 # observations, and the composed host promote path with a retained DB dump.
 regress-promotion:
@@ -1393,6 +1407,15 @@ regress-release-ref-binding:
 # code-first refusal, the mandatory final abort even on import failure, --writers-excluded required
 regress-recover-ordering:
 	bash sandbox/tests/regress_recover_ordering.sh
+
+# ROUND 3 T4 (docs/proposals/round-3-minimum-usable-platform.md §5.2, §6.2): the
+# MUP leak audit — no internal identifier in the human view of assess / release
+# --plan-only / verify / recover / rehearse unless a documented command consumes
+# it; every public `wp duo` command is host-driven or named in
+# docs/guides/internals.md; the retired four-command raw-recovery recipe cites
+# nowhere but internals.md. Offline over the T2/T3 fixture sites.
+regress-mup-leak-audit:
+	bash sandbox/tests/regress_mup_leak_audit.sh
 
 
 
@@ -1936,12 +1959,12 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 254 offline suites green"
+	@echo "regress-offline-all: 255 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-scoped-certification-bundle regress-subject-certification-bundle regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
-	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering \
+	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept regress-authorization-plan regress-release-containment-gate regress-recover-claim regress-verify-oracles regress-rehearse-provider regress-release-next-action regress-release-ref-binding regress-recover-ordering regress-mup-leak-audit \
 	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
 	regress-dynamic-options-policy regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip regress-policy-writer regress-manifest-validator regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
@@ -1956,7 +1979,7 @@ regress-offline-corpus: code-half-unit \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics
-	@echo "regress-offline-corpus: 254 offline suites green"
+	@echo "regress-offline-corpus: 255 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/regress_offline_diagnostics.sh
@@ -2018,6 +2041,7 @@ regress-live-list:
 	@echo "  certify-subject-bundle SUBJECT=manifests.woocommerce own disposable pair (CERT_SUBJECT_PAIR/CERT_SUBJECT_PORT1/CERT_SUBJECT_PORT2; exact candidate gate)"
 	@echo "  certify-subjects-parallel                discovered subject lanes on unique pairs/ports, capped by locked host capacity"
 	@echo "  grind-ecommerce-developer-live            explicit ECOMMERCE_PAIR/PORT1/PORT2; run only with owner authorization"
+	@echo "  grind-mup                                 pair mup 9400/9401 (MUP_PAIR/PORT1/PORT2; MUP_STEP11=required|record-gap) -- the MUP end-to-end loop, docs/grind/mup.md"
 	@echo ""
 	@echo "Other grind-*/certify-* targets are a separate, already-governed category (see this target's comment)."
 
