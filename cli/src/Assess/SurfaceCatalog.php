@@ -7,6 +7,7 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ApplicationContract.php';
 require_once dirname(__DIR__) . '/Contract/ProjectionVocabulary.php';
 require_once __DIR__ . '/GapActions.php';
+require_once __DIR__ . '/StackInventory.php';
 
 use Duo\CommandRefusalException;
 
@@ -44,6 +45,15 @@ use Duo\CommandRefusalException;
  *     grammar is one-name-per-surface (`post_types`, `taxonomies`,
  *     `tables`) that neither of the first two produced — a surface an
  *     adapter certifies but this site's policy did not report.
+ *  4. `inventory.plugins.active_without_adapter[]` — an ACTIVE plugin no
+ *     installed manifest declares (T6 §3.6). This is the only row kind whose
+ *     id names a plugin, and it is still not a plugin name in this file's
+ *     sense: the slug is data the target reported, exactly like a post type
+ *     name, and no rule here keys off which slug it is. Without the row an
+ *     unmanaged plugin was invisible to assess while being the single
+ *     largest thing Duo could not version on the site — `duo init` refused
+ *     it, `duo capture` refused its CPTs, and the assessment that is
+ *     supposed to say what authority Duo has said nothing at all.
  *
  * The grouped sections (`options`, `post_meta`, `term_meta`, …) mint no
  * rows: the inventory groups them by declarant and class precisely because
@@ -148,6 +158,18 @@ final class SurfaceCatalog {
         'taxonomy' => 'taxonomies',
         'table' => 'tables',
     ];
+
+    /**
+     * T6 §3.6's row kind for an active plugin no adapter declares.
+     *
+     * Deliberately NOT in KIND_SECTION: there is no manifest section a
+     * plugin maps onto, and there is no registry selector for one. A
+     * `plugin:` row is a statement that a whole body of state on this site
+     * is outside every claim, which is why it projects with no claim at all
+     * and reads `unclassified / block / Not qualified / Uncertified /
+     * unknown / unknown`.
+     */
+    public const PLUGIN_KIND = 'plugin';
 
     /** The recovery bundle each policy class's bytes land in (§1.6). */
     public const CLASS_BUNDLE = [
@@ -312,6 +334,8 @@ final class SurfaceCatalog {
                 'declared_by' => is_string($group['declared_by'] ?? null) ? $group['declared_by'] : null,
                 'label' => $labels[$id] ?? $id,
                 'source' => 'policy',
+                // A declared surface has a declarant, not a guess.
+                'probable_owner' => null,
             ];
         }
 
@@ -333,6 +357,44 @@ final class SurfaceCatalog {
                 'declared_by' => null,
                 'label' => $labels[$id] ?? $id,
                 'source' => 'coverage',
+                // `Coverage::attribute()` matched this table's name against
+                // the ACTIVE plugin slugs. It is a guess and named one, but
+                // it is the fact that tells `install adapter` (some plugin
+                // owns this and nothing models it) from `classify` (nothing
+                // owns it) — T6 §3.6.
+                'probable_owner' => is_string($table['probable_owner'] ?? null)
+                    ? $table['probable_owner']
+                    : null,
+            ];
+        }
+
+        // T6 §3.6. Every active plugin no installed manifest declares. The
+        // isset() guard is the same defensive shape the other two loops use;
+        // it can never fire here, because no other source mints a `plugin:`
+        // id — no surface group carries kind `plugin` (the agent's
+        // AssessInventory::SURFACE_KINDS is a closed list without it) and no
+        // registry selector maps onto one.
+        foreach (StackInventory::pluginsWithoutAdapter($inventory) as $plugin) {
+            $slug = (string) ($plugin['slug'] ?? '');
+            if ($slug === '') {
+                continue;
+            }
+            $id = self::PLUGIN_KIND . ':' . $slug;
+            if (isset($identities[$id])) {
+                continue;
+            }
+            $identities[$id] = [
+                'kind' => self::PLUGIN_KIND,
+                'policy_class' => null,
+                'declared_by' => null,
+                'label' => $labels[$id] ?? $id,
+                'source' => 'inventory',
+                // The plugin IS the owner. This is the one row where the
+                // attribution is a fact rather than a name match, and it is
+                // what makes the row's next action `install adapter` instead
+                // of `classify`: there is nothing to classify about a plugin,
+                // only an adapter to install or author.
+                'probable_owner' => $slug,
             ];
         }
 
@@ -365,6 +427,7 @@ final class SurfaceCatalog {
                         'declared_by' => $name,
                         'label' => $labels[$id] ?? $id,
                         'source' => 'registry',
+                        'probable_owner' => null,
                     ];
                 }
             }
@@ -452,6 +515,7 @@ final class SurfaceCatalog {
                 // fact is a constant here and not a silent omission.
                 'resync_declared' => false,
                 'unsupported_reason' => $unsupportedReason,
+                'probable_owner' => $identity['probable_owner'] ?? null,
                 'registry' => $registry,
                 'provider_negotiation' => $declaredBy !== null && isset($negotiation[$declaredBy])
                     ? array_values($negotiation[$declaredBy])
@@ -555,6 +619,7 @@ final class SurfaceCatalog {
                 'conditions' => [],
                 'source' => null,
                 'site_certified' => false,
+                'certification' => null,
             ];
         }
 
@@ -594,12 +659,66 @@ final class SurfaceCatalog {
             'source' => is_string($manifest['source']['source'] ?? null)
                 ? $manifest['source']['source']
                 : null,
-            // MUP §1.4/§7: signed third-party evidence exists as a state in
-            // the catalog, but the certification gate is deferred, so the
-            // projection reports `Uncertified` and annotates why. Passing
-            // the fact through (rather than dropping it) is what makes that
-            // annotation reachable.
-            'site_certified' => in_array($certification, ['third_party_signed', 'signed_unpinned'], true),
+            // Signed site evidence that is NOT a certified claim. After T6
+            // §3.2 the only word left here is `signed_unpinned`: a valid
+            // certificate whose repository pin does not bind both source and
+            // the certificate-derived digest, so the claim never reaches
+            // `certified`. `site_signed`/`third_party_signed` now travel on
+            // the claim's own certification block below instead, because that
+            // is where the principal and the trust root are.
+            'site_certified' => $certification === 'signed_unpinned',
+            // T6 §3.2: `{source, trust_root, principal, signed_at}` from the
+            // verified certificate, or null. This is the fact `Site-certified`
+            // is projected from — not the adapter's source, which says only
+            // where the file came from and nothing about who vouched for it.
+            'certification' => self::claimCertification($manifest, $certification),
+        ];
+    }
+
+    /**
+     * The claim's own certification block, or null (T6 §3.2).
+     *
+     * Read from the claim first — `certification: {source, trust_root,
+     * principal, signed_at}` is what the agent binds when a site certificate
+     * verifies, and it is the authority on who vouched. The catalog row's
+     * `source.certification` WORD is the fallback identity, and only for the
+     * two words that mean a site certificate verified: it lets the projection
+     * still say `Site-certified` on an agent build that reports the word
+     * without the block, rather than silently downgrading a genuinely signed
+     * adapter to `Uncertified` because one field was absent.
+     *
+     * `trust_root` distinguishes WHOSE root signed (`site` for a key in the
+     * repository's own adapters/authorities.json, `platform` for one in the
+     * agent-owned file). `source` is `site` for both, because both are
+     * certificates about a site adapter — which is why a signed override of a
+     * shipped name reads `Site-certified` and never `Platform-certified`
+     * (T6 §3.3).
+     *
+     * @param array<string,mixed> $manifest a `report()['manifests'][]` row
+     * @return array<string,mixed>|null
+     */
+    private static function claimCertification(array $manifest, string $certification): ?array {
+        $block = $manifest['certification'] ?? null;
+        if (is_array($block) && !array_is_list($block) && is_string($block['source'] ?? null)) {
+            return [
+                'source' => (string) $block['source'],
+                'trust_root' => is_string($block['trust_root'] ?? null) ? $block['trust_root'] : null,
+                'principal' => is_string($block['principal'] ?? null) ? $block['principal'] : null,
+                'signed_at' => is_string($block['signed_at'] ?? null) ? $block['signed_at'] : null,
+            ];
+        }
+        if (!in_array($certification, ['site_signed', 'third_party_signed'], true)) {
+            return null;
+        }
+        $source = is_array($manifest['source'] ?? null) ? $manifest['source'] : [];
+
+        return [
+            'source' => 'site',
+            'trust_root' => is_string($source['trust_root'] ?? null)
+                ? $source['trust_root']
+                : ($certification === 'site_signed' ? 'site' : 'platform'),
+            'principal' => is_string($source['principal'] ?? null) ? $source['principal'] : null,
+            'signed_at' => null,
         ];
     }
 

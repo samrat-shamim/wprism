@@ -306,9 +306,17 @@ final class AssessRenderer {
         $pending = (int) ($unknown['pending_count'] ?? 0);
         $environment = self::safe($report['env'] ?? '?');
 
+        // T6 §3.7 item 2: the third finding MUP §2.1 item 3 always named and
+        // this block never printed. On a site with an unmanaged plugin it is
+        // usually the largest of the three, and its absence here was the
+        // difference between an operator seeing "Duo cannot see this part of
+        // your database" and seeing nothing.
+        $tables = (int) ($unknown['undeclared_tables_count'] ?? 0);
+
         $lines = [];
         $lines[] = 'unknown: ' . $invisible . ' option name(s) invisible to every installed adapter';
         $lines[] = '         ' . $pending . ' pending classification(s) (duo pending ' . $environment . ')';
+        $lines[] = '         ' . $tables . ' undeclared table(s) (no installed adapter declares them)';
         $shown = array_slice($sample, 0, $limit);
         foreach ($shown as $name) {
             $lines[] = '         - ' . self::safe($name);
@@ -332,6 +340,7 @@ final class AssessRenderer {
         $counts = GapActions::summarise($rows, [
             'pending' => (int) ($unknown['pending_count'] ?? 0),
             'invisible_option' => (int) ($unknown['invisible_names_count'] ?? 0),
+            'undeclared_table' => (int) ($unknown['undeclared_tables_count'] ?? 0),
         ]);
 
         $lines = ['next actions:'];
@@ -355,8 +364,59 @@ final class AssessRenderer {
             $lines[] = '          ' . $unpinned . ' subject(s) carry no bundle digest and cannot be pinned; '
                 . 'their surfaces read Requalification required';
         }
+        foreach (self::siteCertifiedPrincipals($report) as $line) {
+            $lines[] = '          ' . $line;
+        }
 
         return $lines;
+    }
+
+    /**
+     * T6 §3.6's `certified by <principal> (<root> trust root); contract
+     * attestation unsigned`, printed ONCE.
+     *
+     * Placement is the evidence section, not the surface rows, and that is
+     * the whole decision. The sentence is a statement about who vouched for
+     * this site's adapters and about what the CONTRACT is — one fact about
+     * the assessment, not a per-surface fact. Repeating it under each of the
+     * eleven surfaces a certified adapter governs would bury the second half,
+     * which is the half that says the contract itself is still unsigned; the
+     * evidence block is already where "what backs these claims" is answered,
+     * and it is three lines long.
+     *
+     * One line per distinct (principal, trust root), sorted, because "once"
+     * means once per statement and a site may legitimately trust two
+     * organizations' keys. The per-surface `certification` column still says
+     * `Site-certified` on every row it applies to, so nothing is hidden by
+     * not repeating the sentence.
+     *
+     * @param array<string,mixed> $report
+     * @return list<string>
+     */
+    private static function siteCertifiedPrincipals(array $report): array {
+        $seen = [];
+        foreach ((is_array($report['surfaces'] ?? null) ? $report['surfaces'] : []) as $row) {
+            $operations = is_array($row['operations'] ?? null) ? $row['operations'] : [];
+            foreach ($operations as $projection) {
+                if (!is_array($projection)
+                    || ($projection['certification_provenance'] ?? null) !== 'Site-certified') {
+                    continue;
+                }
+                $principal = is_string($projection['certification_principal'] ?? null)
+                    && $projection['certification_principal'] !== ''
+                        ? $projection['certification_principal']
+                        : 'an unnamed site authority';
+                $root = is_string($projection['certification_trust_root'] ?? null)
+                    && $projection['certification_trust_root'] !== ''
+                        ? $projection['certification_trust_root']
+                        : 'site';
+                $seen[$principal . "\0" . $root] = 'certified by ' . self::safe($principal)
+                    . ' (' . self::safe($root) . ' trust root); contract attestation unsigned';
+            }
+        }
+        ksort($seen, SORT_STRING);
+
+        return array_values($seen);
     }
 
     /**

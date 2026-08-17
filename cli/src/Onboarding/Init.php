@@ -25,24 +25,62 @@ final class InitRefusalException extends \RuntimeException {
 
 /** Host wrapper for the target agent's digest-bound initialization protocol. */
 final class Init {
+    /**
+     * T6 §3.4. The operator's statement that active plugins with no owning
+     * adapter are a KNOWN, ACCEPTED condition of this site rather than a
+     * defect to fix before starting.
+     *
+     * It is forwarded to BOTH target calls and never remembered on the host.
+     * The proposal and the confirmation are two separate agent invocations
+     * bound by a digest, and the digest covers the plan the flag produced —
+     * so confirming without the flag would ask the target to re-plan under
+     * different rules and fail the digest bind, which is the right failure
+     * but a confusing one to read. Passing it twice keeps the two calls
+     * describing the same site.
+     */
+    public const ALLOW_UNMANAGED_PLUGINS = '--allow-unmanaged-plugins';
+
+    /**
+     * The one advisory code that names a whole body of state Duo will not
+     * version, rather than a gap inside something it does.
+     *
+     * T6 §3.4 gives it its own line shape for that reason. `ADVISORY PLUGIN
+     * wpforms-lite/wpforms.php [active_plugin_without_adapter]: no installed
+     * manifest declares…` reads as one more caveat in a list of caveats;
+     * `UNMANAGED PLUGIN wpforms-lite/wpforms.php` reads as the sentence it
+     * is. The reason and remediation follow on their own indented line
+     * instead of being run onto the end, so the identity stays greppable.
+     */
+    public const UNMANAGED_PLUGIN_CODE = 'active_plugin_without_adapter';
+
     /** @return array<string,mixed> */
-    public static function proposal(EnvironmentDriver $transport): array {
-        $proposal = self::request($transport, [
-            'duo', 'init', '--repo=' . $transport->repoPath(), '--format=json',
-        ], 'proposal');
+    public static function proposal(EnvironmentDriver $transport, bool $allowUnmanagedPlugins = false): array {
+        $args = ['duo', 'init', '--repo=' . $transport->repoPath(), '--format=json'];
+        if ($allowUnmanagedPlugins) {
+            $args[] = self::ALLOW_UNMANAGED_PLUGINS;
+        }
+        $proposal = self::request($transport, $args, 'proposal');
         self::assertProposal($transport, $proposal);
         return $proposal;
     }
 
     /** @return array<string,mixed> */
-    public static function confirm(EnvironmentDriver $transport, string $digest): array {
+    public static function confirm(
+        EnvironmentDriver $transport,
+        string $digest,
+        bool $allowUnmanagedPlugins = false
+    ): array {
         if (preg_match('/^[a-f0-9]{64}$/', $digest) !== 1) {
             throw new \RuntimeException('duo init confirmation requires the exact 64-hex proposal digest');
         }
-        $result = self::request($transport, [
+        $args = [
             'duo', 'init', '--repo=' . $transport->repoPath(),
             '--confirm=' . $digest, '--format=json',
-        ], 'confirmation');
+        ];
+        if ($allowUnmanagedPlugins) {
+            $args[] = self::ALLOW_UNMANAGED_PLUGINS;
+        }
+        $result = self::request($transport, $args, 'confirmation');
         self::assertResult($transport, $result, $digest);
         return $result;
     }
@@ -100,15 +138,43 @@ final class Init {
                 . ($row['extension'] ?? '?') . ' [' . ($row['code'] ?? 'unsupported') . ']: '
                 . ($row['reason'] ?? 'unsupported') . '. ' . ($row['remediation'] ?? '');
         }
-        foreach (($proposal['advisories'] ?? []) as $row) {
-            $lines[] = '  ADVISORY ' . strtoupper((string) ($row['kind'] ?? 'coverage')) . ' '
-                . ($row['extension'] ?? '?') . ' [' . ($row['code'] ?? 'advisory') . ']: '
-                . ($row['reason'] ?? 'coverage is incomplete') . '. ' . ($row['remediation'] ?? '');
+        $advisories = (array) ($proposal['advisories'] ?? []);
+        if ($advisories !== []) {
+            // A heading, because T6 §3.4 moves a row that used to BLOCK into
+            // this block. Without it an operator who passed
+            // --allow-unmanaged-plugins reads their unmanaged plugins in the
+            // same undifferentiated run of lines as everything else and
+            // cannot tell that the flag did anything.
+            $lines[] = '  advisories (init proceeds; each is a stated, accepted limit on what Duo versions):';
+        }
+        foreach ($advisories as $row) {
+            $lines[] = '  ' . self::advisoryLine($row);
+            $detail = trim((string) ($row['reason'] ?? '') . ' ' . (string) ($row['remediation'] ?? ''));
+            if ($detail !== '' && ($row['code'] ?? null) === self::UNMANAGED_PLUGIN_CODE) {
+                $lines[] = '    ' . $detail;
+            }
         }
         $lines[] = !empty($proposal['ready'])
             ? '  result: ready for explicit confirmation'
             : '  result: blocked; no configuration, state, identity, or ledger mutation was made';
         return $lines;
+    }
+
+    /**
+     * One advisory row's headline.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function advisoryLine(array $row): string {
+        $code = (string) ($row['code'] ?? 'advisory');
+        $extension = (string) ($row['extension'] ?? '?');
+        if ($code === self::UNMANAGED_PLUGIN_CODE) {
+            return 'UNMANAGED PLUGIN ' . $extension . ' [' . $code . ']';
+        }
+
+        return 'ADVISORY ' . strtoupper((string) ($row['kind'] ?? 'coverage')) . ' '
+            . $extension . ' [' . $code . ']: '
+            . ($row['reason'] ?? 'coverage is incomplete') . '. ' . ($row['remediation'] ?? '');
     }
 
     /** @return list<string> */

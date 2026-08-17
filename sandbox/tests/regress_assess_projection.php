@@ -185,25 +185,42 @@ $cases[] = ['1.3 certified with a re-checked condition is Ready with conditions'
     ['readiness' => 'Ready with conditions',
         'conditions' => ['plugin_version_mismatch rechecked at the mutation gate']],
     'nothing — supported'];
+// T6 §3.6: every one of these five is closed by current certification
+// evidence, and rehearsal states it cannot produce any. `certify adapter`
+// is the word that names a command the operator can actually run.
 $cases[] = ['1.3 evidence_not_current requires requalification',
     duo_facts(['registry' => ['blockers' => ['evidence_not_current']]]),
     ['readiness' => 'Requalification required', 'remediation' => 're-certify the pinned evidence, then re-run assess'],
-    'qualify in rehearsal'];
+    'certify adapter'];
 $cases[] = ['1.3 revision_not_certified requires requalification',
     duo_facts(['registry' => ['blockers' => ['revision_not_certified']]]),
-    ['readiness' => 'Requalification required'], 'qualify in rehearsal'];
+    ['readiness' => 'Requalification required'], 'certify adapter'];
 $cases[] = ['1.3 profile_evidence_not_current requires requalification',
     duo_facts(['registry' => ['blockers' => ['profile_evidence_not_current']]]),
-    ['readiness' => 'Requalification required'], 'qualify in rehearsal'];
+    ['readiness' => 'Requalification required'], 'certify adapter'];
 $cases[] = ['1.3 an experimental claim is Experimental',
     duo_facts(['registry' => ['claim_status' => 'experimental']]),
-    ['readiness' => 'Experimental', 'certification_provenance' => 'Uncertified'], 'qualify in rehearsal'];
+    ['readiness' => 'Experimental', 'certification_provenance' => 'Uncertified'], 'certify adapter'];
 $cases[] = ['1.3 candidate evidence is Experimental',
     duo_facts(['registry' => ['evidence_status' => 'candidate']]),
-    ['readiness' => 'Experimental'], 'qualify in rehearsal'];
-$cases[] = ['1.3 adapter_source_uncertified is Not qualified',
+    ['readiness' => 'Experimental'], 'certify adapter'];
+// T6 §3.6: the adapter IS installed. `install adapter` told this operator
+// to redo the thing they had just done; `duo adapter certify` is the fix.
+$cases[] = ['1.3 adapter_source_uncertified is Not qualified and certifiable',
     duo_facts(['registry' => ['blockers' => ['adapter_source_uncertified']]]),
-    ['readiness' => 'Not qualified'], 'install adapter'];
+    ['readiness' => 'Not qualified',
+        'remediation' => 'certify the installed adapter and pin it exactly: '
+            . 'duo adapter certify <site-repo> --name=<adapter> --secret-key-file=<key> --pin'],
+    'certify adapter'];
+$cases[] = ['1.3 adapter_certification_unpinned is Not qualified and certifiable',
+    // `verdict_status` is derived from the blockers by
+    // SurfaceCatalog::registryFacts(); this helper defaults it to `certified`
+    // so a blocker-only override has to move it too, exactly as the real
+    // catalog would.
+    duo_facts(['registry' => [
+        'blockers' => ['adapter_certification_unpinned'], 'verdict_status' => 'blocked',
+    ]]),
+    ['readiness' => 'Not qualified'], 'certify adapter'];
 $cases[] = ['1.3 missing_registry_entry is Not qualified',
     duo_facts(['registry' => ['blockers' => ['missing_registry_entry']]]),
     ['readiness' => 'Not qualified'], 'install adapter'];
@@ -280,11 +297,53 @@ $cases[] = ['1.4 a site adapter is Uncertified',
 $cases[] = ['1.4 a plugin-bundled adapter is Uncertified',
     duo_facts(['registry' => ['source' => 'plugin']]),
     ['certification_provenance' => 'Uncertified'], 'nothing — supported'];
-$cases[] = ['1.4 site-certified evidence still projects Uncertified in this profile',
-    duo_facts(['registry' => ['site_certified' => true, 'source' => 'site']]),
-    ['certification_provenance' => 'Uncertified',
-        'annotations' => [V::ANNOTATION_SITE_CERTIFICATION_DEFERRED]],
+// T6 §3.2. The old expectation here — "site-certified evidence still
+// projects Uncertified" — was MUP's honesty property while no operator
+// could complete a certification. `duo adapter keygen|certify` is that
+// path, so the property narrows to its still-true half: the CONTRACT's
+// attestation is unsigned, and the annotation says so on the same line
+// that names who vouched.
+$cases[] = ['1.4 a verified site certificate projects Site-certified and names its principal',
+    duo_facts(['registry' => [
+        'source' => 'site',
+        'certification' => [
+            'source' => 'site', 'trust_root' => 'site',
+            'principal' => 'acme-ops', 'signed_at' => '2026-08-17T00:00:00Z',
+        ],
+    ]]),
+    ['certification_provenance' => 'Site-certified',
+        'certification_principal' => 'acme-ops',
+        'certification_trust_root' => 'site',
+        'annotations' => ['certified by acme-ops (site trust root); contract attestation unsigned']],
     'nothing — supported'];
+// T6 §3.3: a site certificate under the AGENT-owned trust root is still a
+// statement about a site adapter, so it reads Site-certified. Only the
+// named root changes. Anything else would let a third-party signature
+// borrow the platform's endorsement.
+$cases[] = ['1.4 a platform-rooted site certificate is Site-certified, not Platform-certified',
+    duo_facts(['registry' => [
+        'source' => 'site',
+        'certification' => [
+            'source' => 'site', 'trust_root' => 'platform',
+            'principal' => 'review-key', 'signed_at' => null,
+        ],
+    ]]),
+    ['certification_provenance' => 'Site-certified',
+        'certification_trust_root' => 'platform',
+        'annotations' => ['certified by review-key (platform trust root); contract attestation unsigned']],
+    'nothing — supported'];
+// The remaining Uncertified-with-a-signature case: the certificate
+// verifies and the pin does not bind it, so the claim never reaches
+// certified and the operator has one command to run.
+$cases[] = ['1.4 signed but unpinned evidence projects Uncertified and says why',
+    duo_facts(['registry' => [
+        'site_certified' => true, 'source' => 'site',
+        'blockers' => ['adapter_certification_unpinned'], 'verdict_status' => 'blocked',
+    ]]),
+    ['certification_provenance' => 'Uncertified',
+        'readiness' => 'Not qualified',
+        'annotations' => [V::ANNOTATION_SITE_SIGNED_UNPINNED]],
+    'certify adapter'];
 
 // -------------------------------------------------------------- §1.5 containment
 $cases[] = ['1.5 apply-window-only writes are prevented', duo_facts(),
@@ -332,17 +391,47 @@ $cases[] = ['1.6 an unclassified surface never claims not applicable',
     ['effect_recovery_semantics' => 'unknown'], 'classify'];
 
 // ------------------------------------------------------- §2.1 the closed gap set
-$cases[] = ['2.1 gap action: qualify in rehearsal for an unknown-containment unclassified table',
+// T6 §3.6 splits MUP's single `qualify in rehearsal` answer on the one
+// fact that distinguishes the two remedies: whether any active plugin
+// probably owns the surface. With an owner there is an adapter to write;
+// without one there is a rule to add. Neither is rehearsal, which states
+// it cannot qualify anything.
+$cases[] = ['2.1 gap action: an owned unknown-containment unclassified table wants an adapter',
+    duo_facts([
+        'unclassified' => true,
+        'registry' => $noRegistry,
+        'containment' => ['apply_window_only' => false],
+        'probable_owner' => 'wpforms-lite',
+    ]),
+    ['state_class' => 'unclassified', 'handling' => 'block', 'readiness' => 'Not qualified',
+        'certification_provenance' => 'Uncertified', 'effect_containment' => 'unknown',
+        'effect_recovery_semantics' => 'unknown',
+        'probable_owner' => 'wpforms-lite',
+        'remediation' => 'install or author an adapter that models this surface, classify it, '
+            . 'or declare it out of scope in the contract'],
+    'install adapter'];
+$cases[] = ['2.1 gap action: an UNOWNED unknown-containment unclassified table wants classification',
     duo_facts([
         'unclassified' => true,
         'registry' => $noRegistry,
         'containment' => ['apply_window_only' => false],
     ]),
     ['state_class' => 'unclassified', 'handling' => 'block', 'readiness' => 'Not qualified',
+        'effect_containment' => 'unknown', 'probable_owner' => null],
+    'classify'];
+// T6 §3.6's `plugin:<slug>` row, projected through the same vocabulary as
+// everything else: no claim, no policy class, nothing containing it.
+$cases[] = ['3.6 an active plugin with no adapter projects the unmanaged row',
+    duo_facts([
+        'unclassified' => true,
+        'registry' => $noRegistry,
+        'containment' => ['apply_window_only' => false],
+        'probable_owner' => 'wpforms-lite',
+    ]),
+    ['state_class' => 'unclassified', 'handling' => 'block', 'readiness' => 'Not qualified',
         'certification_provenance' => 'Uncertified', 'effect_containment' => 'unknown',
-        'effect_recovery_semantics' => 'unknown',
-        'remediation' => 'qualify in rehearsal, or declare it out of scope in the contract'],
-    'qualify in rehearsal'];
+        'effect_recovery_semantics' => 'unknown'],
+    'install adapter'];
 $cases[] = ['2.1 gap action: exclude for a delete Duo refuses',
     duo_facts(['operation' => 'delete', 'unsupported_reason' => 'deletion refuses before repository mutation']),
     ['readiness' => 'Unsupported'], 'exclude'];
@@ -456,7 +545,17 @@ foreach ($expectedValues as $dimension => $values) {
         duo_check(isset($seen[$dimension][$value]), "table covers $dimension = $value");
     }
 }
-foreach (V::GAP_ACTIONS as $action) {
+// T6 §3.6 keeps `qualify in rehearsal` in the closed set while this profile
+// stops emitting it — a stored projection from an earlier build carries the
+// word, so GapActions::assertMember() must keep accepting one. The coverage
+// bar is therefore "every action this profile CAN emit is exercised", and
+// the retired word gets the stronger assertion instead: nothing in the whole
+// table produces it.
+duo_check(
+    !isset($gapActionsSeen['qualify in rehearsal']),
+    'no projection in the table emits the retired `qualify in rehearsal`'
+);
+foreach (array_diff(V::GAP_ACTIONS, ['qualify in rehearsal']) as $action) {
     duo_check(isset($gapActionsSeen[$action]), "table covers gap action = $action");
 }
 

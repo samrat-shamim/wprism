@@ -229,13 +229,26 @@ final class ContractProposal {
         self::closedKeys(
             $unknown,
             ['pending_count', 'invisible_names_count', 'names_sample'],
-            [],
+            // T6 §3.7 item 2 added the third count. It is OPTIONAL here on
+            // purpose: `duo contract accept` compares a stored proposal
+            // against a fresh report, and making an additive count mandatory
+            // would refuse every proposal written before this build with a
+            // schema error instead of the stale-review message the operator
+            // needs. The renderer defaults it to 0, which is what an older
+            // report meant by its absence.
+            ['undeclared_tables_count'],
             'assess_report.unknown'
         );
         foreach (['pending_count', 'invisible_names_count'] as $key) {
             if (!is_int($unknown[$key])) {
                 throw self::refuse('assess_report_invalid', "assess_report.unknown.$key must be an integer");
             }
+        }
+        if (array_key_exists('undeclared_tables_count', $unknown) && !is_int($unknown['undeclared_tables_count'])) {
+            throw self::refuse(
+                'assess_report_invalid',
+                'assess_report.unknown.undeclared_tables_count must be an integer'
+            );
         }
         if (!is_array($unknown['names_sample']) || !array_is_list($unknown['names_sample'])) {
             throw self::refuse('assess_report_invalid', 'assess_report.unknown.names_sample must be a list');

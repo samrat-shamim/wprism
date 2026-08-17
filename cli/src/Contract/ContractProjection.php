@@ -250,10 +250,24 @@ final class ContractProjection {
                 'handling' => $projection['handling'],
                 'readiness' => $projection['readiness'],
                 'certification_provenance' => $projection['certification_provenance'],
+                // T6 §3.6: projection.json EXPOSES who vouched and under
+                // whose trust root, so a reviewer reading the committed
+                // artifact can tell a platform claim from their own
+                // organization's without re-running assess against the site.
+                'certification_principal' => $projection['certification_principal'],
+                'certification_trust_root' => $projection['certification_trust_root'],
                 'effect_containment' => $projection['effect_containment'],
                 'effect_containment_basis' => $projection['effect_containment_basis'],
                 'effect_recovery_semantics' => $projection['effect_recovery_semantics'],
                 'conditions' => $projection['conditions'],
+                // The two inputs gapAction() needs that are not otherwise
+                // recoverable from a stored row. `AuthorizationPlan::
+                // gapActionFor()` re-derives an action from THIS artifact
+                // when the stored word is unreadable, and without these it
+                // would answer `install adapter` for a surface whose adapter
+                // is installed and merely unsigned (T6 §3.6).
+                'blockers' => $projection['blockers'],
+                'probable_owner' => $projection['probable_owner'],
                 'expiry_and_dependencies' => $expiry,
                 'remediation' => $projection['remediation'],
                 'gap_action' => ProjectionVocabulary::gapAction($projection),

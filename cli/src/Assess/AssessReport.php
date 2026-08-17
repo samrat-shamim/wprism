@@ -7,6 +7,7 @@ require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
 require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
 require_once dirname(__DIR__) . '/Contract/ContractProposal.php';
 require_once __DIR__ . '/GapActions.php';
+require_once __DIR__ . '/StackInventory.php';
 
 use Duo\Canon;
 use Duo\CommandRefusalException;
@@ -138,8 +139,14 @@ final class AssessReport {
      * truncated sample beside a true count is honest; a truncated count is
      * not.
      *
+     * `undeclared_tables_count` is T6 §3.7 item 2's fix. The names were
+     * already in `names_sample`, but the COUNT was not published anywhere, so
+     * the human `unknown:` block could not print a table line and the
+     * next-actions roll-up could not include one. A count is what makes the
+     * sample honest: the sample is bounded and the count never is.
+     *
      * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document
-     * @return array{pending_count:int,invisible_names_count:int,names_sample:list<string>}
+     * @return array{pending_count:int,invisible_names_count:int,undeclared_tables_count:int,names_sample:list<string>}
      */
     public static function unknown(array $inventory): array {
         $coverage = is_array($inventory['coverage'] ?? null) ? $inventory['coverage'] : [];
@@ -169,6 +176,14 @@ final class AssessReport {
             'pending_count' => is_int($pending['count'] ?? null) ? $pending['count'] : 0,
             'invisible_names_count' => is_int($coverage['options']['invisible_total'] ?? null)
                 ? $coverage['options']['invisible_total']
+                : 0,
+            // Coverage's own exact total, not a count of the rows this
+            // method could read: a row the agent published without a
+            // `logical_name` is still an undeclared table on the site, and
+            // reporting a smaller number because one row was unreadable is
+            // exactly the truncated-count lie the docblock above forbids.
+            'undeclared_tables_count' => is_int($coverage['tables']['undeclared_total'] ?? null)
+                ? $coverage['tables']['undeclared_total']
                 : 0,
             'names_sample' => array_slice($names, 0, self::MAX_NAMES_SAMPLE),
         ];
@@ -331,8 +346,8 @@ final class AssessReport {
         usort($pins, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
 
         $plugins = [];
-        foreach (($inventory['plugins'] ?? []) as $plugin) {
-            if (!is_array($plugin) || ($plugin['active'] ?? false) !== true) {
+        foreach (StackInventory::pluginRows($inventory) as $plugin) {
+            if (($plugin['active'] ?? false) !== true) {
                 continue;
             }
             $basename = (string) ($plugin['basename'] ?? '');

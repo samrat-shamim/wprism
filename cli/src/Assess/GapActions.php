@@ -58,6 +58,12 @@ final class GapActions {
         'declare in contract',
         'qualify in rehearsal',
         'install adapter',
+        // Below `install adapter`: a surface nothing models is a bigger hole
+        // than one whose adapter exists and needs a signature. Above
+        // `provision env value` because an uncertified adapter blocks
+        // promotion outright while a missing env value blocks at the mutation
+        // gate, where the operator is already standing.
+        'certify adapter',
         'provision env value',
         'exclude',
         'nothing — supported',
@@ -118,15 +124,24 @@ final class GapActions {
      * `pending` and `invisible_option` are both option/meta *names* Duo can
      * only reach inside apply's hook-free window, so one classification rule
      * closes them — `duo classify <env>` is the literal remedy and
-     * `classify` is the word. An undeclared table is different in kind: no
-     * adapter models it, so nothing is known about what writes it or what
-     * that write reaches, and MUP §2.1's own worked row prints `qualify in
-     * rehearsal` for exactly this finding.
+     * `classify` is the word.
+     *
+     * An undeclared table is different in kind and T6 §3.6 changed its
+     * answer. MUP printed `qualify in rehearsal`, which rehearsal cannot do.
+     * `classify` would be no better: `duo classify` works on the option/meta
+     * queue and has no table in it, so it would send an operator to a command
+     * whose output never mentions their table — the same defect §1 of the T6
+     * contract already records for invisible options. What is actually true
+     * of an undeclared table is its defining property: no installed adapter
+     * models it, which is why coverage had to find it by looking at the
+     * database instead. The remedy is an adapter that declares it, authored
+     * by the operator if nobody ships one — `duo adapter-draft --seed` now
+     * proposes exactly this table from exactly this finding.
      */
     public static function forUnknown(string $kind): string {
         $action = match ($kind) {
             'pending', 'invisible_option' => 'classify',
-            'undeclared_table' => 'qualify in rehearsal',
+            'undeclared_table' => 'install adapter',
             default => throw self::refuse("unknown assessment gap kind '$kind'"),
         };
         self::assertMember($action);
