@@ -260,6 +260,54 @@ duo_check_same(
     'an unvouched surface names no principal'
 );
 
+// ------------------------------------------ T6: the operator's leave-local decision
+// The one direction a declaration may move an unclassified surface: an
+// OPERATOR decision of runtime / preserve local ("declare it out of scope in
+// the contract" — the remediation every unclassified row prints) is honoured
+// over the site's own unclassified facts, so the row projects Unsupported
+// (never copied) and stays outside every release gate. Anything else — an
+// authored declaration, a platform-default decision, a runtime decision that
+// is not preserve local — keeps deferring to the site facts.
+$decidedContract = $contract;
+foreach ($decidedContract['declarations']['surfaces'] as $i => $surface) {
+    if ($surface['id'] === 'acme_catalog') {
+        $decidedContract['declarations']['surfaces'][$i] = [
+            'state_class' => 'runtime', 'handling' => 'preserve local', 'decided_by' => 'operator',
+        ] + $surface;
+    }
+}
+$decidedContract = ApplicationContract::withDigest($decidedContract);
+// The site's own facts for acme_catalog say unclassified (no adapter declares
+// the table); the decision must win over THOSE, not only fill a fact vacuum.
+$unclassifiedFacts = duo_projection_facts();
+$unclassifiedFacts['surfaces']['acme_catalog'] = [
+    'evidence_subjects' => [],
+    'operations' => [
+        'capture' => ['facts' => duo_vector('capture', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+        'release' => ['facts' => duo_vector('release', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+    ],
+];
+$decided = ContractProjection::generate($decidedContract, $unclassifiedFacts, $probe, duo_inventory(), DUO_GENERATED_AT);
+$decidedRows = duo_rows_by_id($decided);
+duo_check_same('runtime', $decidedRows['acme_catalog']['state_class'], 'an operator runtime/preserve local decision on an unclassified surface is honoured: state class runtime');
+duo_check_same('preserve local', $decidedRows['acme_catalog']['handling'], '… handling preserve local');
+duo_check_same('Unsupported', $decidedRows['acme_catalog']['operations']['release']['readiness'], '… readiness Unsupported (never copied), never Ready');
+duo_check_same('nothing — supported', $decidedRows['acme_catalog']['operations']['release']['gap_action'], '… and no next action: the decision IS the resolution');
+foreach ([
+    ['authored', 'manage', 'operator', 'an authored declaration cannot make an unclassified surface anything but unclassified'],
+    ['runtime', 'preserve local', 'platform-default', 'a platform-default runtime decision is not an operator review and does not override the site facts'],
+    ['runtime', 'block', 'operator', 'a runtime decision that is not preserve local is not the leave-local decision'],
+] as [$class, $handling, $by, $why]) {
+    $other = $contract;
+    foreach ($other['declarations']['surfaces'] as $i => $surface) {
+        if ($surface['id'] === 'acme_catalog') {
+            $other['declarations']['surfaces'][$i] = ['state_class' => $class, 'handling' => $handling, 'decided_by' => $by] + $surface;
+        }
+    }
+    $otherRows = duo_rows_by_id(ContractProjection::generate(ApplicationContract::withDigest($other), $unclassifiedFacts, $probe, duo_inventory(), DUO_GENERATED_AT));
+    duo_check_same('unclassified', $otherRows['acme_catalog']['state_class'], $why);
+}
+
 // An observed-but-undeclared surface group is present as the gap it is.
 duo_check_same(false, $rows['site_toolkit_queue']['declared'], 'an undeclared observed group is marked undeclared');
 duo_check_same('site_toolkit_queue', $rows['site_toolkit_queue']['label'], 'an undeclared group falls back to its id');

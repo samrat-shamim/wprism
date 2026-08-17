@@ -174,6 +174,8 @@ final class ContractProjection {
             $identities[$id] = [
                 'label' => (string) $surface['label'],
                 'declared_state_class' => (string) $surface['state_class'],
+                'declared_handling' => (string) ($surface['handling'] ?? ''),
+                'decided_by' => (string) ($surface['decided_by'] ?? ''),
                 'declared' => true,
             ];
         }
@@ -236,6 +238,7 @@ final class ContractProjection {
             $vector = is_array($entry) && is_array($entry['facts'] ?? null)
                 ? $entry['facts']
                 : self::defaultFacts($operation, (string) $identity['declared_state_class']);
+            $vector = self::withOperatorDecision($vector, $identity);
             if ($affected) {
                 $vector = self::withStaleEvidence($vector);
             }
@@ -302,6 +305,41 @@ final class ContractProjection {
             'meaning' => ProjectionVocabulary::meaningFor($stateClass, $handling),
             'operations' => $projected,
         ];
+    }
+
+    /**
+     * The one operator decision the projection honours over the site's own
+     * facts: an unclassified surface the reviewed contract declares
+     * `runtime` / `preserve local` with `decided_by: operator`.
+     *
+     * The rule "a declaration can never un-know `unclassified`" exists to stop
+     * a contract from making a surface READY that nothing has qualified, and
+     * it still holds in that direction. This is the opposite direction:
+     * "leave it local" widens nothing, claims nothing, and is the literal
+     * remediation every unclassified row prints ("declare it out of scope in
+     * the contract"). Before T6 the walk accepted exactly that decision for
+     * WPForms' tables and `duo release` then refused
+     * `release_surface_not_releasable` on `table:wpforms_analytics_forms`,
+     * because the projection re-read the site facts and forgot the review.
+     * The overlay is narrow on purpose: only runtime/preserve local, only an
+     * operator decision, only over an unclassified fact vector; every other
+     * declaration keeps deferring to the site.
+     *
+     * @param array<string,mixed> $vector
+     * @param array<string,mixed> $identity
+     * @return array<string,mixed>
+     */
+    private static function withOperatorDecision(array $vector, array $identity): array {
+        if (($identity['decided_by'] ?? '') !== 'operator'
+            || ($identity['declared_state_class'] ?? '') !== 'runtime'
+            || ($identity['declared_handling'] ?? '') !== 'preserve local'
+            || !((bool) ($vector['unclassified'] ?? false) || ($vector['policy_class'] ?? null) === null)) {
+            return $vector;
+        }
+        $vector['policy_class'] = 'runtime';
+        $vector['unclassified'] = false;
+
+        return $vector;
     }
 
     /**
