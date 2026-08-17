@@ -2088,6 +2088,389 @@ $emptySite = $root . '/empty-site';
 mkdir($emptySite, 0777, true);
 cert_check(AdapterCertification::verifyDirectory($agent, $emptySite) === [], 'absence of certifications remains an uncertified, nonfatal state');
 
+// ======================================================================
+echo "\n== T6 §3.1/§3.2: the SITE trust root, and Site-certified ==\n";
+// ======================================================================
+// Everything above signs under a key in the AGENT-OWNED authorities file.
+// That file ships EMPTY and only this project can fill it, so before T6 no
+// operator could complete certification at all and `Site-certified` was
+// NEVER_EMITTED. This group is the same protocol under the operator's own
+// root, in the operator's own repository, with the one honest relaxation the
+// weaker evidence requires.
+$orgRoot = $root . '/site-root';
+$orgAgent = $orgRoot . '/agent-manifests';
+$orgSite = $orgRoot . '/site';
+$orgBundle = $orgRoot . '/bundle';
+
+$orgManifest = [
+    'name' => 'acme-catalog',
+    'option_autoload' => 'preserve',
+    'options' => ['acme_catalog_layout' => ['class' => 'authored']],
+    'post_types' => [],
+    'spec_version' => DUO_SPEC_VERSION,
+    'tables' => [],
+];
+cert_write_canon($orgSite . '/adapters/acme-catalog.json', $orgManifest);
+// The REAL shipped library, because the claim under test is that an
+// operator's own root works while the AGENT-OWNED one stays exactly as
+// shipped: present, well-formed, and EMPTY. A synthetic manifest directory
+// with no disposition registry cannot demonstrate that — the capability
+// report degrades to `unreviewed` before any of this is reached.
+cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $orgAgent);
+$orgRegistry = json_decode(
+    (string) file_get_contents($orgAgent . '/capabilities/registry.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$orgRegistry['platform'] = $platform;
+foreach ($orgRegistry['manifests'] as &$orgShippedClaim) {
+    $orgShippedClaim['evidence']['bundle_digest'] = null;
+    $orgShippedClaim['evidence']['closure_digest'] = null;
+    $orgShippedClaim['evidence']['git_revision'] = null;
+    $orgShippedClaim['evidence']['subject_digest'] = null;
+    $orgShippedClaim['evidence']['status'] = 'candidate';
+}
+unset($orgShippedClaim);
+foreach ($orgRegistry['profiles'] as &$orgProfileClaim) {
+    $orgProfileClaim['evidence']['bundle_digest'] = null;
+    $orgProfileClaim['evidence']['closure_digest'] = null;
+    $orgProfileClaim['evidence']['git_revision'] = null;
+    $orgProfileClaim['evidence']['subject_digest'] = null;
+    $orgProfileClaim['evidence']['status'] = 'candidate';
+}
+unset($orgProfileClaim);
+cert_write_canon($orgAgent . '/capabilities/registry.json', $orgRegistry);
+cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => new stdClass(),
+]);
+
+$orgKeypair = sodium_crypto_sign_seed_keypair(str_repeat('S', SODIUM_CRYPTO_SIGN_SEEDBYTES));
+$orgSecret = sodium_crypto_sign_secretkey($orgKeypair);
+$orgPublic = sodium_crypto_sign_publickey($orgKeypair);
+$orgKeyRecord = [
+    'adapter_names' => ['acme-catalog'],
+    'algorithm' => 'ed25519',
+    'public_key' => base64_encode($orgPublic),
+    'scope' => 'site_adapter_certification',
+    'status' => 'trusted',
+    'trust_tiers' => ['declarative_manifest'],
+];
+$orgKeys = new stdClass();
+$orgKeys->{'acme-ops'} = $orgKeyRecord;
+cert_write_canon($orgSite . '/adapters/authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $orgKeys,
+]);
+cert_write($orgRoot . '/acme-ops.key', base64_encode($orgSecret) . "\n");
+chmod($orgRoot . '/acme-ops.key', 0600);
+
+// The evidence an operator can actually produce: the loader's own grammar
+// verdict and a stated reason, with NO exercise proof.
+$orgRatification = [
+    'format' => 'duo-manifest-dispositions/v1',
+    'manifests' => [
+        'acme-catalog' => [
+            'capabilities' => [
+                'deletion_semantics' => ['supported' => [], 'unsupported' => ['all']],
+                'entity_sections' => ['options'],
+                'field_sections' => [],
+                'lifecycle_phases' => [],
+                'operations' => ['apply', 'capture', 'deploy'],
+            ],
+            'default_authored_keyspaces' => [],
+            'evidence' => [
+                'bundle_schema' => AdapterCertification::BUNDLE_FORMAT,
+                'tests' => [],
+            ],
+            'reason' => 'The site operator certified this adapter for their own site; grammar verified, not exercised.',
+            'status' => 'certified',
+            'supported_versions' => ['wordpress' => ['source' => 'site-operator']],
+            // A certified disposition must state a boundary (ManifestDispositions
+            // refuses an empty `unsupported`), and for an unexercised site
+            // adapter the honest one is the operation nobody proved.
+            'unsupported' => [[
+                'operation' => 'delete',
+                'reason' => 'This site certification covers authored option state only.',
+                'surface' => 'all',
+            ]],
+        ],
+    ],
+    'profiles' => [],
+];
+$orgEvidence = [
+    'exercised' => false,
+    'grammar' => 'ok',
+    'reason' => 'duo manifest-validate reported ok; this adapter has not been exercised against a live target',
+];
+cert_write_bundle($orgBundle, $orgSite, $orgRatification, [
+    'name' => 'acme-catalog',
+    'evidence' => $orgEvidence,
+    // A repository with no HEAD still binds a 40-hex revision; the nil SHA is
+    // the honest value for "no commit bound", not a fabricated one.
+    'git_revision' => str_repeat('0', 40),
+]);
+
+$orgSign = cert_run([
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'sign',
+    '--manifest-dir=' . $orgAgent,
+    '--repo=' . $orgSite,
+    '--name=acme-catalog',
+    '--bundle=' . $orgBundle,
+    '--evidence-repo=' . $orgSite,
+    '--authority=acme-ops',
+    '--secret-key-file=' . $orgRoot . '/acme-ops.key',
+]);
+cert_check(
+    $orgSign['exit'] === 0,
+    'an operator can complete certification under their OWN root with the shipped authorities file empty ('
+    . trim($orgSign['stderr']) . ')'
+);
+$orgSummary = $orgSign['exit'] === 0 ? Canon::decode($orgSign['stdout']) : [];
+cert_check(
+    ($orgSummary['trust_root'] ?? null) === 'site'
+        && ($orgSummary['principal'] ?? null) === 'acme-ops'
+        && ($orgSummary['exercised'] ?? null) === false,
+    'the signing summary names the root, the principal, and that nothing was exercised'
+);
+
+$orgCertPath = $orgSite . '/adapters/certifications/acme-catalog.json';
+$orgVerified = AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath);
+$orgClaim = $orgVerified['claim'];
+cert_check(
+    ($orgClaim['status'] ?? null) === 'certified'
+        && ($orgClaim['evidence']['status'] ?? null) === 'current',
+    'a site-rooted certificate produces status certified with evidence current — the two facts duo promote '
+    . "already gates on, so host promotion needs no second gate"
+);
+cert_check(
+    $orgClaim['certification'] === [
+        'principal' => 'acme-ops',
+        'signed_at' => '2026-08-09T00:00:00Z',
+        'source' => 'site',
+        'trust_root' => 'site',
+    ],
+    'the claim carries exactly {principal, signed_at, source, trust_root} — the shared host contract for '
+    . 'printing Site-certified with a name on it: ' . Canon::encode($orgClaim['certification'] ?? null)
+);
+cert_check(
+    ($orgClaim['evidence']['exercised'] ?? null) === false
+        && ($orgClaim['evidence']['tests'] ?? null) === [],
+    'the claim records that nothing was exercised, so `certified` can never be read as "somebody ran it"'
+);
+
+// The two words on every catalog row, before and after the exact pin.
+cert_write_canon($orgSite . '/site.duo.json', [
+    'manifests' => [['name' => 'acme-catalog', 'source' => 'site']],
+    'policy' => new stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]);
+putenv('DUO_MANIFESTS_DIR=' . $orgAgent);
+$orgSurveyRow = null;
+foreach (AdapterSources::survey($orgSite)['adapters'] as $orgRow) {
+    if (($orgRow['name'] ?? null) === 'acme-catalog') {
+        $orgSurveyRow = $orgRow;
+    }
+}
+cert_check(
+    ($orgSurveyRow['certification'] ?? null) === 'signed_unpinned'
+        && ($orgSurveyRow['trust_root'] ?? null) === 'site'
+        && ($orgSurveyRow['principal'] ?? null) === 'acme-ops',
+    'a valid site signature without the exact digest pin is still signed_unpinned, but the root and principal '
+    . 'are already named — got ' . var_export($orgSurveyRow['certification'] ?? null, true)
+);
+
+$orgDigest = null;
+try {
+    $orgPolicy = Policy::load($orgSite);
+    $orgResolved = RepositoryCompiler::resolved_adapters($orgPolicy);
+    $orgDigest = (string) ($orgResolved[0]['digest'] ?? '');
+} catch (Throwable $t) {
+    cert_check(false, 'the name+source pin loads so manifest-pin can print the exact object (' . $t->getMessage() . ')');
+}
+cert_write_canon($orgSite . '/site.duo.json', [
+    'manifests' => [['digest' => $orgDigest, 'name' => 'acme-catalog', 'source' => 'site']],
+    'policy' => new stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]);
+$orgPinnedPolicy = Policy::load($orgSite);
+$orgDiagnostics = $orgPinnedPolicy->adapter_sources()->diagnostics($orgPinnedPolicy->manifests);
+cert_check(
+    ($orgDiagnostics['acme-catalog']['certification'] ?? null) === AdapterSources::CERTIFICATION_SITE_SIGNED
+        && ($orgDiagnostics['acme-catalog']['trust_root'] ?? null) === 'site'
+        && ($orgDiagnostics['acme-catalog']['principal'] ?? null) === 'acme-ops',
+    'the exact pin elevates it to site_signed — a separate word from third_party_signed, because the customer '
+    . 'organization vouching for its own adapter is explicitly not a Duo endorsement'
+);
+$orgReport = $orgPinnedPolicy->capability_report(['operation' => 'promote']);
+cert_check(
+    ($orgReport['ready'] ?? null) === true && ($orgReport['blockers'] ?? null) === [],
+    'duo promote\'s existing gate (capability certified + evidence current) admits it with NO host change — got '
+    . Canon::encode(['blockers' => array_column((array) ($orgReport['blockers'] ?? []), 'code'),
+        'ready' => $orgReport['ready'] ?? null])
+);
+cert_check(
+    CodeDeploy::dispositionBlockers([
+        'resolved_adapters' => RepositoryCompiler::resolved_adapters($orgPinnedPolicy),
+    ]) === [],
+    'host promotion accepts the site-rooted current claim'
+);
+putenv('DUO_MANIFESTS_DIR');
+
+// The frozen path, which reopens no mutable site file at all.
+$orgFrozen = AdapterCertification::verifyFrozen(
+    $orgAgent,
+    'acme-catalog',
+    $orgManifest,
+    $orgVerified['envelope']
+);
+cert_check(
+    ($orgFrozen['claim']['status'] ?? null) === 'certified'
+        && ($orgFrozen['claim']['certification']['trust_root'] ?? null) === 'site',
+    'frozen verification re-binds a site-rooted certificate to the authority record the SIGNATURE covers, '
+    . 'because there is no repository to reopen'
+);
+
+// SHIPPED WINS THE KEY-ID NAMESPACE, on both paths. Without this an operator
+// could re-point a key id this project reviews and have a certificate signed
+// under it read as platform-rooted.
+$clashKeys = new stdClass();
+$clashKeys->{'acme-ops'} = ['adapter_names' => ['acme-catalog'], 'algorithm' => 'ed25519',
+    'public_key' => base64_encode($public), 'scope' => 'site_adapter_certification',
+    'status' => 'trusted', 'trust_tiers' => ['declarative_manifest']];
+cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $clashKeys,
+]);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath),
+    'does not match the current platform authority record',
+    'a site key id the shipped library also declares resolves to the SHIPPED record, and the certificate that '
+    . 'claimed a site root is refused by name rather than silently downgraded'
+);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFrozen($orgAgent, 'acme-catalog', $orgManifest, $orgVerified['envelope']),
+    'reviewed and shipped by this agent',
+    'the frozen path asks the same shipped-wins question, which needs no repository'
+);
+cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => new stdClass(),
+]);
+
+// A revoked SITE key stops verifying on the live path, which is where an
+// operator's own revocation takes effect.
+$orgKeys->{'acme-ops'}['status'] = 'revoked';
+cert_write_canon($orgSite . '/adapters/authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $orgKeys,
+]);
+cert_expect_throw(
+    static fn() => AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath),
+    'does not match the current site authority record',
+    'revoking a key in the site trust root invalidates its certificates on every live scan'
+);
+$orgKeys->{'acme-ops'}['status'] = 'trusted';
+cert_write_canon($orgSite . '/adapters/authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $orgKeys,
+]);
+cert_check(
+    (AdapterCertification::verifyFile($orgAgent, $orgSite, 'acme-catalog', $orgManifest, $orgCertPath)['claim']['status'] ?? null)
+        === 'certified',
+    'restoring the key restores the claim, so the refusal above was the revocation and nothing else'
+);
+
+// A malformed site trust root is a WHOLE-SOURCE refusal, not one adapter's
+// problem: every certificate in the repository is judged against it.
+cert_write($orgSite . '/adapters/authorities.json', "{ not json\n");
+$orgBrokenSurvey = AdapterSources::survey($orgSite);
+cert_check(
+    in_array(
+        AdapterSources::REFUSAL_CERTIFICATION_SOURCE,
+        array_column($orgBrokenSurvey['refusals'], 'code'),
+        true
+    ),
+    'a malformed adapters/authorities.json is refused as a certification source, never laundered into an '
+    . 'ordinary uncertified row'
+);
+cert_write_canon($orgSite . '/adapters/authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $orgKeys,
+]);
+
+// THE RELAXATION IS SITE-ONLY. The same unexercised bundle under an
+// agent-owned key must refuse: a platform-rooted certificate states a
+// reviewed exercise, and that is the whole difference between the two words.
+cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => (object) ['platform-key' => [
+        'adapter_names' => ['acme-catalog'],
+        'algorithm' => 'ed25519',
+        'public_key' => base64_encode($orgPublic),
+        'scope' => 'site_adapter_certification',
+        'status' => 'trusted',
+        'trust_tiers' => ['declarative_manifest'],
+    ]],
+]);
+$platformUnexercised = cert_run([
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'sign',
+    '--manifest-dir=' . $orgAgent,
+    '--repo=' . $orgSite,
+    '--name=acme-catalog',
+    '--bundle=' . $orgBundle,
+    '--evidence-repo=' . $orgSite,
+    '--authority=platform-key',
+    '--secret-key-file=' . $orgRoot . '/acme-ops.key',
+]);
+cert_check(
+    $platformUnexercised['exit'] !== 0
+        && str_contains($platformUnexercised['stderr'], 'only a site trust root may certify'),
+    'an unexercised bundle under an AGENT-OWNED key is refused — the relaxation follows the root, not the '
+    . 'bundle (' . trim($platformUnexercised['stderr']) . ')'
+);
+cert_write_canon($orgAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => new stdClass(),
+]);
+
+// And an unexercised bundle may not smuggle evidence back in.
+$smuggleBundle = $orgRoot . '/smuggle-bundle';
+cert_write_bundle($smuggleBundle, $orgSite, $orgRatification, [
+    'name' => 'acme-catalog',
+    'evidence' => $orgEvidence,
+    'git_revision' => str_repeat('0', 40),
+    'artifacts' => [[
+        'name' => 'acme-catalog',
+        'role' => 'certified-boundary',
+        'sha256' => str_repeat('d', 64),
+        'url' => 'https://example.invalid/acme-catalog-1.0.0.zip',
+        'version' => '1.0.0',
+    ]],
+]);
+$smuggle = cert_run([
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'sign',
+    '--manifest-dir=' . $orgAgent,
+    '--repo=' . $orgSite,
+    '--name=acme-catalog',
+    '--bundle=' . $smuggleBundle,
+    '--evidence-repo=' . $orgSite,
+    '--authority=acme-ops',
+    '--secret-key-file=' . $orgRoot . '/acme-ops.key',
+]);
+cert_check(
+    $smuggle['exit'] !== 0 && str_contains($smuggle['stderr'], 'exercised false but names tests or artifacts'),
+    'a bundle cannot declare exercised:false and still name artifacts — the projection an operator reads must '
+    . 'not assert both halves at once'
+);
+
 if ($failures !== 0) {
     fwrite(STDERR, "\n$failures site-adapter-certification regression assertion(s) failed\n");
     exit(1);

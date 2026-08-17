@@ -1516,7 +1516,7 @@ final class AdapterCertification {
             );
         }
         $disposition = $ratification['manifests'][$name];
-        self::validateDisposition($name, $disposition, $manifest);
+        self::validateDisposition($name, $disposition, $manifest, (bool) $bundleInfo['exercised']);
         foreach ($disposition['evidence']['tests'] as $test) {
             if (!isset($bundleInfo['tests'][$test])) {
                 throw new \RuntimeException(
@@ -1542,7 +1542,12 @@ final class AdapterCertification {
         return [$ratification, $disposition];
     }
 
-    private static function validateDisposition(string $name, array $disposition, array $manifest): void {
+    private static function validateDisposition(
+        string $name,
+        array $disposition,
+        array $manifest,
+        bool $exercised
+    ): void {
         // The authority-specific document is strict about the exact JSON
         // vocabulary it signs.  The semantic rules themselves are delegated to
         // ManifestDispositions so external and shipped entries cannot drift.
@@ -1580,7 +1585,13 @@ final class AdapterCertification {
             $name,
             $disposition,
             $manifest,
-            self::BUNDLE_FORMAT
+            self::BUNDLE_FORMAT,
+            // An unexercised bundle has an empty test set by construction
+            // (verifyBundleManifest() refuses any other shape), so a citation
+            // requirement here would demand a test name that provably does not
+            // exist. The bundle's own `exercised` flag is the single fact both
+            // rules read.
+            $exercised
         );
     }
 
