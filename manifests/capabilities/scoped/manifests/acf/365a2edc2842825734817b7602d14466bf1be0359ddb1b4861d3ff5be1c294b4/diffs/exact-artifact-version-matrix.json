@@ -1,0 +1,10 @@
+{
+  "status": "clean",
+  "manifest": "acf",
+  "diffs": [
+    "in-range-recapture"
+  ],
+  "negative_controls": [
+    "below-range-refused"
+  ]
+}

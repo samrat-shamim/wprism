@@ -83,6 +83,25 @@ require __DIR__ . '/src/Assess/AssessReport.php';
 require __DIR__ . '/src/Assess/AssessRenderer.php';
 require __DIR__ . '/src/Command/AssessCommand.php';
 require __DIR__ . '/src/Command/ContractCommand.php';
+// Round-3 MUP §2.2-§2.5, in the same last-in-block position and for the same
+// reason: every class below require_once's its own dependencies by path, so a
+// leaf loaded earlier here would be redeclared when its dependant pulled it
+// in. Recovery/Release/Rehearse mechanism before the verb boundaries that
+// compose them, and VerifyCommand before ReleaseCommand, which calls it.
+require __DIR__ . '/src/Recovery/RecoveryClaim.php';
+require __DIR__ . '/src/Recovery/RecoveryProfileSelection.php';
+require __DIR__ . '/src/Recovery/CheckpointCatalog.php';
+require __DIR__ . '/src/Release/NextAction.php';
+require __DIR__ . '/src/Release/JourneyOracle.php';
+require __DIR__ . '/src/Release/AuthorizationPlan.php';
+require __DIR__ . '/src/Release/AuthorizationPlanRenderer.php';
+require __DIR__ . '/src/Release/ReleaseOutcome.php';
+require __DIR__ . '/src/Rehearse/RehearsalDisclosure.php';
+require __DIR__ . '/src/Rehearse/RehearsalPlanPreview.php';
+require __DIR__ . '/src/Command/VerifyCommand.php';
+require __DIR__ . '/src/Command/ReleaseCommand.php';
+require __DIR__ . '/src/Command/RecoverCommand.php';
+require __DIR__ . '/src/Command/RehearseCommand.php';
 // Pure immutable-contract validation for host-local --scope-contract files.
 // These classes perform no WordPress bootstrap or target access here.
 require_once dirname(__DIR__) . '/agent/src/Kernel/Canon.php';
@@ -166,6 +185,10 @@ use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\AssessCommand;
 use Duo\Orchestrator\ContractCommand;
+use Duo\Orchestrator\ReleaseCommand;
+use Duo\Orchestrator\VerifyCommand;
+use Duo\Orchestrator\RecoverCommand;
+use Duo\Orchestrator\RehearseCommand;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
@@ -218,6 +241,15 @@ Usage:
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
   duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
   duo contract <env> show|propose|accept [--format=json]
+  duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
+                     [--ttl <seconds>] [--limit=<1..200>] [--format=json]
+  duo rehearse <env> --reap [--format=json]
+  duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
+                    [--accept-weaker-recovery] [--with-deletes] [--yes]
+                    [--limit=<1..200>] [--format=json]
+  duo verify  <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
+  duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
+                    [--operator-directed] [--limit=<1..200>] [--format=json]
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo lint    <env> [extra wp-cli flags...]
@@ -535,6 +567,119 @@ Verbs:
                           unresolved-reference snapshot policy. Repository,
                           artifact/hash, materialization, handoff, and lease
                           flags are owned by promote and rejected from caller input.
+  rehearse <env>          Materialize a disposable rehearsal environment from
+    --from <prod-env>     one coherent provider-owned production snapshot and
+    [--branch <ref>]      converge it through the existing deploy+apply path,
+    [--create]            then print what a release would touch: the plan's own
+    [--ttl <seconds>]     value-free category numbers and the assessed surface
+    [--limit=<1..200>]    rows restricted to that scope. This is `env
+    [--format=json]       materialize` plus a preview — same option grammar,
+                          same machine-local .duo-envs.json provider, same
+                          capability negotiation, same journal, same exact
+                          resource/lease/ownership compare. A missing provider
+                          capability is a refusal naming that capability id;
+                          nothing is ever emulated.
+                          --branch selects the code+state ref materialized into
+                          the environment and defaults to the branch this
+                          working tree is on.
+                          EVERY run prints, first, before the provider is
+                          contacted:
+                          `containment: unknown — not enforced in this profile;
+                          do not point this environment at live payment or mail
+                          credentials.`
+                          Duo does not strip or rebind production credentials,
+                          does not default-deny outbound HTTP/mail/payment/
+                          webhook, and does not verify containment before
+                          workflows are exercised. Consequently a rehearsal in
+                          this profile CANNOT authorize an Experimental or
+                          Uncertified capability: it is a preview and
+                          evidence-gathering environment, not a qualification
+                          environment.
+  rehearse <env> --reap   `env reap` with the same exact compare-and-reap:
+    [--format=json]       destroy a created environment or detach an attached
+                          one, only through its explicit provider capability.
+                          Repeated reap is idempotent; stale identity refuses.
+  release <env>           The composed release. Fixed order, and it COMPOSES
+    [--from=<ref>]        promote rather than forking it: deploy-before-apply,
+    [--plan-only]         the lease, the fence, the checkpoint and the
+    [--profile=<p>]       verified/scoped rollback selection all remain
+    [--accept-weaker-recovery]  promote's, byte for byte.
+    [--with-deletes]      1. Load the accepted application contract; a site
+    [--yes]                  without one refuses with the gap action
+    [--limit=<1..200>]       `declare in contract`.
+    [--format=json]       2. Read the target: one `wp duo plan --format=json`,
+                             the drift/readiness check, the target repository
+                             HEAD and this revision's content address.
+                             --from=<ref> is a BINDING ASSERTION, never a git
+                             transport: the ref is resolved locally, compared
+                             with the target HEAD, and a mismatch refuses with
+                             the next action `reconcile` and no retry. Nothing
+                             is fetched, pushed or checked out.
+                          3. Regenerate the per-site projection from current
+                             facts and refuse BEFORE freezing anything on any
+                             surface in scope that is Experimental, Not
+                             qualified, Unsupported or Requalification
+                             required, on unknown effect recovery semantics, on
+                             a code lifecycle window with no reviewed live
+                             external effect declared in the contract, on
+                             deletions without --with-deletes, and on a
+                             deletion surface declared unsupported. Every one
+                             of those carries an ASSESSMENT gap action, never a
+                             release next action.
+                          4. Select the recovery profile the target can
+                             actually prove. --profile may only strengthen
+                             silently; anything weaker than provable — `none`
+                             included — additionally requires
+                             --accept-weaker-recovery and prints a warning.
+                          5. Print the frozen authorization plan and the single
+                             question it ends in. --plan-only stops here and
+                             mutates nothing at all, including the site
+                             repository. Otherwise the confirmed plan is
+                             written to .duo/releases/<plan_digest>.json BEFORE
+                             any target mutation, re-verified against the
+                             target as it is at that instant (any difference
+                             refuses `plan_changed`), and executed through
+                             promote.
+                          6. Verify (see `duo verify`) and record the outcome.
+                          A failure AFTER the plan is frozen carries exactly
+                          one next action from the closed set
+                          resume|reconcile|retry|recover|requalify|escalate:
+                          an interrupted lifecycle is always `recover`, an
+                          ambiguous commitment is always `reconcile` and never
+                          `retry`. Exit 0 success, 1 refusal/failure, 2 usage.
+  verify <env>            Post-release verification, two independent parts,
+    [--plan=<digest>]     both required for a pass: a fresh read-only
+    [--limit=<1..200>]    convergence re-read of the target, and HTTP probes of
+    [--format=json]       the journeys the contract declares, each with its
+                          expected status and expected substring. An undeclared
+                          journey is never silently skipped — the report says
+                          `journeys: 0 declared` and, for every surface the
+                          scope touched with no journey declared, that
+                          verification is byte-level only for it. --plan binds
+                          the report to one frozen authorization plan and
+                          refuses if the contract has moved since. Exit 0 pass,
+                          1 fail or refusal.
+  recover <env>           The operator verb over the recovery runtime; it
+    [--list]              replaces typing recovery/rollback-control.php by
+    [--restore=<id>]      hand. --list prints the checkpoint catalog: receipt
+    [--writers-excluded]  id, state, owner, artifact hash, covered inventory
+    [--operator-directed] and age. --restore performs the profile's own
+    [--limit=<1..200>]    rollback, or drives the four ordered operator-directed
+    [--format=json]       steps (abort -> begin -> isolated import -> final
+                          abort) including the mandatory final abort even when
+                          the import fails.
+                          The recovery claim — what this profile restores and,
+                          literally, what it does NOT — is printed before
+                          acting and again in the outcome; when a frozen
+                          authorization plan matches this checkpoint it is that
+                          plan's claim, unchanged.
+                          --writers-excluded is required: the checkpoint
+                          contains its own promotion lease row, so a lock
+                          inside the database being imported cannot protect the
+                          window. Code-first ordering is enforced, not advised:
+                          a checkpoint taken around a code phase refuses a
+                          database import until code is reconciled to the
+                          pre-release revision, which the refusal names.
   pending <env>           List the review queue (`wp duo pending --format=json`)
                           as a table: section:key, proposal, evidence, ref-hint,
                           and a prominent SECRET flag where present. Exit 0 with
@@ -830,6 +975,10 @@ function main(array $argv): int {
         'scope' => cmd_scope($transport, $extra),
         'deploy' => cmd_deploy($transport, $extra),
         'promote' => cmd_promote($transport, $extra),
+        'release' => cmd_release($transport, $extra),
+        'verify' => cmd_verify($transport, $extra),
+        'recover' => cmd_recover($transport, $extra),
+        'rehearse' => cmd_rehearse($transport, $extra, $envsFileOverride),
         'pending' => cmd_pending($transport, $extra),
         'classify' => cmd_classify($transport, $extra),
         'refresh' => cmd_refresh($transport, $extra),
@@ -1232,6 +1381,56 @@ function cmd_promote(EnvironmentDriver $t, array $extra): int {
         $extra,
         static fn(EnvironmentDriver $driver, array $args): int => cmd_promote_scoped($driver, $args),
         static fn(EnvironmentDriver $driver, array $args, ?array $frozen): array|int => cmd_promote_internal($driver, $args, $frozen)
+    );
+}
+
+/**
+ * The composed release (round-3 MUP §2.3).
+ *
+ * `$promote` is bound to cmd_promote() — the SAME entry point `duo promote`
+ * uses, which routes through PromoteCommand to cmd_promote_scoped() /
+ * cmd_promote_internal(). That injection is the whole of "release composes
+ * promote, it does not fork it": every deploy-before-apply ordering decision,
+ * the promotion lease, the target fence, the database checkpoint, the
+ * DUO-3310 verified/scoped rollback selection and every `promote phase:`
+ * output byte come from one implementation, and ReleaseCommand only adds the
+ * frozen authorization in front of it and the verification behind it.
+ *
+ * `dirname(__DIR__)` is this checkout's root, which the composed assessment's
+ * adoption probe needs — the same argument cmd_assess() passes for the same
+ * reason.
+ */
+function cmd_release(EnvironmentDriver $t, array $extra): int {
+    return ReleaseCommand::run(
+        $t,
+        $extra,
+        dirname(__DIR__),
+        static fn(EnvironmentDriver $driver, array $args): int => cmd_promote($driver, $args)
+    );
+}
+
+/** Convergence plus the contract's declared journey oracles; both must pass. */
+function cmd_verify(EnvironmentDriver $t, array $extra): int {
+    return VerifyCommand::run($t, $extra);
+}
+
+/** The literal front end over the adopted rollback authority runtime. */
+function cmd_recover(EnvironmentDriver $t, array $extra): int {
+    return RecoverCommand::run($t, $extra);
+}
+
+/**
+ * Rehearsal is `env materialize` plus a preview, so it receives the same
+ * frozen-promotion handoff cmd_environment() injects — one operation-scoped
+ * identity bound to the artifact EnvironmentMaterializer already compiled.
+ */
+function cmd_rehearse(EnvironmentDriver $t, array $extra, ?string $envsFileOverride): int {
+    return RehearseCommand::run(
+        $t,
+        $extra,
+        $envsFileOverride,
+        dirname(__DIR__),
+        static fn(EnvironmentDriver $driver, array $context): array|int => cmd_promote_frozen($driver, $context)
     );
 }
 

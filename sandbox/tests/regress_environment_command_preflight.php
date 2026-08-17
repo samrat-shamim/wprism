@@ -11,19 +11,31 @@ use Duo\Orchestrator\EnvironmentCommandPreflight;
 
 $failures = 0;
 $check = static function (bool $condition, string $message) use (&$failures): void {
-    if ($condition) { echo "ok: $message\n"; return; }
-    fwrite(STDERR, "FAIL: $message\n"); $failures++;
+    if ($condition) {
+        echo "ok: $message\n";
+
+        return;
+    }
+    fwrite(STDERR, "FAIL: $message\n");
+    $failures++;
 };
 // The vocabulary is pinned in ORDER on purpose: this is a two-sided ratchet,
 // so a verb added to the preflight without the same-train update here goes
 // red, and a verb quietly REMOVED goes red too. Round-3 MUP §2.1/§2.6 adds
-// `assess` and `contract`, both environment-bound because both take <env>.
+// `assess` and `contract`, both environment-bound because both take <env>;
+// MUP §2.2-§2.5 adds `release`, `verify`, `recover` and `rehearse`, all four
+// environment-bound because all four take <env> and all four reach the
+// target — release through the promote path, verify by re-reading it,
+// recover through its rollback authority runtime, rehearse by materializing
+// into it. That is 23 + 4 = 27 environment-bound verbs.
 $expected = [
     'doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities',
     'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
     'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
     'assess', 'contract',
+    'release', 'verify', 'recover', 'rehearse',
 ];
+$check(count($expected) === 27, 'the environment-bound verb ratchet is 27 verbs after round-3 MUP §2.2-§2.5');
 $check(EnvironmentCommandPreflight::environmentVerbs() === $expected, 'environment command vocabulary remains ordered and closed');
 $check(EnvironmentCommandPreflight::requiresEnvironment('capture'), 'capture is environment-bound');
 $check(EnvironmentCommandPreflight::requiresEnvironment('lint'), 'lint is environment-bound');
@@ -72,6 +84,9 @@ foreach (['--envs-file=/tmp/other', "bad\0name"] as $invalidName) {
     }
 }
 @unlink($tmp . '/invalid-envs.json');
-@unlink($listRegistry); @unlink($numericRegistry); @unlink($tmp . '/envs.json'); @rmdir($tmp);
+@unlink($listRegistry);
+@unlink($numericRegistry);
+@unlink($tmp . '/envs.json');
+@rmdir($tmp);
 echo $failures === 0 ? "PASS: environment command preflight\n" : "FAIL: $failures environment preflight assertions\n";
 exit($failures === 0 ? 0 : 1);

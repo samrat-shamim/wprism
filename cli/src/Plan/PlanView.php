@@ -4,6 +4,7 @@ declare(strict_types=1);
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/PlanContract.php';
+require_once __DIR__ . '/PlanSummary.php';
 
 /** A public, static refusal for host-side filtered status preflight. */
 final class PlanViewException extends \RuntimeException {
@@ -338,9 +339,15 @@ final class PlanView {
     /**
      * @param array<string,mixed> $plan
      * @param array<string,mixed> $view
+     * @param array<string,string> $surfaceLabels the reviewed contract's
+     *   `declarations.surface_labels` map (round-3 MUP §2.7). Empty — the
+     *   state of every caller without an accepted contract — renders
+     *   byte-identically to every prior release; `PlanSummary::surfaceLabel()`
+     *   resolves the row's own value-free identity and returns null for
+     *   anything the reviewed contract does not name.
      * @return list<string>
      */
-    public static function ordinaryHumanLines(array $plan, array $view): array {
+    public static function ordinaryHumanLines(array $plan, array $view, array $surfaceLabels = []): array {
         $lines = [];
         foreach ((array) ($view['rows'] ?? []) as $reference) {
             if (!is_array($reference) || ($reference['safety'] ?? null) !== false) {
@@ -356,6 +363,10 @@ final class PlanView {
                 continue;
             }
             $lines[] = 'VIEW ' . strtoupper($bucket) . ' ' . self::humanLabel($row);
+            $surface = PlanSummary::surfaceLabel($row, $surfaceLabels);
+            if ($surface !== null) {
+                $lines[] = '  surface: ' . $surface;
+            }
             if ($selector !== '') {
                 $lines[] = '  EXPLAIN wp duo explain ' . $selector . ' --repo=<repo>';
             }

@@ -1,0 +1,644 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    a2c23ce02096a11bcffb52a897a3a4b179542843
+  invoked from:   <source-root>/sandbox
+  expected SHA:   a2c23ce02096a11bcffb52a897a3a4b179542843 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly a2c23ce02096a11bcffb52a897a3a4b179542843, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rtthreecert2': reset ==[0m
+[1;32mok: wp_rtthreecert21/wp_rtthreecert22 dropped + recreated empty; siterepo/rtthreecert2{1,2} cleared in place and origin-rtthreecert2.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rtthreecert2{1,2}, origin-rtthreecert2.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rtthreecert2 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rtthreecert2{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9304) / conf2 (:9305), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    a2c23ce02096a11bcffb52a897a3a4b179542843
+  invoked from:   <source-root>/sandbox
+  expected SHA:   a2c23ce02096a11bcffb52a897a3a4b179542843 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly a2c23ce02096a11bcffb52a897a3a4b179542843, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtthreecert2': databases ==[0m
+[1;32mok: wp_rtthreecert21, wp_rtthreecert22 exist[0m
+
+[1;36m== pair 'rtthreecert2': site-repo directories ==[0m
+
+[1;36m== pair 'rtthreecert2': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtthreecert2_wp1 Creating
+ Volume duo-rtthreecert2_wp1 Created
+ Volume duo-rtthreecert2_wp2 Creating
+ Volume duo-rtthreecert2_wp2 Created
+ Container duo-rtthreecert2-wp1-1 Creating
+ Container duo-rtthreecert2-wp2-1 Creating
+ Container duo-rtthreecert2-wp2-1 Created
+ Container duo-rtthreecert2-wp1-1 Created
+ Container duo-rtthreecert2-wp1-1 Starting
+ Container duo-rtthreecert2-wp2-1 Starting
+ Container duo-rtthreecert2-wp2-1 Started
+ Container duo-rtthreecert2-wp1-1 Started
+ Container duo-rtthreecert2-cli1-1 Creating
+ Container duo-rtthreecert2-cli2-1 Creating
+ Container duo-rtthreecert2-cli1-1 Created
+ Container duo-rtthreecert2-cli2-1 Created
+ Container duo-rtthreecert2-cli2-1 Starting
+ Container duo-rtthreecert2-cli1-1 Starting
+ Container duo-rtthreecert2-cli1-1 Started
+ Container duo-rtthreecert2-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtthreecert2': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtthreecert2': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rtthreecert21.needs-install present — reset emptied wp_rtthreecert21, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtthreecert2-cli1-run-0c98dc2af994 Creating
+ Container duo-rtthreecert2-cli1-run-0c98dc2af994 Created
+Success: WordPress installed successfully.
+ Container duo-rtthreecert2-cli1-run-15ad6caa1d07 Creating
+ Container duo-rtthreecert2-cli1-run-15ad6caa1d07 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtthreecert2-cli1-run-b46627527cd0 Creating
+ Container duo-rtthreecert2-cli1-run-b46627527cd0 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtthreecert2-cli1-run-cbd5df89b49e Creating
+ Container duo-rtthreecert2-cli1-run-cbd5df89b49e Created
+ Container duo-rtthreecert2-cli1-run-11c1662396d3 Creating
+ Container duo-rtthreecert2-cli1-run-11c1662396d3 Created
+ Container duo-rtthreecert2-cli1-run-efbb78210722 Creating
+ Container duo-rtthreecert2-cli1-run-efbb78210722 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtthreecert2-cli1-run-ad23115fef47 Creating
+ Container duo-rtthreecert2-cli1-run-ad23115fef47 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9304)
+  side 2: siterepo/.rtthreecert22.needs-install present — reset emptied wp_rtthreecert22, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtthreecert2-cli2-run-d20bc037cd7c Creating
+ Container duo-rtthreecert2-cli2-run-d20bc037cd7c Created
+Success: WordPress installed successfully.
+ Container duo-rtthreecert2-cli2-run-cf4aa507ba89 Creating
+ Container duo-rtthreecert2-cli2-run-cf4aa507ba89 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtthreecert2-cli2-run-5186f6f1dab7 Creating
+ Container duo-rtthreecert2-cli2-run-5186f6f1dab7 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtthreecert2-cli2-run-49749bf1399b Creating
+ Container duo-rtthreecert2-cli2-run-49749bf1399b Created
+ Container duo-rtthreecert2-cli2-run-db790a21e39b Creating
+ Container duo-rtthreecert2-cli2-run-db790a21e39b Created
+ Container duo-rtthreecert2-cli2-run-62982a3facc6 Creating
+ Container duo-rtthreecert2-cli2-run-62982a3facc6 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtthreecert2-cli2-run-1c6b2c8715c2 Creating
+ Container duo-rtthreecert2-cli2-run-1c6b2c8715c2 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9305)
+
+[1;36m== pair 'rtthreecert2' ready ==[0m
+  wp1: http://localhost:9304 (published on host port 9304)
+  wp2: http://localhost:9305 (published on host port 9305)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtthreecert2 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtthreecert2 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtthreecert2 must stay exported, or pass -p duo-rtthreecert2 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rtthreecert2-cli1-run-d3e59d28dc6f Creating
+ Container duo-rtthreecert2-cli1-run-d3e59d28dc6f Created
+Success: Updated 'blogname' option.
+ Container duo-rtthreecert2-cli1-run-322f2603f342 Creating
+ Container duo-rtthreecert2-cli1-run-322f2603f342 Created
+Success: The site at 'http://localhost:9304' was emptied.
+ Container duo-rtthreecert2-cli1-run-090f69a70337 Creating
+ Container duo-rtthreecert2-cli1-run-090f69a70337 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtthreecert2-cli1-run-fe5eec56755f Creating
+ Container duo-rtthreecert2-cli1-run-fe5eec56755f Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtthreecert2-cli1-run-17e9825d997c Creating
+ Container duo-rtthreecert2-cli1-run-17e9825d997c Created
+ Container duo-rtthreecert2-cli1-run-3a6f60addc30 Creating
+ Container duo-rtthreecert2-cli1-run-3a6f60addc30 Created
+ Container duo-rtthreecert2-cli1-run-1589f6fa21c3 Creating
+ Container duo-rtthreecert2-cli1-run-1589f6fa21c3 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-rtthreecert2-cli1-run-ebbc5b5a1196 Creating
+ Container duo-rtthreecert2-cli1-run-ebbc5b5a1196 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtthreecert2-cli1-run-68b665b8f88d Creating
+ Container duo-rtthreecert2-cli1-run-68b665b8f88d Created
+ Container duo-rtthreecert2-cli1-run-b352f1b094c9 Creating
+ Container duo-rtthreecert2-cli1-run-b352f1b094c9 Created
+env conf1 installed, role=author (core: 0 pinned plugins, 2 pinned themes)
+ Container duo-rtthreecert2-cli2-run-96faf0f56501 Creating
+ Container duo-rtthreecert2-cli2-run-96faf0f56501 Created
+Success: Updated 'blogname' option.
+ Container duo-rtthreecert2-cli2-run-d5703e2e5191 Creating
+ Container duo-rtthreecert2-cli2-run-d5703e2e5191 Created
+Success: The site at 'http://localhost:9305' was emptied.
+ Container duo-rtthreecert2-cli2-run-b7c58af24ed2 Creating
+ Container duo-rtthreecert2-cli2-run-b7c58af24ed2 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtthreecert2-cli2-run-24fb80184084 Creating
+ Container duo-rtthreecert2-cli2-run-24fb80184084 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtthreecert2-cli2-run-cdc89544086b Creating
+ Container duo-rtthreecert2-cli2-run-cdc89544086b Created
+ Container duo-rtthreecert2-cli2-run-60612e08d9f9 Creating
+ Container duo-rtthreecert2-cli2-run-60612e08d9f9 Created
+ Container duo-rtthreecert2-cli2-run-4f4be5d198ab Creating
+ Container duo-rtthreecert2-cli2-run-4f4be5d198ab Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-rtthreecert2-cli2-run-876eb208d061 Creating
+ Container duo-rtthreecert2-cli2-run-876eb208d061 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-rtthreecert2-cli2-run-107c01195d77 Creating
+ Container duo-rtthreecert2-cli2-run-107c01195d77 Created
+ Container duo-rtthreecert2-cli2-run-304dc28ea4d1 Creating
+ Container duo-rtthreecert2-cli2-run-304dc28ea4d1 Created
+env conf2 installed, role=target (core: 0 pinned plugins, 2 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/core.sh) ==[0m
+ Container duo-rtthreecert2-cli1-run-e7d60eafc62c Creating
+ Container duo-rtthreecert2-cli1-run-e7d60eafc62c Created
+ Container duo-rtthreecert2-cli1-run-e85ba5fa8d5a Creating
+ Container duo-rtthreecert2-cli1-run-e85ba5fa8d5a Created
+ Container duo-rtthreecert2-cli1-run-252fc86f010f Creating
+ Container duo-rtthreecert2-cli1-run-252fc86f010f Created
+ Container duo-rtthreecert2-cli1-run-40b086b937e0 Creating
+ Container duo-rtthreecert2-cli1-run-40b086b937e0 Created
+ Container duo-rtthreecert2-cli1-run-a9b524b8ea63 Creating
+ Container duo-rtthreecert2-cli1-run-a9b524b8ea63 Created
+ Container duo-rtthreecert2-cli1-run-58b9f7e77ae4 Creating
+ Container duo-rtthreecert2-cli1-run-58b9f7e77ae4 Created
+ Container duo-rtthreecert2-cli1-run-a748643e9841 Creating
+ Container duo-rtthreecert2-cli1-run-a748643e9841 Created
+ Container duo-rtthreecert2-cli2-run-b4f64e02d09f Creating
+ Container duo-rtthreecert2-cli2-run-b4f64e02d09f Created
+ Container duo-rtthreecert2-cli1-run-c74831bb2cce Creating
+ Container duo-rtthreecert2-cli1-run-c74831bb2cce Created
+ Container duo-rtthreecert2-cli1-run-009da4871898 Creating
+ Container duo-rtthreecert2-cli1-run-009da4871898 Created
+ Container duo-rtthreecert2-cli1-run-d0b23edc7d7e Creating
+ Container duo-rtthreecert2-cli1-run-d0b23edc7d7e Created
+ Container duo-rtthreecert2-cli1-run-7335212e0e9e Creating
+ Container duo-rtthreecert2-cli1-run-7335212e0e9e Created
+ Container duo-rtthreecert2-cli1-run-5a30a7629a28 Creating
+ Container duo-rtthreecert2-cli1-run-5a30a7629a28 Created
+ Container duo-rtthreecert2-cli1-run-cf43d0f697e1 Creating
+ Container duo-rtthreecert2-cli1-run-cf43d0f697e1 Created
+ Container duo-rtthreecert2-cli1-run-00266bc4cba6 Creating
+ Container duo-rtthreecert2-cli1-run-00266bc4cba6 Created
+ Container duo-rtthreecert2-cli1-run-72788410611e Creating
+ Container duo-rtthreecert2-cli1-run-72788410611e Created
+ Container duo-rtthreecert2-cli1-run-79ff95018ec7 Creating
+ Container duo-rtthreecert2-cli1-run-79ff95018ec7 Created
+Warning: The 'Twenty Twenty-One' theme is already active.
+ Container duo-rtthreecert2-cli1-run-8be7a6a02dfe Creating
+ Container duo-rtthreecert2-cli1-run-8be7a6a02dfe Created
+ Container duo-rtthreecert2-cli1-run-6d31eb71ad15 Creating
+ Container duo-rtthreecert2-cli1-run-6d31eb71ad15 Created
+ Container duo-rtthreecert2-cli1-run-db450cb0bf02 Creating
+ Container duo-rtthreecert2-cli1-run-db450cb0bf02 Created
+ Container duo-rtthreecert2-cli1-run-bc2bc5b2257c Creating
+ Container duo-rtthreecert2-cli1-run-bc2bc5b2257c Created
+ Container duo-rtthreecert2-cli1-run-f0a39c0c4bdb Creating
+ Container duo-rtthreecert2-cli1-run-f0a39c0c4bdb Created
+ Container duo-rtthreecert2-cli1-run-800cdc866374 Creating
+ Container duo-rtthreecert2-cli1-run-800cdc866374 Created
+core seed: news=2 home=1 att=6 hello=7 widget-menu=3 hierarchy=2/4,3/5 theme_mods: twentytwentyone(residue)+twentytwentyfive(active)
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rtthreecert2-cli1-run-3b2c95a5801d Creating
+ Container duo-rtthreecert2-cli1-run-3b2c95a5801d Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Success: captured 8 posts, 2 terms, 1 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rtthreecert2-cli1-run-d7b2c909656e Creating
+ Container duo-rtthreecert2-cli1-run-d7b2c909656e Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rtthreecert2-cli1-run-4d5d2a834b8a Creating
+ Container duo-rtthreecert2-cli1-run-4d5d2a834b8a Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rtthreecert2-cli2-run-c8506d2adfc7 Creating
+ Container duo-rtthreecert2-cli2-run-c8506d2adfc7 Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "89eff26b68648ce09918b6ed7aa42615cc158d33b4ce11d265ea2a2a41f9fb0a",
+    "revision": "2deb39d4840f8130148c839ef9e001cc1bb4737eb7e50c992f7befc49e583e05",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "activated": [],
+  "deactivated": [],
+  "theme_switched": "twentytwentyfive",
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "theme",
+      "theme": "twentytwentyfive",
+      "message": "stylesheet in state/options/core.json declares 'twentytwentyfive', and its code is installed, but this environment has theme 'twentytwentyone' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-cbfb598d35b7cc378c71afa11d6cea90",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rtthreecert2-cli2-run-5938079c6901 Creating
+ Container duo-rtthreecert2-cli2-run-5938079c6901 Created
+ Container duo-rtthreecert2-cli2-run-4f77595e356e Creating
+ Container duo-rtthreecert2-cli2-run-4f77595e356e Created
+ Container duo-rtthreecert2-cli2-run-0a70e7da949f Creating
+ Container duo-rtthreecert2-cli2-run-0a70e7da949f Created
+[1;32mok: conf2 active plugins (none) and theme (template=twentytwentyfive, stylesheet=twentytwentyfive) match canonical — deploy alone did this[0m
+
+[1;36m== post-deploy conf2 fixup (conformance/postdeploy/core.sh) ==[0m
+ Container duo-rtthreecert2-cli2-run-e4bee5aaa16d Creating
+ Container duo-rtthreecert2-cli2-run-e4bee5aaa16d Created
+ Container duo-rtthreecert2-cli2-run-994078561a66 Creating
+ Container duo-rtthreecert2-cli2-run-994078561a66 Created
+ Container duo-rtthreecert2-cli2-run-b35eb2599fa8 Creating
+ Container duo-rtthreecert2-cli2-run-b35eb2599fa8 Created
+ Container duo-rtthreecert2-cli2-run-3af72ce1f555 Creating
+ Container duo-rtthreecert2-cli2-run-3af72ce1f555 Created
+ Container duo-rtthreecert2-cli2-run-ef7b2c868a2a Creating
+ Container duo-rtthreecert2-cli2-run-ef7b2c868a2a Created
+ Container duo-rtthreecert2-cli2-run-d525d923dcf6 Creating
+ Container duo-rtthreecert2-cli2-run-d525d923dcf6 Created
+ Container duo-rtthreecert2-cli2-run-5e11b96d178c Creating
+ Container duo-rtthreecert2-cli2-run-5e11b96d178c Created
+ Container duo-rtthreecert2-cli2-run-1024cdf6580d Creating
+ Container duo-rtthreecert2-cli2-run-1024cdf6580d Created
+ Container duo-rtthreecert2-cli2-run-f30fd0ceb7bf Creating
+ Container duo-rtthreecert2-cli2-run-f30fd0ceb7bf Created
+target hierarchy and colliding widget defaults seeded; ambiguous-key refusal verified
+[1;32mok: post-deploy fixup applied[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rtthreecert2-cli2-run-ae04ac04eea0 Creating
+ Container duo-rtthreecert2-cli2-run-ae04ac04eea0 Created
+{
+  "artifact": {
+    "hash": "89eff26b68648ce09918b6ed7aa42615cc158d33b4ce11d265ea2a2a41f9fb0a",
+    "revision": "2deb39d4840f8130148c839ef9e001cc1bb4737eb7e50c992f7befc49e583e05",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "plan": {
+    "create": 6,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 5,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 5,
+    "adapter_dispositions": 1,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 13,
+  "drift": [],
+  "warnings": [
+    "adopted env post 3 as 01a00f9c-2dc8-73d7-a5a6-6d413732d52c (posts/page/01a00f9c-2dc8-73d7-a5a6-6d413732d52c--branch-a.md)",
+    "adopted env post 1 as 01a00f9c-2dca-761b-8aed-202858455aa2 (posts/page/01a00f9c-2dca-761b-8aed-202858455aa2--branch-b.md)",
+    "adopted env post 4 as 01a00f9c-2dd4-7ad5-9d74-3ad0dab933d8 (posts/page/01a00f9c-2dd4-7ad5-9d74-3ad0dab933d8--shared-child.md)",
+    "adopted env post 2 as 01a00f9c-2dd5-7acc-877b-5661e2ad31d3 (posts/page/01a00f9c-2dd5-7acc-877b-5661e2ad31d3--shared-child.md)",
+    "adopted env term 1 as 01a00f9c-2dd8-7d6c-aadd-c4e0ab827129 (terms/category/01a00f9c-2dd8-7d6c-aadd-c4e0ab827129--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 13,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-170880c4f7fe71b8d7dfa3505945af8b",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rtthreecert2-cli2-run-9137bacd1e84 Creating
+ Container duo-rtthreecert2-cli2-run-9137bacd1e84 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/core.sh) ==[0m
+ Container duo-rtthreecert2-cli2-run-711aff719fe6 Creating
+ Container duo-rtthreecert2-cli2-run-711aff719fe6 Created
+[1;32mok: theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids[0m
+[1;32mok: conf2's own runtime-excluded sub-keys (sidebars_widgets, wp_classic_sidebars) survived the merge into the live blob untouched -- sub_keys apply is a merge, never a whole-value replace[0m
+[1;32mok: theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared[0m
+ Container duo-rtthreecert2-cli2-run-b645516313d6 Creating
+ Container duo-rtthreecert2-cli2-run-b645516313d6 Created
+[1;32mok: wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly[0m
+
+[1;36m== (DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean ==[0m
+ Container duo-rtthreecert2-cli1-run-2157789f0417 Creating
+ Container duo-rtthreecert2-cli1-run-2157789f0417 Created
+ Container duo-rtthreecert2-cli1-run-90ed06408571 Creating
+ Container duo-rtthreecert2-cli1-run-90ed06408571 Created
+ Container duo-rtthreecert2-cli1-run-3f0ff7dc45d4 Creating
+ Container duo-rtthreecert2-cli1-run-3f0ff7dc45d4 Created
+ Container duo-rtthreecert2-cli1-run-cce417524888 Creating
+ Container duo-rtthreecert2-cli1-run-cce417524888 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed[0m
+ Container duo-rtthreecert2-cli1-run-b85f39d02467 Creating
+ Container duo-rtthreecert2-cli1-run-b85f39d02467 Created
+ Container duo-rtthreecert2-cli2-run-ec4c3a9d7dfb Creating
+ Container duo-rtthreecert2-cli2-run-ec4c3a9d7dfb Created
+ Container duo-rtthreecert2-cli1-run-067d6ec29249 Creating
+ Container duo-rtthreecert2-cli1-run-067d6ec29249 Created
+ Container duo-rtthreecert2-cli2-run-a2cb71f03e11 Creating
+ Container duo-rtthreecert2-cli2-run-a2cb71f03e11 Created
+ Container duo-rtthreecert2-cli1-run-3a39b87e9641 Creating
+ Container duo-rtthreecert2-cli1-run-3a39b87e9641 Created
+ Container duo-rtthreecert2-cli2-run-9e515b35e529 Creating
+ Container duo-rtthreecert2-cli2-run-9e515b35e529 Created
+ Container duo-rtthreecert2-cli2-run-9821dbd5a565 Creating
+ Container duo-rtthreecert2-cli2-run-9821dbd5a565 Created
+ Container duo-rtthreecert2-cli2-run-6451076fec41 Creating
+ Container duo-rtthreecert2-cli2-run-6451076fec41 Created
+[1;32mok: block/text/nav-menu widgets use portable refs, ledger-only identity, free target counters, and replace target defaults[0m
+ Container duo-rtthreecert2-cli1-run-0a2a6a6e9698 Creating
+ Container duo-rtthreecert2-cli1-run-0a2a6a6e9698 Created
+ Container duo-rtthreecert2-cli1-run-95dace461fd7 Creating
+ Container duo-rtthreecert2-cli1-run-95dace461fd7 Created
+ Container duo-rtthreecert2-cli1-run-27b984bcb9e5 Creating
+ Container duo-rtthreecert2-cli1-run-27b984bcb9e5 Created
+ Container duo-rtthreecert2-cli1-run-52302d6bfc19 Creating
+ Container duo-rtthreecert2-cli1-run-52302d6bfc19 Created
+ Container duo-rtthreecert2-cli1-run-c900bd61edfe Creating
+ Container duo-rtthreecert2-cli1-run-c900bd61edfe Created
+ Container duo-rtthreecert2-cli1-run-bf1140314240 Creating
+ Container duo-rtthreecert2-cli1-run-bf1140314240 Created
+ Container duo-rtthreecert2-cli1-run-d98815ecc961 Creating
+ Container duo-rtthreecert2-cli1-run-d98815ecc961 Created
+ Container duo-rtthreecert2-cli1-run-dff0f40892f2 Creating
+ Container duo-rtthreecert2-cli1-run-dff0f40892f2 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically[0m
+ Container duo-rtthreecert2-cli2-run-520c6467f5b8 Creating
+ Container duo-rtthreecert2-cli2-run-520c6467f5b8 Created
+ Container duo-rtthreecert2-cli2-run-e4578738d628 Creating
+ Container duo-rtthreecert2-cli2-run-e4578738d628 Created
+ Container duo-rtthreecert2-cli1-run-09b41ac03e90 Creating
+ Container duo-rtthreecert2-cli1-run-09b41ac03e90 Created
+ Container duo-rtthreecert2-cli1-run-d277f7162ea6 Creating
+ Container duo-rtthreecert2-cli1-run-d277f7162ea6 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-rtthreecert2-cli2-run-b4000265b4fd Creating
+ Container duo-rtthreecert2-cli2-run-b4000265b4fd Created
+ Container duo-rtthreecert2-cli2-run-2f16f31ac4e7 Creating
+ Container duo-rtthreecert2-cli2-run-2f16f31ac4e7 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-rtthreecert2-cli2-run-125ef94af53d Creating
+ Container duo-rtthreecert2-cli2-run-125ef94af53d Created
+ Container duo-rtthreecert2-cli2-run-2ac9dd265446 Creating
+ Container duo-rtthreecert2-cli2-run-2ac9dd265446 Created
+ Container duo-rtthreecert2-cli2-run-48fb74b6436e Creating
+ Container duo-rtthreecert2-cli2-run-48fb74b6436e Created
+[1;32mok: public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)[0m
+ Container duo-rtthreecert2-cli2-run-dcf13aa684b1 Creating
+ Container duo-rtthreecert2-cli2-run-dcf13aa684b1 Created
+ Container duo-rtthreecert2-cli2-run-500194ae630e Creating
+ Container duo-rtthreecert2-cli2-run-500194ae630e Created
+ Container duo-rtthreecert2-cli2-run-c7498dfa115c Creating
+ Container duo-rtthreecert2-cli2-run-c7498dfa115c Created
+ Container duo-rtthreecert2-cli2-run-07a39a97db7a Creating
+ Container duo-rtthreecert2-cli2-run-07a39a97db7a Created
+ Container duo-rtthreecert2-cli2-run-4a5c2ce4a020 Creating
+ Container duo-rtthreecert2-cli2-run-4a5c2ce4a020 Created
+ Container duo-rtthreecert2-cli2-run-172b95fddbfe Creating
+ Container duo-rtthreecert2-cli2-run-172b95fddbfe Created
+[1;32mok: plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)[0m
+ Container duo-rtthreecert2-cli1-run-2fad202b83da Creating
+ Container duo-rtthreecert2-cli1-run-2fad202b83da Created
+ Container duo-rtthreecert2-cli2-run-dd8f2ee4a08c Creating
+ Container duo-rtthreecert2-cli2-run-dd8f2ee4a08c Created
+ Container duo-rtthreecert2-cli2-run-c4b25ed46464 Creating
+ Container duo-rtthreecert2-cli2-run-c4b25ed46464 Created
+ Container duo-rtthreecert2-cli1-run-ad9710d26324 Creating
+ Container duo-rtthreecert2-cli1-run-ad9710d26324 Created
+ Container duo-rtthreecert2-cli1-run-6ac32719cfc0 Creating
+ Container duo-rtthreecert2-cli1-run-6ac32719cfc0 Created
+ Container duo-rtthreecert2-cli2-run-faeb9ea671ab Creating
+ Container duo-rtthreecert2-cli2-run-faeb9ea671ab Created
+ Container duo-rtthreecert2-cli2-run-8f3a7d6ebe43 Creating
+ Container duo-rtthreecert2-cli2-run-8f3a7d6ebe43 Created
+ Container duo-rtthreecert2-cli2-run-b878f61d8018 Creating
+ Container duo-rtthreecert2-cli2-run-b878f61d8018 Created
+ Container duo-rtthreecert2-cli2-run-b85a92306112 Creating
+ Container duo-rtthreecert2-cli2-run-b85a92306112 Created
+[1;32mok: explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently[0m
+ Container duo-rtthreecert2-cli1-run-2890fbc7a672 Creating
+ Container duo-rtthreecert2-cli1-run-2890fbc7a672 Created
+ Container duo-rtthreecert2-cli2-run-220fb5d5cee4 Creating
+ Container duo-rtthreecert2-cli2-run-220fb5d5cee4 Created
+ Container duo-rtthreecert2-cli2-run-37b9b95f2880 Creating
+ Container duo-rtthreecert2-cli2-run-37b9b95f2880 Created
+ Container duo-rtthreecert2-cli2-run-4484d2d0ca8c Creating
+ Container duo-rtthreecert2-cli2-run-4484d2d0ca8c Created
+ Container duo-rtthreecert2-cli1-run-537ded0831e9 Creating
+ Container duo-rtthreecert2-cli1-run-537ded0831e9 Created
+ Container duo-rtthreecert2-cli1-run-65eb397ffec4 Creating
+ Container duo-rtthreecert2-cli1-run-65eb397ffec4 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-rtthreecert2-cli2-run-45d0b683bc7b Creating
+ Container duo-rtthreecert2-cli2-run-45d0b683bc7b Created
+ Container duo-rtthreecert2-cli2-run-060bf8ee4e85 Creating
+ Container duo-rtthreecert2-cli2-run-060bf8ee4e85 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-rtthreecert2-cli2-run-269204e3c801 Creating
+ Container duo-rtthreecert2-cli2-run-269204e3c801 Created
+ Container duo-rtthreecert2-cli2-run-a601320b8114 Creating
+ Container duo-rtthreecert2-cli2-run-a601320b8114 Created
+ Container duo-rtthreecert2-cli2-run-19b1c8443dc2 Creating
+ Container duo-rtthreecert2-cli2-run-19b1c8443dc2 Created
+[1;32mok: guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation[0m
+ Container duo-rtthreecert2-cli2-run-94212e936d96 Creating
+ Container duo-rtthreecert2-cli2-run-94212e936d96 Created
+ Container duo-rtthreecert2-cli2-run-a0c5df57416b Creating
+ Container duo-rtthreecert2-cli2-run-a0c5df57416b Created
+ Container duo-rtthreecert2-cli2-run-c710ebf74791 Creating
+ Container duo-rtthreecert2-cli2-run-c710ebf74791 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-rtthreecert2-cli2-run-5d07adc8b714 Creating
+ Container duo-rtthreecert2-cli2-run-5d07adc8b714 Created
+ Container duo-rtthreecert2-cli2-run-4f5099047b30 Creating
+ Container duo-rtthreecert2-cli2-run-4f5099047b30 Created
+ Container duo-rtthreecert2-cli2-run-62ba09746b0b Creating
+ Container duo-rtthreecert2-cli2-run-62ba09746b0b Created
+[1;32mok: entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation[0m
+ Container duo-rtthreecert2-cli2-run-a60e05513d87 Creating
+ Container duo-rtthreecert2-cli2-run-a60e05513d87 Created
+ Container duo-rtthreecert2-cli2-run-d49613a22a2b Creating
+ Container duo-rtthreecert2-cli2-run-d49613a22a2b Created
+[1;32mok: delete-vs-local-edit conflicts; force-theirs is loud and revision children cascade exactly[0m
+ Container duo-rtthreecert2-cli1-run-c9ca4d52d5ee Creating
+ Container duo-rtthreecert2-cli1-run-c9ca4d52d5ee Created
+ Container duo-rtthreecert2-cli1-run-2106399fbcea Creating
+ Container duo-rtthreecert2-cli1-run-2106399fbcea Created
+ Container duo-rtthreecert2-cli1-run-cacc230b86a7 Creating
+ Container duo-rtthreecert2-cli1-run-cacc230b86a7 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-rtthreecert2-cli1-run-19d6a9647cf5 Creating
+ Container duo-rtthreecert2-cli1-run-19d6a9647cf5 Created
+ Container duo-rtthreecert2-cli1-run-0b5a76f94ae9 Creating
+ Container duo-rtthreecert2-cli1-run-0b5a76f94ae9 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtthreecert2-cli2-run-47a9d3fe1b71 Creating
+ Container duo-rtthreecert2-cli2-run-47a9d3fe1b71 Created
+ Container duo-rtthreecert2-cli2-run-9d4a99d91502 Creating
+ Container duo-rtthreecert2-cli2-run-9d4a99d91502 Created
+ Container duo-rtthreecert2-cli2-run-7a810c96d352 Creating
+ Container duo-rtthreecert2-cli2-run-7a810c96d352 Created
+[1;32mok: delete-vs-branch-edit conflicts on the tombstone expected base[0m
+ Container duo-rtthreecert2-cli1-run-25b3db9a48b6 Creating
+ Container duo-rtthreecert2-cli1-run-25b3db9a48b6 Created
+ Container duo-rtthreecert2-cli1-run-23f84311873c Creating
+ Container duo-rtthreecert2-cli1-run-23f84311873c Created
+ Container duo-rtthreecert2-cli1-run-d12f0ff1e0b8 Creating
+ Container duo-rtthreecert2-cli1-run-d12f0ff1e0b8 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtthreecert2-cli2-run-c60f593b0816 Creating
+ Container duo-rtthreecert2-cli2-run-c60f593b0816 Created
+ Container duo-rtthreecert2-cli2-run-d63634f8c922 Creating
+ Container duo-rtthreecert2-cli2-run-d63634f8c922 Created
+ Container duo-rtthreecert2-cli2-run-59a25818be28 Creating
+ Container duo-rtthreecert2-cli2-run-59a25818be28 Created
+ Container duo-rtthreecert2-cli2-run-856ff4e6df23 Creating
+ Container duo-rtthreecert2-cli2-run-856ff4e6df23 Created
+[1;32mok: missing reverse-reference guard infrastructure fails closed[0m
+ Container duo-rtthreecert2-cli1-run-0ea88ac0d234 Creating
+ Container duo-rtthreecert2-cli1-run-0ea88ac0d234 Created
+ Container duo-rtthreecert2-cli1-run-bbd9f4e07b6f Creating
+ Container duo-rtthreecert2-cli1-run-bbd9f4e07b6f Created
+ Container duo-rtthreecert2-cli1-run-e03383d326eb Creating
+ Container duo-rtthreecert2-cli1-run-e03383d326eb Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtthreecert2-cli2-run-97699daa59d0 Creating
+ Container duo-rtthreecert2-cli2-run-97699daa59d0 Created
+ Container duo-rtthreecert2-cli2-run-086a655c7a8d Creating
+ Container duo-rtthreecert2-cli2-run-086a655c7a8d Created
+ Container duo-rtthreecert2-cli2-run-4d25c2a29ec3 Creating
+ Container duo-rtthreecert2-cli2-run-4d25c2a29ec3 Created
+ Container duo-rtthreecert2-cli1-run-34d97a9ed93f Creating
+ Container duo-rtthreecert2-cli1-run-34d97a9ed93f Created
+ Container duo-rtthreecert2-cli1-run-b71ac444339d Creating
+ Container duo-rtthreecert2-cli1-run-b71ac444339d Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-rtthreecert2-cli2-run-8e4448af71de Creating
+ Container duo-rtthreecert2-cli2-run-8e4448af71de Created
+ Container duo-rtthreecert2-cli2-run-2520387a7430 Creating
+ Container duo-rtthreecert2-cli2-run-2520387a7430 Created
+ Container duo-rtthreecert2-cli2-run-95589f2d3d20 Creating
+ Container duo-rtthreecert2-cli2-run-95589f2d3d20 Created
+ Container duo-rtthreecert2-cli2-run-116450134fba Creating
+ Container duo-rtthreecert2-cli2-run-116450134fba Created
+ Container duo-rtthreecert2-cli2-run-31d7d87de4a6 Creating
+ Container duo-rtthreecert2-cli2-run-31d7d87de4a6 Created
+ Container duo-rtthreecert2-cli2-run-b972cdff79f9 Creating
+ Container duo-rtthreecert2-cli2-run-b972cdff79f9 Created
+ Container duo-rtthreecert2-cli2-run-0b3499fec1fa Creating
+ Container duo-rtthreecert2-cli2-run-0b3499fec1fa Created
+ Container duo-rtthreecert2-cli2-run-0d936ea66863 Creating
+ Container duo-rtthreecert2-cli2-run-0d936ea66863 Created
+ Container duo-rtthreecert2-cli2-run-3d85a66db0c7 Creating
+ Container duo-rtthreecert2-cli2-run-3d85a66db0c7 Created
+[1;32mok: partial delete failure rolls the transaction back; retry completes exactly[0m
+ Container duo-rtthreecert2-cli2-run-68f8182dfc92 Creating
+ Container duo-rtthreecert2-cli2-run-68f8182dfc92 Created
+ Container duo-rtthreecert2-cli2-run-80446457342d Creating
+ Container duo-rtthreecert2-cli2-run-80446457342d Created
+[1;32mok: fresh and previously mapped targets make the same repository-level deletion decision[0m
+
+[1;32m✔ CONFORMANCE PASSED (core)[0m

@@ -104,13 +104,19 @@ final class PlanSummary {
      * @param ?string $envsFileOverride Preserve the operator-selected registry
      *   in copy-ready remediation so a same-named environment cannot resolve
      *   through a different auto-discovered registry.
+     * @param array<string,string> $surfaceLabels The reviewed contract's
+     *   `declarations.surface_labels` map (round-3 MUP §2.7). Empty — every
+     *   caller that has no accepted contract, which includes `duo status`
+     *   today — renders byte-identically to every prior release: the label
+     *   line is emitted only when the map resolves the row's own surface.
      * @return array{lines: list<string>, ok: bool}
      */
     public static function render(
         array $plan,
         array $viewCategories = [],
         ?string $environment = null,
-        ?string $envsFileOverride = null
+        ?string $envsFileOverride = null,
+        array $surfaceLabels = []
     ): array {
         $lines = [];
         $counts = [];
@@ -207,6 +213,7 @@ final class PlanSummary {
             $lines[] = 'drift (environment changed since last capture/apply — capture first):';
             foreach ($plan['drift'] as $r) {
                 $lines[] = '  - ' . self::label($r);
+                self::appendSurfaceLine($lines, $r, $surfaceLabels, '    ');
             }
             // Verbatim match of agent/src/Command/Cli.php's plan() warning for the
             // identical condition — see this class's own docblock.
@@ -221,6 +228,7 @@ final class PlanSummary {
             $lines[] = 'blocked deletes (referential guard):';
             foreach ($blocked as $r) {
                 $lines[] = '  - ' . self::label($r) . ': ' . $r['blocked'];
+                self::appendSurfaceLine($lines, $r, $surfaceLabels, '    ');
             }
         }
 
@@ -228,6 +236,7 @@ final class PlanSummary {
             $lines[] = 'CONFLICT (repo and environment both changed since last sync):';
             foreach ($plan['conflict'] as $r) {
                 $lines[] = '  - ' . self::label($r);
+                self::appendSurfaceLine($lines, $r, $surfaceLabels, '    ');
                 foreach (self::conflictViewLines($r) as $detail) {
                     $lines[] = '    ' . $detail;
                 }
@@ -238,6 +247,7 @@ final class PlanSummary {
             $lines[] = 'DELETE_CONFLICT (target differs from the tombstone expected base):';
             foreach ($plan['delete_conflict'] as $r) {
                 $lines[] = '  - ' . self::label($r) . ': ' . ($r['reason'] ?? 'deletion base mismatch');
+                self::appendSurfaceLine($lines, $r, $surfaceLabels, '    ');
                 foreach (self::conflictViewLines($r) as $detail) {
                     $lines[] = '    ' . $detail;
                 }
@@ -248,6 +258,7 @@ final class PlanSummary {
             $lines[] = 'COLLISION (unmanaged env entity already has this slug — rerun with --adopt-by-slug or rename):';
             foreach ($plan['collision'] as $r) {
                 $lines[] = '  - ' . self::label($r) . " (env id {$r['env_id']})";
+                self::appendSurfaceLine($lines, $r, $surfaceLabels, '    ');
             }
         }
 
@@ -585,6 +596,102 @@ final class PlanSummary {
             return '<invalid-name>';
         }
         return $value;
+    }
+
+    /**
+     * The reviewed WordPress-language name of the surface one plan row sits
+     * on, or null when no reviewed name covers it (round-3 MUP §2.7).
+     *
+     * The mapping is deliberately from the row's own value-free identity —
+     * its canonical `path` under `state/`, whose grammar is
+     * spec/repo-format.md's, plus its `type` — onto the surface-id grammar
+     * `SurfaceCatalog` already mints (`<kind>:<name>`). Two properties fall
+     * out of that and both are load-bearing:
+     *
+     *  - The host learns no plugin name. `state/posts/product/…` yields the
+     *    id `post_type:product` because that is what the PATH says; the
+     *    human word "Products" comes back out of the operator's reviewed
+     *    `declarations.surface_labels`, never out of this file. Engine core
+     *    still does not dispatch on plugin names (MUP §0, honesty rule 3).
+     *  - An unmapped row prints exactly what it printed before. A surface
+     *    the contract does not name, a path shape this grammar does not
+     *    know, or a caller with no contract at all resolves to null and the
+     *    line is not emitted — which is why adding this to `render()` cannot
+     *    move a single existing output byte.
+     *
+     * `state/options/core.json` is deliberately absent: one file carries
+     * every core option group, so no single reviewed surface id covers a row
+     * pointing at it, and inventing one would put a wrong noun in front of
+     * an operator resolving a conflict.
+     *
+     * @param array<string,mixed> $row a plan row
+     * @param array<string,string> $labels the contract's surface_labels map
+     */
+    public static function surfaceLabel(array $row, array $labels): ?string {
+        if ($labels === []) {
+            return null;
+        }
+        $id = self::surfaceId($row);
+        if ($id === null) {
+            return null;
+        }
+        $label = $labels[$id] ?? null;
+
+        return is_string($label) && $label !== '' ? self::oneLine($label) : null;
+    }
+
+    /**
+     * The surface id for one plan row, from its canonical path.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function surfaceId(array $row): ?string {
+        $path = is_string($row['path'] ?? null) ? (string) $row['path'] : '';
+        $type = is_string($row['type'] ?? null) ? (string) $row['type'] : '';
+        if ($type === 'attachment') {
+            return 'media:attachment';
+        }
+        if ($path === '') {
+            return null;
+        }
+        // `state/menus/<slug>.json` owns the nav_menu term and its items, so
+        // the surface an operator recognises is the menu taxonomy, not the
+        // slug — a per-menu id would never appear in a reviewed contract.
+        if (str_starts_with($path, 'state/menus/')) {
+            return 'taxonomy:nav_menu';
+        }
+        foreach (['state/posts/' => 'post_type', 'state/terms/' => 'taxonomy', 'state/tables/' => 'table'] as $prefix => $kind) {
+            if (!str_starts_with($path, $prefix)) {
+                continue;
+            }
+            $rest = substr($path, strlen($prefix));
+            $slash = strpos($rest, '/');
+            if ($slash === false || $slash === 0) {
+                return null;
+            }
+
+            return $kind . ':' . substr($rest, 0, $slash);
+        }
+
+        return null;
+    }
+
+    /**
+     * Append the one-line reviewed surface name under a row, when there is
+     * one. A no-op otherwise, which is what keeps this additive.
+     *
+     * @param list<string> $lines
+     * @param array<string,mixed> $row
+     * @param array<string,string> $labels
+     */
+    private static function appendSurfaceLine(array &$lines, array $row, array $labels, string $indent): void {
+        if (!is_array($row)) {
+            return;
+        }
+        $label = self::surfaceLabel($row, $labels);
+        if ($label !== null) {
+            $lines[] = $indent . 'surface: ' . $label;
+        }
     }
 
     private static function label(array $r): string {

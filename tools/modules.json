@@ -1290,7 +1290,10 @@
         "purpose": "Rollback authority and the verified/scoped rollback profiles that prove a target can be returned to a known state, plus (round 3) profile selection, the checkpoint catalog and the recovery claim the authorization plan embeds.",
         "status": "populated",
         "entry_points": [
-          "RollbackAuthority"
+          "RollbackAuthority",
+          "RecoveryProfileSelection",
+          "RecoveryClaim",
+          "CheckpointCatalog"
         ],
         "depends_on": [
           "Recovery",
@@ -1298,8 +1301,11 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 3,
+        "file_count": 6,
         "files": [
+          "CheckpointCatalog.php",
+          "RecoveryClaim.php",
+          "RecoveryProfileSelection.php",
           "RollbackAuthority.php",
           "ScopedRollbackProfile.php",
           "VerifiedRollbackProfile.php"
@@ -1389,7 +1395,7 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 21,
+        "file_count": 25,
         "files": [
           "AdoptCommand.php",
           "AssessCommand.php",
@@ -1409,9 +1415,13 @@
           "PendingCommand.php",
           "PromoteCommand.php",
           "RebaseCommand.php",
+          "RecoverCommand.php",
           "RefreshCommand.php",
+          "RehearseCommand.php",
+          "ReleaseCommand.php",
           "ScopeCommand.php",
-          "StatusCommand.php"
+          "StatusCommand.php",
+          "VerifyCommand.php"
         ]
       },
       "Assess": {
@@ -1446,9 +1456,15 @@
       },
       "Release": {
         "layer": "engine",
-        "purpose": "RESERVED (round 3): the frozen authorization plan, its renderer, the closed next-action set and the journey oracle. The verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`) live in `cli/src/Command/`, which composes them with Environment, Recovery and the existing promote/deploy handlers; the recovery claim reaches the plan as a canonical array, not as a Recovery class reference.",
-        "status": "reserved",
-        "entry_points": [],
+        "purpose": "The release mechanism \u2014 `AuthorizationPlan` (build, freeze before any mutation, digest and re-verify the `duo-authorization-plan/v1` document), `AuthorizationPlanRenderer` (its bounded human projection, ending in one question), `ReleaseOutcome` + `NextAction` (the closed post-freeze next-action set and the deterministic failure-class mapping) and `JourneyOracle` (the declared affected-journey probes and the `duo-verify-report/v1` document). Mechanism only: the verb boundaries (`ReleaseCommand`, `VerifyCommand`, `RecoverCommand`, cli:Command) compose it with Environment, Recovery and the existing promote/deploy handlers, and the recovery claim reaches the plan as a canonical array, not as a Recovery class reference \u2014 which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "status": "populated",
+        "entry_points": [
+          "AuthorizationPlan",
+          "AuthorizationPlanRenderer",
+          "ReleaseOutcome",
+          "NextAction",
+          "JourneyOracle"
+        ],
         "depends_on": [
           "Contract",
           "Plan",
@@ -1458,14 +1474,23 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 0,
-        "files": []
+        "file_count": 5,
+        "files": [
+          "AuthorizationPlan.php",
+          "AuthorizationPlanRenderer.php",
+          "JourneyOracle.php",
+          "NextAction.php",
+          "ReleaseOutcome.php"
+        ]
       },
       "Rehearse": {
         "layer": "engine",
-        "purpose": "RESERVED (round 3): rehearsal mechanism \u2014 the plan preview of what a release would touch and the containment disclosure. The verb boundary (`RehearseCommand`) lives in `cli/src/Command/` and drives Environment's materialize/reap there.",
-        "status": "reserved",
-        "entry_points": [],
+        "purpose": "The rehearsal mechanism \u2014 `RehearsalPlanPreview`, which joins the converged environment's plan-category projection with the assess-style surface rows restricted to that plan's actual scope to state what a release would touch, and `RehearsalDisclosure`, which owns MUP \u00a72.2's containment banner and its consequence. Mechanism only, and pure: no I/O, no clock, no provider. The verb boundary (`RehearseCommand`, cli:Command) drives `EnvironmentLifecycle` and hands both documents in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "status": "populated",
+        "entry_points": [
+          "RehearsalPlanPreview",
+          "RehearsalDisclosure"
+        ],
         "depends_on": [
           "Contract",
           "Plan",
@@ -1474,8 +1499,11 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 0,
-        "files": []
+        "file_count": 2,
+        "files": [
+          "RehearsalDisclosure.php",
+          "RehearsalPlanPreview.php"
+        ]
       },
       "Contract": {
         "layer": "policy",

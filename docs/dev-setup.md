@@ -373,3 +373,49 @@ real `php cli/duo` over a `local` transport with a fake `wp` on `PATH`, built by
 `sandbox/tests/fixtures/assess/make-fixture.php`), plus the Contract module's
 own `regress_assess_projection.php`, `regress_contract_shape.php` and
 `regress_contract_projection.php`.
+
+### `duo release` / `duo verify` / `duo recover` / `duo rehearse` (round-3 MUP §2.2–§2.5)
+
+Four more host verbs, all environment-bound, all with a `--format=json`
+document of their own. Four things about them are easy to get wrong:
+
+- **`release` composes `promote`; it does not fork it.** `cli/duo`'s
+  `cmd_release()` injects `cmd_promote()` — the same entry point `duo promote`
+  itself calls — so deploy-before-apply ordering, the lease, the fence, the
+  checkpoint, DUO-3310's verified/scoped rollback selection and every
+  `promote phase:` output byte come from one implementation. `ReleaseCommand`
+  adds the frozen authorization in front of it and the verification behind it.
+  `regress_release_next_action.sh` asserts the exact phase sequence, so a fork
+  would fail that suite rather than drift quietly.
+- **The two closed sets are not interchangeable.** A refusal *before* the
+  authorization plan is frozen is an assessment gap and carries a §2.1 gap
+  action (`declare in contract`, `classify`, `exclude`, …). Only a failure
+  *after* the freeze carries a release next action from
+  `resume|reconcile|retry|recover|requalify|escalate`. `duo release` observes
+  the failure class from a read-only re-read of the target rather than from
+  promote's exit code, and falls back to `nothing_safe` → `escalate` rather
+  than guessing.
+- **`--from <ref>` is a binding assertion, never a git transport.** It resolves
+  the ref locally with `git rev-parse`, reads the target repository `HEAD`
+  through the driver, and refuses a mismatch with `reconcile`. Nothing is
+  fetched, pushed or checked out — `regress_release_ref_binding.sh` proves that
+  against a recorded `git` shim, not against the source.
+- **`duo verify`'s convergence half is a read-only plan re-read, and says so.**
+  `wp duo verify-canonical` needs a `--compiled` artifact and a
+  `duo-policy-snapshot/v5` that only a mutating apply produces
+  (`agent/src/Review/ConvergenceVerifier.php:87-110`), and MUP §2.4 forbids
+  adding an agent command to export one. So the report carries
+  `verifier: "plan-reconciliation/v1"` plus a disclosure naming where the
+  byte-level recapture actually ran — inside the release's own apply, where it
+  fails closed. It is never labelled `canonical-recapture/v1`.
+
+`duo recover` replaces typing `recovery/rollback-control.php` by hand. It
+refuses without `--writers-excluded` (the checkpoint contains its own promotion
+lease row, so a lock inside the database being imported cannot protect the
+window), enforces code-first ordering by name, and runs the fourth ordered step
+— the lease-releasing abort — in a `finally`, so a failed import cannot skip
+it. Offline coverage: `sandbox/tests/regress_release_next_action.sh`,
+`regress_release_ref_binding.sh` and `regress_recover_ordering.sh`, built by
+`sandbox/tests/fixtures/release/make-release-site.php` (which extends the
+assess fixture) and `make-recover-site.php` (which adds a fake `ssh` and a stub
+rollback runtime).

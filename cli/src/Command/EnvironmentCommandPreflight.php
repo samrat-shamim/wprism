@@ -18,6 +18,13 @@ final class EnvironmentCommandPreflight {
         // environment and another not — a difference an operator would
         // discover as an inconsistent error message rather than a feature.
         'assess', 'contract',
+        // Round-3 MUP §2.2-§2.5. All four take <env> and all four reach the
+        // target: release drives the promote path, verify re-reads it,
+        // recover drives the rollback authority runtime on it, and rehearse
+        // materializes into it. Appended in MUP's own section order so this
+        // list reads as the document does; `regress_environment_command_preflight.php`
+        // pins the order as a two-sided ratchet.
+        'release', 'verify', 'recover', 'rehearse',
     ];
 
     public static function requiresEnvironment(string $verb): bool {
