@@ -1000,6 +1000,57 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
         'a hard secret inside generated state stays an inert unsupported question instead of becoming an unroutable proposal');
 }
 
+// ---------------------------------------------------------------------------
+// T6 §3.5: --seed honours --match. An author drafting one plugin's adapter
+// wants that plugin's family — not the ~90 core-option prefixes coverage
+// cannot attribute either (the adapter walk read a wpforms draft proposing
+// `admin`, `blog`, `avatar`… beside `wpforms`). Unscoped drafts keep
+// everything, as before; a scoped one keeps the prefixes, tables and scope
+// post types the operator's pattern matches, spelled as an option name would
+// be (`<prefix>_`).
+{
+    $t = "$root/t9-seed-scope";
+    $lib = make_lib("$t/lib");
+    make_site("$t/repo");
+    $seed = "$t/coverage.json";
+    wrj($seed, [
+        'format' => 'duo-coverage-report/v1',
+        'options' => [
+            'total' => 5, 'captured' => 1, 'pending' => 0, 'invisible_total' => 4,
+            'invisible_transient' => 0, 'invisible_other' => 4,
+            'invisible_groups' => [
+                ['prefix' => 'wpforms', 'count' => 2, 'probable_owner' => 'wpforms-lite'],
+                ['prefix' => 'wpforms_transient', 'count' => 1, 'probable_owner' => null],
+                ['prefix' => 'admin', 'count' => 1, 'probable_owner' => null],
+            ],
+        ],
+        'tables' => [
+            'undeclared_total' => 2,
+            'undeclared' => [
+                ['table' => 'wp_wpforms_tasks_meta', 'logical_name' => 'wpforms_tasks_meta', 'row_count' => 3, 'probable_owner' => 'wpforms-lite'],
+                ['table' => 'wp_acme_index', 'logical_name' => 'acme_index', 'row_count' => 1, 'probable_owner' => null],
+            ],
+        ],
+    ]);
+    $scoped = gen_draft("$t/repo", 'wpforms', $lib, ['--seed=' . $seed, '--match=^_?wpforms_']);
+    $targets = static function (array $draft, string $section): array {
+        return array_map(static fn (array $c): string => (string) $c['target'], $draft['_draft']['proposals'][$section] ?? []);
+    };
+    check(
+        $targets($scoped, 'option_namespaces') === ['option_namespaces[wpforms]', 'option_namespaces[wpforms_transient]'],
+        'a --match-scoped seed proposes only the matching option prefixes: ' . json_encode($targets($scoped, 'option_namespaces'))
+    );
+    check(
+        $targets($scoped, 'tables') === ['tables.wpforms_tasks_meta'],
+        'a --match-scoped seed proposes only the matching undeclared tables: ' . json_encode($targets($scoped, 'tables'))
+    );
+    $unscoped = gen_draft("$t/repo", 'all', $lib, ['--seed=' . $seed]);
+    check(
+        count($targets($unscoped, 'option_namespaces')) === 3 && count($targets($unscoped, 'tables')) === 2,
+        'an unscoped seed still proposes every invisible prefix and undeclared table'
+    );
+}
+
 echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

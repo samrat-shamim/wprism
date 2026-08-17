@@ -310,7 +310,7 @@ final class AdapterDraft {
             [$manifest, $factConflicts] = self::merge_prior_manifest_intent($exported, $prior);
             $priorDraft = $prior === null ? null : ($prior['_draft'] ?? null);
             $manifest['_draft'] = self::build_draft(
-                $resolved, $name, $evidenceNote, $priorDraft, $factConflicts, $seedDocument
+                $resolved, $name, $evidenceNote, $priorDraft, $factConflicts, $seedDocument, $match
             );
             self::assert_output_is_safe($manifest);
         } catch (\Throwable $t) {
@@ -685,7 +685,8 @@ final class AdapterDraft {
         ?string $evidenceNote,
         ?array $priorDraft,
         array $factConflicts,
-        ?array $seed = null
+        ?array $seed = null,
+        string $match = '.*'
     ): array {
         $stateDir = $repo . '/state';
 
@@ -704,7 +705,7 @@ final class AdapterDraft {
             // seeded candidate loses a target collision to an observation of
             // real captured bytes — a table Duo already captured is better
             // evidence than a table Duo merely knows exists.
-            self::propose_from_seed($seed),
+            self::propose_from_seed($seed, $match),
         ] as $group) {
             foreach ($group as $candidate) {
                 $raw[] = $candidate;
@@ -1035,7 +1036,7 @@ final class AdapterDraft {
      * @param array<string,mixed>|null $seed a coverage or assess-inventory document
      * @return list<array<string,mixed>>
      */
-    private static function propose_from_seed(?array $seed): array {
+    private static function propose_from_seed(?array $seed, string $match = '.*'): array {
         if ($seed === null) {
             return [];
         }
@@ -1046,12 +1047,27 @@ final class AdapterDraft {
             ? (is_array($seed['coverage'] ?? null) ? $seed['coverage'] : [])
             : $seed;
         $out = [];
+        // `--match` scopes the seed the way it scopes the exported rules: an
+        // author drafting the wpforms adapter wants wpforms' family, not the
+        // 90 core-option prefixes coverage also cannot attribute (the T6 walk
+        // read a draft proposing `admin`, `blog`, `avatar`… beside `wpforms`).
+        // A prefix or table is kept when the operator's pattern matches it as
+        // an option name would spell it (`<prefix>_`); an unscoped draft
+        // keeps everything, as before.
+        $keeps = static function (string $name) use ($match): bool {
+            return $match === '.*' || $match === ''
+                || @preg_match('/' . $match . '/', $name) === 1
+                || @preg_match('/' . $match . '/', $name . '_') === 1;
+        };
 
         foreach (($coverage['options']['invisible_groups'] ?? []) as $group) {
             if (!is_array($group) || !is_string($group['prefix'] ?? null) || $group['prefix'] === '') {
                 continue;
             }
             $prefix = $group['prefix'];
+            if (!$keeps($prefix)) {
+                continue;
+            }
             // `guess_prefix()` strips a leading underscore for GROUPING only,
             // so the namespace has to match both spellings or every private
             // option in the family stays invisible after the author ratifies.
@@ -1112,7 +1128,7 @@ final class AdapterDraft {
             // itself a substring of the table name.
             $logical = is_string($row['logical_name'] ?? null) ? $row['logical_name'] : null;
             $live = is_string($row['table'] ?? null) ? $row['table'] : null;
-            if ($logical === null || $logical === '') {
+            if ($logical === null || $logical === '' || !$keeps($logical)) {
                 continue;
             }
             $rows = is_int($row['row_count'] ?? null) ? $row['row_count'] : 0;
@@ -1144,6 +1160,9 @@ final class AdapterDraft {
         }
 
         foreach (self::seed_scope_post_types($seed) as $postType => $observation) {
+            if (!$keeps($postType)) {
+                continue;
+            }
             $out[] = [
                 'target' => 'post_types.' . $postType,
                 'candidate' => ['class' => 'runtime'],

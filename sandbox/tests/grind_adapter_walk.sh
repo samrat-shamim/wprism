@@ -2264,10 +2264,12 @@ scenario_s2() {
     plan "walk_agent_json <coverage raw> > $seed"
   else
     walk_agent_json "$SCRATCH/$S-coverage.raw" > "$seed"
-    jq -e --arg p "$WPFORMS_OPTION_PREFIX" '
-      [.options.invisible_groups[] | select(.prefix == $p)] | length == 1
+    # Coverage groups by family token (`wpforms`, and sub-families such as
+    # `wpforms_transient`); at least the family itself must be reported.
+    jq -e --arg f "$WPFORMS_OPTION_FAMILY" '
+      [.options.invisible_groups[] | select(.prefix == $f or (.prefix | startswith($f + "_")))] | length >= 1
     ' "$seed" >/dev/null \
-      || fail "$S: coverage reports no invisible option group for $WPFORMS_OPTION_PREFIX, so --seed has nothing to propose"
+      || fail "$S: coverage reports no invisible option group for the $WPFORMS_OPTION_FAMILY family, so --seed has nothing to propose"
   fi
 
   say "$S — duo adapter-draft ${PAIR}1 --seed --out=adapters/$WPFORMS_CPT.json"
@@ -2282,10 +2284,16 @@ scenario_s2() {
     adapter-draft "$HOST_R1" --name="$WPFORMS_CPT" --seed="$seed" --out="$draft"
   if ! dry; then
     [ -s "$draft" ] || fail "$S: adapter-draft --out wrote no draft at $draft"
+    # Seeded candidates are inert `_draft.proposals` (Policy::load() never
+    # applies a proposal); the operator ratifies them by hand below. Scoped by
+    # --match, the seed must propose the wpforms family and its tables, and
+    # NOT the core-option prefixes coverage cannot attribute either.
     jq -e --arg p "$WPFORMS_OPTION_PREFIX" '
-      [(.option_namespaces // [])[] | select(.match | test($p))] | length >= 1
+      [(._draft.proposals.option_namespaces // [])[] | select(.candidate.match | test($p))] | length >= 1
+      and ([(._draft.proposals.tables // [])[] | select(.target | test("tables\\." + $p))] | length >= 1)
+      and ([(._draft.proposals.option_namespaces // [])[] | select(.candidate.match | test("admin|blog|avatar"))] | length == 0)
     ' "$draft" >/dev/null \
-      || fail "$S: §3.5 — --seed did not turn coverage's $WPFORMS_OPTION_PREFIX option prefix into an option_namespaces proposal"
+      || fail "$S: §3.5 — --seed did not turn coverage's $WPFORMS_OPTION_PREFIX prefix and tables into scoped proposals (or proposed unrelated core prefixes)"
   fi
   pass "$S — the draft exists and carries the seed's option-prefix proposal"
 
@@ -2321,6 +2329,8 @@ scenario_s2() {
         post_types: {($cpt): {class: "authored", body: "verbatim"}},
         spec_version: 2,
         tables: {
+          ("\($name)_analytics_forms"): {class: "runtime"},
+          ("\($name)_analytics_snapshots"): {class: "runtime"},
           ("\($name)_logs"): {class: "runtime"},
           ("\($name)_payment_meta"): {class: "runtime"},
           ("\($name)_payments"): {class: "runtime"},
