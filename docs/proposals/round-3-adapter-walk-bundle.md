@@ -169,7 +169,9 @@ provably did not review:
   declares a plugin (`validate_entry()` compares them), else
   `{"source": "site-operator"}`.
 
-The resulting document, for reference:
+The resulting document, for a manifest declaring `post_types`, `options`, an
+intent-only `tables.acme_shop_index`, a default-authored `tables.acme_shop_meta`
+and a `plugin` claim (this is the exact fixture the regression pins):
 
 ```json
 {
@@ -177,21 +179,29 @@ The resulting document, for reference:
     "manifests": {
         "<n>": {
             "capabilities": {
-                "deletion_semantics": {"supported": [], "unsupported": ["all"]},
-                "entity_sections": ["options"],
-                "field_sections": [],
+                "deletion_semantics": {
+                    "supported": [],
+                    "unsupported": ["every declared deletion selector"]
+                },
+                "entity_sections": ["post_types", "tables"],
+                "field_sections": ["options"],
                 "lifecycle_phases": [],
-                "operations": ["apply", "capture", "deploy"]
+                "operations": ["apply", "capture", "compile", "deploy", "plan", "recapture"]
             },
-            "default_authored_keyspaces": [],
+            "default_authored_keyspaces": [
+                {"reason": "…", "status": "unsupported", "table": "acme_shop_meta"}
+            ],
             "evidence": {
                 "bundle_schema": "duo-site-adapter-certification-bundle/v1",
                 "tests": []
             },
-            "reason": "<non-empty text>",
+            "reason": "<the --reason text, verbatim>",
             "status": "certified",
-            "supported_versions": {"<non-empty object>": "…"},
-            "unsupported": [{"operation": "…", "reason": "…", "surface": "…"}]
+            "supported_versions": {"plugin": "acme-shop/acme-shop.php", "range": {"max": "3.0.0", "min": "1.0.0"}},
+            "unsupported": [
+                {"operation": "delete", "reason": "…", "surface": "deletions.*"},
+                {"operation": "apply", "reason": "…", "surface": "tables.acme_shop_index"}
+            ]
         }
     },
     "profiles": []
