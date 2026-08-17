@@ -1,0 +1,425 @@
+
+[1;36m== boot pair t6d1 (t6d11 :9302 / t6d12 :9303), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    4654b7cc546fbd0553b70e0ea2ee50caa7f687aa
+  invoked from:   <source-root>/sandbox
+  expected SHA:   4654b7cc546fbd0553b70e0ea2ee50caa7f687aa (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 4654b7cc546fbd0553b70e0ea2ee50caa7f687aa, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't6d1': databases ==[0m
+[1;32mok: wp_t6d11, wp_t6d12 exist[0m
+
+[1;36m== pair 't6d1': site-repo directories ==[0m
+
+[1;36m== pair 't6d1': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t6d1_wp1 Creating
+ Volume duo-t6d1_wp1 Created
+ Volume duo-t6d1_wp2 Creating
+ Volume duo-t6d1_wp2 Created
+ Container duo-t6d1-wp1-1 Creating
+ Container duo-t6d1-wp2-1 Creating
+ Container duo-t6d1-wp1-1 Created
+ Container duo-t6d1-wp2-1 Created
+ Container duo-t6d1-wp1-1 Starting
+ Container duo-t6d1-wp2-1 Starting
+ Container duo-t6d1-wp2-1 Started
+ Container duo-t6d1-wp1-1 Started
+ Container duo-t6d1-cli1-1 Creating
+ Container duo-t6d1-cli2-1 Creating
+ Container duo-t6d1-cli2-1 Created
+ Container duo-t6d1-cli1-1 Created
+ Container duo-t6d1-cli2-1 Starting
+ Container duo-t6d1-cli1-1 Starting
+ Container duo-t6d1-cli2-1 Started
+ Container duo-t6d1-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't6d1': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't6d1': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-t6d1-cli1-run-555289cad90d Creating
+ Container duo-t6d1-cli1-run-555289cad90d Created
+Success: WordPress installed successfully.
+ Container duo-t6d1-cli1-run-f43ca3b3e3f3 Creating
+ Container duo-t6d1-cli1-run-f43ca3b3e3f3 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6d1-cli1-run-a402be9c8a62 Creating
+ Container duo-t6d1-cli1-run-a402be9c8a62 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t6d1-cli1-run-fd328d16c0a5 Creating
+ Container duo-t6d1-cli1-run-fd328d16c0a5 Created
+ Container duo-t6d1-cli1-run-032f356bba90 Creating
+ Container duo-t6d1-cli1-run-032f356bba90 Created
+ Container duo-t6d1-cli1-run-76e833320a64 Creating
+ Container duo-t6d1-cli1-run-76e833320a64 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t6d1-cli1-run-65bc17322a96 Creating
+ Container duo-t6d1-cli1-run-65bc17322a96 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9302)
+ Container duo-t6d1-cli2-run-0e9fd9770ae1 Creating
+ Container duo-t6d1-cli2-run-0e9fd9770ae1 Created
+Success: WordPress installed successfully.
+ Container duo-t6d1-cli2-run-b3207868de42 Creating
+ Container duo-t6d1-cli2-run-b3207868de42 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6d1-cli2-run-5d1bb3003e8b Creating
+ Container duo-t6d1-cli2-run-5d1bb3003e8b Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t6d1-cli2-run-d32a3b3d5f40 Creating
+ Container duo-t6d1-cli2-run-d32a3b3d5f40 Created
+ Container duo-t6d1-cli2-run-0e0d0afa44ed Creating
+ Container duo-t6d1-cli2-run-0e0d0afa44ed Created
+ Container duo-t6d1-cli2-run-8255e17d4ad3 Creating
+ Container duo-t6d1-cli2-run-8255e17d4ad3 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t6d1-cli2-run-4ea05ef59716 Creating
+ Container duo-t6d1-cli2-run-4ea05ef59716 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9303)
+
+[1;36m== pair 't6d1' ready ==[0m
+  wp1: http://localhost:9302 (published on host port 9302)
+  wp2: http://localhost:9303 (published on host port 9303)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t6d1 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t6d1 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t6d1 must stay exported, or pass -p duo-t6d1 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: woocommerce 11.0.0 (only stable in-range release; min == max-practical) ==[0m
+ Container duo-t6d1-cli1-run-3638ac64d45d Creating
+ Container duo-t6d1-cli1-run-3638ac64d45d Created
+ Container duo-t6d1-cli1-run-ef3980fc4877 Creating
+ Container duo-t6d1-cli1-run-ef3980fc4877 Created
+ Container duo-t6d1-cli1-run-0d53a83ddfda Creating
+ Container duo-t6d1-cli1-run-0d53a83ddfda Created
+ Container duo-t6d1-cli1-run-249e5759cc82 Creating
+ Container duo-t6d1-cli1-run-249e5759cc82 Created
+ Container duo-t6d1-cli1-run-c25e9c8f9b00 Creating
+ Container duo-t6d1-cli1-run-c25e9c8f9b00 Created
+ Container duo-t6d1-cli1-run-e83dd0608045 Creating
+ Container duo-t6d1-cli1-run-e83dd0608045 Created
+ Container duo-t6d1-cli2-run-8cd98bd8d3bc Creating
+ Container duo-t6d1-cli2-run-8cd98bd8d3bc Created
+ Container duo-t6d1-cli2-run-75980278baba Creating
+ Container duo-t6d1-cli2-run-75980278baba Created
+ Container duo-t6d1-cli2-run-08ccd0a8310e Creating
+ Container duo-t6d1-cli2-run-08ccd0a8310e Created
+ Container duo-t6d1-cli2-run-39a75431d0c0 Creating
+ Container duo-t6d1-cli2-run-39a75431d0c0 Created
+ Container duo-t6d1-cli2-run-d39078745c54 Creating
+ Container duo-t6d1-cli2-run-d39078745c54 Created
+ Container duo-t6d1-cli2-run-0d0d202eb91d Creating
+ Container duo-t6d1-cli2-run-0d0d202eb91d Created
+
+[1;36m== fetch + verify woocommerce 11.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-t6d1-cli1-run-e6a8e4145a57 Creating
+ Container duo-t6d1-cli1-run-e6a8e4145a57 Created
+artifact-cache: kind=plugin slug=woocommerce version=11.0.0 sha256=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666 source=cache-hit path=/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip
+ Container duo-t6d1-cli2-run-37e99200f46d Creating
+ Container duo-t6d1-cli2-run-37e99200f46d Created
+artifact-cache: kind=plugin slug=woocommerce version=11.0.0 sha256=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666 source=cache-hit path=/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip[0m
+ Container duo-t6d1-cli1-run-fa6114619216 Creating
+ Container duo-t6d1-cli1-run-fa6114619216 Created
+ Container duo-t6d1-cli1-run-7f2aa3e2a2aa Creating
+ Container duo-t6d1-cli1-run-7f2aa3e2a2aa Created
+ Container duo-t6d1-cli1-run-3486b11c3c88 Creating
+ Container duo-t6d1-cli1-run-3486b11c3c88 Created
+Warning: Orders table does not exist. Creating...
+[1;32mok: side 1: woocommerce 11.0.0 installed from verified artifact, active, HPOS enabled[0m
+ Container duo-t6d1-cli1-run-f3a4ca73f45d Creating
+ Container duo-t6d1-cli1-run-f3a4ca73f45d Created
+ Container duo-t6d1-cli1-run-092dbc17e438 Creating
+ Container duo-t6d1-cli1-run-092dbc17e438 Created
+ Container duo-t6d1-cli2-run-aed540c61c9e Creating
+ Container duo-t6d1-cli2-run-aed540c61c9e Created
+ Container duo-t6d1-cli1-run-7b28af9f4e88 Creating
+ Container duo-t6d1-cli1-run-7b28af9f4e88 Created
+ Container duo-t6d1-cli1-run-47012512e6ae Creating
+ Container duo-t6d1-cli1-run-47012512e6ae Created
+ Container duo-t6d1-cli1-run-fd5dbda02ef0 Creating
+ Container duo-t6d1-cli1-run-fd5dbda02ef0 Created
+ Container duo-t6d1-cli1-run-31b720c92a71 Creating
+ Container duo-t6d1-cli1-run-31b720c92a71 Created
+Success: Added term.
+ Container duo-t6d1-cli1-run-448e2e448ebf Creating
+ Container duo-t6d1-cli1-run-448e2e448ebf Created
+ Container duo-t6d1-cli1-run-25fcd4de23a3 Creating
+ Container duo-t6d1-cli1-run-25fcd4de23a3 Created
+ Container duo-t6d1-cli1-run-edac99516004 Creating
+ Container duo-t6d1-cli1-run-edac99516004 Created
+ Container duo-t6d1-cli1-run-0c5ef865f0e5 Creating
+ Container duo-t6d1-cli1-run-0c5ef865f0e5 Created
+ Container duo-t6d1-cli1-run-4a1980a210bc Creating
+ Container duo-t6d1-cli1-run-4a1980a210bc Created
+ Container duo-t6d1-cli1-run-c1bd7acb1357 Creating
+ Container duo-t6d1-cli1-run-c1bd7acb1357 Created
+ Container duo-t6d1-cli1-run-585fc4cad10c Creating
+ Container duo-t6d1-cli1-run-585fc4cad10c Created
+ Container duo-t6d1-cli1-run-cbb34d7f1669 Creating
+ Container duo-t6d1-cli1-run-cbb34d7f1669 Created
+ Container duo-t6d1-cli1-run-66e0459b175e Creating
+ Container duo-t6d1-cli1-run-66e0459b175e Created
+ Container duo-t6d1-cli1-run-96369a48c78d Creating
+ Container duo-t6d1-cli1-run-96369a48c78d Created
+ Container duo-t6d1-cli1-run-b5e943c99790 Creating
+ Container duo-t6d1-cli1-run-b5e943c99790 Created
+ Container duo-t6d1-cli1-run-1c1f1e30806d Creating
+ Container duo-t6d1-cli1-run-1c1f1e30806d Created
+sendmail: can't connect to remote host (127.0.0.1): Connection refused
+ Container duo-t6d1-cli1-run-de9ac8523ed2 Creating
+ Container duo-t6d1-cli1-run-de9ac8523ed2 Created
+ Container duo-t6d1-cli1-run-e032ddc3459e Creating
+ Container duo-t6d1-cli1-run-e032ddc3459e Created
+ Container duo-t6d1-cli1-run-d1e7e092f135 Creating
+ Container duo-t6d1-cli1-run-d1e7e092f135 Created
+ Container duo-t6d1-cli1-run-95263b5cef6e Creating
+ Container duo-t6d1-cli1-run-95263b5cef6e Created
+ Container duo-t6d1-cli1-run-ea2dadd32abd Creating
+ Container duo-t6d1-cli1-run-ea2dadd32abd Created
+ Container duo-t6d1-cli1-run-443cb074bf40 Creating
+ Container duo-t6d1-cli1-run-443cb074bf40 Created
+ Container duo-t6d1-cli1-run-c362795c3836 Creating
+ Container duo-t6d1-cli1-run-c362795c3836 Created
+ Container duo-t6d1-cli1-run-8578659e1a03 Creating
+ Container duo-t6d1-cli1-run-8578659e1a03 Created
+ Container duo-t6d1-cli1-run-146d8da53f58 Creating
+ Container duo-t6d1-cli1-run-146d8da53f58 Created
+ Container duo-t6d1-cli1-run-072c35ecf919 Creating
+ Container duo-t6d1-cli1-run-072c35ecf919 Created
+ Container duo-t6d1-cli1-run-a8ca5759acf3 Creating
+ Container duo-t6d1-cli1-run-a8ca5759acf3 Created
+ Container duo-t6d1-cli1-run-72f277913ee7 Creating
+ Container duo-t6d1-cli1-run-72f277913ee7 Created
+woocommerce seed: category=16 thumbnail=7 product=8 coupon=9 variable_product=10 (attrs size=1 color=2) zone=1 methods=1,2 tax_class=3 tax=1 source_runtime_order=13 source_runtime_review=1
+ Container duo-t6d1-cli1-run-ff5fc97fbf4a Creating
+ Container duo-t6d1-cli1-run-ff5fc97fbf4a Created
+Success: captured 12 posts, 11 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 2 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (woocommerce 11.0.0)[0m
+ Container duo-t6d1-cli1-run-52a131feb6d4 Creating
+ Container duo-t6d1-cli1-run-52a131feb6d4 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-t6d1-cli2-run-5d470c3120b2 Creating
+ Container duo-t6d1-cli2-run-5d470c3120b2 Created
+ Container duo-t6d1-cli2-run-827ba7f2765a Creating
+ Container duo-t6d1-cli2-run-827ba7f2765a Created
+ Container duo-t6d1-cli2-run-ea94aca8e17d Creating
+ Container duo-t6d1-cli2-run-ea94aca8e17d Created
+activated: woocommerce/woocommerce.php
+Success: 1 activated, 0 deactivated
+ Container duo-t6d1-cli2-run-2559e6d45cc6 Creating
+ Container duo-t6d1-cli2-run-2559e6d45cc6 Created
+Warning: Orders table does not exist. Creating...
+ Container duo-t6d1-cli2-run-61db4854618f Creating
+ Container duo-t6d1-cli2-run-61db4854618f Created
+ Container duo-t6d1-cli2-run-2cc6d4de60a1 Creating
+ Container duo-t6d1-cli2-run-2cc6d4de60a1 Created
+ Container duo-t6d1-cli2-run-9aca81334741 Creating
+ Container duo-t6d1-cli2-run-9aca81334741 Created
+woocommerce postdeploy: target_runtime_order=7 (HPOS enabled and compatibility-synced before apply)
+ Container duo-t6d1-cli2-run-fc104e208e0b Creating
+ Container duo-t6d1-cli2-run-fc104e208e0b Created
+Warning: adopted env post 1 as 01a0115c-1e67-74fe-8d39-2071099b8d7a (posts/attachment/01a0115c-1e67-74fe-8d39-2071099b8d7a--woocommerce-placeholder.md)
+Warning: adopted env post 4 as 01a0115c-1e68-7783-93c3-b3c50e53dd1d (posts/page/01a0115c-1e68-7783-93c3-b3c50e53dd1d--checkout.md)
+Warning: adopted env post 3 as 01a0115c-1e68-7bba-8d40-a9b2dda3d679 (posts/page/01a0115c-1e68-7bba-8d40-a9b2dda3d679--cart.md)
+Warning: adopted env post 2 as 01a0115c-1e68-7db4-a331-198aa132d981 (posts/page/01a0115c-1e68-7db4-a331-198aa132d981--shop.md)
+Warning: adopted env post 5 as 01a0115c-1e69-7705-bd71-9a4d99ba95c7 (posts/page/01a0115c-1e69-7705-bd71-9a4d99ba95c7--my-account.md)
+Warning: adopted env post 6 as 01a0115c-1e69-7d5c-925f-55eaf6da1981 (posts/page/01a0115c-1e69-7d5c-925f-55eaf6da1981--refund_returns.md)
+Warning: adopted env term 1 as 01a0115c-1e6b-70c5-ab63-affcf356eeba (terms/category/01a0115c-1e6b-70c5-ab63-affcf356eeba--uncategorized.json)
+Warning: adopted env term 2 as 01a0115c-1e6f-71d7-93b2-8c2b0c95f397 (terms/product_type/01a0115c-1e6f-71d7-93b2-8c2b0c95f397--simple.json)
+Warning: adopted env term 3 as 01a0115c-1e70-7f27-a646-3fd8fcef846e (terms/product_type/01a0115c-1e70-7f27-a646-3fd8fcef846e--grouped.json)
+Warning: adopted env term 4 as 01a0115c-1e72-72e0-bf0b-467be5575df5 (terms/product_type/01a0115c-1e72-72e0-bf0b-467be5575df5--variable.json)
+Warning: adopted env term 15 as 01a0115c-1e73-7470-8097-794c4271c70d (terms/product_cat/01a0115c-1e73-7470-8097-794c4271c70d--uncategorized.json)
+Warning: adopted env term 5 as 01a0115c-1e73-759c-8c5e-e6ed91c6e7ef (terms/product_type/01a0115c-1e73-759c-8c5e-e6ed91c6e7ef--external.json)
+Warning: native action fired: transient.delete (verified)
+Warning: provider capability fired: woocommerce-cache@1.0.0 invalidate_cache_groups (0.002s, verified)
+Warning: provider capability fired: woocommerce-product-lookups@1.0.0 rebuild_product_lookups (0.118s, verified)
+Success: applied 33 entities (canary clean) — plan was: {"create":19,"update":2,"unchanged":2,"drift":0,"conflict":0,"adopt":12,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":2,"effects_inventory":142,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (woocommerce 11.0.0, HPOS, canary clean)[0m
+conf2 attribute/variation check: conf-color,conf-size|1|2|yes
+[1;32mok: conf2 resolves both attribute taxonomies + the variable product's variations via WooCommerce's own APIs, zero manual pre-provisioning, at least one variation purchasable[0m
+conf2 product-category thumbnail check: term|8|attachment|file
+[1;32mok: conf2 product_cat thumbnail_id resolves through termmeta to its own local attachment and media file[0m
+conf2 shipping/tax check: flat=5.99|free=50.00|tax=7.25|taxclass=conformance-reduced-rate
+[1;32mok: conf2 resolves shipping-zone methods, rematerialized instance-option names, custom tax class, and tax rate through WooCommerce APIs[0m
+conf2 merchant-settings check: {"calc_taxes":"yes","enabled":"yes","title":"Conformance COD Desk","description":"Pay at the conformance desk.","instructions":"Use code CONF-COD-7 at pickup.","enable_for_methods":[],"enable_for_virtual":"yes","gateway_enabled":"yes","gateway_title":"Conformance COD Desk"}
+[1;32mok: conf2 preserves authored tax enablement and distinctive COD settings through WooCommerce's option and gateway APIs[0m
+conf2 HPOS runtime check: source=0|target=1|hpos=yes
+[1;32mok: source-only HPOS order stayed source-only and target-only HPOS order survived apply[0m
+conf2 Woo runtime surfaces: review=0|source_session=0|target_session=1|source_queue=0|target_queue=1
+[1;32mok: source reviews/sessions/queues stayed source-only and target runtime session/queue survived apply[0m
+conf2 Woo projection/cart check: {"simple_price":"14.99","small_price":"9.99","large_price":"12.99","parent_prices":["9.99","12.99"],"lookup":{"min_price":"9.9900","max_price":"12.9900"},"sale_scheduled":true,"cart_blocked_without_target_stock":true,"cart_after_target_stock":true}
+[1;32mok: price/product-meta/schedule projections are current; cart refuses absent source inventory then accepts target-local simple+variation stock[0m
+[1;32mok: Store API attribute filtering returns the visible, purchasable variable catalog product[0m
+[1;32mok: bounded Woo price/product-meta/sale projections verified; attribute and category lookups remain explicit manual boundaries[0m
+[1;32mok: conf2 renders its own product page with no fatal marker or conf1 host leak[0m
+ Container duo-t6d1-cli2-run-040ac1fb218a Creating
+ Container duo-t6d1-cli2-run-040ac1fb218a Created
+Success: captured 12 posts, 11 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 2 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at woocommerce 11.0.0 — the only currently available in-range boundary is proven without duplicate execution[0m
+
+[1;36m== negative control: woocommerce 10.9.4 (real wp.org release, closest stable below manifests/woocommerce.json's min 11.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-t6d1-cli1-run-01ba277fe30c Creating
+ Container duo-t6d1-cli1-run-01ba277fe30c Created
+ Container duo-t6d1-cli1-run-6d6cfd6bf86d Creating
+ Container duo-t6d1-cli1-run-6d6cfd6bf86d Created
+ Container duo-t6d1-cli1-run-3865b2dc4349 Creating
+ Container duo-t6d1-cli1-run-3865b2dc4349 Created
+ Container duo-t6d1-cli1-run-168118aad446 Creating
+ Container duo-t6d1-cli1-run-168118aad446 Created
+ Container duo-t6d1-cli1-run-5f2959248828 Creating
+ Container duo-t6d1-cli1-run-5f2959248828 Created
+ Container duo-t6d1-cli1-run-f0242ef490d7 Creating
+ Container duo-t6d1-cli1-run-f0242ef490d7 Created
+ Container duo-t6d1-cli1-run-dfa663357246 Creating
+ Container duo-t6d1-cli1-run-dfa663357246 Created
+artifact-cache: kind=plugin slug=woocommerce version=11.0.0 sha256=ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666 source=cache-hit path=/artifacts-cache/plugin-woocommerce-11.0.0-ba08c7fc58c98a11f22866269c5832d85c52b664806ec206036f09737ba21666.zip
+ Container duo-t6d1-cli1-run-72478762d782 Creating
+ Container duo-t6d1-cli1-run-72478762d782 Created
+ Container duo-t6d1-cli1-run-54835e8dd038 Creating
+ Container duo-t6d1-cli1-run-54835e8dd038 Created
+ Container duo-t6d1-cli1-run-f8c756618c00 Creating
+ Container duo-t6d1-cli1-run-f8c756618c00 Created
+Warning: Orders table does not exist. Creating...
+ Container duo-t6d1-cli1-run-6ad0dde9a1a2 Creating
+ Container duo-t6d1-cli1-run-6ad0dde9a1a2 Created
+ Container duo-t6d1-cli1-run-3e63e0ca25bd Creating
+ Container duo-t6d1-cli1-run-3e63e0ca25bd Created
+ Container duo-t6d1-cli2-run-dd4ee0aca4d5 Creating
+ Container duo-t6d1-cli2-run-dd4ee0aca4d5 Created
+ Container duo-t6d1-cli1-run-44939cfd1230 Creating
+ Container duo-t6d1-cli1-run-44939cfd1230 Created
+ Container duo-t6d1-cli1-run-b49e4ae65818 Creating
+ Container duo-t6d1-cli1-run-b49e4ae65818 Created
+ Container duo-t6d1-cli1-run-077766334eac Creating
+ Container duo-t6d1-cli1-run-077766334eac Created
+ Container duo-t6d1-cli1-run-2933ff3384f1 Creating
+ Container duo-t6d1-cli1-run-2933ff3384f1 Created
+Success: Added term.
+ Container duo-t6d1-cli1-run-affe90b4c871 Creating
+ Container duo-t6d1-cli1-run-affe90b4c871 Created
+ Container duo-t6d1-cli1-run-b48f587d23d1 Creating
+ Container duo-t6d1-cli1-run-b48f587d23d1 Created
+ Container duo-t6d1-cli1-run-8e7f476227ec Creating
+ Container duo-t6d1-cli1-run-8e7f476227ec Created
+ Container duo-t6d1-cli1-run-cd00bb91993d Creating
+ Container duo-t6d1-cli1-run-cd00bb91993d Created
+ Container duo-t6d1-cli1-run-85689984ebdc Creating
+ Container duo-t6d1-cli1-run-85689984ebdc Created
+ Container duo-t6d1-cli1-run-4fb8f295ca1a Creating
+ Container duo-t6d1-cli1-run-4fb8f295ca1a Created
+ Container duo-t6d1-cli1-run-6f08092d46f6 Creating
+ Container duo-t6d1-cli1-run-6f08092d46f6 Created
+ Container duo-t6d1-cli1-run-1830388cd042 Creating
+ Container duo-t6d1-cli1-run-1830388cd042 Created
+ Container duo-t6d1-cli1-run-1068f384d55c Creating
+ Container duo-t6d1-cli1-run-1068f384d55c Created
+ Container duo-t6d1-cli1-run-9c65ef225aea Creating
+ Container duo-t6d1-cli1-run-9c65ef225aea Created
+ Container duo-t6d1-cli1-run-8999275c7f5a Creating
+ Container duo-t6d1-cli1-run-8999275c7f5a Created
+ Container duo-t6d1-cli1-run-59d0f4643fa9 Creating
+ Container duo-t6d1-cli1-run-59d0f4643fa9 Created
+sendmail: can't connect to remote host (127.0.0.1): Connection refused
+ Container duo-t6d1-cli1-run-27540f0339de Creating
+ Container duo-t6d1-cli1-run-27540f0339de Created
+ Container duo-t6d1-cli1-run-03a864c6e02e Creating
+ Container duo-t6d1-cli1-run-03a864c6e02e Created
+ Container duo-t6d1-cli1-run-8c35c6302101 Creating
+ Container duo-t6d1-cli1-run-8c35c6302101 Created
+ Container duo-t6d1-cli1-run-66077f2fb4ec Creating
+ Container duo-t6d1-cli1-run-66077f2fb4ec Created
+ Container duo-t6d1-cli1-run-4b3c1362124f Creating
+ Container duo-t6d1-cli1-run-4b3c1362124f Created
+ Container duo-t6d1-cli1-run-78120e55f3a0 Creating
+ Container duo-t6d1-cli1-run-78120e55f3a0 Created
+ Container duo-t6d1-cli1-run-d07a2509f972 Creating
+ Container duo-t6d1-cli1-run-d07a2509f972 Created
+ Container duo-t6d1-cli1-run-59de5bf35e10 Creating
+ Container duo-t6d1-cli1-run-59de5bf35e10 Created
+ Container duo-t6d1-cli1-run-b835eafe1330 Creating
+ Container duo-t6d1-cli1-run-b835eafe1330 Created
+ Container duo-t6d1-cli1-run-d17cc6adaa07 Creating
+ Container duo-t6d1-cli1-run-d17cc6adaa07 Created
+ Container duo-t6d1-cli1-run-7ef280b5e625 Creating
+ Container duo-t6d1-cli1-run-7ef280b5e625 Created
+ Container duo-t6d1-cli1-run-d64d6aac7273 Creating
+ Container duo-t6d1-cli1-run-d64d6aac7273 Created
+woocommerce seed: category=16 thumbnail=7 product=8 coupon=9 variable_product=10 (attrs size=1 color=2) zone=1 methods=1,2 tax_class=3 tax=1 source_runtime_order=13 source_runtime_review=1
+ Container duo-t6d1-cli1-run-e05ee1c619de Creating
+ Container duo-t6d1-cli1-run-e05ee1c619de Created
+Success: captured 12 posts, 11 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 2 media blob(s) -> /siterepo/state
+ Container duo-t6d1-cli1-run-eca8d21af537 Creating
+ Container duo-t6d1-cli1-run-eca8d21af537 Created
+ Container duo-t6d1-cli1-run-9634756d7cbf Creating
+ Container duo-t6d1-cli1-run-9634756d7cbf Created
+ Container duo-t6d1-cli1-run-606741774a06 Creating
+ Container duo-t6d1-cli1-run-606741774a06 Created
+artifact-cache: kind=plugin slug=woocommerce version=10.9.4 sha256=6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9 source=cache-hit path=/artifacts-cache/plugin-woocommerce-10.9.4-6e58fc3ba9b18d1c9aee6b0227d3c3c09e4fe2c1332823bd2e0ac54ffcff64a9.zip
+ Container duo-t6d1-cli1-run-04a1f85b204c Creating
+ Container duo-t6d1-cli1-run-04a1f85b204c Created
+ Container duo-t6d1-cli1-run-9b5367ff647a Creating
+ Container duo-t6d1-cli1-run-9b5367ff647a Created
+ Container duo-t6d1-cli1-run-f5f0bbfe6128 Creating
+ Container duo-t6d1-cli1-run-f5f0bbfe6128 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - woocommerce/woocommerce.php 10.9.4 is active in this environment, outside the 'woocommerce' manifest's declared version_range (>=11.0.0 <12.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: woocommerce 10.9.4 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 't6d1': destroy ==[0m
+ Container duo-t6d1-wp2-1 Stopping
+ Container duo-t6d1-wp1-1 Stopping
+ Container duo-t6d1-cli2-1 Stopping
+ Container duo-t6d1-cli1-1 Stopping
+ Container duo-t6d1-cli2-1 Stopped
+ Container duo-t6d1-cli2-1 Removing
+ Container duo-t6d1-cli1-1 Stopped
+ Container duo-t6d1-cli1-1 Removing
+ Container duo-t6d1-cli2-1 Removed
+ Container duo-t6d1-cli1-1 Removed
+ Container duo-t6d1-wp2-1 Stopped
+ Container duo-t6d1-wp2-1 Removing
+ Container duo-t6d1-wp1-1 Stopped
+ Container duo-t6d1-wp1-1 Removing
+ Container duo-t6d1-wp2-1 Removed
+ Container duo-t6d1-wp1-1 Removed
+ Volume duo-t6d1_wp1 Removing
+ Volume duo-t6d1_wp2 Removing
+ Volume duo-t6d1_wp2 Removed
+ Volume duo-t6d1_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_t6d11/wp_t6d12 dropped[0m
+  siterepo/t6d1{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed t6d1 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m
