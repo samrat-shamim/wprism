@@ -104,7 +104,9 @@ final class RetainedCheckpoints {
      * The artifact hash is `grep`ped out of the sibling artifact rather than
      * parsed by a language runtime, because `grep`, `stat`, `sed` and
      * `basename` are the only tools every target already proved it has by
-     * running `wp` at all. Both `stat` dialects are tried (GNU/busybox `-c`,
+     * running `wp` at all. The artifact is `Canon::encode()`d — pretty-printed,
+     * `"artifact_hash": "<hex>"` with one space — so the pattern admits any
+     * run of spaces after the colon. Both `stat` dialects are tried (GNU/busybox `-c`,
      * BSD `-f`). A missing artifact yields an empty hash field, never an
      * absent line — the absence is printed, not implied.
      */
@@ -116,7 +118,7 @@ final class RetainedCheckpoints {
             . 'for f in "$d"/checkpoints/' . self::ID_PREFIX . '*.sql; do '
             . '[ -s "$f" ] || continue; '
             . 'b=$(basename "$f" .sql); '
-            . 'h=$(grep -o \'"artifact_hash":"[a-f0-9]\{64\}"\' "$d/artifacts/$b.json" 2>/dev/null | head -n 1 | sed \'s/.*"\([a-f0-9]\{64\}\)"$/\1/\'); '
+            . 'h=$(grep -o \'"artifact_hash": *"[a-f0-9]\{64\}"\' "$d/artifacts/$b.json" 2>/dev/null | head -n 1 | sed \'s/.*"\([a-f0-9]\{64\}\)"$/\1/\'); '
             . 'm=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0); '
             . 'printf \'%s\t%s\t%s\n\' "$b" "$h" "$m"; '
             . 'done; exit 0';

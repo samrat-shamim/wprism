@@ -196,11 +196,12 @@ file_put_contents(
     "-- fixture checkpoint\n"
 );
 // The compiled artifact promote retained beside the checkpoint, in the
-// agent's own encoding (json_encode, unescaped slashes): its top-level
-// artifact_hash is what a retained checkpoint's lease identity is read from.
+// agent's own encoding (CompiledArtifact::write() -> Canon::encode(), the
+// pretty-printed canonical form): its top-level artifact_hash is what a
+// retained checkpoint's lease identity is read from.
 file_put_contents(
     "$dir/target/.duo/artifacts/promote-" . RECOVER_OWNER . '.json',
-    json_encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'], JSON_UNESCAPED_SLASHES) . "\n"
+    \Duo\Canon::encode(['artifact_hash' => RECOVER_ARTIFACT, 'format' => 'duo-compiled/fixture'])
 );
 // The code-phase release's pair, dated earlier so the listing order is fixed.
 file_put_contents(
@@ -210,7 +211,7 @@ file_put_contents(
 touch("$dir/target/.duo/checkpoints/promote-" . RECOVER_CODE_OWNER . '.sql', 1_700_000_000);
 file_put_contents(
     "$dir/target/.duo/artifacts/promote-" . RECOVER_CODE_OWNER . '.json',
-    json_encode(['artifact_hash' => RECOVER_CODE_ARTIFACT, 'format' => 'duo-compiled/fixture'], JSON_UNESCAPED_SLASHES) . "\n"
+    \Duo\Canon::encode(['artifact_hash' => RECOVER_CODE_ARTIFACT, 'format' => 'duo-compiled/fixture'])
 );
 
 // The stub runtime. It answers only the two read-only actions the checkpoint
