@@ -39,6 +39,13 @@ duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
 duo adopt  <env>
 duo init   <env> [--yes]
 duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
+duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
+duo contract <env> show|propose|accept [--format=json]
+duo rehearse <env> --from <production-env> [--branch <ref>] [--create] [--ttl <seconds>] [--limit=<1..200>] [--format=json]
+duo rehearse <env> --reap [--format=json]
+duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>] [--accept-weaker-recovery] [--with-deletes] [--yes] [--limit=<1..200>] [--format=json]
+duo verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]
+duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded] [--operator-directed] [--limit=<1..200>] [--format=json]
 duo capabilities <env> [--format=json]
 duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
 duo lint    <env> [extra wp-cli flags...]
@@ -416,6 +423,116 @@ are rejected when the registry is loaded.
 
   `duo status` parses and reformats; it does not print the raw JSON. Use
   `duo plan <env> --format=json` for that.
+
+- **`duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]`**
+  — the decision-first, READ-ONLY assessment. One run composes `Doctor`, the
+  adoption and initialization probes, `wp duo assess-inventory`, `wp duo
+  capabilities` once per distinct registry operation, and the host adapter
+  catalog, and emits one row per WordPress-language surface carrying its state
+  class, handling, technical readiness, certification provenance, effect
+  containment and effect recovery semantics, plus the unknown/unclassified
+  queue counted and named and the smallest safe next action per gap from a
+  closed set. Surface rows are derived from the target's policy surface groups,
+  the registry claim's own surfaces and the contract's `surface_labels` map —
+  never from a plugin name. Containment reads `unknown — not enforced in this
+  profile` wherever it is not structurally prevented, and nothing here is a
+  capability claim. It writes nothing to the target; locally it writes
+  `.duo/contract/proposed.json` and regenerates `.duo/contract/projection.json`
+  when a contract has already been accepted. `--operation` narrows the
+  projected product operations (`capture`, `merge`, `release`, `verify`,
+  `delete`, `recover`; default all six) and `--limit` bounds every human
+  listing. Exit 0 for a bounded assessment **including one where every surface
+  is blocked** — assessment is not a completeness claim — and 1 only when the
+  assessment itself refuses.
+  See [docs/guides/assess.md](../docs/guides/assess.md).
+
+- **`duo contract <env> show|propose|accept [--format=json]`** — the per-site
+  application contract as one reviewed object under `.duo/contract/`.
+  `propose` regenerates `proposed.json` from a fresh assessment; a proposal is
+  never authority, and its generated external-effect entry is deliberately
+  unreviewed, so accepting it unread is refused by the schema rather than by
+  advice. `show` renders the accepted contract and its generated projection
+  from disk and contacts nothing — they are committed review artifacts.
+  `accept` re-runs the assessment, refuses a stale proposal rather than
+  reconciling it, writes `contract.json` + `projection.json` canonically under
+  compare-and-swap, and stages them; it never commits, because the commit is
+  the reviewer's signature. The attestation this profile writes is always
+  `unsigned`, so every site-scoped claim projects `Uncertified`.
+
+- **`duo rehearse <env> --from <production-env> [--branch <ref>] [--create]
+  [--ttl <seconds>]`** — `duo env materialize` plus a preview: the same option
+  grammar, the same machine-local `.duo-envs.json` provider, the same
+  capability negotiation, the same journal, the same exact
+  resource/lease/ownership compare. A missing provider capability is a refusal
+  naming that capability id; nothing is emulated. `--branch` defaults to the
+  branch this working tree is on. After convergence it prints what a release
+  would touch — the plan's own value-free category numbers and the assessed
+  surface rows restricted to that scope. EVERY run prints, first, before the
+  provider is contacted, `containment: unknown — not enforced in this profile;
+  do not point this environment at live payment or mail credentials.` and the
+  consequence that follows from it: a rehearsal in this profile cannot
+  authorize an `Experimental` or `Uncertified` capability. It is a preview and
+  evidence-gathering environment, not a qualification environment.
+  `duo rehearse <env> --reap` is `env reap` with the same compare-and-reap.
+
+- **`duo release <env> [--from=<ref>] [--plan-only] [--profile=<p>]
+  [--accept-weaker-recovery] [--with-deletes] [--yes]`** — the composed
+  release, which COMPOSES `duo promote` rather than forking it:
+  deploy-before-apply, the lease, the fence, the checkpoint and the
+  verified/scoped rollback selection all remain promote's, byte for byte. It
+  loads the accepted application contract (a site without one refuses with the
+  gap action `declare in contract`), reads the target once, treats `--from` as
+  a BINDING ASSERTION resolved locally and compared with the target `HEAD`
+  (mismatch refuses with the next action `reconcile`; nothing is fetched,
+  pushed or checked out), regenerates the per-site projection from current
+  facts and refuses BEFORE freezing anything on any surface in scope that is
+  `Experimental`, `Not qualified`, `Unsupported` or `Requalification required`,
+  on unknown effect recovery semantics, on a code lifecycle window with no
+  reviewed live external effect declared in the contract, on deletions without
+  `--with-deletes`, and on a deletion surface declared unsupported — every one
+  of those carrying an ASSESSMENT gap action, never a release next action. It
+  then selects the recovery profile the target can prove (`--profile` may only
+  strengthen silently; anything weaker than provable, `none` included, also
+  requires `--accept-weaker-recovery` and prints a warning), prints the frozen
+  authorization plan and the single question it ends in, writes it to
+  `.duo/releases/<plan_digest>.json` before any target mutation, re-verifies it
+  against the target at that instant (any difference refuses `plan_changed`),
+  executes through promote and verifies behind it. `--plan-only` stops after
+  the plan and mutates nothing at all. A failure AFTER the freeze carries
+  exactly one next action from the closed set
+  `resume | reconcile | retry | recover | requalify | escalate`.
+  Exit 0 success, 1 refusal/failure, 2 usage.
+  See [docs/guides/release.md](../docs/guides/release.md).
+
+- **`duo verify <env> [--plan=<digest>] [--limit=<1..200>] [--format=json]`** —
+  post-release verification in two independent parts, both required for a pass:
+  a fresh read-only convergence re-read of the target, and HTTP probes of the
+  journeys the contract declares, each with its expected status and expected
+  substring. An undeclared journey is never silently skipped — the report says
+  `journeys: 0 declared` and, for every surface the scope touched with no
+  journey declared, that verification is byte-level only for it. `--plan` binds
+  the report to one frozen authorization plan and refuses if the contract has
+  moved since. Exit 0 pass, 1 fail or refusal.
+
+- **`duo recover <env> [--list] [--restore=<checkpoint>] [--writers-excluded]
+  [--operator-directed]`** — the operator verb over the recovery runtime; it
+  replaces typing `recovery/rollback-control.php` by hand. `--list` prints the
+  checkpoint catalog (receipt id, state, kind, generation, owner, covered
+  inventory, age) with the disclosures that bound it — the rollback authority
+  holds one generation at a time, so it is the active receipt and not a
+  history. `--restore` performs the profile's own rollback, or drives the four
+  ordered operator-directed steps (abort → begin → isolated import → final
+  abort) including the mandatory final abort even when the import fails. The
+  recovery claim — what this profile restores and, literally, what it does NOT
+  — is printed before acting and again in the outcome; when a frozen
+  authorization plan matches this checkpoint it is that plan's claim,
+  unchanged. `--writers-excluded` is required, because the checkpoint contains
+  its own promotion lease row and a lock inside the database being imported
+  cannot protect the window. Code-first ordering is enforced, not advised: a
+  checkpoint taken around a code phase refuses a database import until code is
+  reconciled to the pre-release revision, which the refusal names. Only an
+  SSH-adopted target carries the rollback authority runtime.
+  See [docs/guides/recovery.md](../docs/guides/recovery.md).
 
 - **`duo explain <env> <selector> [--format=json]`** — rebuilds the current
   plan under a strict observation boundary and traces one itemized entity row

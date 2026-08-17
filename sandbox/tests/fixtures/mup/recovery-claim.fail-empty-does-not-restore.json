@@ -1,0 +1,17 @@
+{
+    "claim_digest": "sha256:7059bc32462de0cf1364c383641cfd24d8d3e1857393ebfc81bc4a9a4b4dbb4c",
+    "covered_resources": [
+        "database checkpoint /siterepo/.duo/checkpoints/promote-1.sql"
+    ],
+    "does_not_restore": [],
+    "format": "duo-recovery-claim/v1",
+    "maximum_loss_boundary": "writes committed after checkpoint 2026-08-17T09:14:02Z",
+    "profile": "operator-directed",
+    "restores": [
+        "database checkpoint"
+    ],
+    "writer_exclusion": {
+        "mechanism": "an external maintenance window: exclude every other writer, then assert it with --writers-excluded (a lock inside the database being imported cannot protect the window)",
+        "required": true
+    }
+}

@@ -24433,6 +24433,15 @@
                         "final-abort"
                     ]
                 },
+                "SOURCE_NONE": {
+                    "value_repr": "unpublished"
+                },
+                "SOURCE_PLAN": {
+                    "value_repr": "authorization-plan"
+                },
+                "SOURCE_RECEIPT": {
+                    "value_repr": "receipt"
+                },
                 "WRITERS_EXCLUDED_FLAG": {
                     "value_repr": "--writers-excluded"
                 }
@@ -24441,6 +24450,48 @@
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "checkpointLine": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "resolveClaim": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "frozenPlans",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "run": {
                     "abstract": false,
                     "final": false,

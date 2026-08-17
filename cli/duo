@@ -662,17 +662,24 @@ Verbs:
   recover <env>           The operator verb over the recovery runtime; it
     [--list]              replaces typing recovery/rollback-control.php by
     [--restore=<id>]      hand. --list prints the checkpoint catalog: receipt
-    [--writers-excluded]  id, state, owner, artifact hash, covered inventory
-    [--operator-directed] and age. --restore performs the profile's own
-    [--limit=<1..200>]    rollback, or drives the four ordered operator-directed
-    [--format=json]       steps (abort -> begin -> isolated import -> final
-                          abort) including the mandatory final abort even when
-                          the import fails.
+    [--writers-excluded]  id, state, kind, generation and age, with the covered
+    [--operator-directed] inventory beneath each row; the lease owner and the
+    [--limit=<1..200>]    artifact hash are --format=json only, because
+    [--format=json]       --restore=<id> takes the receipt id and nothing
+                          consumes the other two. --restore performs the
+                          profile's own rollback, or drives the four ordered
+                          operator-directed steps (abort -> begin -> isolated
+                          import -> final abort) including the mandatory final
+                          abort even when the import fails.
                           The recovery claim — what this profile restores and,
                           literally, what it does NOT — is printed before
                           acting and again in the outcome; when a frozen
                           authorization plan matches this checkpoint it is that
-                          plan's claim, unchanged.
+                          plan's claim, unchanged. The instant the checkpoint
+                          pins is printed on the line beneath it, named for the
+                          source it came from; it is not part of the claim,
+                          which carries no clock value so that one
+                          authorization keeps one plan digest.
                           --writers-excluded is required: the checkpoint
                           contains its own promotion lease row, so a lock
                           inside the database being imported cannot protect the

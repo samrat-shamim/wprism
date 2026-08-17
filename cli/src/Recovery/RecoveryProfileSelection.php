@@ -38,6 +38,20 @@ require_once __DIR__ . '/VerifiedRollbackProfile.php';
  *     so the claim that reaches the authorization plan and the claim `duo
  *     recover` re-prints are the same bytes.
  *
+ * ## `checkpoint_at` is a request fact, not a claim field
+ *
+ * The caller still hands in `checkpoint_at`, and this class still publishes
+ * it — as a TOP-LEVEL key of the selection, beside `claim` rather than
+ * inside it. The claim is digested whole inside the frozen authorization
+ * plan, so a clock value in it makes `plan_digest` change every second for
+ * one unchanged decision (`RecoveryClaim`'s docblock, "Why no field here
+ * holds a clock value"). Publishing the instant beside the claim keeps both
+ * facts on the operator's page and keeps the plan's identity stable.
+ *
+ * It is null for the `none` profile whatever the caller passed, because that
+ * profile takes no checkpoint at all — the same reason its boundary sentence
+ * has always ignored the instant.
+ *
  * ## Why the decision is split into prove/decide
  *
  * `proveVerified()` needs an `SshTransport` and (unless the caller already
@@ -145,11 +159,13 @@ final class RecoveryProfileSelection {
      * @param array{profile:string,reason:string,automatic:bool,scoped:bool,status:array<string,mixed>} $proof
      * @param array<string,mixed> $request closed keys: `requested_profile`
      *        (?string, the `--profile` value), `accept_weaker_recovery`
-     *        (bool), plus the four `RecoveryClaim::build()` facts that are
-     *        not the profile itself.
+     *        (bool), `checkpoint_at` (?string, canonical UTC seconds — see
+     *        the class docblock; it is published beside the claim, never in
+     *        it), plus the three `RecoveryClaim::build()` facts that are not
+     *        the profile itself.
      * @return array<string,mixed> keys: format, provable, selected,
      *         selected_because, requested, weaker_than_provable, warning,
-     *         refusal (?refusal spec), claim, claim_digest.
+     *         refusal (?refusal spec), claim, claim_digest, checkpoint_at.
      */
     public static function decide(array $proof, array $request = []): array {
         $unknown = array_diff(array_keys($request), self::REQUEST_KEYS);
@@ -170,6 +186,12 @@ final class RecoveryProfileSelection {
             );
         }
         $accepted = ($request['accept_weaker_recovery'] ?? false) === true;
+        $checkpointAt = $request['checkpoint_at'] ?? null;
+        if ($checkpointAt !== null && (!is_string($checkpointAt) || $checkpointAt === '')) {
+            throw new \InvalidArgumentException(
+                'recovery profile checkpoint_at must be a non-empty string or null'
+            );
+        }
 
         $selected = $provable;
         $weaker = false;
@@ -204,13 +226,13 @@ final class RecoveryProfileSelection {
 
         $claim = RecoveryClaim::build([
             'additional_does_not_restore' => $request['additional_does_not_restore'] ?? [],
-            'checkpoint_at' => $request['checkpoint_at'] ?? null,
             'covered_resources' => $request['covered_resources'] ?? [],
             'declared_external_effects' => $request['declared_external_effects'] ?? [],
             'profile' => $selected,
         ]);
 
         $selection = [
+            'checkpoint_at' => $selected === RecoveryClaim::NONE ? null : $checkpointAt,
             'claim' => $claim,
             'claim_digest' => (string) $claim['claim_digest'],
             'format' => self::FORMAT,

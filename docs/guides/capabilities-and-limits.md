@@ -169,6 +169,129 @@ only** today — never post or term meta, and never a `sub_keys` carve-out's
 individual keys, which stay governed by their own class. The reasoning is in
 [cli/README.md § Env-bound value provisioning](../../cli/README.md#env-bound-value-provisioning).
 
+## The six projected dimensions
+
+The five classes above are a *stored* fact: every value Duo sees carries one.
+The six dimensions on this page are not stored anywhere. They are **projected**
+onto shipped facts — `Policy::CLASSES`, the generated capability registry, the
+provider negotiation result, your reviewed contract's declarations, and the
+selected recovery profile's covered inventory — every time you run
+`duo assess`, `duo contract show`, `duo rehearse` or `duo release`. One
+implementation produces them, in
+[cli/src/Contract/ProjectionVocabulary.php](../../cli/src/Contract/ProjectionVocabulary.php),
+and a projected word is never written back into a manifest, the registry or
+`dispositions.json`. A declaration cannot certify itself, so readiness is
+recomputed from evidence on every run rather than read from a file.
+
+Each dimension is a **closed set**. Anything outside it is a defect, not a new
+case, and three words in these sets can never be printed at all in this
+release — they are listed with their reason because their absence is the
+honest part.
+
+Every surface is projected for six operations: `capture`, `merge`, `release`,
+`verify`, `delete`, `recover`. `duo assess`'s table shows one of them at a
+time and `--format=json` carries all six.
+
+**1. State class** — who owns this state.
+
+| Value | Projected from |
+|---|---|
+| `authored` | a policy/manifest `authored` rule — or a `managed` lifecycle option, which is authored intent reconciled by dedicated code |
+| `runtime` | a `runtime` rule |
+| `derived` | a `derived` rule |
+| `environment-bound` | an `env` rule |
+| `external` | a **declared** provider action whose declared effects reach a system outside this WordPress install |
+| `unclassified` | no rule matched: the review queue, or a name `duo coverage` reports as invisible to every installed adapter |
+
+`external` is only ever emitted from a declaration. Duo never infers from
+observation that a surface is externally owned; an unmodelled integration
+lands in `unclassified`, and therefore in `block`.
+
+**2. Handling** — the consequence of the class.
+
+| Value | When |
+|---|---|
+| `manage` | `authored` inside the captured scope, and the `managed` lifecycle options (annotated: reconciled by the code half, never by the generic state path) |
+| `preserve local` | `runtime` |
+| `rebuild` | `derived`. With no declared repair path the row keeps `rebuild` but readiness is forced to `Not qualified`, quoting the registry's own reason |
+| `rebind` | `environment-bound` |
+| `re-synchronize` | `external` **with a declared re-sync action**. Duo ships no generic one, so in practice an `external` surface blocks until a manifest declares otherwise — and the row says so |
+| `block` | `unclassified`, or any surface whose containment is unknown for the operation being projected |
+
+**3. Technical readiness** — computed from one capability-registry evaluation
+for this exact operation × surface × revision × target probe.
+
+| Value | Registry evidence behind it |
+|---|---|
+| `Ready` | certified, with no condition that is re-checked at the mutation gate |
+| `Ready with conditions` | certified, with at least one condition re-evaluated against the live target at the mutation gate (`plugin_version_mismatch`, `plugin_not_active`, `wordpress_version_mismatch`, `php_version_mismatch`, `database_version_mismatch`, `theme_version_mismatch`, any `env_missing` row) — or a provider negotiation problem, which is an **unmet** condition and therefore blocks, naming its code |
+| `Requalification required` | `evidence_not_current`, `revision_not_certified`, or a recovery profile's own evidence gone stale |
+| `Experimental` | an experimental claim, or candidate evidence |
+| `Not qualified` | `adapter_source_uncertified`, `missing_registry_entry`, `surface_not_registered` |
+| `Unsupported` | an excluded or unsupported claim, `surface_explicitly_unsupported`, `multisite_unsupported`, or a delete on a surface named in the adapter's own unsupported deletion semantics |
+
+Readiness is a *technical* answer, never a permission. Four of these six words
+block a release outright before it freezes anything —
+[release.md](release.md#when-release-refuses-before-it-freezes-anything) has
+the gate.
+
+**4. Certification provenance** — where the claim comes from.
+
+| Value | Meaning |
+|---|---|
+| `Platform-certified` | shipped adapter, certified claim, current evidence. The generated matrix in [docs/capabilities.md](../capabilities.md) is the authority |
+| `Uncertified` | everything else, including every site-scoped claim in this release |
+| `Site-certified` | **never emitted.** The certification attestation gate is deferred: every contract this build writes carries `attestation.state: "unsigned"`, so a site adapter's own evidence — however good — projects `Uncertified`. No amount of local evidence changes that today |
+
+**5. Effect containment** — whether an operation can reach a live external
+system.
+
+| Value | Meaning |
+|---|---|
+| `prevented` | the surface is mutated exclusively inside apply's hook-free window and the plan touches no declared provider action for it. Always printed with its literal basis: *no WordPress hooks fire in the apply window* |
+| `unknown` | everything else, printed as *unknown — not enforced in this profile*: the whole code lifecycle window (deploy → retire → activate → finalize, where hooks *do* fire), every declared provider action, every regenerator |
+| `live` | your reviewed contract declares a live external effect for this surface |
+| `sandboxed` | **never emitted.** Duo ships no egress control, so the value is not structurally provable |
+
+**6. Effect recovery semantics** — what a rollback would give back.
+
+| Value | Meaning |
+|---|---|
+| `provider-state restorable` | the bytes are inside the selected recovery profile's covered inventory, and the row names the bundle |
+| `not applicable` | the operation creates no external effect |
+| `irreversible` | a delete or tombstone with no restore coverage, or a surface whose deletion semantics are declared unsupported |
+| `unknown` | containment is unknown and an effect may exist — and the operation blocks |
+| `compensatable` | **never emitted.** It requires a declared compensation action, which does not exist in this release |
+
+### Containment is unknown, and that is a statement rather than a gap
+
+Duo does not default-deny outbound HTTP, mail, payment, webhook or queue
+traffic; it does not strip or rebind production credentials when it
+materializes a rehearsal environment; and it does not verify containment
+before a workflow is exercised. The only containment it can *prove* is
+`prevented`, and the proof is narrow and exact: the state apply window fires
+no WordPress hooks, so nothing in it can re-send a mail or re-charge a card.
+
+Three consequences follow, and each one is visible in the output rather than
+buried here.
+
+- **A rehearsal is a preview, not a sandbox.** `duo rehearse` prints the
+  disclosure before it contacts the provider, every run, and states the
+  consequence in the same breath: a rehearsal in this profile cannot authorize
+  an `Experimental` or `Uncertified` capability, because the spec permits that
+  only once containment is proven. Point a preview at test credentials.
+- **The lifecycle window has to be declared before it can be released
+  through.** `retire` and `activate` run on every promotion, code or not, and
+  hooks fire there. Unknown containment must never reach a live system, so
+  `duo release` refuses until the application contract carries a reviewed
+  `external_effects[]` entry naming that window `live` with an explicit
+  recovery semantics and a human reason. The declaration does not contain the
+  effect; it converts an unknown into a known, bounded, reviewed one.
+- **Rollback restores bytes, not consequences.** Every recovery profile —
+  including the strongest — prints a non-empty list of what it does not
+  restore, and it is the literal truth: see
+  [recovery.md](recovery.md#restores-versus-does_not_restore).
+
 ## Secrets and personal data
 
 ### The secret gate has two tiers

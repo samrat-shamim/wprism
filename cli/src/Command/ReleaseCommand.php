@@ -328,7 +328,7 @@ final class ReleaseCommand {
             // reads `recovery`, and building the claim before the gate has
             // run would ask the target to prove a profile for a release that
             // is about to be refused.
-            'recovery' => ['claim' => [], 'selected' => '', 'selected_because' => ''],
+            'recovery' => ['checkpoint_at' => null, 'claim' => [], 'selected' => '', 'selected_because' => ''],
             'scope' => $scope,
             'target' => $target,
         ];
@@ -343,6 +343,11 @@ final class ReleaseCommand {
             throw self::fromSpec($recovery['refusal']);
         }
         $inputs['recovery'] = [
+            // The instant is carried beside the claim, never inside it: the
+            // claim is digested into `plan_digest`, and a clock value there
+            // would give one unchanged decision a new identity every second
+            // (AuthorizationPlan::digest()).
+            'checkpoint_at' => $recovery['checkpoint_at'],
             'claim' => $recovery['claim'],
             'selected' => $recovery['selected'],
             'selected_because' => $recovery['selected_because'],
@@ -955,6 +960,11 @@ final class ReleaseCommand {
     ): array {
         $request = [
             'accept_weaker_recovery' => $flags['accept_weaker_recovery'],
+            // Release start, which is the instant the checkpoint `promote`
+            // takes immediately before the first mutation is dated from.
+            // `RecoveryProfileSelection::decide()` publishes it beside the
+            // claim rather than in it, and nulls it for the `none` profile,
+            // which takes no checkpoint at all.
             'checkpoint_at' => $now,
             'covered_resources' => [],
             'declared_external_effects' => self::declaredExternalEffects($contract),

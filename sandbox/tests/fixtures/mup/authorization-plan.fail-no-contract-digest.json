@@ -1,0 +1,127 @@
+{
+    "artifact_hash": "9ac400000000000000000000000000000000000000000000000000000000ffff",
+    "authority_still_required": [
+        {
+            "kind": "operator_confirmation",
+            "reason": "production-visible mutation"
+        },
+        {
+            "kind": "declared_live_effect",
+            "reason": "lifecycle window declared live in the contract; plan-bound authority required"
+        },
+        {
+            "kind": "business_owner",
+            "reason": "storefront pages visible to customers change"
+        }
+    ],
+    "capabilities": [
+        {
+            "certification_provenance": "Platform-certified",
+            "conditions": [],
+            "name": "core",
+            "operation": "promote",
+            "readiness": "Ready"
+        }
+    ],
+    "code_revision_from": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
+    "contract_digest": null,
+    "effects": {
+        "containment": "live",
+        "containment_basis": "unknown — not enforced in this profile",
+        "known_irreversible": [],
+        "lifecycle_window": {
+            "containment": "live",
+            "containment_basis": "unknown — not enforced in this profile",
+            "declared_in": "contract.declarations.external_effects[0]",
+            "effect_recovery_semantics": "provider-state restorable",
+            "restored_by": "code release",
+            "reviewed_reason": "activation and deactivation hooks run with normal WordPress semantics and Duo enforces no egress control in this profile; reviewed for this site's installed set on 2026-08-17"
+        },
+        "unknown_blocking": []
+    },
+    "environment": "mup2",
+    "format": "duo-authorization-plan/v1",
+    "frozen_at": "2026-08-17T09:14:02Z",
+    "inputs_digest": {
+        "plan_sha256": "sha256:584648f2727f5256670dc123087c3c36fcfaf83d1a349c5cac54daeba691c399",
+        "target_facts_sha256": "sha256:6d7e1e6ba396dce932c29c966679d6eb611377a1d144000f15017ae0b961829b"
+    },
+    "may_change": {
+        "authored_state": [
+            "products",
+            "pages"
+        ],
+        "code": [],
+        "external": [
+            {
+                "containment": "live",
+                "effect_recovery_semantics": "provider-state restorable",
+                "id": "code-lifecycle-window"
+            },
+            {
+                "containment": "live",
+                "effect_recovery_semantics": "irreversible",
+                "id": "transactional-mail"
+            }
+        ],
+        "runtime_adjacent": [
+            "declared rebuild effects (2)",
+            "declared regenerator effects (1)",
+            "native rebuild actions (2)",
+            "environment-bound state drift (1)"
+        ]
+    },
+    "plan_digest": "sha256:ff60eb1cf5619ffb1449819c403ba88262ac8e1229d8248f146e454f4ed90b2c",
+    "recovery_profile": {
+        "claim": {
+            "claim_digest": "sha256:643a9b551da1fdb8ea20e19537833f90b690ef3d1f7f16de41b66811be826a9c",
+            "covered_resources": [
+                "database checkpoint"
+            ],
+            "does_not_restore": [
+                "emails already sent",
+                "payment captures or refunds already made",
+                "webhooks already delivered",
+                "third-party systems that observed the change",
+                "orders and sessions written by live traffic after the checkpoint",
+                "code releases — reconcile code by hand to the pre-release revision before importing the checkpoint",
+                "uploaded media bundles — the target keeps whatever the release wrote",
+                "provider effect bundles — no inverse effect operation is authorized in this profile",
+                "declared external effect \"code-lifecycle-window\" — restored by \"code release\", which the operator-directed profile does not restore",
+                "declared external effect \"transactional-mail\" — recovery semantics: irreversible"
+            ],
+            "format": "duo-recovery-claim/v1",
+            "maximum_loss_boundary": "writes committed after checkpoint 2026-08-17T09:14:02Z",
+            "profile": "operator-directed",
+            "restores": [
+                "database checkpoint"
+            ],
+            "writer_exclusion": {
+                "mechanism": "an external maintenance window: exclude every other writer, then assert it with --writers-excluded (a lock inside the database being imported cannot protect the window)",
+                "required": true
+            }
+        },
+        "selected": "operator-directed",
+        "selected_because": "automatic verified rollback is unavailable (this transport carries no rollback authority runtime, so promote uses the operator-directed artifact-bound lease and database checkpoint), so the operator-directed checkpoint/recovery profile is selected"
+    },
+    "scope": {
+        "code": {
+            "lifecycle_phases": [
+                "retire",
+                "activate",
+                "verify"
+            ],
+            "plugins_changed": 0,
+            "themes_changed": 0
+        },
+        "entities": {
+            "create": 2,
+            "delete": 0,
+            "update": 7
+        },
+        "surfaces": [
+            "products",
+            "pages"
+        ]
+    }
+}

@@ -1,0 +1,332 @@
+
+[1;36m== boot pair rtfourcert3 (rtfourcert31 :9306 / rtfourcert32 :9307), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    81471ce05815e055d0192fc1cf8955647b4999dd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   81471ce05815e055d0192fc1cf8955647b4999dd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 81471ce05815e055d0192fc1cf8955647b4999dd, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtfourcert3': databases ==[0m
+[1;32mok: wp_rtfourcert31, wp_rtfourcert32 exist[0m
+
+[1;36m== pair 'rtfourcert3': site-repo directories ==[0m
+
+[1;36m== pair 'rtfourcert3': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtfourcert3_wp1 Creating
+ Volume duo-rtfourcert3_wp1 Created
+ Volume duo-rtfourcert3_wp2 Creating
+ Volume duo-rtfourcert3_wp2 Created
+ Container duo-rtfourcert3-wp2-1 Creating
+ Container duo-rtfourcert3-wp1-1 Creating
+ Container duo-rtfourcert3-wp1-1 Created
+ Container duo-rtfourcert3-wp2-1 Created
+ Container duo-rtfourcert3-wp2-1 Starting
+ Container duo-rtfourcert3-wp1-1 Starting
+ Container duo-rtfourcert3-wp1-1 Started
+ Container duo-rtfourcert3-wp2-1 Started
+ Container duo-rtfourcert3-cli2-1 Creating
+ Container duo-rtfourcert3-cli1-1 Creating
+ Container duo-rtfourcert3-cli2-1 Created
+ Container duo-rtfourcert3-cli1-1 Created
+ Container duo-rtfourcert3-cli2-1 Starting
+ Container duo-rtfourcert3-cli1-1 Starting
+ Container duo-rtfourcert3-cli1-1 Started
+ Container duo-rtfourcert3-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtfourcert3': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtfourcert3': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-rtfourcert3-cli1-run-f225c88279ca Creating
+ Container duo-rtfourcert3-cli1-run-f225c88279ca Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert3-cli1-run-e742197780ce Creating
+ Container duo-rtfourcert3-cli1-run-e742197780ce Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert3-cli1-run-605f80866a59 Creating
+ Container duo-rtfourcert3-cli1-run-605f80866a59 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert3-cli1-run-1cfaa36fa661 Creating
+ Container duo-rtfourcert3-cli1-run-1cfaa36fa661 Created
+ Container duo-rtfourcert3-cli1-run-f1f1623aab0e Creating
+ Container duo-rtfourcert3-cli1-run-f1f1623aab0e Created
+ Container duo-rtfourcert3-cli1-run-c18f7d008702 Creating
+ Container duo-rtfourcert3-cli1-run-c18f7d008702 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert3-cli1-run-32f8bd12eddb Creating
+ Container duo-rtfourcert3-cli1-run-32f8bd12eddb Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9306)
+ Container duo-rtfourcert3-cli2-run-e72cd64a0a97 Creating
+ Container duo-rtfourcert3-cli2-run-e72cd64a0a97 Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert3-cli2-run-0b344a1ef076 Creating
+ Container duo-rtfourcert3-cli2-run-0b344a1ef076 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert3-cli2-run-ccb27be19dd4 Creating
+ Container duo-rtfourcert3-cli2-run-ccb27be19dd4 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert3-cli2-run-99a0a0674f5e Creating
+ Container duo-rtfourcert3-cli2-run-99a0a0674f5e Created
+ Container duo-rtfourcert3-cli2-run-fd245c0d8e98 Creating
+ Container duo-rtfourcert3-cli2-run-fd245c0d8e98 Created
+ Container duo-rtfourcert3-cli2-run-55e3c9fc7d7a Creating
+ Container duo-rtfourcert3-cli2-run-55e3c9fc7d7a Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert3-cli2-run-750ec969eca2 Creating
+ Container duo-rtfourcert3-cli2-run-750ec969eca2 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9307)
+
+[1;36m== pair 'rtfourcert3' ready ==[0m
+  wp1: http://localhost:9306 (published on host port 9306)
+  wp2: http://localhost:9307 (published on host port 9307)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtfourcert3 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtfourcert3 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtfourcert3 must stay exported, or pass -p duo-rtfourcert3 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: elementor 4.0.0 ==[0m
+ Container duo-rtfourcert3-cli1-run-0596186bd5b8 Creating
+ Container duo-rtfourcert3-cli1-run-0596186bd5b8 Created
+ Container duo-rtfourcert3-cli1-run-719c138195df Creating
+ Container duo-rtfourcert3-cli1-run-719c138195df Created
+ Container duo-rtfourcert3-cli1-run-419bbc81285b Creating
+ Container duo-rtfourcert3-cli1-run-419bbc81285b Created
+ Container duo-rtfourcert3-cli1-run-9af28cea061c Creating
+ Container duo-rtfourcert3-cli1-run-9af28cea061c Created
+ Container duo-rtfourcert3-cli1-run-18d7a4cd4bd6 Creating
+ Container duo-rtfourcert3-cli1-run-18d7a4cd4bd6 Created
+ Container duo-rtfourcert3-cli1-run-5a287178f10d Creating
+ Container duo-rtfourcert3-cli1-run-5a287178f10d Created
+ Container duo-rtfourcert3-cli2-run-4c3a6e3379b4 Creating
+ Container duo-rtfourcert3-cli2-run-4c3a6e3379b4 Created
+ Container duo-rtfourcert3-cli2-run-824648d20821 Creating
+ Container duo-rtfourcert3-cli2-run-824648d20821 Created
+ Container duo-rtfourcert3-cli2-run-9626403875e8 Creating
+ Container duo-rtfourcert3-cli2-run-9626403875e8 Created
+ Container duo-rtfourcert3-cli2-run-a5ec8ddf95c5 Creating
+ Container duo-rtfourcert3-cli2-run-a5ec8ddf95c5 Created
+ Container duo-rtfourcert3-cli2-run-56072cf51a8e Creating
+ Container duo-rtfourcert3-cli2-run-56072cf51a8e Created
+ Container duo-rtfourcert3-cli2-run-0e127a3cada0 Creating
+ Container duo-rtfourcert3-cli2-run-0e127a3cada0 Created
+
+[1;36m== fetch + verify elementor 4.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtfourcert3-cli1-run-1b5491fdd932 Creating
+ Container duo-rtfourcert3-cli1-run-1b5491fdd932 Created
+artifact-cache: kind=plugin slug=elementor version=4.0.0 sha256=75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2 source=cache-hit path=/artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip
+ Container duo-rtfourcert3-cli2-run-9fce602f6b4e Creating
+ Container duo-rtfourcert3-cli2-run-9fce602f6b4e Created
+artifact-cache: kind=plugin slug=elementor version=4.0.0 sha256=75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2 source=cache-hit path=/artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-elementor-4.0.0-75a04b2574c5de63245daaf8e203172a3f4d61ed7f8ffbfd506e2ad59a9067e2.zip[0m
+ Container duo-rtfourcert3-cli1-run-0205112a23dc Creating
+ Container duo-rtfourcert3-cli1-run-0205112a23dc Created
+ Container duo-rtfourcert3-cli1-run-f6a5458e1525 Creating
+ Container duo-rtfourcert3-cli1-run-f6a5458e1525 Created
+[1;32mok: side 1: elementor 4.0.0 installed from verified artifact, active[0m
+elementor seed: target=2 page=7 hero=3 galA=4 galB=5 bg=6
+elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1
+ Container duo-rtfourcert3-cli1-run-78c56a2e8adf Creating
+ Container duo-rtfourcert3-cli1-run-78c56a2e8adf Created
+ Container duo-rtfourcert3-cli1-run-eda33deb6530 Creating
+ Container duo-rtfourcert3-cli1-run-eda33deb6530 Created
+ Container duo-rtfourcert3-cli1-run-85167d7aae90 Creating
+ Container duo-rtfourcert3-cli1-run-85167d7aae90 Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+ Container duo-rtfourcert3-cli1-run-1fbdec1e6fc6 Creating
+ Container duo-rtfourcert3-cli1-run-1fbdec1e6fc6 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: captured on side 1 (elementor 4.0.0)[0m
+Success: no findings — captured state is clean
+ Container duo-rtfourcert3-cli1-run-bd5b02feffb5 Creating
+ Container duo-rtfourcert3-cli1-run-bd5b02feffb5 Created
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtfourcert3-cli2-run-22747e6b909d Creating
+ Container duo-rtfourcert3-cli2-run-22747e6b909d Created
+ Container duo-rtfourcert3-cli2-run-fa8cf0a02547 Creating
+ Container duo-rtfourcert3-cli2-run-fa8cf0a02547 Created
+activated: elementor/elementor.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtfourcert3-cli2-run-5e52d3cc91eb Creating
+ Container duo-rtfourcert3-cli2-run-5e52d3cc91eb Created
+Success: applied 10 entities (canary clean) — plan was: {"create":6,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":2,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+ Container duo-rtfourcert3-cli2-run-34e270358474 Creating
+ Container duo-rtfourcert3-cli2-run-34e270358474 Created
+Warning: adopted env post 1 as 01a00fd0-8699-74c6-8bff-0a84cbfecdbb (posts/elementor_library/01a00fd0-8699-74c6-8bff-0a84cbfecdbb--default-kit.md)
+Warning: adopted env term 1 as 01a00fd0-86bf-70f3-9085-e703f84bef03 (terms/category/01a00fd0-86bf-70f3-9085-e703f84bef03--uncategorized.json)
+Warning: provider capability fired: elementor-css@1.0.0 regenerate_css (1.862s, verified)
+[1;32mok: deploy + apply succeeded on side 2 (elementor 4.0.0, canary clean)[0m
+[1;32mok: conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1[0m
+ Container duo-rtfourcert3-cli2-run-d96ebeebeb72 Creating
+ Container duo-rtfourcert3-cli2-run-d96ebeebeb72 Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+ Container duo-rtfourcert3-cli2-run-b9814fc4c257 Creating
+ Container duo-rtfourcert3-cli2-run-b9814fc4c257 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at elementor 4.0.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: elementor 4.2.2 ==[0m
+ Container duo-rtfourcert3-cli1-run-4c45bdd366af Creating
+ Container duo-rtfourcert3-cli1-run-4c45bdd366af Created
+ Container duo-rtfourcert3-cli1-run-13de671937f4 Creating
+ Container duo-rtfourcert3-cli1-run-13de671937f4 Created
+ Container duo-rtfourcert3-cli1-run-8655be6f276a Creating
+ Container duo-rtfourcert3-cli1-run-8655be6f276a Created
+ Container duo-rtfourcert3-cli1-run-21adf9b70349 Creating
+ Container duo-rtfourcert3-cli1-run-21adf9b70349 Created
+ Container duo-rtfourcert3-cli1-run-83bd852906e0 Creating
+ Container duo-rtfourcert3-cli1-run-83bd852906e0 Created
+ Container duo-rtfourcert3-cli1-run-e2b75ec4c601 Creating
+ Container duo-rtfourcert3-cli1-run-e2b75ec4c601 Created
+ Container duo-rtfourcert3-cli2-run-e92558ba594c Creating
+ Container duo-rtfourcert3-cli2-run-e92558ba594c Created
+ Container duo-rtfourcert3-cli2-run-abefc401dcce Creating
+ Container duo-rtfourcert3-cli2-run-abefc401dcce Created
+ Container duo-rtfourcert3-cli2-run-8b384d4e3135 Creating
+ Container duo-rtfourcert3-cli2-run-8b384d4e3135 Created
+ Container duo-rtfourcert3-cli2-run-41a09b3cf770 Creating
+ Container duo-rtfourcert3-cli2-run-41a09b3cf770 Created
+ Container duo-rtfourcert3-cli2-run-763576f0cbb5 Creating
+ Container duo-rtfourcert3-cli2-run-763576f0cbb5 Created
+ Container duo-rtfourcert3-cli2-run-36519728b14b Creating
+ Container duo-rtfourcert3-cli2-run-36519728b14b Created
+
+[1;36m== fetch + verify elementor 4.2.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtfourcert3-cli1-run-4743d2d1ee14 Creating
+ Container duo-rtfourcert3-cli1-run-4743d2d1ee14 Created
+artifact-cache: kind=plugin slug=elementor version=4.2.2 sha256=4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db source=cache-hit path=/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip
+ Container duo-rtfourcert3-cli2-run-cfed6e9fd615 Creating
+ Container duo-rtfourcert3-cli2-run-cfed6e9fd615 Created
+artifact-cache: kind=plugin slug=elementor version=4.2.2 sha256=4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db source=cache-hit path=/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip[0m
+ Container duo-rtfourcert3-cli1-run-fc04b153a739 Creating
+ Container duo-rtfourcert3-cli1-run-fc04b153a739 Created
+ Container duo-rtfourcert3-cli1-run-626bd8892db3 Creating
+ Container duo-rtfourcert3-cli1-run-626bd8892db3 Created
+[1;32mok: side 1: elementor 4.2.2 installed from verified artifact, active[0m
+elementor seed: target=2 page=7 hero=3 galA=4 galB=5 bg=6
+elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1
+ Container duo-rtfourcert3-cli1-run-e07b33aa20bc Creating
+ Container duo-rtfourcert3-cli1-run-e07b33aa20bc Created
+ Container duo-rtfourcert3-cli1-run-ce3428f0822c Creating
+ Container duo-rtfourcert3-cli1-run-ce3428f0822c Created
+ Container duo-rtfourcert3-cli1-run-db18a07c2dce Creating
+ Container duo-rtfourcert3-cli1-run-db18a07c2dce Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+ Container duo-rtfourcert3-cli1-run-69362beab9c2 Creating
+ Container duo-rtfourcert3-cli1-run-69362beab9c2 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: captured on side 1 (elementor 4.2.2)[0m
+Success: no findings — captured state is clean
+ Container duo-rtfourcert3-cli1-run-6bedb9c82808 Creating
+ Container duo-rtfourcert3-cli1-run-6bedb9c82808 Created
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtfourcert3-cli2-run-02fc5752ae3a Creating
+ Container duo-rtfourcert3-cli2-run-02fc5752ae3a Created
+ Container duo-rtfourcert3-cli2-run-db9242fb6ee3 Creating
+ Container duo-rtfourcert3-cli2-run-db9242fb6ee3 Created
+activated: elementor/elementor.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtfourcert3-cli2-run-4e6fa0817817 Creating
+ Container duo-rtfourcert3-cli2-run-4e6fa0817817 Created
+Success: applied 10 entities (canary clean) — plan was: {"create":6,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":2,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+ Container duo-rtfourcert3-cli2-run-c0cb772516ec Creating
+ Container duo-rtfourcert3-cli2-run-c0cb772516ec Created
+Warning: adopted env post 1 as 01a00fd3-8936-77c7-b4dc-88a2f20212cf (posts/elementor_library/01a00fd3-8936-77c7-b4dc-88a2f20212cf--default-kit.md)
+Warning: adopted env term 1 as 01a00fd3-894c-74c1-898e-e33c4e029119 (terms/category/01a00fd3-894c-74c1-898e-e33c4e029119--uncategorized.json)
+Warning: provider capability fired: elementor-css@1.0.0 regenerate_css (2.269s, verified)
+[1;32mok: deploy + apply succeeded on side 2 (elementor 4.2.2, canary clean)[0m
+[1;32mok: conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1[0m
+ Container duo-rtfourcert3-cli2-run-dc63a983d916 Creating
+ Container duo-rtfourcert3-cli2-run-dc63a983d916 Created
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+ Container duo-rtfourcert3-cli2-run-46850bc12dd3 Creating
+ Container duo-rtfourcert3-cli2-run-46850bc12dd3 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at elementor 4.2.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: elementor 3.35.9 (real wp.org release, genuinely below manifests/elementor.json's own declared min 4.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-rtfourcert3-cli1-run-5999aeec2e16 Creating
+ Container duo-rtfourcert3-cli1-run-5999aeec2e16 Created
+ Container duo-rtfourcert3-cli1-run-be862b5dea56 Creating
+ Container duo-rtfourcert3-cli1-run-be862b5dea56 Created
+ Container duo-rtfourcert3-cli1-run-79aa80ade934 Creating
+ Container duo-rtfourcert3-cli1-run-79aa80ade934 Created
+ Container duo-rtfourcert3-cli1-run-25386329ffa9 Creating
+ Container duo-rtfourcert3-cli1-run-25386329ffa9 Created
+ Container duo-rtfourcert3-cli1-run-ff787b1e89fb Creating
+ Container duo-rtfourcert3-cli1-run-ff787b1e89fb Created
+ Container duo-rtfourcert3-cli1-run-e5a0808cb9a1 Creating
+ Container duo-rtfourcert3-cli1-run-e5a0808cb9a1 Created
+ Container duo-rtfourcert3-cli1-run-1b870ca19d53 Creating
+ Container duo-rtfourcert3-cli1-run-1b870ca19d53 Created
+artifact-cache: kind=plugin slug=elementor version=3.35.9 sha256=90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc source=cache-hit path=/artifacts-cache/plugin-elementor-3.35.9-90a41a7b76980e611619ff19daf4e89dc170c7608da18fcb8bb1fed266eb40cc.zip
+ Container duo-rtfourcert3-cli1-run-7b2baaeedef0 Creating
+ Container duo-rtfourcert3-cli1-run-7b2baaeedef0 Created
+ Container duo-rtfourcert3-cli1-run-080e48ff6691 Creating
+ Container duo-rtfourcert3-cli1-run-080e48ff6691 Created
+ Container duo-rtfourcert3-cli1-run-460fa8171f10 Creating
+ Container duo-rtfourcert3-cli1-run-460fa8171f10 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-rtfourcert3-cli1-run-21162036be83 Creating
+ Container duo-rtfourcert3-cli1-run-21162036be83 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - elementor/elementor.php 3.35.9 is active in this environment, outside the 'elementor' manifest's declared version_range (>=4.0.0 <5.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: elementor 3.35.9 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'rtfourcert3': destroy ==[0m
+ Container duo-rtfourcert3-wp1-1 Stopping
+ Container duo-rtfourcert3-cli1-1 Stopping
+ Container duo-rtfourcert3-wp2-1 Stopping
+ Container duo-rtfourcert3-cli2-1 Stopping
+ Container duo-rtfourcert3-cli2-1 Stopped
+ Container duo-rtfourcert3-cli2-1 Removing
+ Container duo-rtfourcert3-cli1-1 Stopped
+ Container duo-rtfourcert3-cli1-1 Removing
+ Container duo-rtfourcert3-cli2-1 Removed
+ Container duo-rtfourcert3-cli1-1 Removed
+ Container duo-rtfourcert3-wp2-1 Stopped
+ Container duo-rtfourcert3-wp2-1 Removing
+ Container duo-rtfourcert3-wp2-1 Removed
+ Container duo-rtfourcert3-wp1-1 Stopped
+ Container duo-rtfourcert3-wp1-1 Removing
+ Container duo-rtfourcert3-wp1-1 Removed
+ Volume duo-rtfourcert3_wp2 Removing
+ Volume duo-rtfourcert3_wp1 Removing
+ Volume duo-rtfourcert3_wp2 Removed
+ Volume duo-rtfourcert3_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_rtfourcert31/wp_rtfourcert32 dropped[0m
+  siterepo/rtfourcert3{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed rtfourcert3 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

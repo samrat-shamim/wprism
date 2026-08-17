@@ -58,6 +58,14 @@ use Duo\CommandRefusalException;
  * "the claim the operator saw at authorization is the claim they see at
  * recovery" a checkable property rather than a coincidence.
  *
+ * The checkpoint instant is printed on the line after the claim, at both
+ * printings, and never inside it: the claim is embedded in the DIGESTED part
+ * of the frozen plan, so a clock value in it would give one unchanged
+ * authorization a new `plan_digest` every second (`RecoveryClaim`'s docblock,
+ * "Why no field here holds a clock value"). `checkpointLine()` names where
+ * the instant came from, because the receipt's own creation time and the
+ * plan's release-start instant answer slightly different questions.
+ *
  * Exit status: `0` a completed listing or recovery, `1` any refusal or a
  * recovery that did not reach its terminal state.
  */
@@ -67,6 +75,11 @@ final class RecoverCommand {
 
     /** The flag that asserts a real external maintenance window. */
     public const WRITERS_EXCLUDED_FLAG = '--writers-excluded';
+
+    /** Where the checkpoint instant printed beside the claim came from. */
+    public const SOURCE_RECEIPT = 'receipt';
+    public const SOURCE_PLAN = 'authorization-plan';
+    public const SOURCE_NONE = 'unpublished';
 
     /**
      * Checkpoint coverage that means code moved during the failed release.
@@ -158,13 +171,19 @@ final class RecoverCommand {
             );
         }
 
-        $claim = self::claim($row);
+        $resolved = self::claim($row);
+        $claim = $resolved['claim'];
         // Printed BEFORE acting, always, in both channels: the operator has
         // to read what recovery does not restore while they can still stop.
+        // The checkpoint instant follows the claim rather than sitting inside
+        // it — the claim is the byte-identical document §2.5 requires, and a
+        // clock value in it would change the frozen plan's identity every
+        // second (RecoveryClaim's docblock).
         if (!$json) {
             foreach (RecoveryClaim::humanLines($claim, $flags['limit']) as $line) {
                 echo $line . "\n";
             }
+            echo '  ' . self::checkpointLine($resolved) . "\n";
         }
 
         // Which path is available is a fact about this controller, not a
@@ -185,8 +204,10 @@ final class RecoverCommand {
             : self::operatorDirected($transport, $row);
 
         return [
-            'claim' => $claim,
             'checkpoint' => $row,
+            'checkpoint_at' => $resolved['checkpoint_at'],
+            'checkpoint_source' => $resolved['checkpoint_source'],
+            'claim' => $claim,
             'environment' => $transport->name(),
             'format' => 'duo-recovery-outcome/v1',
             'recovered' => $steps['recovered'],
@@ -336,33 +357,111 @@ final class RecoverCommand {
     }
 
     /**
-     * The claim to print — the frozen plan's own when one matches this
-     * checkpoint, so the two are byte-identical, and a freshly built one
-     * otherwise.
+     * The claim to print and the instant that goes beside it.
+     *
+     * The claim is the frozen plan's own when one matches this checkpoint, so
+     * the two printings are byte-identical (§2.5), and a freshly built one
+     * otherwise. It carries no clock value at all — the boundary sentence
+     * names the checkpoint, `RecoveryClaim`'s docblock says why the instant
+     * cannot live inside a document the plan digests — so the instant is
+     * resolved separately here.
+     *
+     * Both sources are real and they are ordered by which one is evidence
+     * about THIS checkpoint: the receipt's own `created_at` first, because it
+     * is when the checkpoint was actually pinned; the frozen plan's
+     * `recovery_profile.checkpoint_at` second, because it is the release-start
+     * instant the operator was shown at authorization. A full promotion
+     * receipt publishes no creation time at all (`CheckpointCatalog`'s
+     * `DISCLOSURE_NO_CREATION_TIME`), which is exactly the case the plan
+     * covers; when neither exists the caller prints the absence rather than a
+     * derived time.
+     *
+     * Split into an impure reader and a pure resolver for the same reason
+     * `RecoveryProfileSelection` splits prove/decide: the fallback ORDER is
+     * the part that has to be provable offline, and the case that exercises
+     * it — a full promotion receipt, which publishes no creation time at all
+     * — cannot be reached through a fixture that has one.
      *
      * @param array<string,mixed> $row
-     * @return array<string,mixed>
+     * @return array{claim:array<string,mixed>,checkpoint_at:?string,checkpoint_source:string}
      */
     private static function claim(array $row): array {
-        foreach (self::frozenPlans() as $plan) {
+        return self::resolveClaim($row, self::frozenPlans());
+    }
+
+    /**
+     * The pure half: a catalog row and the frozen plans this site repository
+     * holds go in; one claim and one dated instant come out.
+     *
+     * @param array<string,mixed> $row
+     * @param list<array<string,mixed>> $frozenPlans
+     * @return array{claim:array<string,mixed>,checkpoint_at:?string,checkpoint_source:string}
+     */
+    public static function resolveClaim(array $row, array $frozenPlans): array {
+        $receiptAt = is_string($row['created_at'] ?? null) && $row['created_at'] !== ''
+            ? (string) $row['created_at']
+            : null;
+        foreach ($frozenPlans as $plan) {
             if ((string) ($plan['artifact_hash'] ?? '') !== (string) ($row['artifact_hash'] ?? '')) {
                 continue;
             }
             $claim = $plan['recovery_profile']['claim'] ?? null;
             if (is_array($claim)) {
                 RecoveryClaim::validate($claim);
+                $planAt = $plan['recovery_profile']['checkpoint_at'] ?? null;
 
-                return $claim;
+                return self::withCheckpoint(
+                    $claim,
+                    $receiptAt,
+                    is_string($planAt) && $planAt !== '' ? $planAt : null
+                );
             }
         }
 
-        return RecoveryClaim::build([
-            'checkpoint_at' => is_string($row['created_at'] ?? null) ? $row['created_at'] : null,
+        return self::withCheckpoint(RecoveryClaim::build([
             'covered_resources' => array_values(array_map('strval', (array) ($row['covers'] ?? []))),
             'profile' => $row['kind'] === CheckpointCatalog::KIND_VERIFIED
                 ? RecoveryClaim::VERIFIED_AUTOMATIC
                 : RecoveryClaim::OPERATOR_DIRECTED,
-        ]);
+        ]), $receiptAt, null);
+    }
+
+    /**
+     * @param array<string,mixed> $claim
+     * @return array{claim:array<string,mixed>,checkpoint_at:?string,checkpoint_source:string}
+     */
+    private static function withCheckpoint(array $claim, ?string $receiptAt, ?string $planAt): array {
+        if ($receiptAt !== null) {
+            return ['checkpoint_at' => $receiptAt, 'checkpoint_source' => self::SOURCE_RECEIPT, 'claim' => $claim];
+        }
+        if ($planAt !== null) {
+            return ['checkpoint_at' => $planAt, 'checkpoint_source' => self::SOURCE_PLAN, 'claim' => $claim];
+        }
+
+        return ['checkpoint_at' => null, 'checkpoint_source' => self::SOURCE_NONE, 'claim' => $claim];
+    }
+
+    /**
+     * The one line printed beside the claim, at both printings.
+     *
+     * It names its source as well as its value. The two sources answer
+     * slightly different questions — when the checkpoint was pinned, versus
+     * when the release that took it started — and an operator deciding what
+     * they are about to lose is owed the difference rather than a bare
+     * timestamp that looks equally authoritative either way.
+     *
+     * @param array<string,mixed> $outcome a restore() result
+     */
+    public static function checkpointLine(array $outcome): string {
+        $at = $outcome['checkpoint_at'] ?? null;
+        if (!is_string($at) || $at === '') {
+            return 'checkpoint at: not published by this receipt, and no frozen authorization plan in this '
+                . 'site repository records it';
+        }
+
+        return 'checkpoint at: ' . $at . (($outcome['checkpoint_source'] ?? '') === self::SOURCE_PLAN
+            ? ' (release start, from the frozen authorization plan)'
+            : ' (from the checkpoint receipt)');
     }
 
     /**
@@ -496,6 +595,7 @@ final class RecoverCommand {
         foreach (RecoveryClaim::humanLines($outcome['claim'], $limit) as $line) {
             $lines[] = '  ' . $line;
         }
+        $lines[] = '  ' . self::checkpointLine($outcome);
 
         return $lines;
     }

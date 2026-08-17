@@ -41,9 +41,9 @@ use Duo\CommandRefusalException;
  *     next action — the fix is an assessment fix. The verb boundary in
  *     `cli/src/Command/` turns a spec into a `CommandRefusalException`.
  *
- * ## Two documented extensions to §2.3.1's example
+ * ## Three documented extensions to §2.3.1's example
  *
- * §2.3.1 shows an illustrative document, not a closed schema. Two keys are
+ * §2.3.1 shows an illustrative document, not a closed schema. Three keys are
  * added, each because a §2.3 requirement has nowhere else to live:
  *
  *  - **`inputs_digest`** — `{plan_sha256, target_facts_sha256}`. §2.3 step 3
@@ -59,6 +59,16 @@ use Duo\CommandRefusalException;
  *    makes that byte-identity checkable, whereas re-flattening it would make
  *    it a coincidence. `selected` and `selected_because` are still mirrored
  *    at the `recovery_profile` level exactly as §2.3.1 shows them.
+ *  - **`recovery_profile.checkpoint_at`** — the instant the checkpoint the
+ *    claim's loss boundary refers to pins, or null when no checkpoint is
+ *    taken. §2.3.1 shows that instant interpolated into the claim's
+ *    `maximum_loss_boundary` sentence; it cannot live there, because the
+ *    claim is digested WHOLE into `plan_digest` and a clock value inside the
+ *    digest makes the digest a timestamp rather than an identity — two
+ *    `--plan-only` runs a second apart would name one decision twice.
+ *    `digest()` therefore excludes this key exactly as it excludes
+ *    `frozen_at`, and both printings put it next to the claim instead of in
+ *    it (`AuthorizationPlanRenderer::recoverySection()`, `duo recover`).
  *
  * ## Why Release never references a Recovery class
  *
@@ -153,8 +163,11 @@ final class AuthorizationPlan {
      *     null when the site has none;
      *   - `projection` (list<array>) the `projection.json` surface rows for
      *     the surfaces in scope, each `{id, label?, operations: {release: …}}`;
-     *   - `recovery` (array) `{selected, selected_because, claim}` — the
-     *     `RecoveryProfileSelection::decide()` result, as data;
+     *   - `recovery` (array) `{selected, selected_because, claim,
+     *     checkpoint_at?}` — the `RecoveryProfileSelection::decide()` result,
+     *     as data. `checkpoint_at` is optional and may be null: it is the
+     *     clock value the claim deliberately does not carry, and it is
+     *     excluded from `plan_digest`;
      *   - `target` (array) the target fact vector (artifact hash, revisions,
      *     stack probe). Digested whole into `inputs_digest`;
      *   - `scope` (array) `{surfaces: list<string>, code: {plugins_changed:int,
@@ -191,6 +204,7 @@ final class AuthorizationPlan {
             ],
             'may_change' => self::mayChange($inputs),
             'recovery_profile' => [
+                'checkpoint_at' => $recovery['checkpoint_at'] ?? null,
                 'claim' => $recovery['claim'],
                 'selected' => (string) $recovery['selected'],
                 'selected_because' => (string) $recovery['selected_because'],
@@ -216,18 +230,35 @@ final class AuthorizationPlan {
 
     /**
      * `sha256:` + the digest of the canonical encoding of everything except
-     * `plan_digest` and `frozen_at`.
+     * `plan_digest`, `frozen_at` and `recovery_profile.checkpoint_at`.
      *
-     * `frozen_at` is excluded so the digest identifies the AUTHORIZATION, not
-     * the moment it was printed: re-running `duo release --plan-only` twice
-     * against an unchanged target must produce the same identity, or the
-     * `.duo/releases/` directory fills with duplicates of one decision and
-     * `duo verify --plan=<digest>` has no stable name to cite.
+     * The two excluded clock values are excluded for one reason: the digest
+     * identifies the AUTHORIZATION, not the moment it was printed. Re-running
+     * `duo release --plan-only` twice against an unchanged target must
+     * produce the same identity, or the `.duo/releases/` directory fills with
+     * duplicates of one decision and `duo verify --plan=<digest>` has no
+     * stable name to cite. Excluding `frozen_at` alone was not enough while
+     * the embedded recovery claim interpolated the checkpoint instant into
+     * its own loss-boundary sentence and digested it: the plan then changed
+     * every second, which is exactly what this docblock has always promised
+     * it does not. A digest that includes a clock is a timestamp, not an
+     * identity — so every clock value in this document is either excluded
+     * here or does not belong in it.
+     *
+     * `reverify()` is unaffected either way: it compares `inputs_digest`,
+     * never this one.
      *
      * @param array<string,mixed> $document
      */
     public static function digest(array $document): string {
         unset($document['plan_digest'], $document['frozen_at']);
+        if (is_array($document['recovery_profile'] ?? null)) {
+            // Guarded: validate() computes this digest before it has proved
+            // the recovery block is even an array, and unsetting an offset of
+            // a string is a fatal Error rather than the refusal a malformed
+            // frozen plan is owed.
+            unset($document['recovery_profile']['checkpoint_at']);
+        }
 
         return 'sha256:' . hash('sha256', Canon::encode($document));
     }
@@ -290,6 +321,18 @@ final class AuthorizationPlan {
                 'the authorization plan names no recovery profile and claim'
             );
         }
+        $checkpointAt = $recovery['checkpoint_at'] ?? null;
+        if ($checkpointAt !== null && (!is_string($checkpointAt) || $checkpointAt === '')) {
+            // Checked even though it is outside the digest — precisely
+            // BECAUSE it is outside the digest. A hand-edited plan cannot be
+            // caught here by the digest mismatch every other field enjoys, so
+            // the shape gate is the only thing between a garbage value and
+            // the line `duo recover` prints beside the claim.
+            throw self::refuse(
+                'authorization_plan_shape_invalid',
+                "the authorization plan's recovery checkpoint_at is neither a timestamp nor absent"
+            );
+        }
     }
 
     /**
@@ -324,9 +367,10 @@ final class AuthorizationPlan {
      * not to call it.
      *
      * Re-freezing an identical plan is a no-op that keeps the ORIGINAL bytes:
-     * the digest excludes `frozen_at`, so a second run of the same
-     * authorization must not silently re-date the record of when it was
-     * given.
+     * the digest excludes `frozen_at` and `recovery_profile.checkpoint_at`,
+     * so a second run of the same authorization must not silently re-date
+     * the record of when it was given, or of the checkpoint instant the
+     * operator was shown with it.
      *
      * @param array<string,mixed> $document
      * @return string the path written (or the path that already held it)
@@ -613,6 +657,12 @@ final class AuthorizationPlan {
             || !is_string($recovery['selected_because'] ?? null)) {
             throw new \InvalidArgumentException(
                 'authorization plan recovery must be {selected, selected_because, claim}'
+            );
+        }
+        $checkpointAt = $recovery['checkpoint_at'] ?? null;
+        if ($checkpointAt !== null && (!is_string($checkpointAt) || $checkpointAt === '')) {
+            throw new \InvalidArgumentException(
+                'authorization plan recovery checkpoint_at must be a non-empty string or null'
             );
         }
 

@@ -1,0 +1,7 @@
+promote phase: compile
+promote phase: promotion-begin
+promote phase: checkpoint
+promote phase: apply
+promote phase: lifecycle-retire
+promote phase: lifecycle-activate
+released to mup2

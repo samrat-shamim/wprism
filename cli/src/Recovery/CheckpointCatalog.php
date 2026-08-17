@@ -227,9 +227,19 @@ final class CheckpointCatalog {
                 $age = $row['age_seconds'] === null
                     ? 'expires ' . (string) ($row['claim_expires_at'] ?? 'unknown')
                     : ((int) $row['age_seconds']) . 's old';
+                // The lease owner is deliberately absent from this line.
+                // MUP §5.2: a human view may print an internal identifier only
+                // when a documented command consumes it, and nothing consumes
+                // the owner — `--restore=<id>` takes the receipt id, which is
+                // the one identifier on this row. In production the owner is an
+                // opaque token (cli/duo's orchestrator_run_id(), or the
+                // `scoped-`/`verified-`/`direct-` forms), so printing it taught
+                // an operator a name they can only mistype. It stays in
+                // `--format=json`, alongside `artifact_hash`, which this line
+                // already omits for the same reason.
                 $lines[] = '  ' . (string) $row['id'] . '  ' . (string) $row['state']
                     . '  ' . (string) $row['kind'] . '  generation ' . (string) $row['generation']
-                    . '  owner ' . (string) $row['owner'] . '  ' . $age;
+                    . '  ' . $age;
                 $lines[] = '    covers: ' . implode(', ', array_map('strval', (array) $row['covers']));
             }
             if (count($rows) > $limit) {

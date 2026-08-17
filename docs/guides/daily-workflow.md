@@ -2,7 +2,13 @@
 
 This is the loop a WordPress team runs once Duo is installed:
 
-**branch → materialize → capture → refresh/rebase → plan/status → promote → recover/reap.**
+**branch → rehearse → capture → refresh/rebase → plan/status → release → verify
+→ recover/reap.**
+
+Two of those steps are composed verbs that sit on top of the older ones.
+`duo release` composes `duo promote`; `duo recover` drives the recovery runtime
+you would otherwise type by hand. Both lower-level paths are still documented
+and still supported, and both are below.
 
 Every verb below is documented flag-by-flag in
 [cli/README.md](../../cli/README.md). This guide is the connective tissue: what
@@ -287,18 +293,79 @@ still owns capability negotiation, force/delete gates, mutation, and value-level
 readback. Values, raw selectors, repository paths, target-local ids, action
 arguments, and provider receipts are omitted.
 
-## Promote
+## Release
+
+```sh
+duo release stage --from=main --plan-only
+duo release stage --from=main --yes
+duo verify stage
+```
+
+`duo release` is the composed release: it authorizes in front of promotion and
+verifies behind it. It **composes** `duo promote` rather than forking it —
+deploy-before-apply ordering, the promotion lease, the target fence, the
+database checkpoint and the verified/scoped rollback selection are all
+promote's, byte for byte — and it adds the two things that were previously in
+somebody's head.
+
+In front: a frozen **authorization plan**. Before a single target byte moves,
+release loads the accepted application contract, reads the target, regenerates
+the per-site projection from current facts, refuses on any surface in scope
+that is `Experimental`, `Not qualified`, `Unsupported` or `Requalification
+required`, refuses on unknown effect recovery semantics, refuses on a code
+lifecycle window with no reviewed live external effect declared in the
+contract, and refuses on deletions you did not authorize with `--with-deletes`.
+Then it prints one page — requested scope, capabilities and their conditions,
+what may change, the recovery claim, effects, and the authority still required
+— ending in a single question. `--plan-only` prints exactly that and exits
+having mutated nothing, including the site repository.
+
+Behind: `duo verify`, which pairs a fresh read-only convergence re-read with
+the HTTP journey oracles your contract declares. Both must pass. If you
+declared no journeys, verify says so rather than letting a green tick imply a
+business check nobody wrote.
+
+Two flags are worth knowing before you need them. `--from=<ref>` is a *binding
+assertion*, not a git transport: the ref is resolved locally, compared with the
+target's `HEAD`, and a mismatch refuses with `reconcile`. And `--profile` may
+only strengthen silently — anything weaker than what the target can prove,
+`none` included, additionally requires `--accept-weaker-recovery` and prints a
+warning beside the plan.
+
+A failure after the plan is frozen carries exactly one next action from the
+closed set `resume | reconcile | retry | recover | requalify | escalate`. An
+interrupted lifecycle is always `recover`; an ambiguous commitment is always
+`reconcile` and never `retry`. The full walkthrough is
+[release.md](release.md).
+
+Before releasing to a shared environment, rehearse the change on a disposable
+one:
+
+```sh
+duo rehearse preview --from production --branch feature/pricing-page
+duo rehearse preview --reap
+```
+
+`duo rehearse` is `duo env materialize` plus a preview of what a release would
+touch, and it prints its containment disclosure before it contacts the
+provider: Duo does not strip production credentials, does not default-deny
+outbound HTTP, mail, payment or webhook traffic, and does not verify
+containment. A rehearsal is a preview, not a sandbox — point it at test
+credentials, and do not treat "I rehearsed it" as "I qualified it".
+
+### `duo promote` — the lower-level verb
 
 ```sh
 duo promote stage
 ```
 
-Promotion is the fail-closed code-and-state path. It compiles the repository
-once into an immutable artifact, acquires a target-database lease bound to that
-artifact's hash, exports a database checkpoint, and then runs the phases in
-order — code staging, lifecycle retirement, a fresh-process lifecycle
-activation, code finalization, and finally the hook-free state apply. It stops
-at the first failed phase and prints recovery guidance rather than continuing.
+`duo promote` remains exactly what it was and is not deprecated: the
+fail-closed code-and-state path. It compiles the repository once into an
+immutable artifact, acquires a target-database lease bound to that artifact's
+hash, exports a database checkpoint, and then runs the phases in order — code
+staging, lifecycle retirement, a fresh-process lifecycle activation, code
+finalization, and finally the hook-free state apply. It stops at the first
+failed phase and prints recovery guidance rather than continuing.
 
 Two profiles exist, and Duo selects between them from declared capabilities and
 runtime preflight, never from the host's filesystem layout. A production SSH
@@ -313,36 +380,67 @@ handoff, and lease flags are owned by promote and rejected from caller input —
 that boundary is what lets one artifact hash mean one thing all the way
 through.
 
+Reach for `promote` directly when you want the mutation without the
+authorization document: a scoped promotion, an environment with no application
+contract, or automation that has already produced its own record of what it
+intends. Everywhere else, `duo release` gives you the same mutation plus the
+frozen plan and the verification, and the frozen plan is what makes recovery's
+claim literal later.
+
 For a lifecycle-and-code move with no database checkpoint and no state apply,
 `duo deploy <env>` is the standalone path; see
 [code-updates.md](code-updates.md).
 
 ## Recover
 
-A failed promotion is not a mystery to be poked at with SQL. It is a documented
-sequence, and the ordering matters more than the individual commands.
+```sh
+duo recover production --list
+duo recover production --restore=<receipt-id> --writers-excluded
+```
 
-First, **if the failure happened after a code phase, reconcile or restore code
-to its known pre-promotion revision before importing any database checkpoint**.
-A database import alone is not a code-and-state rollback, and restoring a
-pre-migration database under post-migration code is how sites break in ways
-that are worse than the original failure.
+A failed release is not a mystery to be poked at with SQL, and it is no longer
+a sequence of raw commands to be typed either. `duo recover` is the operator
+verb over the recovery runtime: `--list` prints the active checkpoint receipt —
+id, state, kind, generation, owner, covered inventory, age — and `--restore=`
+performs the profile's own rollback, or drives the four ordered operator-directed
+steps, including the mandatory final one that people skip when they type them
+by hand.
 
-Second, every successful checkpoint deliberately contains the temporary
-promotion lease row — the lease existed before the export, so it had to. A
-database import can therefore replace the very row that would otherwise
-serialize it, which means recovery **cannot** be protected by a lock stored
-inside the database being imported. You must establish external
-maintenance/exclusion for every Duo writer across the whole recovery window
-first. `duo promote` prints the four ordered commands to run after that:
-an exact abort of the old owner/artifact pair, a re-begin of the same pair, a
-fatal-safe isolated `wp db import <checkpoint>`, and a final abort of the row
-the import restored. **Run that last step even if the import fails.**
+Three rules it enforces rather than advises, each of which used to be a
+paragraph you had to remember:
+
+1. **External writer exclusion first.** Every checkpoint contains the temporary
+   promotion lease row — the lease existed before the export, so it had to — so
+   a database import can replace the very row that would otherwise serialize
+   it, and recovery cannot be protected by a lock stored inside the database
+   being imported. Establish real external exclusion for every writer across
+   the whole window, then assert it with `--writers-excluded`. Without that
+   flag, recover refuses before the first transition.
+2. **Code first.** If the failure happened after a code phase, a database
+   import is refused until code is reconciled to the pre-release revision — and
+   the refusal names that exact revision, read out of the frozen authorization
+   plan. Restoring a pre-migration database under post-migration code is how
+   sites break in ways that are worse than the original failure.
+3. **The claim is printed before it acts.** What this profile restores and,
+   literally, what it does not — emails already sent, payments already
+   captured, webhooks already delivered, third-party systems that observed the
+   change, orders and sessions written by live traffic after the checkpoint —
+   plus the one-sentence maximum loss boundary. When a frozen plan matches the
+   checkpoint, that is the plan's own claim, unchanged: the claim you saw at
+   authorization is the claim you see at recovery.
 
 An `incomplete_lifecycle` receipt is the strictest case: a hook window failed
 after its durable pre-hook boundary, so canonical state may already have been
 committed by a hook that then threw. No force flag bypasses it. The only exit
-is restoring the exact pre-lifecycle database checkpoint.
+is restoring the exact pre-lifecycle database checkpoint, which is what
+`duo recover` does.
+
+`duo recover` drives the adopted rollback authority, which only an SSH-adopted
+target has; on any other transport it says so and stops rather than improvising.
+The raw runtime actions it drives are named in [internals.md](internals.md) as
+internals — `duo` never needs you to type them, and running them directly is
+outside the supported workflow. The complete narrative is
+[recovery.md](recovery.md).
 
 Forced overrides, where they exist at all, disclose their consequences and
 always leave an exit path through `duo` — never through operator SQL.
@@ -350,15 +448,26 @@ always leave an exit path through `duo` — never through operator SQL.
 ## A realistic week
 
 - **Monday** — `duo doctor` each environment; `duo status production` to
-  confirm you are starting from a clean baseline.
-- **During the week** — branch; optionally `duo env materialize preview --from
-  production --branch=<branch> --ttl=86400`; author on the branch environment;
+  confirm you are starting from a clean baseline. After a plugin update, a
+  certification refresh, or anything that moved the stack, `duo assess
+  production` as well: readiness is recomputed from evidence, so it is the
+  cheapest way to find out that a surface you rely on now reads
+  `Requalification required`.
+- **During the week** — branch; `duo rehearse preview --from production
+  --branch=<branch> --ttl=86400` (or `duo env materialize` when you want the
+  environment without the preview); author on the rehearsal environment;
   `duo capture preview`; review the state diff in the pull request like any
   other diff.
 - **Before merging** — `duo refresh production --production-ref=<ref>`; rebase
   if production moved; `duo status stage` after applying to staging.
-- **Release** — `duo promote production`, then `duo status production` once
-  more. A clean plan after promotion is the receipt that the two halves agree.
+- **Release** — `duo release production --from=<ref> --plan-only`, read the
+  frozen plan and its recovery claim out loud to whoever owns the outcome, then
+  `duo release production --from=<ref> --yes`. Verification runs behind it;
+  `duo status production` once more is still the receipt that the two halves
+  agree.
+- **When a release fails** — take the one next action it printed. `recover`
+  means `duo recover production --list` and then a restore under a real
+  maintenance window; `reconcile` never means retry.
 - **When something is red** — go to
   [capabilities-and-limits.md](capabilities-and-limits.md#refusal-to-remedy)
   and match the bucket name. Every refusal in this system has exactly one

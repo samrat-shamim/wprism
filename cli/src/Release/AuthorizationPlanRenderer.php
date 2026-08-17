@@ -290,6 +290,25 @@ final class AuthorizationPlanRenderer {
             . (($exclusion['required'] ?? false) === true ? 'required — ' : 'held by Duo — ')
             . (string) ($exclusion['mechanism'] ?? '');
         $lines[] = '  maximum loss boundary: ' . (string) ($claim['maximum_loss_boundary'] ?? '');
+        // The boundary sentence names the checkpoint without naming its
+        // instant, because the claim is digested into `plan_digest` and a
+        // clock value there makes the plan's identity change every second
+        // (AuthorizationPlan::digest()). The instant is printed on the next
+        // line instead — same page, same breath, outside the digest — and
+        // `duo recover` prints the same pair before it acts.
+        // The absent case is split rather than smoothed over: under the
+        // `none` profile there is no checkpoint to date, and under any other
+        // profile an absent instant is a plan that did not record one. Saying
+        // "no checkpoint is taken" for the second case would be a claim about
+        // the release that this document does not support.
+        $checkpointAt = $recovery['checkpoint_at'] ?? null;
+        if (is_string($checkpointAt) && $checkpointAt !== '') {
+            $lines[] = '  checkpoint at: ' . $checkpointAt;
+        } elseif ((string) $recovery['selected'] === 'none') {
+            $lines[] = '  checkpoint at: none is taken under this profile';
+        } else {
+            $lines[] = '  checkpoint at: not recorded in this plan';
+        }
 
         return $lines;
     }

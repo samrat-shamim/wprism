@@ -36,6 +36,27 @@ use Duo\CommandRefusalException;
  *     array and never references this class, which is also what keeps the
  *     Release module free of a Recovery edge (module map rule 9).
  *
+ * ## Why no field here holds a clock value
+ *
+ * The claim carries its own `claim_digest` and is embedded inside the
+ * DIGESTED part of the authorization plan, so anything in it lands in
+ * `plan_digest`. A digest that includes a clock is a timestamp, not an
+ * identity: `maximum_loss_boundary` used to interpolate the checkpoint
+ * instant, which made two `duo release --plan-only` runs a second apart
+ * produce two different `plan_digest` values for one decision — filling
+ * `.duo/releases/` with duplicates and leaving `duo verify --plan=<digest>`
+ * with no stable name to cite (AuthorizationPlan::digest()'s own docblock
+ * promises the opposite).
+ *
+ * The boundary sentence is therefore literal about the checkpoint WITHOUT
+ * naming its instant, and the concrete instant travels beside the claim
+ * instead of inside it: `recovery_profile.checkpoint_at` in the frozen plan,
+ * excluded from `plan_digest` exactly like `frozen_at`, and printed next to
+ * the claim by `duo release` and again by `duo recover`. The operator loses
+ * nothing — the same two facts are on the same page — and the claim keeps
+ * the byte-identity property MUP §2.5 requires of it, because a claim built
+ * from the same facts at any two moments is now the same bytes.
+ *
  * ## Why the contract's declarations reach this class as plain arrays
  *
  * `cli:Recovery` may depend only on `Recovery`, `Transport` and
@@ -167,10 +188,18 @@ final class RecoveryClaim {
     /** Recovery semantics that need no does-not-restore row: no effect exists. */
     public const SEMANTICS_NOT_APPLICABLE = 'not applicable';
 
-    /** Closed input key set for build(). */
+    /**
+     * Closed input key set for build().
+     *
+     * `checkpoint_at` is deliberately NOT here: the claim is digested inside
+     * the authorization plan, so a clock value in it would make `plan_digest`
+     * a timestamp. The instant lives beside the claim instead — see the class
+     * docblock and `RecoveryProfileSelection::decide()`.
+     *
+     * @var list<string>
+     */
     private const FACT_KEYS = [
         'additional_does_not_restore',
-        'checkpoint_at',
         'covered_resources',
         'declared_external_effects',
         'profile',
@@ -181,9 +210,6 @@ final class RecoveryClaim {
      *
      * @param array<string,mixed> $facts closed keys:
      *   - `profile` (required) one of PROFILES;
-     *   - `checkpoint_at` (?string) the canonical UTC second the checkpoint
-     *     pins, or null when the release has not taken it yet — the boundary
-     *     sentence changes, the claim never claims a time it does not have;
      *   - `covered_resources` (list<string>) the concrete inventory entries
      *     this target/plan covers ("code release e2f1a09", "upload bundle
      *     (12 entries)"). Distinct from `restores`, which names resource
@@ -209,11 +235,6 @@ final class RecoveryClaim {
                 'recovery claim profile must be one of ' . implode(', ', self::PROFILES)
             );
         }
-        $checkpointAt = $facts['checkpoint_at'] ?? null;
-        if ($checkpointAt !== null && (!is_string($checkpointAt) || $checkpointAt === '')) {
-            throw new \InvalidArgumentException('recovery claim checkpoint_at must be a non-empty string or null');
-        }
-
         $covered = self::stringList($facts['covered_resources'] ?? [], 'covered_resources');
         $additional = self::stringList($facts['additional_does_not_restore'] ?? [], 'additional_does_not_restore');
         $effects = $facts['declared_external_effects'] ?? [];
@@ -248,7 +269,7 @@ final class RecoveryClaim {
             'covered_resources' => $covered,
             'does_not_restore' => $doesNotRestore,
             'format' => self::FORMAT,
-            'maximum_loss_boundary' => self::lossBoundary($profile, $checkpointAt),
+            'maximum_loss_boundary' => self::lossBoundary($profile),
             'profile' => $profile,
             'restores' => $restores,
             'writer_exclusion' => self::WRITER_EXCLUSION[$profile],
@@ -453,15 +474,23 @@ final class RecoveryClaim {
         return $rows;
     }
 
-    private static function lossBoundary(string $profile, ?string $checkpointAt): string {
+    /**
+     * The literal answer to "what will I lose", with no clock value in it.
+     *
+     * Two sentences, one per case, and the choice is the profile alone:
+     * either a checkpoint bounds the loss or nothing does. The checkpointed
+     * sentence names WHEN the checkpoint is taken relative to the release
+     * (at release start, before the first mutation) rather than the instant
+     * it pinned, because the instant belongs beside the claim — the class
+     * docblock says why, and both printings put it on the next line.
+     */
+    private static function lossBoundary(string $profile): string {
         if ($profile === self::NONE) {
             return 'everything this release writes: no checkpoint is taken, so nothing bounds the loss';
         }
-        if ($checkpointAt === null) {
-            return 'writes committed after the checkpoint this release takes immediately before mutation';
-        }
 
-        return "writes committed after checkpoint $checkpointAt";
+        return 'writes committed after the checkpoint this release takes immediately before mutation; '
+            . 'the instant that checkpoint pins is printed beside this claim';
     }
 
     /**

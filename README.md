@@ -19,16 +19,18 @@ WordPress state is classified along three axes — *who authors it*, *env-portab
 
 ## Getting started
 
-The [guides](docs/guides/README.md) are narrative and task-shaped, and every command in them is mechanically checked against the shipped CLI. Reading order for someone new: [quickstart](docs/guides/quickstart.md) → [daily-workflow](docs/guides/daily-workflow.md) → [capabilities-and-limits](docs/guides/capabilities-and-limits.md), then [code-updates](docs/guides/code-updates.md) and [adapter-authoring](docs/guides/adapter-authoring.md) as the need arises. Installing onto an existing SSH WordPress host is [docs/adoption.md](docs/adoption.md) — it bootstraps the agent, manifests, and seed repo without requiring Git or shared volumes on the host.
+The [guides](docs/guides/README.md) are narrative and task-shaped, and every command in them is mechanically checked against the shipped CLI. Reading order for someone new: [quickstart](docs/guides/quickstart.md) → [assess](docs/guides/assess.md) → [daily-workflow](docs/guides/daily-workflow.md) → [release](docs/guides/release.md) → [capabilities-and-limits](docs/guides/capabilities-and-limits.md), with [recovery](docs/guides/recovery.md) read before your first production release rather than during it, then [code-updates](docs/guides/code-updates.md) and [adapter-authoring](docs/guides/adapter-authoring.md) as the need arises. Installing onto an existing SSH WordPress host is [docs/adoption.md](docs/adoption.md) — it bootstraps the agent, manifests, and seed repo without requiring Git or shared volumes on the host.
 
 ## The `duo` CLI
 
 Host-agnostic, dependency-free PHP orchestration ([cli/](cli/); full reference in [cli/README.md](cli/README.md)) over **local**, **Docker**, and **SSH** transports, driven from a committable environment registry.
 
-- **Environment-bound:** `adopt`, `init`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
+- **Environment-bound:** `adopt`, `init`, `assess`, `contract`, `status`, `doctor`, `capture`, `plan`, `apply`, `deploy`, `rehearse`, `release`, `verify`, `recover`, `promote`, `pending`, `classify`, `capabilities`, `explain`, `coverage`, `scope`, `env-set`, `refresh`, `rebase`, `adapter-observe`, `driver-capabilities`.
 - **Repo-local (no environment):** `envs`, `env materialize|reap`, `manifest-validate`, `adapter-draft`, `adapter`.
 
 `duo capabilities` reports the same external disposition, exact scope, unsupported surfaces, and evidence consumed by readiness and promotion. `duo promote` composes deploy-before-apply under promotion locks and, when the target proves every rollback capability, automatically selects the **verified-rollback profile** (DUO-3310); otherwise it remains operator-directed with an explicit warning.
+
+The composed customer loop sits on top of those: `duo assess` is a read-only, decision-first projection of every WordPress surface into the product's own vocabulary, and `duo contract` records the reviewed result as a per-site application contract. `duo rehearse` materializes a disposable preview and states plainly that it is a preview and not a sandbox. `duo release` freezes and prints an authorization plan — scope, conditions, what may change, the literal recovery claim, effects, remaining authority — before any mutation, then composes `duo promote` unchanged and runs `duo verify` (convergence plus contract-declared journey oracles) behind it. `duo recover` is the operator verb over the recovery runtime, printing the same restores/does-not-restore claim the plan carried and enforcing writer exclusion and code-first ordering.
 
 The core loop for unclassified writes: loud block → `duo pending <env>` (journal-evidenced proposals, ref hints, secret flags) → `duo classify <env>` triage (interactive or `--accept-proposals`; secrets can never be authored silently) → clean capture → `wp duo policy-to-manifest` export. `duo adapter-draft` turns captured state into inert `_draft` manifest candidates for human ratification.
 

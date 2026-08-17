@@ -83,7 +83,6 @@ exec('git -C ' . escapeshellarg("$dir/site") . ' config user.name fixture 2>/dev
 // the claim `duo recover` prints is provably the claim the operator was
 // shown at authorization rather than a freshly-built lookalike.
 $claim = RecoveryClaim::build([
-    'checkpoint_at' => '2026-08-17T09:14:02Z',
     'covered_resources' => [RecoveryClaim::RESOURCE_DATABASE_CHECKPOINT, RecoveryClaim::RESOURCE_CODE_RELEASE],
     'profile' => RecoveryClaim::OPERATOR_DIRECTED,
 ]);
@@ -103,6 +102,10 @@ $document = AuthorizationPlan::build([
     ),
     'projection' => [],
     'recovery' => [
+        // Beside the claim, not in it: the claim is digested into
+        // `plan_digest`, so a clock value there would re-identify one
+        // authorization every second (AuthorizationPlan::digest()).
+        'checkpoint_at' => '2026-08-17T09:14:02Z',
         'claim' => $claim,
         'selected' => RecoveryClaim::OPERATOR_DIRECTED,
         'selected_because' => 'the fixture target proves a database checkpoint and nothing more',
