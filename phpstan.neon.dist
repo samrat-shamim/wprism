@@ -1,0 +1,86 @@
+# PHPStan configuration for the Duo dev toolchain.
+#
+# Two facts drive every choice here.
+#
+# 1. The product has no autoloader. agent/duo.php require_once's 92 files and
+#    agent/src holds 224 flat `namespace Duo;` files that require their own
+#    dependencies; recovery/ and cli/ do the same. There is therefore no
+#    composer autoload section to point PHPStan at, and adding one would be a
+#    lie about how the drop-in loads. `scanDirectories`/`scanFiles` is the
+#    supported way to hand PHPStan symbols it must know but must not analyse
+#    as project code, so that is what carries agent/src, cli/src, recovery/,
+#    the three manifests/ PHP hook directories, and the WordPress/WP-CLI stubs.
+#
+# 2. Nothing here ships. cli/src/Adopt.php:120 tars exactly
+#    `agent manifests recovery`, so a repo-root analyser config is
+#    structurally incapable of reaching a managed site. That is why it is safe
+#    to depend on vendor/ here while the drop-in stays dependency-free
+#    (asserted by tests/Tooling/PhpstanBaselineRatchetTest.php).
+#
+# Level 2 is the entry ratchet, not the ambition: it is the highest level at
+# which the existing tree produces a baseline small enough to review by hand.
+# The baseline is a ceiling enforced by PHPUnit
+# (tests/Tooling/fixtures/phpstan-baseline-ceiling.txt), so it can shrink but
+# never grow silently.
+
+includes:
+    - phpstan-baseline.neon
+
+parameters:
+    level: 2
+
+    tmpDir: .phpstan
+
+    paths:
+        - agent/src
+        - agent/duo.php
+        - agent/duo-loader.php
+        - cli/src
+        - cli/duo
+        - recovery
+        - scripts
+        - tools
+        - tests
+        # The shared offline harness (sandbox/tests/lib) is new first-party
+        # code and is analysed as such; the 204 bespoke regress_*.php suites
+        # are NOT — each redefines WP globals and fake wpdb classes for
+        # itself and would only produce redeclaration noise.
+        - sandbox/tests/lib
+
+    # Symbols PHPStan must resolve but must not report on. agent/src and
+    # cli/src also appear in `paths` — listing them here as well is harmless
+    # and keeps symbol discovery independent of which subset of `paths` a
+    # one-off `phpstan analyse <dir>` invocation narrows to.
+    scanDirectories:
+        - agent/src
+        - cli/src
+        - recovery
+        - manifests/providers
+        - manifests/interpreters
+        - manifests/regenerators
+        - sandbox/tests/lib
+
+    scanFiles:
+        - cli/duo
+        - recovery/rollback-control.php
+        # php-stubs/wordpress-stubs and php-stubs/wp-cli-stubs both document
+        # `scanFiles` as the intended wiring: the stub files declare functions
+        # and classes with empty bodies, so they belong in symbol discovery,
+        # not in bootstrapFiles (which PHPStan actually executes).
+        - vendor/php-stubs/wordpress-stubs/wordpress-stubs.php
+        - vendor/php-stubs/wp-cli-stubs/wp-cli-stubs.php
+        - vendor/php-stubs/wp-cli-stubs/wp-cli-commands-stubs.php
+        - vendor/php-stubs/wp-cli-stubs/wp-cli-i18n-stubs.php
+
+    bootstrapFiles:
+        - tests/phpstan-bootstrap.php
+
+    # `cli/duo` has no .php extension (it is a `#!/usr/bin/env php` executable).
+    # Explicitly-listed paths are analysed regardless of extension, but adding
+    # the bare name here keeps directory traversal of cli/ consistent with the
+    # explicit entry above.
+    fileExtensions:
+        - php
+
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: true
