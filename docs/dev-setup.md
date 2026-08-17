@@ -316,3 +316,60 @@ question from the command line.
 
 Adding a class to `agent/src` or `cli/src` therefore has one extra step: run
 `php tools/classmap-generate.php` and commit the regenerated map alongside it.
+
+## `duo assess` / `duo contract` (round-3 MUP)
+
+Two environment-bound host verbs land with the round-3 minimum usable platform
+([docs/proposals/round-3-minimum-usable-platform.md](proposals/round-3-minimum-usable-platform.md)
+§2.1 and §2.6). Both take an `<env>` and neither writes to a target.
+
+```bash
+duo assess <env> [--operation=<csv>] [--limit=<1..200>] [--format=json]
+duo contract <env> show|propose|accept [--format=json]
+```
+
+`duo assess` composes, in this order and with each step gating the next:
+`Doctor::run()`, the read-only adoption and `wp duo init` probes,
+`wp duo assess-inventory --format=json` (which already carries `coverage`,
+`pending` and the target's adapter survey), one
+`wp duo capabilities --operation=<op>` per *distinct registry operation* — four
+calls for all six product operations — and the host-side `duo adapter list`.
+It prints the stack, the authority Duo actually has, one row per
+WordPress-language surface with the six spec dimensions, the unknown queue
+counted and named, and one next action per gap from a closed set. It writes
+`.duo/contract/proposed.json` into the **local** site repository (the directory
+holding `site.duo.json`, not the target's `repo_path`), and regenerates
+`.duo/contract/projection.json` when a contract has already been accepted.
+
+Three things about it are easy to get wrong when reading the output:
+
+- **Exit 0 is normal even when every surface is blocked.** Assessment is not a
+  completeness claim. Exit 1 means the assessment itself refused — unreachable
+  target, multisite, an unresolvable environment — and always carries a
+  `duo-command-refusal/v1` envelope under `--format=json`.
+- **`containment: unknown — not enforced in this profile` is the honest value,
+  not a bug.** MUP ships no egress control, so only apply's hook-free window is
+  structurally provable. `sandboxed` and `compensatable` are never emitted, and
+  neither is `Site-certified`: the certification gate is deferred, so the
+  contract carries an `unsigned` attestation and every site-scoped claim reads
+  `Uncertified`.
+- **The human view is bounded** (50 rows per section, `--limit=1..200`,
+  `N more (use --format=json)`), and a malformed `--limit` refuses rather than
+  falling back to the default. The counts printed beside a truncated list are
+  always the true totals.
+
+`duo contract` is the reviewed half. `propose` regenerates the proposal from a
+fresh assessment; `show` reads the two committed documents from disk and
+contacts nothing; `accept` re-runs the assessment, refuses a stale proposal
+(`contract_proposal_stale`) rather than reconciling it, writes `contract.json`
+and `projection.json` canonically under compare-and-swap, and **stages** them
+without committing. A generated proposal cannot be accepted unread: it carries
+an `external_effects[]` entry with `decided_by: "unresolved"` that the schema
+refuses, so the human review step is enforced rather than requested.
+
+Offline coverage: `sandbox/tests/regress_assess_composition.sh`,
+`regress_assess_bounds.sh`, `regress_contract_accept.sh` (all three drive the
+real `php cli/duo` over a `local` transport with a fake `wp` on `PATH`, built by
+`sandbox/tests/fixtures/assess/make-fixture.php`), plus the Contract module's
+own `regress_assess_projection.php`, `regress_contract_shape.php` and
+`regress_contract_projection.php`.

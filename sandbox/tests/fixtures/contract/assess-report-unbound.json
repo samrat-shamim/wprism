@@ -1,0 +1,91 @@
+{
+  "format": "duo-assess-report/v1",
+  "generated_at": "2026-08-17T09:14:02Z",
+  "env": "production",
+  "target": {
+    "wordpress": "7.0.3",
+    "php": "8.3.33",
+    "database": {"engine": "MariaDB", "version": "11.8.8"},
+    "site_mode": "single-site",
+    "home": "https://example.test",
+    "siteurl": "https://example.test"
+  },
+  "authority": {
+    "transport": "ssh",
+    "target": "deploy@prod",
+    "mode": "read-only for this command",
+    "repo": "/srv/site"
+  },
+  "surfaces": [
+    {
+      "id": "products", "label": "Products", "kind": "post_type",
+      "state_class": "authored", "handling": "manage",
+      "next_action": "nothing — supported", "decided_by": "operator",
+      "meaning": "Duo versions this surface and applies the repository copy to the target.",
+      "operations": {
+        "capture": {"state_class": "authored", "handling": "manage", "readiness": "Ready",
+          "certification_provenance": "Platform-certified", "effect_containment": "prevented",
+          "effect_containment_basis": "no WordPress hooks fire in the apply window",
+          "effect_recovery_semantics": "provider-state restorable", "conditions": [],
+          "remediation": null,
+          "meaning": "Duo versions this surface and applies the repository copy to the target.",
+          "annotations": []},
+        "release": {"state_class": "authored", "handling": "manage", "readiness": "Ready",
+          "certification_provenance": "Platform-certified", "effect_containment": "prevented",
+          "effect_containment_basis": "no WordPress hooks fire in the apply window",
+          "effect_recovery_semantics": "provider-state restorable", "conditions": [],
+          "remediation": null,
+          "meaning": "Duo versions this surface and applies the repository copy to the target.",
+          "annotations": []}
+      }
+    },
+    {
+      "id": "orders", "label": "Orders", "kind": "post_type",
+      "state_class": "runtime", "handling": "preserve local",
+      "next_action": "exclude", "decided_by": "platform-default",
+      "meaning": "Live operational state is never copied; the target keeps its own.",
+      "operations": {
+        "capture": {"state_class": "runtime", "handling": "preserve local",
+          "readiness": "Unsupported", "certification_provenance": "Uncertified",
+          "effect_containment": "prevented",
+          "effect_containment_basis": "no WordPress hooks fire in the apply window",
+          "effect_recovery_semantics": "not applicable", "conditions": [],
+          "remediation": "exclude this surface from the operation; Duo refuses it for a stated reason",
+          "meaning": "Live operational state is never copied; the target keeps its own.",
+          "annotations": []}
+      }
+    },
+    {
+      "id": "acme_catalog", "label": "Custom catalog table", "kind": "table",
+      "state_class": "unclassified", "handling": "block",
+      "next_action": "qualify in rehearsal", "decided_by": "unresolved",
+      "meaning": "Ownership and semantics are unknown, so the operation refuses rather than guess.",
+      "operations": {
+        "release": {"state_class": "unclassified", "handling": "block",
+          "readiness": "Not qualified", "certification_provenance": "Uncertified",
+          "effect_containment": "unknown",
+          "effect_containment_basis": "unknown — not enforced in this profile",
+          "effect_recovery_semantics": "unknown", "conditions": [],
+          "remediation": "qualify in rehearsal, or declare it out of scope in the contract",
+          "meaning": "Ownership and semantics are unknown, so the operation refuses rather than guess.",
+          "annotations": []}
+      }
+    }
+  ],
+  "unknown": {"pending_count": 3, "invisible_names_count": 41, "names_sample": ["acme_flag", "acme_token"]},
+  "evidence": {
+    "registry_sha256": "sha256:8fa100000000000000000000000000000000000000000000000000000000ffff",
+    "generated_from": {
+      "dispositions_sha256": "sha256:947600000000000000000000000000000000000000000000000000000000ffff",
+      "evidence_sha256": "sha256:27bd00000000000000000000000000000000000000000000000000000000ffff",
+      "compatibility_sha256": "sha256:889000000000000000000000000000000000000000000000000000000000ffff"
+    },
+    "bundles": [
+      {"subject": "manifests.storefront-commerce",
+       "bundle_digest": "sha256:734500000000000000000000000000000000000000000000000000000000ffff",
+       "bundle_schema": "duo-subject-certification-bundle/v1", "status": "current",
+       "git_revision": "ca94e365000000000000000000000000000000000",
+       "expires_with": ["storefront-commerce", "wordpress", "php", "database"]}
+    ]
+  }
+}

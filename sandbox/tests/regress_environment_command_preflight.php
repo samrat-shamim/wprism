@@ -14,10 +14,15 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     if ($condition) { echo "ok: $message\n"; return; }
     fwrite(STDERR, "FAIL: $message\n"); $failures++;
 };
+// The vocabulary is pinned in ORDER on purpose: this is a two-sided ratchet,
+// so a verb added to the preflight without the same-train update here goes
+// red, and a verb quietly REMOVED goes red too. Round-3 MUP §2.1/§2.6 adds
+// `assess` and `contract`, both environment-bound because both take <env>.
 $expected = [
     'doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities',
     'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
     'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
+    'assess', 'contract',
 ];
 $check(EnvironmentCommandPreflight::environmentVerbs() === $expected, 'environment command vocabulary remains ordered and closed');
 $check(EnvironmentCommandPreflight::requiresEnvironment('capture'), 'capture is environment-bound');

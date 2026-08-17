@@ -1,0 +1,18 @@
+{
+  "site": {"name": "example-shop", "spec_version": 2},
+  "manifest_pins": [
+    {"name": "core", "source": "shipped", "adapter_digest": "sha256:4d1e00000000000000000000000000000000000000000000000000000000ffff"},
+    {"name": "storefront-commerce", "source": "shipped", "adapter_digest": "sha256:c07a00000000000000000000000000000000000000000000000000000000ffff"}
+  ],
+  "plugins": [
+    {"slug": "storefront-commerce", "version": "10.4.2"},
+    {"slug": "site-toolkit", "version": "2.1.0"}
+  ],
+  "environment_bindings": {
+    "required": [
+      {"name": "siteurl", "class": "env", "bound_in": ".duo-env-values.json"},
+      {"name": "payment_gateway_secret", "class": "env", "sensitivity": "secret",
+       "bound_in": ".duo-env-values.json"}
+    ]
+  }
+}

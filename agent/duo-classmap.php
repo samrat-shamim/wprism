@@ -30,6 +30,7 @@ return [
     'Duo\\ApplyServices' => 'src/Apply/ApplyServices.php',
     'Duo\\ApplyWorkset' => 'src/Apply/ApplyWorkset.php',
     'Duo\\ArtifactPolicyIdentity' => 'src/Policy/ArtifactPolicyIdentity.php',
+    'Duo\\AssessInventory' => 'src/Assess/AssessInventory.php',
     'Duo\\AtomicTreePublisher' => 'src/Publication/AtomicTreePublisher.php',
     'Duo\\AttachmentMaterializer' => 'src/Apply/AttachmentMaterializer.php',
     'Duo\\AttributeGrammar' => 'src/Grammar/AttributeGrammar.php',

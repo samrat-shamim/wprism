@@ -2,6 +2,7 @@ COMPOSE = docker compose -f sandbox/docker-compose.yml
 
 .PHONY: regress-recovery-protocol
 .PHONY: regress-canonical-json-parity
+.PHONY: regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept
 .PHONY: regress-offline-all regress-offline-corpus regress-offline-diagnostics
 .PHONY: regress-lifecycle-options-snapshot
 .PHONY: regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-environment-command regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-adopt-command regress-pending-command regress-classify-command regress-capture-command regress-deploy-command regress-promote-command regress-status-command regress-scope-command regress-refresh-command regress-rebase-command
@@ -1326,6 +1327,38 @@ regress-order-preserving:
 regress-canonical-json-parity:
 	php sandbox/tests/regress_canonical_json_parity.php
 
+# ROUND 3 T2 (docs/proposals/round-3-minimum-usable-platform.md §6.2): the
+# assess + contract product surface. Pure PHP / bash offline suites over the
+# fixture site repos and a fake `wp`; no docker.
+# the §1 vocabulary projection, table-driven: every cell of state class × handling × readiness × certification provenance × containment × recovery semantics, plus the no-plugin-slug gate over the Assess/Contract modules
+regress-assess-projection:
+	php sandbox/tests/regress_assess_projection.php
+
+# wp duo assess-inventory: the duo-assess-inventory/v1 document over a fake site — names and counts only, byte-stable, no option value ever leaks
+regress-assess-inventory:
+	php sandbox/tests/regress_assess_inventory.php
+
+# duo-application-contract/v1: canonical bytes, closed keys, digest stability, attestation enum, compare-and-swap store
+regress-contract-shape:
+	php sandbox/tests/regress_contract_shape.php
+
+# projection.json regenerates identically from identical inputs; an evidence-pin mismatch flips affected surfaces to Requalification required
+regress-contract-projection:
+	php sandbox/tests/regress_contract_projection.php
+
+# duo assess composes doctor → probes → inventory → capabilities → catalog in order and refuses (never partially succeeds) on missing access; proposed.json written locally
+regress-assess-composition:
+	bash sandbox/tests/regress_assess_composition.sh
+
+# bounded human output: 50-row default, --limit=1..200 grammar, the "N more (use --format=json)" tail
+regress-assess-bounds:
+	bash sandbox/tests/regress_assess_bounds.sh
+
+# duo contract propose → accept → files written canonical and staged; stale proposal refused; newer-digest overwrite refused
+regress-contract-accept:
+	bash sandbox/tests/regress_contract_accept.sh
+
+
 regress-promotion-lock:
 	bash sandbox/tests/regress_promotion_lock.sh
 
@@ -1866,12 +1899,12 @@ regress-user-meta:
 # closed signed SSH crash-matrix evidence verifier.
 regress-offline-all:
 	@bash sandbox/tests/offline_diagnostics_guard.sh "$(MAKE)" --no-print-directory regress-offline-corpus
-	@echo "regress-offline-all: 239 offline suites green"
+	@echo "regress-offline-all: 246 offline suites green"
 
 regress-offline-corpus: code-half-unit \
 	regress-adopt-rollback regress-local-bootstrap regress-capture-publish regress-adapter-contract regress-adapter-sources regress-site-adapter-certification regress-manifest-dispositions regress-capability-registry regress-scoped-certification-bundle regress-subject-certification-bundle regress-interpreter-policy regress-proof-legacy-pair \
 	regress-acf-meta-interpreter regress-fatal-mutations-unit regress-capture-secret-scan regress-user-meta-capture regress-entity-meta-capture regress-menu-capture regress-media-capture regress-options-capture regress-reference-scope-classifier regress-capture-safety-gates regress-capture-gate-scanner regress-capture-refactor-boundaries \
-	regress-order-preserving regress-canonical-json-parity \
+	regress-order-preserving regress-canonical-json-parity regress-assess-projection regress-assess-inventory regress-contract-shape regress-contract-projection regress-assess-composition regress-assess-bounds regress-contract-accept \
 	regress-block-refs regress-identity-token-codec regress-text-tokenizer regress-structured-reference-codec regress-url-query-reference-codec regress-lint-primitives regress-block-reference-scanner regress-menu-reference-scanner regress-serialized-term-description-scanner regress-shortcode-reference-scanner regress-composite-ref regress-doctor-env-values regress-environment-driver regress-environment-lifecycle regress-environment-command regress-environment-materializer regress-environment-materializer-ssh regress-environment-materializer-recovery regress-frozen-materialization-promotion \
 	regress-dynamic-options-policy regress-option-name-reference-resolver regress-deletion-capability-resolver regress-taxonomy-pattern-resolver regress-taxonomy-keyspace-resolver regress-taxonomy-description-reference-resolver regress-taxonomy-object-type-option-resolver regress-widget-type-resolver regress-table-declaration-resolver regress-content-attribute-rule-resolver regress-policy-rule-resolver regress-exact-option-resolver regress-option-namespace-resolver regress-taxonomy-object-keyspace regress-env-options-policy regress-export-manifest-roundtrip regress-policy-writer regress-manifest-validator regress-site-policy-validator regress-policy-load-finalizer regress-artifact-policy-identity regress-compiled-artifact-reader regress-repository-media-catalog regress-repository-schema-validator regress-repository-deletion-parser regress-repository-entity-parser regress-repository-identity-registry regress-repository-reference-graph-validator regress-repository-portable-shape-validator regress-repository-menu-location-validator regress-repository-state-file-catalog regress-post-type-relation-resolver \
 	regress-manifest-reclassification-policy regress-menu-field-reclassification-policy \
@@ -1886,7 +1919,7 @@ regress-offline-corpus: code-half-unit \
 	regress-ssh-rollback-certification regress-woocommerce-contract regress-init-contract regress-refresh-export-unit regress-plan-title-render regress-conflict-view regress-convergence-verifier regress-apply-planner regress-apply-field-materializer regress-path-safety regress-deploy-planner regress-lifecycle-planner regress-state-handoff-verifier regress-lifecycle-executor regress-cli-json-refusals regress-command-output regress-environment-command-preflight regress-passthrough-command regress-environment-command-options regress-driver-capabilities-command regress-environment-list-command regress-doctor-command regress-pending-command regress-classify-command regress-capture-command regress-status-command regress-plan-explain regress-vocabulary-ownership regress-duo3316-contract regress-close-gate-parent-count \
 	regress-manifest-validate regress-adapter-draft regress-scope-closure regress-adapter-catalog regress-adapter-observation regress-plan-contract-trust regress-scope-contract regress-conformance-asserts regress-linear-loop-freeze regress-scope-command regress-refresh-command regress-rebase-command regress-adopt-command regress-init-command \
 	regress-plugin-adapter-source regress-plan-category-summary regress-plan-view regress-explain-registry regress-explain-export-premise regress-polylang-fail-helper regress-elementor-dead-guard regress-elementor-matrix-reset regress-grind-r1c-manifest-preserve regress-observation-guards regress-live-exit-code-contract regress-target-observation-premises regress-bound-helper regress-control-plane-seams regress-recovery-protocol regress-scoped-apply-session regress-scoped-apply-live-cleanup regress-scoped-apply-recovery regress-scoped-effect-reconciliation regress-scoped-promotion-target regress-scoped-promote-unit regress-ssh-adopt-evidence-retention regress-scope-wire regress-manifest-grammar regress-compiled-artifact regress-code-descriptor-compiler regress-code-config-grammar regress-menu-materializer regress-adapter-registry regress-agent-src-requires regress-user-meta-materializer regress-pin-resolver regress-term-materializer regress-action-provider-grammar regress-options-materializer regress-cross-manifest-guards regress-relationship-materializer regress-attachment-materializer regress-post-materializer regress-sub-key-grammar regress-delete-executor regress-delete-guard-value-codec regress-delete-guard-evaluator regress-scope-discovery regress-table-graph regress-table-schema regress-snapshot-identity regress-typed-table-capture regress-typed-table-materializer regress-snapshot-pruner regress-taxonomy-grammar regress-option-reference-grammar regress-post-type-grammar regress-discovery-grammar regress-reference-keyspace-grammar regress-reference-kind-grammar regress-offline-diagnostics
-	@echo "regress-offline-corpus: 239 offline suites green"
+	@echo "regress-offline-corpus: 246 offline suites green"
 
 regress-offline-diagnostics:
 	bash sandbox/tests/regress_offline_diagnostics.sh

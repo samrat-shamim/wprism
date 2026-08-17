@@ -1135,6 +1135,7 @@
         "depends_on": [
           "Adapter",
           "Apply",
+          "Assess",
           "Capture",
           "Code",
           "Command",
@@ -1151,9 +1152,11 @@
           {
             "module": "Assess",
             "kind": "intra-layer",
-            "count": 0,
-            "reason": "designed (reserved): Command dispatches the Assess projections; the reverse edge is forbidden.",
-            "edges": []
+            "count": 1,
+            "reason": "designed: Command dispatches the Assess projections; the reverse edge is forbidden.",
+            "edges": [
+              "Cli.php -> AssessInventory.php"
+            ]
           }
         ],
         "file_count": 1,
@@ -1163,9 +1166,11 @@
       },
       "Assess": {
         "layer": "surface",
-        "purpose": "RESERVED (round 3): read-only inventory and projection commands answering 'what is here, and what can Duo do with it' before any write.",
-        "status": "reserved",
-        "entry_points": [],
+        "purpose": "Read-only inventory and projection commands answering 'what is here, and what can Duo do with it' before any write.",
+        "status": "populated",
+        "entry_points": [
+          "AssessInventory"
+        ],
         "depends_on": [
           "Adapter",
           "Assess",
@@ -1177,8 +1182,10 @@
           "Review"
         ],
         "exceptions": [],
-        "file_count": 0,
-        "files": []
+        "file_count": 1,
+        "files": [
+          "AssessInventory.php"
+        ]
       }
     }
   },
@@ -1382,12 +1389,14 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 19,
+        "file_count": 21,
         "files": [
           "AdoptCommand.php",
+          "AssessCommand.php",
           "CaptureCommand.php",
           "ClassifyCommand.php",
           "CommandOutput.php",
+          "ContractCommand.php",
           "DeployCommand.php",
           "DoctorCommand.php",
           "DriverCapabilitiesCommand.php",
@@ -1407,9 +1416,15 @@
       },
       "Assess": {
         "layer": "engine",
-        "purpose": "RESERVED (round 3): the assess mechanism \u2014 stack inventory, surface catalog, gap actions and the assess report \u2014 over agent Assess projections and driver capabilities. The verb boundary (`AssessCommand`) lives in `cli/src/Command/`; Doctor, the environment registry and the adapter catalog are called there and passed in as data.",
-        "status": "reserved",
-        "entry_points": [],
+        "purpose": "The assess mechanism \u2014 stack inventory and the authority block, the per-surface catalog carrying the six spec dimensions, the closed gap-action set, the `duo-assess-report/v1` document and its bounded human renderer. Mechanism only: `AssessCommand` (cli:Command) calls Doctor, the environment registry and the adapter catalog and hands their results in as data, which is what keeps this module free of intra-layer and upward edges (module map rule 9).",
+        "status": "populated",
+        "entry_points": [
+          "StackInventory",
+          "SurfaceCatalog",
+          "GapActions",
+          "AssessReport",
+          "AssessRenderer"
+        ],
         "depends_on": [
           "Assess",
           "Contract",
@@ -1420,8 +1435,14 @@
           "agent:Kernel"
         ],
         "exceptions": [],
-        "file_count": 0,
-        "files": []
+        "file_count": 5,
+        "files": [
+          "AssessRenderer.php",
+          "AssessReport.php",
+          "GapActions.php",
+          "StackInventory.php",
+          "SurfaceCatalog.php"
+        ]
       },
       "Release": {
         "layer": "engine",
@@ -1458,9 +1479,15 @@
       },
       "Contract": {
         "layer": "policy",
-        "purpose": "RESERVED (round 3): the per-site application contract as one object \u2014 manifests, site policy, evidence pins, bindings and capability report composed and addressable \u2014 plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
-        "status": "reserved",
-        "entry_points": [],
+        "purpose": "The per-site application contract as one object \u2014 manifests, site policy, evidence pins, bindings and capability report composed and addressable \u2014 plus `ProjectionVocabulary`, the single implementation of the spec-word projection that Assess, Release and Rehearse all read. Pure and offline-testable: a document, not a session.",
+        "status": "populated",
+        "entry_points": [
+          "ApplicationContract",
+          "ContractProjection",
+          "ContractProposal",
+          "ContractStore",
+          "ProjectionVocabulary"
+        ],
         "depends_on": [
           "Contract",
           "Plan",
@@ -1469,8 +1496,14 @@
           "agent:Policy"
         ],
         "exceptions": [],
-        "file_count": 0,
-        "files": []
+        "file_count": 5,
+        "files": [
+          "ApplicationContract.php",
+          "ContractProjection.php",
+          "ContractProposal.php",
+          "ContractStore.php",
+          "ProjectionVocabulary.php"
+        ]
       }
     }
   },
