@@ -435,9 +435,12 @@ committed by a hook that then threw. No force flag bypasses it. The only exit
 is restoring the exact pre-lifecycle database checkpoint, which is what
 `duo recover` does.
 
-`duo recover` drives the adopted rollback authority, which only an SSH-adopted
-target has; on any other transport it says so and stops rather than improvising.
-The raw runtime actions it drives are named in [internals.md](internals.md) as
+`duo recover` lists two sources: the signed receipt of the adopted rollback
+authority, which only an SSH-adopted target has, and the plain database
+checkpoint every operator-directed release retained under `.duo/checkpoints/`,
+which every target has — restored through the same four ordered steps. Only a
+signed rollback stays SSH-only; elsewhere it says so and stops rather than
+improvising. The raw runtime actions it drives are named in [internals.md](internals.md) as
 internals — `duo` never needs you to type them, and running them directly is
 outside the supported workflow. The complete narrative is
 [recovery.md](recovery.md).
