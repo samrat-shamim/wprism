@@ -27,8 +27,14 @@ declare(strict_types=1);
 require_once __DIR__ . '/lib/check.php';
 
 require_once __DIR__ . '/../../cli/src/Contract/ProjectionVocabulary.php';
+// The catalog too, for T6 §3.6's `plugin:` row at the end of this file. The
+// rest of the suite exercises the vocabulary alone on purpose — a fact vector
+// in, a projection out — but the plugin row's whole subject is how a CONTRACT
+// declaration reaches that vector, and only the catalog builds one.
+require_once __DIR__ . '/../../cli/src/Assess/SurfaceCatalog.php';
 
 use Duo\Orchestrator\ProjectionVocabulary as V;
+use Duo\Orchestrator\SurfaceCatalog;
 
 /**
  * A fully-populated fact vector with every dimension in its most neutral
@@ -623,5 +629,103 @@ foreach ($guarded as $relative) {
     }
 }
 duo_check($scanned > 0, "the slug gate scanned at least one file ($scanned)");
+
+// ------------------------------- T6 §3.6: a reviewed decision on a plugin row
+//
+// The rule this exercises is narrow and both halves matter. Everywhere else an
+// engine gate that failed to classify a surface knows something a declaration
+// cannot un-know, and `projectStateClass()` enforces that. A `plugin:` row is
+// not that: nothing failed to classify it, and "this plugin's state stays
+// local" is a decision an operator is entitled to make about a plugin they
+// deliberately left unmanaged. Without the exception the row stays
+// `unclassified / block` forever and blocks every release on exactly the sites
+// `duo init --allow-unmanaged-plugins` exists to support.
+$catalogFor = static function (?array $declaredSurface): array {
+    $contract = $declaredSurface === null ? null : [
+        'declarations' => ['surfaces' => [$declaredSurface], 'external_effects' => []],
+    ];
+
+    return SurfaceCatalog::catalog(
+        [
+            'plugins_without_adapter' => [[
+                'basename' => 'unmanaged-widget/unmanaged-widget.php',
+                'file' => 'unmanaged-widget.php',
+                'slug' => 'unmanaged-widget',
+            ]],
+            'policy' => ['surface_groups' => []],
+            'coverage' => [],
+        ],
+        [],
+        $contract,
+        ['operations' => ['release']]
+    );
+};
+
+$undeclared = $catalogFor(null)['rows'][0] ?? [];
+duo_check_same('plugin:unmanaged-widget', $undeclared['id'] ?? null, 'an unmanaged plugin mints its own row');
+duo_check_same('plugin', $undeclared['kind'] ?? null, 'with kind plugin');
+duo_check_same('unclassified', $undeclared['state_class'] ?? null, 'undeclared, it is unclassified');
+duo_check_same('install adapter', $undeclared['next_action'] ?? null, 'and its action is the adapter');
+duo_check_same(
+    'Not qualified',
+    $undeclared['operations']['release']['readiness'] ?? null,
+    'and it is Not qualified for release, which is what blocks a release that includes it'
+);
+
+$reviewed = $catalogFor([
+    'id' => 'plugin:unmanaged-widget',
+    'state_class' => 'runtime',
+    'handling' => 'preserve local',
+    'decided_by' => 'operator',
+])['rows'][0] ?? [];
+duo_check_same('runtime', $reviewed['state_class'] ?? null, 'a REVIEWED runtime decision resolves the row');
+duo_check_same('preserve local', $reviewed['handling'] ?? null, 'to preserve local');
+duo_check_same(
+    'Unsupported',
+    $reviewed['operations']['release']['readiness'] ?? null,
+    'which projects Unsupported — outside every release gate (T5 rule)'
+);
+duo_check_same(
+    'nothing — supported',
+    $reviewed['next_action'] ?? null,
+    'and carries no next action: the handling IS the resolution'
+);
+
+$unreviewed = $catalogFor([
+    'id' => 'plugin:unmanaged-widget',
+    'state_class' => 'runtime',
+    'handling' => 'preserve local',
+    'decided_by' => 'unresolved',
+])['rows'][0] ?? [];
+duo_check_same(
+    'unclassified',
+    $unreviewed['state_class'] ?? null,
+    'the GENERATED placeholder decides nothing — `decided_by: unresolved` is what accept refuses, and it '
+    . 'must not resolve a surface here either'
+);
+
+// The exception is scoped to `plugin:` rows. A declaration cannot un-know an
+// unclassified TABLE, which is the property projectStateClass() exists for.
+$tableCatalog = SurfaceCatalog::catalog(
+    [
+        'policy' => ['surface_groups' => []],
+        'coverage' => ['tables' => ['undeclared' => [
+            ['table' => 'wp_acme_log', 'logical_name' => 'acme_log', 'probable_owner' => null, 'row_count' => 3],
+        ]]],
+    ],
+    [],
+    ['declarations' => ['surfaces' => [[
+        'id' => 'table:acme_log',
+        'state_class' => 'runtime',
+        'handling' => 'preserve local',
+        'decided_by' => 'operator',
+    ]], 'external_effects' => []]],
+    ['operations' => ['release']]
+);
+duo_check_same(
+    'unclassified',
+    $tableCatalog['rows'][0]['state_class'] ?? null,
+    'a reviewed declaration still cannot un-know an unclassified TABLE — the exception is plugins only'
+);
 
 duo_check_summary('regress_assess_projection');

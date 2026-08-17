@@ -29063,6 +29063,14 @@
                         "theme_not_active"
                     ]
                 },
+                "DECLARED_POLICY_CLASS": {
+                    "value_repr": {
+                        "authored": "authored",
+                        "derived": "derived",
+                        "environment-bound": "env",
+                        "runtime": "runtime"
+                    }
+                },
                 "KIND_SECTION": {
                     "value_repr": {
                         "post_type": "post_types",

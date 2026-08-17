@@ -171,6 +171,23 @@ final class SurfaceCatalog {
      */
     public const PLUGIN_KIND = 'plugin';
 
+    /**
+     * Contract `state_class` words mapped back to the policy class the
+     * projection takes as input (the inverse of
+     * `ProjectionVocabulary::projectStateClass()`).
+     *
+     * `unclassified` is deliberately absent: declaring a surface unclassified
+     * decides nothing, so it leaves the row exactly where it was. `external`
+     * is absent too — it reaches the projection through `external_declared`,
+     * which is a separate fact with its own rule.
+     */
+    public const DECLARED_POLICY_CLASS = [
+        'authored' => 'authored',
+        'runtime' => 'runtime',
+        'derived' => 'derived',
+        'environment-bound' => 'env',
+    ];
+
     /** The recovery bundle each policy class's bytes land in (§1.6). */
     public const CLASS_BUNDLE = [
         'authored' => 'database checkpoint',
@@ -460,6 +477,32 @@ final class SurfaceCatalog {
         $name = self::surfaceName($id);
         $selector = isset(self::KIND_SECTION[$kind]) ? self::KIND_SECTION[$kind] . '.' . $name : null;
         $declaredRow = $declared[$id] ?? null;
+        // T6 §3.6: a REVIEWED decision resolves a `plugin:` row, and only a
+        // `plugin:` row.
+        //
+        // Everywhere else `projectStateClass()`'s rule holds and must: an
+        // engine gate that failed to classify a state surface knows something
+        // a declaration cannot un-know, so `unclassified` wins over any
+        // declaration. A `plugin:` row is not that. Nothing failed to
+        // classify it — it is a whole plugin no adapter models, and "this
+        // plugin's state stays local; not branchable" is exactly the decision
+        // an operator is entitled to make about one. Refusing it would leave
+        // the row permanently `unclassified / block`, which blocks every
+        // release on a site that deliberately runs an unmanaged plugin —
+        // the case `duo init --allow-unmanaged-plugins` exists to support.
+        //
+        // The declaration is honoured only when it was actually REVIEWED:
+        // `decided_by: unresolved` is the generated placeholder, and
+        // `ApplicationContract::validate()` refuses accepting one.
+        $declaredClass = null;
+        if ($kind === self::PLUGIN_KIND
+            && is_array($declaredRow)
+            && ($declaredRow['decided_by'] ?? null) !== ApplicationContract::UNREVIEWED_DECIDED_BY
+            && isset(self::DECLARED_POLICY_CLASS[(string) ($declaredRow['state_class'] ?? '')])
+        ) {
+            $declaredClass = self::DECLARED_POLICY_CLASS[(string) $declaredRow['state_class']];
+            $policyClass = $declaredClass;
+        }
         $declaredLive = in_array($id, $liveEffects, true)
             || ($policyClass === 'managed' && in_array(self::LIFECYCLE_SURFACE_ALIAS, $liveEffects, true));
 
