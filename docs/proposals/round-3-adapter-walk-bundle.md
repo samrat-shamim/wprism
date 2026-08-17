@@ -274,9 +274,21 @@ Every row of `AdapterSources::survey()['adapters']` and of
 | valid signature under an agent-owned key + exact pin | `third_party_signed` | `platform` | key id |
 | valid signature under a **site** key + exact pin | **`site_signed`** | `site` | key id |
 
-A shipped adapter displaced by an explicit `{name, source:"site"}` pin is not
-a catalog row at all — it moves to `not_installed` with
-`reason_code: "shadowed_by_site"` and a `winner` naming the site copy.
+A shipped adapter displaced by an explicit `{name, source:"site"}` pin is **not
+an `adapters[]` row at all** — it is not installed, and inventing a row for a
+definition nothing loads would contradict what the catalog means. It moves to
+`not_installed[]`:
+
+```json
+{"name": "woocommerce", "path": "<shipped manifest path>", "plugin": null,
+ "reason_code": "shadowed_by_site", "source": "shipped",
+ "winner": {"path": "adapters/woocommerce.json", "source": "site"},
+ "message": "…"}
+```
+
+which `AdapterCatalog::render_not_installed()` and `wp duo adapter-survey`
+already print, `reason_code` and winner included, with no host change. There is
+no `shadowed_by_site` boolean on any `adapters[]` row.
 
 ### The capability claim
 
@@ -292,6 +304,27 @@ a catalog row at all — it moves to `not_installed` with
 with `status: "certified"` and `evidence.status: "current"` (plus
 `evidence.exercised`), which is what `duo promote`'s existing gate reads. No
 host change is needed for promotion to admit a site-certified adapter.
+
+## 5a. `duo-assess-inventory/v1` — the unmanaged-plugin rows
+
+`plugins` stays a JSON **list** of `{basename, name, version, active}`, exactly
+as before: `StackInventory::installed()`/`::code()` and
+`AssessReport::proposalSeed()` all iterate it, and two of those feed the assess
+digest. The new data is a **sibling top-level key**:
+
+```json
+"plugins_without_adapter": [
+    {"basename": "wpforms-lite/wpforms.php", "file": "wpforms.php", "slug": "wpforms-lite"}
+]
+```
+
+All three parts of the identity are published so the host splits nothing;
+`basename` is the same key and meaning the `plugins` rows already use. Sorted
+by `basename`. ACTIVE plugins only, judged against the **pinned** manifests —
+an installed-but-unpinned adapter does not remove the row, because it manages
+nothing on this site, and `adapter_survey` already reports that case with its
+own certification word. A single-file plugin has no directory, so its slug is
+the file name without `.php` (`hello.php` → slug `hello`).
 
 ## 6. `wp duo init --allow-unmanaged-plugins`
 

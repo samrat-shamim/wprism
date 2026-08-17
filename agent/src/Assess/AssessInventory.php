@@ -163,12 +163,13 @@ final class AssessInventory {
             'target' => self::target($probe),
             'plugins' => self::plugins($probe),
             // The `plugin:<slug>` surface rows `duo assess` mints (round-3 T6
-            // §3.6). Published as its own top-level list rather than nested
-            // under `plugins`, which is a JSON LIST every host consumer already
+            // §3.6). A sibling top-level key rather than a member nested under
+            // `plugins`, which is a JSON LIST every host consumer already
             // iterates (cli/src/Assess/StackInventory.php:208,247 and
-            // AssessReport.php:334); turning it into an object to hold one new
-            // member would silently change what those three loops walk.
-            'plugins_active_without_adapter' => self::plugins_active_without_adapter($policy, $probe),
+            // AssessReport.php:334) and two of those feed the assess digest;
+            // turning it into an object would silently change what those loops
+            // walk.
+            'plugins_without_adapter' => self::plugins_without_adapter($policy, $probe),
             'themes' => self::themes($probe),
             'media' => [
                 'count' => $liveCounts['post_types']['attachment'] ?? 0,
@@ -326,16 +327,23 @@ final class AssessInventory {
      * installed-but-unpinned adapter is already visible with its own
      * certification word and remediation.
      *
-     * Names only, exactly like every other row here: the plugin basename the
-     * operator sees in `active_plugins`, and its directory slug — which is the
-     * identity the host builds `plugin:<slug>` from and the identity a bundled
-     * `duo-adapter.json` is anchored to. A single-file plugin has no directory,
-     * so its slug is the file name without `.php` (`hello.php` -> `hello`).
+     * Names only, exactly like every other row here, and all three parts of
+     * the identity rather than one the reader has to split:
+     *
+     *   - `basename` is WordPress's own `<dir>/<file>.php`, the same key and
+     *     the same meaning the `plugins` rows above already use;
+     *   - `slug` is the directory, which is what the host builds
+     *     `plugin:<slug>` from and what a bundled `duo-adapter.json` anchors
+     *     to;
+     *   - `file` is the entry file.
+     *
+     * A single-file plugin has no directory, so its slug is the file name
+     * without `.php` (`hello.php` -> slug `hello`, file `hello.php`).
      *
      * @param array<string,mixed> $probe
-     * @return list<array{plugin:string,slug:string}>
+     * @return list<array{basename:string,file:string,slug:string}>
      */
-    private static function plugins_active_without_adapter(Policy $policy, array $probe): array {
+    private static function plugins_without_adapter(Policy $policy, array $probe): array {
         $owned = [];
         foreach ($policy->manifests as $manifest) {
             $plugin = is_array($manifest) ? ($manifest['plugin'] ?? null) : null;
@@ -352,14 +360,16 @@ final class AssessInventory {
             }
             $seen[$basename] = true;
             $directory = strpos($basename, '/') === false ? '' : dirname($basename);
+            $file = basename($basename);
             $rows[] = [
-                'plugin' => $basename,
+                'basename' => $basename,
+                'file' => $file,
                 'slug' => $directory !== '' && $directory !== '.'
                     ? $directory
-                    : preg_replace('/\.php$/D', '', basename($basename)),
+                    : (string) preg_replace('/\.php$/D', '', $file),
             ];
         }
-        usort($rows, static fn(array $a, array $b): int => strcmp($a['plugin'], $b['plugin']));
+        usort($rows, static fn(array $a, array $b): int => strcmp($a['basename'], $b['basename']));
         return $rows;
     }
 

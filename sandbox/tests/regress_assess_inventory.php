@@ -256,7 +256,7 @@ $topLevel = array_keys($document);
 sort($topLevel, SORT_STRING);
 duo_check_same(
     ['adapter_survey', 'agent_version', 'coverage', 'format', 'media', 'pending', 'plugins',
-        'plugins_active_without_adapter', 'policy', 'spec_version', 'target', 'themes'],
+        'plugins_without_adapter', 'policy', 'spec_version', 'target', 'themes'],
     $topLevel,
     'a healthy document carries exactly the shared contract key set'
 );
@@ -325,14 +325,19 @@ echo "\n== the active plugins no pinned adapter declares ==\n";
 // source for the `plugin:<slug>` assess surface (round-3 T6 §3.6) and has to
 // re-derive plugin ownership from manifest bytes it does not hold.
 duo_check_same(
-    [['plugin' => 'acme-storefront/acme-storefront.php', 'slug' => 'acme-storefront']],
-    $document['plugins_active_without_adapter'],
-    'the one active plugin no pinned adapter declares is published with its basename and directory slug'
+    [[
+        'basename' => 'acme-storefront/acme-storefront.php',
+        'file' => 'acme-storefront.php',
+        'slug' => 'acme-storefront',
+    ]],
+    $document['plugins_without_adapter'],
+    'the one active plugin no pinned adapter declares is published with all three parts of its identity, '
+    . 'so the host splits nothing: basename (the same key the plugins rows use), file, and slug'
 );
 duo_check(
     !in_array(
         'zeta-tools/zeta-tools.php',
-        array_column($document['plugins_active_without_adapter'], 'plugin'),
+        array_column($document['plugins_without_adapter'], 'basename'),
         true
     ),
     'an INACTIVE plugin is not an unmanaged-plugin row — activation is what puts a plugin in scope'
@@ -342,10 +347,13 @@ $singleFile = AssessInventory::from_facts(
     ['probe' => ['active_plugins' => ['hello.php', 'acme-storefront/acme-storefront.php']] + $probe] + $facts
 );
 duo_check_same(
-    [['plugin' => 'acme-storefront/acme-storefront.php', 'slug' => 'acme-storefront'],
-        ['plugin' => 'hello.php', 'slug' => 'hello']],
-    $singleFile['plugins_active_without_adapter'],
-    'a single-file plugin takes its file name as its slug, and rows sort by basename'
+    [
+        ['basename' => 'acme-storefront/acme-storefront.php', 'file' => 'acme-storefront.php',
+            'slug' => 'acme-storefront'],
+        ['basename' => 'hello.php', 'file' => 'hello.php', 'slug' => 'hello'],
+    ],
+    $singleFile['plugins_without_adapter'],
+    'a single-file plugin has no directory, so its slug is the file name without .php; rows sort by basename'
 );
 
 duo_check_same(2, $document['media']['count'], 'media counts the attachment rows and nothing else');
