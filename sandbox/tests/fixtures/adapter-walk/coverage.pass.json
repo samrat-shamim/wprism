@@ -1,0 +1,44 @@
+{
+    "format": "duo-coverage-report/v1",
+    "options": {
+        "captured": 214,
+        "invisible_groups": [
+            {
+                "count": 37,
+                "prefix": "wpforms_",
+                "probable_owner": "wpforms-lite"
+            }
+        ],
+        "invisible_other": 37,
+        "invisible_total": 41,
+        "invisible_transient": 4,
+        "pending": 0,
+        "total": 255
+    },
+    "tables": {
+        "core_total": 12,
+        "declared_total": 31,
+        "live_total": 48,
+        "undeclared": [
+            {
+                "logical_name": "wpforms_logs",
+                "probable_owner": "wpforms-lite",
+                "row_count": 0,
+                "table": "wp_wpforms_logs"
+            },
+            {
+                "logical_name": "wpforms_payments",
+                "probable_owner": "wpforms-lite",
+                "row_count": 0,
+                "table": "wp_wpforms_payments"
+            },
+            {
+                "logical_name": "wpforms_tasks_meta",
+                "probable_owner": "wpforms-lite",
+                "row_count": 3,
+                "table": "wp_wpforms_tasks_meta"
+            }
+        ],
+        "undeclared_total": 3
+    }
+}

@@ -1,0 +1,65 @@
+{
+    "assess_digest": "sha256:d2fd24066fa527a260c26cc4dfd96d713d900f2ac4063de4da5807109f4ca631",
+    "authority": {
+        "read_only": true,
+        "repo": "/siterepo",
+        "transport": "docker"
+    },
+    "env": "awalk1",
+    "evidence": {
+        "bundles": [],
+        "generated_from": {
+            "compatibility_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "evidence_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+    },
+    "format": "duo-assess-report/v1",
+    "generated_at": "2026-08-17T09:14:02Z",
+    "surfaces": [
+        {
+            "decided_by": "unresolved",
+            "handling": "block",
+            "id": "post_type:wpforms",
+            "kind": "post_type",
+            "label": "post_type:wpforms",
+            "meaning": "an installed but uncertified adapter governs this surface",
+            "next_action": "install adapter",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Uncertified",
+                    "conditions": [],
+                    "effect_containment": "unknown",
+                    "effect_containment_basis": "unknown — not enforced in this profile",
+                    "effect_recovery_semantics": "unknown",
+                    "gap_action": "install adapter",
+                    "handling": "block",
+                    "meaning": "an installed but uncertified adapter governs this surface",
+                    "principal": null,
+                    "readiness": "Not qualified",
+                    "remediation": null,
+                    "state_class": "authored",
+                    "trust_root": null
+                }
+            },
+            "state_class": "authored"
+        }
+    ],
+    "target": {
+        "database": {
+            "engine": "MariaDB",
+            "version": "11.8.8"
+        },
+        "home": "http://localhost:9500",
+        "php": "8.3.33",
+        "site_mode": "single-site",
+        "siteurl": "http://localhost:9500",
+        "wordpress": "6.8.2"
+    },
+    "unknown": {
+        "invisible_names_count": 0,
+        "names_sample": [],
+        "pending_count": 0
+    }
+}

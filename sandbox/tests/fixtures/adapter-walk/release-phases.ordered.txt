@@ -1,0 +1,9 @@
+promote phase: compile
+promote phase: promotion-begin
+promote phase: checkpoint
+promote phase: code-stage
+promote phase: lifecycle-retire
+promote phase: lifecycle-activate
+promote phase: code-finalize
+promote phase: apply
+released to awalk2

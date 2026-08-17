@@ -1,0 +1,25 @@
+{
+    "disclosures": [
+        "the rollback authority holds one generation at a time: this is the active receipt, not a history"
+    ],
+    "format": "duo-checkpoint-catalog/v1",
+    "rows": [
+        {
+            "age_seconds": 62,
+            "artifact_hash": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+            "claim_expires_at": null,
+            "covers": [
+                "database checkpoint"
+            ],
+            "created_at": "2026-08-17T09:13:00Z",
+            "event_chain_sha256": null,
+            "generation": 1,
+            "id": "scoped-20260817-091300-0001",
+            "kind": "scoped-promotion",
+            "owner": "direct-0000000000000000",
+            "retention_until": null,
+            "state": "committed",
+            "terminal": true
+        }
+    ]
+}
