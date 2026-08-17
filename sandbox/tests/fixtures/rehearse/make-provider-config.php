@@ -1,9 +1,9 @@
 <?php
 /**
  * Write a `duo-reference-env-provider-config/v1` config for
- * tools/reference-env-provider.php, pointed at a pair that does not have to
- * exist: sandbox/tests/regress_rehearse_provider.sh only ever runs the
- * provider in `--print-plan` mode, which touches no docker and no pair.
+ * tools/reference-env-provider.php. The plan fixture may point it at a pair
+ * that does not exist; the reusable-slot fixtures supply isolated fake pair,
+ * Docker and Git boundaries for live protocol calls.
  *
  * usage: php make-provider-config.php <out-file> [withheld,capability,ids]
  */

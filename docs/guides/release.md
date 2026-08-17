@@ -46,6 +46,31 @@ That is `duo env reap` with the same compare-and-reap. Created targets are
 destroyed, attached targets are detached, a repeated reap is idempotent, and a
 stale identity refuses.
 
+### Reusing one physical preview slot
+
+A provider may satisfy `environment.create` with one reusable preview slot
+instead of allocating another VM or container for every branch. Reuse does not
+weaken the ownership contract: each absent-to-present acquisition increments
+the slot generation and rotates its lease and ownership receipt, while retrying
+the active acquisition must not clear the populated slot. Exact terminal
+destroy/detach evidence remains replayable after a later generation takes the
+same physical resource; any new request carrying an older lease must refuse
+before physical mutation. A held mutation fence is exclusive across the whole
+active lease. Acquisition and reap intent must be durable before their first
+physical mutation, and only the exact interrupted request may resume them.
+All controllers for that physical slot must share one provider-owned state
+authority; two independent state roots cannot coordinate ownership.
+
+`tools/reference-env-provider.php` exercises this fixed-slot shape against the
+sandbox pair. It is a development reference tied to that pair, not a general
+hosting, isolation or containment provider. Its local state lock serializes
+provider processes that share one state root and is inherited by its
+synchronous Docker/Git children, including when the PHP parent is forcibly
+killed. That local lock cannot cover a child that closes the descriptor or a
+daemon-side job that continues after its CLI returns. A production slot
+service must bind those jobs to the lease generation or cancel and await them
+before making the slot reusable.
+
 ### Rehearse is a preview, not a sandbox
 
 Every run prints this first, before the provider is contacted:

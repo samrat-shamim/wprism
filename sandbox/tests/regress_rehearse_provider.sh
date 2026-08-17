@@ -2,7 +2,7 @@
 # Regression — round-3 MUP §2.2 / §4.4 / §6.2: `duo rehearse`'s provider
 # contract and its containment disclosure.
 #
-# Four properties, none of which needs a pair, docker, WordPress or a network:
+# Five properties, none of which needs a pair, docker, WordPress or a network:
 #
 #   1. CAPABILITY NEGOTIATION. A provider advertising a subset of what a
 #      branch materialization needs makes the command refuse, naming the
@@ -25,16 +25,24 @@
 #      every response — so the byte-compatibility with the proven
 #      sandbox/tests/fixtures/duo3324-live-provider.php shape is a gate, not a
 #      claim. Its argument-validation paths run through the documented
-#      `--print-plan` (alias `--dry-run`) mode, which names the exact external
-#      commands it WOULD run and executes none of them. The suite deliberately
+#      `--print-plan` (alias `--dry-run`) mode, which names the external-command
+#      boundary and executes none of it. The suite's plan section deliberately
 #      never runs the provider against docker: this is an offline suite.
 #
-#   4. THE CONTAINMENT BANNER. `RehearsalDisclosure` prints MUP §2.2's literal
+#   4. REUSABLE-SLOT SAFETY. The real provider entry point reuses one physical
+#      target through generation-bound leases. Lost responses are retryable,
+#      while stale prior-generation cleanup cannot clear the new occupant.
+#
+#   5. THE CONTAINMENT BANNER. `RehearsalDisclosure` prints MUP §2.2's literal
 #      disclosure, once, at the top of the preview, with the consequence that
 #      an Experimental or Uncertified capability cannot be authorized from a
 #      rehearsal — plus the bounded preview of what a release would touch.
 #
 # Offline: no docker, no WordPress, no network, no target.
+# Dependencies: sandbox/tests/fixtures/rehearse/make-provider-config.php
+# Dependencies: sandbox/tests/fixtures/rehearse/provider-negotiation-checks.php
+# sandbox/tests/fixtures/rehearse/reference-provider-command-checks.php
+# sandbox/tests/fixtures/rehearse/slot-reuse-checks.php
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -102,6 +110,15 @@ php "$FIX/make-provider-config.php" "$TMP/config.json" \
   || { echo "FAIL: could not write the reference provider config" >&2; exit 1; }
 php "$FIX/make-provider-config.php" "$TMP/config-subset.json" 'environment.create,environment.destroy' \
   || { echo "FAIL: could not write the subset provider config" >&2; exit 1; }
+mkdir -p "$TMP/plan-state" "$TMP/plan-state-subset"
+php -r '
+foreach ([[$argv[1], $argv[2]], [$argv[3], $argv[4]]] as [$path, $state]) {
+    $config = json_decode(file_get_contents($path), true, 512, JSON_THROW_ON_ERROR);
+    $config["state_root"] = $state;
+    file_put_contents($path, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
+}
+' "$TMP/config.json" "$TMP/plan-state" "$TMP/config-subset.json" "$TMP/plan-state-subset" \
+  || { echo "FAIL: could not isolate the reference provider plan state" >&2; exit 1; }
 
 # plan <config> <action> <environment> <input> -> exit code; stdout/stderr saved
 plan() {
@@ -124,13 +141,13 @@ if (($d["executed"] ?? null) !== false) $fail("a dry run must state that it exec
 if (($d["url_source"] ?? null) !== "config") $fail("a dry run must say its URL came from the config, not the port map");
 if (($d["provider"]["protocol"] ?? null) !== 1) $fail("the plan does not pin protocol 1");
 $argv0 = $d["commands"][0]["argv"] ?? [];
-if (($argv0[0] ?? "") !== "bash" || !str_ends_with((string) ($argv0[1] ?? ""), "/sandbox/bin/pair.sh") || ($argv0[2] ?? "") !== "up") {
-    $fail("attach does not drive sandbox/bin/pair.sh up: " . json_encode($argv0));
+if ($argv0 !== ["docker", "port", "duo-mup-wp2-1", "80/tcp"] || count($d["commands"] ?? []) !== 1) {
+    $fail("attach does not limit itself to a physical-presence proof: " . json_encode($d["commands"] ?? []));
 }
 if (($d["capabilities_required"] ?? []) !== ["environment.attach", "environment.url.discover", "operation.receipts"]) {
     $fail("attach does not require exactly its own capability plus url discovery and receipts");
 }
-echo "ok: attach plans `pair.sh up` and requires environment.attach + environment.url.discover + operation.receipts\n";
+echo "ok: attach plans only `docker port` and requires environment.attach + environment.url.discover + operation.receipts\n";
 ' "$TMP/plan.json" || fail 'the attach plan document is wrong'
 
 # `capabilities` is the one action that needs neither pair nor state.
@@ -139,6 +156,7 @@ php -r '
 $d = json_decode(file_get_contents($argv[1]), true);
 $fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
 if (($d["state_dependent"] ?? null) !== false) $fail("the capabilities probe must not be state dependent");
+if (($d["identity_authoritative"] ?? null) !== false) $fail("a state-free target capabilities plan must label its displayed identity non-authoritative");
 if (count($d["capabilities_advertised"] ?? []) !== 19) $fail("the provider does not advertise the whole protocol");
 foreach (["snapshot.set.prepare","snapshot.set.create","snapshot.set.read","snapshot.set.abort","snapshot.set.restore",
           "environment.attach","environment.create","repository.materialize","environment.url.discover","operation.receipts"] as $id) {
@@ -175,7 +193,7 @@ validate 'a repository materialization without a 40-hex commit refuses' \
 validate 'a reap without compare-and-reap intent refuses' \
   detach mup2 '{}' 'reap lacks compare-and-reap intent'
 validate 'a snapshot prepared against a target rather than the source refuses' \
-  snapshot-prepare mup2 '{"snapshot_session_id":"session-0001"}' 'only the source can prepare a snapshot'
+  snapshot-prepare mup2 '{"snapshot_session_id":"session-0001"}' "requires the configured source role"
 validate 'an unknown environment refuses' \
   attach mup9 '{"mode":"attach"}' "unknown reference environment 'mup9'"
 validate 'an unknown action refuses' \
@@ -203,9 +221,9 @@ else
   fail "a list-shaped input was accepted (exit $STATUS)"
 fi
 
-# The identity compare is the same one every fenced action performs. The
-# identity itself is provider-derived, so it is read back out of a dry run
-# rather than transcribed into this file.
+# A plan without provider state must not fabricate a generation-bound target
+# identity. The reusable-slot check below acquires a real lease and proves that
+# the same plan validates it.
 plan "$TMP/config.json" capabilities mup2 '[]'
 IDENTITY="$(php -r '
 $i = json_decode(file_get_contents($argv[1]), true)["identity"];
@@ -220,18 +238,10 @@ echo json_encode([
 ' "$TMP/plan.json")"
 plan "$TMP/config.json" url-set mup2 "$IDENTITY"
 STATUS=$?
-if [ "$STATUS" = 0 ] && grep -Fq '"identity_input_checked":true' "$TMP/plan.json"; then
-  pass 'a fenced action carrying the provider-derived identity is accepted and the compare is recorded'
+if [ "$STATUS" = 1 ] && grep -Fq 'cannot validate a fenced target plan without an active provider lease' "$TMP/plan.err"; then
+  pass 'a fenced target plan without active provider state refuses instead of inventing an identity'
 else
-  fail "the identity compare did not accept the provider's own identity (exit $STATUS): $(cat "$TMP/plan.err")"
-fi
-FOREIGN="${IDENTITY//duo-pair-mup-side-2/duo-pair-mup-side-1}"
-plan "$TMP/config.json" url-set mup2 "$FOREIGN"
-STATUS=$?
-if [ "$STATUS" = 1 ] && grep -Fq "identity input differs at 'expected_environment_identity'" "$TMP/plan.err"; then
-  pass 'a fenced action carrying a foreign identity refuses'
-else
-  fail "a foreign identity was accepted (exit $STATUS)"
+  fail "a state-free fenced plan did not refuse (exit $STATUS): $(cat "$TMP/plan.err")"
 fi
 
 # --dry-run is a documented alias, not a second grammar.
@@ -240,6 +250,12 @@ if cmp -s "$TMP/alias.json" <(request capabilities mup2 '[]' | php "$PROVIDER" -
   pass '--dry-run is a byte-identical alias for --print-plan'
 else
   fail '--dry-run and --print-plan disagree'
+fi
+
+if [ ! -e "$TMP/plan-state/provider-errors.log" ] && [ ! -e "$TMP/plan-state-subset/provider-errors.log" ]; then
+  pass '--print-plan refusals leave no provider-state or diagnostic-log writes'
+else
+  fail '--print-plan wrote provider diagnostics despite its no-write contract'
 fi
 
 # The two-token argv CommandEnvironmentProvider is configured with is unchanged.
@@ -272,7 +288,29 @@ echo "ok\n";
   && pass 'the freeze witness ignores the doing_cron lock timestamp and still refuses a real write' \
   || { fail "the freeze witness semantics are wrong: $(cat "$TMP/witness.err")"; }
 
-# ------------------------------------------------------ 4: the disclosure
+# ------------------------------------------ 4: one reusable physical preview slot
+say 'reusable preview-slot generation and stale-reap safety'
+mkdir -p "$TMP/slot"
+if php "$FIX/slot-reuse-checks.php" "$TMP/slot" > "$TMP/slot.out" 2> "$TMP/slot.err"; then
+  pass 'the reusable preview-slot lifecycle checks pass'
+else
+  fail 'the reusable preview-slot lifecycle checks failed'
+  cat "$TMP/slot.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/slot.out"
+
+# The same provider must compose through the shipped command/materializer
+# journal, not only through direct protocol calls.
+mkdir -p "$TMP/reference-command"
+if php "$FIX/reference-provider-command-checks.php" "$TMP/reference-command" > "$TMP/reference-command.out" 2> "$TMP/reference-command.err"; then
+  pass 'the reusable provider completes the real materialize/reap command path'
+else
+  fail 'the reusable provider failed the real materialize/reap command path'
+  cat "$TMP/reference-command.err" >&2
+fi
+sed -n 's/^ok: /ok: /p' "$TMP/reference-command.out"
+
+# ------------------------------------------------------ 5: the disclosure
 say 'the containment disclosure and the rehearsal preview'
 mkdir -p "$TMP/fixture"
 php "$FIX/make-fixture.php" "$TMP/fixture" > /dev/null \
