@@ -37,6 +37,11 @@ php "$ROOT/sandbox/tests/fixtures/assess/make-fixture.php" "$TMP/site" >/dev/nul
 
 SITE="$TMP/site/repo"
 CONTRACT_DIR="$SITE/.duo/contract"
+# The boundary every product-initialized site repository carries
+# (InitRepositoryBoundary::ensure_gitignore(), sandbox/site-repo.gitignore.template):
+# Duo's whole private working area is ignored. accept must still stage the
+# two review artifacts through it — the case grind_mup.sh step 4 hit live.
+printf '/.tmp*\n/.duo/\n' > "$SITE/.gitignore"
 export DUO_FIXTURES="$TMP/site/fixtures"
 export DUO_SITE_REPO="$SITE"
 export DUO_CALLS="$TMP/calls.txt"
@@ -182,6 +187,12 @@ echo "$STAGED" | grep -Fq '.duo/contract/contract.json' \
   && pass 'contract.json is staged for commit' || fail 'contract.json was not staged'
 echo "$STAGED" | grep -Fq '.duo/contract/projection.json' \
   && pass 'projection.json is staged for commit' || fail 'projection.json was not staged'
+( cd "$SITE" && git check-ignore -q --no-index .duo/contract/contract.json ) \
+  && pass 'the site boundary still ignores .duo/ — accept staged through it deliberately, not by loosening it' \
+  || fail 'the fixture lost the /.duo/ boundary this case is about'
+echo "$STAGED" | grep -Ev '^\.duo/contract/(contract|projection)\.json$' | grep -q . \
+  && fail "accept staged more than the two review artifacts: $STAGED" \
+  || pass 'nothing else under .duo/ was staged'
 COMMITS=$( cd "$SITE" && git rev-list --count --all 2>/dev/null || echo 0 )
 [ "$COMMITS" = 0 ] && pass 'accept made no commit — the commit is the reviewer signature' \
   || fail "accept created $COMMITS commit(s)"

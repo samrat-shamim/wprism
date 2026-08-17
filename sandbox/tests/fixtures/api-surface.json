@@ -1,5 +1,5 @@
 {
-    "class_count": 336,
+    "class_count": 337,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -19153,6 +19153,9 @@
                 "DISCLOSURE_NONE_ACTIVE": {
                     "value_repr": "the rollback authority is available and holds no active receipt"
                 },
+                "DISCLOSURE_NO_AUTHORITY_TRANSPORT": {
+                    "value_repr": "this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed"
+                },
                 "DISCLOSURE_NO_CREATION_TIME": {
                     "value_repr": "a full promotion receipt publishes no creation timestamp; claim_expires_at is shown instead of an age"
                 },
@@ -19276,8 +19279,8 @@
                             "by_ref": false,
                             "default": null,
                             "has_default": false,
-                            "name": "transport",
-                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
                             "variadic": false
                         },
                         {
@@ -19319,6 +19322,31 @@
                             "has_default": false,
                             "name": "now",
                             "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "withRetained": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "retained",
+                            "type": "array",
                             "variadic": false
                         }
                     ],
@@ -24117,6 +24145,9 @@
                 "ANNOTATION_OUT_OF_SCOPE": {
                     "value_repr": "authored, but outside the captured scope: the target keeps its own copy until the scope is widened"
                 },
+                "ANNOTATION_PRESERVE_LOCAL_UNSUPPORTED": {
+                    "value_repr": "preserve local: this surface stays on the target; Duo does not copy or write it, so no readiness claim applies"
+                },
                 "ANNOTATION_PROVIDER_NEGOTIATION_UNMET": {
                     "value_repr": "the provider negotiation condition is unmet: it blocks until the named code is resolved"
                 },
@@ -27024,6 +27055,187 @@
                         }
                     ],
                     "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RetainedCheckpoints": {
+            "abstract": false,
+            "constants": {
+                "DISCLOSURE_NO_IDENTITY": {
+                    "value_repr": "a retained checkpoint whose compiled artifact is gone has no lease identity and cannot be restored by this command; recover it through the provider that owns the target's backups"
+                },
+                "DISCLOSURE_RETAINED": {
+                    "value_repr": "retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)"
+                },
+                "ID_PREFIX": {
+                    "value_repr": "promote-"
+                },
+                "KIND": {
+                    "value_repr": "retained-release-checkpoint"
+                },
+                "OWNER_PATTERN": {
+                    "value_repr": "/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/D"
+                },
+                "STATE": {
+                    "value_repr": "retained"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "checkpointPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repoPath",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "isRetained": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "list": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stdout",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "row": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "owner",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "artifactHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "mtime",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "script": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repoPath",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }

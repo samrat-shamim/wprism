@@ -165,6 +165,27 @@ TXT
       && pass 'self-test A: every shape and the friendly-named owner are reported, the git revision and the allowlisted digest are not'
   fi
 
+  # An internal value that appears ONLY inside an allowlisted id is that id
+  # being printed, not a leak (`duo recover --list`'s retained checkpoint id
+  # is `promote-<lease owner>` by construction); the same value printed on
+  # its own anywhere else on the page still is one. Both halves are checked.
+  mkdir -p "$scratch/a2"
+  cat > "$scratch/a2/doc.json" <<'JSON'
+{"format":"duo-fake/v1","rows":[{"id":"promote-20260817-091402-0123456789abcdef0123456789abcdef","owner":"20260817-091402-0123456789abcdef0123456789abcdef"}]}
+JSON
+  printf 'checkpoints: 1\n  promote-20260817-091402-0123456789abcdef0123456789abcdef  retained  600s old\n' > "$scratch/a2/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' "$scratch/a2/human.txt" "$scratch/a2/doc.json" --allow-key=id >/dev/null 2>&1; then
+    pass 'self-test A: an owner printed only inside the allowlisted id it is part of is not a leak'
+  else
+    fail 'self-test A: an owner embedded in the allowlisted id was reported as a leak'
+  fi
+  printf 'lease owner 20260817-091402-0123456789abcdef0123456789abcdef\n' >> "$scratch/a2/human.txt"
+  if php "$FIX/identifier-scan.php" 'fake view' "$scratch/a2/human.txt" "$scratch/a2/doc.json" --allow-key=id >/dev/null 2>&1; then
+    fail 'self-test A: the same owner printed on its own was accepted'
+  else
+    pass 'self-test A: the same owner printed on its own, outside the id, is still reported'
+  fi
+
   # An allowlist entry the document cannot satisfy must fail too: allowing a
   # key that is not there would silently permit whatever replaced it.
   out="$(php "$FIX/identifier-scan.php" 'fake view' "$scratch/a/human.txt" "$scratch/a/doc.json" \

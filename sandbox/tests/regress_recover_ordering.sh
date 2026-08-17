@@ -22,6 +22,14 @@
 # printed before acting is byte-identical to the one in the frozen
 # authorization plan for that checkpoint.
 #
+# And, round-3 T5: the RETAINED release checkpoints. Every operator-directed
+# promotion keeps `.duo/checkpoints/promote-<owner>.sql` beside its compiled
+# artifact, on every transport; `duo recover` lists them and restores them
+# through the SAME four ordered steps, on a transport that carries no rollback
+# authority runtime at all — so the operator-directed claim a frozen plan
+# prints on a local/docker target is a claim this verb honours (grind_mup.sh
+# step 11).
+#
 # Offline: no docker, no WordPress, no network, no real ssh, no real target.
 set -uo pipefail
 
@@ -63,6 +71,17 @@ recover() {
   cat "$TMP/$name.err" >> "$TMP/$name.txt"
   return $status
 }
+# recover_plain <name> [args...] -> the same, against the `local` environment
+# that carries no rollback authority runtime.
+recover_plain() {
+  local name="$1"; shift
+  : > "$DUO_WP_CALLS"
+  ( cd "$SITE" && php "$ROOT/cli/duo" --envs-file="$TMP/f/envs.json" recover plain "$@" ) \
+    > "$TMP/$name.txt" 2> "$TMP/$name.err"
+  local status=$?
+  cat "$TMP/$name.err" >> "$TMP/$name.txt"
+  return $status
+}
 
 # wp_steps -> the recovery steps the target actually received, in order
 wp_steps() {
@@ -86,9 +105,15 @@ grep -Fq 'covers: database checkpoint, code release' "$TMP/list.txt" \
 [ -s "$DUO_WP_CALLS" ] && fail '--list ran a recovery step' || pass '--list runs no recovery step at all'
 
 DUO_RECOVER_STATUS="$TMP/f/status/none.json" recover "listnone" --list
-grep -Fq 'checkpoints: none' "$TMP/listnone.txt" \
-  && pass 'no active receipt says so rather than printing an empty table' \
-  || fail 'an inactive authority did not disclose that there is nothing to restore'
+grep -Fq 'the rollback authority is available and holds no active receipt' "$TMP/listnone.txt" \
+  && pass 'no active receipt says so rather than leaving the signed source implied' \
+  || fail 'an inactive authority did not disclose that it holds nothing'
+grep -Fq 'promote-recover-fixture-owner  retained  retained-release-checkpoint' "$TMP/listnone.txt" \
+  && pass 'the retained release checkpoint is still listed when the authority holds nothing' \
+  || { fail 'the retained checkpoint was not listed beside an inactive authority'; sed -n '1,12p' "$TMP/listnone.txt" >&2; }
+grep -Fq 'receipt-recover-fixture' "$TMP/listnone.txt" \
+  && fail 'an inactive authority still printed a receipt row' \
+  || pass 'an inactive authority contributes no receipt row'
 
 # ------------------------------------------------- writer exclusion is required
 say '--writers-excluded is required'
@@ -195,6 +220,129 @@ ORDER="$(wp_steps | tr '\n' ' ')"
 [ "$ORDER" = "abort " ] || [ -z "${ORDER// /}" ] \
   && pass 'an absent checkpoint never reaches the import' \
   || fail "an absent checkpoint ran: $ORDER"
+
+# ---------------------------------------------- retained release checkpoints
+say 'retained release checkpoints on a transport with no rollback authority'
+# The fixture deleted the receipt checkpoint above; put it back for this part.
+printf -- '-- fixture checkpoint\n' > "$TMP/f/target/.duo/checkpoints/promote-recover-fixture-owner.sql"
+
+recover_plain "plainlist" --list
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'a local transport lists (exit 0) instead of refusing' \
+  || { fail "a local transport --list exited $STATUS"; sed -n '1,20p' "$TMP/plainlist.txt" >&2; }
+grep -Fq 'checkpoints: 2' "$TMP/plainlist.txt" \
+  && pass 'both retained checkpoints are counted' \
+  || { fail 'the retained checkpoints were not counted'; sed -n '1,12p' "$TMP/plainlist.txt" >&2; }
+grep -Fq 'this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed' "$TMP/plainlist.txt" \
+  && pass 'the listing says which source it could not read' \
+  || fail 'the listing did not disclose the missing authority source'
+grep -Fq 'retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints' "$TMP/plainlist.txt" \
+  && pass 'the listing says what a retained checkpoint is and how it is restored' \
+  || fail 'the listing did not disclose what a retained checkpoint is'
+grep -Fq 'receipt-recover-fixture' "$TMP/plainlist.txt" \
+  && fail 'a local transport printed a signed receipt it cannot have read' \
+  || pass 'no signed receipt is invented on a transport without an authority runtime'
+grep -Fq 'generation' "$TMP/plainlist.txt" \
+  && fail 'a retained checkpoint printed a signed generation it does not have' \
+  || pass 'a retained checkpoint prints no generation'
+[ -s "$DUO_WP_CALLS" ] && fail '--list on a local transport ran a recovery step' || pass '--list on a local transport runs no recovery step'
+# Newest first: the code-phase checkpoint is dated 2023, the receipt one now.
+FIRST_ID="$(grep -E '^  promote-' "$TMP/plainlist.txt" | head -1 | awk '{print $1}')"
+[ "$FIRST_ID" = 'promote-recover-fixture-owner' ] \
+  && pass 'retained checkpoints list newest first' \
+  || fail "the first retained row was '$FIRST_ID', not the newest checkpoint"
+
+# The restore: the same four ordered steps, under the lease identity the
+# release used — the owner from the file name, the artifact hash from the
+# retained compiled artifact.
+recover_plain "plainrestore" --restore=promote-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 0 ] && pass 'a retained checkpoint restores on a local transport (exit 0)' \
+  || { fail "the retained restore exited $STATUS"; sed -n '1,25p' "$TMP/plainrestore.txt" >&2; }
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin import abort " ] \
+  && pass 'a retained checkpoint is restored through exactly abort -> begin -> import -> final abort' \
+  || fail "the retained restore ran: $ORDER"
+grep -Fq -- '--promotion-owner=recover-fixture-owner' "$DUO_WP_CALLS" \
+  && pass 'the recovery lease names the owner promote used (from the checkpoint file name)' \
+  || fail 'the recovery lease did not carry the promote owner'
+grep -Fq -- '--artifact-hash=a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1' "$DUO_WP_CALLS" \
+  && pass 'the recovery lease names the artifact hash promote used (from the retained compiled artifact)' \
+  || fail 'the recovery lease did not carry the retained artifact hash'
+grep -Fq 'promote-recover-fixture-owner.sql' "$DUO_WP_CALLS" \
+  && pass 'the import reads exactly the retained checkpoint file' \
+  || fail 'the import did not name the retained checkpoint file'
+grep -Fq 'recovery profile: operator-directed' "$TMP/plainrestore.txt" \
+  && pass 'the retained restore prints the operator-directed claim before acting' \
+  || fail 'the retained restore did not print the claim'
+grep -Fq 'checkpoint at: ' "$TMP/plainrestore.txt" \
+  && pass 'the checkpoint instant is printed beside the claim' \
+  || fail 'no checkpoint instant was printed'
+php -r '
+$out = (string) file_get_contents($argv[1]);
+$claim = json_decode((string) file_get_contents($argv[2]), true);
+$missing = [];
+foreach (array_merge($claim["restores"], $claim["does_not_restore"]) as $line) {
+    if (!str_contains($out, $line)) { $missing[] = $line; }
+}
+if ($missing !== []) {
+    fwrite(STDERR, "FAIL: the retained restore dropped: " . implode(" | ", $missing) . "\n");
+    exit(1);
+}
+echo "ok: the retained restore prints the frozen plan claim for that artifact verbatim, restores and does-not-restore\n";
+' "$TMP/plainrestore.txt" "$TMP/f/claim.json" || fail 'the retained restore claim is not the frozen plan claim'
+
+# Code first holds for a retained checkpoint too: the checkpoint file carries
+# no code evidence, so the question is asked of the frozen plan for that
+# artifact, which entered the code lifecycle window.
+recover_plain "plaincode" --restore=promote-recover-fixture-code --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a retained checkpoint of a code-phase release refuses a database import (exit 1)' \
+  || { fail "the code-phase retained restore exited $STATUS"; sed -n '1,25p' "$TMP/plaincode.txt" >&2; }
+grep -Fq 'recover_code_not_reconciled' "$TMP/plaincode.txt" \
+  && pass 'the retained code-first refusal names recover_code_not_reconciled' \
+  || fail 'the retained code-first refusal did not name itself'
+grep -Fq 'e1e1e1e1e1e1' "$TMP/plaincode.txt" \
+  && pass 'the retained code-first refusal names the pre-release revision from the frozen plan' \
+  || fail 'the retained code-first refusal did not name the frozen plan revision'
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'the retained code-first refusal happens before step 1' \
+  || fail "the retained code-first refusal still ran steps: $STEPS"
+
+# The final abort is mandatory here as well.
+DUO_IMPORT_EXIT=3 recover_plain "plainimportfail" --restore=promote-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a failed retained import is reported as not recovered (exit 1)' \
+  || fail "a failed retained import exited $STATUS"
+ORDER="$(wp_steps | tr '\n' ' ')"
+[ "$ORDER" = "abort begin import abort " ] \
+  && pass 'the final abort ran for the retained checkpoint even though the import failed' \
+  || fail "a failed retained import ran: $ORDER"
+
+# No identity, no lease: a retained checkpoint whose artifact is gone is
+# listed (the absence is printed) and refuses to restore before step 1.
+rm -f "$TMP/f/target/.duo/artifacts/promote-recover-fixture-owner.json"
+recover_plain "plainnoid" --list
+grep -Fq 'has no lease identity and cannot be restored by this command' "$TMP/plainnoid.txt" \
+  && pass 'a retained checkpoint without its artifact is listed with the no-identity disclosure' \
+  || fail 'the no-identity disclosure was not printed'
+recover_plain "plainnoidrestore" --restore=promote-recover-fixture-owner --writers-excluded
+STATUS=$?
+[ "$STATUS" = 1 ] && pass 'a retained checkpoint without its artifact refuses to restore (exit 1)' \
+  || fail "a no-identity restore exited $STATUS"
+grep -Fq 'checkpoint_identity_unknown' "$TMP/plainnoidrestore.txt" \
+  && pass 'the refusal names checkpoint_identity_unknown' \
+  || fail 'the no-identity refusal did not name itself'
+STEPS="$(wp_steps | tr '\n' ' ')"
+[ -z "${STEPS// /}" ] \
+  && pass 'a lease this command cannot name is a lease it never takes: no step ran' \
+  || fail "the no-identity restore ran steps: $STEPS"
+
+# The one thing a non-SSH target genuinely cannot do keeps its typed refusal.
+grep -Fq "'recovery_authority_unavailable'" "$ROOT/cli/src/Command/RecoverCommand.php" \
+  && pass 'the signed rollback still refuses with recovery_authority_unavailable off SSH' \
+  || fail 'recovery_authority_unavailable disappeared from RecoverCommand'
 
 # ------------------------------------------------------------- cli/duo wiring
 say 'cli/duo wiring'

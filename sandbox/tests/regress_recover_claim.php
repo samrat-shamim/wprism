@@ -47,6 +47,7 @@ require_once __DIR__ . '/../../cli/src/Release/AuthorizationPlan.php';
 use Duo\Orchestrator\ApplicationContract;
 use Duo\Orchestrator\AuthorizationPlan;
 use Duo\Orchestrator\CheckpointCatalog;
+use Duo\Orchestrator\RetainedCheckpoints;
 use Duo\Orchestrator\RecoverCommand;
 use Duo\Orchestrator\RecoveryClaim;
 use Duo\Orchestrator\RecoveryProfileSelection;
@@ -580,5 +581,89 @@ duo_check(
     str_contains(implode("\n", $lines), 'note: ' . CheckpointCatalog::DISCLOSURE_ACTIVE_ONLY),
     'the human listing prints the disclosure, not only the JSON view'
 );
+
+// ------------------------------------------- retained release checkpoints
+// The second catalog source (round-3 T5): the plain database checkpoints
+// every operator-directed promotion retains under .duo/checkpoints, read by
+// one script and parsed into rows of the SAME key set, on every transport.
+$script = RetainedCheckpoints::script('/srv/site');
+duo_check(str_contains($script, "'/srv/site/.duo'"), 'the listing script is rooted at the repository .duo directory, quoted');
+duo_check(str_contains($script, 'checkpoints/promote-*.sql'), 'the listing script enumerates exactly the promote-*.sql checkpoints');
+duo_check(str_contains($script, 'artifacts/$b.json'), 'the listing script reads the sibling compiled artifact for the lease identity');
+duo_check(str_contains($script, 'stat -c %Y') && str_contains($script, 'stat -f %m'), 'both stat dialects are tried');
+duo_check(!str_contains($script, 'php '), 'the listing script needs no language runtime on the target: grep, stat, sed, basename');
+duo_check(!str_contains($script, 'rm ') && !str_contains($script, '> "'), 'the listing script writes nothing');
+
+$older = 'promote-20260817-091402-0123456789abcdef0123456789abcdef';
+$newer = 'promote-20260817-101010-fedcba9876543210fedcba9876543210';
+$stdout = $older . "\t" . str_repeat('9', 64) . "\t1786958042\n"
+    . $newer . "\t" . str_repeat('8', 64) . "\t1786961410\n"
+    . "promote-orphan\t\t1786950000\n";
+$retained = RetainedCheckpoints::parse($stdout, '2026-08-17T10:20:10Z');
+duo_check_same(3, count($retained), 'every non-empty checkpoint line becomes a row, including one with no artifact');
+duo_check_same(
+    [$newer, $older, 'promote-orphan'],
+    array_map(static fn (array $row): string => (string) $row['id'], $retained),
+    'retained rows list newest first'
+);
+duo_check_same(
+    array_keys($catalog['rows'][0]),
+    array_keys($retained[0]),
+    'a retained row carries exactly the key set an authority row carries'
+);
+duo_check_same(RetainedCheckpoints::KIND, $retained[0]['kind'], 'a retained row names its kind');
+duo_check_same(RetainedCheckpoints::STATE, $retained[0]['state'], 'a retained row has the one state a plain file can have');
+duo_check_same('20260817-101010-fedcba9876543210fedcba9876543210', $retained[0]['owner'], 'the owner is the file name without prefix and suffix — the lease owner promote used');
+duo_check_same(str_repeat('8', 64), $retained[0]['artifact_hash'], 'the artifact hash is the retained compiled artifact identity');
+duo_check_same('2026-08-17T10:10:10Z', $retained[0]['created_at'], 'created_at is the checkpoint file time in canonical UTC seconds');
+duo_check_same(600, $retained[0]['age_seconds'], 'age is computed from the file time');
+duo_check_same([RecoveryClaim::RESOURCE_DATABASE_CHECKPOINT], $retained[0]['covers'], 'a retained checkpoint covers the database checkpoint and nothing else');
+duo_check_same(0, $retained[0]['generation'], 'a retained checkpoint has no signed generation');
+duo_check_same(null, $retained[0]['event_chain_sha256'], 'a retained checkpoint has no event chain');
+duo_check_same(true, $retained[0]['terminal'], 'nothing about a retained file is in progress');
+duo_check_same('', $retained[2]['artifact_hash'], 'a checkpoint whose artifact is gone is listed with an empty identity, never dropped');
+duo_check_same(
+    '/srv/site/.duo/checkpoints/' . $newer . '.sql',
+    RetainedCheckpoints::checkpointPath('/srv/site/', $retained[0]),
+    'the restore path is the file promote wrote'
+);
+duo_check_refuses(
+    static fn () => RetainedCheckpoints::parse("promote-x\tnothex\t1\n", '2026-08-17T10:20:10Z'),
+    'checkpoint_listing_malformed',
+    'a hash that is not 64 hex refuses rather than becoming a lease identity'
+);
+duo_check_refuses(
+    static fn () => RetainedCheckpoints::parse("checkpoint-x\t\t1\n", '2026-08-17T10:20:10Z'),
+    'checkpoint_listing_malformed',
+    'a name without the promote- prefix refuses'
+);
+duo_check_refuses(
+    static fn () => RetainedCheckpoints::parse("promote-a/b\t\t1\n", '2026-08-17T10:20:10Z'),
+    'checkpoint_listing_malformed',
+    'an owner that could become a path refuses'
+);
+duo_check_same([], RetainedCheckpoints::parse("\n\n", '2026-08-17T10:20:10Z'), 'blank output is an empty listing');
+
+$merged = CheckpointCatalog::withRetained($catalog, $retained);
+duo_check_same(4, count($merged['rows']), 'authority rows and retained rows are merged into one catalog');
+duo_check_same('receipt-0012', $merged['rows'][0]['id'], 'the signed, in-progress facts stay first');
+duo_check(
+    in_array(RetainedCheckpoints::DISCLOSURE_RETAINED, $merged['disclosures'], true),
+    'the merged catalog says what a retained checkpoint is and how it is restored'
+);
+duo_check(
+    in_array(RetainedCheckpoints::DISCLOSURE_NO_IDENTITY, $merged['disclosures'], true),
+    'one checkpoint without identity adds the no-identity disclosure'
+);
+duo_check_same($catalog, CheckpointCatalog::withRetained($catalog, []), 'no retained checkpoints leaves the authority catalog untouched');
+$identified = CheckpointCatalog::withRetained($catalog, array_slice($retained, 0, 2));
+duo_check(
+    !in_array(RetainedCheckpoints::DISCLOSURE_NO_IDENTITY, $identified['disclosures'], true),
+    'the no-identity disclosure appears only when a checkpoint actually lacks its artifact'
+);
+$mergedLines = implode("\n", CheckpointCatalog::humanLines($merged));
+duo_check(str_contains($mergedLines, '  ' . $newer . '  retained  ' . RetainedCheckpoints::KIND . '  600s old'), 'a retained row prints id, state, kind and age');
+duo_check(!str_contains($mergedLines, RetainedCheckpoints::KIND . '  generation'), 'a retained row prints no generation');
+duo_check(!str_contains($mergedLines, str_repeat('8', 64)), 'the human listing prints no artifact hash');
 
 duo_check_summary('regress_recover_claim');

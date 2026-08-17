@@ -71,10 +71,37 @@ it: `--restore=<id>` takes exactly this string. The lease owner and the
 artifact hash are deliberately absent from this line — nothing you can type
 consumes them — and stay in `--format=json`.
 
-`duo recover` drives the rollback authority the adoption installed, and only
-an SSH-adopted target has one. On any other transport the command refuses with
-`recovery_authority_unavailable` and tells you to recover through the provider
-that owns that environment's backups. It does not improvise.
+### Retained release checkpoints — the rows every target has
+
+The signed receipt above is one source of rows. The other is the plain
+database checkpoint every operator-directed release **retained**: `promote`
+exports the pre-release database to `.duo/checkpoints/promote-<owner>.sql`
+right after taking its lease and prints `database checkpoint retained: …` on
+success. That file is what the frozen authorization plan's `operator-directed`
+claim (`restores: database checkpoint`) refers to, so `duo recover` lists it
+and restores it on **every** transport — local, docker and SSH alike:
+
+```text
+checkpoints: 1
+  promote-20260817-091402-0123456789abcdef0123456789abcdef  retained  retained-release-checkpoint  600s old
+    covers: database checkpoint
+note: this transport carries no rollback authority runtime, so only the database checkpoints its releases retained are listed
+note: retained release checkpoints are the plain database checkpoints promote kept under .duo/checkpoints; restoring one drives the operator-directed path (abort, begin, isolated import, final abort)
+```
+
+The id is the file name promote wrote, and it is what `--restore=<id>` takes.
+A retained checkpoint prints no generation because it has none: it is a file,
+not a signed receipt. Its lease identity — the owner and the artifact hash the
+release used — is read from the retained compiled artifact beside it
+(`.duo/artifacts/promote-<owner>.json`); a checkpoint whose artifact is gone is
+still listed, with a note that it cannot be restored by this command.
+
+Two things only an SSH-adopted target can do remain SSH-only, and say so
+rather than improvise: reading the **signed** catalog (the rollback authority
+runtime the adoption installed) and driving a **signed** rollback. On any other
+transport a signed rollback refuses with `recovery_authority_unavailable` and
+points you at `--restore=<retained id>` or the provider that owns that
+environment's backups.
 
 ## The claim is printed before anything happens
 

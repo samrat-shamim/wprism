@@ -414,6 +414,18 @@ The operator verb that replaces raw invocation of
   (`prepared`/`promoting`/`verifying_new`/`committed`/`rollback_pending`/
   `rolling_back`/`verifying_prior`/`rolled_back`), owner, artifact hash,
   covered inventory, age.
+  - **T5 addendum — two sources.** The signed receipt above exists only on an
+    SSH-adopted target. The plain database checkpoint every operator-directed
+    release *retains* under `.duo/checkpoints/promote-<owner>.sql` (what
+    `promote` prints as `database checkpoint retained:`) is the second source,
+    on every transport (`RetainedCheckpoints`, kind
+    `retained-release-checkpoint`, state `retained`, id `promote-<owner>`,
+    lease identity read from the retained artifact `.duo/artifacts/promote-<owner>.json`).
+    It is restored through the same four operator-directed steps. Without it,
+    the `operator-directed` claim a frozen plan prints on a local/docker
+    target (`restores: database checkpoint`) named a resource no verb could
+    reach — §6.1 step 11 found that live. Only a *signed* rollback stays
+    SSH-only (`recovery_authority_unavailable`).
 - `--restore=<id>` performs the profile's own rollback and, for the
   operator-directed profile, *drives* the four ordered steps the guide
   currently asks a human to type (abort → begin → isolated import → final
@@ -763,7 +775,7 @@ ports; never touches other agents' pairs.
 | 8 | `duo release mup2 --from main --plan-only` | authorization plan validates against `duo-authorization-plan/v1`; cites `contract_digest`; lists `does_not_restore`; names the recovery profile and *why* |
 | 9 | `duo release mup2 --from main --yes` | deploy-before-apply ordering observed in receipts; exit 0 |
 | 10 | `duo verify mup2` | convergence `pass`; both declared journeys `pass`; `uncovered_surfaces` reported |
-| 11 | mutate an "order" row on mup2 *after* the checkpoint; `duo recover mup2 --list` then `--restore=<id> --writers-excluded` | recovery claim printed verbatim before acting; product/page restored to pre-release; **the post-checkpoint order row's fate matches the printed `maximum_loss_boundary` exactly** — the claim is literal or the test fails |
+| 11 | mutate an "order" row on mup2 *after* the checkpoint; `duo recover mup2 --list` then `--restore=<id> --writers-excluded` | recovery claim printed verbatim before acting; product/page restored to pre-release; **the post-checkpoint order row's fate matches the printed `maximum_loss_boundary` exactly** — the claim is literal or the test fails. (T5: the listed id is the retained checkpoint the step-9 release printed, restored on the pair's docker transport.) |
 | 12 | `duo assess mup2` | post-recovery projection matches pre-release projection |
 | 13 | `duo rehearse preview --reap` | receipt says `destroyed` or `detached`; repeated reap idempotent |
 
