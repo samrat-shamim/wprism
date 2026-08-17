@@ -1,6 +1,8 @@
 <?php
 namespace Duo;
 
+require_once __DIR__ . '/../Repository/Ledger.php';
+
 /**
  * DUO-3290: names and counts what a site actually has versus what Duo can
  * see, for options and custom tables -- the two blind spots DUO-3257's
@@ -152,7 +154,10 @@ final class Coverage {
             $logicalName = str_starts_with($tableName, $prefix)
                 ? substr($tableName, strlen($prefix))
                 : $tableName;
-            if (isset($declared[$logicalName])) {
+            if (isset($declared[$logicalName]) || in_array($logicalName, Ledger::OWN_TABLES, true)) {
+                // Duo's own ledger is not site state and no adapter will ever
+                // declare it; listing it as "undeclared" taught the operator
+                // to classify the tool that was assessing them.
                 continue;
             }
             $undeclared[] = ['table' => $tableName, 'logical_name' => $logicalName];
@@ -259,6 +264,8 @@ final class Coverage {
      */
     private static function attribute(string $needle, array $activeSlugs): ?string {
         $normalizedNeedle = str_replace('_', '-', strtolower($needle));
+        $best = null;
+        $bestLength = 0;
         foreach ($activeSlugs as $slug) {
             $normalizedSlug = strtolower($slug);
             if ($normalizedSlug === $normalizedNeedle
@@ -266,7 +273,28 @@ final class Coverage {
                 || str_starts_with($normalizedNeedle, $normalizedSlug)) {
                 return $slug;
             }
+            // A plugin whose slug carries an edition suffix (`wpforms-lite`,
+            // `google-site-kit`) prefixes its options and tables with the
+            // family name alone (`wpforms_settings`, `wp_wpforms_tasks_meta`).
+            // Match on the slug's first token when it is long enough to be a
+            // name rather than a preposition, longest token wins; a family
+            // name two active plugins share is left unattributed rather than
+            // guessed. Found on the T6 adapter walk: every WPForms table read
+            // `probable_owner: null` and its gap action fell to `classify`.
+            $family = strtok($normalizedSlug, '-');
+            if ($family !== false && strlen($family) >= 4 && $family !== $normalizedSlug
+                && ($normalizedNeedle === $family || str_starts_with($normalizedNeedle, $family . '-'))) {
+                if (strlen($family) === $bestLength && $best !== $slug) {
+                    $best = null; // two edition slugs of one family: ambiguous, say nothing
+                    $bestLength = -1;
+                    continue;
+                }
+                if (strlen($family) > $bestLength) {
+                    $best = $slug;
+                    $bestLength = strlen($family);
+                }
+            }
         }
-        return null;
+        return $best;
     }
 }

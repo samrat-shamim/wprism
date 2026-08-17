@@ -366,7 +366,10 @@ walk_assert_unknown_names() {
 # finding is that an operator reading the page never sees it.
 walk_assert_unknown_table_line() {
   local file="$1"
-  grep -Eq '^ *[0-9]+ undeclared table\(s\)$' -- "$file" \
+  # The product's line carries a parenthetical the operator needs ("(no
+  # installed adapter declares them)"); the count and the word are what this
+  # asserts, so a trailing parenthetical is admitted, prose before it is not.
+  grep -Eq '^ *[0-9]+ undeclared table\(s\)( \(.*\))?$' -- "$file" \
     || { printf 'the assess unknown block prints no "N undeclared table(s)" line: %s\n' "$file" >&2; return 1; }
   return 0
 }

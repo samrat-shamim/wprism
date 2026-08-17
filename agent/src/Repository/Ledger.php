@@ -126,6 +126,17 @@ final class Ledger {
      * A stale deployment must be repaired through the ordinary capture gate;
      * an export has no authority to make it look current.
      */
+    /**
+     * The agent's own tables, unprefixed. Every schema statement in this file
+     * creates exactly these; anything that enumerates "tables no adapter
+     * declares" (Coverage) must skip them, because they are Duo's ledger, not
+     * site state — the T6 adapter walk read `table:duo_journal … unclassified`
+     * in its own assessment before this list existed.
+     *
+     * @var list<string>
+     */
+    public const OWN_TABLES = ['duo_journal', 'duo_kv', 'duo_map', 'duo_state'];
+
     public static function assert_read_only_schema(): void {
         global $wpdb;
         $tables = [

@@ -101,6 +101,18 @@ check(call_private('attribute', ['woocommerce_checkout', $slugs]) === 'woocommer
     'a needle that starts with an active slug attributes to that slug');
 check(call_private('attribute', ['rank_math', $slugs]) === null,
     'no active plugin matches -> null (the explicit "unattributed" case), never a wrong guess');
+// T6 adapter walk: an edition-suffixed slug (`wpforms-lite`) prefixes its
+// options and tables with the family name alone; the family token attributes
+// when it is a name (>= 4 chars) and unambiguous, and two edition slugs of one
+// family say nothing rather than guess.
+check(call_private('attribute', ['wpforms_tasks_meta', ['woocommerce', 'wpforms-lite']]) === 'wpforms-lite',
+    'a table/option prefixed with the family name of an edition-suffixed slug attributes to that slug');
+check(call_private('attribute', ['wpforms', ['wpforms-lite']]) === 'wpforms-lite',
+    'the bare family name attributes too');
+check(call_private('attribute', ['wpforms_settings', ['wpforms-lite', 'wpforms-pro']]) === null,
+    'two active editions of one family: ambiguous, left unattributed rather than guessed');
+check(call_private('attribute', ['wp_rocket_cache', ['wp-super-cache']]) === null,
+    'a family token shorter than a name (wp) never attributes');
 check(call_private('attribute', ['wpcf7', $slugs]) === null,
     "CF7's own option prefix (wpcf7) does not match its slug (contact-form-7) under simple prefix matching -- "
     . 'documenting this as a KNOWN heuristic limitation (DUO-3290\'s own design doc named this exact risk), not '
@@ -173,6 +185,12 @@ $wpdb->seedTable('wp_acme_catalog_index', [
     ['id' => 1, 'label' => 'first'],
     ['id' => 2, 'label' => 'second'],
 ]);
+// Duo's own ledger tables are neither core nor adapter-declared; before T6 the
+// walk read `table:duo_journal … unclassified` in its own assessment. They are
+// Ledger::OWN_TABLES and must never be reported as undeclared.
+foreach (Duo\Ledger::OWN_TABLES as $own) {
+    $wpdb->seedTable('wp_' . $own, [['k' => 'x']]);
+}
 
 $report = Duo\Coverage::report($coverageScratch . '/repo');
 check($report['format'] === Duo\Coverage::FORMAT, 'the product path emits the versioned coverage format');
