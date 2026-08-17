@@ -51,8 +51,16 @@ final class AdapterObservation {
     ];
     private const PENDING_SHAPES = ['array', 'bool', 'float', 'int', 'null', 'object', 'other', 'string'];
     private const GRAMMAR = [AdapterSources::GRAMMAR_OK, AdapterSources::GRAMMAR_ERROR, AdapterSources::GRAMMAR_BLOCKED];
+    /**
+     * `site_signed` joined in round-3 T6: a valid certificate under a key in
+     * the SITE's own adapters/authorities.json with an exact pin. It is a
+     * closed enum, so a word missing here is not a cosmetic gap — the
+     * projection refuses the whole observation rather than emit an
+     * unrecognised vocabulary, which is exactly the intent for a word nobody
+     * downstream knows how to read.
+     */
     private const CERTIFICATIONS = [
-        'certification_unjudged', 'registry', 'signed_unpinned', 'third_party_signed', 'uncertified',
+        'certification_unjudged', 'registry', 'signed_unpinned', 'site_signed', 'third_party_signed', 'uncertified',
     ];
     private const CLAIM_STATUSES = ['certified', 'excluded', 'experimental', 'uncertified', 'unsupported'];
     private const VERDICTS = ['blocked', 'certified'];
