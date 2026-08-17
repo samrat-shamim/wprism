@@ -452,6 +452,12 @@
                 "CERTIFICATION_DIR": {
                     "value_repr": "certifications"
                 },
+                "CERTIFICATION_SHADOWED_BY_SITE": {
+                    "value_repr": "shadowed_by_site"
+                },
+                "CERTIFICATION_SITE_SIGNED": {
+                    "value_repr": "site_signed"
+                },
                 "CERTIFICATION_UNJUDGED": {
                     "value_repr": "certification_unjudged"
                 },
@@ -551,6 +557,9 @@
                 "SITE": {
                     "value_repr": "site"
                 },
+                "SITE_AUTHORITIES_FILE": {
+                    "value_repr": "authorities.json"
+                },
                 "SITE_DIR": {
                     "value_repr": "adapters"
                 },
@@ -565,6 +574,12 @@
                 },
                 "TIER_PLUGIN_PROVIDER": {
                     "value_repr": "plugin_provider"
+                },
+                "TRUST_ROOT_PLATFORM": {
+                    "value_repr": "platform"
+                },
+                "TRUST_ROOT_SITE": {
+                    "value_repr": "site"
                 }
             },
             "final": true,
@@ -953,6 +968,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "principal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "provenance": {
                     "abstract": false,
                     "final": false,
@@ -1061,6 +1093,23 @@
                     ],
                     "return_type": "array",
                     "static": true,
+                    "visibility": "public"
+                },
+                "trust_root": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "name",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": false,
                     "visibility": "public"
                 },
                 "trust_tier": {
@@ -12832,6 +12881,14 @@
                             "name": "expectedDigest",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -12848,6 +12905,14 @@
                             "has_default": false,
                             "name": "repo",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -13337,6 +13402,14 @@
                             "name": "expectedDigest",
                             "type": "string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
@@ -13773,6 +13846,9 @@
         "Duo\\InitPlanner": {
             "abstract": false,
             "constants": {
+                "ALLOW_UNMANAGED_PLUGINS": {
+                    "value_repr": "allow-unmanaged-plugins"
+                },
                 "FORMAT": {
                     "value_repr": "duo-init-plan/v1"
                 }
@@ -13816,6 +13892,14 @@
                             "has_default": false,
                             "name": "repo",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],
@@ -13864,6 +13948,14 @@
                             "default": false,
                             "has_default": true,
                             "name": "ownsInitAttempt",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowUnmanagedPlugins",
                             "type": "bool",
                             "variadic": false
                         }
@@ -15979,6 +16071,14 @@
                             "has_default": false,
                             "name": "evidenceSchema",
                             "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "requireExerciseTests",
+                            "type": "bool",
                             "variadic": false
                         }
                     ],

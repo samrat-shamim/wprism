@@ -1864,9 +1864,11 @@ check(
         )
         && str_contains(
             (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php'),
-            '$allowUnmanagedPlugins = isset($assoc[InitPlanner::ALLOW_UNMANAGED_PLUGINS]);'
+            "\$allowUnmanagedPlugins = isset(\$assoc['allow-unmanaged-plugins']);"
         ),
-    'the wp-cli assoc flag is named exactly --allow-unmanaged-plugins and documented on the verb'
+    'the wp-cli assoc key, the documented option and InitPlanner\'s own constant are one spelling — Cli.php '
+    . 'uses the literal so the command surface does not drag the Init loader graph into every process that '
+    . 'opens it, and this check is what keeps the two from drifting'
 );
 
 $blockerRow = new ReflectionMethod(\Duo\InitPlanner::class, 'capability_blocker_row');

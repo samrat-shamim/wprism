@@ -2,10 +2,6 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
-// The verb reads InitPlanner::ALLOW_UNMANAGED_PLUGINS so the wp-cli assoc
-// key and the planner's own flag cannot drift into two spellings; the
-// drop-in has no autoloader, so the reference brings its own file.
-require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';
@@ -695,7 +691,16 @@ final class Cli {
     public function init($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
-            $allowUnmanagedPlugins = isset($assoc[InitPlanner::ALLOW_UNMANAGED_PLUGINS]);
+            // The literal, not InitPlanner::ALLOW_UNMANAGED_PLUGINS: this file
+            // deliberately requires four small things, and naming the constant
+            // would drag the whole Init loader graph (AdapterSources, Policy,
+            // RepositoryCompiler) into every process that opens the command
+            // surface — three offline suites declare their own AdapterSources
+            // stub before requiring this file and fatal on the redeclaration.
+            // The two spellings are held together by
+            // regress_init_contract.php, which asserts the constant's value
+            // and this exact line together.
+            $allowUnmanagedPlugins = isset($assoc['allow-unmanaged-plugins']);
             $result = isset($assoc['confirm'])
                 ? Init::confirm((string) $repo, (string) $assoc['confirm'], $allowUnmanagedPlugins)
                 : Init::proposal((string) $repo, $allowUnmanagedPlugins);
