@@ -1,0 +1,145 @@
+{
+  "format": "duo-application-contract/v1",
+  "site": {
+    "name": "example-shop",
+    "spec_version": 2
+  },
+  "declarations": {
+    "stack": {
+      "wordpress": {
+        "min": "6.8.0",
+        "max": "7.1.0"
+      },
+      "php": {
+        "min": "8.3.0",
+        "max": "8.4.0"
+      },
+      "database": {
+        "engine": "MariaDB",
+        "min": "11.0.0",
+        "max": "12.0.0"
+      },
+      "site_mode": "single-site",
+      "plugins": [
+        {
+          "slug": "storefront-commerce",
+          "min": "10.0.0",
+          "max": "11.0.0"
+        }
+      ]
+    },
+    "manifest_pins": [
+      {
+        "name": "core",
+        "source": "shipped",
+        "adapter_digest": "sha256:4d1e00000000000000000000000000000000000000000000000000000000ffff"
+      },
+      {
+        "name": "storefront-commerce",
+        "source": "shipped",
+        "adapter_digest": "sha256:c07a00000000000000000000000000000000000000000000000000000000ffff"
+      }
+    ],
+    "surfaces": [
+      {
+        "id": "products",
+        "label": "Products",
+        "state_class": "authored",
+        "handling": "manage",
+        "operations": [
+          "capture",
+          "merge",
+          "release",
+          "verify"
+        ],
+        "identity": "post uuid",
+        "decided_by": "operator",
+        "decided_at": "2026-08-17T09:02:11Z"
+      },
+      {
+        "id": "pages",
+        "label": "Pages",
+        "state_class": "authored",
+        "handling": "manage",
+        "operations": [
+          "capture",
+          "merge",
+          "release",
+          "verify"
+        ],
+        "identity": "post uuid",
+        "decided_by": "operator",
+        "decided_at": "2026-08-17T09:02:11Z"
+      },
+      {
+        "id": "orders",
+        "label": "Orders",
+        "state_class": "runtime",
+        "handling": "preserve local",
+        "operations": [],
+        "decided_by": "platform-default"
+      }
+    ],
+    "external_effects": [],
+    "journeys": [],
+    "unsupported": [
+      {
+        "surface": "products",
+        "operation": "delete",
+        "reason": "the open extension graph is not enumerable; deletion refuses before repository mutation"
+      }
+    ],
+    "surface_labels": {
+      "orders": "Orders",
+      "pages": "Pages",
+      "products": "Products"
+    }
+  },
+  "evidence_pins": {
+    "registry_sha256": "sha256:8fa100000000000000000000000000000000000000000000000000000000ffff",
+    "generated_from": {
+      "dispositions_sha256": "sha256:947600000000000000000000000000000000000000000000000000000000ffff",
+      "evidence_sha256": "sha256:27bd00000000000000000000000000000000000000000000000000000000ffff",
+      "compatibility_sha256": "sha256:889000000000000000000000000000000000000000000000000000000000ffff"
+    },
+    "bundles": [
+      {
+        "subject": "manifests.storefront-commerce",
+        "bundle_digest": "sha256:734500000000000000000000000000000000000000000000000000000000ffff",
+        "bundle_schema": "duo-subject-certification-bundle/v1",
+        "status": "current",
+        "git_revision": "ca94e365000000000000000000000000000000000",
+        "expires_with": [
+          "storefront-commerce",
+          "wordpress",
+          "php",
+          "database"
+        ]
+      }
+    ]
+  },
+  "attestation": {
+    "format": "duo-contract-attestation/v1",
+    "state": "unsigned",
+    "reason": "the certification gate is deferred for the minimum usable platform",
+    "approving_principal": null,
+    "policy_version": null,
+    "signature": null,
+    "expires_at": null
+  },
+  "environment_bindings": {
+    "required": [
+      {
+        "name": "siteurl",
+        "class": "env",
+        "bound_in": ".duo-env-values.json"
+      },
+      {
+        "name": "payment_gateway_secret",
+        "class": "env",
+        "sensitivity": "secret",
+        "bound_in": ".duo-env-values.json"
+      }
+    ]
+  }
+}

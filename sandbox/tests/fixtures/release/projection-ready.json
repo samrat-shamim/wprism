@@ -1,0 +1,48 @@
+[
+  {
+    "id": "products",
+    "label": "Products",
+    "declared": true,
+    "state_class": "authored",
+    "handling": "manage",
+    "meaning": "Duo versions this surface and applies the repository copy to the target.",
+    "operations": {
+      "release": {
+        "handling": "manage",
+        "readiness": "Ready",
+        "certification_provenance": "Platform-certified",
+        "effect_containment": "prevented",
+        "effect_containment_basis": "no WordPress hooks fire in the apply window",
+        "effect_recovery_semantics": "provider-state restorable",
+        "conditions": [],
+        "expiry_and_dependencies": ["storefront-commerce 10.0.0-11.0.0", "wordpress 7.0.3", "php 8.3.x"],
+        "remediation": null,
+        "gap_action": "nothing — supported",
+        "annotations": []
+      }
+    }
+  },
+  {
+    "id": "pages",
+    "label": "Pages",
+    "declared": true,
+    "state_class": "authored",
+    "handling": "manage",
+    "meaning": "Duo versions this surface and applies the repository copy to the target.",
+    "operations": {
+      "release": {
+        "handling": "manage",
+        "readiness": "Ready with conditions",
+        "certification_provenance": "Platform-certified",
+        "effect_containment": "prevented",
+        "effect_containment_basis": "no WordPress hooks fire in the apply window",
+        "effect_recovery_semantics": "provider-state restorable",
+        "conditions": ["plugin_version_mismatch: storefront-commerce in 10.0.0-11.0.0, observed 10.4.2"],
+        "expiry_and_dependencies": ["storefront-commerce 10.0.0-11.0.0"],
+        "remediation": null,
+        "gap_action": "nothing — supported",
+        "annotations": []
+      }
+    }
+  }
+]

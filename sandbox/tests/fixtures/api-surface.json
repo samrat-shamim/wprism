@@ -1,5 +1,5 @@
 {
-    "class_count": 322,
+    "class_count": 336,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -18627,6 +18627,361 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\AuthorizationPlan": {
+            "abstract": false,
+            "constants": {
+                "AUTHORITY_KINDS": {
+                    "value_repr": [
+                        "operator_confirmation",
+                        "business_owner",
+                        "declared_live_effect"
+                    ]
+                },
+                "BLOCKING_READINESS": {
+                    "value_repr": [
+                        "Experimental",
+                        "Not qualified",
+                        "Unsupported",
+                        "Requalification required"
+                    ]
+                },
+                "BLOCKING_RECOVERY_SEMANTICS": {
+                    "value_repr": "unknown"
+                },
+                "CODE_LIFECYCLE_PHASES": {
+                    "value_repr": [
+                        "deploy",
+                        "retire",
+                        "activate",
+                        "finalize"
+                    ]
+                },
+                "DIRECTORY": {
+                    "value_repr": ".duo/releases"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-authorization-plan/v1"
+                },
+                "LIFECYCLE_PHASES": {
+                    "value_repr": [
+                        "deploy",
+                        "retire",
+                        "activate",
+                        "finalize",
+                        "verify"
+                    ]
+                },
+                "LIFECYCLE_WINDOW_SURFACE": {
+                    "value_repr": "plugins/themes"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "currentFacts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "freeze": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "planOnly",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "path": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "planDigest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "read": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "planDigest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "refusals": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inputs",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "reverify": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "planDocument",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "currentFacts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AuthorizationPlanRenderer": {
+            "abstract": false,
+            "constants": {
+                "DEFAULT_LIMIT": {
+                    "value_repr": 50
+                },
+                "MAX_LIMIT": {
+                    "value_repr": 200
+                },
+                "SECTIONS": {
+                    "value_repr": [
+                        "requested scope",
+                        "capabilities and conditions",
+                        "what may change",
+                        "recovery",
+                        "effects",
+                        "authority still required"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "limitFromArgs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "question": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "render": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_LIMIT",
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\BootstrapEligibilityReport": {
             "abstract": false,
             "constants": {
@@ -18778,6 +19133,196 @@
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\CheckpointCatalog": {
+            "abstract": false,
+            "constants": {
+                "DISCLOSURE_ACTIVE_ONLY": {
+                    "value_repr": "the rollback authority holds one generation at a time: this is the active receipt, not a history"
+                },
+                "DISCLOSURE_INVALID": {
+                    "value_repr": "the rollback authority answered, but its evidence did not verify; treat this target as unknown and inspect private operator evidence before recovering"
+                },
+                "DISCLOSURE_NONE_ACTIVE": {
+                    "value_repr": "the rollback authority is available and holds no active receipt"
+                },
+                "DISCLOSURE_NO_CREATION_TIME": {
+                    "value_repr": "a full promotion receipt publishes no creation timestamp; claim_expires_at is shown instead of an age"
+                },
+                "DISCLOSURE_UNAVAILABLE": {
+                    "value_repr": "the target publishes no rollback authority runtime, so it holds no checkpoint this command can list"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-checkpoint-catalog/v1"
+                },
+                "KIND_SCOPED": {
+                    "value_repr": "scoped-promotion"
+                },
+                "KIND_VERIFIED": {
+                    "value_repr": "verified-promotion"
+                },
+                "STATES": {
+                    "value_repr": [
+                        "prepared",
+                        "promoting",
+                        "verifying_new",
+                        "committed",
+                        "rollback_pending",
+                        "rolling_back",
+                        "verifying_prior",
+                        "rolled_back"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "find": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "receiptId",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "fromStatus": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "status",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "audit",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "humanLines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": 50,
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "list": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "now",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "row": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "status",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "audit",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "now",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }
@@ -21971,6 +22516,322 @@
             },
             "readonly": false
         },
+        "Duo\\Orchestrator\\JourneyOracle": {
+            "abstract": false,
+            "constants": {
+                "CONVERGENCE_PASS": {
+                    "value_repr": "pass"
+                },
+                "DEFAULT_TIMEOUT_SECONDS": {
+                    "value_repr": 10
+                },
+                "ERROR": {
+                    "value_repr": "error"
+                },
+                "FAIL": {
+                    "value_repr": "fail"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-verify-report/v1"
+                },
+                "MAX_BODY_BYTES": {
+                    "value_repr": 2097152
+                },
+                "NO_JOURNEYS": {
+                    "value_repr": "journeys: 0 declared"
+                },
+                "PASS": {
+                    "value_repr": "pass"
+                },
+                "RENDER_PATH_UNAVAILABLE": {
+                    "value_repr": "render_contains is declared but this profile ships no manifest-declared render path for the journey"
+                },
+                "ROW_STATUSES": {
+                    "value_repr": [
+                        "pass",
+                        "fail",
+                        "error"
+                    ]
+                },
+                "UNDECLARED_PREFIX": {
+                    "value_repr": "verification is byte-level only for "
+                },
+                "UNDECLARED_SUFFIX": {
+                    "value_repr": "; declare a journey in the contract to make this a business check"
+                },
+                "VERDICTS": {
+                    "value_repr": [
+                        "pass",
+                        "fail"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "convergence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "summary",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "disclosures": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journeys",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "scopeSurfaces",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "fetch": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "url",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "timeout",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "humanLines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": 50,
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "convergence",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journeyRows",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journeys",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "scopeSurfaces",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "planDigest",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journeys",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "baseUrl",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "fetch",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_TIMEOUT_SECONDS",
+                            "has_default": true,
+                            "name": "timeout",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "renderPaths",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateJourneys": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journeys",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verdict": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "convergence",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "journeyRows",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\LocalTransport": {
             "abstract": false,
             "constants": {
@@ -22168,6 +23029,181 @@
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\NextAction": {
+            "abstract": false,
+            "constants": {
+                "ACTIONS": {
+                    "value_repr": [
+                        "resume",
+                        "reconcile",
+                        "retry",
+                        "recover",
+                        "requalify",
+                        "escalate"
+                    ]
+                },
+                "ESCALATE": {
+                    "value_repr": "escalate"
+                },
+                "MAPPING": {
+                    "value_repr": {
+                        "ambiguous_commitment": "reconcile",
+                        "authority_required": "escalate",
+                        "capability_expired": "requalify",
+                        "checkpoint_unavailable": "escalate",
+                        "drift_detected": "reconcile",
+                        "evidence_not_current": "requalify",
+                        "frozen_promotion": "resume",
+                        "incomplete_apply": "recover",
+                        "incomplete_lifecycle": "recover",
+                        "lease_held": "resume",
+                        "nothing_safe": "escalate",
+                        "plan_changed": "retry",
+                        "receipt_uncertain": "reconcile",
+                        "ref_mismatch": "reconcile",
+                        "transport_transient": "retry"
+                    }
+                },
+                "REASONS": {
+                    "value_repr": {
+                        "ambiguous_commitment": "the controller cannot prove whether the target committed this release",
+                        "authority_required": "the frozen plan named authority that has not been supplied",
+                        "capability_expired": "a condition re-checked at the mutation gate no longer holds",
+                        "checkpoint_unavailable": "the selected recovery profile's checkpoint is absent or did not verify",
+                        "drift_detected": "the target changed outside Duo after the plan was frozen",
+                        "evidence_not_current": "the certification evidence this release depends on went stale",
+                        "frozen_promotion": "a durable frozen promotion for this artifact already exists",
+                        "incomplete_apply": "the authored-state transaction did not reach its terminal receipt",
+                        "incomplete_lifecycle": "the code lifecycle window was interrupted between phases",
+                        "lease_held": "another promotion generation holds the target lease",
+                        "nothing_safe": "no automated action is safe for this failure",
+                        "plan_changed": "the target moved between freezing the plan and confirming it; nothing was written",
+                        "receipt_uncertain": "the durable receipt is unreadable or disagrees with the target",
+                        "ref_mismatch": "the target HEAD does not match the ref this release asserted",
+                        "transport_transient": "the transport failed in a way that carries no commitment evidence"
+                    }
+                },
+                "RECONCILE": {
+                    "value_repr": "reconcile"
+                },
+                "RECOVER": {
+                    "value_repr": "recover"
+                },
+                "REQUALIFY": {
+                    "value_repr": "requalify"
+                },
+                "RESUME": {
+                    "value_repr": "resume"
+                },
+                "RETRY": {
+                    "value_repr": "retry"
+                },
+                "RETRY_PRECONDITION": {
+                    "value_repr": "retry reuses the same operation identity and is safe only after durable receipt reconciliation proves the prior attempt wrote nothing"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "failureClasses": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "forFailure": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "failureClass",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "isAction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "isFailureClass": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "failureClass",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "preconditionFor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "action",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "reasonFor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "failureClass",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -22808,9 +23844,42 @@
                             "name": "envsFileOverride",
                             "type": "?string",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "surfaceLabels",
+                            "type": "array",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "surfaceLabel": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "row",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "labels",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -22892,6 +23961,14 @@
                             "default": null,
                             "has_default": false,
                             "name": "view",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "surfaceLabels",
                             "type": "array",
                             "variadic": false
                         }
@@ -23334,6 +24411,476 @@
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RecoverCommand": {
+            "abstract": false,
+            "constants": {
+                "CODE_COVERAGE": {
+                    "value_repr": "code release"
+                },
+                "ORDERED_STEPS": {
+                    "value_repr": [
+                        "abort",
+                        "begin",
+                        "import",
+                        "final-abort"
+                    ]
+                },
+                "WRITERS_EXCLUDED_FLAG": {
+                    "value_repr": "--writers-excluded"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RecoveryClaim": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-recovery-claim/v1"
+                },
+                "NONE": {
+                    "value_repr": "none"
+                },
+                "OPERATOR_DIRECTED": {
+                    "value_repr": "operator-directed"
+                },
+                "PROFILES": {
+                    "value_repr": [
+                        "verified-automatic",
+                        "operator-directed",
+                        "none"
+                    ]
+                },
+                "PROFILE_DOES_NOT_RESTORE": {
+                    "value_repr": {
+                        "none": [
+                            "database state — no checkpoint is taken, so nothing bounds the loss",
+                            "code releases — the target keeps the released revision",
+                            "uploaded media bundles — the target keeps whatever the release wrote",
+                            "provider effect bundles — no inverse effect operation is authorized in this profile"
+                        ],
+                        "operator-directed": [
+                            "code releases — reconcile code by hand to the pre-release revision before importing the checkpoint",
+                            "uploaded media bundles — the target keeps whatever the release wrote",
+                            "provider effect bundles — no inverse effect operation is authorized in this profile"
+                        ],
+                        "verified-automatic": []
+                    }
+                },
+                "RESOURCES": {
+                    "value_repr": [
+                        "database checkpoint",
+                        "code release",
+                        "upload bundle",
+                        "effect bundle"
+                    ]
+                },
+                "RESOURCE_CODE_RELEASE": {
+                    "value_repr": "code release"
+                },
+                "RESOURCE_DATABASE_CHECKPOINT": {
+                    "value_repr": "database checkpoint"
+                },
+                "RESOURCE_EFFECT_BUNDLE": {
+                    "value_repr": "effect bundle"
+                },
+                "RESOURCE_UPLOAD_BUNDLE": {
+                    "value_repr": "upload bundle"
+                },
+                "RESTORES": {
+                    "value_repr": {
+                        "none": [],
+                        "operator-directed": [
+                            "database checkpoint"
+                        ],
+                        "verified-automatic": [
+                            "database checkpoint",
+                            "code release",
+                            "upload bundle",
+                            "effect bundle"
+                        ]
+                    }
+                },
+                "SEMANTICS_NOT_APPLICABLE": {
+                    "value_repr": "not applicable"
+                },
+                "SEMANTICS_RESTORABLE": {
+                    "value_repr": "provider-state restorable"
+                },
+                "UNIVERSAL_DOES_NOT_RESTORE": {
+                    "value_repr": [
+                        "emails already sent",
+                        "payment captures or refunds already made",
+                        "webhooks already delivered",
+                        "third-party systems that observed the change",
+                        "orders and sessions written by live traffic after the checkpoint"
+                    ]
+                },
+                "VERIFIED_AUTOMATIC": {
+                    "value_repr": "verified-automatic"
+                },
+                "WRITER_EXCLUSION": {
+                    "value_repr": {
+                        "none": {
+                            "mechanism": "not applicable: nothing is restored, so no window protects anything",
+                            "required": false
+                        },
+                        "operator-directed": {
+                            "mechanism": "an external maintenance window: exclude every other writer, then assert it with --writers-excluded (a lock inside the database being imported cannot protect the window)",
+                            "required": true
+                        },
+                        "verified-automatic": {
+                            "mechanism": "the rollback authority reserves and releases the exclusion for the window itself; the operator asserts nothing",
+                            "required": false
+                        }
+                    }
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "claim",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "claim",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "humanLines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "claim",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": 50,
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "claim",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RecoveryProfileSelection": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-recovery-profile-selection/v1"
+                },
+                "PROFILES": {
+                    "value_repr": [
+                        "verified-automatic",
+                        "operator-directed",
+                        "none"
+                    ]
+                },
+                "STRENGTH": {
+                    "value_repr": {
+                        "none": 0,
+                        "operator-directed": 1,
+                        "verified-automatic": 2
+                    }
+                },
+                "WARN_PREFIX": {
+                    "value_repr": "WARN automatic verified rollback unavailable ("
+                },
+                "WARN_SUFFIX": {
+                    "value_repr": "); using operator-directed checkpoint/recovery"
+                },
+                "WEAKER_FLAG": {
+                    "value_repr": "--accept-weaker-recovery"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "decide": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proof",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "request",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "proveScoped": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "scopeHash",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": false,
+                            "has_default": true,
+                            "name": "allowDeletes",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "status",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "proveVerified": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "status",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "select": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "transport",
+                            "type": "Duo\\Orchestrator\\SshTransport",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "request",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "warningLine": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "selection",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "proof",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": true,
                     "visibility": "public"
                 }
@@ -24695,6 +26242,737 @@
                         }
                     ],
                     "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RehearsalDisclosure": {
+            "abstract": false,
+            "constants": {
+                "BANNER": {
+                    "value_repr": "containment: unknown — not enforced in this profile; do not point this environment at live payment or mail credentials."
+                },
+                "CONSEQUENCE": {
+                    "value_repr": "consequence: this rehearsal cannot authorize an Experimental or Uncertified capability — the spec permits that only after containment is proven. Rehearsal in this profile is a preview and evidence-gathering environment, not a qualification environment."
+                },
+                "CONTAINMENT": {
+                    "value_repr": "unknown"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-rehearsal-disclosure/v1"
+                },
+                "UNAUTHORIZABLE_PROVENANCE": {
+                    "value_repr": "Uncertified"
+                },
+                "UNAUTHORIZABLE_READINESS": {
+                    "value_repr": "Experimental"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "block": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "blocksAuthorization": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "projection",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "lines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RehearsalPlanPreview": {
+            "abstract": false,
+            "constants": {
+                "DEFAULT_LIMIT": {
+                    "value_repr": 50
+                },
+                "FORMAT": {
+                    "value_repr": "duo-rehearsal-preview/v1"
+                },
+                "MAX_LIMIT": {
+                    "value_repr": 200
+                },
+                "SURFACE_KIND_ENTITY": {
+                    "value_repr": {
+                        "media": "attachment",
+                        "menu": "menu",
+                        "option_group": "options",
+                        "post_type": "post",
+                        "table": "typed_table",
+                        "taxonomy": "term",
+                        "user_meta": "user_meta",
+                        "widget": "sidebar"
+                    }
+                },
+                "TOUCH_CLASSES": {
+                    "value_repr": {
+                        "authored_state": [
+                            "authored_state",
+                            "media"
+                        ],
+                        "code": [
+                            "code",
+                            "lifecycle"
+                        ],
+                        "effects": [
+                            "generated_effects",
+                            "environment_state",
+                            "capabilities",
+                            "deletions"
+                        ],
+                        "generated_state": [
+                            "generated_effects"
+                        ]
+                    }
+                },
+                "TOUCH_LABELS": {
+                    "value_repr": {
+                        "authored_state": "authored state",
+                        "code": "code",
+                        "effects": "effects",
+                        "generated_state": "generated state"
+                    }
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surfaces",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "context",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "preview",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "preview",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "limitFromArgs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "render": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "preview",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "self::DEFAULT_LIMIT",
+                            "has_default": true,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\RehearseCommand": {
+            "abstract": false,
+            "constants": {
+                "FLAGS": {
+                    "value_repr": [
+                        "--from",
+                        "--branch",
+                        "--create",
+                        "--ttl",
+                        "--reap",
+                        "--format",
+                        "--limit"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "preview": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "flags",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "branch",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hostCatalog",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "envsFileOverride",
+                            "type": "?string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "promote",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hostCatalog",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ReleaseCommand": {
+            "abstract": false,
+            "constants": {
+                "BASE_LIFECYCLE_PHASES": {
+                    "value_repr": [
+                        "retire",
+                        "activate",
+                        "verify"
+                    ]
+                },
+                "CODE_LIFECYCLE_PHASES": {
+                    "value_repr": [
+                        "deploy",
+                        "finalize"
+                    ]
+                },
+                "FLAGS": {
+                    "value_repr": [
+                        "--from",
+                        "--plan-only",
+                        "--profile",
+                        "--accept-weaker-recovery",
+                        "--with-deletes",
+                        "--yes",
+                        "--format",
+                        "--limit"
+                    ]
+                },
+                "OBSERVED_FAILURE_CLASSES": {
+                    "value_repr": [
+                        "plan_changed",
+                        "incomplete_lifecycle",
+                        "incomplete_apply",
+                        "ambiguous_commitment",
+                        "checkpoint_unavailable",
+                        "drift_detected",
+                        "receipt_uncertain",
+                        "nothing_safe"
+                    ]
+                },
+                "OPERATION": {
+                    "value_repr": "release"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "prepare": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "flags",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hostCatalog",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "promote",
+                            "type": "callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "confirm",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hostCatalog",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "verify",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ReleaseOutcome": {
+            "abstract": false,
+            "constants": {
+                "FAILED": {
+                    "value_repr": "failed"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-release-outcome/v1"
+                },
+                "REFUSED": {
+                    "value_repr": "refused"
+                },
+                "RELEASED": {
+                    "value_repr": "released"
+                },
+                "STATUSES": {
+                    "value_repr": [
+                        "released",
+                        "refused",
+                        "failed"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "failedAfterFreeze": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "planDigest",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "failureClass",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "humanLines": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "refusedBeforeFreeze": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "refusal",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "released": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "planDigest",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "verify",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "outcome",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
                     "static": true,
                     "visibility": "public"
                 }
@@ -26996,6 +29274,115 @@
                     "parameters": [],
                     "return_type": "array",
                     "static": false,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\VerifyCommand": {
+            "abstract": false,
+            "constants": {
+                "CONVERGENCE_DISCLOSURE": {
+                    "value_repr": "convergence here is a fresh read-only plan re-read (plan-reconciliation/v1); the byte-level canonical recapture runs inside the release's own apply, where it fails closed"
+                },
+                "CONVERGENCE_VERIFIER": {
+                    "value_repr": "plan-reconciliation/v1"
+                },
+                "DIVERGENCE_BUCKETS": {
+                    "value_repr": [
+                        "adopt",
+                        "collision",
+                        "conflict",
+                        "create",
+                        "delete",
+                        "delete_conflict",
+                        "drift",
+                        "incomplete_apply",
+                        "incomplete_lifecycle",
+                        "regen_pending",
+                        "update"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "convergenceSummary": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "plan",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "fetch",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
                     "visibility": "public"
                 }
             },

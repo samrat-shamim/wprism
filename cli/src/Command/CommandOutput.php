@@ -35,11 +35,23 @@ final class CommandOutput {
      * environment, a driver missing a required capability. A caller parsing
      * this command's stdout must get one envelope for every outcome, or the
      * first host-side refusal becomes an unparseable line in a pipeline.
+     *
+     * `release`, `verify`, `recover` and `rehearse` join for the same reason
+     * (round-3 MUP §2.2-§2.5), and for one sharper one: every refusal those
+     * four can raise *before* the target is contacted is a decision an
+     * operator or a pipeline must act on — a missing contract, a surface
+     * that is not releasable, a ref that does not match the target HEAD, a
+     * recovery profile the target cannot prove. A refusal printed as bare
+     * stderr while the success path prints a canonical document would make
+     * the machine caller treat "no JSON" as "no answer".
      */
     public static function wantsAgentRefusalJson(string $verb, array $extra): bool {
         if (!in_array(
             $verb,
-            ['adapter-observe', 'assess', 'capture', 'contract', 'lint', 'plan', 'explain', 'apply', 'refresh'],
+            [
+                'adapter-observe', 'assess', 'capture', 'contract', 'lint', 'plan', 'explain', 'apply',
+                'recover', 'refresh', 'rehearse', 'release', 'verify',
+            ],
             true
         )) {
             return false;

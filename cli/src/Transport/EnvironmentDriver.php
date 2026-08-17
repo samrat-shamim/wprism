@@ -199,8 +199,13 @@ final class DriverCapabilityReport {
             // read-only WP-CLI passthroughs demand and nothing more —
             // asking for raw control would refuse on drivers that can
             // legitimately answer the question (DUO-3344).
+            // `verify` joins the read-only WP-CLI set (MUP §2.4): it
+            // re-reads the plan and probes declared journeys over HTTP from
+            // the HOST. It writes nothing to the target, so demanding raw
+            // control or a snapshot capability for it would refuse a
+            // verification on a driver that can honestly answer it.
             'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'env-set',
-            'pending', 'classify', 'coverage', 'scope', 'assess', 'contract' => [
+            'pending', 'classify', 'coverage', 'scope', 'assess', 'contract', 'verify' => [
                 DriverCapability::ATTACH, DriverCapability::WP_CONTROL,
             ],
             'refresh', 'rebase' => [
@@ -214,9 +219,40 @@ final class DriverCapabilityReport {
                 DriverCapability::ATTACH, DriverCapability::CODE_MATERIALIZE,
                 DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
-            'promote' => [
+            // `release` composes `promote` rather than forking it (MUP §2.3
+            // step 4), so it demands exactly what promote demands. Asking
+            // for more here would refuse a target promote can already reach,
+            // and asking for less would let release reach the mutation gate
+            // on a driver that cannot take the checkpoint the frozen plan's
+            // recovery claim promises.
+            'promote', 'release' => [
                 DriverCapability::ATTACH, DriverCapability::CODE_MATERIALIZE,
                 DriverCapability::DB_SNAPSHOT_CREATE, DriverCapability::DB_SNAPSHOT_RESTORE,
+                DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
+            ],
+            // `recover` restores, it does not create: it drives the rollback
+            // authority runtime over the raw control path and imports a
+            // checkpoint that already exists. Requiring DB_SNAPSHOT_CREATE
+            // would refuse recovery on a target that can only be restored,
+            // which is the one moment that refusal would be most expensive.
+            'recover' => [
+                DriverCapability::ATTACH, DriverCapability::DB_SNAPSHOT_RESTORE,
+                DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
+            ],
+            // `rehearse` materializes a disposable environment from one
+            // coherent source snapshot and then converges it, so it is
+            // `env materialize`'s driver-side demand: promote's set plus the
+            // snapshot READ that copying a source into a target needs. The
+            // provider-side capabilities MUP §2.2 lists
+            // (`snapshot.set.*`, `environment.attach|create`,
+            // `repository.materialize`, `environment.url.discover`,
+            // `operation.receipts`) are a different, provider-owned
+            // vocabulary and are negotiated by `CommandEnvironmentProvider`,
+            // never inferred from a driver capability.
+            'rehearse' => [
+                DriverCapability::ATTACH, DriverCapability::CODE_MATERIALIZE,
+                DriverCapability::DB_SNAPSHOT_CREATE, DriverCapability::DB_SNAPSHOT_READ,
+                DriverCapability::DB_SNAPSHOT_RESTORE,
                 DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
             'create' => [DriverCapability::CREATE, DriverCapability::ATTACH],
@@ -230,8 +266,9 @@ final class DriverCapabilityReport {
             'url' => [DriverCapability::URL_DISCOVER, DriverCapability::URL_SET],
             default => throw new \RuntimeException(
                 "unknown driver operation '$operation' (expected attach, doctor, init, status, capabilities, capture, "
-                . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, refresh, rebase, '
-                . 'adapter-observe, adopt, deploy, promote, create, destroy, ttl, media-snapshot, maintenance, or url)'
+                . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, verify, '
+                . 'refresh, rebase, adapter-observe, adopt, deploy, promote, release, recover, rehearse, create, destroy, '
+                . 'ttl, media-snapshot, maintenance, or url)'
             ),
         };
         sort($requirements, SORT_STRING);

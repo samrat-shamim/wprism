@@ -1,0 +1,10 @@
+{
+  "artifact_hash": "9ac400000000000000000000000000000000000000000000000000000000ffff",
+  "code_revision_from": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
+  "database": {"engine": "MariaDB", "version": "11.8.8"},
+  "head_revision": "e2f1a0900000000000000000000000000000000000000000000000000000ffff",
+  "php": "8.3.33",
+  "site_mode": "single-site",
+  "siteurl": "https://shop.example.test",
+  "wordpress": "7.0.3"
+}
