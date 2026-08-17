@@ -295,7 +295,7 @@ mup_boundary_expectation() {
   local boundary="$1"
   case "$boundary" in
     'writes committed after checkpoint '*) printf 'lost\n' ;;
-    'writes committed after the checkpoint this release takes immediately before mutation') printf 'lost\n' ;;
+    'writes committed after the checkpoint this release takes immediately before mutation'*) printf 'lost\n' ;;
     'everything this release writes: no checkpoint is taken, so nothing bounds the loss') printf 'unbounded\n' ;;
     *) printf 'the recovery claim printed a maximum_loss_boundary this grind cannot read literally: %s\n' \
          "$boundary" >&2; return 1 ;;
@@ -1204,6 +1204,17 @@ pass "step 7 — origin main is $MAIN_SHA"
 # target is actually in: the repository carries the change, the site does not
 # yet. Nothing else on the target is touched, and the revert is asserted
 # afterwards so it cannot silently no-op.
+#
+# The revert alone is not enough, and `duo release` said so (run 13): the
+# target's identity ledger recorded the EDITED values at step 6's capture, so
+# reverting the live rows underneath it reads as `drift` (the site moved
+# since its last capture/apply), and a drifted target is refused
+# (`release_target_not_clean` -> capture first). A real release target's
+# ledger agrees with its live rows; the repository is what is ahead. So the
+# revert is followed by one capture on the target — the ledger now records
+# the pre-release values, the same capture-first workflow the refusal names —
+# and the working tree that capture wrote is discarded back to main, which
+# carries the edit. The plan then reads `2 update`, never `drift`.
 # ---------------------------------------------------------------------------
 say "step 7b/13 — revert the two live values on ${PAIR}2 so the release has something to apply"
 PRE_PRICE=24.00
@@ -1214,10 +1225,18 @@ if ! dry; then
   wp2 post update "$PREVIEW_PAGE_ID" --post_content="$PRE_BODY"
   [ "$(wp2 post meta get "$PREVIEW_PRODUCT_ID" _regular_price | tr -d '\r')" = "$PRE_PRICE" ] \
     || fail "step 7b: the live price revert did not take"
+  duo_in "$HOST_R2" capture "${PAIR}2" > "$SCRATCH/capture-7b.txt" 2>&1 \
+    || { cat "$SCRATCH/capture-7b.txt" >&2; fail "step 7b: the capture that records the reverted values in the target ledger failed"; }
+  git2 checkout -q -- .
+  git2 clean -fdq
+  [ -z "$(git -C "$HOST_R2" status --porcelain)" ] \
+    || fail "step 7b: the target clone is not back at main after discarding the ledger-updating capture"
 else
   plan "wp2 post meta update <product> _regular_price $PRE_PRICE  # and _price, and the page body"
+  plan "(cd $HOST_R2 && php $DUO --envs-file=$ENVS_FILE capture ${PAIR}2)   # ledger records the pre-release values"
+  plan "git -C $HOST_R2 checkout -- . && git -C $HOST_R2 clean -fd          # working tree back to main"
 fi
-pass "step 7b — the target's live price and page body are back at their pre-release values"
+pass "step 7b — the target's live price and page body are back at their pre-release values, and its ledger knows"
 
 # ---------------------------------------------------------------------------
 # Step 8 — the frozen authorization plan, --plan-only.
@@ -1405,10 +1424,14 @@ elif ! dry; then
     > "$RECOVER_OUT" 2>&1 \
     || { cat "$RECOVER_OUT" >&2; fail "step 11: duo recover --restore did not complete"; }
 
-  # The claim is printed BEFORE acting. `restores:` precedes the first driven
-  # step in the output, or the operator read it too late to stop.
-  CLAIM_LINE="$(grep -n -m1 -E '^(restores|does not restore)' "$RECOVER_OUT" | cut -d: -f1 || true)"
-  ACTION_LINE="$(grep -n -m1 -E 'abort|begin|import|signed-rollback' "$RECOVER_OUT" | cut -d: -f1 || true)"
+  # The claim is printed BEFORE acting. `recovery profile:` (the claim's
+  # first line, RecoveryClaim::humanLines()) precedes the first driven step —
+  # the indented `<step>: ok|FAILED — …` lines RecoverCommand prints under
+  # `recover <env>:` — or the operator read it too late to stop. The step
+  # regex is anchored to that exact shape: the claim's own does-not-restore
+  # prose contains the words "import" and "abort" and must not count.
+  CLAIM_LINE="$(grep -n -m1 -E '^recovery profile: ' "$RECOVER_OUT" | cut -d: -f1 || true)"
+  ACTION_LINE="$(grep -n -m1 -E '^  (abort|begin|import|final-abort|signed-rollback): ' "$RECOVER_OUT" | cut -d: -f1 || true)"
   [ -n "$CLAIM_LINE" ] \
     || fail "step 11: duo recover printed no recovery claim; see $RECOVER_OUT"
   if [ -n "$ACTION_LINE" ]; then
