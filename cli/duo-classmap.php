@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 return [
     'Duo\\Orchestrator\\AdapterCatalog' => 'src/Adapter/AdapterCatalog.php',
+    'Duo\\Orchestrator\\AdapterCertify' => 'src/Adapter/AdapterCertify.php',
     'Duo\\Orchestrator\\AdapterDraft' => 'src/Adapter/AdapterDraft.php',
     'Duo\\Orchestrator\\AdapterObservation' => 'src/Adapter/AdapterObservation.php',
     'Duo\\Orchestrator\\Adopt' => 'src/Onboarding/Adopt.php',

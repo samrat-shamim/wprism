@@ -56,6 +56,7 @@ require __DIR__ . '/src/Adapter/ManifestValidate.php';
 require __DIR__ . '/src/Adapter/AdapterDraft.php';
 require __DIR__ . '/src/Adapter/AdapterCatalog.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
+require __DIR__ . '/src/Adapter/AdapterCertify.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -198,6 +199,7 @@ use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
+use Duo\Orchestrator\AdapterCertify;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -229,10 +231,15 @@ Usage:
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
   duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
-                    [--evidence=<live-evidence.json>] [--format=json] [--check-proposals]
+                    [--evidence=<live-evidence.json>] [--seed=<coverage.json>]
+                    [--out=<path> [--force]] [--format=json] [--check-proposals]
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
+  duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
+                      [--key-id=<id>] [--reason=<text>] [--pin]
+  duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
@@ -382,6 +389,45 @@ Verbs:
                           target, the manifest-shipped PHP it deliberately does
                           not load, and the cross-manifest guards that belong to
                           a pin set.
+  adapter keygen          Mint the CUSTOMER-ORGANIZATION Ed25519 key that
+    --out=<secret-file>   certifies this repository's own adapters. The secret
+    [--key-id=<id>]       is written to the path you name at mode 0600 and
+                          NEVER inside a site repository — a site repo is
+                          committed and published, so a key in one is a
+                          published key. Prints the key id and the public key;
+                          `adapter certify` registers that public key in the
+                          repository's own adapters/authorities.json. This is
+                          a customer-organization trust root, explicitly not a
+                          Duo endorsement: what it signs reads `Site-certified`,
+                          never `Platform-certified`.
+  adapter certify         Sign one installed site adapter under that key.
+    <site-repo>           Registers the public key in adapters/authorities.json
+    --name=<n>            if absent, runs the engine's REAL manifest validators
+    --secret-key-file=<f> over the adapter, builds a
+    [--key-id=<id>]       duo-site-adapter-certification-bundle/v1 whose
+    [--reason=<text>]     evidence is exactly {grammar: <validator verdict>,
+    [--pin]               exercised: false, reason}, signs
+                          adapters/certifications/<n>.json, verifies what it
+                          just wrote through the live verifier, and prints the
+                          {name,source,digest} pin object. --pin writes or
+                          replaces that exact object in site.duo.json.
+                          The certificate binds the adapter's exact bytes: any
+                          edit moves the digest and the pin refuses until both
+                          are redone. NOTHING here claims the adapter was
+                          exercised — the signed bundle records
+                          `exercised: false` and the stated reason, and
+                          deletion semantics are declared unsupported because
+                          a validator run cannot review them.
+  adapter pin             Write or replace one exact {name,source,digest} pin
+    <site-repo>           in site.duo.json, offline. The digest comes from the
+    --name=<n>            engine's own resolution, so it is the number the
+    [--source=site|plugin] engine will check rather than a second hash of the
+                          same file. For a name a shipped adapter also answers
+                          to, --source=site is the OVERRIDE: precedence stays
+                          shipped > site > plugin for a name-only pin, and the
+                          explicit site pin is how you select your own copy.
+                          The shipped copy is then reported `shadowed_by_site`
+                          on every `duo adapter list` row.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
@@ -891,6 +937,16 @@ function main(array $argv): int {
     // repository is in a state that makes every environment-bound command
     // refuse, and requiring an <env> would put the answer behind the problem.
     if ($verb === 'adapter') {
+        // Same process, two owners. `list|inspect|doctor` REPORT what is
+        // installed; `keygen|certify|pin` MUTATE — a private key, the site
+        // trust root, a certificate, a pin. Splitting on the sub-verb rather
+        // than widening AdapterCatalog's parser keeps the read-only catalog
+        // free of every write path, which is what lets `duo adapter doctor`
+        // stay the command an operator can run when the repository is in a
+        // state that makes the writing ones refuse.
+        if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
+            return AdapterCertify::run($rest);
+        }
         return AdapterCatalog::run($rest);
     }
 
