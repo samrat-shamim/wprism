@@ -2176,7 +2176,10 @@ scenario_s1() {
   else
     local prefix
     prefix="$(wp2 db prefix | tr -d '\r\n')"
-    wp2 db query "INSERT INTO \`${prefix}${WPFORMS_TABLE}\` (meta_key, meta_value) VALUES ('$marker', '1')" \
+    # wp_wpforms_tasks_meta (WPForms Lite 2.0.0.4): id, action, data, date —
+    # read from the target's own SHOW CREATE TABLE on run 11; the marker rides
+    # in `action`, which is what the read-back below matches on.
+    wp2 db query "INSERT INTO \`${prefix}${WPFORMS_TABLE}\` (action, data, date) VALUES ('$marker', '[]', NOW())" \
       || fail "$S: could not write a post-checkpoint row into ${prefix}${WPFORMS_TABLE}"
     wp2 option update "${WPFORMS_OPTION_PREFIX}duo_walk_marker" "$marker"
     [ "$(wp2 option get "${WPFORMS_OPTION_PREFIX}duo_walk_marker" | tr -d '\r')" = "$marker" ] \
@@ -2187,7 +2190,7 @@ scenario_s1() {
   if ! dry; then
     local prefix rows
     prefix="$(wp2 db prefix | tr -d '\r\n')"
-    rows="$(wp2 db query "SELECT COUNT(*) FROM \`${prefix}${WPFORMS_TABLE}\` WHERE meta_key = '$marker'" \
+    rows="$(wp2 db query "SELECT COUNT(*) FROM \`${prefix}${WPFORMS_TABLE}\` WHERE action = '$marker'" \
       --skip-column-names 2>/dev/null | tr -d '\r' | tail -1 || echo 0)"
     [ "$rows" = 0 ] \
       || fail "$S: the claim said '$PLAN_BOUNDARY' but the post-checkpoint row in $WPFORMS_TABLE survived recovery.
