@@ -2191,7 +2191,7 @@ scenario_s1() {
     local prefix rows
     prefix="$(wp2 db prefix | tr -d '\r\n')"
     rows="$(wp2 db query "SELECT COUNT(*) FROM \`${prefix}${WPFORMS_TABLE}\` WHERE action = '$marker'" \
-      --skip-column-names 2>/dev/null | tr -d '\r' | tail -1 || echo 0)"
+      --skip-column-names 2>/dev/null | tr -d '\r' | grep -E '^[0-9]+$' | tail -1 || echo 0)"
     [ "$rows" = 0 ] \
       || fail "$S: the claim said '$PLAN_BOUNDARY' but the post-checkpoint row in $WPFORMS_TABLE survived recovery.
 The boundary is literal for unmanaged state too, or this test fails."
