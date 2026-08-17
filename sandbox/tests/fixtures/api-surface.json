@@ -31148,6 +31148,23 @@
                     "static": false,
                     "visibility": "public"
                 },
+                "declared_object_type": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
                 "declared_post_types": {
                     "abstract": false,
                     "final": false,
@@ -31186,6 +31203,23 @@
                     "final": false,
                     "parameters": [],
                     "return_type": "array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "declared_update_count_callback": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
                     "static": false,
                     "visibility": "public"
                 },
@@ -50200,6 +50234,23 @@
                         }
                     ],
                     "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "declaredRegistration": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "tax",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
                     "static": false,
                     "visibility": "public"
                 },

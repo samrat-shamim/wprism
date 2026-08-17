@@ -164,6 +164,65 @@ $check(
     'Policy requires the resolver once, retains explicit public facades, and leaves no duplicate concrete-pattern matcher or keyspace body'
 );
 
+// ---- round-3 T5: exact registration declarations (taxonomies.<tax>.object_type)
+$exact = new TaxonomyPatternResolver([
+    ['name' => 'woocommerce', 'taxonomies' => [
+        'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount'],
+        'product_type' => ['class' => 'authored', 'object_type' => ['product_variation', 'product']],
+        'product_visibility' => ['class' => 'runtime'],
+    ], 'taxonomy_patterns' => [
+        ['match' => '^pa_', 'object_type' => ['product'], 'update_count_callback' => '_update_post_term_count'],
+    ]],
+]);
+$check(
+    $exact->declaredRegistration('product_cat') === [
+        'object_type' => ['product'],
+        'update_count_callback' => '_wc_term_recount',
+        'source' => "manifest 'woocommerce' taxonomies.product_cat",
+    ],
+    'an exact taxonomies.<tax>.object_type declaration is served with its callback and source'
+);
+$check(
+    $exact->declaredRegistration('product_type') === [
+        'object_type' => ['product', 'product_variation'],
+        'update_count_callback' => null,
+        'source' => "manifest 'woocommerce' taxonomies.product_type",
+    ],
+    'object types are sorted and a missing callback is null, as for a pattern rule'
+);
+$check(
+    $exact->declaredRegistration('product_visibility') === null && $exact->declaredRegistration('pa_color') === null,
+    'a rule without object_type, and a name only a pattern matches, have no exact registration declaration'
+);
+$conflicting = new TaxonomyPatternResolver([
+    ['name' => 'a', 'taxonomies' => ['shared' => ['class' => 'authored', 'object_type' => ['post']]]],
+    ['name' => 'b', 'taxonomies' => ['shared' => ['class' => 'authored', 'object_type' => ['page']]]],
+]);
+$assertThrows(
+    static fn () => $conflicting->declaredRegistration('shared'),
+    'ambiguous registration declarations',
+    'two manifests declaring different registration facts for one exact taxonomy refuse'
+);
+
+$policy = new Duo\Policy();
+$policy->manifests = [
+    ['name' => 'woocommerce', 'taxonomies' => [
+        'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount'],
+    ], 'taxonomy_patterns' => [
+        ['match' => '^pa_', 'object_type' => ['product'], 'update_count_callback' => '_update_post_term_count'],
+    ]],
+];
+$check(
+    $policy->declared_object_type('product_cat') === ['product']
+        && $policy->declared_update_count_callback('product_cat') === '_wc_term_recount'
+        && $policy->declared_object_type('pa_color') === ['product']
+        && $policy->declared_update_count_callback('pa_color') === '_update_post_term_count'
+        && $policy->declared_object_type('unknown_tax') === null
+        && $policy->declared_update_count_callback('unknown_tax') === null
+        && $policy->pattern_object_type('product_cat') === null,
+    'Policy::declared_object_type()/declared_update_count_callback() consult the exact declaration first, then the pattern fallback, and leave the pattern-only facades untouched'
+);
+
 if ($failures !== []) {
     fwrite(STDERR, "\nFAILED " . count($failures) . " assertion(s)\n");
     exit(1);

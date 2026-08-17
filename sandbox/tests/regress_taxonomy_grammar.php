@@ -291,6 +291,59 @@ $check(
     'TaxonomyGrammar preserves the exact closed relationship object-keyspace vocabulary'
 );
 
+// ---- round-3 T5: exact registration declarations on taxonomies.<tax>
+$assertAccepted(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'woocommerce',
+        'taxonomies' => [
+            'product_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '_wc_term_recount'],
+            'product_type' => ['class' => 'authored', 'object_type' => ['product']],
+            'product_visibility' => ['class' => 'runtime'],
+        ],
+    ]),
+    'exact taxonomies may declare object_type, with or without update_count_callback'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomies' => ['acme_cat' => ['class' => 'authored', 'object_type' => []]],
+    ]),
+    'object_type must be a non-empty list',
+    'an empty object_type list is refused'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomies' => ['acme_cat' => ['class' => 'authored', 'object_type' => 'product']],
+    ]),
+    'object_type must be a non-empty list',
+    'a bare string object_type is refused'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomies' => ['acme_cat' => ['class' => 'authored', 'object_type' => ['product', '']]],
+    ]),
+    'only non-empty strings',
+    'an empty object type name is refused'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomies' => ['acme_cat' => ['class' => 'authored', 'update_count_callback' => '_wc_term_recount']],
+    ]),
+    'requires an object_type declaration beside it',
+    'a count callback without object_type is a contract about nothing and is refused'
+);
+$assertThrows(
+    static fn() => TaxonomyGrammar::validate_taxonomy_object_keyspace_declarations([
+        'name' => 'acme',
+        'taxonomies' => ['acme_cat' => ['class' => 'authored', 'object_type' => ['product'], 'update_count_callback' => '']],
+    ]),
+    'must be a non-empty callback name',
+    'an empty count callback is refused'
+);
+
 if ($failures) {
     echo "\n" . count($failures) . " failure(s):\n";
     foreach ($failures as $failure) {
