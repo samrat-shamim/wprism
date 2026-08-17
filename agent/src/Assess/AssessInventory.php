@@ -162,6 +162,13 @@ final class AssessInventory {
             'agent_version' => defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown',
             'target' => self::target($probe),
             'plugins' => self::plugins($probe),
+            // The `plugin:<slug>` surface rows `duo assess` mints (round-3 T6
+            // §3.6). Published as its own top-level list rather than nested
+            // under `plugins`, which is a JSON LIST every host consumer already
+            // iterates (cli/src/Assess/StackInventory.php:208,247 and
+            // AssessReport.php:334); turning it into an object to hold one new
+            // member would silently change what those three loops walk.
+            'plugins_active_without_adapter' => self::plugins_active_without_adapter($policy, $probe),
             'themes' => self::themes($probe),
             'media' => [
                 'count' => $liveCounts['post_types']['attachment'] ?? 0,
@@ -302,6 +309,57 @@ final class AssessInventory {
             ];
         }
         usort($rows, static fn(array $a, array $b): int => strcmp($a['basename'], $b['basename']));
+        return $rows;
+    }
+
+    /**
+     * Every ACTIVE plugin no pinned adapter declares — the inventory half of
+     * the `plugin:<slug>` assess surface (round-3 T6 §3.6), whose projection
+     * is `unclassified / block / Not qualified` with next action `install
+     * adapter`.
+     *
+     * Judged against the PINNED manifests, not the installed library, and the
+     * distinction is the whole point of the row: an adapter sitting in
+     * `adapters/` that no pin selects is not managing anything on this site,
+     * and reporting the plugin as managed because a file exists would be the
+     * silence this document exists to remove. `adapter_survey` is where the
+     * installed-but-unpinned adapter is already visible with its own
+     * certification word and remediation.
+     *
+     * Names only, exactly like every other row here: the plugin basename the
+     * operator sees in `active_plugins`, and its directory slug — which is the
+     * identity the host builds `plugin:<slug>` from and the identity a bundled
+     * `duo-adapter.json` is anchored to. A single-file plugin has no directory,
+     * so its slug is the file name without `.php` (`hello.php` -> `hello`).
+     *
+     * @param array<string,mixed> $probe
+     * @return list<array{plugin:string,slug:string}>
+     */
+    private static function plugins_active_without_adapter(Policy $policy, array $probe): array {
+        $owned = [];
+        foreach ($policy->manifests as $manifest) {
+            $plugin = is_array($manifest) ? ($manifest['plugin'] ?? null) : null;
+            if (is_string($plugin) && $plugin !== '') {
+                $owned[$plugin] = true;
+            }
+        }
+        $rows = [];
+        $seen = [];
+        foreach ((array) ($probe['active_plugins'] ?? []) as $basename) {
+            $basename = (string) $basename;
+            if ($basename === '' || isset($owned[$basename]) || isset($seen[$basename])) {
+                continue;
+            }
+            $seen[$basename] = true;
+            $directory = strpos($basename, '/') === false ? '' : dirname($basename);
+            $rows[] = [
+                'plugin' => $basename,
+                'slug' => $directory !== '' && $directory !== '.'
+                    ? $directory
+                    : preg_replace('/\.php$/D', '', basename($basename)),
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int => strcmp($a['plugin'], $b['plugin']));
         return $rows;
     }
 
