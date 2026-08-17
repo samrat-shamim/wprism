@@ -1,0 +1,197 @@
+
+[1;36m== pair-budget preflight ==[0m
+
+[1;36m== live sandbox pairs (duo-* compose projects, excluding duo-db) ==[0m
+  - t6h1
+
+[1;36m== stopped pairs (kept, zero footprint — resume with: pair.sh start <name>) ==[0m
+  - asub3233
+  - awalk
+  - codexdc2799
+  - codexmaca3348s44core2
+  - codexmaca3348s44f2
+  - codexmaca3348s44r1
+  - conf
+  - wooattrdel
+
+[1;36m== shared db ==[0m
+  duo-shared-db: running (healthy)
+
+[1;36m== fresh pair t6h0 ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    70ff3ab5de1b67e10750a5065a1f9c0b57f51755
+  invoked from:   <source-root>/sandbox
+  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)
+ Container duo-shared-db Running
+
+[1;36m== pair 't6h0': reset ==[0m
+[1;32mok: wp_t6h01/wp_t6h02 dropped + recreated empty; siterepo/t6h0{1,2} cleared in place and origin-t6h0.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/t6h0{1,2}, origin-t6h0.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up t6h0 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.t6h0{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    70ff3ab5de1b67e10750a5065a1f9c0b57f51755
+  invoked from:   <source-root>/sandbox
+  expected SHA:   (DUO_EXPECTED_SOURCE_SHA unset — this run is NOT candidate-bound)
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't6h0': databases ==[0m
+[1;32mok: wp_t6h01, wp_t6h02 exist[0m
+
+[1;36m== pair 't6h0': site-repo directories ==[0m
+
+[1;36m== pair 't6h0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t6h0_wp1 Creating
+ Volume duo-t6h0_wp1 Created
+ Volume duo-t6h0_wp2 Creating
+ Volume duo-t6h0_wp2 Created
+ Container duo-t6h0-wp1-1 Creating
+ Container duo-t6h0-wp2-1 Creating
+ Container duo-t6h0-wp2-1 Created
+ Container duo-t6h0-wp1-1 Created
+ Container duo-t6h0-wp1-1 Starting
+ Container duo-t6h0-wp2-1 Starting
+ Container duo-t6h0-wp2-1 Started
+ Container duo-t6h0-wp1-1 Started
+ Container duo-t6h0-cli1-1 Creating
+ Container duo-t6h0-cli2-1 Creating
+ Container duo-t6h0-cli1-1 Created
+ Container duo-t6h0-cli2-1 Created
+ Container duo-t6h0-cli1-1 Starting
+ Container duo-t6h0-cli2-1 Starting
+ Container duo-t6h0-cli2-1 Started
+ Container duo-t6h0-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't6h0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't6h0': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.t6h01.needs-install present — reset emptied wp_t6h01, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-t6h0-cli1-run-90e1d26baee2 Creating
+ Container duo-t6h0-cli1-run-90e1d26baee2 Created
+Success: WordPress installed successfully.
+ Container duo-t6h0-cli1-run-b3637ca558e2 Creating
+ Container duo-t6h0-cli1-run-b3637ca558e2 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6h0-cli1-run-3fee57f16daa Creating
+ Container duo-t6h0-cli1-run-3fee57f16daa Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t6h0-cli1-run-a0d307ed7cee Creating
+ Container duo-t6h0-cli1-run-a0d307ed7cee Created
+ Container duo-t6h0-cli1-run-cf202aa6abaf Creating
+ Container duo-t6h0-cli1-run-cf202aa6abaf Created
+ Container duo-t6h0-cli1-run-e1cc3844c31a Creating
+ Container duo-t6h0-cli1-run-e1cc3844c31a Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t6h0-cli1-run-086a99d87ae8 Creating
+ Container duo-t6h0-cli1-run-086a99d87ae8 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9300)
+  side 2: siterepo/.t6h02.needs-install present — reset emptied wp_t6h02, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-t6h0-cli2-run-423680f017fb Creating
+ Container duo-t6h0-cli2-run-423680f017fb Created
+Success: WordPress installed successfully.
+ Container duo-t6h0-cli2-run-d35b5f8bc8c3 Creating
+ Container duo-t6h0-cli2-run-d35b5f8bc8c3 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6h0-cli2-run-897986743dcb Creating
+ Container duo-t6h0-cli2-run-897986743dcb Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t6h0-cli2-run-69953fbe2e22 Creating
+ Container duo-t6h0-cli2-run-69953fbe2e22 Created
+ Container duo-t6h0-cli2-run-05904b035f78 Creating
+ Container duo-t6h0-cli2-run-05904b035f78 Created
+ Container duo-t6h0-cli2-run-be5847ff6de5 Creating
+ Container duo-t6h0-cli2-run-be5847ff6de5 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t6h0-cli2-run-dfb1b9195a25 Creating
+ Container duo-t6h0-cli2-run-dfb1b9195a25 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9301)
+
+[1;36m== pair 't6h0' ready ==[0m
+  wp1: http://localhost:9300 (published on host port 9300)
+  wp2: http://localhost:9301 (published on host port 9301)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t6h0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t6h0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t6h0 must stay exported, or pass -p duo-t6h0 and set WORDPRESS_DB_NAME/etc. yourself)
+
+[1;36m== convert side 1 to a real WordPress multisite ==[0m
+ Container duo-t6h0-cli1-run-5f5d40d86080 Creating
+ Container duo-t6h0-cli1-run-5f5d40d86080 Created
+ Container duo-t6h0-cli1-run-bb0d4a55d59b Creating
+ Container duo-t6h0-cli1-run-bb0d4a55d59b Created
+[1;32mok: WordPress reports multisite through its own runtime API[0m
+
+[1;36m== prepare an otherwise-valid core site repository and mutation canary ==[0m
+ Container duo-t6h0-cli1-run-3392a376e43f Creating
+ Container duo-t6h0-cli1-run-3392a376e43f Created
+
+[1;36m== ordinary product path must refuse loudly and publish nothing ==[0m
+ Container duo-t6h0-cli1-run-11ca4da3f9b7 Creating
+ Container duo-t6h0-cli1-run-11ca4da3f9b7 Created
+Error: duo: multisite is unsupported by the certified v1 contract; this command is single-site only and refuses before loading policy or mutating state
+ Container duo-t6h0-cli1-run-2666c455a840 Creating
+ Container duo-t6h0-cli1-run-2666c455a840 Created
+[1;32mok: multisite is an actionable non-zero refusal with zero repository/authored-state mutation[0m
+
+[1;32m✔ REGRESS_MULTISITE_REFUSAL PASSED[0m
+
+[1;36m== cleanup: destroy own disposable pair ==[0m
+
+[1;36m== pair 't6h0': destroy ==[0m
+ Container duo-t6h0-wp1-1 Stopping
+ Container duo-t6h0-cli1-1 Stopping
+ Container duo-t6h0-wp2-1 Stopping
+ Container duo-t6h0-cli2-1 Stopping
+ Container duo-t6h0-cli2-1 Stopped
+ Container duo-t6h0-cli2-1 Removing
+ Container duo-t6h0-cli1-1 Stopped
+ Container duo-t6h0-cli1-1 Removing
+ Container duo-t6h0-cli1-1 Removed
+ Container duo-t6h0-cli2-1 Removed
+ Container duo-t6h0-wp1-1 Stopped
+ Container duo-t6h0-wp1-1 Removing
+ Container duo-t6h0-wp1-1 Removed
+ Container duo-t6h0-wp2-1 Stopped
+ Container duo-t6h0-wp2-1 Removing
+ Container duo-t6h0-wp2-1 Removed
+ Volume duo-t6h0_wp2 Removing
+ Volume duo-t6h0_wp1 Removing
+ Volume duo-t6h0_wp1 Removed
+ Volume duo-t6h0_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_t6h01/wp_t6h02 dropped[0m
+  siterepo/t6h0{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: t6h0 destroyed[0m

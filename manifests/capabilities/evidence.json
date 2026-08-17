@@ -3830,7 +3830,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "5bfe10a13b5babb5c30c13a4c26cf4a23059f551385cbf59384909702ee21cf3",
+                "bundle_digest": "f608bb87c791c18d41b033f5020648e2ac4a2ef016f04bc970bde4d7294c1861",
                 "claims": {
                     "manifests.core": [
                         "conformance-core",
@@ -3838,7 +3838,7 @@
                     ]
                 },
                 "closure": {
-                    "digest": "ed455a8a6b237c814c10792dacb6199f3160146249dae82d318e35a17c6a0baf",
+                    "digest": "085b01deed27b8c9f8d1428543d1f534f79907cd605ceb79fcd4c499b4c06115",
                     "inputs": [
                         {
                             "path": "Makefile",
@@ -4377,8 +4377,8 @@
                         },
                         {
                             "path": "agent/src/Init/InitPlanner.php",
-                            "sha256": "d2149b0c560750b1d50f3cd8a291851278ca260ebd18c3f70a34eeb4478c62fd",
-                            "size": 29351
+                            "sha256": "9ce871f63ec0d1c3a176f10b992aeedda66a6b7f122fec1eabe07f9eb405c2fc",
+                            "size": 36365
                         },
                         {
                             "path": "agent/src/Init/InitProtocol.php",
@@ -5232,8 +5232,8 @@
                         },
                         {
                             "path": "cli/src/Onboarding/Init.php",
-                            "sha256": "a952e5abb4ad94fc762d949cbd8e5e2516f25d52845156e927d210a35b14d690",
-                            "size": 24086
+                            "sha256": "23002ba31a9809024a3cc1f5eeb01b27e5377eaea7022a25f69160f79d924d77",
+                            "size": 24521
                         },
                         {
                             "path": "cli/src/Onboarding/Pending.php",
@@ -5552,10 +5552,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-17T20:47:41Z",
+                "created_at": "2026-08-17T21:24:14Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "2ba966164a66bed307be9fb8357f16468542f2fd",
+                "git_revision": "70ff3ab5de1b67e10750a5065a1f9c0b57f51755",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -5668,13 +5668,13 @@
                             "sha256": "3754ca620133d2f2f15ceda854975f9169e771a6d6fefd890d30022338c0551b",
                             "size": 144
                         },
-                        "evidence_sha256": "ae3228b443e14a77692066c8c99b758c57344bef60a913056ad028a845f28205",
+                        "evidence_sha256": "8769445ef51792bf465c3a6b5e307843584290ace581ee1f70bba4383666fc0a",
                         "exit_code": 0,
                         "id": "conformance-core",
                         "log": {
                             "path": "logs/conformance-core.txt",
-                            "sha256": "a1616dcdbc5294c5fa54fcedd7d1da288fa84c883feae2448e57387d5ebe8cd0",
-                            "size": 35056
+                            "sha256": "e4f78d27521789c866b99dc93ee334b54335234ce5f6a782d764763bc2a64482",
+                            "size": 35377
                         },
                         "result": {
                             "path": "results/conformance-core.json",
@@ -5689,12 +5689,12 @@
                             "sha256": "2afafc0541cd3b444c1a4d6971b4d27ae2dc161449e9b114110e16d9844d6d31",
                             "size": 181
                         },
-                        "evidence_sha256": "bf8a987cf6643730d0f919a594035ac86557e98dfb5fd42708de09fefdba69e6",
+                        "evidence_sha256": "8b0580ae34b1dd1c61b9a9a25e98518e5d7fc9b23fb09fb4cebcc7a34c177696",
                         "exit_code": 0,
                         "id": "multisite-refusal",
                         "log": {
                             "path": "logs/multisite-refusal.txt",
-                            "sha256": "d654d82209a63f108389befd17fcdfca2e1b1a967c9c8a0ecbb73d6c7fbea14b",
+                            "sha256": "91fdd9a65c865b16be9367e1123776e0fd2af22e916f50d2b23fdeb8ddf48eba",
                             "size": 9234
                         },
                         "result": {
@@ -5707,7 +5707,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/core/5bfe10a13b5babb5c30c13a4c26cf4a23059f551385cbf59384909702ee21cf3"
+            "path": "scoped/manifests/core/f608bb87c791c18d41b033f5020648e2ac4a2ef016f04bc970bde4d7294c1861"
         },
         "manifests.elementor": {
             "bundle": {
@@ -11480,7 +11480,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "0b3e6c61ba3cfaf0f884dec4f4509f974502ae97c8c5346819b2e3e23e6fafc4",
+                "bundle_digest": "65e9d1af5409e524efee734ebf474d9b8cbd52bfa28327cafdc14e832924ba68",
                 "claims": {
                     "manifests.woocommerce": [
                         "conformance-woocommerce",
@@ -11488,7 +11488,7 @@
                     ]
                 },
                 "closure": {
-                    "digest": "68cf9e63be6428847210de3cfe38ee1d7306b9626ae0fa1402d9225f4a640b74",
+                    "digest": "dd532fbb0e60af47c3d5a3a6b16bf4cd8e499b09c752d4ec8056193e77da5f72",
                     "inputs": [
                         {
                             "path": "Makefile",
@@ -12027,8 +12027,8 @@
                         },
                         {
                             "path": "agent/src/Init/InitPlanner.php",
-                            "sha256": "d2149b0c560750b1d50f3cd8a291851278ca260ebd18c3f70a34eeb4478c62fd",
-                            "size": 29351
+                            "sha256": "9ce871f63ec0d1c3a176f10b992aeedda66a6b7f122fec1eabe07f9eb405c2fc",
+                            "size": 36365
                         },
                         {
                             "path": "agent/src/Init/InitProtocol.php",
@@ -12882,8 +12882,8 @@
                         },
                         {
                             "path": "cli/src/Onboarding/Init.php",
-                            "sha256": "a952e5abb4ad94fc762d949cbd8e5e2516f25d52845156e927d210a35b14d690",
-                            "size": 24086
+                            "sha256": "23002ba31a9809024a3cc1f5eeb01b27e5377eaea7022a25f69160f79d924d77",
+                            "size": 24521
                         },
                         {
                             "path": "cli/src/Onboarding/Pending.php",
@@ -13212,10 +13212,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-17T20:51:09Z",
+                "created_at": "2026-08-17T21:27:09Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "2ba966164a66bed307be9fb8357f16468542f2fd",
+                "git_revision": "70ff3ab5de1b67e10750a5065a1f9c0b57f51755",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -13357,12 +13357,12 @@
                             "sha256": "7d6d73ec8d2572c84ef732ae011b831e52a1beff1c0863755bba42129844da8b",
                             "size": 151
                         },
-                        "evidence_sha256": "c48c5ea3a17fb25729b089ccd8310996afd11aad2f38d63190ea0cbe509c4f74",
+                        "evidence_sha256": "01f4dc743393d3593448f773cd8232982afd3c7c21af662e6f40a899f7d47548",
                         "exit_code": 0,
                         "id": "conformance-woocommerce",
                         "log": {
                             "path": "logs/conformance-woocommerce.txt",
-                            "sha256": "a33e90d6a1206a8c646fdf227d0e12eb934fa05d2657e9b6a720a137852317de",
+                            "sha256": "546d36405b45a04558ed77b1f50d6f681dcfc1893b2eb802b520fed52ee30d91",
                             "size": 24555
                         },
                         "result": {
@@ -13378,12 +13378,12 @@
                             "sha256": "62bcd846fdab049f65fd512ec6e790a17a84fe3cc34f38c91ab28f3a3852acce",
                             "size": 152
                         },
-                        "evidence_sha256": "09bc4828fe44e41f84522c1971896ea29871b7192cb129b6b101316e006cbfa8",
+                        "evidence_sha256": "21035f387c22163ab25cf20fd7fc7e96af09a4fd6fe5abd2618cd84499a3901f",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "ad88da7342b3ec4c10c6dbd3263e62cbe225612762280cf2cf02076ddec2752c",
+                            "sha256": "65cdee2318ce9a83f9fb74e275cc4eee590ff923b9242f128d7aebe330ba3c73",
                             "size": 26015
                         },
                         "result": {
@@ -13396,7 +13396,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/woocommerce/0b3e6c61ba3cfaf0f884dec4f4509f974502ae97c8c5346819b2e3e23e6fafc4"
+            "path": "scoped/manifests/woocommerce/65e9d1af5409e524efee734ebf474d9b8cbd52bfa28327cafdc14e832924ba68"
         },
         "manifests.yoast": {
             "bundle": {
