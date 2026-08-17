@@ -81,7 +81,7 @@
 #   plugin                                              that surface's `kind`       WALK
 #   install adapter                                     gap action, plugin + tables §3.6
 #   certify adapter                                     gap action, uncertified (S4) §3.6
-#   option-prefix:wpforms_                              assess unknown sample       §4
+#   option-prefix:wpforms                               assess unknown sample       §4 (product's family token, no trailing _)
 #   table:<logical_name>                                assess surface id           §3.7
 #   logical_name                                        coverage undeclared row key §3.7
 #   N undeclared table(s)                               assess human unknown block  §3.6
@@ -163,6 +163,12 @@ WPFORMS_SLUG=wpforms-lite
 WPFORMS_BASENAME='wpforms-lite/wpforms.php'
 WPFORMS_CPT=wpforms
 WPFORMS_OPTION_PREFIX=wpforms_
+# The `option-prefix:` token assess prints is Coverage::guess_prefix()'s
+# grouping token — the first one or two `_`-joined words WITHOUT the trailing
+# underscore (`wpforms`, `wpforms_transient`, `wpforms_version`), so the
+# operator reads a family name, not a glob. Run 7 asserted `wpforms_` and the
+# product printed `wpforms`; the product's spelling is the operator's.
+WPFORMS_OPTION_FAMILY=wpforms
 # One WPForms table the walk writes to itself after the checkpoint. Chosen
 # because it is the least load-bearing of the plugin's own tables (a task
 # scheduler's meta), so writing a row into it cannot change what any other
@@ -337,7 +343,7 @@ walk_assert_assess_document() {
 # walk_assert_unknown_names <json-file> <name>... — every named entry is in
 # the unknown block's sample.
 #
-# §4's S1 row requires `option-prefix:wpforms_` by name. The sample is bounded
+# §4's S1 row requires the plugin's option family by name (`option-prefix:wpforms`). The sample is bounded
 # (ContractProposal::MAX_NAMES_SAMPLE) while the counts beside it are exact,
 # so this asks about names the walk knows are few, never about a total.
 walk_assert_unknown_names() {
@@ -776,13 +782,13 @@ self_check() {
 
   # ---- unknown block
   if walk_assert_unknown_names "$FIXTURES/assess-report.s1.json" \
-      "option-prefix:$WPFORMS_OPTION_PREFIX" "table:$WPFORMS_TABLE" 2>/dev/null; then
+      "option-prefix:$WPFORMS_OPTION_FAMILY" "table:$WPFORMS_TABLE" 2>/dev/null; then
     pass "the unknown block names the invisible option prefix and the undeclared table"
   else
     soft_fail "the unknown-names check rejected a report that names both"
   fi
   if walk_assert_unknown_names "$FIXTURES/assess-report.fail-no-option-prefix.json" \
-      "option-prefix:$WPFORMS_OPTION_PREFIX" 2>/dev/null; then
+      "option-prefix:$WPFORMS_OPTION_FAMILY" 2>/dev/null; then
     soft_fail "the unknown-names check accepted a report that never names the option prefix"
   else
     pass "the unknown-names check catches a missing option prefix"
@@ -2083,8 +2089,8 @@ scenario_s1() {
     jq -e --arg p "table:$WPFORMS_OPTION_PREFIX" '[.surfaces[] | select(.id | startswith($p))] | length >= 1' \
       "$ASSESS_JSON" >/dev/null \
       || fail "$S: §3.7 bug 1 — assess published no table:${WPFORMS_OPTION_PREFIX}* rows"
-    walk_assert_unknown_names "$ASSESS_JSON" "option-prefix:$WPFORMS_OPTION_PREFIX" \
-      || fail "$S: the unknown block does not name option-prefix:$WPFORMS_OPTION_PREFIX"
+    walk_assert_unknown_names "$ASSESS_JSON" "option-prefix:$WPFORMS_OPTION_FAMILY" \
+      || fail "$S: the unknown block does not name option-prefix:$WPFORMS_OPTION_FAMILY"
     [ "$(jq -r '.unknown.invisible_names_count' "$ASSESS_JSON")" -gt 0 ] \
       || fail "$S: assess counted no invisible option names for an unmanaged plugin that writes dozens"
     walk_assert_unknown_table_line "$EVIDENCE/$S/assess-unmanaged.txt" \

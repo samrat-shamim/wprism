@@ -25,7 +25,7 @@ table:wpforms_payments    unclassified  block           Not qualified  Uncertifi
 unknown: 37 option name(s) invisible to every installed adapter
          3 undeclared table(s)
          0 pending classification(s) (duo pending awalk1)
-         - option-prefix:wpforms_
+         - option-prefix:wpforms
          - table:wpforms_logs
          - table:wpforms_payments
          - table:wpforms_tasks_meta

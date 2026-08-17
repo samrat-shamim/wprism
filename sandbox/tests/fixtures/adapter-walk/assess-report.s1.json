@@ -195,7 +195,7 @@
     "unknown": {
         "invisible_names_count": 37,
         "names_sample": [
-            "option-prefix:wpforms_",
+            "option-prefix:wpforms",
             "table:wpforms_logs",
             "table:wpforms_payments",
             "table:wpforms_tasks_meta"
