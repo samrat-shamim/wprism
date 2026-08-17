@@ -1,0 +1,456 @@
+
+[1;36m== boot pair rtfourcert7 (rtfourcert71 :9314 / rtfourcert72 :9315), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    81471ce05815e055d0192fc1cf8955647b4999dd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   81471ce05815e055d0192fc1cf8955647b4999dd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 81471ce05815e055d0192fc1cf8955647b4999dd, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtfourcert7': databases ==[0m
+[1;32mok: wp_rtfourcert71, wp_rtfourcert72 exist[0m
+
+[1;36m== pair 'rtfourcert7': site-repo directories ==[0m
+
+[1;36m== pair 'rtfourcert7': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtfourcert7_wp1 Creating
+ Volume duo-rtfourcert7_wp1 Created
+ Volume duo-rtfourcert7_wp2 Creating
+ Volume duo-rtfourcert7_wp2 Created
+ Container duo-rtfourcert7-wp1-1 Creating
+ Container duo-rtfourcert7-wp2-1 Creating
+ Container duo-rtfourcert7-wp1-1 Created
+ Container duo-rtfourcert7-wp2-1 Created
+ Container duo-rtfourcert7-wp1-1 Starting
+ Container duo-rtfourcert7-wp2-1 Starting
+ Container duo-rtfourcert7-wp1-1 Started
+ Container duo-rtfourcert7-wp2-1 Started
+ Container duo-rtfourcert7-cli2-1 Creating
+ Container duo-rtfourcert7-cli1-1 Creating
+ Container duo-rtfourcert7-cli2-1 Created
+ Container duo-rtfourcert7-cli1-1 Created
+ Container duo-rtfourcert7-cli2-1 Starting
+ Container duo-rtfourcert7-cli1-1 Starting
+ Container duo-rtfourcert7-cli2-1 Started
+ Container duo-rtfourcert7-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtfourcert7': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtfourcert7': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-rtfourcert7-cli1-run-37dd2a399756 Creating
+ Container duo-rtfourcert7-cli1-run-37dd2a399756 Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert7-cli1-run-d0fd950c4a35 Creating
+ Container duo-rtfourcert7-cli1-run-d0fd950c4a35 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert7-cli1-run-b22cd77d9210 Creating
+ Container duo-rtfourcert7-cli1-run-b22cd77d9210 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert7-cli1-run-7527fa663a2b Creating
+ Container duo-rtfourcert7-cli1-run-7527fa663a2b Created
+ Container duo-rtfourcert7-cli1-run-cbf7e78849ae Creating
+ Container duo-rtfourcert7-cli1-run-cbf7e78849ae Created
+ Container duo-rtfourcert7-cli1-run-e28cd250826b Creating
+ Container duo-rtfourcert7-cli1-run-e28cd250826b Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert7-cli1-run-236d3e40bce7 Creating
+ Container duo-rtfourcert7-cli1-run-236d3e40bce7 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9314)
+ Container duo-rtfourcert7-cli2-run-6b8fe92f6772 Creating
+ Container duo-rtfourcert7-cli2-run-6b8fe92f6772 Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert7-cli2-run-f916125104ca Creating
+ Container duo-rtfourcert7-cli2-run-f916125104ca Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert7-cli2-run-ae038b116be0 Creating
+ Container duo-rtfourcert7-cli2-run-ae038b116be0 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert7-cli2-run-27a3cea75aa6 Creating
+ Container duo-rtfourcert7-cli2-run-27a3cea75aa6 Created
+ Container duo-rtfourcert7-cli2-run-9adb4476c06b Creating
+ Container duo-rtfourcert7-cli2-run-9adb4476c06b Created
+ Container duo-rtfourcert7-cli2-run-5fb55371e9b2 Creating
+ Container duo-rtfourcert7-cli2-run-5fb55371e9b2 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert7-cli2-run-f17745b80a34 Creating
+ Container duo-rtfourcert7-cli2-run-f17745b80a34 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9315)
+
+[1;36m== pair 'rtfourcert7' ready ==[0m
+  wp1: http://localhost:9314 (published on host port 9314)
+  wp2: http://localhost:9315 (published on host port 9315)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtfourcert7 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtfourcert7 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtfourcert7 must stay exported, or pass -p duo-rtfourcert7 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: wordpress-seo 28.0 ==[0m
+ Container duo-rtfourcert7-cli1-run-8aa087a8e2c4 Creating
+ Container duo-rtfourcert7-cli1-run-8aa087a8e2c4 Created
+ Container duo-rtfourcert7-cli1-run-9989d371beb6 Creating
+ Container duo-rtfourcert7-cli1-run-9989d371beb6 Created
+ Container duo-rtfourcert7-cli1-run-56396a0d56f9 Creating
+ Container duo-rtfourcert7-cli1-run-56396a0d56f9 Created
+ Container duo-rtfourcert7-cli1-run-73eb55faa014 Creating
+ Container duo-rtfourcert7-cli1-run-73eb55faa014 Created
+ Container duo-rtfourcert7-cli1-run-67427e744081 Creating
+ Container duo-rtfourcert7-cli1-run-67427e744081 Created
+ Container duo-rtfourcert7-cli1-run-19580a5b75d9 Creating
+ Container duo-rtfourcert7-cli1-run-19580a5b75d9 Created
+ Container duo-rtfourcert7-cli2-run-771ec257f9ea Creating
+ Container duo-rtfourcert7-cli2-run-771ec257f9ea Created
+ Container duo-rtfourcert7-cli2-run-8afa5adef3fb Creating
+ Container duo-rtfourcert7-cli2-run-8afa5adef3fb Created
+ Container duo-rtfourcert7-cli2-run-4cb175eb28bf Creating
+ Container duo-rtfourcert7-cli2-run-4cb175eb28bf Created
+ Container duo-rtfourcert7-cli2-run-e6e51efe754c Creating
+ Container duo-rtfourcert7-cli2-run-e6e51efe754c Created
+ Container duo-rtfourcert7-cli2-run-f6daabfe8497 Creating
+ Container duo-rtfourcert7-cli2-run-f6daabfe8497 Created
+ Container duo-rtfourcert7-cli2-run-d32b35632f8d Creating
+ Container duo-rtfourcert7-cli2-run-d32b35632f8d Created
+
+[1;36m== fetch + verify wordpress-seo 28.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtfourcert7-cli1-run-fc8f19e8559e Creating
+ Container duo-rtfourcert7-cli1-run-fc8f19e8559e Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.0 sha256=348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip
+ Container duo-rtfourcert7-cli2-run-a9086e5cbb26 Creating
+ Container duo-rtfourcert7-cli2-run-a9086e5cbb26 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.0 sha256=348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip[0m
+ Container duo-rtfourcert7-cli1-run-ba3a033b99a7 Creating
+ Container duo-rtfourcert7-cli1-run-ba3a033b99a7 Created
+ Container duo-rtfourcert7-cli1-run-6178bbe3c91b Creating
+ Container duo-rtfourcert7-cli1-run-6178bbe3c91b Created
+[1;32mok: side 1: wordpress-seo 28.0 installed from verified artifact, active[0m
+ Container duo-rtfourcert7-cli1-run-813b98b3dcb7 Creating
+ Container duo-rtfourcert7-cli1-run-813b98b3dcb7 Created
+ Container duo-rtfourcert7-cli1-run-49f8d96cd4d8 Creating
+ Container duo-rtfourcert7-cli1-run-49f8d96cd4d8 Created
+ Container duo-rtfourcert7-cli1-run-01a3a3fa77ff Creating
+ Container duo-rtfourcert7-cli1-run-01a3a3fa77ff Created
+ Container duo-rtfourcert7-cli1-run-0e23fe5eed69 Creating
+ Container duo-rtfourcert7-cli1-run-0e23fe5eed69 Created
+Success: Added term.
+ Container duo-rtfourcert7-cli1-run-bf0247a0bcc2 Creating
+ Container duo-rtfourcert7-cli1-run-bf0247a0bcc2 Created
+Success: Added term.
+ Container duo-rtfourcert7-cli1-run-acb631799ec0 Creating
+ Container duo-rtfourcert7-cli1-run-acb631799ec0 Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-rtfourcert7-cli1-run-aa98e3173b71 Creating
+ Container duo-rtfourcert7-cli1-run-aa98e3173b71 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-rtfourcert7-cli1-run-01cf4d52edd2 Creating
+ Container duo-rtfourcert7-cli1-run-01cf4d52edd2 Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-rtfourcert7-cli1-run-d7980ecf6a28 Creating
+ Container duo-rtfourcert7-cli1-run-d7980ecf6a28 Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-rtfourcert7-cli1-run-13827aa21ea6 Creating
+ Container duo-rtfourcert7-cli1-run-13827aa21ea6 Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-rtfourcert7-cli1-run-d8db0124a620 Creating
+ Container duo-rtfourcert7-cli1-run-d8db0124a620 Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-rtfourcert7-cli1-run-cae19bffc8d4 Creating
+ Container duo-rtfourcert7-cli1-run-cae19bffc8d4 Created
+ Container duo-rtfourcert7-cli2-run-ec70728689f1 Creating
+ Container duo-rtfourcert7-cli2-run-ec70728689f1 Created
+ Container duo-rtfourcert7-cli1-run-cad653566e3b Creating
+ Container duo-rtfourcert7-cli1-run-cad653566e3b Created
+ Container duo-rtfourcert7-cli1-run-36167e0d3a18 Creating
+ Container duo-rtfourcert7-cli1-run-36167e0d3a18 Created
+taxonomy meta set for term 2
+ Container duo-rtfourcert7-cli1-run-6e24d6b440d7 Creating
+ Container duo-rtfourcert7-cli1-run-6e24d6b440d7 Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+ Container duo-rtfourcert7-cli1-run-87990a21fa76 Creating
+ Container duo-rtfourcert7-cli1-run-87990a21fa76 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (wordpress-seo 28.0)[0m
+ Container duo-rtfourcert7-cli1-run-34a929a8d416 Creating
+ Container duo-rtfourcert7-cli1-run-34a929a8d416 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtfourcert7-cli2-run-b48a74d4ec63 Creating
+ Container duo-rtfourcert7-cli2-run-b48a74d4ec63 Created
+ Container duo-rtfourcert7-cli2-run-82f5bfb553e8 Creating
+ Container duo-rtfourcert7-cli2-run-82f5bfb553e8 Created
+ Container duo-rtfourcert7-cli2-run-95aa1bfc2e25 Creating
+ Container duo-rtfourcert7-cli2-run-95aa1bfc2e25 Created
+activated: wordpress-seo/wp-seo.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtfourcert7-cli2-run-19b6f6a9cc56 Creating
+ Container duo-rtfourcert7-cli2-run-19b6f6a9cc56 Created
+Warning: adopted env term 1 as 01a00fd2-1dbd-71b0-b251-73f97d7fc6f5 (terms/category/01a00fd2-1dbd-71b0-b251-73f97d7fc6f5--uncategorized.json)
+Warning: provider capability fired: yoast-index@1.0.0 reindex (1.793s, verified)
+Success: applied 10 entities (canary clean) — plan was: {"create":7,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (wordpress-seo 28.0, canary clean)[0m
+conf2 Yoast API resolution: Conformance Primary|yes|yes|yes|yes
+[1;32mok: conf2 resolves primary-category, per-term OG image, and site-wide logo/default-image refs via Yoast's own runtime APIs, all using conf2's own local ids[0m
+conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees
+[1;32mok: conf2's live front-end rendering carries the authored Yoast SEO title/description with no fatal marker or conf1 host leak[0m
+ Container duo-rtfourcert7-cli2-run-ee28e1123c04 Creating
+ Container duo-rtfourcert7-cli2-run-ee28e1123c04 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at wordpress-seo 28.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: wordpress-seo 28.2 ==[0m
+ Container duo-rtfourcert7-cli1-run-97adfedfb9c6 Creating
+ Container duo-rtfourcert7-cli1-run-97adfedfb9c6 Created
+ Container duo-rtfourcert7-cli1-run-741e4919d876 Creating
+ Container duo-rtfourcert7-cli1-run-741e4919d876 Created
+ Container duo-rtfourcert7-cli1-run-ad2f88d345a8 Creating
+ Container duo-rtfourcert7-cli1-run-ad2f88d345a8 Created
+ Container duo-rtfourcert7-cli1-run-ac29a5546562 Creating
+ Container duo-rtfourcert7-cli1-run-ac29a5546562 Created
+ Container duo-rtfourcert7-cli1-run-0fea9642d20a Creating
+ Container duo-rtfourcert7-cli1-run-0fea9642d20a Created
+ Container duo-rtfourcert7-cli1-run-1efee28b9289 Creating
+ Container duo-rtfourcert7-cli1-run-1efee28b9289 Created
+ Container duo-rtfourcert7-cli2-run-eb0d42f84998 Creating
+ Container duo-rtfourcert7-cli2-run-eb0d42f84998 Created
+ Container duo-rtfourcert7-cli2-run-06a928fd4665 Creating
+ Container duo-rtfourcert7-cli2-run-06a928fd4665 Created
+ Container duo-rtfourcert7-cli2-run-f8d5e01a5886 Creating
+ Container duo-rtfourcert7-cli2-run-f8d5e01a5886 Created
+ Container duo-rtfourcert7-cli2-run-a0ef8dfb63d5 Creating
+ Container duo-rtfourcert7-cli2-run-a0ef8dfb63d5 Created
+ Container duo-rtfourcert7-cli2-run-55c5ca48b89b Creating
+ Container duo-rtfourcert7-cli2-run-55c5ca48b89b Created
+ Container duo-rtfourcert7-cli2-run-8b73d3c4671a Creating
+ Container duo-rtfourcert7-cli2-run-8b73d3c4671a Created
+
+[1;36m== fetch + verify wordpress-seo 28.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtfourcert7-cli1-run-5ee0835a80fa Creating
+ Container duo-rtfourcert7-cli1-run-5ee0835a80fa Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.2 sha256=f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip
+ Container duo-rtfourcert7-cli2-run-b5cb39ee91b8 Creating
+ Container duo-rtfourcert7-cli2-run-b5cb39ee91b8 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.2 sha256=f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip[0m
+ Container duo-rtfourcert7-cli1-run-ac158fc23d47 Creating
+ Container duo-rtfourcert7-cli1-run-ac158fc23d47 Created
+ Container duo-rtfourcert7-cli1-run-833d2b327604 Creating
+ Container duo-rtfourcert7-cli1-run-833d2b327604 Created
+[1;32mok: side 1: wordpress-seo 28.2 installed from verified artifact, active[0m
+ Container duo-rtfourcert7-cli1-run-5caf1cfa7ea0 Creating
+ Container duo-rtfourcert7-cli1-run-5caf1cfa7ea0 Created
+ Container duo-rtfourcert7-cli1-run-b8caa7b629b5 Creating
+ Container duo-rtfourcert7-cli1-run-b8caa7b629b5 Created
+ Container duo-rtfourcert7-cli1-run-45e24916d509 Creating
+ Container duo-rtfourcert7-cli1-run-45e24916d509 Created
+ Container duo-rtfourcert7-cli1-run-529fbb0ad1a2 Creating
+ Container duo-rtfourcert7-cli1-run-529fbb0ad1a2 Created
+Success: Added term.
+ Container duo-rtfourcert7-cli1-run-fa0514eae61c Creating
+ Container duo-rtfourcert7-cli1-run-fa0514eae61c Created
+Success: Added term.
+ Container duo-rtfourcert7-cli1-run-59da7adf6c31 Creating
+ Container duo-rtfourcert7-cli1-run-59da7adf6c31 Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-rtfourcert7-cli1-run-503cb5062aa4 Creating
+ Container duo-rtfourcert7-cli1-run-503cb5062aa4 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-rtfourcert7-cli1-run-7ebe7d40fefa Creating
+ Container duo-rtfourcert7-cli1-run-7ebe7d40fefa Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-rtfourcert7-cli1-run-3d07773060ff Creating
+ Container duo-rtfourcert7-cli1-run-3d07773060ff Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-rtfourcert7-cli1-run-fee9259ce1c3 Creating
+ Container duo-rtfourcert7-cli1-run-fee9259ce1c3 Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-rtfourcert7-cli1-run-efe725829357 Creating
+ Container duo-rtfourcert7-cli1-run-efe725829357 Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-rtfourcert7-cli1-run-2cc73d97a691 Creating
+ Container duo-rtfourcert7-cli1-run-2cc73d97a691 Created
+ Container duo-rtfourcert7-cli2-run-06fcd6d2ba3a Creating
+ Container duo-rtfourcert7-cli2-run-06fcd6d2ba3a Created
+ Container duo-rtfourcert7-cli1-run-01f8b6422211 Creating
+ Container duo-rtfourcert7-cli1-run-01f8b6422211 Created
+ Container duo-rtfourcert7-cli1-run-667073812d6b Creating
+ Container duo-rtfourcert7-cli1-run-667073812d6b Created
+taxonomy meta set for term 2
+ Container duo-rtfourcert7-cli1-run-3ac9e30f28b2 Creating
+ Container duo-rtfourcert7-cli1-run-3ac9e30f28b2 Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+ Container duo-rtfourcert7-cli1-run-3b1480e6de15 Creating
+ Container duo-rtfourcert7-cli1-run-3b1480e6de15 Created
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: captured on side 1 (wordpress-seo 28.2)[0m
+ Container duo-rtfourcert7-cli1-run-a502f9a1cc74 Creating
+ Container duo-rtfourcert7-cli1-run-a502f9a1cc74 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtfourcert7-cli2-run-d3f5343ad322 Creating
+ Container duo-rtfourcert7-cli2-run-d3f5343ad322 Created
+ Container duo-rtfourcert7-cli2-run-a54411765079 Creating
+ Container duo-rtfourcert7-cli2-run-a54411765079 Created
+ Container duo-rtfourcert7-cli2-run-15d42155c35f Creating
+ Container duo-rtfourcert7-cli2-run-15d42155c35f Created
+activated: wordpress-seo/wp-seo.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtfourcert7-cli2-run-ab4cfa314dac Creating
+ Container duo-rtfourcert7-cli2-run-ab4cfa314dac Created
+Warning: adopted env term 1 as 01a00fd5-dd36-7167-966f-cb90ca48fe21 (terms/category/01a00fd5-dd36-7167-966f-cb90ca48fe21--uncategorized.json)
+Warning: provider capability fired: yoast-index@1.0.0 reindex (0.58s, verified)
+Success: applied 10 entities (canary clean) — plan was: {"create":7,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":4,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (wordpress-seo 28.2, canary clean)[0m
+conf2 Yoast API resolution: Conformance Primary|yes|yes|yes|yes
+[1;32mok: conf2 resolves primary-category, per-term OG image, and site-wide logo/default-image refs via Yoast's own runtime APIs, all using conf2's own local ids[0m
+conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees
+[1;32mok: conf2's live front-end rendering carries the authored Yoast SEO title/description with no fatal marker or conf1 host leak[0m
+ Container duo-rtfourcert7-cli2-run-f7fc25de2f27 Creating
+ Container duo-rtfourcert7-cli2-run-f7fc25de2f27 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at wordpress-seo 28.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: wordpress-seo 27.9 (real wp.org release, closest stable below manifests/yoast.json's min 28.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-rtfourcert7-cli1-run-77a4a86a4292 Creating
+ Container duo-rtfourcert7-cli1-run-77a4a86a4292 Created
+ Container duo-rtfourcert7-cli1-run-12ee2c3c9639 Creating
+ Container duo-rtfourcert7-cli1-run-12ee2c3c9639 Created
+ Container duo-rtfourcert7-cli1-run-e0b347a15c0d Creating
+ Container duo-rtfourcert7-cli1-run-e0b347a15c0d Created
+ Container duo-rtfourcert7-cli1-run-ae8c288c4c54 Creating
+ Container duo-rtfourcert7-cli1-run-ae8c288c4c54 Created
+ Container duo-rtfourcert7-cli1-run-6be8c080a8dc Creating
+ Container duo-rtfourcert7-cli1-run-6be8c080a8dc Created
+ Container duo-rtfourcert7-cli1-run-6c33c00498ef Creating
+ Container duo-rtfourcert7-cli1-run-6c33c00498ef Created
+ Container duo-rtfourcert7-cli1-run-6689ba3b10c7 Creating
+ Container duo-rtfourcert7-cli1-run-6689ba3b10c7 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.0 sha256=348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.0-348ac1e90fc5a1e50b716757728e2d6300918b3c8a0795d84e264f23cbf3776f.zip
+ Container duo-rtfourcert7-cli1-run-b1dc76b9b121 Creating
+ Container duo-rtfourcert7-cli1-run-b1dc76b9b121 Created
+ Container duo-rtfourcert7-cli1-run-0a8ae2b04507 Creating
+ Container duo-rtfourcert7-cli1-run-0a8ae2b04507 Created
+ Container duo-rtfourcert7-cli1-run-d8ac8cdf5a9d Creating
+ Container duo-rtfourcert7-cli1-run-d8ac8cdf5a9d Created
+ Container duo-rtfourcert7-cli1-run-4d37573ae642 Creating
+ Container duo-rtfourcert7-cli1-run-4d37573ae642 Created
+ Container duo-rtfourcert7-cli1-run-93e60fb4a64e Creating
+ Container duo-rtfourcert7-cli1-run-93e60fb4a64e Created
+ Container duo-rtfourcert7-cli1-run-f5a1f7c94dae Creating
+ Container duo-rtfourcert7-cli1-run-f5a1f7c94dae Created
+Success: Added term.
+ Container duo-rtfourcert7-cli1-run-2456dd48f196 Creating
+ Container duo-rtfourcert7-cli1-run-2456dd48f196 Created
+Success: Added term.
+ Container duo-rtfourcert7-cli1-run-c1fc7576d563 Creating
+ Container duo-rtfourcert7-cli1-run-c1fc7576d563 Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-rtfourcert7-cli1-run-81e57c0608c8 Creating
+ Container duo-rtfourcert7-cli1-run-81e57c0608c8 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-rtfourcert7-cli1-run-882b52b5fb81 Creating
+ Container duo-rtfourcert7-cli1-run-882b52b5fb81 Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-rtfourcert7-cli1-run-cd7e93622af5 Creating
+ Container duo-rtfourcert7-cli1-run-cd7e93622af5 Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-rtfourcert7-cli1-run-da373562c995 Creating
+ Container duo-rtfourcert7-cli1-run-da373562c995 Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-rtfourcert7-cli1-run-3b297ed6e145 Creating
+ Container duo-rtfourcert7-cli1-run-3b297ed6e145 Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-rtfourcert7-cli1-run-95a9169f712e Creating
+ Container duo-rtfourcert7-cli1-run-95a9169f712e Created
+ Container duo-rtfourcert7-cli2-run-1d0461c6bf5e Creating
+ Container duo-rtfourcert7-cli2-run-1d0461c6bf5e Created
+ Container duo-rtfourcert7-cli1-run-a473d7fd903e Creating
+ Container duo-rtfourcert7-cli1-run-a473d7fd903e Created
+ Container duo-rtfourcert7-cli1-run-f9d010e4bd3c Creating
+ Container duo-rtfourcert7-cli1-run-f9d010e4bd3c Created
+taxonomy meta set for term 2
+ Container duo-rtfourcert7-cli1-run-dd39788a18cd Creating
+ Container duo-rtfourcert7-cli1-run-dd39788a18cd Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+ Container duo-rtfourcert7-cli1-run-9b72b17fbc96 Creating
+ Container duo-rtfourcert7-cli1-run-9b72b17fbc96 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+ Container duo-rtfourcert7-cli1-run-7c944415cefc Creating
+ Container duo-rtfourcert7-cli1-run-7c944415cefc Created
+ Container duo-rtfourcert7-cli1-run-166b37520fa0 Creating
+ Container duo-rtfourcert7-cli1-run-166b37520fa0 Created
+ Container duo-rtfourcert7-cli1-run-8bb8851f1bb5 Creating
+ Container duo-rtfourcert7-cli1-run-8bb8851f1bb5 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=27.9 sha256=eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-27.9-eaca8321b8816da3541427b0b6774a5266a0f4ba8f9503f01ae056c0d8282052.zip
+ Container duo-rtfourcert7-cli1-run-fc280cc08ab2 Creating
+ Container duo-rtfourcert7-cli1-run-fc280cc08ab2 Created
+ Container duo-rtfourcert7-cli1-run-db819e640f5d Creating
+ Container duo-rtfourcert7-cli1-run-db819e640f5d Created
+ Container duo-rtfourcert7-cli1-run-5739f70dca2a Creating
+ Container duo-rtfourcert7-cli1-run-5739f70dca2a Created
+Error: duo: deploy refused — code_mismatch:
+
+  - wordpress-seo/wp-seo.php 27.9 is active in this environment, outside the 'yoast' manifest's declared version_range (>=28.0 <29.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: wordpress-seo 27.9 (real, installed, closest stable below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'rtfourcert7': destroy ==[0m
+ Container duo-rtfourcert7-wp2-1 Stopping
+ Container duo-rtfourcert7-cli2-1 Stopping
+ Container duo-rtfourcert7-cli1-1 Stopping
+ Container duo-rtfourcert7-wp1-1 Stopping
+ Container duo-rtfourcert7-cli2-1 Stopped
+ Container duo-rtfourcert7-cli2-1 Removing
+ Container duo-rtfourcert7-cli1-1 Stopped
+ Container duo-rtfourcert7-cli1-1 Removing
+ Container duo-rtfourcert7-cli1-1 Removed
+ Container duo-rtfourcert7-cli2-1 Removed
+ Container duo-rtfourcert7-wp2-1 Stopped
+ Container duo-rtfourcert7-wp2-1 Removing
+ Container duo-rtfourcert7-wp2-1 Removed
+ Container duo-rtfourcert7-wp1-1 Stopped
+ Container duo-rtfourcert7-wp1-1 Removing
+ Container duo-rtfourcert7-wp1-1 Removed
+ Volume duo-rtfourcert7_wp1 Removing
+ Volume duo-rtfourcert7_wp2 Removing
+ Volume duo-rtfourcert7_wp2 Removed
+ Volume duo-rtfourcert7_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_rtfourcert71/wp_rtfourcert72 dropped[0m
+  siterepo/rtfourcert7{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed rtfourcert7 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

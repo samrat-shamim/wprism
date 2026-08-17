@@ -1,0 +1,430 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    81471ce05815e055d0192fc1cf8955647b4999dd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   81471ce05815e055d0192fc1cf8955647b4999dd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 81471ce05815e055d0192fc1cf8955647b4999dd, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rtfourcert5': reset ==[0m
+[1;32mok: wp_rtfourcert51/wp_rtfourcert52 dropped + recreated empty; siterepo/rtfourcert5{1,2} cleared in place and origin-rtfourcert5.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rtfourcert5{1,2}, origin-rtfourcert5.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rtfourcert5 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rtfourcert5{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9310) / conf2 (:9311), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    81471ce05815e055d0192fc1cf8955647b4999dd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   81471ce05815e055d0192fc1cf8955647b4999dd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 81471ce05815e055d0192fc1cf8955647b4999dd, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtfourcert5': databases ==[0m
+[1;32mok: wp_rtfourcert51, wp_rtfourcert52 exist[0m
+
+[1;36m== pair 'rtfourcert5': site-repo directories ==[0m
+
+[1;36m== pair 'rtfourcert5': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtfourcert5_wp1 Creating
+ Volume duo-rtfourcert5_wp1 Created
+ Volume duo-rtfourcert5_wp2 Creating
+ Volume duo-rtfourcert5_wp2 Created
+ Container duo-rtfourcert5-wp2-1 Creating
+ Container duo-rtfourcert5-wp1-1 Creating
+ Container duo-rtfourcert5-wp2-1 Created
+ Container duo-rtfourcert5-wp1-1 Created
+ Container duo-rtfourcert5-wp1-1 Starting
+ Container duo-rtfourcert5-wp2-1 Starting
+ Container duo-rtfourcert5-wp1-1 Started
+ Container duo-rtfourcert5-wp2-1 Started
+ Container duo-rtfourcert5-cli1-1 Creating
+ Container duo-rtfourcert5-cli2-1 Creating
+ Container duo-rtfourcert5-cli2-1 Created
+ Container duo-rtfourcert5-cli1-1 Created
+ Container duo-rtfourcert5-cli2-1 Starting
+ Container duo-rtfourcert5-cli1-1 Starting
+ Container duo-rtfourcert5-cli1-1 Started
+ Container duo-rtfourcert5-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtfourcert5': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtfourcert5': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rtfourcert51.needs-install present — reset emptied wp_rtfourcert51, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtfourcert5-cli1-run-f60bcc4c7a2b Creating
+ Container duo-rtfourcert5-cli1-run-f60bcc4c7a2b Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert5-cli1-run-8779bca17956 Creating
+ Container duo-rtfourcert5-cli1-run-8779bca17956 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert5-cli1-run-2611338dcd51 Creating
+ Container duo-rtfourcert5-cli1-run-2611338dcd51 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert5-cli1-run-92359130d019 Creating
+ Container duo-rtfourcert5-cli1-run-92359130d019 Created
+ Container duo-rtfourcert5-cli1-run-cf45088ba863 Creating
+ Container duo-rtfourcert5-cli1-run-cf45088ba863 Created
+ Container duo-rtfourcert5-cli1-run-9b9a16c544f0 Creating
+ Container duo-rtfourcert5-cli1-run-9b9a16c544f0 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert5-cli1-run-95ebc8c19ee0 Creating
+ Container duo-rtfourcert5-cli1-run-95ebc8c19ee0 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9310)
+  side 2: siterepo/.rtfourcert52.needs-install present — reset emptied wp_rtfourcert52, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtfourcert5-cli2-run-b4da937124be Creating
+ Container duo-rtfourcert5-cli2-run-b4da937124be Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert5-cli2-run-9b9665e6bf79 Creating
+ Container duo-rtfourcert5-cli2-run-9b9665e6bf79 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert5-cli2-run-6c3e052170ca Creating
+ Container duo-rtfourcert5-cli2-run-6c3e052170ca Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert5-cli2-run-5020993b827d Creating
+ Container duo-rtfourcert5-cli2-run-5020993b827d Created
+ Container duo-rtfourcert5-cli2-run-fc187d5a3f16 Creating
+ Container duo-rtfourcert5-cli2-run-fc187d5a3f16 Created
+ Container duo-rtfourcert5-cli2-run-bf0e0bdfa7ae Creating
+ Container duo-rtfourcert5-cli2-run-bf0e0bdfa7ae Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert5-cli2-run-dd54e9b7e6ff Creating
+ Container duo-rtfourcert5-cli2-run-dd54e9b7e6ff Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9311)
+
+[1;36m== pair 'rtfourcert5' ready ==[0m
+  wp1: http://localhost:9310 (published on host port 9310)
+  wp2: http://localhost:9311 (published on host port 9311)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtfourcert5 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtfourcert5 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtfourcert5 must stay exported, or pass -p duo-rtfourcert5 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rtfourcert5-cli1-run-ad931dafea0a Creating
+ Container duo-rtfourcert5-cli1-run-ad931dafea0a Created
+Success: Updated 'blogname' option.
+ Container duo-rtfourcert5-cli1-run-2c0ea17fd006 Creating
+ Container duo-rtfourcert5-cli1-run-2c0ea17fd006 Created
+Success: The site at 'http://localhost:9310' was emptied.
+ Container duo-rtfourcert5-cli1-run-108ed9b49792 Creating
+ Container duo-rtfourcert5-cli1-run-108ed9b49792 Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+ Container duo-rtfourcert5-cli1-run-55980cdda32e Creating
+ Container duo-rtfourcert5-cli1-run-55980cdda32e Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rtfourcert5-cli1-run-db7c5d319ae0 Creating
+ Container duo-rtfourcert5-cli1-run-db7c5d319ae0 Created
+Plugin 'polylang' activated.
+Success: Activated 1 of 1 plugins.
+ Container duo-rtfourcert5-cli1-run-8755cd4ced44 Creating
+ Container duo-rtfourcert5-cli1-run-8755cd4ced44 Created
+ Container duo-rtfourcert5-cli1-run-f0f621067b0a Creating
+ Container duo-rtfourcert5-cli1-run-f0f621067b0a Created
+env conf1 installed, role=author (polylang: 1 pinned plugins, 0 pinned themes)
+ Container duo-rtfourcert5-cli2-run-e1385957c715 Creating
+ Container duo-rtfourcert5-cli2-run-e1385957c715 Created
+Success: Updated 'blogname' option.
+ Container duo-rtfourcert5-cli2-run-086131892803 Creating
+ Container duo-rtfourcert5-cli2-run-086131892803 Created
+Success: The site at 'http://localhost:9311' was emptied.
+ Container duo-rtfourcert5-cli2-run-23f34dca04f7 Creating
+ Container duo-rtfourcert5-cli2-run-23f34dca04f7 Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+ Container duo-rtfourcert5-cli2-run-dbb0174ffcf9 Creating
+ Container duo-rtfourcert5-cli2-run-dbb0174ffcf9 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rtfourcert5-cli2-run-f6778d38da9b Creating
+ Container duo-rtfourcert5-cli2-run-f6778d38da9b Created
+ Container duo-rtfourcert5-cli2-run-945c4c7de6c8 Creating
+ Container duo-rtfourcert5-cli2-run-945c4c7de6c8 Created
+env conf2 installed, role=target (polylang: 1 pinned plugins, 0 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core","polylang"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/polylang.sh) ==[0m
+seeding two languages
+ Container duo-rtfourcert5-cli1-run-eee5329ea48d Creating
+ Container duo-rtfourcert5-cli1-run-eee5329ea48d Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-rtfourcert5-cli1-run-0c60f58245af Creating
+ Container duo-rtfourcert5-cli1-run-0c60f58245af Created
+ Container duo-rtfourcert5-cli1-run-0548b9f80f3d Creating
+ Container duo-rtfourcert5-cli1-run-0548b9f80f3d Created
+ Container duo-rtfourcert5-cli1-run-c7cc2a55ae12 Creating
+ Container duo-rtfourcert5-cli1-run-c7cc2a55ae12 Created
+ Container duo-rtfourcert5-cli1-run-7df32e9fa0c0 Creating
+ Container duo-rtfourcert5-cli1-run-7df32e9fa0c0 Created
+ Container duo-rtfourcert5-cli1-run-1edd1c76e97f Creating
+ Container duo-rtfourcert5-cli1-run-1edd1c76e97f Created
+ Container duo-rtfourcert5-cli1-run-c90c7aed0be3 Creating
+ Container duo-rtfourcert5-cli1-run-c90c7aed0be3 Created
+ Container duo-rtfourcert5-cli1-run-43980fea12d7 Creating
+ Container duo-rtfourcert5-cli1-run-43980fea12d7 Created
+ Container duo-rtfourcert5-cli1-run-527d18119f00 Creating
+ Container duo-rtfourcert5-cli1-run-527d18119f00 Created
+ Container duo-rtfourcert5-cli1-run-642269e66cc7 Creating
+ Container duo-rtfourcert5-cli1-run-642269e66cc7 Created
+ Container duo-rtfourcert5-cli1-run-58049d327dea Creating
+ Container duo-rtfourcert5-cli1-run-58049d327dea Created
+ Container duo-rtfourcert5-cli1-run-eb5016410758 Creating
+ Container duo-rtfourcert5-cli1-run-eb5016410758 Created
+ Container duo-rtfourcert5-cli1-run-3d6555570506 Creating
+ Container duo-rtfourcert5-cli1-run-3d6555570506 Created
+ Container duo-rtfourcert5-cli1-run-66a413cb7f18 Creating
+ Container duo-rtfourcert5-cli1-run-66a413cb7f18 Created
+ Container duo-rtfourcert5-cli1-run-fc7547ed5b28 Creating
+ Container duo-rtfourcert5-cli1-run-fc7547ed5b28 Created
+ Container duo-rtfourcert5-cli1-run-6abd5814cefe Creating
+ Container duo-rtfourcert5-cli1-run-6abd5814cefe Created
+ Container duo-rtfourcert5-cli1-run-62641d7759cb Creating
+ Container duo-rtfourcert5-cli1-run-62641d7759cb Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-rtfourcert5-cli1-run-79d5c4c4608a Creating
+ Container duo-rtfourcert5-cli1-run-79d5c4c4608a Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-rtfourcert5-cli1-run-6865c67a88cb Creating
+ Container duo-rtfourcert5-cli1-run-6865c67a88cb Created
+ Container duo-rtfourcert5-cli1-run-fc07a6c56ca1 Creating
+ Container duo-rtfourcert5-cli1-run-fc07a6c56ca1 Created
+ Container duo-rtfourcert5-cli1-run-d89a52ba0e5f Creating
+ Container duo-rtfourcert5-cli1-run-d89a52ba0e5f Created
+tagged Container duo-rtfourcert5-cli1-run-61bf73e358f4 Creating
+ Container duo-rtfourcert5-cli1-run-61bf73e358f4 Created
+ Container duo-rtfourcert5-cli1-run-12969e714015 Creating
+ Container duo-rtfourcert5-cli1-run-12969e714015 Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rtfourcert5-cli1-run-bc66244026c9 Creating
+ Container duo-rtfourcert5-cli1-run-bc66244026c9 Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rtfourcert5-cli1-run-ef5b1a2378dd Creating
+ Container duo-rtfourcert5-cli1-run-ef5b1a2378dd Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rtfourcert5-cli1-run-22db8ae19d3c Creating
+ Container duo-rtfourcert5-cli1-run-22db8ae19d3c Created
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rtfourcert5-cli2-run-482f82633598 Creating
+ Container duo-rtfourcert5-cli2-run-482f82633598 Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "7c3e3dc9a3fb0eebbba1a0c83ea6e89b6a7e31ad834399aa2bb03b2ce233b35d",
+    "revision": "767568c60f96fe9634aa4e737cf38538ac507e26aba68766184bea49a80a36f2",
+    "manifests": "86c7ef45c037b3b67cf319838cd74e7f0e8e622ad3f36ebf45319ffc61bbf7a2"
+  },
+  "activated": [
+    "polylang/polylang.php"
+  ],
+  "deactivated": [],
+  "theme_switched": null,
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "plugin",
+      "plugin": "polylang/polylang.php",
+      "message": "active_plugins in state/options/core.json declares 'polylang/polylang.php', and its code is installed, but it is not active in this environment. Run 'duo deploy <env>' before apply so activation hooks and schema migrations complete first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-00a2e23358959b9525c5a61462184ffc",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rtfourcert5-cli2-run-0dbcecc388f7 Creating
+ Container duo-rtfourcert5-cli2-run-0dbcecc388f7 Created
+ Container duo-rtfourcert5-cli2-run-2e01cabfa734 Creating
+ Container duo-rtfourcert5-cli2-run-2e01cabfa734 Created
+ Container duo-rtfourcert5-cli2-run-a1c14ca0faa7 Creating
+ Container duo-rtfourcert5-cli2-run-a1c14ca0faa7 Created
+[1;32mok: conf2 active plugins (polylang) and theme (template=twentytwentyone, stylesheet=twentytwentyone) match canonical — deploy alone did this[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rtfourcert5-cli2-run-faf5e8482768 Creating
+ Container duo-rtfourcert5-cli2-run-faf5e8482768 Created
+{
+  "artifact": {
+    "hash": "7c3e3dc9a3fb0eebbba1a0c83ea6e89b6a7e31ad834399aa2bb03b2ce233b35d",
+    "revision": "767568c60f96fe9634aa4e737cf38538ac507e26aba68766184bea49a80a36f2",
+    "manifests": "86c7ef45c037b3b67cf319838cd74e7f0e8e622ad3f36ebf45319ffc61bbf7a2"
+  },
+  "plan": {
+    "create": 13,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 1,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 0,
+    "effects_inventory": 7,
+    "adapter_dispositions": 2,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 16,
+  "drift": [],
+  "warnings": [
+    "reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs",
+    "reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs",
+    "reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs",
+    "reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs",
+    "adopted env term 1 as 01a00fcd-1501-7fc4-85a1-02af5e6815e6 (terms/category/01a00fcd-1501-7fc4-85a1-02af5e6815e6--uncategorized.json)",
+    "provider capability fired: polylang-nav-menus@1.0.0 sync_nav_menu_locations (0s, verified)"
+  ],
+  "actions": [
+    {
+      "manifest": "polylang",
+      "source": "provider:polylang-nav-menus/sync_nav_menu_locations",
+      "kind": "provider",
+      "provider_version": "1.0.0",
+      "duration_seconds": 0,
+      "before": {
+        "stylesheet": "twentytwentyone",
+        "nav_menu_locations": []
+      },
+      "after": {
+        "stylesheet": "twentytwentyone",
+        "nav_menu_locations": [],
+        "outcome": "no-op (no nav_menus for active theme)"
+      },
+      "verified": true
+    }
+  ],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 16,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-de247ed1b0a279fd02d32ac2a9d7c02c",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rtfourcert5-cli2-run-79d33c379431 Creating
+ Container duo-rtfourcert5-cli2-run-79d33c379431 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/polylang.sh) ==[0m
+ Container duo-rtfourcert5-cli2-run-07762d754349 Creating
+ Container duo-rtfourcert5-cli2-run-07762d754349 Created
+ Container duo-rtfourcert5-cli2-run-c8459ce700fe Creating
+ Container duo-rtfourcert5-cli2-run-c8459ce700fe Created
+ Container duo-rtfourcert5-cli2-run-b85d3030b7fe Creating
+ Container duo-rtfourcert5-cli2-run-b85d3030b7fe Created
+ Container duo-rtfourcert5-cli2-run-f6f493a51446 Creating
+ Container duo-rtfourcert5-cli2-run-f6f493a51446 Created
+conf2 local ids: post_en=1 post_fr=2 news=8 actualites=9
+ Container duo-rtfourcert5-cli1-run-86aa7d8367a7 Creating
+ Container duo-rtfourcert5-cli1-run-86aa7d8367a7 Created
+conf1 local id: post_en=6 (vs conf2's 1)
+ok: post_en's conf1 id (6) and conf2 id (1) genuinely differ — the fillers broke the lucky-coincidence conf1/conf2 would otherwise share
+ Container duo-rtfourcert5-cli2-run-86284350620e Creating
+ Container duo-rtfourcert5-cli2-run-86284350620e Created
+pll_get_post_translations(1) = {"en":1,"fr":2}
+ok: pll_get_post_translations() returns the correct pair using conf2-local ids
+ Container duo-rtfourcert5-cli2-run-01d476372b43 Creating
+ Container duo-rtfourcert5-cli2-run-01d476372b43 Created
+pll_get_term_translations(8) = {"en":8,"fr":9}
+ok: pll_get_term_translations() returns the correct pair using conf2-local ids (capability 1 + 2 proof)
+ Container duo-rtfourcert5-cli2-run-98e884247a54 Creating
+ Container duo-rtfourcert5-cli2-run-98e884247a54 Created
+ Container duo-rtfourcert5-cli2-run-189df2002039 Creating
+ Container duo-rtfourcert5-cli2-run-189df2002039 Created
+ Container duo-rtfourcert5-cli2-run-6a2f74ac4410 Creating
+ Container duo-rtfourcert5-cli2-run-6a2f74ac4410 Created
+ok: term_language relationships (capability 1) correct in both directions
+ Container duo-rtfourcert5-cli2-run-ea7d8f416477 Creating
+ Container duo-rtfourcert5-cli2-run-ea7d8f416477 Created
+ok: post_en/post_fr's captured relationships never include a term-object taxonomy (no fabrication, despite Uncategorized/Uncategorized-fr coincidentally sharing their numeric ids)
+ Container duo-rtfourcert5-cli2-run-da3b1e315506 Creating
+ Container duo-rtfourcert5-cli2-run-da3b1e315506 Created
+ Container duo-rtfourcert5-cli2-run-260490838a84 Creating
+ Container duo-rtfourcert5-cli2-run-260490838a84 Created
+ Container duo-rtfourcert5-cli2-run-d8a2b77c63ff Creating
+ Container duo-rtfourcert5-cli2-run-d8a2b77c63ff Created
+ Container duo-rtfourcert5-cli2-run-5a6070856dda Creating
+ Container duo-rtfourcert5-cli2-run-5a6070856dda Created
+post_translations group description: a:2:{s:2:"en";i:1;s:2:"fr";i:2;}
+term_translations group description: a:2:{s:2:"en";i:8;s:2:"fr";i:9;}
+ok: re-serialized descriptions are byte-exact PHP serialize() output with genuine int-typed ids
+ok: conf2 renders post_en's own content, no conf1 host-leak
+polylang conformance checks passed
+
+[1;32m✔ CONFORMANCE PASSED (polylang)[0m

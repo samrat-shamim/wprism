@@ -1,0 +1,409 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    81471ce05815e055d0192fc1cf8955647b4999dd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   81471ce05815e055d0192fc1cf8955647b4999dd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 81471ce05815e055d0192fc1cf8955647b4999dd, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rtfourcert4': reset ==[0m
+[1;32mok: wp_rtfourcert41/wp_rtfourcert42 dropped + recreated empty; siterepo/rtfourcert4{1,2} cleared in place and origin-rtfourcert4.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rtfourcert4{1,2}, origin-rtfourcert4.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rtfourcert4 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rtfourcert4{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9308) / conf2 (:9309), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    81471ce05815e055d0192fc1cf8955647b4999dd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   81471ce05815e055d0192fc1cf8955647b4999dd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 81471ce05815e055d0192fc1cf8955647b4999dd, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtfourcert4': databases ==[0m
+[1;32mok: wp_rtfourcert41, wp_rtfourcert42 exist[0m
+
+[1;36m== pair 'rtfourcert4': site-repo directories ==[0m
+
+[1;36m== pair 'rtfourcert4': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtfourcert4_wp1 Creating
+ Volume duo-rtfourcert4_wp1 Created
+ Volume duo-rtfourcert4_wp2 Creating
+ Volume duo-rtfourcert4_wp2 Created
+ Container duo-rtfourcert4-wp2-1 Creating
+ Container duo-rtfourcert4-wp1-1 Creating
+ Container duo-rtfourcert4-wp1-1 Created
+ Container duo-rtfourcert4-wp2-1 Created
+ Container duo-rtfourcert4-wp2-1 Starting
+ Container duo-rtfourcert4-wp1-1 Starting
+ Container duo-rtfourcert4-wp1-1 Started
+ Container duo-rtfourcert4-wp2-1 Started
+ Container duo-rtfourcert4-cli1-1 Creating
+ Container duo-rtfourcert4-cli2-1 Creating
+ Container duo-rtfourcert4-cli1-1 Created
+ Container duo-rtfourcert4-cli2-1 Created
+ Container duo-rtfourcert4-cli2-1 Starting
+ Container duo-rtfourcert4-cli1-1 Starting
+ Container duo-rtfourcert4-cli1-1 Started
+ Container duo-rtfourcert4-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtfourcert4': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtfourcert4': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rtfourcert41.needs-install present — reset emptied wp_rtfourcert41, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtfourcert4-cli1-run-99aa0a9c9e94 Creating
+ Container duo-rtfourcert4-cli1-run-99aa0a9c9e94 Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert4-cli1-run-3ddb5135ee08 Creating
+ Container duo-rtfourcert4-cli1-run-3ddb5135ee08 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert4-cli1-run-588515a67fa1 Creating
+ Container duo-rtfourcert4-cli1-run-588515a67fa1 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert4-cli1-run-0a756ec2d7c7 Creating
+ Container duo-rtfourcert4-cli1-run-0a756ec2d7c7 Created
+ Container duo-rtfourcert4-cli1-run-bacab0900504 Creating
+ Container duo-rtfourcert4-cli1-run-bacab0900504 Created
+ Container duo-rtfourcert4-cli1-run-1b9e20c8f7fa Creating
+ Container duo-rtfourcert4-cli1-run-1b9e20c8f7fa Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert4-cli1-run-7d23d91f7955 Creating
+ Container duo-rtfourcert4-cli1-run-7d23d91f7955 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9308)
+  side 2: siterepo/.rtfourcert42.needs-install present — reset emptied wp_rtfourcert42, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rtfourcert4-cli2-run-e9777efa228e Creating
+ Container duo-rtfourcert4-cli2-run-e9777efa228e Created
+Success: WordPress installed successfully.
+ Container duo-rtfourcert4-cli2-run-abd66b29e3ec Creating
+ Container duo-rtfourcert4-cli2-run-abd66b29e3ec Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtfourcert4-cli2-run-3e6967c52e2e Creating
+ Container duo-rtfourcert4-cli2-run-3e6967c52e2e Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtfourcert4-cli2-run-e4540b6f222b Creating
+ Container duo-rtfourcert4-cli2-run-e4540b6f222b Created
+ Container duo-rtfourcert4-cli2-run-562f76840006 Creating
+ Container duo-rtfourcert4-cli2-run-562f76840006 Created
+ Container duo-rtfourcert4-cli2-run-575acb95058a Creating
+ Container duo-rtfourcert4-cli2-run-575acb95058a Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtfourcert4-cli2-run-fa3ea9dd4238 Creating
+ Container duo-rtfourcert4-cli2-run-fa3ea9dd4238 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9309)
+
+[1;36m== pair 'rtfourcert4' ready ==[0m
+  wp1: http://localhost:9308 (published on host port 9308)
+  wp2: http://localhost:9309 (published on host port 9309)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtfourcert4 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtfourcert4 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtfourcert4 must stay exported, or pass -p duo-rtfourcert4 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rtfourcert4-cli1-run-f6ad9304b389 Creating
+ Container duo-rtfourcert4-cli1-run-f6ad9304b389 Created
+Success: Updated 'blogname' option.
+ Container duo-rtfourcert4-cli1-run-66c16cb40e94 Creating
+ Container duo-rtfourcert4-cli1-run-66c16cb40e94 Created
+Success: The site at 'http://localhost:9308' was emptied.
+ Container duo-rtfourcert4-cli1-run-20052fc151c0 Creating
+ Container duo-rtfourcert4-cli1-run-20052fc151c0 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-rtfourcert4-cli1-run-d9e32625501f Creating
+ Container duo-rtfourcert4-cli1-run-d9e32625501f Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rtfourcert4-cli1-run-d84066a50631 Creating
+ Container duo-rtfourcert4-cli1-run-d84066a50631 Created
+Plugin 'ninja-forms' activated.
+Success: Activated 1 of 1 plugins.
+ Container duo-rtfourcert4-cli1-run-1e6d45ff3659 Creating
+ Container duo-rtfourcert4-cli1-run-1e6d45ff3659 Created
+ Container duo-rtfourcert4-cli1-run-d0233a45e8d0 Creating
+ Container duo-rtfourcert4-cli1-run-d0233a45e8d0 Created
+env conf1 installed, role=author (ninja-forms: 1 pinned plugins, 0 pinned themes)
+ Container duo-rtfourcert4-cli2-run-da75497995ab Creating
+ Container duo-rtfourcert4-cli2-run-da75497995ab Created
+Success: Updated 'blogname' option.
+ Container duo-rtfourcert4-cli2-run-d1f0d10b51a5 Creating
+ Container duo-rtfourcert4-cli2-run-d1f0d10b51a5 Created
+Success: The site at 'http://localhost:9309' was emptied.
+ Container duo-rtfourcert4-cli2-run-0ec53c0d8321 Creating
+ Container duo-rtfourcert4-cli2-run-0ec53c0d8321 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-rtfourcert4-cli2-run-a0549df9f536 Creating
+ Container duo-rtfourcert4-cli2-run-a0549df9f536 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rtfourcert4-cli2-run-70e8c20b4ed2 Creating
+ Container duo-rtfourcert4-cli2-run-70e8c20b4ed2 Created
+ Container duo-rtfourcert4-cli2-run-bbfee600cc7e Creating
+ Container duo-rtfourcert4-cli2-run-bbfee600cc7e Created
+env conf2 installed, role=target (ninja-forms: 1 pinned plugins, 0 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core","ninja-forms"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/ninja-forms.sh) ==[0m
+ Container duo-rtfourcert4-cli1-run-c698ffabb8fa Creating
+ Container duo-rtfourcert4-cli1-run-c698ffabb8fa Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-rtfourcert4-cli1-run-3d8ba5cfbf85 Creating
+ Container duo-rtfourcert4-cli1-run-3d8ba5cfbf85 Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rtfourcert4-cli1-run-8250ba5697f5 Creating
+ Container duo-rtfourcert4-cli1-run-8250ba5697f5 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rtfourcert4-cli1-run-a04def4a043b Creating
+ Container duo-rtfourcert4-cli1-run-a04def4a043b Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rtfourcert4-cli1-run-711df6c362ac Creating
+ Container duo-rtfourcert4-cli1-run-711df6c362ac Created
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rtfourcert4-cli2-run-c8cb5026b91e Creating
+ Container duo-rtfourcert4-cli2-run-c8cb5026b91e Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "6c79a7af1789a579efdf19b6643df3653df53560e6184733edde776fde96fc47",
+    "revision": "9a3186af795d7afb2ca71e97e0e2c6d00a31f24d4dc2658d5cce42f63771ebfc",
+    "manifests": "94214887349e69cc0bc39bf04829942b20a5d34376bac4b5e1b2f56c5832c3f5"
+  },
+  "activated": [
+    "ninja-forms/ninja-forms.php"
+  ],
+  "deactivated": [],
+  "theme_switched": null,
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "plugin",
+      "plugin": "ninja-forms/ninja-forms.php",
+      "message": "active_plugins in state/options/core.json declares 'ninja-forms/ninja-forms.php', and its code is installed, but it is not active in this environment. Run 'duo deploy <env>' before apply so activation hooks and schema migrations complete first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [
+    "http request attempted: http://localhost:9309/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=6ecb0f6d24",
+    "http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons"
+  ],
+  "warnings": [
+    "deploy-window observation: http request attempted: http://localhost:9309/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=6ecb0f6d24",
+    "deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons"
+  ],
+  "promotion_lock": {
+    "owner": "direct-51b8595ff5df381142fc4702a61813e1",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rtfourcert4-cli2-run-4b56f5ddf654 Creating
+ Container duo-rtfourcert4-cli2-run-4b56f5ddf654 Created
+ Container duo-rtfourcert4-cli2-run-5f3b954edcbb Creating
+ Container duo-rtfourcert4-cli2-run-5f3b954edcbb Created
+ Container duo-rtfourcert4-cli2-run-307d2b04220e Creating
+ Container duo-rtfourcert4-cli2-run-307d2b04220e Created
+[1;32mok: conf2 active plugins (ninja-forms) and theme (template=twentytwentyone, stylesheet=twentytwentyone) match canonical — deploy alone did this[0m
+
+[1;36m== post-deploy conf2 fixup (conformance/postdeploy/ninja-forms.sh) ==[0m
+ Container duo-rtfourcert4-cli2-run-990d629be2a3 Creating
+ Container duo-rtfourcert4-cli2-run-990d629be2a3 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+[1;32mok: post-deploy fixup applied[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rtfourcert4-cli2-run-436968ce4338 Creating
+ Container duo-rtfourcert4-cli2-run-436968ce4338 Created
+{
+  "artifact": {
+    "hash": "6c79a7af1789a579efdf19b6643df3653df53560e6184733edde776fde96fc47",
+    "revision": "9a3186af795d7afb2ca71e97e0e2c6d00a31f24d4dc2658d5cce42f63771ebfc",
+    "manifests": "94214887349e69cc0bc39bf04829942b20a5d34376bac4b5e1b2f56c5832c3f5"
+  },
+  "plan": {
+    "create": 28,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 1,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 0,
+    "effects_inventory": 7,
+    "adapter_dispositions": 2,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 31,
+  "drift": [],
+  "warnings": [
+    "adopted env term 1 as 01a00fcc-4722-7482-a211-dc4741400515 (terms/category/01a00fcc-4722-7482-a211-dc4741400515--uncategorized.json)",
+    "provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.084s, verified)"
+  ],
+  "actions": [
+    {
+      "manifest": "ninja-forms",
+      "source": "provider:ninja-forms-form-cache/rebuild_form_caches",
+      "kind": "provider",
+      "provider_version": "1.0.0",
+      "duration_seconds": 0.084,
+      "before": {
+        "form_ids": [
+          2
+        ],
+        "cached_form_ids": []
+      },
+      "after": {
+        "form_ids": [
+          2
+        ],
+        "cached_form_ids": [
+          2
+        ]
+      },
+      "verified": true
+    }
+  ],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 31,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-793b7a4d26ab18ea3199bcb6578d56c4",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rtfourcert4-cli2-run-20654c8947f6 Creating
+ Container duo-rtfourcert4-cli2-run-20654c8947f6 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/ninja-forms.sh) ==[0m
+ Container duo-rtfourcert4-cli2-run-daa44b7b8f0c Creating
+ Container duo-rtfourcert4-cli2-run-daa44b7b8f0c Created
+ Container duo-rtfourcert4-cli2-run-691a12c7d125 Creating
+ Container duo-rtfourcert4-cli2-run-691a12c7d125 Created
+[1;32mok: conf2 renders its own 'Job Application' form (id=2) with correct content, and Ninja Forms' own model API resolves it server-side (23 fields, 3 actions)[0m
+ Container duo-rtfourcert4-cli2-run-7cb5ac04e253 Creating
+ Container duo-rtfourcert4-cli2-run-7cb5ac04e253 Created
+ Container duo-rtfourcert4-cli2-run-dce197359927 Creating
+ Container duo-rtfourcert4-cli2-run-dce197359927 Created
+ Container duo-rtfourcert4-cli2-run-98ecb7547908 Creating
+ Container duo-rtfourcert4-cli2-run-98ecb7547908 Created
+ Container duo-rtfourcert4-cli2-run-3cb7e7e756a7 Creating
+ Container duo-rtfourcert4-cli2-run-3cb7e7e756a7 Created
+ Container duo-rtfourcert4-cli2-run-7f01ae06730c Creating
+ Container duo-rtfourcert4-cli2-run-7f01ae06730c Created
+ Container duo-rtfourcert4-cli2-run-c3b4ece4a57d Creating
+ Container duo-rtfourcert4-cli2-run-c3b4ece4a57d Created
+ Container duo-rtfourcert4-cli2-run-a5321a55ad3b Creating
+ Container duo-rtfourcert4-cli2-run-a5321a55ad3b Created
+ Container duo-rtfourcert4-cli2-run-d0f591f4def3 Creating
+ Container duo-rtfourcert4-cli2-run-d0f591f4def3 Created
+ Container duo-rtfourcert4-cli2-run-f65bfeb6e8d5 Creating
+ Container duo-rtfourcert4-cli2-run-f65bfeb6e8d5 Created
+ Container duo-rtfourcert4-cli2-run-7939b11eb0b7 Creating
+ Container duo-rtfourcert4-cli2-run-7939b11eb0b7 Created
+ Container duo-rtfourcert4-cli2-run-7b96fe77a29e Creating
+ Container duo-rtfourcert4-cli2-run-7b96fe77a29e Created
+ Container duo-rtfourcert4-cli2-run-b8d4860df3b0 Creating
+ Container duo-rtfourcert4-cli2-run-b8d4860df3b0 Created
+ Container duo-rtfourcert4-cli2-run-98d4f85c3416 Creating
+ Container duo-rtfourcert4-cli2-run-98d4f85c3416 Created
+ Container duo-rtfourcert4-cli2-run-e81f02e2f728 Creating
+ Container duo-rtfourcert4-cli2-run-e81f02e2f728 Created
+ Container duo-rtfourcert4-cli2-run-4f6c786e8129 Creating
+ Container duo-rtfourcert4-cli2-run-4f6c786e8129 Created
+ Container duo-rtfourcert4-cli1-run-29e62c37a2b4 Creating
+ Container duo-rtfourcert4-cli1-run-29e62c37a2b4 Created
+ Container duo-rtfourcert4-cli1-run-04aa60b1f21e Creating
+ Container duo-rtfourcert4-cli1-run-04aa60b1f21e Created
+ Container duo-rtfourcert4-cli1-run-258cd1629b21 Creating
+ Container duo-rtfourcert4-cli1-run-258cd1629b21 Created
+ Container duo-rtfourcert4-cli1-run-672fcc953907 Creating
+ Container duo-rtfourcert4-cli1-run-672fcc953907 Created
+[1;32mok: mapped identity loss blocks; verified sidecar restores map/state/revision; stale, conflicting, and tampered restores fail atomically[0m
+ Container duo-rtfourcert4-cli1-run-0ef650cc87da Creating
+ Container duo-rtfourcert4-cli1-run-0ef650cc87da Created
+ Container duo-rtfourcert4-cli1-run-ab197f089e49 Creating
+ Container duo-rtfourcert4-cli1-run-ab197f089e49 Created
+ Container duo-rtfourcert4-cli1-run-334850c64e4e Creating
+ Container duo-rtfourcert4-cli1-run-334850c64e4e Created
+ Container duo-rtfourcert4-cli1-run-88673d34dd48 Creating
+ Container duo-rtfourcert4-cli1-run-88673d34dd48 Created
+ Container duo-rtfourcert4-cli1-run-3e9ad36c057b Creating
+ Container duo-rtfourcert4-cli1-run-3e9ad36c057b Created
+
+[1;32mok: unmodified Ninja Forms loudly refuses table:nf3_forms deletion during capture and publishes no partial child tombstones[0m
+
+[1;32m✔ CONFORMANCE PASSED (ninja-forms)[0m
