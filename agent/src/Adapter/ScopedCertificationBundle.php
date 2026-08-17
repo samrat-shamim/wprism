@@ -732,7 +732,7 @@ final class ScopedCertificationBundle {
         // force-flag approval channel.
         if (!is_array($hatches) || !array_is_list($hatches)
             || ($hatches !== [] && $hatches !== [self::PAIR_BUDGET_OVERRIDE_HATCH])) {
-            throw new \RuntimeException("duo: $label must be empty or exactly [\"" . self::PAIR_BUDGET_OVERRIDE_HATCH . "\"]");
+            throw new \RuntimeException("duo: $label must be empty or exactly [\"" . self::PAIR_BUDGET_OVERRIDE_HATCH . '"]');
         }
     }
 

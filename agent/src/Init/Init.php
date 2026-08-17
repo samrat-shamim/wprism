@@ -1,9 +1,9 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . "/InitPlanner.php";
-require_once __DIR__ . "/InitConfirmation.php";
-require_once __DIR__ . "/InitProtocol.php";
+require_once __DIR__ . '/InitPlanner.php';
+require_once __DIR__ . '/InitConfirmation.php';
+require_once __DIR__ . '/InitProtocol.php';
 
 /**
  * Stable public facade for first-run, target-local onboarding.

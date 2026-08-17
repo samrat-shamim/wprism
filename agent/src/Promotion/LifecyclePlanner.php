@@ -165,9 +165,9 @@ final class LifecyclePlanner {
                             'message' => "$plugin " . ($installed !== '' ? $installed : '(unknown version)')
                                 . " is active in this environment, outside the '{$r['manifest']}' manifest's "
                                 . "declared version_range (>={$r['min']} <{$r['max']}, pinned by site.duo.json). "
-                                . "Classification guarantees for this plugin are NOT validated against this "
-                                . "version — apply may silently misclassify fields. Update the plugin, pin an "
-                                . "older manifest, or pass --force-code-mismatch to proceed at your own risk.",
+                                . 'Classification guarantees for this plugin are NOT validated against this '
+                                . 'version — apply may silently misclassify fields. Update the plugin, pin an '
+                                . 'older manifest, or pass --force-code-mismatch to proceed at your own risk.',
                         ];
                     }
                 }
@@ -240,7 +240,7 @@ final class LifecyclePlanner {
                     'message' => "template in state/options/core.json declares '$desiredTemplate' (this "
                         . "environment's child theme's parent) but $desiredTemplate does not exist in this "
                         . "environment (checked against this environment's wp-content/themes/). A child theme's "
-                        . "switch_theme() needs its parent present too. Install/vendor the parent theme here, or "
+                        . 'switch_theme() needs its parent present too. Install/vendor the parent theme here, or '
                         . "this branch's code/ changes haven't reached this environment yet.",
                 ];
             } else {
@@ -396,7 +396,7 @@ final class LifecyclePlanner {
                     'recorded_version' => $baseline,
                     'message' => "$plugin is $installed on this environment, but the last successful 'duo deploy' "
                         . "or 'duo capture' recorded $baseline — its code changed here outside Duo's own "
-                        . "reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS "
+                        . 'reconciliation (a wp-admin/host auto-update is the common cause; see DISALLOW_FILE_MODS '
                         . "in 'wp duo doctor'). Re-run 'duo deploy' to accept $installed as the new baseline, "
                         . "restore $baseline, or pass --force-code-drift to proceed at your own risk.",
                 ];

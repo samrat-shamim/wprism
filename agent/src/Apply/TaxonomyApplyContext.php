@@ -35,8 +35,8 @@ final class TaxonomyApplyContext {
                 : $this->policy->pattern_object_type($taxonomy);
             if ($objectTypes === null) {
                 $warnings[] = "taxonomy '$taxonomy' is in policy scope but not registered on this environment"
-                    . " (plugin inactive?) — cannot determine which object type its relationships"
-                    . " belong to, so its relationships are skipped for every post and term on apply";
+                    . ' (plugin inactive?) — cannot determine which object type its relationships'
+                    . ' belong to, so its relationships are skipped for every post and term on apply';
                 continue;
             }
             $objectTypes = array_values(array_unique(array_merge(

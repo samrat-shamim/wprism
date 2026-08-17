@@ -126,7 +126,7 @@ final class TableSchema {
             sort($undeclared);
             throw new \RuntimeException(
                 "duo: table '$table' has undeclared column(s): " . implode(', ', $undeclared)
-                . " — every real column must be classified in the manifest (as the pk, a ref, or a columns entry"
+                . ' — every real column must be classified in the manifest (as the pk, a ref, or a columns entry'
                 . ' with class authored/runtime/derived/env) before this table can be captured; an FK-shaped or'
                 . ' otherwise unclassified column must never silently reach canonical state'
             );

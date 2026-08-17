@@ -1073,7 +1073,8 @@ final class RefreshPlan {
 
     private static function removeTree(string $path): void {
         if (!file_exists($path) && !is_link($path)) return;
-        if (is_file($path) || is_link($path)) { unlink($path); return; }
+        if (is_file($path) || is_link($path)) { unlink($path);
+        return; }
         foreach (scandir($path) ?: [] as $child) if ($child !== '.' && $child !== '..') self::removeTree($path . '/' . $child);
         rmdir($path);
     }

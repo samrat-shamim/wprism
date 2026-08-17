@@ -340,8 +340,8 @@ final class Shortcodes {
         }
         $status = self::runtime_status_filter('p');
         $sql = "SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
-            . "WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s "
-            . "AND p.post_type = %s" . $status['sql'] . " ORDER BY pm.meta_id ASC";
+            . 'WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s '
+            . 'AND p.post_type = %s' . $status['sql'] . ' ORDER BY pm.meta_id ASC';
         $args = [$metaKey, $alternate, $postType, ...$status['args']];
         $rows = $wpdb->get_col($wpdb->prepare($sql, $args));
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {
@@ -388,8 +388,8 @@ final class Shortcodes {
         }
         $status = self::runtime_status_filter('p');
         $sql = "SELECT pm.post_id FROM {$wpdb->postmeta} pm JOIN {$wpdb->posts} p ON p.ID = pm.post_id "
-            . "WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s "
-            . "AND p.post_type = %s" . $status['sql'] . " ORDER BY pm.meta_id ASC";
+            . 'WHERE pm.meta_key = %s AND CAST(pm.meta_value AS DECIMAL) = %s '
+            . 'AND p.post_type = %s' . $status['sql'] . ' ORDER BY pm.meta_id ASC';
         $args = [$metaKey, $alternate, $postType, ...$status['args']];
         $rows = $wpdb->get_col($wpdb->prepare($sql, $args));
         if (!is_array($rows) || (string) ($wpdb->last_error ?? '') !== '') {

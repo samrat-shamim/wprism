@@ -51,7 +51,9 @@ final class InitSiteProbe {
     /** @return array{attachments:int,local:int,provider:int,unavailable:int,strategy:string} */
     public static function media(): array {
         $ids = get_posts(['post_type' => 'attachment', 'post_status' => 'inherit', 'fields' => 'ids', 'numberposts' => -1]);
-        $local = 0; $provider = 0; $unavailable = 0;
+        $local = 0;
+        $provider = 0;
+        $unavailable = 0;
         foreach ($ids as $id) {
             $path = get_attached_file((int) $id, true);
             if (is_string($path) && is_file($path) && is_readable($path)) {
@@ -121,7 +123,8 @@ final class InitSiteProbe {
         );
         $secretCounts = $options['counts'];
         $piiCounts = $userMeta['counts'];
-        ksort($secretCounts, SORT_STRING); ksort($piiCounts, SORT_STRING);
+        ksort($secretCounts, SORT_STRING);
+        ksort($piiCounts, SORT_STRING);
         return [
             'options' => $secretCounts,
             'user_meta' => $piiCounts,

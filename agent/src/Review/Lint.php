@@ -346,8 +346,8 @@ final class Lint {
     private static function bare_id_note(array $hit): string {
         return "no ref is declared for this key; the number coincides with an existing {$hit['kind']} id "
             . "(#{$hit['id']} \"{$hit['title']}\", {$hit['post_type']}) on this environment — could be a genuine "
-            . "unrewritten reference, or an unrelated small number (a count, a version, an ordering index...). "
-            . "Small ids coincide; this is a signal to investigate, not proof.";
+            . 'unrewritten reference, or an unrelated small number (a count, a version, an ordering index...). '
+            . 'Small ids coincide; this is a signal to investigate, not proof.';
     }
 
     /**
@@ -739,9 +739,9 @@ final class Lint {
         }
         $findings[] = LintFinding::make('escaped_home', $rel, $locator, self::truncate($s), null, sprintf(
             "this environment's home URL (%s) appears in JSON-escaped form (\\/ instead of /); "
-            . "Tokens::tokenize_text() only matches the plain, unescaped form (a literal str_replace()), so this "
+            . 'Tokens::tokenize_text() only matches the plain, unescaped form (a literal str_replace()), so this '
             . "will NOT be rewritten on apply and will leak this environment's host into the target — "
-            . "the escaped-slash URL leak shape of an opaque embedded JSON blob.",
+            . 'the escaped-slash URL leak shape of an opaque embedded JSON blob.',
             $home
         ));
     }

@@ -330,7 +330,7 @@ final class ManifestGrammar {
                 if (!is_string($ref[$key] ?? null) || $ref[$key] === '') {
                     throw new \RuntimeException(
                         "duo: table '$table'$where declares refs[$i].$key=" . var_export($ref[$key] ?? null, true)
-                        . " — every refs[] entry needs a non-empty string `column` (the column holding the id) and "
+                        . ' — every refs[] entry needs a non-empty string `column` (the column holding the id) and '
                         . '`kind` (the keyspace it points into)'
                     );
                 }
@@ -414,7 +414,7 @@ final class ManifestGrammar {
         if ($sortedIdCols !== $sortedRefCols) {
             throw new \RuntimeException(
                 "duo: table '$table'$where identity.columns [" . implode(', ', $idCols)
-                . "] must be EXACTLY its refs[] columns [" . implode(', ', $refCols)
+                . '] must be EXACTLY its refs[] columns [' . implode(', ', $refCols)
                 . '] — composite_ref is only for pure join tables: every identity column is a ref, every ref is an identity column'
             );
         }
@@ -499,7 +499,7 @@ final class ManifestGrammar {
             throw new \RuntimeException(
                 "duo: table '$table'$where declares a multi-column natural_key (" . implode(', ', $columns)
                 . ") without 'slug_column' — a tuple has no portable one-line filename spelling (a resolved ref "
-                . "component is an environment-local id), so the declaration must name the authored column that "
+                . 'component is an environment-local id), so the declaration must name the authored column that '
                 . 'supplies the human-readable half of the path'
             );
         }

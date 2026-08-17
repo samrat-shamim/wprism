@@ -1,16 +1,16 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . "/../Kernel/Canon.php";
-require_once __DIR__ . "/../Publication/Publish.php";
-require_once __DIR__ . "/../Capture/Capture.php";
-require_once __DIR__ . "/../Code/Code.php";
-require_once __DIR__ . "/../Policy/Policy.php";
-require_once __DIR__ . "/../Repository/RepositoryCompiler.php";
-require_once __DIR__ . "/InitAttemptJournal.php";
-require_once __DIR__ . "/InitOwnedArtifacts.php";
-require_once __DIR__ . "/InitProtocol.php";
-require_once __DIR__ . "/InitRepositoryBoundary.php";
+require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Publication/Publish.php';
+require_once __DIR__ . '/../Capture/Capture.php';
+require_once __DIR__ . '/../Code/Code.php';
+require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/InitAttemptJournal.php';
+require_once __DIR__ . '/InitOwnedArtifacts.php';
+require_once __DIR__ . '/InitProtocol.php';
+require_once __DIR__ . '/InitRepositoryBoundary.php';
 
 /** Verification and cleanup of sealed interrupted first-init attempts. */
 final class InitRecovery {

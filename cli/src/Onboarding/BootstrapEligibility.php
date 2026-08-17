@@ -299,7 +299,7 @@ PHP;
             $quoted = $q($path);
             $script .= "[ ! -L $quoted ] || { echo destination_symlink; exit 0; }; "
                 . "[ ! -e $quoted ] || [ -f $quoted ] || { echo destination_type; exit 0; }; "
-                . "check_ancestors " . $q(dirname($path)) . " || exit 0; check_parent_write $quoted || exit 0\n";
+                . 'check_ancestors ' . $q(dirname($path)) . " || exit 0; check_parent_write $quoted || exit 0\n";
         }
         $script .= "[ ! -e \"\$mu/.duo-adopt-lock\" ] || { echo adoption_in_progress; exit 0; }\n"
             . "if [ -e \"\$mu\" ]; then stale=\$(find \"\$mu\" -maxdepth 1 \( -name '.duo-adopt-txn-*' -o -name '.duo-new-*' -o -name '.duo-old-*' -o -name '.duo-loader-new-*' -o -name '.duo-loader-old-*' -o -name '.duo-manifests-new-*' -o -name '.duo-manifests-old-*' \) -print -quit 2>/dev/null) || { echo topology_unreadable; exit 0; }; [ -z \"\$stale\" ] || { echo stale_transaction; exit 0; }; fi\n"

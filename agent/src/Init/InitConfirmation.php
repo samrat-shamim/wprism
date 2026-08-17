@@ -1,22 +1,22 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . "/../Capture/Capture.php";
-require_once __DIR__ . "/../Kernel/Canon.php";
-require_once __DIR__ . "/../Code/Code.php";
-require_once __DIR__ . "/../Kernel/CommandRefusal.php";
-require_once __DIR__ . "/InitAttemptJournal.php";
-require_once __DIR__ . "/InitCodeBaseline.php";
-require_once __DIR__ . "/InitExceptions.php";
-require_once __DIR__ . "/InitFaults.php";
-require_once __DIR__ . "/InitOwnedArtifacts.php";
-require_once __DIR__ . "/InitPlanner.php";
-require_once __DIR__ . "/InitProtocol.php";
-require_once __DIR__ . "/InitRecovery.php";
-require_once __DIR__ . "/InitRepositoryBoundary.php";
-require_once __DIR__ . "/../Policy/Policy.php";
-require_once __DIR__ . "/../Publication/Publish.php";
-require_once __DIR__ . "/../Repository/RepositoryCompiler.php";
+require_once __DIR__ . '/../Capture/Capture.php';
+require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Code/Code.php';
+require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+require_once __DIR__ . '/InitAttemptJournal.php';
+require_once __DIR__ . '/InitCodeBaseline.php';
+require_once __DIR__ . '/InitExceptions.php';
+require_once __DIR__ . '/InitFaults.php';
+require_once __DIR__ . '/InitOwnedArtifacts.php';
+require_once __DIR__ . '/InitPlanner.php';
+require_once __DIR__ . '/InitProtocol.php';
+require_once __DIR__ . '/InitRecovery.php';
+require_once __DIR__ . '/InitRepositoryBoundary.php';
+require_once __DIR__ . '/../Policy/Policy.php';
+require_once __DIR__ . '/../Publication/Publish.php';
+require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 
 /**
  * Runs the reviewed initialization transaction and its compensation paths.

@@ -66,8 +66,8 @@ final class CaptureSafetyGates {
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a scope gap, not permanent data loss.\n"
-                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the "
-                . "option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference).";
+                . 'Add the missing post type/taxonomy to policy scope above and re-run capture, or reclassify the '
+                . 'option, or pass --force-unresolved-refs to drop it anyway (same as a dangling reference).';
             throw new CommandRefusalException(
                 'unresolved_reference_scope',
                 'capture found reference-bearing option state outside reviewed scope',
@@ -82,7 +82,7 @@ final class CaptureSafetyGates {
             foreach ($unscopedOptionNameRefs as $reference) {
                 $lines[] = "option '{$reference['option']}' embeds {$reference['id_kind']} id {$reference['id']}, which is a real row in "
                     . "its declared table — but that table's rows were never minted a uuid (not pinned as "
-                    . "authored_snapshot in a currently-loaded manifest?), so the reference cannot resolve";
+                    . 'authored_snapshot in a currently-loaded manifest?), so the reference cannot resolve';
                 $diagnostics[] = [
                     'code' => 'unminted_table_reference_scope',
                     'surface' => 'option_name_refs:' . $reference['option'],
@@ -94,9 +94,9 @@ final class CaptureSafetyGates {
             $operatorMessage = "duo: option_name_refs option(s) point at real, unminted table rows (loud-and-blocking gate):\n  - "
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (no such row anywhere — dropped with a warning, "
-                . "unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not "
+                . 'unchanged): the row genuinely exists right now, so this is a manifest/table-pinning gap, not '
                 . "permanent data loss.\nPin the owning table as authored_snapshot and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+                . '--force-unresolved-refs to drop it anyway (same as a dangling reference).';
             throw new CommandRefusalException(
                 'unresolved_reference_scope',
                 'capture found option-name references without manifest-owned identities',
@@ -112,7 +112,7 @@ final class CaptureSafetyGates {
                 $where = $reference['context'] !== '' ? "{$reference['context']}: " : '';
                 $lines[] = "{$where}url query ref '{$reference['param']}' references post id {$reference['id']}, which is a real "
                     . "'{$reference['target_type']}' — but '{$reference['target_type']}' is not in policy.post_types, so its "
-                    . "identity was never tracked and the reference cannot resolve";
+                    . 'identity was never tracked and the reference cannot resolve';
                 $diagnostics[] = [
                     'code' => 'unresolved_url_query_reference_scope',
                     'surface' => 'url_query:' . $reference['param'],
@@ -126,8 +126,8 @@ final class CaptureSafetyGates {
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+                . 'Add the missing post type to policy scope above and re-run capture, or pass '
+                . '--force-unresolved-refs to drop it anyway (same as a dangling reference).';
             throw new CommandRefusalException(
                 'unresolved_reference_scope',
                 'capture found URL-query references outside reviewed post-type scope',
@@ -194,8 +194,8 @@ final class CaptureSafetyGates {
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+                . 'Add the missing post type/taxonomy to policy scope above and re-run capture, or pass '
+                . '--force-unresolved-refs to drop it anyway (same as a dangling reference).';
             throw new CommandRefusalException(
                 'unresolved_reference_scope',
                 'capture found block references outside reviewed policy scope',
@@ -225,8 +225,8 @@ final class CaptureSafetyGates {
                 . implode("\n  - ", $lines)
                 . "\nThis differs from a dangling reference (deleted target — dropped with a warning, unchanged): the "
                 . "target genuinely exists right now, so this is a policy scope gap, not permanent data loss.\n"
-                . "Add the missing post type/taxonomy to policy scope above and re-run capture, or pass "
-                . "--force-unresolved-refs to drop it anyway (same as a dangling reference).";
+                . 'Add the missing post type/taxonomy to policy scope above and re-run capture, or pass '
+                . '--force-unresolved-refs to drop it anyway (same as a dangling reference).';
             throw new CommandRefusalException(
                 'unresolved_reference_scope',
                 'capture found shortcode references outside reviewed policy scope',

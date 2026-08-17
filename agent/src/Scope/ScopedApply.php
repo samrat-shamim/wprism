@@ -1056,7 +1056,7 @@ final class ScopedApply {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired();
             }
             $physical = self::checked_target_row($wpdb->prepare(
-                "SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid"
+                'SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid'
                 . " FROM {$wpdb->terms} t"
                 . " JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id"
                 . " LEFT JOIN {$wpdb->termmeta} tm ON tm.term_id = t.term_id AND tm.meta_key = %s"
@@ -1254,7 +1254,7 @@ final class ScopedApply {
                 throw CommandRefusalException::scopedIdentityRecoveryRequired();
             }
             $physical = self::checked_target_row($wpdb->prepare(
-                "SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid"
+                'SELECT t.term_id, tt.term_taxonomy_id, tt.taxonomy, tm.meta_value AS duo_uuid'
                 . " FROM {$wpdb->terms} t"
                 . " JOIN {$wpdb->term_taxonomy} tt ON tt.term_id = t.term_id"
                 . " LEFT JOIN {$wpdb->termmeta} tm ON tm.term_id = t.term_id AND tm.meta_key = %s"

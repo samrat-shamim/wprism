@@ -77,7 +77,7 @@ final class DynamicOptionResolver {
                 throw new \RuntimeException(
                     "duo: dynamic_options.$key declares resolver '{$declaration['resolver']}' but this caller supplied no "
                     . 'value for it (supplied: ' . (($resolvedValues === []) ? 'none' : implode(', ', array_keys($resolvedValues)))
-                    . ") — the resolver vocabulary is engine-owned and every declared resolver must be resolved by the "
+                    . ') — the resolver vocabulary is engine-owned and every declared resolver must be resolved by the '
                     . 'engine call site, not skipped'
                 );
             }

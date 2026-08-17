@@ -185,7 +185,7 @@ final class AttributeGrammar {
         if (array_key_exists('tokenize', $rule) && !in_array($rule['tokenize'], self::ATTR_TOKENIZE_CODECS, true)) {
             throw new \RuntimeException(
                 "duo: $where.tokenize=" . var_export($rule['tokenize'], true)
-                . " but the only supported codec for an attribute is \"text\" (the ordinary home/uploads URL pass)"
+                . ' but the only supported codec for an attribute is "text" (the ordinary home/uploads URL pass)'
             );
         }
         if (array_key_exists('kind_from', $rule)) {

@@ -330,7 +330,7 @@ final class DeleteGuardReferenceScanner {
             '',
             (string) ($guard['identity_column'] ?? 'meta_id')
         );
-        $where = ["`meta_key` = %s"];
+        $where = ['`meta_key` = %s'];
         $args = [$metaKey];
         foreach ((array) ($guard['where'] ?? []) as $name => $value) {
             $name = preg_replace('/[^A-Za-z0-9_]/', '', (string) $name);

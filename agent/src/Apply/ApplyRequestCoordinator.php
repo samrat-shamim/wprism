@@ -558,7 +558,7 @@ final class ApplyRequestCoordinator {
         if (!empty($rule['sub_keys'])) {
             throw new \RuntimeException(
                 "duo: env-set: '$name' declares sub_keys — it is a structured, plugin-managed option "
-                . "blob, not a plain scalar value env-set can safely overwrite (the plugin populates it "
+                . 'blob, not a plain scalar value env-set can safely overwrite (the plugin populates it '
                 . "itself; see this manifest's own notes for '$name')"
             );
         }

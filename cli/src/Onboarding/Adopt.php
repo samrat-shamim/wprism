@@ -308,7 +308,7 @@ final class Adopt {
             $allSurfaces .= $ready($name, $live, $old, $kind);
         }
 
-        return "identity() { php -r " . $q($identityPhp) . " \"\$1\"; }\n"
+        return 'identity() { php -r ' . $q($identityPhp) . " \"\$1\"; }\n"
             . "assert_marker() { [ -f \"\$1\" ] && [ ! -L \"\$1\" ]; }\n"
             . "assert_proof() { [ -f \"\$1\" ] && [ ! -L \"\$1\" ] || return 1; proof_value=\$(cat \"\$1\") || return 1; [ -n \"\$proof_value\" ]; }\n"
             . "assert_identity() { assert_proof \"\$2\" || return 1; actual=\$(identity \"\$1\") || return 1; expected=\$(cat \"\$2\") || return 1; [ \"\$actual\" = \"\$expected\" ]; }\n"
@@ -445,7 +445,7 @@ final class Adopt {
             . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$repo_created\" -eq 1 ]; then assert_identity \"\$repo\" \"\$lock/repo.id\" && rmdir \"\$repo\" || cleanup_failed=1; fi\n"
             . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$txn_created\" -eq 1 ]; then assert_identity \"\$txn\" \"\$lock/txn.id\" && rm -rf \"\$txn\" || cleanup_failed=1; fi\n"
             . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$lock_acquired\" -eq 1 ]; then assert_identity \"\$lock\" \"\$lock/lock.id\" || cleanup_failed=1; if [ \"\$cleanup_failed\" -eq 0 ]; then mu_proof=\$(cat \"\$lock/mu.id\" 2>/dev/null || true); rm -f \"\$lock/lock.id\" \"\$lock/txn.id\" \"\$lock/repo.id\" \"\$lock/mu.id\"; rmdir \"\$lock\" || cleanup_failed=1; fi; fi\n"
-            . "  if [ \"\$success\" -ne 1 ] && [ \"\$cleanup_failed\" -eq 0 ] && [ \"\$mu_created\" -eq 1 ]; then actual_mu=\$(identity " . $q($muDir) . " 2>/dev/null || true); [ -n \"\$mu_proof\" ] && [ \"\$actual_mu\" = \"\$mu_proof\" ] && rmdir " . $q($muDir) . " || cleanup_failed=1; fi\n"
+            . '  if [ "$success" -ne 1 ] && [ "$cleanup_failed" -eq 0 ] && [ "$mu_created" -eq 1 ]; then actual_mu=$(identity ' . $q($muDir) . ' 2>/dev/null || true); [ -n "$mu_proof" ] && [ "$actual_mu" = "$mu_proof" ] && rmdir ' . $q($muDir) . " || cleanup_failed=1; fi\n"
             . "  if [ -e \"\$archive\" ] || [ -L \"\$archive\" ]; then if [ -n \"\$archive_identity\" ]; then actual_archive=\$(identity \"\$archive\" 2>/dev/null || true); [ \"\$actual_archive\" = \"\$archive_identity\" ] && rm -f \"\$archive\" || cleanup_failed=1; else rm -f \"\$archive\" || cleanup_failed=1; fi; fi\n"
             . "  if [ \"\$cleanup_failed\" -ne 0 ]; then echo 'duo adopt: transaction cleanup identity changed; retained evidence for operator recovery' >&2; status=1; fi\n"
             . "  exit \"\$status\"\n"
@@ -461,13 +461,13 @@ final class Adopt {
             . "[ ! -e \"\$duo_state\" ] || [ -d \"\$duo_state\" ] || { echo \"duo adopt: expected directory destination: \$duo_state\" >&2; exit 1; }\n"
             . "[ ! -e \"\$control\" ] || [ -d \"\$control\" ] || { echo \"duo adopt: expected directory destination: \$control\" >&2; exit 1; }\n"
             . "[ ! -e \"\$runtime\" ] || [ -d \"\$runtime\" ] || { echo \"duo adopt: expected directory destination: \$runtime\" >&2; exit 1; }\n"
-            . "if [ ! -e " . $q($muDir) . " ]; then mkdir " . $q($muDir) . "; mu_created=1; mu_identity=\$(identity " . $q($muDir) . "); fi\n"
+            . 'if [ ! -e ' . $q($muDir) . ' ]; then mkdir ' . $q($muDir) . '; mu_created=1; mu_identity=$(identity ' . $q($muDir) . "); fi\n"
             . "if ! mkdir \"\$lock\"; then echo 'duo adopt: another adoption is active or requires operator recovery (.duo-adopt-lock exists)' >&2; exit 1; fi; lock_acquired=1; record_identity \"\$lock\" \"\$lock/lock.id\"; if [ \"\$mu_created\" -eq 1 ]; then record_identity " . $q($muDir) . " \"\$lock/mu.id\"; fi\n"
             . "if [ ! -e \"\$repo\" ]; then mkdir \"\$repo\"; repo_created=1; record_identity \"\$repo\" \"\$lock/repo.id\"; fi\n"
             . "mkdir \"\$txn\"; txn_created=1; record_identity \"\$txn\" \"\$lock/txn.id\"; [ \"\$mu_created\" -eq 0 ] || : > \"\$txn/mu_created\"; [ \"\$repo_created\" -eq 0 ] || : > \"\$txn/repo_created\"\n"
             . "mkdir \"\$stage\"; stage_created=1; record_identity \"\$stage\" \"\$txn/stage_construction.id\" 'staged artifact construction root'\n"
             . ($archiveIdentity !== null
-                ? "php -r " . $q($archiveCopyPhp) . " \"\$archive\" \"\$archive_identity\" \"\$stage/archive.tar\" || { echo 'duo adopt: local archive identity changed before staging' >&2; exit 1; }\n"
+                ? 'php -r ' . $q($archiveCopyPhp) . " \"\$archive\" \"\$archive_identity\" \"\$stage/archive.tar\" || { echo 'duo adopt: local archive identity changed before staging' >&2; exit 1; }\n"
                     . "actual_archive=\$(identity \"\$archive\" 2>/dev/null || true); [ \"\$actual_archive\" = \"\$archive_identity\" ] || { echo 'duo adopt: local archive path changed before cleanup' >&2; exit 1; }; rm -f \"\$archive\"\n"
                     . "tar --no-same-owner -xf \"\$stage/archive.tar\" -C \"\$stage\"\n"
                 : "tar --no-same-owner -xf \"\$archive\" -C \"\$stage\"\n")
@@ -489,7 +489,7 @@ final class Adopt {
             . "mkdir -p \"\$control_new\"; chmod 700 \"\$control_new\"; rm -rf \"\$runtime_new\"; cp -R \"\$stage/recovery\" \"\$runtime_new\"\n"
             . "php \"\$runtime_new/rollback-control.php\" init --root=\"\$control_new\" >/dev/null\n"
             . ($rollbackKeyId !== null
-                ? "php \"\$runtime_new/rollback-control.php\" install-key --root=\"\$control_new\" --key-id=" . $q($rollbackKeyId) . ' --public-key=' . $q((string) $rollbackPublicKey) . " >/dev/null\n"
+                ? 'php "$runtime_new/rollback-control.php" install-key --root="$control_new" --key-id=' . $q($rollbackKeyId) . ' --public-key=' . $q((string) $rollbackPublicKey) . " >/dev/null\n"
                 : '')
             . ($recovery !== null
                 ? "printf '%s' " . $q($recovery) . " > \"\$stage/recovery-config.json\"; chmod 600 \"\$stage/recovery-config.json\"\n"
@@ -549,10 +549,10 @@ final class Adopt {
             . "assert_identity \"\$lock\" \"\$lock/lock.id\" && assert_identity \"\$txn\" \"\$lock/txn.id\" && assert_marker \"\$txn/commit_started\" || { echo 'duo adopt: committed cleanup evidence is incomplete' >&2; exit 1; }\n"
             . "assert_journal_ready || { echo 'duo adopt: committed cleanup journal is incomplete' >&2; exit 1; }\n"
             . "cleanup_failed=0\n"
-            . "if [ -e \"\$txn/had_duo\" ] || [ -L \"\$txn/had_duo\" ]; then assert_marker \"\$txn/had_duo\" && rm -rf " . $q($duoOld) . " || cleanup_failed=1; fi\n"
-            . "if [ -e \"\$txn/had_manifest\" ] || [ -L \"\$txn/had_manifest\" ]; then assert_marker \"\$txn/had_manifest\" && rm -rf " . $q($manifestOld) . " || cleanup_failed=1; fi\n"
-            . "if [ -e \"\$txn/had_loader\" ] || [ -L \"\$txn/had_loader\" ]; then assert_marker \"\$txn/had_loader\" && rm -f " . $q($loaderOld) . " || cleanup_failed=1; fi\n"
-            . "if [ -e \"\$txn/had_agent\" ] || [ -L \"\$txn/had_agent\" ]; then assert_marker \"\$txn/had_agent\" && rm -rf " . $q($agentOld) . " || cleanup_failed=1; fi\n"
+            . 'if [ -e "$txn/had_duo" ] || [ -L "$txn/had_duo" ]; then assert_marker "$txn/had_duo" && rm -rf ' . $q($duoOld) . " || cleanup_failed=1; fi\n"
+            . 'if [ -e "$txn/had_manifest" ] || [ -L "$txn/had_manifest" ]; then assert_marker "$txn/had_manifest" && rm -rf ' . $q($manifestOld) . " || cleanup_failed=1; fi\n"
+            . 'if [ -e "$txn/had_loader" ] || [ -L "$txn/had_loader" ]; then assert_marker "$txn/had_loader" && rm -f ' . $q($loaderOld) . " || cleanup_failed=1; fi\n"
+            . 'if [ -e "$txn/had_agent" ] || [ -L "$txn/had_agent" ]; then assert_marker "$txn/had_agent" && rm -rf ' . $q($agentOld) . " || cleanup_failed=1; fi\n"
             . "if [ \"\$cleanup_failed\" -ne 0 ]; then echo 'duo adopt: committed install retained partial backup cleanup evidence' >&2; exit 1; fi\n"
             . "assert_identity \"\$txn\" \"\$lock/txn.id\" || { echo 'duo adopt: transaction identity changed before committed cleanup' >&2; exit 1; }\n"
             . "rm -rf \"\$txn\" || { echo 'duo adopt: committed install retained transaction cleanup evidence' >&2; exit 1; }\n"

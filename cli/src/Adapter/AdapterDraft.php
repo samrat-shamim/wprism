@@ -2049,7 +2049,7 @@ final class AdapterDraft {
             $facts += count((array) ($manifest[$section] ?? []));
         }
         echo "\nfacts (validated, applied — real classification sections): $facts rule(s)\n";
-        echo "  " . self::fact_counts($manifest) . "\n";
+        echo '  ' . self::fact_counts($manifest) . "\n";
 
         $proposals = (array) ($draft['proposals'] ?? []);
         $pCount = 0;

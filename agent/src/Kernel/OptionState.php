@@ -151,7 +151,7 @@ final class OptionState {
         if ($declared !== $autoload) {
             throw new \RuntimeException(
                 "duo: $context has autoload '$autoload' but policy declares " . var_export($declared, true)
-                . " — update the adapter declaration or the source row; storage semantics cannot be guessed"
+                . ' — update the adapter declaration or the source row; storage semantics cannot be guessed'
             );
         }
     }

@@ -160,7 +160,7 @@ final class ManifestValidate {
                 'check' => 'Policy::taxonomies()',
                 'why' => 'a taxonomy_patterns entry is validated as a declaration here; which dynamic taxonomy '
                     . 'NAMES it actually expands to is read from live wp_term_taxonomy rows (deliberately, since '
-                    . "the in-memory registry is stale mid-request), so the in-scope name set does not exist yet",
+                    . 'the in-memory registry is stale mid-request), so the in-scope name set does not exist yet',
             ],
             [
                 'surface' => 'plugin / version_range / theme_range',

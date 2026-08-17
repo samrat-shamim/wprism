@@ -68,7 +68,7 @@ final class RepositoryAuthorization {
     public static function load_tree(string $repo, Policy $policy): array {
         $stateDir = rtrim($repo, '/') . '/state';
         if (!is_dir($stateDir)) {
-            throw new \RuntimeException("duo: no state/ directory in " . rtrim($repo, '/'));
+            throw new \RuntimeException('duo: no state/ directory in ' . rtrim($repo, '/'));
         }
         $out = [];
         foreach (glob($stateDir . '/posts/*/*.md') ?: [] as $f) {

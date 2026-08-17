@@ -566,7 +566,7 @@ final class CapabilityRegistry {
         if ($wordpress === '' || $verifiedWordPress === '' || version_compare($wordpress, $verifiedWordPress, '!=')) {
             $reasons[] = self::reason(
                 'wordpress_version_mismatch',
-                "target WordPress " . ($wordpress !== '' ? $wordpress : '(unknown)')
+                'target WordPress ' . ($wordpress !== '' ? $wordpress : '(unknown)')
                 . " is not the evidence-bound $verifiedWordPress"
             );
         }

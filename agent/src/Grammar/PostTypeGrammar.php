@@ -108,7 +108,7 @@ final class PostTypeGrammar {
                 || !is_string($verify['column'] ?? null) || ($verify['column'] ?? '') === '') {
                 throw new \RuntimeException(
                     "duo: manifest '$name' post_types.$postType.regen_dependency needs "
-                    . "verify: {table: <non-empty string>, column: <non-empty string>}"
+                    . 'verify: {table: <non-empty string>, column: <non-empty string>}'
                 );
             }
 

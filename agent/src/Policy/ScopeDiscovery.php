@@ -201,7 +201,7 @@ final class ScopeDiscovery {
                 }
                 ($this->warn)(
                     "taxonomy '$taxonomy' is in policy scope but not registered on this environment"
-                    . " (plugin inactive?) — cannot determine which object type its relationships"
+                    . ' (plugin inactive?) — cannot determine which object type its relationships'
                     . ' belong to, so its relationships are skipped for every post and term'
                 );
                 continue;

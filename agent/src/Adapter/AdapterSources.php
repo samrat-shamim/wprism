@@ -2796,7 +2796,7 @@ final class AdapterSources {
                     . '— certification is a repository-scoped signed companion at ' . self::SITE_DIR . '/'
                     . self::CERTIFICATION_DIR . "/$name.json."
                 : "adapter '$name' is installed out-of-tree from the site repository's "
-                    . self::SITE_DIR . "/ directory and carries no reviewed certification evidence",
+                    . self::SITE_DIR . '/ directory and carries no reviewed certification evidence',
             'status' => 'uncertified',
             'trust_tier' => self::trust_tier($manifest),
         ];
@@ -2998,7 +2998,7 @@ final class AdapterSources {
                 throw new \RuntimeException(
                     "duo: $label $shown post_types.$postType declares regenerator "
                     . var_export($regenerator, true) . ", but regenerator code loads only from the agent's manifest "
-                    . "library — an out-of-tree manifest is data and acquires no executable privileges. "
+                    . 'library — an out-of-tree manifest is data and acquires no executable privileges. '
                     . "Remediation: $remedy"
                 );
             }
@@ -3584,7 +3584,7 @@ final class AdapterSources {
         if (!hash_equals($expected, (string) $provenance['path'])) {
             throw new \RuntimeException(
                 "duo: frozen adapter source record for '$name' declares path "
-                . self::render((string) $provenance['path']) . " but the only path this record can describe is "
+                . self::render((string) $provenance['path']) . ' but the only path this record can describe is '
                 . "'$expected'"
             );
         }

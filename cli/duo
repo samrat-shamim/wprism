@@ -148,8 +148,6 @@ use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\StatusCommand;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
-use Duo\Orchestrator\PlanView;
-use Duo\Orchestrator\PlanViewException;
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\VerifiedRollbackProfile;
 use Duo\Orchestrator\ScopedRollbackProfile;
@@ -157,8 +155,6 @@ use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
-use Duo\Orchestrator\Triage;
-use Duo\Orchestrator\ClassificationBatch;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -173,8 +169,6 @@ use Duo\Orchestrator\AdoptCommand;
 use Duo\Orchestrator\Refresh;
 use Duo\Orchestrator\RefreshCommand;
 use Duo\Orchestrator\RebaseCommand;
-use Duo\Orchestrator\RefreshFieldResolutionCancelled;
-use Duo\Orchestrator\RefreshFieldResolutionRunFailed;
 
 function duo_usage(): string {
     return <<<TXT
@@ -2661,7 +2655,7 @@ function promotion_abort(
     if ($emitDetails) {
         fwrite(STDERR, "duo: promote: promotion lease cleanup could not be confirmed\n");
         print_transport_detail($abort);
-        fwrite(STDERR, "retry lease cleanup with: " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+        fwrite(STDERR, 'retry lease cleanup with: ' . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
     }
     return false;
 }
@@ -2701,15 +2695,15 @@ function print_promotion_recovery(
     }
     fwrite(
         STDERR,
-        "duo: promote: this checkpoint contains its temporary promotion lease row. "
-        . "A database import can replace that row, so first establish external maintenance/exclusion "
-        . "that prevents every Duo writer for the full recovery window. The commands below repair the row; "
+        'duo: promote: this checkpoint contains its temporary promotion lease row. '
+        . 'A database import can replace that row, so first establish external maintenance/exclusion '
+        . 'that prevents every Duo writer for the full recovery window. The commands below repair the row; '
         . "they are not a substitute for that exclusion. Then run in this order:\n"
     );
-    fwrite(STDERR, "  1. " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
-    fwrite(STDERR, "  2. " . $t->wpInstruction(CodeDeploy::beginArgs($owner, $artifactHash)) . "\n");
-    fwrite(STDERR, "  3. " . $t->wpInstruction(CodeDeploy::recoveryDbImportArgs($checkpoint)) . "\n");
-    fwrite(STDERR, "  4. " . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, '  1. ' . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, '  2. ' . $t->wpInstruction(CodeDeploy::beginArgs($owner, $artifactHash)) . "\n");
+    fwrite(STDERR, '  3. ' . $t->wpInstruction(CodeDeploy::recoveryDbImportArgs($checkpoint)) . "\n");
+    fwrite(STDERR, '  4. ' . $t->wpInstruction(CodeDeploy::abortArgs($owner, $artifactHash)) . "\n");
     fwrite(STDERR, "duo: promote: run step 4 even if the database import fails.\n");
 }
 

@@ -138,12 +138,12 @@ final class StructuredReferenceScanner {
                 $hit = $resolveId($key);
                 if ($hit !== null) {
                     $findings[] = LintFinding::make('bare_id', $rel, "$locator KEY $key", $key, $hit, sprintf(
-                        "this structured value has an integer ARRAY KEY that matches an existing %s id "
-                        . "(#%d \"%s\", %s), with no declared key_refs path covering it — an id-keyed map "
-                        . "(an associative array whose integer KEYS are themselves entity ids) is exactly the "
-                        . "shape key_refs exists to rewrite; a resolved key_refs match is never still a raw integer key by this point, "
-                        . "so this is a genuine gap, not a false read. Small ids coincide; this is a signal to "
-                        . "investigate, not proof.",
+                        'this structured value has an integer ARRAY KEY that matches an existing %s id '
+                        . '(#%d "%s", %s), with no declared key_refs path covering it — an id-keyed map '
+                        . '(an associative array whose integer KEYS are themselves entity ids) is exactly the '
+                        . 'shape key_refs exists to rewrite; a resolved key_refs match is never still a raw integer key by this point, '
+                        . 'so this is a genuine gap, not a false read. Small ids coincide; this is a signal to '
+                        . 'investigate, not proof.',
                         $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
                     ));
                 }
@@ -157,11 +157,11 @@ final class StructuredReferenceScanner {
                     }
                     $findings[] = LintFinding::make('bare_id', $rel, $childLocator . $locSuffix, $id, $hit, sprintf(
                         "key '%s' inside a json_refs/key_refs-declared structure looks like an id (matches the "
-                        . "id/ids/ref/*Id/*Ids naming heuristic) and its value coincides with an existing %s id "
-                        . "(#%d \"%s\", %s), but no declared json_refs path covers this exact position — a "
-                        . "resolved json_refs match is never still a raw number by this point (it becomes a "
-                        . "token, or null if unmapped), so this is a genuine manifest gap, not a false read. "
-                        . "Small ids coincide; this is a signal to investigate, not proof.",
+                        . 'id/ids/ref/*Id/*Ids naming heuristic) and its value coincides with an existing %s id '
+                        . '(#%d "%s", %s), but no declared json_refs path covers this exact position — a '
+                        . 'resolved json_refs match is never still a raw number by this point (it becomes a '
+                        . 'token, or null if unmapped), so this is a genuine manifest gap, not a false read. '
+                        . 'Small ids coincide; this is a signal to investigate, not proof.',
                         $key, $hit['kind'], $hit['id'], $hit['title'], $hit['post_type']
                     ));
                 }

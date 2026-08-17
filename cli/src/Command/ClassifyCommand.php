@@ -107,7 +107,7 @@ final class ClassifyCommand {
                 throw new \RuntimeException("duo: could not write classification batch: $path");
             }
             echo "classification batch exported: $path\n";
-            echo "queue sha256: " . ClassificationBatch::queueHash($items) . "\n";
+            echo 'queue sha256: ' . ClassificationBatch::queueHash($items) . "\n";
             echo "review every decisions[].class, then run: duo classify {$driver->name()} --apply-batch=$path\n";
             return 0;
         } catch (\Throwable $e) {

@@ -67,8 +67,8 @@ final class BlockReferenceScanner {
                                     'unregistered_block_attr', $rel,
                                     'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $resolveId($id),
                                     "block '$name' has no block_attrs registry rule for attribute '$attrKey'; this "
-                                    . "numeric value passes through capture/apply untouched and will point at the "
-                                    . "wrong entity (or nothing) once ids diverge on another environment — the same "
+                                    . 'numeric value passes through capture/apply untouched and will point at the '
+                                    . 'wrong entity (or nothing) once ids diverge on another environment — the same '
                                     . "shape as core/navigation-link's id/kind pair before it had a registry rule."
                                 );
                             }
@@ -94,11 +94,11 @@ final class BlockReferenceScanner {
                                 'unrewritten_registered_ref', $rel,
                                 'blocks.' . $name . '.attrs.' . $attrKey . $locSuffix, $id, $resolveId($id),
                                 "block '$name' attribute '$attrKey' has a block_attrs registry rule declaring it a "
-                                . "reference, but this value is still numeric in captured state — the declared "
-                                . "rewrite to a {{...}} token never ran (an unmapped/dangling id, or — for a "
-                                . "kind_from-dispatched rule — a sibling value that resolved to no kind). This id "
-                                . "is silently environment-bound and will point at the wrong entity (or nothing) "
-                                . "once ids diverge on another environment."
+                                . 'reference, but this value is still numeric in captured state — the declared '
+                                . 'rewrite to a {{...}} token never ran (an unmapped/dangling id, or — for a '
+                                . 'kind_from-dispatched rule — a sibling value that resolved to no kind). This id '
+                                . 'is silently environment-bound and will point at the wrong entity (or nothing) '
+                                . 'once ids diverge on another environment.'
                             );
                         }
                     }
@@ -107,8 +107,8 @@ final class BlockReferenceScanner {
                             'unregistered_block_attr', $rel,
                             'blocks.' . $name . '.attrs.' . $attrKey, self::truncate($attrVal), null,
                             "block '$name' attribute '$attrKey' contains this environment's home URL in plain "
-                            . "form; block attributes are parsed JSON values, never routed through "
-                            . "tokenize_text()/detokenize_text() (only innerHTML/innerContent are today), so it "
+                            . 'form; block attributes are parsed JSON values, never routed through '
+                            . 'tokenize_text()/detokenize_text() (only innerHTML/innerContent are today), so it '
                             . "will leak this environment's host into the target regardless of any registry rule."
                         );
                     }

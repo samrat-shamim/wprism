@@ -44,7 +44,7 @@ final class SerializedTermDescriptionScanner {
                 "this term's description unserializes to PHP data containing an integer that matches an "
                 . "existing %s id (#%d \"%s\", %s); taxonomy '%s' has no 'description_refs' declaration, so "
                 . "nothing rewrites this term's description (Capture tokenize_text()'s it as an opaque string) "
-                . "and this id is silently environment-bound — a serialized map of entity ids stored in a "
+                . 'and this id is silently environment-bound — a serialized map of entity ids stored in a '
                 . "term's description, before a description_refs declaration covers it.",
                 $hit['kind'], $hit['id'], $hit['title'], $hit['post_type'], $taxonomy
             ));

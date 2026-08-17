@@ -1998,14 +1998,17 @@ final class EnvironmentMaterializer {
         $raw = $promote($driver, $frozenContext);
         if (!is_array($raw) || array_is_list($raw)) throw new \RuntimeException('promotion callback returned no structured receipt');
         $expected = ['artifact_hash', 'checkpoint_identity', 'code_revision', 'format', 'operation_id', 'owner', 'receipt_sha256', 'state_revision', 'status'];
-        $keys = array_keys($raw); sort($keys, SORT_STRING); sort($expected, SORT_STRING);
+        $keys = array_keys($raw);
+        sort($keys, SORT_STRING);
+        sort($expected, SORT_STRING);
         if ($keys !== $expected || ($raw['format'] ?? null) !== 'duo-branch-environment-promotion-receipt/v1'
             || ($raw['status'] ?? null) !== 'completed' || ($raw['owner'] ?? null) !== $frozenContext['promotion_owner']
             || ($raw['operation_id'] ?? null) !== $frozenContext['operation_id'] || ($raw['artifact_hash'] ?? null) !== $release['outer_artifact_hash']
             || ($raw['state_revision'] ?? null) !== $release['state_revision'] || ($raw['code_revision'] ?? null) !== $release['code_revision']) {
             throw new \RuntimeException('promotion callback receipt is not bound to the frozen operation/artifact/release');
         }
-        $copy = $raw; unset($copy['receipt_sha256']);
+        $copy = $raw;
+        unset($copy['receipt_sha256']);
         if (!is_string($raw['checkpoint_identity'])
             || preg_match('/^[a-f0-9]{64}$/D', $raw['checkpoint_identity']) !== 1
             || !is_string($raw['receipt_sha256']) || !hash_equals(hash('sha256', EnvironmentLifecycleCanon::encode($copy)), $raw['receipt_sha256'])) {

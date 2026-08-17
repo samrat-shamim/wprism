@@ -1,13 +1,13 @@
 <?php
 namespace Duo;
 
-require_once __DIR__ . "/../Kernel/Canon.php";
-require_once __DIR__ . "/../Code/Code.php";
-require_once __DIR__ . "/InitCodeInventory.php";
-require_once __DIR__ . "/InitExceptions.php";
-require_once __DIR__ . "/InitOwnedArtifacts.php";
-require_once __DIR__ . "/../Publication/PublicationJournal.php";
-require_once __DIR__ . "/../Publication/Publish.php";
+require_once __DIR__ . '/../Kernel/Canon.php';
+require_once __DIR__ . '/../Code/Code.php';
+require_once __DIR__ . '/InitCodeInventory.php';
+require_once __DIR__ . '/InitExceptions.php';
+require_once __DIR__ . '/InitOwnedArtifacts.php';
+require_once __DIR__ . '/../Publication/PublicationJournal.php';
+require_once __DIR__ . '/../Publication/Publish.php';
 
 /**
  * Captures and validates the first immutable code baseline.

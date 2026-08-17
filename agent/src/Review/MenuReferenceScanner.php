@@ -128,9 +128,9 @@ final class MenuReferenceScanner {
         }
         $findings[] = LintFinding::make('escaped_home', $rel, $locator, self::truncate($value), null, sprintf(
             "this environment's home URL (%s) appears in JSON-escaped form (\\/ instead of /); "
-            . "Tokens::tokenize_text() only matches the plain, unescaped form (a literal str_replace()), so this "
+            . 'Tokens::tokenize_text() only matches the plain, unescaped form (a literal str_replace()), so this '
             . "will NOT be rewritten on apply and will leak this environment's host into the target — "
-            . "the escaped-slash URL leak shape of an opaque embedded JSON blob.",
+            . 'the escaped-slash URL leak shape of an opaque embedded JSON blob.',
             $home
         ));
     }

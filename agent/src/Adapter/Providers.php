@@ -509,7 +509,7 @@ final class Providers {
                     ">={$range['min']} <{$range['max']}",
                     $installed !== '' ? $installed : '(unknown version)',
                     "upgrade or downgrade $plugin into >={$range['min']} <{$range['max']}, "
-                        . "or pin a manifest whose range covers the installed version"
+                        . 'or pin a manifest whose range covers the installed version'
                 );
                 continue;
             }

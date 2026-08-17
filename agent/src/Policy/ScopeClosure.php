@@ -448,7 +448,7 @@ final class ScopeClosure {
             if (!in_array($actual, $expectTypes, true)) {
                 throw new \RuntimeException(
                     "duo: root selector '$selector' resolves to a '$actual' entity ({$tree[$uuid]['path']}), not "
-                    . implode('/', $expectTypes) . " — a scope root is refused rather than silently retyped"
+                    . implode('/', $expectTypes) . ' — a scope root is refused rather than silently retyped'
                 );
             }
             return $uuid;

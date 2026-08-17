@@ -71,7 +71,7 @@ final class CaptureTransaction {
 
         sort($bad);
         $operatorMessage = 'duo: capture refused — consistent-snapshot isolation requires InnoDB, but the following table(s) '
-            . "capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot "
+            . 'capture reads from use a different storage engine (no MVCC/undo log, so a consistent-snapshot '
             . "transaction gives no real point-in-time guarantee for them):\n  - " . implode("\n  - ", $bad)
             . "\nConvert the table(s) to InnoDB (e.g. ALTER TABLE <table> ENGINE=InnoDB) and re-run capture.";
         $diagnostics = array_map(static fn(string $table): array => [

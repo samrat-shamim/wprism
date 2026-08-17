@@ -415,7 +415,7 @@ class PublicationJournal {
         $path = self::lock_path($stateDir);
         $dir = dirname($path);
         if (!is_dir($dir)) {
-            throw new \RuntimeException("duo: cannot create first capture lock outside an existing repository root");
+            throw new \RuntimeException('duo: cannot create first capture lock outside an existing repository root');
         }
         $fh = @fopen($path, 'x');
         if ($fh === false) {
@@ -705,7 +705,7 @@ class PublicationJournal {
                     self::assert_tree_digest($stateDir, (string) $intent['candidate_sha256'], 'first-capture published candidate');
                     self::rrmdir($stateDir);
                     self::remove_record(self::intent_path($stateDir), 'intent', $intent);
-                    $log[] = "RECOVERED: removed first-capture candidate published before COMMIT was attempted";
+                    $log[] = 'RECOVERED: removed first-capture candidate published before COMMIT was attempted';
                     return $log;
                 }
                 throw self::ambiguous_recovery('capture intent has an unexpected pre-commit filesystem shape');
@@ -725,7 +725,7 @@ class PublicationJournal {
                     self::assert_tree_digest($stateDir, (string) $intent['candidate_sha256'], 'first-capture published candidate');
                     self::rrmdir($stateDir);
                     self::remove_record(self::intent_path($stateDir), 'intent', $intent);
-                    $log[] = "RECOVERED: removed first-capture candidate published before COMMIT was attempted";
+                    $log[] = 'RECOVERED: removed first-capture candidate published before COMMIT was attempted';
                     return $log;
                 }
                 // A swapped marker with a missing state cannot be repaired

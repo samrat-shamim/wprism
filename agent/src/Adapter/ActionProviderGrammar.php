@@ -567,7 +567,9 @@ final class ActionProviderGrammar {
         } elseif ($mode === 'prevented') {
             $expected[] = 'prevention';
         }
-        $actual = array_keys($effect); sort($actual, SORT_STRING); sort($expected, SORT_STRING);
+        $actual = array_keys($effect);
+        sort($actual, SORT_STRING);
+        sort($expected, SORT_STRING);
         if ($actual !== $expected) {
             throw new \RuntimeException("duo: $where has missing or unknown fields for mode " . var_export($mode, true));
         }
@@ -606,7 +608,8 @@ final class ActionProviderGrammar {
         $scope = $selector['scope'] ?? null;
         $type = $selector['type'] ?? null;
         $value = $selector['value'] ?? null;
-        $keys = array_keys($selector); sort($keys, SORT_STRING);
+        $keys = array_keys($selector);
+        sort($keys, SORT_STRING);
         $expectedSelectorKeys = ['scope', 'type', 'value'];
         if ($type === 'provider_resource' && array_key_exists('members', $selector)) {
             $expectedSelectorKeys[] = 'members';
@@ -705,7 +708,8 @@ final class ActionProviderGrammar {
         if (!is_array($members) || array_is_list($members)) {
             throw new \RuntimeException("duo: $where must be an object");
         }
-        $keys = array_keys($members); sort($keys, SORT_STRING);
+        $keys = array_keys($members);
+        sort($keys, SORT_STRING);
         if ($keys !== ['exact', 'templates']) {
             throw new \RuntimeException("duo: $where requires exactly exact and templates lists");
         }
@@ -781,7 +785,8 @@ final class ActionProviderGrammar {
         if (!is_array($adapter) || array_is_list($adapter)) {
             throw new \RuntimeException("duo: $where must be an object");
         }
-        $keys = array_keys($adapter); sort($keys, SORT_STRING);
+        $keys = array_keys($adapter);
+        sort($keys, SORT_STRING);
         $expected = ['id', 'inverse', 'inverse_inputs', 'verifier', 'verifier_inputs', 'version'];
         if ($keys !== $expected) {
             throw new \RuntimeException("duo: $where requires version-pinned inverse and verifier inputs");

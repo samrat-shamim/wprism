@@ -82,7 +82,7 @@ final class ApplyPreparationCoordinator {
             );
             throw ApplyPlanner::incomplete_override_refusal(
                 $evidence,
-                "duo: deletion conflict override requires --with-deletes together with --force-theirs; "
+                'duo: deletion conflict override requires --with-deletes together with --force-theirs; '
                     . "no target mutation attempted:\n  - $list"
             );
         }
@@ -107,7 +107,7 @@ final class ApplyPreparationCoordinator {
         }
         if ($pendingOptionDeletes && empty($opts['with_deletes'])) {
             sort($pendingOptionDeletes, SORT_STRING);
-            $operatorMessage = "duo: authored option deletion intent requires --with-deletes; "
+            $operatorMessage = 'duo: authored option deletion intent requires --with-deletes; '
                 . "no target mutation attempted:\n  - "
                 . implode("\n  - ", array_unique($pendingOptionDeletes));
             if ($pendingOptionConflictEvidence !== []) {
@@ -184,7 +184,7 @@ final class ApplyPreparationCoordinator {
                     fn($row) => "{$row['type']} {$row['uuid']}: {$row['blocked']}",
                     $blocked
                 ));
-                $operatorMessage = "duo: deletes blocked by referential guards "
+                $operatorMessage = 'duo: deletes blocked by referential guards '
                     . "(this environment's runtime data references them; --force-delete-referenced to override):\n  - $list";
                 $conflictEvidence = [];
                 foreach ($blocked as $row) {

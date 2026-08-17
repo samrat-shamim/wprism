@@ -613,7 +613,7 @@ final class RefreshFieldDiff {
             $choiceMap[self::choiceKey($choice['record_selector_sha256'], $choice['field_selector_sha256'])] = $choice['choice'];
         }
         foreach ($bundle['records'] as $recordSelector => $record) {
-            $entry =& $plan['entries'][$record['entry_index']];
+            $entry = & $plan['entries'][$record['entry_index']];
             if (($record['mode'] ?? null) === 'record') {
                 $choice = $choiceMap[self::choiceKey($recordSelector, $record['record_field_selector'])] ?? null;
                 if (!in_array($choice, ['ours', 'theirs'], true)) {

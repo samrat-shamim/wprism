@@ -485,7 +485,7 @@ final class DependencyRegenerator {
                         Ledger::kv_set(self::REGEN_PENDING_PREFIX . $uuid, (string) $postType);
                     }
                     throw new \RuntimeException(
-                        "duo: batch regen_dependency verification failed for post " . (int) $id
+                        'duo: batch regen_dependency verification failed for post ' . (int) $id
                         . " (type '$postType') — expected a row in {$decl['verify']['table']} where "
                         . "{$decl['verify']['column']} = " . (int) $id
                     );
