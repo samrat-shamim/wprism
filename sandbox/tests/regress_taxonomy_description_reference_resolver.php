@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/TaxonomyDescriptionReferenceResolver.php";
+$resolverPath = "$root/agent/src/Grammar/TaxonomyDescriptionReferenceResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -93,9 +93,9 @@ $assertThrows(
     'malformed declarations retain the exact manifest-bearing ReferenceRules refusal source'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
@@ -110,9 +110,9 @@ $check(
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/TaxonomyDescriptionReferenceResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/TaxonomyDescriptionReferenceResolver.php';") === 1
         && str_contains($policySource, 'return $this->taxonomy_description_reference_resolver()->resolve($tax);')
         && str_contains($policySource, 'new TaxonomyDescriptionReferenceResolver($this->manifests)')
         && str_contains($policySource, 'return $this->description_reference_rule($tax);')

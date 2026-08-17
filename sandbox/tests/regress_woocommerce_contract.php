@@ -6,9 +6,9 @@ declare(strict_types=1);
 // future option/table addition from becoming invisible by accident.
 
 define('DUO_SPEC_VERSION', 2);
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-require dirname(__DIR__, 2) . '/agent/src/Code.php';
-require dirname(__DIR__, 2) . '/agent/src/Policy.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 2) . '/agent/src/Code/Code.php';
+require dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
 
 use Duo\Policy;
 
@@ -136,11 +136,20 @@ woo_ok($policy->regen_batch_post_types() === [] && $policy->regen_dependency('pr
 // manifests/woocommerce.json and the provider/native-action contract.
 // These assertions fail against the pre-DUO-3341 tree (class present,
 // require_once in agent/duo.php), which is this issue's regression proof.
-woo_ok(!is_file($root . '/agent/src/WooCommerceContract.php'), 'the whole-catalog Woo projection class is deleted from engine core (DUO-3341)');
-$engineSrcEntries = scandir($root . '/agent/src');
-woo_ok(is_array($engineSrcEntries) && count($engineSrcEntries) > 2, 'agent/src enumerates non-empty for the WooCommerce-named source scan');
+// Recursive since the module move (ROUND 3 TRAIN 1): agent/src is a tree of
+// module directories, so a flat scandir() would enumerate module names and let
+// both checks below pass for the wrong reason. The deleted class is now looked
+// for ANYWHERE under agent/src, which is the claim DUO-3341 actually makes.
+$engineSrcEntries = [];
+foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root . '/agent/src', FilesystemIterator::SKIP_DOTS)) as $engineSrcEntry) {
+    if ($engineSrcEntry instanceof SplFileInfo && $engineSrcEntry->isFile() && $engineSrcEntry->getExtension() === 'php') {
+        $engineSrcEntries[] = $engineSrcEntry->getFilename();
+    }
+}
+woo_ok(!in_array('WooCommerceContract.php', $engineSrcEntries, true), 'the whole-catalog Woo projection class is deleted from engine core (DUO-3341)');
+woo_ok(count($engineSrcEntries) > 2, 'agent/src enumerates non-empty for the WooCommerce-named source scan');
 $wooNamedEngineSources = array_values(array_filter(
-    (array) $engineSrcEntries,
+    $engineSrcEntries,
     static fn(string $name): bool => stripos($name, 'woocommerce') !== false || stripos($name, 'woo') === 0
 ));
 woo_ok($wooNamedEngineSources === [], 'no WooCommerce-named production class remains under agent/src (DUO-3341)');

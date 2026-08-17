@@ -12,7 +12,7 @@
 #      byte-identical to a full clone, so nothing looks wrong -- until
 #      `make release-gate` dies with
 #        duo: certification Git revision is not a commit: c30c1976...
-#      (agent/src/ScopedCertificationBundle.php:433) and several offline suites
+#      (agent/src/Adapter/ScopedCertificationBundle.php:433) and several offline suites
 #      that exercise the same bundle path die with it too. The message names a
 #      certification revision, so it reads like an evidence problem. It is not:
 #      the object is simply not in the local object database.
@@ -336,12 +336,12 @@ if have php; then
     # not because it is conventionally present:
     #   sodium   -- sodium_crypto_sign_detached / _verify_detached / _publickey_
     #               from_secretkey / sodium_memzero in agent/src/
-    #               AdapterCertification.php, cli/src/RollbackAuthority.php and
+    #               AdapterCertification.php, cli/src/Recovery/RollbackAuthority.php and
     #               recovery/rollback-control.php (the whole rollback authority
     #               chain is Ed25519).
     #   json     -- canonical JSON is the wire format (recovery/CanonicalJson.php
     #               and every manifest reader).
-    #   mbstring -- mb_strtolower() in agent/src/AdapterSources.php.
+    #   mbstring -- mb_strtolower() in agent/src/Adapter/AdapterSources.php.
     for ext in json mbstring sodium; do
         if php -r "exit(extension_loaded('$ext') ? 0 : 1);"; then
             ok "php extension: $ext"
@@ -501,7 +501,7 @@ if [ -f vendor/autoload.php ]; then
     done
 else
     warn "vendor/ is not installed -- composer check, phpstan, phpunit unavailable"
-    why "nothing under vendor/ ever ships: cli/src/Adopt.php tars exactly"
+    why "nothing under vendor/ ever ships: cli/src/Onboarding/Adopt.php tars exactly"
     why "'agent manifests recovery', so the dev toolchain cannot reach a managed site."
     remedy "composer install"
 fi

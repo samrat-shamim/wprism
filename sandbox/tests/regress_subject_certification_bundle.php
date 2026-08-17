@@ -71,9 +71,9 @@ $repo = $argv[1];
 define('DUO_AGENT_VERSION', '0.5.0');
 define('DUO_SPEC_VERSION', 2);
 function is_multisite(): bool { return false; }
-require $repo . '/agent/src/Canon.php';
-require $repo . '/agent/src/ManifestDispositions.php';
-require $repo . '/agent/src/CapabilityRegistry.php';
+require $repo . '/agent/src/Kernel/Canon.php';
+require $repo . '/agent/src/Policy/ManifestDispositions.php';
+require $repo . '/agent/src/Adapter/CapabilityRegistry.php';
 $dir = $repo . '/manifests';
 $dispositions = Duo\ManifestDispositions::load($dir);
 $manifests = [];
@@ -90,8 +90,8 @@ PHP;
 }
 
 $source = realpath(__DIR__ . '/../..');
-require_once $source . '/agent/src/Canon.php';
-require_once $source . '/agent/src/ScopedCertificationBundle.php';
+require_once $source . '/agent/src/Kernel/Canon.php';
+require_once $source . '/agent/src/Adapter/ScopedCertificationBundle.php';
 $entry = json_decode((string) file_get_contents($source . '/sandbox/conformance/entries/woocommerce.json'), true);
 $globalEntry = json_decode((string) file_get_contents($source . '/sandbox/conformance/manifests.json'), true)['woocommerce'] ?? null;
 check(
@@ -123,9 +123,9 @@ $repo = "$root/repo";
 $clone = run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $repo]);
 check($clone['exit'] === 0 && is_file($repo . '/manifests/woocommerce.json'), 'isolated repository clone is available');
 foreach ([
-    'agent/src/CapabilityRegistry.php',
-    'agent/src/ManifestDispositions.php',
-    'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php',
+    'agent/src/Policy/ManifestDispositions.php',
+    'agent/src/Adapter/ScopedCertificationBundle.php',
     'manifests/dispositions.json',
     'manifests/capabilities/evidence.json',
     'manifests/capabilities/registry.json',
@@ -306,7 +306,7 @@ check(
 $forcedTarget = "$root/forced-target";
 run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $forcedTarget]);
 foreach ([
-    'agent/src/CapabilityRegistry.php', 'agent/src/ManifestDispositions.php', 'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php', 'agent/src/Policy/ManifestDispositions.php', 'agent/src/Adapter/ScopedCertificationBundle.php',
     'manifests/dispositions.json', 'manifests/capabilities/evidence.json', 'manifests/capabilities/registry.json',
     'scripts/capability-registry.php', 'sandbox/conformance/entries/woocommerce.json',
 ] as $relative) {
@@ -329,7 +329,7 @@ file_put_contents($tampered . '/logs/conformance-woocommerce.txt', "forged evide
 $tamperedTarget = "$root/tampered-target";
 run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $tamperedTarget]);
 foreach ([
-    'agent/src/CapabilityRegistry.php', 'agent/src/ManifestDispositions.php', 'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php', 'agent/src/Policy/ManifestDispositions.php', 'agent/src/Adapter/ScopedCertificationBundle.php',
     'manifests/dispositions.json', 'manifests/capabilities/evidence.json', 'manifests/capabilities/registry.json',
     'scripts/capability-registry.php', 'sandbox/conformance/entries/woocommerce.json',
 ] as $relative) {
@@ -359,9 +359,9 @@ check($bound['exit'] !== 0, 'bound generic engine mutation expires the Woo recor
 $clean = "$root/clean";
 run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $clean]);
 foreach ([
-    'agent/src/CapabilityRegistry.php',
-    'agent/src/ManifestDispositions.php',
-    'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php',
+    'agent/src/Policy/ManifestDispositions.php',
+    'agent/src/Adapter/ScopedCertificationBundle.php',
     'manifests/dispositions.json',
     'manifests/capabilities/evidence.json',
     'manifests/capabilities/registry.json',
@@ -425,9 +425,9 @@ echo "\n== profile evidence is independent from its parent manifest ==\n";
 $profileRepo = "$root/profile";
 run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $profileRepo]);
 foreach ([
-    'agent/src/CapabilityRegistry.php',
-    'agent/src/ManifestDispositions.php',
-    'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php',
+    'agent/src/Policy/ManifestDispositions.php',
+    'agent/src/Adapter/ScopedCertificationBundle.php',
     'scripts/capability-registry.php',
     'manifests/dispositions.json',
     'manifests/capabilities/evidence.json',
@@ -504,9 +504,9 @@ echo "\n== manifest-driven unknown extension onboarding ==\n";
 $extensionRepo = "$root/extension";
 run(['git', 'clone', '--quiet', '--no-hardlinks', $source, $extensionRepo]);
 foreach ([
-    'agent/src/CapabilityRegistry.php',
-    'agent/src/ManifestDispositions.php',
-    'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php',
+    'agent/src/Policy/ManifestDispositions.php',
+    'agent/src/Adapter/ScopedCertificationBundle.php',
     'scripts/capability-registry.php',
     'sandbox/bin/subject-certification-bundle.php',
     'sandbox/tests/certify_subject_bundle.sh',
@@ -519,8 +519,8 @@ foreach ([
 }
 reset_subject_evidence($extensionRepo);
 $frameworkPaths = [
-    'agent/src/CapabilityRegistry.php',
-    'agent/src/ScopedCertificationBundle.php',
+    'agent/src/Adapter/CapabilityRegistry.php',
+    'agent/src/Adapter/ScopedCertificationBundle.php',
     'scripts/capability-registry.php',
     'sandbox/bin/subject-certification-bundle.php',
     'sandbox/tests/certify_subject_bundle.sh',

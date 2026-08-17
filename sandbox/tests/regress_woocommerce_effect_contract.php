@@ -15,9 +15,9 @@ declare(strict_types=1);
  */
 
 define('DUO_SPEC_VERSION', 2);
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-require dirname(__DIR__, 2) . '/agent/src/OptionState.php';
-require dirname(__DIR__, 2) . '/agent/src/Policy.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/OptionState.php';
+require dirname(__DIR__, 2) . '/agent/src/Policy/Policy.php';
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
 
 use Duo\Policy;

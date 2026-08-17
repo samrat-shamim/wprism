@@ -78,7 +78,7 @@ final class Db {
 
 $wpdb = new FakePromotionWpdb();
 
-require_once dirname(__DIR__, 2) . '/agent/src/PromotionLock.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Promotion/PromotionLock.php';
 
 $check = static function (bool $ok, string $message): void {
     if (!$ok) {

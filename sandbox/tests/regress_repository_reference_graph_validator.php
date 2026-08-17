@@ -44,8 +44,8 @@ namespace Duo {
 
 namespace {
     $root = dirname(__DIR__, 2);
-    $validatorPath = "$root/agent/src/RepositoryReferenceGraphValidator.php";
-    $graphPath = "$root/agent/src/ReferenceGraph.php";
+    $validatorPath = "$root/agent/src/Repository/RepositoryReferenceGraphValidator.php";
+    $graphPath = "$root/agent/src/Repository/ReferenceGraph.php";
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
         echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -196,7 +196,7 @@ namespace {
         'token and raw UUID grammar plus registered-kind mismatch diagnostics remain exact'
     );
 
-    $compiler = (string) file_get_contents("$root/agent/src/RepositoryCompiler.php");
+    $compiler = (string) file_get_contents("$root/agent/src/Repository/RepositoryCompiler.php");
     $validatorSource = (string) file_get_contents($validatorPath);
     $check(
         substr_count($compiler, "require_once __DIR__ . '/RepositoryReferenceGraphValidator.php';") === 1

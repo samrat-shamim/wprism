@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Regression — DUO-3259: shortcode-attribute reference codec.
-#   (1) agent/src/Shortcodes.php (new): structure-aware capture/apply
+#   (1) agent/src/Grammar/Shortcodes.php (new): structure-aware capture/apply
 #       rewriting of declared shortcode_attrs refs (gallery's id/ids/
 #       include/exclude), mirroring Blocks.php's block_attrs mechanism
 #       and porting task #73's dangling-vs-unscoped triage a third time.
-#   (2) agent/src/Blocks.php's $rewriteString closure: now also threads
+#   (2) agent/src/Grammar/Blocks.php's $rewriteString closure: now also threads
 #       every innerContent chunk through Shortcodes::capture_rewrite_
 #       text()/apply_rewrite_text() -- proven via the REAL Blocks::
 #       capture_rewrite() entry point (S18), not just Shortcodes.php in
 #       isolation.
-#   (3) agent/src/Lint.php's new scan_shortcodes(): the shortcode twins
+#   (3) agent/src/Review/Lint.php's new scan_shortcodes(): the shortcode twins
 #       of unregistered_block_attr / unrewritten_registered_ref.
 #
 # Pure PHP, no docker, no WordPress bootstrap: regress_shortcode_refs.php

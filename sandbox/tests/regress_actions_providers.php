@@ -51,20 +51,20 @@ function is_multisite(): bool {
 }
 
 $root = dirname(__DIR__, 2);
-require $root . '/agent/src/Canon.php';
-require $root . '/agent/src/OptionState.php';
-require $root . '/agent/src/Db.php';
+require $root . '/agent/src/Kernel/Canon.php';
+require $root . '/agent/src/Kernel/OptionState.php';
+require $root . '/agent/src/Kernel/Db.php';
 // Policy.php require_once's NativeActions.php itself (its validators call the
 // closed vocabulary at load time), so this file must not require it a second
 // time.
-require $root . '/agent/src/Policy.php';
-require $root . '/agent/src/Providers.php';
-require $root . '/agent/src/Ledger.php';
-require $root . '/agent/src/RepositoryCompiler.php';
-require_once $root . '/agent/src/SidebarState.php';
-require $root . '/agent/src/RepositoryAuthorization.php';
-require $root . '/agent/src/Deploy.php';
-require $root . '/agent/src/ManifestDispositions.php';
+require $root . '/agent/src/Policy/Policy.php';
+require $root . '/agent/src/Adapter/Providers.php';
+require $root . '/agent/src/Repository/Ledger.php';
+require $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $root . '/agent/src/Repository/SidebarState.php';
+require $root . '/agent/src/Repository/RepositoryAuthorization.php';
+require $root . '/agent/src/Promotion/Deploy.php';
+require $root . '/agent/src/Policy/ManifestDispositions.php';
 // DUO-3348 slice 4: Policy.php now require_once's AdapterRegistry.php, which
 // itself require_once's CapabilityRegistry.php — the same already-covered
 // shape as the NativeActions.php note above, one hop further down the chain.

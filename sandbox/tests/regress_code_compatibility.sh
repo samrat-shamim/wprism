@@ -10,13 +10,25 @@ DUO_ROOT="$ROOT" php -d display_errors=1 <<'PHP'
 <?php
 $root = getenv('DUO_ROOT');
 define('DUO_SPEC_VERSION', 2);
+$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
+if (!is_array($duoAgentClassmap)) {
+    throw new \RuntimeException('regress_code_compatibility: agent/duo-classmap.php did not return a map');
+}
+$duoAgentFiles = [];
+foreach ($duoAgentClassmap as $duoAgentPath) {
+    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+}
 foreach ([
     'Uuid', 'Canon', 'OptionState', 'Db', 'Secrets', 'PersonalData',
     'CodeCompatibility', 'Code', 'UserMetaState', 'Policy', 'Ledger',
     'Snapshot', 'Deletion', 'RepositoryAuthorization', 'SidebarState',
     'CodeStateContract', 'RepositoryCompiler',
 ] as $file) {
-    require_once "$root/agent/src/$file.php";
+    $duoAgentFile = $duoAgentFiles[$file] ?? null;
+    if (!is_string($duoAgentFile)) {
+        throw new \RuntimeException('regress_code_compatibility: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    }
+    require_once $root . '/agent/' . $duoAgentFile;
 }
 
 use Duo\Canon;
@@ -453,11 +465,11 @@ $root = getenv('DUO_ROOT');
 define('WP_CONTENT_DIR', sys_get_temp_dir() . '/duo-code-compat-stage-target-' . bin2hex(random_bytes(6)));
 define('WP_PLUGIN_DIR', WP_CONTENT_DIR . '/plugins');
 define('WPMU_PLUGIN_DIR', WP_CONTENT_DIR . '/mu-plugins');
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/CodeCompatibility.php";
-require_once "$root/agent/src/CodeStateContract.php";
-require_once "$root/agent/src/Code.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Code/CodeCompatibility.php";
+require_once "$root/agent/src/Code/CodeStateContract.php";
+require_once "$root/agent/src/Code/Code.php";
 
 function fail_stage_compat(string $message): never { throw new \RuntimeException("FAIL: $message"); }
 function put_stage_compat(string $path, string $bytes): void {

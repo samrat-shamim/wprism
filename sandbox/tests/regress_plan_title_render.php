@@ -6,7 +6,7 @@
  * key) must be rendered with that name beside the repository path, and rows
  * without one must render exactly as before. Pure PHP over the orchestrator
  * renderer; no WordPress or Docker. The agent-side line renderer
- * (agent/src/Cli.php) is the lockstep twin of this boundary and is proven
+ * (agent/src/Command/Cli.php) is the lockstep twin of this boundary and is proven
  * through the live product path by the core conformance check's plan-naming
  * scenario; this file pins the orchestrator half and the display rules:
  *
@@ -20,7 +20,7 @@
  * identifier-bearing paths.
  */
 
-require_once __DIR__ . '/../../cli/src/PlanSummary.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 
 use Duo\Orchestrator\PlanSummary;
 

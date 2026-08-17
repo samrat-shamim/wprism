@@ -25,7 +25,7 @@ nobody has written a manifest for.
 These guides describe only what exists at the commit that publishes them.
 
 - **Shipped behavior is stated in the present tense** and every command, verb,
-  and flag in these pages was read out of `cli/duo` or `agent/src/Cli.php`
+  and flag in these pages was read out of `cli/duo` or `agent/src/Command/Cli.php`
   before it was written down. `sandbox/tests/check_guide_commands.sh` re-proves
   that mechanically: it extracts every `duo <verb>` and `wp duo <command>`
   token from these files and fails, naming the guide and line, if the token is

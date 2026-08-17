@@ -199,17 +199,17 @@ final class FakeWpdb {
 $wpdb = new FakeWpdb();
 $GLOBALS['wpdb'] = $wpdb;
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Uuid.php';
-require __DIR__ . '/../../agent/src/Secrets.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/Snapshot.php';
-require __DIR__ . '/../../agent/src/SidebarState.php';
-require __DIR__ . '/../../agent/src/IdentityNotes.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Uuid.php';
+require __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../agent/src/Repository/Snapshot.php';
+require __DIR__ . '/../../agent/src/Repository/SidebarState.php';
+require __DIR__ . '/../../agent/src/Repository/IdentityNotes.php';
 
 use Duo\Canon;
 use Duo\IdentityNotes;

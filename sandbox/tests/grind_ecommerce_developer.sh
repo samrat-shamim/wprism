@@ -25,7 +25,7 @@ require mktemp
 
 REPO_ROOT="$(cd .. && pwd)"
 DUO="$REPO_ROOT/cli/duo"
-CODE_DEPLOY="$REPO_ROOT/cli/src/CodeDeploy.php"
+CODE_DEPLOY="$REPO_ROOT/cli/src/Transport/CodeDeploy.php"
 FIXTURE="$REPO_ROOT/sandbox/fixtures/duo-ecommerce-developer-grind"
 PAIR="${ECOMMERCE_PAIR:-ecomgrind${BASHPID}${RANDOM}}"
 [[ "$PAIR" =~ ^[a-z][a-z0-9]*$ ]] \
@@ -234,7 +234,7 @@ assert_phase_order() {
 }
 canonicalize_json() {
   local path="$1" tmp="${1}.canon.${BASHPID}"
-  DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+  DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $path = $argv[1];
 $raw = file_get_contents($path);
@@ -1304,7 +1304,7 @@ assert_receipt() {
     *) fail "$label artifact is not a deploy/promote receipt: $artifact" ;;
   esac
   jq -e --arg code "$expected_code" '(.artifact_hash | test("^[0-9a-f]{64}$")) and (.revision_hash | test("^[0-9a-f]{64}$")) and .code.format == "duo-code/v1" and .code.code_revision == $code' "$artifact" >/dev/null || fail "$label artifact receipt malformed"
-  recomputed_hash="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+  recomputed_hash="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $payload = Duo\Canon::decode(file_get_contents($argv[1]));
 unset($payload["artifact_hash"]);
@@ -2681,7 +2681,7 @@ V2_FAILED_ARTIFACT_FILE="$OTHER_SITE/.duo/artifacts/promote-$V2_FAILED_RUN_ID.js
 V2_FAILED_CHECKPOINT_SHA256="$(sha256sum "$V2_FAILED_CHECKPOINT_HOST" | awk '{print $1}')"
 [[ "$V2_FAILED_CHECKPOINT_SHA256" =~ ^[0-9a-f]{64}$ ]] || fail 'failed v2 checkpoint SHA-256 is malformed'
 V2_FAILED_COMPILED_HASH="$(jq -r '.artifact_hash' "$V2_FAILED_ARTIFACT_FILE")"
-V2_FAILED_RECOMPUTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+V2_FAILED_RECOMPUTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $payload = Duo\Canon::decode(file_get_contents($argv[1]));
 unset($payload["artifact_hash"]);
@@ -2971,7 +2971,7 @@ pass "theme lifecycle: explicit safe child removal failure/retry"
 say "Woo deletion boundary: public product delete is refused before Duo capture mutation"
 DELETION_PROBE_STATE_FILE="$(find "$SITE/state/posts/product" -type f -name '*--duo-grind-delete-probe.md' -print -quit)"
 [ -n "$DELETION_PROBE_STATE_FILE" ] || fail 'source deletion probe state file was not captured before deletion'
-DELETION_PROBE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+DELETION_PROBE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 [$front] = Duo\Canon::parse_post_file(file_get_contents($argv[1]));
 echo $front["uuid"];
@@ -3130,7 +3130,7 @@ pass "native active_plugins order was accepted after provider-first lifecycle pl
 say "state drift then conflict: target edit is visible before an intentional branch edit"
 PRODUCT_FILE="$(find "$SITE/state/posts/product" -type f -name '*--duo-grind-tee.md' -print -quit)"
 [ -n "$PRODUCT_FILE" ] || fail 'canonical variable product file missing'
-TEE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+TEE_UUID="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 [$front] = Duo\Canon::parse_post_file(file_get_contents($argv[1]));
 echo $front["uuid"];
@@ -3146,7 +3146,7 @@ if DRIFT_STATUS="$(status 2>&1)"; then
 fi
 echo "$DRIFT_STATUS"
 grep -Eqi 'drift' <<<"$DRIFT_STATUS" || fail 'status did not report ordinary state drift'
-DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $path = $argv[1];
 [$front, $body] = Duo\Canon::parse_post_file(Duo\Canon::read_file($path));
@@ -3229,7 +3229,7 @@ cp -a "$SITE/code" "$REPLACEMENT_PRIOR_INPUTS/code"
 cp -a "$SITE/state" "$REPLACEMENT_PRIOR_INPUTS/state"
 cp "$SITE/site.duo.json" "$REPLACEMENT_PRIOR_INPUTS/site.duo.json"
 OPTION_RECORD="$(jq -c '.records.duo_commerce_extension_settings' "$STATE")"
-OPTION_EXPECTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+OPTION_EXPECTED_HASH="$(DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $record = json_decode($argv[1], true, 512, JSON_THROW_ON_ERROR);
 echo hash("sha256", Duo\Canon::encode($record));

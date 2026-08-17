@@ -15,7 +15,7 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/TextTokenizer.php';
+require __DIR__ . '/../../agent/src/Kernel/TextTokenizer.php';
 check(!class_exists(\Duo\Ledger::class, false), 'tokenizer standalone load does not load Ledger');
 check(!function_exists('get_option'), 'tokenizer standalone load does not need WordPress');
 
@@ -69,8 +69,8 @@ check(
 // The public Tokens facade remains the one spelling used by existing
 // callers, but the URL-prefix substitution now lives in the pure
 // collaborator, and the facade's own escaped-URL bookkeeping is gone.
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
 
 use Duo\Tokens;
 
@@ -101,7 +101,7 @@ check(
 );
 check($tokens->home() === $home, 'Tokens::home() is unaffected by the extraction');
 
-$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Tokens.php');
+$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Grammar/Tokens.php');
 check(str_contains($tokenSource, 'textTokenizer->tokenize('), 'Tokens delegates URL-prefix tokenizing to the collaborator');
 check(str_contains($tokenSource, 'textTokenizer->detokenize('), 'Tokens delegates URL-prefix detokenizing to the collaborator');
 check(!str_contains($tokenSource, 'homeEscaped'), 'Tokens no longer owns a duplicate escaped-home property');

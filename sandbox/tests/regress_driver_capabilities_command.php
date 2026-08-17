@@ -1,8 +1,8 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/EnvironmentDriver.php';
-require_once __DIR__ . '/../../cli/src/DriverCapabilitiesCommand.php';
+require_once __DIR__ . '/../../cli/src/Transport/EnvironmentDriver.php';
+require_once __DIR__ . '/../../cli/src/Command/DriverCapabilitiesCommand.php';
 
 use Duo\Orchestrator\DriverCapability;
 use Duo\Orchestrator\DriverCapabilityReport;

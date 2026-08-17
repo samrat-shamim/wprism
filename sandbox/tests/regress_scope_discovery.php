@@ -44,7 +44,7 @@ namespace Duo {
         return $GLOBALS['scopeDiscoveryTaxonomies'][$taxonomy] ?? false;
     }
 
-    require_once __DIR__ . '/../../agent/src/ScopeDiscovery.php';
+    require_once __DIR__ . '/../../agent/src/Policy/ScopeDiscovery.php';
 
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
@@ -285,9 +285,9 @@ namespace Duo {
         'a scope-gap refusal prevents post, term, taxonomy-ownership, and warning work'
     );
 
-    $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-    $workflowSource = file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php');
-    $candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
+    $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/Capture.php');
+    $workflowSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CapturePublicationWorkflow.php');
+    $candidateSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureCandidateBuilder.php');
     $check(is_string($captureSource)
         && str_contains($captureSource, "require_once __DIR__ . '/CapturePublicationWorkflow.php';")
         && is_string($workflowSource)
@@ -295,7 +295,7 @@ namespace Duo {
         && str_contains($workflowSource, '$c = new CaptureCandidateBuilder('),
         'Capture explicitly delegates entity assembly to the candidate builder');
     $check(is_string($candidateSource)
-        && str_contains($candidateSource, "require_once __DIR__ . '/ScopeDiscovery.php';")
+        && str_contains($candidateSource, "require_once __DIR__ . '/../Policy/ScopeDiscovery.php';")
         && str_contains($candidateSource, '$this->scopeDiscovery = new ScopeDiscovery('),
         'candidate builder explicitly owns one shared ScopeDiscovery collaborator');
     $check(is_string($candidateSource)

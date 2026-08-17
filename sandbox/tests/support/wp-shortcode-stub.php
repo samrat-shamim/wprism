@@ -3,7 +3,7 @@
  * Offline test support ONLY — never loaded by the agent itself, never
  * bind-mounted into any sandbox container. Vendored, byte-for-byte,
  * unmodified copies of the WordPress core shortcode-parsing primitives
- * agent/src/Shortcodes.php and agent/src/Lint.php depend on
+ * agent/src/Grammar/Shortcodes.php and agent/src/Review/Lint.php depend on
  * (get_shortcode_regex(), get_shortcode_atts_regex(), shortcode_parse_atts())
  * — extracted from wp-includes/shortcodes.php at the WordPress/wordpress-
  * develop GitHub mirror's `7.0.2` tag (commit 855551c4477bd5a0407221c57dae
@@ -14,7 +14,7 @@
  * WordPress process or docker at all.
  *
  * Deliberately NOT do_shortcode()/do_shortcode_tag()/shortcode_atts() —
- * neither agent/src/Shortcodes.php nor Lint.php ever EXECUTES a shortcode
+ * neither agent/src/Grammar/Shortcodes.php nor Lint.php ever EXECUTES a shortcode
  * (no callback dispatch happens anywhere in this engine; it only locates
  * and rewrites/inspects shortcode-shaped TEXT), so only the three
  * structural/parsing primitives those two files actually call are
@@ -25,7 +25,7 @@
  * functions specifically (confirmed by reading them: no $wpdb, no hooks,
  * no translation functions — get_shortcode_regex() touches the global
  * $shortcode_tags array only in its no-tagnames-given fallback branch,
- * which agent/src/Shortcodes.php and Lint.php's own scan_shortcodes()
+ * which agent/src/Grammar/Shortcodes.php and Lint.php's own scan_shortcodes()
  * never hit, since both always pass an explicit policy-derived tag list).
  * Every declaration is guarded by function_exists() so this file is
  * harmless even if accidentally loaded where the real WordPress

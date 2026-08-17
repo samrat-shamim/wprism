@@ -24,16 +24,16 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/RelationshipMaterializer.php';
-require_once __DIR__ . '/../../agent/src/CompiledArtifact.php';
-require_once __DIR__ . '/../../agent/src/AttachmentMaterializer.php';
-require_once __DIR__ . '/../../agent/src/PostMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/RelationshipMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Repository/CompiledArtifact.php';
+require_once __DIR__ . '/../../agent/src/Apply/AttachmentMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/PostMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\AttachmentMaterializer;
@@ -117,8 +117,8 @@ $check(
 // the underlying materializers directly -- covered by
 // regress_relationship_materializer.php/regress_attachment_materializer.php/
 // regress_apply_field_materializer.php, not repeated here.
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
-$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/AuthoredTransactionExecutor.php');
 $check(
     !preg_match('/private function ensure_post_row\(array \$front\): bool \{\s*global \$wpdb;\s*if \(Ledger::id_for/', $applySource),
     'Apply.php no longer inlines ensure_post_row()\'s own body (only the facade remains)'

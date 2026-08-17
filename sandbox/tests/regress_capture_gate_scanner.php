@@ -40,7 +40,7 @@ namespace {
 }
 
 namespace Duo {
-    require __DIR__ . '/../../agent/src/CaptureGateScanner.php';
+    require __DIR__ . '/../../agent/src/Capture/CaptureGateScanner.php';
 
     function check(bool $condition, string $message): void {
         if (!$condition) {
@@ -139,8 +139,8 @@ namespace Duo {
         }
     }
 
-    $scannerSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureGateScanner.php');
-    $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
+    $scannerSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureGateScanner.php');
+    $captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/Capture.php');
 
     check(class_exists(CaptureGateScanner::class, false), 'gate scanner loads as a direct boundary');
     check(!class_exists(Capture::class, false), 'gate scanner does not load Capture');

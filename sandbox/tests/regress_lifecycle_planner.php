@@ -19,8 +19,8 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$deploySource = file_get_contents($root . '/agent/src/Deploy.php');
-$plannerSource = file_get_contents($root . '/agent/src/LifecyclePlanner.php');
+$deploySource = file_get_contents($root . '/agent/src/Promotion/Deploy.php');
+$plannerSource = file_get_contents($root . '/agent/src/Promotion/LifecyclePlanner.php');
 if (!is_string($deploySource) || !is_string($plannerSource)) {
     fwrite(STDERR, "FAIL: could not read Deploy/LifecyclePlanner sources\n");
     exit(1);
@@ -77,7 +77,7 @@ check(
 // -- no change was needed here, unlike DUO-3350 slice 5's DeleteExecutor-
 // style $roots threading, since none of these four methods needed a new
 // explicit dependency once moved.
-require_once $root . '/agent/src/LifecyclePlanner.php';
+require_once $root . '/agent/src/Promotion/LifecyclePlanner.php';
 $planner = new ReflectionClass(\Duo\LifecyclePlanner::class);
 check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $planner->getMethod('code_mismatch')->getParameters()) === ['policy', 'desired'],

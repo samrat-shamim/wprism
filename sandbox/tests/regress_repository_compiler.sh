@@ -17,23 +17,23 @@ php -d display_errors=1 /dev/stdin "$ROOT" <<'PHP'
 <?php
 $root = $argv[1];
 define('DUO_SPEC_VERSION', 2);
-require_once "$root/agent/src/Uuid.php";
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/Code.php";
-require_once "$root/agent/src/CodeStateContract.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/UserMetaState.php";
-require_once "$root/agent/src/Secrets.php";
-require_once "$root/agent/src/PersonalData.php";
-require_once "$root/agent/src/Db.php";
-require_once "$root/agent/src/Policy.php";
-require_once "$root/agent/src/Ledger.php";
-require_once "$root/agent/src/Snapshot.php";
-require_once "$root/agent/src/Deletion.php";
-require_once "$root/agent/src/RepositoryAuthorization.php";
-require_once "$root/agent/src/RepositoryCompiler.php";
-require_once "$root/agent/src/SidebarState.php";
-require_once "$root/agent/src/Capture.php";
+require_once "$root/agent/src/Kernel/Uuid.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Code/Code.php";
+require_once "$root/agent/src/Code/CodeStateContract.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Kernel/UserMetaState.php";
+require_once "$root/agent/src/Kernel/Secrets.php";
+require_once "$root/agent/src/Kernel/PersonalData.php";
+require_once "$root/agent/src/Kernel/Db.php";
+require_once "$root/agent/src/Policy/Policy.php";
+require_once "$root/agent/src/Repository/Ledger.php";
+require_once "$root/agent/src/Repository/Snapshot.php";
+require_once "$root/agent/src/Delete/Deletion.php";
+require_once "$root/agent/src/Repository/RepositoryAuthorization.php";
+require_once "$root/agent/src/Repository/RepositoryCompiler.php";
+require_once "$root/agent/src/Repository/SidebarState.php";
+require_once "$root/agent/src/Capture/Capture.php";
 
 // These are the first target-reading primitives Tokens would reach. A valid
 // or invalid compile touching either one is a test failure, proving the gate

@@ -8,10 +8,10 @@
 declare(strict_types=1);
 
 if (!class_exists('Duo\\Canon', false)) {
-    require_once dirname(__DIR__, 2) . '/agent/src/Canon.php';
+    require_once dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
 }
-require_once dirname(__DIR__, 2) . '/agent/src/ManifestDispositions.php';
-require_once dirname(__DIR__, 2) . '/agent/src/CapabilityRegistry.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Policy/ManifestDispositions.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Adapter/CapabilityRegistry.php';
 
 use Duo\Canon;
 use Duo\CapabilityRegistry;

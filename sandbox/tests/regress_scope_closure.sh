@@ -3,7 +3,7 @@
 # over DECLARED edges, and every inclusion names the edge that caused it.
 #
 # The closure engine and the compiler's own reference validator now share one
-# enumeration (agent/src/ReferenceGraph.php) rather than walking the tree
+# enumeration (agent/src/Repository/ReferenceGraph.php) rather than walking the tree
 # twice. That is the property this suite really guards: two independent
 # walkers would not fail loudly when an adapter declares a reference shape
 # only one of them knows about — the validator would quietly stop guarding an
@@ -45,11 +45,11 @@ command -v php >/dev/null || fail "php required on PATH"
 
 say "php -l syntax check (harness + every engine file it exercises)"
 php -l regress_scope_closure.php >/dev/null || fail "regress_scope_closure.php has a syntax error"
-php -l ../../agent/src/ReferenceGraph.php >/dev/null || fail "agent/src/ReferenceGraph.php has a syntax error"
-php -l ../../agent/src/ScopeClosure.php >/dev/null || fail "agent/src/ScopeClosure.php has a syntax error"
-php -l ../../agent/src/RepositoryCompiler.php >/dev/null || fail "agent/src/RepositoryCompiler.php has a syntax error"
-php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
-php -l ../../agent/src/Cli.php >/dev/null || fail "agent/src/Cli.php has a syntax error"
+php -l ../../agent/src/Repository/ReferenceGraph.php >/dev/null || fail "agent/src/Repository/ReferenceGraph.php has a syntax error"
+php -l ../../agent/src/Policy/ScopeClosure.php >/dev/null || fail "agent/src/Policy/ScopeClosure.php has a syntax error"
+php -l ../../agent/src/Repository/RepositoryCompiler.php >/dev/null || fail "agent/src/Repository/RepositoryCompiler.php has a syntax error"
+php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
+php -l ../../agent/src/Command/Cli.php >/dev/null || fail "agent/src/Command/Cli.php has a syntax error"
 pass "no syntax errors"
 
 say "running the offline harness (closure, provenance, root refusals, all-roots scope, retired defects)"

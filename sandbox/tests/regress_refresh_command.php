@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/RefreshCommand.php';
+require_once __DIR__ . '/../../cli/src/Command/RefreshCommand.php';
 
 use Duo\Canon;
 use Duo\Orchestrator\CommandOutput;
@@ -98,7 +98,7 @@ assert_refresh_command((new ReflectionMethod(RefreshCommand::class, 'run'))->isS
     'refresh handler exposes a standalone static boundary');
 assert_refresh_command(CommandOutput::wantsAgentRefusalJson('refresh', ['--format=json']),
     'refresh uses the shared host refusal-format detector');
-$refreshSource = file_get_contents(__DIR__ . '/../../cli/src/Refresh.php');
+$refreshSource = file_get_contents(__DIR__ . '/../../cli/src/Refresh/Refresh.php');
 assert_refresh_command(is_string($refreshSource)
     && !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh')"),
     'public refresh reaches the record-aware scoped-refresh path instead of rejecting a valid option root at its host boundary');

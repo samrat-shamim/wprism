@@ -160,7 +160,7 @@ it promised, with one real nuance:
 - **Relationship-writing for that taxonomy, on the SAME apply run that
   first creates the row, is entity-processing-order dependent, not
   reliably 0 or 4.** Root cause traced precisely by reading the engine
-  (`agent/src/Apply.php:883-907`): `taxesByObjectType` is memoized **once,
+  (`agent/src/Apply/Apply.php:883-907`): `taxesByObjectType` is memoized **once,
   lazily, on first access** — not eagerly at the top of `apply()` — so
   whether a given post's relationship reconciliation runs *before* or
   *after* the Snapshot-table row lands (both happen within the same phase
@@ -420,7 +420,7 @@ terms/categories/pages/product, per-item menu translation, everything else
   hard-stop threshold on a single command, but did make full script runs
   time out against a 10-minute budget on two occasions) — handled via the
   documented wait-and-retry protocol, not by force-cycling anything shared.
-- A concurrent, unrelated engine edit (`agent/src/Apply.php`, task #88's
+- A concurrent, unrelated engine edit (`agent/src/Apply/Apply.php`, task #88's
   own work landing live) caused one transient PHP parse-error fatal on a
   `wp-cli` call mid-session, self-resolved within a minute on retry — a
   real, if rare, cost of every sandbox pair mounting `agent/` live from the

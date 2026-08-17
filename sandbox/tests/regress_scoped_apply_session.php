@@ -9,7 +9,7 @@ declare(strict_types=1);
  * exercises the real canonical protocol and its storage CAS seam.
  */
 
-require_once dirname(__DIR__, 2) . '/agent/src/ScopedApplySession.php';
+require_once dirname(__DIR__, 2) . '/agent/src/Scope/ScopedApplySession.php';
 
 use Duo\Canon;
 use Duo\ScopedApplySession;

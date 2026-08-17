@@ -17,13 +17,13 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/UserMetaMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/UserMetaMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\Policy;

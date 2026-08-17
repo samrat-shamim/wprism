@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/TaxonomyObjectTypeOptionResolver.php";
+$resolverPath = "$root/agent/src/Grammar/TaxonomyObjectTypeOptionResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -63,9 +63,9 @@ $check(
     'resolver preserves first-manifest precedence, later declarations, exact string projection, and absent null semantics'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
@@ -82,11 +82,11 @@ $check(
     'Policy builds a fresh resolver for every facade call so mutable fixture manifests stay observable'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $oldLoop = '        foreach ($this->manifests as $m) {' . "\n"
     . "            \$decl = \$m['taxonomies'][\$tax]['object_type_from_option'] ?? null;";
 $check(
-    substr_count($policySource, "require_once __DIR__ . '/TaxonomyObjectTypeOptionResolver.php';") === 1
+    substr_count($policySource, "require_once __DIR__ . '/../Grammar/TaxonomyObjectTypeOptionResolver.php';") === 1
         && str_contains($policySource, 'return $this->taxonomy_object_type_option_resolver()->resolve($tax);')
         && str_contains($policySource, 'new TaxonomyObjectTypeOptionResolver($this->manifests)')
         && !str_contains($policySource, $oldLoop),

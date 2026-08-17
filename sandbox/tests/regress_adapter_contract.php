@@ -37,15 +37,15 @@ function is_multisite(): bool {
     return (bool) $GLOBALS['duo_test_is_multisite'];
 }
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require_once __DIR__ . '/../../agent/src/SidebarState.php';
-require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
-require __DIR__ . '/../../agent/src/Deploy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
+require __DIR__ . '/../../agent/src/Repository/RepositoryAuthorization.php';
+require __DIR__ . '/../../agent/src/Promotion/Deploy.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -66,7 +66,7 @@ final class WP_CLI {
     }
 }
 
-require __DIR__ . '/../../agent/src/Cli.php';
+require __DIR__ . '/../../agent/src/Command/Cli.php';
 
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 0);
@@ -389,9 +389,9 @@ check($inRange->invoke(null, '0.9.9', '1.0.0', '2.0.0') === false, 'installed ju
 check($inRange->invoke(null, '2.0.1', '1.0.0', '2.0.0') === false, 'installed above max is outside range (unsupported upgrade — the exact scenario a real plugin/theme update out of a pinned range produces)');
 
 $adapterContractGrammar = new \ReflectionClass('Duo\\AdapterContractGrammar');
-$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/ManifestValidator.php');
-$finalizerSource = file_get_contents(__DIR__ . '/../../agent/src/PolicyLoadFinalizer.php');
+$policySource = file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$manifestValidatorSource = file_get_contents(__DIR__ . '/../../agent/src/Policy/ManifestValidator.php');
+$finalizerSource = file_get_contents(__DIR__ . '/../../agent/src/Policy/PolicyLoadFinalizer.php');
 $policyReflection = new \ReflectionClass(Policy::class);
 check(
     $adapterContractGrammar->hasMethod('validate_adapter_contract')

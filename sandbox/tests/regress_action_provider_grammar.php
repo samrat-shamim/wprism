@@ -17,9 +17,9 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/ActionProviderGrammar.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Adapter/ActionProviderGrammar.php';
 
 use Duo\ActionProviderGrammar;
 use Duo\Policy;

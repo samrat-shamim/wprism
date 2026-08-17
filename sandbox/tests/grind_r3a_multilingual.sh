@@ -378,7 +378,7 @@ rm -rf siterepo/r3a2
 git clone -q siterepo/origin-r3a.git siterepo/r3a2
 # DUO-3216 (aa9b36a) gave Deploy::code_mismatch() a new 'inactive_in_environment'
 # finding (theme/plugin installed but not active) that Apply::apply()'s
-# refuse-gate (agent/src/Apply.php:592) hard-blocks on unconditionally, with
+# refuse-gate (agent/src/Apply/Apply.php:592) hard-blocks on unconditionally, with
 # no subset filtering -- every code_mismatch row blocks apply, unlike
 # Deploy::run()'s own gate, which excludes exactly this issue from ITS
 # blocking set since reconciling it is deploy's whole job (agent/src/

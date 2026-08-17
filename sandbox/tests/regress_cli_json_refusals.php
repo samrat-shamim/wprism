@@ -211,23 +211,23 @@ namespace Duo {
      * DUO-3421: the one refusal CLASS halt_json_failure() publishes on its own
      * audited vocabulary, independent of the command allowlist. Declared here
      * like every other collaborator this suite stubs -- requiring the real
-     * agent/src/Publish.php would drag in the real Canon and collide with the
+     * agent/src/Publication/Publish.php would drag in the real Canon and collide with the
      * stub above. The pin below asserts BOTH halves of the identity that makes
      * this stub legitimate: that Cli's constant names exactly this fully
-     * qualified class, and that agent/src/Publish.php is where the engine
+     * qualified class, and that agent/src/Publication/Publish.php is where the engine
      * really declares it.
      */
     final class InitialStateBoundaryException extends \RuntimeException {}
 }
 
 namespace {
-    require __DIR__ . '/../../agent/src/Secrets.php';
-    require __DIR__ . '/../../agent/src/CommandRefusal.php';
-    require __DIR__ . '/../../agent/src/Deletion.php';
-    require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
-    require __DIR__ . '/../../agent/src/Code.php';
-    require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-    require __DIR__ . '/../../agent/src/Cli.php';
+    require __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+    require __DIR__ . '/../../agent/src/Kernel/CommandRefusal.php';
+    require __DIR__ . '/../../agent/src/Delete/Deletion.php';
+    require __DIR__ . '/../../agent/src/Repository/RepositoryAuthorization.php';
+    require __DIR__ . '/../../agent/src/Code/Code.php';
+    require __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+    require __DIR__ . '/../../agent/src/Command/Cli.php';
 
     // This suite certifies public failure output. A PHP warning is itself an
     // unclassified output channel, so it must make the regression non-green.
@@ -839,7 +839,7 @@ namespace {
     // --format=json".  That is only true while it is structurally true, so
     // assert it against the source rather than against a list this file would
     // have to be remembered to update.
-    $cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
+    $cliSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php');
     preg_match_all('/\/\*\*(.*?)\*\/\s*public function (\w+)\((.*?)\n    \}/s', $cliSource, $handlers, PREG_SET_ORDER);
     check(count($handlers) >= 22, 'source scan found the product command handlers');
     $advertised = [];
@@ -953,10 +953,10 @@ namespace {
     // really declares, in the file whose throw sites were audited.
     check(
         str_contains(
-            (string) file_get_contents(__DIR__ . '/../../agent/src/Publish.php'),
+            (string) file_get_contents(__DIR__ . '/../../agent/src/Publication/Publish.php'),
             'final class InitialStateBoundaryException extends \RuntimeException'
         ),
-        'the admitted class is the one agent/src/Publish.php declares'
+        'the admitted class is the one agent/src/Publication/Publish.php declares'
     );
     foreach (['lint' => 'lint', 'capabilities' => 'capabilities'] as $method => $command) {
         $boundary = 'duo: initial ' . $command . ' staging file refused at its inode-bound parent: copy source digest changed';

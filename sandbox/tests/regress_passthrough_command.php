@@ -1,8 +1,8 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/PassthroughCommand.php';
-require_once __DIR__ . '/../../agent/src/Capture.php';
+require_once __DIR__ . '/../../cli/src/Command/PassthroughCommand.php';
+require_once __DIR__ . '/../../agent/src/Capture/Capture.php';
 
 use Duo\Capture;
 use Duo\Orchestrator\DriverCapabilityReport;
@@ -661,7 +661,7 @@ assert_passthrough(
     'output-only capture never suggests a lint command that scans different repository state'
 );
 
-$agentCliSource = file_get_contents(__DIR__ . '/../../agent/src/Cli.php');
+$agentCliSource = file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php');
 $captureMethodAt = is_string($agentCliSource) ? strpos($agentCliSource, 'public function capture(') : false;
 $captureDocStart = $captureMethodAt === false
     ? false

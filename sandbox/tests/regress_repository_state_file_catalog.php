@@ -8,7 +8,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$catalogPath = "$root/agent/src/RepositoryStateFileCatalog.php";
+$catalogPath = "$root/agent/src/Repository/RepositoryStateFileCatalog.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -127,7 +127,7 @@ $check(
     'a symlinked state root retains the historical followed-root behavior while entry links still refuse'
 );
 
-$compiler = (string) file_get_contents("$root/agent/src/RepositoryCompiler.php");
+$compiler = (string) file_get_contents("$root/agent/src/Repository/RepositoryCompiler.php");
 $source = (string) file_get_contents($catalogPath);
 $preflight = strpos($compiler, 'if (!is_dir($this->stateDir)) {');
 $catalog = strpos($compiler, '$this->stateFileCatalog->files()');

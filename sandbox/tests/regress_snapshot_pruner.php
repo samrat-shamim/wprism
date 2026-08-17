@@ -12,7 +12,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-require_once __DIR__ . '/../../agent/src/SnapshotPruner.php';
+require_once __DIR__ . '/../../agent/src/Repository/SnapshotPruner.php';
 
 use Duo\Ledger;
 use Duo\OptionState;
@@ -43,12 +43,12 @@ $check(!class_exists(Policy::class, false), 'SnapshotPruner does not pull in Pol
 $check(!class_exists(Ledger::class, false), 'SnapshotPruner does not pull in Ledger');
 $check(!class_exists(OptionState::class, false), 'SnapshotPruner does not pull in OptionState');
 
-require_once __DIR__ . '/../../agent/src/TransientDbException.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/TableGraph.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TableGraph.php';
 
 final class SnapshotPrunerFakeWpdb {
     public string $prefix = 'wp_';
@@ -215,7 +215,7 @@ $noRefsPruner->prune_option_name_ref_map(static function () use (&$noRefsRowsRea
 $check(!$noRefsRowsRead,
     'lifecycle pruning returns before row-table discovery when no option-name refs exist');
 
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
 $check(Snapshot::option_name_ref_preserved_ids($policy, $canonical) === $preserved,
     'Snapshot preservation facade returns the extracted boundary result exactly');
 
@@ -231,7 +231,7 @@ Snapshot::prune_option_name_ref_map($invalidNoRefsPolicy);
 $check(true,
     'Snapshot lifecycle facade preserves the no-rules short circuit before unrelated graph validation');
 
-$snapshotLines = file(__DIR__ . '/../../agent/src/Snapshot.php');
+$snapshotLines = file(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
 $methodSource = static function (string $name) use ($snapshotLines): string {
     $method = new \ReflectionMethod(Snapshot::class, $name);
     return implode('', array_slice(
@@ -258,8 +258,8 @@ foreach (['OptionState::records', 'Ledger::id_for', 'Policy::strict_positive_loc
     $check(str_contains($factorySource, $collaborator),
         "Snapshot pruning adapter injects $collaborator explicitly");
 }
-$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Snapshot.php');
-$prunerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/SnapshotPruner.php');
+$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
+$prunerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/SnapshotPruner.php');
 $check(str_contains($snapshotSource, "require_once __DIR__ . '/SnapshotPruner.php';"),
     'Snapshot directly requires its pruning collaborator');
 $check(!str_contains($snapshotSource, 'SELECT `option_name` FROM'),

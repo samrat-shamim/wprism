@@ -36,7 +36,7 @@ if (!defined('DUO_AGENT_VERSION') || !defined('DUO_SPEC_VERSION')) {
     }
 }
 
-require_once $repoRoot . '/agent/src/AdapterCertification.php';
+require_once $repoRoot . '/agent/src/Adapter/AdapterCertification.php';
 
 use Duo\AdapterCertification;
 use Duo\Canon;
@@ -50,7 +50,7 @@ function cert_cli_args(array $argv): array {
     $out = [];
     foreach (array_slice($argv, 2) as $argument) {
         if (!is_string($argument) || !str_starts_with($argument, '--') || !str_contains($argument, '=')) {
-            throw new RuntimeException("arguments must use --name=value form; got " . var_export($argument, true));
+            throw new RuntimeException('arguments must use --name=value form; got ' . var_export($argument, true));
         }
         [$key, $value] = explode('=', substr($argument, 2), 2);
         if ($key === '' || $value === '' || isset($out[$key])) {
@@ -86,7 +86,7 @@ function cert_cli_manifest(string $path): array {
         $typed = json_decode($raw, false, 512, JSON_THROW_ON_ERROR);
         $decoded = json_decode($raw, true, 512, JSON_THROW_ON_ERROR);
     } catch (JsonException $e) {
-        throw new RuntimeException("manifest is not valid JSON: " . $e->getMessage());
+        throw new RuntimeException('manifest is not valid JSON: ' . $e->getMessage());
     }
     if (!is_object($typed) || !is_array($decoded) || array_is_list($decoded)
         || !hash_equals(Canon::encode($typed), $raw)) {

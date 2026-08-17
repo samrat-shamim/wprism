@@ -3,18 +3,18 @@
  * Offline (no docker, no WordPress bootstrap) regression harness for
  * reference-hygiene fixes in the block and menu layers:
  *
- *  - agent/src/Lint.php's scan_blocks(): a registered block_attrs path used
+ *  - agent/src/Review/Lint.php's scan_blocks(): a registered block_attrs path used
  *    to be 100% exempt from the suspicious-ref check regardless of whether
  *    its value actually got rewritten. New finding class
  *    'unrewritten_registered_ref' catches a registered ref path whose
  *    captured value is still numeric.
- *  - agent/src/Lint.php's scan_tree(): menu files used to be skipped
+ *  - agent/src/Review/Lint.php's scan_tree(): menu files used to be skipped
  *    entirely. Menu item refs and plugin-owned meta are now scanned with
  *    their schema/policy-specific semantics.
- *  - agent/src/Lint.php's structured scan: numeric survivors at an exact
+ *  - agent/src/Review/Lint.php's structured scan: numeric survivors at an exact
  *    json_refs path are caught even when the leaf key is a language slug,
  *    as in Polylang's nav_menus[theme][location][lang] shape.
- *  - agent/src/Blocks.php's walk(): an unmapped/dangling block ref used to
+ *  - agent/src/Grammar/Blocks.php's walk(): an unmapped/dangling block ref used to
  *    keep the raw env-local id (`?? (int) $v`) instead of dropping it, the
  *    way options/post_meta refs already do (spec/repo-format.md "Dangling
  *    references"). Now drops (scalar: the whole attr key; array: just that
@@ -65,8 +65,8 @@ require __DIR__ . '/support/wp-block-parser-stub.php';
 
 /**
  * Stands in for exactly the query shapes Ledger::id_for()/uuid_for() and
- * Pending::resolve_id() issue (verified by reading agent/src/Ledger.php and
- * agent/src/Pending.php directly — both are single fixed-shape SELECTs, no
+ * Pending::resolve_id() issue (verified by reading agent/src/Repository/Ledger.php and
+ * agent/src/Review/Pending.php directly — both are single fixed-shape SELECTs, no
  * dynamic query building) — not a general SQL engine. prepare() returns a
  * small array token; get_var()/get_row() pattern-match the SQL text to
  * dispatch to in-memory fixture data instead of a real database.
@@ -168,21 +168,21 @@ $GLOBALS['wpdb'] = $wpdb;
 
 // ----------------------------------------------------------- engine + fixtures
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Pending.php';
-require __DIR__ . '/../../agent/src/JsonRefs.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/Blocks.php';
-require __DIR__ . '/../../agent/src/Lint.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Review/Pending.php';
+require __DIR__ . '/../../agent/src/Kernel/JsonRefs.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../agent/src/Grammar/Blocks.php';
+require __DIR__ . '/../../agent/src/Review/Lint.php';
 // DUO-3212: Blocks::queue_unscoped() calls Capture::ref_target_type()
 // directly (public static, zero instance dependency — see its own
 // docblock) rather than duplicating the query shapes it encapsulates.
 // Loading the class definition only; nothing here ever instantiates
 // Capture or calls any of its other (WordPress-dependent) methods.
-require __DIR__ . '/../../agent/src/Capture.php';
+require __DIR__ . '/../../agent/src/Capture/Capture.php';
 // DUO-3259: Blocks.php's $rewriteString closure now unconditionally calls
 // Shortcodes::capture_rewrite_text()/apply_rewrite_text() too (the new
 // integration point) -- the class must be loadable wherever Blocks.php
@@ -191,7 +191,7 @@ require __DIR__ . '/../../agent/src/Capture.php';
 // shortcode_attrs at all, so Shortcodes' own early-exit (empty rules)
 // fires before get_shortcode_regex() is ever called -- see regress_
 // shortcode_refs.php for the harness that DOES exercise that path.
-require_once __DIR__ . '/../../agent/src/Shortcodes.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Shortcodes.php';
 
 use Duo\Canon;
 use Duo\Policy;
@@ -540,7 +540,7 @@ Canon::write_file($stateDir . '/options/core.json', Canon::encode(OptionState::d
 // Lint facade.  Keep the shipped hyphenated Yoast key shape in this direct
 // characterization so an extraction cannot silently narrow the historical
 // id-key heuristic while all existing end-to-end fixtures remain green.
-$lintSource = file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
+$lintSource = file_get_contents(__DIR__ . '/../../agent/src/Review/Lint.php');
 check(class_exists('Duo\\StructuredReferenceScanner'), 'S0: structured scanner collaborator is loadable');
 check(str_contains((string) $lintSource, 'StructuredReferenceScanner::scan'), 'S0: Lint delegates structured traversal to the collaborator');
 $directStructured = \Duo\StructuredReferenceScanner::scan(

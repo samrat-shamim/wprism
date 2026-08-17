@@ -6,7 +6,7 @@
  * non-empty code_drift array.
  */
 
-require_once __DIR__ . '/../../cli/src/PlanSummary.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 
 use Duo\Orchestrator\PlanSummary;
 

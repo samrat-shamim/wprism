@@ -22,11 +22,11 @@
  * cross-manifest-ownership check compose correctly together.
  */
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/PlainData.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Kernel/PlainData.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/RepositoryAuthorization.php';
 
 // Production mounts manifest code independently from the agent source tree
 // (`/duo-manifests` versus the MU-plugin directory). Load the real

@@ -26,15 +26,15 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/RelationshipMaterializer.php';
-require_once __DIR__ . '/../../agent/src/MenuMaterializer.php';
-require_once __DIR__ . '/../../agent/src/DeleteExecutor.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/RelationshipMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/MenuMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Delete/DeleteExecutor.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\DeleteExecutor;
@@ -106,9 +106,9 @@ $check(
 // method-name mention. delete_post_relationships()/
 // delete_term_relationships() had no such caller and were removed entirely
 // -- covered by regress_relationship_materializer.php, not repeated here.
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
-$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
-$deleteSource = file_get_contents(__DIR__ . '/../../agent/src/DeleteExecutor.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/AuthoredTransactionExecutor.php');
+$deleteSource = file_get_contents(__DIR__ . '/../../agent/src/Delete/DeleteExecutor.php');
 $check(
     !preg_match('/private function delete_entity\(string \$uuid, string \$type\): void \{\s*global \$wpdb;\s*if \(isset\(\$this->snapshotRowTables/', $applySource),
     'Apply.php no longer inlines delete_entity()\'s own body (only the facade remains)'

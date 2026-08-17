@@ -143,8 +143,8 @@ try {
     $productionCommit = ssh_proof_git($production, ['rev-parse', 'HEAD']);
     ssh_proof_ok($productionCommit === $base, 'production clone is the exact clean production commit');
 
-    require_once $root . '/agent/src/Canon.php';
-    require_once $root . '/cli/src/RefreshPlan.php';
+    require_once $root . '/agent/src/Kernel/Canon.php';
+    require_once $root . '/cli/src/Refresh/RefreshPlan.php';
     $compiledProduction = RefreshPlan::compileGitWorktree($production, $productionCommit, 'production-code');
     $export = $compiledProduction;
     unset($export['format'], $export['commit'], $export['label']);
@@ -166,7 +166,7 @@ try {
     $summaryPath = $tmp . '/compile-summary.json';
     $summary = ['artifact_hash' => $artifact['artifact_hash'], 'revision_hash' => $artifact['revision_hash']];
     ssh_proof_write($summaryPath, json_encode($summary, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
-    // The complete envelope agent/src/Apply.php emits, not just the buckets
+    // The complete envelope agent/src/Apply/Apply.php emits, not just the buckets
     // this proof reads: convergence refuses an incomplete plan (DUO-3384).
     $planPath = $tmp . '/plan.json';
     ssh_proof_write($planPath, json_encode([

@@ -39,13 +39,13 @@ command -v php >/dev/null || fail "php required on PATH"
 say "php -l syntax check (harness + every file it exercises)"
 php -l regress_adapter_catalog.php >/dev/null || fail "regress_adapter_catalog.php has a syntax error"
 php -l ../../cli/duo >/dev/null || fail "cli/duo has a syntax error"
-php -l ../../cli/src/AdapterCatalog.php >/dev/null || fail "cli/src/AdapterCatalog.php has a syntax error"
-php -l ../../cli/src/PlanSummary.php >/dev/null || fail "cli/src/PlanSummary.php has a syntax error"
-php -l ../../agent/src/AdapterSources.php >/dev/null || fail "agent/src/AdapterSources.php has a syntax error"
-php -l ../../agent/src/Policy.php >/dev/null || fail "agent/src/Policy.php has a syntax error"
-php -l ../../agent/src/Providers.php >/dev/null || fail "agent/src/Providers.php has a syntax error"
-php -l ../../agent/src/CapabilityRegistry.php >/dev/null || fail "agent/src/CapabilityRegistry.php has a syntax error"
-php -l ../../agent/src/ManifestDispositions.php >/dev/null || fail "agent/src/ManifestDispositions.php has a syntax error"
+php -l ../../cli/src/Adapter/AdapterCatalog.php >/dev/null || fail "cli/src/Adapter/AdapterCatalog.php has a syntax error"
+php -l ../../cli/src/Plan/PlanSummary.php >/dev/null || fail "cli/src/Plan/PlanSummary.php has a syntax error"
+php -l ../../agent/src/Adapter/AdapterSources.php >/dev/null || fail "agent/src/Adapter/AdapterSources.php has a syntax error"
+php -l ../../agent/src/Policy/Policy.php >/dev/null || fail "agent/src/Policy/Policy.php has a syntax error"
+php -l ../../agent/src/Adapter/Providers.php >/dev/null || fail "agent/src/Adapter/Providers.php has a syntax error"
+php -l ../../agent/src/Adapter/CapabilityRegistry.php >/dev/null || fail "agent/src/Adapter/CapabilityRegistry.php has a syntax error"
+php -l ../../agent/src/Policy/ManifestDispositions.php >/dev/null || fail "agent/src/Policy/ManifestDispositions.php has a syntax error"
 pass "no syntax errors"
 
 say "the handler itself must be WordPress-free, and its load set must be one already scanned"
@@ -84,8 +84,8 @@ scan_wp() {
     END { exit (bad > 0 ? 1 : 0) }
   ' "$@"
 }
-scan_wp ../../cli/src/AdapterCatalog.php \
-  || fail "cli/src/AdapterCatalog.php reaches WordPress — the handler itself must be free of it"
+scan_wp ../../cli/src/Adapter/AdapterCatalog.php \
+  || fail "cli/src/Adapter/AdapterCatalog.php reaches WordPress — the handler itself must be free of it"
 
 boot_set() {
   # The class list boot()'s own foreach walks, read out of the file rather than
@@ -101,8 +101,8 @@ boot_set() {
     echo implode(",", $names), "\n";
   ' "$1"
 }
-catalog_set="$(boot_set ../../cli/src/AdapterCatalog.php)" || fail "could not enumerate AdapterCatalog::boot()"
-validate_set="$(boot_set ../../cli/src/ManifestValidate.php)" || fail "could not enumerate ManifestValidate::boot()"
+catalog_set="$(boot_set ../../cli/src/Adapter/AdapterCatalog.php)" || fail "could not enumerate AdapterCatalog::boot()"
+validate_set="$(boot_set ../../cli/src/Adapter/ManifestValidate.php)" || fail "could not enumerate ManifestValidate::boot()"
 [ -n "$catalog_set" ] || fail "AdapterCatalog::boot() enumerated an empty require list"
 if [ "$catalog_set" != "$validate_set" ]; then
   fail "AdapterCatalog::boot() loads [$catalog_set] but ManifestValidate::boot() loads [$validate_set] — regress_manifest_validate.sh's engine-side WordPress scan no longer covers this command's load set, so either align them or scan this one independently"

@@ -34,14 +34,14 @@ function maybe_serialize(mixed $value): mixed {
     return is_array($value) || is_object($value) ? serialize($value) : $value;
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/OptionsMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/OptionsMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\OptionsMaterializer;
@@ -133,14 +133,14 @@ $check(
 
 // === Prove the extraction itself: Apply.php no longer inlines these bodies,
 // and its one remaining call site is a thin facade.
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
 foreach (['option_apply_target', 'dynamic_option_rule_for_name', 'dynamic_option_resolver_values', 'apply_value', 'apply_option_sub_keys'] as $method) {
     $check(
         !str_contains($applySource, "private function $method("),
         "Apply.php no longer defines $method() itself (moved to OptionsMaterializer.php, no facade needed -- called only from within the extracted cluster)"
     );
 }
-$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/AuthoredTransactionExecutor.php');
+$transactionSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/AuthoredTransactionExecutor.php');
 $check(!str_contains($applySource, 'function apply_options(')
     && str_contains($transactionSource, '$this->optionsMaterializer->apply_options('),
     'AuthoredTransactionExecutor calls OptionsMaterializer directly without an Apply facade');

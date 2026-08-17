@@ -44,18 +44,18 @@ function is_multisite(): bool {
     return (bool) $GLOBALS['duo_test_is_multisite'];
 }
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/ManifestDispositions.php';
-require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require_once __DIR__ . '/../../agent/src/SidebarState.php';
-require __DIR__ . '/../../agent/src/RepositoryAuthorization.php';
-require __DIR__ . '/../../agent/src/Deploy.php';
-require __DIR__ . '/../../cli/src/PlanSummary.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
+require __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
+require __DIR__ . '/../../agent/src/Repository/RepositoryAuthorization.php';
+require __DIR__ . '/../../agent/src/Promotion/Deploy.php';
+require __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 // The shared certification fixture (DUO-3379's re-seal, extracted by DUO-3421
 // so sandbox/tests/regress_duo_init.sh can mount the identical library into a
 // live pair). certified_library() below is this suite's scratch-root wrapper.
@@ -90,7 +90,7 @@ final class WP_CLI {
     }
 }
 
-require __DIR__ . '/../../agent/src/Cli.php';
+require __DIR__ . '/../../agent/src/Command/Cli.php';
 
 // The real shipped registry binds these exact platform values; the harness
 // must present the same agent it claims to be or every claim reads as stale.

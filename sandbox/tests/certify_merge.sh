@@ -38,7 +38,7 @@
 # Explicitly OUT OF SCOPE this round (protocol's "no silent partial
 # ships" — see this issue's scope note for where each is re-homed):
 #   - add/add same-slug -> semantic-compiler rejection: DUO-3208 (the
-#     repository semantic compiler, agent/src/RepositoryCompiler.php)
+#     repository semantic compiler, agent/src/Repository/RepositoryCompiler.php)
 #     merged to main DURING this fixture's development (PR #2,
 #     436af42c), so the ORIGINAL blocker for this case is gone —
 #     RepositoryCompiler::validate_natural_identities() now catches

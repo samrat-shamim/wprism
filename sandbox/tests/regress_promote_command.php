@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/PromoteCommand.php';
+require_once __DIR__ . '/../../cli/src/Command/PromoteCommand.php';
 
 use Duo\Orchestrator\DriverCapabilityReport;
 use Duo\Orchestrator\EnvironmentDriver;

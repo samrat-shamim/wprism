@@ -15,20 +15,20 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/AdapterSources.php';
-require_once __DIR__ . '/../../agent/src/ManifestDispositions.php';
-require_once __DIR__ . '/../../agent/src/CapabilityRegistry.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require_once __DIR__ . '/../../agent/src/InitPlanner.php';
-require_once __DIR__ . '/../../agent/src/AdapterCertification.php';
-require_once __DIR__ . '/../../agent/src/Deploy.php';
-require_once __DIR__ . '/../../agent/src/Providers.php';
-require_once __DIR__ . '/../../cli/src/PlanSummary.php';
-require_once __DIR__ . '/../../cli/src/CodeDeploy.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Adapter/AdapterSources.php';
+require_once __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
+require_once __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Init/InitPlanner.php';
+require_once __DIR__ . '/../../agent/src/Adapter/AdapterCertification.php';
+require_once __DIR__ . '/../../agent/src/Promotion/Deploy.php';
+require_once __DIR__ . '/../../agent/src/Adapter/Providers.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
+require_once __DIR__ . '/../../cli/src/Transport/CodeDeploy.php';
 
 /** Minimal command runner surface for exercising the real Cli handler offline. */
 if (!class_exists('WP_CLI', false)) {
@@ -74,7 +74,7 @@ if (!function_exists('apply_filters')) {
             : $value;
     }
 }
-require_once __DIR__ . '/../../agent/src/Cli.php';
+require_once __DIR__ . '/../../agent/src/Command/Cli.php';
 
 use Duo\AdapterCertification;
 use Duo\AdapterSources;
@@ -854,11 +854,11 @@ $payload = [
     'admin_api_absent_before' => !function_exists('validate_plugin')
         && !function_exists('get_plugins') && !function_exists('is_wp_error'),
 ];
-require __ENGINE_ROOT__ . '/agent/src/Canon.php';
-require __ENGINE_ROOT__ . '/agent/src/OptionState.php';
-require __ENGINE_ROOT__ . '/agent/src/Policy.php';
-require __ENGINE_ROOT__ . '/agent/src/Deploy.php';
-require __ENGINE_ROOT__ . '/agent/src/Providers.php';
+require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
+require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
+require __ENGINE_ROOT__ . '/agent/src/Promotion/Deploy.php';
+require __ENGINE_ROOT__ . '/agent/src/Adapter/Providers.php';
 require __PROVIDER_FILE__;
 $GLOBALS['lazy_providers'] = [new DuoCertificationLazyApiProvider()];
 $GLOBALS['lazy_provider_invocations'] = 0;
@@ -1701,13 +1701,13 @@ function get_option(string $name, mixed $default = false): mixed {
     return $name === 'active_plugins' ? ['acme/acme.php'] : $default;
 }
 putenv('DUO_MANIFESTS_DIR=' . __MANIFESTS__);
-require __ENGINE_ROOT__ . '/agent/src/Canon.php';
-require __ENGINE_ROOT__ . '/agent/src/OptionState.php';
-require __ENGINE_ROOT__ . '/agent/src/ManifestDispositions.php';
-require __ENGINE_ROOT__ . '/agent/src/CapabilityRegistry.php';
-require __ENGINE_ROOT__ . '/agent/src/Policy.php';
-require __ENGINE_ROOT__ . '/agent/src/Ledger.php';
-require __ENGINE_ROOT__ . '/agent/src/RepositoryCompiler.php';
+require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
+require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy/ManifestDispositions.php';
+require __ENGINE_ROOT__ . '/agent/src/Adapter/CapabilityRegistry.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
+require __ENGINE_ROOT__ . '/agent/src/Repository/Ledger.php';
+require __ENGINE_ROOT__ . '/agent/src/Repository/RepositoryCompiler.php';
 $payload = [];
 try {
     $policy = \Duo\Policy::load(__SITE__);

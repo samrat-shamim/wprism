@@ -21,6 +21,14 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
+$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
+if (!is_array($duoAgentClassmap)) {
+    throw new \RuntimeException('regress_scoped_apply_recovery: agent/duo-classmap.php did not return a map');
+}
+$duoAgentFiles = [];
+foreach ($duoAgentClassmap as $duoAgentPath) {
+    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+}
 foreach ([
     'Canon', 'Uuid', 'OrderPreserved', 'OptionState', 'UserMetaState', 'Db',
     'TransientDbException', 'PlainData', 'StructuredValue', 'Secrets',
@@ -32,7 +40,11 @@ foreach ([
     'ScopedStateOverlay', 'ScopedApplySession', 'CommandRefusal', 'ScopedApply', 'Providers',
     'Canary', 'Ledger', 'PromotionLock', 'Apply',
 ] as $file) {
-    require_once "$root/agent/src/$file.php";
+    $duoAgentFile = $duoAgentFiles[$file] ?? null;
+    if (!is_string($duoAgentFile)) {
+        throw new \RuntimeException('regress_scoped_apply_recovery: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    }
+    require_once $root . '/agent/' . $duoAgentFile;
 }
 
 use Duo\Canon;
@@ -2022,14 +2034,14 @@ $check(
 // The full public Apply path needs WordPress and a promotion lease, so pin the
 // four recovery/isolation threading edges in its bounded run()/rebuild()
 // source. The protocol seams they call are exercised dynamically above.
-$applySource = (string) file_get_contents($root . '/agent/src/ApplyRequestCoordinator.php');
-$preparationSource = (string) file_get_contents($root . '/agent/src/ApplyPreparationCoordinator.php');
-$rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/ApplyRebuildCoordinator.php');
-$batchBuilderSource = (string) file_get_contents($root . '/agent/src/ProviderActionBatchBuilder.php');
-$scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/ScopedApplyCoordinator.php');
-$actionDispatcherSource = (string) file_get_contents($root . '/agent/src/RebuildActionDispatcher.php');
-$actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/RebuildActionNegotiator.php');
-$ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/ApplyLedgerFinalizer.php');
+$applySource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRequestCoordinator.php');
+$preparationSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyPreparationCoordinator.php');
+$rebuildCoordinatorSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyRebuildCoordinator.php');
+$batchBuilderSource = (string) file_get_contents($root . '/agent/src/Adapter/ProviderActionBatchBuilder.php');
+$scopedCoordinatorSource = (string) file_get_contents($root . '/agent/src/Scope/ScopedApplyCoordinator.php');
+$actionDispatcherSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionDispatcher.php');
+$actionNegotiatorSource = (string) file_get_contents($root . '/agent/src/Rebuild/RebuildActionNegotiator.php');
+$ledgerFinalizerSource = (string) file_get_contents($root . '/agent/src/Apply/ApplyLedgerFinalizer.php');
 $check(
     str_contains(
         preg_replace('/\s+/', ' ', $ledgerFinalizerSource),
@@ -2083,11 +2095,11 @@ $check(
         && $sessionBeginAt !== false
         && $promotionSessionBeginAt < $sessionBeginAt
         && str_contains(
-            (string) file_get_contents($root . '/agent/src/PromotionLease.php'),
+            (string) file_get_contents($root . '/agent/src/Promotion/PromotionLease.php'),
             "PromotionSessionJournal::start("
         )
         && str_contains(
-            (string) file_get_contents($root . '/agent/src/PromotionLease.php'),
+            (string) file_get_contents($root . '/agent/src/Promotion/PromotionLease.php'),
             "'ps-' . bin2hex(random_bytes(16))"
         ),
     'direct scoped apply publishes a random promotion generation only at the sealed-authority boundary'

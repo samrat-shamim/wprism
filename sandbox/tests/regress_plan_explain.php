@@ -8,21 +8,21 @@ declare(strict_types=1);
  * compiler, policy, reference-graph, and exact action-selection evidence.
  */
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/Secrets.php';
-require_once __DIR__ . '/../../agent/src/CommandRefusal.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/NativeActions.php';
-require_once __DIR__ . '/../../agent/src/AdapterSources.php';
-require_once __DIR__ . '/../../agent/src/ReferenceRules.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/PlainData.php';
-require_once __DIR__ . '/../../agent/src/SidebarState.php';
-require_once __DIR__ . '/../../agent/src/ReferenceGraph.php';
-require_once __DIR__ . '/../../agent/src/CodeCompatibility.php';
-require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require_once __DIR__ . '/../../agent/src/Deletion.php';
-require_once __DIR__ . '/../../agent/src/PlanExplanation.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require_once __DIR__ . '/../../agent/src/Kernel/CommandRefusal.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Rebuild/NativeActions.php';
+require_once __DIR__ . '/../../agent/src/Adapter/AdapterSources.php';
+require_once __DIR__ . '/../../agent/src/Kernel/ReferenceRules.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Kernel/PlainData.php';
+require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
+require_once __DIR__ . '/../../agent/src/Repository/ReferenceGraph.php';
+require_once __DIR__ . '/../../agent/src/Code/CodeCompatibility.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Delete/Deletion.php';
+require_once __DIR__ . '/../../agent/src/Review/PlanExplanation.php';
 
 use Duo\CommandRefusalException;
 use Duo\CompiledRepository;
@@ -317,12 +317,12 @@ $check(
         && !str_contains($identityPublic, $privateIdentityFailure),
     'duplicate/invalid embedded identity state maps to the stable value-free observation precondition refusal'
 );
-$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-$snapshotSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureSnapshotService.php');
-$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
-$postCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/PostCapture.php');
-$mediaCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/MediaCapture.php');
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/ApplyRequestCoordinator.php');
+$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/Capture.php');
+$snapshotSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureSnapshotService.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureCandidateBuilder.php');
+$postCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/PostCapture.php');
+$mediaCaptureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/MediaCapture.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyRequestCoordinator.php');
 $captureStart = strpos((string) $snapshotSource, 'public static function snapshotReadOnly(');
 $captureEnd = strpos((string) $snapshotSource, "\n    /**", (int) $captureStart + 1);
 $strictCapture = substr((string) $snapshotSource, (int) $captureStart, (int) $captureEnd - (int) $captureStart);

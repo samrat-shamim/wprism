@@ -1,7 +1,7 @@
 <?php
 /**
  * Offline (no docker, no WordPress bootstrap) regression harness for
- * DUO-3235's composite_ref identity mode (agent/src/Snapshot.php, task
+ * DUO-3235's composite_ref identity mode (agent/src/Repository/Snapshot.php, task
  * #125): the typed-snapshot grammar's representation for a PURE JOIN table
  * with no surrogate primary key, where every PK column is itself a ref into
  * another keyspace — proving fixture PMPro's pmpro_memberships_pages
@@ -290,15 +290,15 @@ $GLOBALS['wpdb'] = $wpdb;
 
 // ----------------------------------------------------------- engine + fixtures
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Uuid.php';
-require __DIR__ . '/../../agent/src/Secrets.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
-require __DIR__ . '/../../agent/src/IdentityNotes.php';
-require __DIR__ . '/../../agent/src/Snapshot.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Kernel/Uuid.php';
+require __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require __DIR__ . '/../../agent/src/Repository/IdentityNotes.php';
+require __DIR__ . '/../../agent/src/Repository/Snapshot.php';
 
 use Duo\Canon;
 use Duo\Ledger;

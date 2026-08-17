@@ -11,9 +11,9 @@ declare(strict_types=1);
  * only the verification exception.
  */
 
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/cli/src/Adopt.php';
+require dirname(__DIR__, 2) . '/cli/src/Onboarding/Adopt.php';
 
 use Duo\Orchestrator\AdoptionTransport;
 use Duo\Orchestrator\Adopt;

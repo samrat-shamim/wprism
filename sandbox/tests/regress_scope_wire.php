@@ -10,10 +10,10 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/CanonicalSurfaces.php";
-require_once "$root/agent/src/ScopeClosure.php";
-require_once "$root/agent/src/ScopeContract.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Repository/CanonicalSurfaces.php";
+require_once "$root/agent/src/Policy/ScopeClosure.php";
+require_once "$root/agent/src/Policy/ScopeContract.php";
 
 use Duo\Canon;
 use Duo\ScopeContract;
@@ -355,19 +355,19 @@ check_wire(
     'a self-hashed option-selector contract reaches the same transport boundary without leaking its path'
 );
 
-$refreshSource = (string) file_get_contents("$root/cli/src/Refresh.php");
+$refreshSource = (string) file_get_contents("$root/cli/src/Refresh/Refresh.php");
 check_wire(
     !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh')")
         && !str_contains($refreshSource, "assert_mutation_supported(\$scopeContract, 'scoped refresh rebase')"),
     'refresh and rebase defer a valid option-root contract to their record-aware production-export and overlay protocol'
 );
-$captureSource = (string) file_get_contents("$root/agent/src/Capture.php");
+$captureSource = (string) file_get_contents("$root/agent/src/Capture/Capture.php");
 check_wire(
     !str_contains($captureSource, "assert_mutation_supported(\$contract, 'scoped capture')"),
     'capture associates option-root evidence and defers it to its record-aware production overlay'
 );
 
-$cliSource = (string) file_get_contents("$root/agent/src/Cli.php");
+$cliSource = (string) file_get_contents("$root/agent/src/Command/Cli.php");
 check_wire(
     substr_count($cliSource, "\$opts['scope_request'] = \$scopeRequest;") >= 2
         && str_contains($cliSource, "self::scope_request(\$assoc, 'verify-canonical', false)"),
@@ -375,7 +375,7 @@ check_wire(
 );
 
 $hostSource = (string) file_get_contents("$root/cli/duo");
-$applyCoordinatorSource = (string) file_get_contents("$root/agent/src/ApplyRequestCoordinator.php");
+$applyCoordinatorSource = (string) file_get_contents("$root/agent/src/Apply/ApplyRequestCoordinator.php");
 check_wire(
     str_contains($hostSource, "'--scope-request-b64=' . \$scopeInput['request_b64'], '--scoped-promotion', '--format=json'")
         && str_contains($cliSource, "'scoped_promotion' => isset(\$assoc['scoped-promotion'])")

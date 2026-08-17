@@ -6,16 +6,16 @@ if (!defined('DUO_SPEC_VERSION')) {
 }
 function is_multisite(): bool { return false; }
 
-require __DIR__ . '/../../agent/src/Canon.php';
-require __DIR__ . '/../../agent/src/OptionState.php';
-require __DIR__ . '/../../agent/src/Db.php';
-require __DIR__ . '/../../agent/src/ManifestDispositions.php';
-require __DIR__ . '/../../agent/src/CapabilityRegistry.php';
-require __DIR__ . '/../../agent/src/Policy.php';
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/RepositoryCompiler.php';
-require __DIR__ . '/../../cli/src/PlanSummary.php';
-require __DIR__ . '/../../cli/src/CodeDeploy.php';
+require __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require __DIR__ . '/../../agent/src/Kernel/Db.php';
+require __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
+require __DIR__ . '/../../agent/src/Adapter/CapabilityRegistry.php';
+require __DIR__ . '/../../agent/src/Policy/Policy.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
+require __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
+require __DIR__ . '/../../cli/src/Transport/CodeDeploy.php';
 
 use Duo\Canon;
 use Duo\ManifestDispositions;
@@ -32,7 +32,7 @@ final class WP_CLI {
     public static function error($message): void { throw new RuntimeException((string) $message); }
     public static function halt($code): void { throw new RuntimeException("halt:$code"); }
 }
-require __DIR__ . '/../../agent/src/Cli.php';
+require __DIR__ . '/../../agent/src/Command/Cli.php';
 
 $failures = 0;
 function check(bool $condition, string $message): void {

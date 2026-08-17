@@ -20,9 +20,9 @@ require_once __DIR__ . '/lib/check.php';
 require_once __DIR__ . '/lib/wp_stubs.php';
 require_once __DIR__ . '/lib/FakeWpdb.php';
 
-require_once __DIR__ . '/../../agent/src/TransientDbException.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\TransientDbException;
@@ -118,7 +118,7 @@ let two suites see each other's fixture files.
 ## The fake `$wpdb` (`FakeWpdb.php`)
 
 `FakeWpdb::install()` returns the instance and publishes it as
-`$GLOBALS['wpdb']`, which is where `agent/src/Db.php` and every collaborator
+`$GLOBALS['wpdb']`, which is where `agent/src/Kernel/Db.php` and every collaborator
 read it from.
 
 It holds **rows**, not answers. `seedTable()` / `rows()` / `setPrimaryKey()` /

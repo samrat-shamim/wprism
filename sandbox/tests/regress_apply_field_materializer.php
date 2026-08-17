@@ -28,9 +28,9 @@ function wp_cache_delete($key, $group = ''): bool {
     return true;
 }
 
-require_once __DIR__ . '/../../agent/src/TransientDbException.php';
-require_once __DIR__ . '/../../agent/src/Db.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TransientDbException.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Db.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 
@@ -144,8 +144,8 @@ $check = static function (bool $ok, string $message) use (&$failures): void {
     }
 };
 
-$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply.php');
-$materializerSource = file_get_contents(__DIR__ . '/../../agent/src/ApplyFieldMaterializer.php');
+$applySource = file_get_contents(__DIR__ . '/../../agent/src/Apply/Apply.php');
+$materializerSource = file_get_contents(__DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php');
 $check($applySource !== false && $materializerSource !== false, 'source files are readable');
 $check(str_contains($materializerSource, 'final class ApplyFieldMaterializer'), 'new collaborator owns the field layer');
 $check(substr_count($materializerSource, 'function reconcile_authored_meta(') === 1,

@@ -5,7 +5,7 @@
  * boundary that must run before the orchestrator opens a remote write path.
  */
 
-require_once __DIR__ . '/../../cli/src/ClassificationBatch.php';
+require_once __DIR__ . '/../../cli/src/Onboarding/ClassificationBatch.php';
 
 use Duo\Orchestrator\ClassificationBatch;
 

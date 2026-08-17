@@ -20,7 +20,7 @@ namespace Duo {
 }
 
 namespace {
-    require_once __DIR__ . '/../../agent/src/RepositorySchemaValidator.php';
+    require_once __DIR__ . '/../../agent/src/Repository/RepositorySchemaValidator.php';
 
     use Duo\Policy;
     use Duo\RepositorySchemaValidator;
@@ -30,7 +30,7 @@ namespace {
         echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
         if (!$ok) $failures[] = $message;
     };
-    $validatorPath = realpath(__DIR__ . '/../../agent/src/RepositorySchemaValidator.php');
+    $validatorPath = realpath(__DIR__ . '/../../agent/src/Repository/RepositorySchemaValidator.php');
     $probe = proc_open(
         [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Policy::class, false) ? "loaded\\n" : "missing\\n";', (string) $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -75,8 +75,8 @@ namespace {
     $validator->validate('term', 'terms/category/u--one.json', ['uuid' => 'u', 'taxonomy' => 'category', 'name' => 'One', 'slug' => 'one', 'description' => '', 'parent' => null, 'meta' => [], 'relationships' => ['category' => []]], null);
     $check(in_array('taxonomy_object_keyspace_invalid', $codes(), true), 'a policy keyspace resolver refusal remains a structured schema diagnostic');
 
-    $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
-    $entityParser = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryEntityParser.php');
+    $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php');
+    $entityParser = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryEntityParser.php');
     $check(
         substr_count($compiler, 'new RepositoryEntityParser(') === 1
         && substr_count($compiler, '->entityParser->parse(') === 1

@@ -20,7 +20,7 @@ function is_multisite(): bool {
     return false;
 }
 
-require_once __DIR__ . '/../../agent/src/ArtifactPolicyIdentity.php';
+require_once __DIR__ . '/../../agent/src/Policy/ArtifactPolicyIdentity.php';
 
 use Duo\ArtifactPolicyIdentity;
 use Duo\Canon;
@@ -44,7 +44,7 @@ $check(
     'ArtifactPolicyIdentity directly loads its policy identity stack without pulling in the repository-tree compiler'
 );
 
-require_once __DIR__ . '/../../agent/src/RepositoryCompiler.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\CapabilityRegistry;
 use Duo\RepositoryCompiler;
@@ -95,7 +95,7 @@ if (isset($policy)) {
     }
 }
 
-$compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
+$compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php');
 $check(
     substr_count($compilerSource, 'ArtifactPolicyIdentity::site_hash($policy)') === 1
         && substr_count($compilerSource, 'ArtifactPolicyIdentity::state_site_hash($policy)') === 1

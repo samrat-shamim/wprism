@@ -29,10 +29,10 @@
  * against them. Every SQL shape it cannot interpret raises \LogicException
  * naming the statement, so a suite author extends the grammar instead of
  * silently getting null. That loudness is the whole point -- it is the same
- * posture as agent/src/Db.php, which refuses to treat wpdb's false as a
+ * posture as agent/src/Kernel/Db.php, which refuses to treat wpdb's false as a
  * survivable value.
  *
- * INTEROPERATION WITH agent/src/Db.php
+ * INTEROPERATION WITH agent/src/Kernel/Db.php
  * ------------------------------------
  * Db::checked() tests the strict `=== false` and, when it sees it, reads
  * $wpdb->last_error and maps 'Deadlock found' / 'Lock wait timeout' to

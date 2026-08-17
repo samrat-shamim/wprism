@@ -6,7 +6,7 @@ declare(strict_types=1);
 // receipt/generation/retention fences.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
 
 use Duo\Canon;
 use Duo\Recovery\CodeRelease;

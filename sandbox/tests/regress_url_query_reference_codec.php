@@ -14,7 +14,7 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/UrlQueryReferenceCodec.php';
+require __DIR__ . '/../../agent/src/Kernel/UrlQueryReferenceCodec.php';
 
 use Duo\UrlQueryReferenceCodec;
 

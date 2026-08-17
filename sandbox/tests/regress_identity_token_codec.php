@@ -62,10 +62,10 @@ final class CodecFakeWpdb {
     }
 }
 
-require __DIR__ . '/../../agent/src/IdentityTokenCodec.php';
+require __DIR__ . '/../../agent/src/Kernel/IdentityTokenCodec.php';
 check(!class_exists(\Duo\Ledger::class, false), 'codec standalone load does not load Ledger');
-require __DIR__ . '/../../agent/src/Ledger.php';
-require __DIR__ . '/../../agent/src/Tokens.php';
+require __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require __DIR__ . '/../../agent/src/Grammar/Tokens.php';
 
 use Duo\IdentityTokenCodec;
 use Duo\Tokens;
@@ -124,7 +124,7 @@ foreach ([
 
 // The public facade remains the one spelling used by existing callers, but
 // its mapping and parser implementation now live in the pure collaborator.
-$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Tokens.php');
+$tokenSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Grammar/Tokens.php');
 check(Tokens::ledger_kind('tt') === 'term_taxonomy', 'Tokens facade preserves ledger_kind() behavior');
 check(str_contains($tokenSource, 'IdentityTokenCodec::ledger_kind'), 'Tokens delegates kind mapping to the codec');
 check(str_contains($tokenSource, 'IdentityTokenCodec::encode'), 'Tokens delegates token formatting to the codec');

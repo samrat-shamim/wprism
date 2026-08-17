@@ -163,8 +163,8 @@ ARTIFACT_1="$(printf %s artifact-generation-1 | shasum -a 256 | awk '{print $1}'
 ARTIFACT_2="$(printf %s artifact-generation-2 | shasum -a 256 | awk '{print $1}')"
 CODE_FILE_SHA_1="$(shasum -a 256 "$TMP/desired-1.php" | awk '{print $1}')"
 CODE_FILE_SHA_2="$(shasum -a 256 "$TMP/desired-2.php" | awk '{print $1}')"
-CODE_REVISION_1="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Canon.php" "$CODE_FILE_SHA_1")"
-CODE_REVISION_2="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Canon.php" "$CODE_FILE_SHA_2")"
+CODE_REVISION_1="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Kernel/Canon.php" "$CODE_FILE_SHA_1")"
+CODE_REVISION_2="$(php -r 'require $argv[1];$sha=$argv[2];$code=["files"=>[["path"=>"plugins/acme/acme.php","sha256"=>$sha]],"format"=>"duo-code/v1","layout"=>"wp-content","owned_roots"=>["plugins/acme"],"plugin_main_files"=>[["basename"=>"acme/acme.php","path"=>"plugins/acme/acme.php","sha256"=>$sha]],"source"=>"code/wp-content","theme_slugs"=>[],"theme_templates"=>[]];echo hash("sha256",Duo\Canon::encode($code));' "$ROOT/agent/src/Kernel/Canon.php" "$CODE_FILE_SHA_2")"
 
 cat >"$TMP/envs.json" <<EOF
 {
@@ -266,7 +266,7 @@ SOURCE_DB_HASH="$(printf '%s' "$SOURCE_DB_RAW" | shasum -a 256 | awk '{print $1}
 TARGET_DB_HASH="$(printf '%s' "$TARGET_DB_RAW" | shasum -a 256 | awk '{print $1}')"
 [ "$SOURCE_HOST_HASH" != "$TARGET_HOST_HASH" ] || fail "SSH host fingerprints are not independent"
 [ "$SOURCE_DB_HASH" != "$TARGET_DB_HASH" ] || fail "database fingerprints are not independent"
-HARNESS_REVISION="$(shasum -a 256 sandbox/tests/certify_ssh_rollback.sh sandbox/tests/fixtures/ssh-rollback-certify-driver.php sandbox/bin/ssh-rollback-certification.php recovery/*.php cli/src/RollbackAuthority.php cli/src/VerifiedRollbackProfile.php | shasum -a 256 | awk '{print $1}')"
+HARNESS_REVISION="$(shasum -a 256 sandbox/tests/certify_ssh_rollback.sh sandbox/tests/fixtures/ssh-rollback-certify-driver.php sandbox/bin/ssh-rollback-certification.php recovery/*.php cli/src/Recovery/RollbackAuthority.php cli/src/Recovery/VerifiedRollbackProfile.php | shasum -a 256 | awk '{print $1}')"
 php sandbox/tests/fixtures/ssh-rollback-certify-driver.php "$TMP/envs.json" "$TMP/spec.raw.json" \
   "$SOURCE_HOST_HASH" "$SOURCE_DB_HASH" "$TARGET_HOST_HASH" "$TARGET_DB_HASH" "$HARNESS_REVISION"
 pass "198 injected cases produced signed-chain evidence and only verified rollback/commit outcomes"

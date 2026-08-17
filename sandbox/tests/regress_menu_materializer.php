@@ -27,12 +27,12 @@ declare(strict_types=1);
 $standaloneProbes = [
     [
         'label' => 'ApplyFieldMaterializer self-requires Policy and Tokens',
-        'file' => __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php',
+        'file' => __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php',
         'classes' => ['Duo\\Policy', 'Duo\\Tokens'],
     ],
     [
         'label' => 'MenuMaterializer self-requires its constructor dependencies',
-        'file' => __DIR__ . '/../../agent/src/MenuMaterializer.php',
+        'file' => __DIR__ . '/../../agent/src/Apply/MenuMaterializer.php',
         'classes' => ['Duo\\Policy', 'Duo\\Tokens', 'Duo\\ApplyFieldMaterializer'],
     ],
 ];
@@ -90,13 +90,13 @@ if ($standaloneFailures) {
     exit(1);
 }
 
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/ApplyFieldMaterializer.php';
-require_once __DIR__ . '/../../agent/src/MenuMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Apply/ApplyFieldMaterializer.php';
+require_once __DIR__ . '/../../agent/src/Apply/MenuMaterializer.php';
 
 use Duo\ApplyFieldMaterializer;
 use Duo\MenuMaterializer;

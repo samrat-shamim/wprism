@@ -13,7 +13,20 @@ $check = static function (bool $condition, string $message) use (&$failures): vo
     fwrite(STDERR, "FAIL: $message\n");
 };
 $source = static function (string $name) use ($root): string {
-    $bytes = file_get_contents("$root/agent/src/$name.php");
+    // Since the module move (ROUND 3 TRAIN 1) the engine tree is not flat; the
+    // classmap beside it is what still knows where a file lives. Indexed by
+    // the mapped path's BASENAME, not by class name: this closure is handed a
+    // file name, and agent/src/Kernel/CommandRefusal.php declares
+    // Duo\CommandRefusalException, so a class lookup would miss it. A name the
+    // map does not carry leaves $bytes false, which the throw below names.
+    static $duoAgentFiles = null;
+    if ($duoAgentFiles === null) {
+        $duoAgentFiles = [];
+        foreach ((array) (require "$root/agent/duo-classmap.php") as $duoAgentPath) {
+            $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+        }
+    }
+    $bytes = isset($duoAgentFiles[$name]) ? file_get_contents("$root/agent/" . $duoAgentFiles[$name]) : false;
     if (!is_string($bytes)) {
         throw new RuntimeException("cannot read $name.php");
     }
@@ -41,7 +54,7 @@ $buildStart = strpos($candidate, 'public function build(');
 $buildEnd = strpos($candidate, 'private function reset(', (int) $buildStart);
 $candidateBuild = substr($candidate, (int) $buildStart, (int) $buildEnd - (int) $buildStart);
 
-require_once "$root/agent/src/Capture.php";
+require_once "$root/agent/src/Capture/Capture.php";
 $captureReflection = new ReflectionClass(Duo\Capture::class);
 
 $check(substr_count($capture, "\n") + 1 <= 650, 'Capture stays a small command-facing façade');
@@ -292,7 +305,7 @@ $check(
 $check(str_contains($recovery, "'duo-capture-commit-marker/v1'")
     && str_contains($recovery, 'CommandRefusalException::ambiguousCaptureRecovery('),
     'publication recovery owns exact self-hashed commit proof and ambiguity refusal');
-$check(str_contains($initial, "require_once __DIR__ . '/InitProtocol.php';")
+$check(str_contains($initial, "require_once __DIR__ . '/../Init/InitProtocol.php';")
     && str_contains($initial, 'InitProtocol::ATTEMPT_FILE')
     && str_contains($initial, 'InitProtocol::ATTEMPT_NEXT_FILE')
     && str_contains($initial, 'assertProtocolBoundaries(')

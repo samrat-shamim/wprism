@@ -101,7 +101,7 @@ require $argv[1];
 [$front, $body] = \Duo\Canon::parse_post_file(file_get_contents($argv[2]));
 $front["uuid"] = $argv[4]; $front["slug"] = "duo-3206-insert"; $front["title"] = "DUO 3206 Insert";
 file_put_contents($argv[3], \Duo\Canon::post_file($front, $body));
-' "$REPO_ROOT/agent/src/Canon.php" "$SRC_POST" "$NEW_POST" "$NEW_UUID"
+' "$REPO_ROOT/agent/src/Kernel/Canon.php" "$SRC_POST" "$NEW_POST" "$NEW_UUID"
 expect_failure "apply insert post" "apply insert post" \
   duo apply --repo=/siterepo --revision=bad-insert
 MAP=$(wp1 eval "echo \\Duo\\Ledger::id_for('$NEW_UUID', \\Duo\\Ledger::KIND_POST) ?? 'NULL';" 2>/dev/null | tr -d '\r' | tail -1)
@@ -122,7 +122,7 @@ pass "failed update rolled back"
 
 say "DELETE failure rolls back prior cleanup writes and keeps ledger state"
 DELETE_POST=$(find "$SITEREPO/state/posts/post" -type f | head -1)
-DELETE_UUID=$(php -r 'require $argv[1]; [$f] = \Duo\Canon::parse_post_file(file_get_contents($argv[2])); echo $f["uuid"];' "$REPO_ROOT/agent/src/Canon.php" "$DELETE_POST")
+DELETE_UUID=$(php -r 'require $argv[1]; [$f] = \Duo\Canon::parse_post_file(file_get_contents($argv[2])); echo $f["uuid"];' "$REPO_ROOT/agent/src/Kernel/Canon.php" "$DELETE_POST")
 DELETE_ID=$(wp1 eval "echo \\Duo\\Ledger::id_for('$DELETE_UUID', \\Duo\\Ledger::KIND_POST);" 2>/dev/null | tr -d '\r' | tail -1)
 DELETE_SAVED="$SITEREPO/.duo-3206-deleted-post.md"
 cp "$DELETE_POST" "$DELETE_SAVED"

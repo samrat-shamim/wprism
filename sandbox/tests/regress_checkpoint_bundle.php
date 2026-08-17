@@ -5,11 +5,11 @@ declare(strict_types=1);
 // exact database restore ordering, prior verification, and retention.
 
 require dirname(__DIR__, 2) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 2) . '/agent/src/Canon.php';
-require dirname(__DIR__, 2) . '/cli/src/Transport.php';
-require dirname(__DIR__, 2) . '/cli/src/SshTransport.php';
-require dirname(__DIR__, 2) . '/cli/src/RollbackAuthority.php';
-require dirname(__DIR__, 2) . '/cli/src/ScopedRollbackProfile.php';
+require dirname(__DIR__, 2) . '/agent/src/Kernel/Canon.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 2) . '/cli/src/Transport/SshTransport.php';
+require dirname(__DIR__, 2) . '/cli/src/Recovery/RollbackAuthority.php';
+require dirname(__DIR__, 2) . '/cli/src/Recovery/ScopedRollbackProfile.php';
 
 use Duo\Orchestrator\RollbackAuthority;
 use Duo\Orchestrator\ScopedRollbackProfile;

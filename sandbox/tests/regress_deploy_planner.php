@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$deploySource = file_get_contents($root . '/agent/src/Deploy.php');
-$plannerSource = file_get_contents($root . '/agent/src/DeployPlanner.php');
+$deploySource = file_get_contents($root . '/agent/src/Promotion/Deploy.php');
+$plannerSource = file_get_contents($root . '/agent/src/Promotion/DeployPlanner.php');
 if (!is_string($deploySource) || !is_string($plannerSource)) {
     fwrite(STDERR, "FAIL: could not read Deploy planner sources\n");
     exit(1);
@@ -26,7 +26,7 @@ check(substr_count($plannerSource, 'plugin dependency cycle prevents safe') === 
 check((bool) preg_match('/private static function order_deactivations\(array \$plugins, array \$requirements\): array \{\s*return DeployPlanner::order_deactivations/s', $deploySource), 'Deploy keeps a thin deactivation-order facade');
 check((bool) preg_match('/private static function order_activations\(array \$plugins, array \$requirements\): array \{\s*return DeployPlanner::order_activations/s', $deploySource), 'Deploy keeps a thin activation-order facade');
 
-require_once $root . '/agent/src/DeployPlanner.php';
+require_once $root . '/agent/src/Promotion/DeployPlanner.php';
 
 $requirements = [
     'dependent.php' => ['provider.php'],

@@ -69,7 +69,7 @@ namespace Duo {
 }
 
 namespace {
-    require_once __DIR__ . '/../../agent/src/RepositoryEntityParser.php';
+    require_once __DIR__ . '/../../agent/src/Repository/RepositoryEntityParser.php';
 
     use Duo\Policy;
     use Duo\RepositoryEntityParser;
@@ -83,7 +83,7 @@ namespace {
             $failures[] = $message;
         }
     };
-    $path = realpath(__DIR__ . '/../../agent/src/RepositoryEntityParser.php');
+    $path = realpath(__DIR__ . '/../../agent/src/Repository/RepositoryEntityParser.php');
     $process = proc_open(
         [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Canon::class, false) && class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\RepositorySchemaValidator::class, false) && class_exists(\\Duo\\RepositoryMediaCatalog::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', (string) $path],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -199,8 +199,8 @@ namespace {
     $parser->parse("terms/category/$uuid--wrong.json", $document($term));
     $check($codes() === ['schema_content_mismatch'] && $diagnostics[0]['locator'] === 'slug', 'filename identity mismatches retain their historical schema locator');
 
-    $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
-    $entityParser = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryEntityParser.php');
+    $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php');
+    $entityParser = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryEntityParser.php');
     $check(
         substr_count($compiler, 'new RepositoryEntityParser(') === 1
         && substr_count($compiler, '->entityParser->parse(') === 1

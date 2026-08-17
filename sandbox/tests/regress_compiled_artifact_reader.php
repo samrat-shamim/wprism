@@ -90,7 +90,7 @@ namespace {
     use Duo\Policy;
     use Duo\RepositoryCompilationException;
 
-    $reader = __DIR__ . '/../../agent/src/CompiledArtifactReader.php';
+    $reader = __DIR__ . '/../../agent/src/Repository/CompiledArtifactReader.php';
     require_once $reader;
 
     $failures = [];
@@ -321,8 +321,8 @@ PHP);
         'a code-bearing artifact primes interpreters only after the optional bridge accepts its descriptor'
     );
 
-    $compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
-    $readerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/CompiledArtifactReader.php');
+    $compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php');
+    $readerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/CompiledArtifactReader.php');
     $check(
         substr_count($compilerSource, 'CompiledArtifactReader::read_artifact($path, $policy)') === 1
             && !str_contains($compilerSource, 'private static function artifact_exception')

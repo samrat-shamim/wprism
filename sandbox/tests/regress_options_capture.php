@@ -94,11 +94,11 @@ final class OptionsCaptureFakeWpdb {
     }
 }
 
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Tokens.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/OptionsCapture.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Grammar/Tokens.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Capture/OptionsCapture.php';
 
 use Duo\OptionState;
 use Duo\OptionsCapture;
@@ -316,10 +316,10 @@ $check(
     'each capture resets every collaborator side channel'
 );
 
-$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture.php');
-$workflowSource = file_get_contents(__DIR__ . '/../../agent/src/CapturePublicationWorkflow.php');
-$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/CaptureCandidateBuilder.php');
-$optionsSource = file_get_contents(__DIR__ . '/../../agent/src/OptionsCapture.php');
+$captureSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/Capture.php');
+$workflowSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CapturePublicationWorkflow.php');
+$candidateSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/CaptureCandidateBuilder.php');
+$optionsSource = file_get_contents(__DIR__ . '/../../agent/src/Capture/OptionsCapture.php');
 $buildStart = strpos((string) $candidateSource, 'private function buildOptions(');
 $buildEnd = strpos((string) $candidateSource, "\n    private function", (int) $buildStart + 1);
 $buildBody = substr((string) $candidateSource, (int) $buildStart, (int) $buildEnd - (int) $buildStart);

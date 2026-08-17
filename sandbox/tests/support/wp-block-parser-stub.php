@@ -3,7 +3,7 @@
  * Offline test support ONLY — never loaded by the agent itself, never
  * bind-mounted into any sandbox container. Vendored, byte-for-byte,
  * unmodified copies of the WordPress core block-parsing primitives
- * agent/src/Blocks.php and agent/src/Lint.php depend on (parse_blocks(),
+ * agent/src/Grammar/Blocks.php and agent/src/Review/Lint.php depend on (parse_blocks(),
  * serialize_blocks()/serialize_block(), and their WP_Block_Parser* support
  * classes) — extracted from wp-includes/{blocks.php,class-wp-block-parser*.php}
  * of the `wordpress:7.0.3-php8.3-apache` image so

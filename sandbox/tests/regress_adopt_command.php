@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../cli/src/AdoptCommand.php';
+require_once __DIR__ . '/../../cli/src/Command/AdoptCommand.php';
 
 use Duo\Orchestrator\AdoptionTransport;
 use Duo\Orchestrator\AdoptCommand;

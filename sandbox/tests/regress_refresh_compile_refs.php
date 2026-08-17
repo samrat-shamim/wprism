@@ -20,7 +20,7 @@ if ($root === false) {
     fwrite(STDERR, "FAIL: repository root is unavailable\n");
     exit(1);
 }
-require_once $root . '/cli/src/RefreshPlan.php';
+require_once $root . '/cli/src/Refresh/RefreshPlan.php';
 
 $failures = 0;
 

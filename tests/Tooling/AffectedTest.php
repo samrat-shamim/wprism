@@ -31,7 +31,7 @@ use PHPUnit\Framework\TestCase;
  * cover the same file.
  *
  * These assertions intentionally do not pin an exact suite count for any
- * broadly-required file (agent/src/Canon.php, CommandRefusal.php, ...): the
+ * broadly-required file (agent/src/Kernel/Canon.php, CommandRefusal.php, ...): the
  * dependency index is a real static analysis over ~600 source and test
  * files that will legitimately grow or shrink by a few suites as the corpus
  * evolves. What must stay true, and what these assert, is that specific
@@ -101,56 +101,56 @@ final class AffectedTest extends TestCase
 
     public function testPathSafetySelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=agent/src/PathSafety.php']);
+        $targets = self::targets(['--paths=agent/src/Kernel/PathSafety.php']);
         self::assertContains('regress-path-safety', $targets);
         self::assertGreaterThanOrEqual(10, count($targets));
     }
 
     public function testCommandRefusalSelectsCliJsonRefusals(): void
     {
-        $targets = self::targets(['--paths=agent/src/CommandRefusal.php']);
+        $targets = self::targets(['--paths=agent/src/Kernel/CommandRefusal.php']);
         self::assertContains('regress-cli-json-refusals', $targets);
     }
 
     public function testCommandOutputSelectsCommandOutputSuite(): void
     {
-        $targets = self::targets(['--paths=cli/src/CommandOutput.php']);
+        $targets = self::targets(['--paths=cli/src/Command/CommandOutput.php']);
         self::assertContains('regress-command-output', $targets);
     }
 
     public function testApplyFieldMaterializerSelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=agent/src/ApplyFieldMaterializer.php']);
+        $targets = self::targets(['--paths=agent/src/Apply/ApplyFieldMaterializer.php']);
         self::assertContains('regress-apply-field-materializer', $targets);
     }
 
     public function testDeployPlannerSelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=agent/src/DeployPlanner.php']);
+        $targets = self::targets(['--paths=agent/src/Promotion/DeployPlanner.php']);
         self::assertContains('regress-deploy-planner', $targets);
     }
 
     public function testTableSchemaSelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=agent/src/TableSchema.php']);
+        $targets = self::targets(['--paths=agent/src/Kernel/TableSchema.php']);
         self::assertContains('regress-table-schema', $targets);
     }
 
     public function testTextTokenizerSelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=agent/src/TextTokenizer.php']);
+        $targets = self::targets(['--paths=agent/src/Kernel/TextTokenizer.php']);
         self::assertContains('regress-text-tokenizer', $targets);
     }
 
     public function testEnvironmentCommandOptionsSelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=cli/src/EnvironmentCommandOptions.php']);
+        $targets = self::targets(['--paths=cli/src/Command/EnvironmentCommandOptions.php']);
         self::assertContains('regress-environment-command-options', $targets);
     }
 
     public function testUrlQueryReferenceCodecSelectsItsOwnSuite(): void
     {
-        $targets = self::targets(['--paths=agent/src/UrlQueryReferenceCodec.php']);
+        $targets = self::targets(['--paths=agent/src/Kernel/UrlQueryReferenceCodec.php']);
         self::assertContains('regress-url-query-reference-codec', $targets);
     }
 
@@ -159,16 +159,16 @@ final class AffectedTest extends TestCase
         // LintFinding.php has no same-named suite; it's a shared value type
         // pulled in by several reference scanners. Assert one concrete,
         // stable dependent rather than the file's own (non-existent) suite.
-        $targets = self::targets(['--paths=agent/src/LintFinding.php']);
+        $targets = self::targets(['--paths=agent/src/Review/LintFinding.php']);
         self::assertContains('regress-block-reference-scanner', $targets);
     }
 
     public function testCanonSelectsAtLeastFortySuites(): void
     {
-        // agent/src/Canon.php is the encode/decode primitive nearly every
+        // agent/src/Kernel/Canon.php is the encode/decode primitive nearly every
         // suite touches directly or transitively -- the broadest possible
         // fan-out sample.
-        $targets = self::targets(['--paths=agent/src/Canon.php']);
+        $targets = self::targets(['--paths=agent/src/Kernel/Canon.php']);
         self::assertGreaterThanOrEqual(40, count($targets));
     }
 
@@ -234,17 +234,17 @@ final class AffectedTest extends TestCase
 
     public function testExplainFormatNamesTargetChangedFileAndReason(): void
     {
-        $result = self::invoke(['--paths=agent/src/PathSafety.php', '--explain']);
+        $result = self::invoke(['--paths=agent/src/Kernel/PathSafety.php', '--explain']);
         self::assertSame(0, $result['status']);
         self::assertMatchesRegularExpression(
-            '/^regress-path-safety <- agent\/src\/PathSafety\.php \(why: (require|self|class|path|dir:\S+)\)$/m',
+            '/^regress-path-safety <- agent\/src\/Kernel\/PathSafety\.php \(why: (require|self|class|path|dir:\S+)\)$/m',
             $result['stdout']
         );
     }
 
     public function testJsonModeEmitsValidJsonWithTargetsKey(): void
     {
-        $result = self::invoke(['--paths=agent/src/PathSafety.php', '--json']);
+        $result = self::invoke(['--paths=agent/src/Kernel/PathSafety.php', '--json']);
         self::assertSame(0, $result['status']);
         $decoded = json_decode($result['stdout'], true);
         self::assertIsArray($decoded);
@@ -294,12 +294,12 @@ final class AffectedTest extends TestCase
     {
         return [
             'dir-relative require' => [
-                "require __DIR__ . '/../../agent/src/Canon.php';",
-                'agent/src/Canon.php',
+                "require __DIR__ . '/../../agent/src/Kernel/Canon.php';",
+                'agent/src/Kernel/Canon.php',
             ],
             'variable-rooted require' => [
-                "require \$root . '/agent/src/IdentityBackup.php';",
-                'agent/src/IdentityBackup.php',
+                "require \$root . '/agent/src/Repository/IdentityBackup.php';",
+                'agent/src/Repository/IdentityBackup.php',
             ],
             'shell double-quoted root' => [
                 'LOCK_LIB="$ROOT/sandbox/lib/pair_budget_lock.sh"',
@@ -321,15 +321,15 @@ final class AffectedTest extends TestCase
     public function testRootedPathRegexStillRejectsMidIdentifierMatches(): void
     {
         // The lookbehind's only job: `myagent/src/Canon.php` is a different
-        // (non-existent) file and must not register agent/src/Canon.php.
+        // (non-existent) file and must not register agent/src/Kernel/Canon.php.
         self::assertSame([], self::extractedPaths("require 'myagent/src/Canon.php';"));
     }
 
     public function testNormalizePathCollapsesDotDotWithoutEscapingTheRoot(): void
     {
         self::loadTool();
-        self::assertSame('agent/src/Ledger.php', af_normalize_path('sandbox/tests/../../agent/src/Ledger.php'));
-        self::assertSame('agent/src/Canon.php', af_normalize_path('./agent/./src/Canon.php'));
+        self::assertSame('agent/src/Repository/Ledger.php', af_normalize_path('sandbox/tests/../../agent/src/Repository/Ledger.php'));
+        self::assertSame('agent/src/Kernel/Canon.php', af_normalize_path('./agent/./src/Kernel/Canon.php'));
         // A climb that would leave the repo is clamped, never emitted.
         self::assertSame('etc/passwd', af_normalize_path('../../../etc/passwd'));
         self::assertSame('', af_normalize_path('sandbox/..'));
@@ -341,9 +341,9 @@ final class AffectedTest extends TestCase
         $refs = af_extract_same_dir_requires(
             self::repoRoot(),
             'sandbox/tests/regress_example.php',
-            "require_once __DIR__ . '/../../agent/src/Ledger.php';"
+            "require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';"
         );
-        self::assertSame(['agent/src/Ledger.php'], $refs);
+        self::assertSame(['agent/src/Repository/Ledger.php'], $refs);
     }
 
     public function testDirnameBasesAreResolved(): void
@@ -390,10 +390,10 @@ final class AffectedTest extends TestCase
             "foreach (['Duo\\\\Capture', 'Duo\\\\Policy'] as \$forbidden) {}",
             $classMap
         );
-        self::assertContains('agent/src/Capture.php', $files);
-        self::assertContains('agent/src/Policy.php', $files);
+        self::assertContains('agent/src/Capture/Capture.php', $files);
+        self::assertContains('agent/src/Policy/Policy.php', $files);
         // The single-backslash (real namespace) form still works.
-        self::assertContains('agent/src/Canon.php', af_extract_class_files('use Duo\\Canon;', $classMap));
+        self::assertContains('agent/src/Kernel/Canon.php', af_extract_class_files('use Duo\\Canon;', $classMap));
     }
 
     public function testRootedDirectoryLiteralsBecomeDirectoryDependencies(): void
@@ -451,10 +451,10 @@ final class AffectedTest extends TestCase
 
     public function testFreshProcessWorkerFileSelectsItsCallersSuites(): void
     {
-        // cli/src/RefreshPlan.php holds `$worker = __DIR__ .
+        // cli/src/Refresh/RefreshPlan.php holds `$worker = __DIR__ .
         // '/RefreshPlanCompile.php';` and runs it as a separate process --
         // an edge the require-only source graph could not see.
-        $targets = self::targets(['--paths=cli/src/RefreshPlanCompile.php']);
+        $targets = self::targets(['--paths=cli/src/Refresh/RefreshPlanCompile.php']);
         self::assertNotSame([], $targets);
         self::assertContains('regress-refresh-compile-refs', $targets);
     }

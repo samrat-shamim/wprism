@@ -11,7 +11,7 @@
 #    as project code, so that is what carries agent/src, cli/src, recovery/,
 #    the three manifests/ PHP hook directories, and the WordPress/WP-CLI stubs.
 #
-# 2. Nothing here ships. cli/src/Adopt.php:120 tars exactly
+# 2. Nothing here ships. cli/src/Onboarding/Adopt.php:120 tars exactly
 #    `agent manifests recovery`, so a repo-root analyser config is
 #    structurally incapable of reaching a managed site. That is why it is safe
 #    to depend on vendor/ here while the drop-in stays dependency-free

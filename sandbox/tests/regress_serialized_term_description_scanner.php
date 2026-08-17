@@ -14,9 +14,9 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/Pending.php';
-require __DIR__ . '/../../agent/src/LintFinding.php';
-require __DIR__ . '/../../agent/src/SerializedTermDescriptionScanner.php';
+require __DIR__ . '/../../agent/src/Review/Pending.php';
+require __DIR__ . '/../../agent/src/Review/LintFinding.php';
+require __DIR__ . '/../../agent/src/Review/SerializedTermDescriptionScanner.php';
 
 use Duo\SerializedTermDescriptionScanner;
 
@@ -56,7 +56,7 @@ check(
     'unserialized text is ignored without a warning or exception'
 );
 
-$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
+$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Review/Lint.php');
 check(str_contains($lintSource, "require_once __DIR__ . '/SerializedTermDescriptionScanner.php';"), 'Lint requires the extracted serialized-description scanner');
 check(str_contains($lintSource, 'SerializedTermDescriptionScanner::scan('), 'Lint delegates serialized-description findings to the extracted scanner');
 

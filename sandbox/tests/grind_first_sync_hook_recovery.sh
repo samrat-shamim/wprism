@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 
 REPO_ROOT="$(cd .. && pwd)"
 DUO="$REPO_ROOT/cli/duo"
-CODE_DEPLOY="$REPO_ROOT/cli/src/CodeDeploy.php"
+CODE_DEPLOY="$REPO_ROOT/cli/src/Transport/CodeDeploy.php"
 FIXTURE="$REPO_ROOT/sandbox/fixtures/duo-first-sync-hook"
 PAIR="firstsync${BASHPID}${RANDOM}"
 PORT1=8894
@@ -93,7 +93,7 @@ assert_absent() {
 }
 canonicalize_json() {
   local path="$1" tmp="${1}.canon.${BASHPID}"
-  DUO_CANON="$REPO_ROOT/agent/src/Canon.php" php -r '
+  DUO_CANON="$REPO_ROOT/agent/src/Kernel/Canon.php" php -r '
 require getenv("DUO_CANON");
 $path = $argv[1];
 $raw = file_get_contents($path);

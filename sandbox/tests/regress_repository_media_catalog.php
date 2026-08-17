@@ -14,7 +14,7 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../agent/src/RepositoryMediaCatalog.php';
+require_once __DIR__ . '/../../agent/src/Repository/RepositoryMediaCatalog.php';
 
 use Duo\RepositoryMediaCatalog;
 
@@ -151,8 +151,8 @@ $check(
     'two attachment documents cannot claim the same bounded derivative root'
 );
 
-$compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
-$entityParserSource = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryEntityParser.php');
+$compilerSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php');
+$entityParserSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryEntityParser.php');
 $check(
     substr_count($compilerSource, 'new RepositoryMediaCatalog(') === 1
         && substr_count($compilerSource, '->catalog_directory()') === 1

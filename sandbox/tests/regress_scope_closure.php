@@ -16,6 +16,14 @@
 
 $root = $argv[1];
 define('DUO_SPEC_VERSION', 2);
+$duoAgentClassmap = require $root . '/agent/duo-classmap.php';
+if (!is_array($duoAgentClassmap)) {
+    throw new \RuntimeException('regress_scope_closure: agent/duo-classmap.php did not return a map');
+}
+$duoAgentFiles = [];
+foreach ($duoAgentClassmap as $duoAgentPath) {
+    $duoAgentFiles[basename((string) $duoAgentPath, '.php')] = (string) $duoAgentPath;
+}
 foreach ([
     'Uuid', 'OrderPreserved', 'Canon', 'OptionState', 'UserMetaState', 'Db', 'Secrets',
     'PersonalData', 'ManifestDispositions', 'AdapterSources', 'CapabilityRegistry',
@@ -24,7 +32,11 @@ foreach ([
     'RepositoryAuthorization', 'CodeCompatibility', 'Code', 'CodeStateContract',
     'ReferenceGraph', 'RepositoryCompiler', 'ScopeClosure', 'ScopeContract',
 ] as $file) {
-    require_once "$root/agent/src/$file.php";
+    $duoAgentFile = $duoAgentFiles[$file] ?? null;
+    if (!is_string($duoAgentFile)) {
+        throw new \RuntimeException('regress_scope_closure: agent source ' . $file . '.php is absent from agent/duo-classmap.php');
+    }
+    require_once $root . '/agent/' . $duoAgentFile;
 }
 
 function get_option($name) { throw new RuntimeException("TARGET CONTACT: get_option($name)"); }

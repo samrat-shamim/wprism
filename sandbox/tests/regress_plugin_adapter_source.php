@@ -66,13 +66,13 @@ function is_multisite(): bool {
     return (bool) $GLOBALS['duo_test_is_multisite'];
 }
 
-require $engineRoot . '/agent/src/Canon.php';
-require $engineRoot . '/agent/src/OptionState.php';
-require $engineRoot . '/agent/src/ManifestDispositions.php';
-require $engineRoot . '/agent/src/CapabilityRegistry.php';
-require $engineRoot . '/agent/src/Policy.php';
-require $engineRoot . '/agent/src/Ledger.php';
-require $engineRoot . '/agent/src/RepositoryCompiler.php';
+require $engineRoot . '/agent/src/Kernel/Canon.php';
+require $engineRoot . '/agent/src/Kernel/OptionState.php';
+require $engineRoot . '/agent/src/Policy/ManifestDispositions.php';
+require $engineRoot . '/agent/src/Adapter/CapabilityRegistry.php';
+require $engineRoot . '/agent/src/Policy/Policy.php';
+require $engineRoot . '/agent/src/Repository/Ledger.php';
+require $engineRoot . '/agent/src/Repository/RepositoryCompiler.php';
 
 use Duo\AdapterSources;
 use Duo\Canon;
@@ -237,15 +237,15 @@ final class WP_CLI {
     public static function error($message): void { throw new \RuntimeException((string) $message); }
     public static function halt($code): void { throw new \RuntimeException('halt:' . $code); }
 }
-require __ENGINE_ROOT__ . '/agent/src/Canon.php';
-require __ENGINE_ROOT__ . '/agent/src/OptionState.php';
-require __ENGINE_ROOT__ . '/agent/src/ManifestDispositions.php';
-require __ENGINE_ROOT__ . '/agent/src/CapabilityRegistry.php';
-require __ENGINE_ROOT__ . '/agent/src/Policy.php';
-require __ENGINE_ROOT__ . '/agent/src/Ledger.php';
-require __ENGINE_ROOT__ . '/agent/src/RepositoryCompiler.php';
-require __ENGINE_ROOT__ . '/agent/src/Cli.php';
-require __ENGINE_ROOT__ . '/cli/src/PlanSummary.php';
+require __ENGINE_ROOT__ . '/agent/src/Kernel/Canon.php';
+require __ENGINE_ROOT__ . '/agent/src/Kernel/OptionState.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy/ManifestDispositions.php';
+require __ENGINE_ROOT__ . '/agent/src/Adapter/CapabilityRegistry.php';
+require __ENGINE_ROOT__ . '/agent/src/Policy/Policy.php';
+require __ENGINE_ROOT__ . '/agent/src/Repository/Ledger.php';
+require __ENGINE_ROOT__ . '/agent/src/Repository/RepositoryCompiler.php';
+require __ENGINE_ROOT__ . '/agent/src/Command/Cli.php';
+require __ENGINE_ROOT__ . '/cli/src/Plan/PlanSummary.php';
 
 $repo = __REPO__;
 $name = __NAME__;

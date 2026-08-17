@@ -3,10 +3,10 @@
 declare(strict_types=1);
 
 require dirname(__DIR__, 3) . '/recovery/rollback-control.php';
-require dirname(__DIR__, 3) . '/cli/src/Transport.php';
-require dirname(__DIR__, 3) . '/cli/src/SshTransport.php';
-require dirname(__DIR__, 3) . '/cli/src/RollbackAuthority.php';
-require dirname(__DIR__, 3) . '/cli/src/VerifiedRollbackProfile.php';
+require dirname(__DIR__, 3) . '/cli/src/Transport/Transport.php';
+require dirname(__DIR__, 3) . '/cli/src/Transport/SshTransport.php';
+require dirname(__DIR__, 3) . '/cli/src/Recovery/RollbackAuthority.php';
+require dirname(__DIR__, 3) . '/cli/src/Recovery/VerifiedRollbackProfile.php';
 require dirname(__DIR__, 2) . '/bin/ssh-rollback-certification.php';
 
 use Duo\Orchestrator\RollbackAuthority;

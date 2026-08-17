@@ -14,7 +14,7 @@ sandbox/.env
 .claude/worktrees/
 
 # DUO-3213: capture's staging/backup/lock and durable protocol artifacts
-# (agent/src/Publish.php)
+# (agent/src/Publication/Publish.php)
 # — siblings of any published state dir; git must never see one, even
 # transiently mid-capture or during recovery.
 /state.capture-staging/
@@ -56,7 +56,7 @@ sandbox/certification-bundles/
 
 # DUO WP-4: the repo-root dev toolchain (composer.json / phpstan.neon.dist /
 # .php-cs-fixer.dist.php / phpunit.xml.dist) is structurally unshippable —
-# cli/src/Adopt.php tars exactly `agent manifests recovery`, so none of this
+# cli/src/Onboarding/Adopt.php tars exactly `agent manifests recovery`, so none of this
 # can reach a managed site. What follows is the toolchain's *machine-local*
 # output: installed vendor code and analyser caches. composer.lock is NOT
 # ignored — it is the pinned, reproducible input every developer must

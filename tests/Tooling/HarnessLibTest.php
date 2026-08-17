@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
 require_once DUO_REPO_ROOT . '/sandbox/tests/lib/check.php';
 require_once DUO_REPO_ROOT . '/sandbox/tests/lib/wp_stubs.php';
 require_once DUO_REPO_ROOT . '/sandbox/tests/lib/FakeWpdb.php';
-require_once DUO_REPO_ROOT . '/agent/src/CommandRefusal.php';
+require_once DUO_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php';
 
 /**
  * Self-tests for sandbox/tests/lib/ -- the harness the offline regress_*.php
@@ -26,7 +26,7 @@ require_once DUO_REPO_ROOT . '/agent/src/CommandRefusal.php';
  * and with nothing real. A hand-rolled fake fails loudly and locally; a shared
  * one has to be tested. So the assertions below pin the properties the suites
  * will rely on -- placeholder rendering, the interpreter over seeded rows, the
- * failure seams that agent/src/Db.php reads, and the stubs' WordPress-faithful
+ * failure seams that agent/src/Kernel/Db.php reads, and the stubs' WordPress-faithful
  * (not convenient) semantics.
  *
  * These are tooling tests: they may not add a Makefile target, and they do not
@@ -496,7 +496,7 @@ final class HarnessLibTest extends TestCase
 
     public function testDeadlockSimulatorEmitsTheTextDbPhpMapsToTransientDbException(): void
     {
-        // agent/src/Db.php matches with stripos() on these two fragments; if
+        // agent/src/Kernel/Db.php matches with stripos() on these two fragments; if
         // the literals here drift, every transient-contention suite would
         // silently start asserting the permanent-failure class instead.
         self::assertStringContainsString('Deadlock found', FakeWpdb::DEADLOCK_ERROR);
@@ -719,7 +719,7 @@ final class HarnessLibTest extends TestCase
         // different code must fail even though the class matches. Run out of
         // process so the deliberate STDERR line stays out of this run.
         $failing = $this->runSuite(
-            'require_once ' . var_export(DUO_REPO_ROOT . '/agent/src/CommandRefusal.php', true) . ";\n"
+            'require_once ' . var_export(DUO_REPO_ROOT . '/agent/src/Kernel/CommandRefusal.php', true) . ";\n"
             . "duo_check_refuses(\n"
             . "    static function (): void { throw \\Duo\\CommandRefusalException::applyRefused('nope', 'retry later'); },\n"
             . "    'invalid_arguments',\n"

@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/DeletionCapabilityResolver.php";
+$resolverPath = "$root/agent/src/Policy/DeletionCapabilityResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -172,9 +172,9 @@ $assertThrows(
     'table-row guards refuse half-declared source identity'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->manifests = $manifests;
@@ -189,7 +189,7 @@ $check(
     'Policy builds a fresh resolver for each facade call so public fixture mutations are observed'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $check(
     substr_count($policySource, "require_once __DIR__ . '/DeletionCapabilityResolver.php';") === 1
         && str_contains($policySource, 'return $this->deletion_capability_resolver()->capability($selector);')

@@ -21,10 +21,10 @@ if (!defined('DUO_SPEC_VERSION')) {
 $root = dirname(__DIR__, 2);
 putenv('DUO_MANIFESTS_DIR=' . $root . '/manifests');
 
-require $root . '/agent/src/Canon.php';
-require $root . '/agent/src/OptionState.php';
-require $root . '/agent/src/Policy.php';
-require $root . '/agent/src/Providers.php';
+require $root . '/agent/src/Kernel/Canon.php';
+require $root . '/agent/src/Kernel/OptionState.php';
+require $root . '/agent/src/Policy/Policy.php';
+require $root . '/agent/src/Adapter/Providers.php';
 
 use Duo\Policy;
 

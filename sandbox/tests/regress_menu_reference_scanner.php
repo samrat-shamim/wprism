@@ -15,7 +15,7 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/MenuReferenceScanner.php';
+require __DIR__ . '/../../agent/src/Review/MenuReferenceScanner.php';
 
 use Duo\MenuReferenceScanner;
 
@@ -88,7 +88,7 @@ check(
     'scanner preserves schema ref classes, policy gates, structured paths, custom URL handling, malformed-item skip, resolver shape, and historical order'
 );
 
-$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
+$lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Review/Lint.php');
 check(str_contains($lintSource, "require_once __DIR__ . '/MenuReferenceScanner.php';"), 'Lint requires the extracted menu scanner');
 check(str_contains($lintSource, 'MenuReferenceScanner::scan('), 'Lint delegates menu findings to the extracted scanner');
 

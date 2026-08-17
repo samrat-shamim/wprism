@@ -13,7 +13,7 @@ if (!defined('ARRAY_A')) {
     define('ARRAY_A', 'ARRAY_A');
 }
 
-require_once __DIR__ . '/../../agent/src/TableSchema.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TableSchema.php';
 
 use Duo\Ledger;
 use Duo\Policy;
@@ -236,9 +236,9 @@ unset($wpdb->tables['typed_meta']['surprise']);
 
 // Load the narrow runtime only after proving the extracted boundary stands
 // alone, then compare Snapshot's historical entry points against it.
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
 
 Snapshot::assert_row_schema('typed_row', $rowDecl);
 $wpdb->tables['typed_row']['surprise'] = 'text';
@@ -253,7 +253,7 @@ $check($directMessage !== null && $directMessage === $snapshotMessage,
     'Snapshot row-schema facade preserves the extracted boundary diagnostic exactly');
 unset($wpdb->tables['typed_row']['surprise']);
 
-$snapshotLines = file(__DIR__ . '/../../agent/src/Snapshot.php');
+$snapshotLines = file(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
 $methodSource = static function (string $name) use ($snapshotLines): string {
     $method = new \ReflectionMethod(Snapshot::class, $name);
     return implode('', array_slice(
@@ -278,8 +278,8 @@ foreach ($delegates as $method => $call) {
     $check(str_contains($source, $call) && !str_contains($source, 'foreach') && !str_contains($source, 'global $wpdb'),
         "Snapshot::$method remains a thin TableSchema compatibility facade");
 }
-$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Snapshot.php');
-$check(str_contains($snapshotSource, "require_once __DIR__ . '/TableSchema.php';"),
+$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
+$check(str_contains($snapshotSource, "require_once __DIR__ . '/../Kernel/TableSchema.php';"),
     'Snapshot directly requires its schema collaborator');
 
 if ($failures !== []) {

@@ -168,7 +168,7 @@ say "(b) wp duo pending: journal-informed classification proposals (human-readab
 wp_f1 duo pending --repo=/siterepo || true
 
 say "(b) wp duo pending --format=json: assertions"
-# Contract confirmed directly against agent/src/Pending.php + Secrets.php
+# Contract confirmed directly against agent/src/Review/Pending.php + Secrets.php
 # (task #12 landed its engine classes mid-authoring, ahead of wiring the CLI
 # verbs): Pending::scan() returns a bare JSON array of
 # {section, key, proposal, evidence:{entities?, post_types?, journal?:{n,

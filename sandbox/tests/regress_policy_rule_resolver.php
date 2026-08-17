@@ -6,7 +6,7 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$resolverPath = "$root/agent/src/PolicyRuleResolver.php";
+$resolverPath = "$root/agent/src/Policy/PolicyRuleResolver.php";
 $failures = [];
 $check = static function (bool $ok, string $message) use (&$failures): void {
     echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -115,9 +115,9 @@ $check(
     'pattern fallback strips match, preserves first-manifest order, classifies only its three sections, and retains the published key map'
 );
 
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/OptionState.php";
-require_once "$root/agent/src/Policy.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Kernel/OptionState.php";
+require_once "$root/agent/src/Policy/Policy.php";
 
 $policy = new Duo\Policy();
 $policy->site = $site;
@@ -141,7 +141,7 @@ $check(
     'Policy constructs a fresh resolver per query so mutable fixture site/manifests remain observable'
 );
 
-$policySource = (string) file_get_contents("$root/agent/src/Policy.php");
+$policySource = (string) file_get_contents("$root/agent/src/Policy/Policy.php");
 $oldResolverBody = "        \$sitePolicy = \$this->site['policy'][\$section][\$name] ?? null;";
 $check(
     substr_count($policySource, "require_once __DIR__ . '/PolicyRuleResolver.php';") === 1

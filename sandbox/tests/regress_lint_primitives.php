@@ -15,8 +15,8 @@ function check(bool $condition, string $message): void {
     }
 }
 
-require __DIR__ . '/../../agent/src/LintFinding.php';
-require __DIR__ . '/../../agent/src/StateTreeWalker.php';
+require __DIR__ . '/../../agent/src/Review/LintFinding.php';
+require __DIR__ . '/../../agent/src/Repository/StateTreeWalker.php';
 
 use Duo\LintFinding;
 use Duo\StateTreeWalker;
@@ -104,8 +104,8 @@ try {
         'finding preserves an exact resolved-identity match shape'
     );
 
-    $lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Lint.php');
-    $structuredSource = (string) file_get_contents(__DIR__ . '/../../agent/src/StructuredReferenceScanner.php');
+    $lintSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Review/Lint.php');
+    $structuredSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Review/StructuredReferenceScanner.php');
     check(str_contains($lintSource, 'StateTreeWalker::files('), 'Lint delegates state-surface traversal to the shared walker');
     check(str_contains($lintSource, 'StateTreeWalker::strings('), 'Lint delegates recursive string traversal to the shared walker');
     check(str_contains($lintSource, 'LintFinding::make('), 'Lint delegates result construction to the shared finding model');

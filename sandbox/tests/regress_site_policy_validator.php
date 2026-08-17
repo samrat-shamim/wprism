@@ -14,9 +14,9 @@ if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
 
-require_once __DIR__ . '/../../agent/src/SitePolicyValidator.php';
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/SitePolicyValidator.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
 require_once __DIR__ . '/manifest_fixtures.php';
 
 use Duo\Canon;
@@ -112,8 +112,8 @@ try {
     $check(false, 'scalar site policy remains a typed refusal (wrong exception: ' . $e::class . ')');
 }
 
-$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy.php');
-$validatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/SitePolicyValidator.php');
+$policySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/Policy.php');
+$validatorSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Policy/SitePolicyValidator.php');
 $check(
     substr_count($policySource, 'SitePolicyValidator::validate(') === 2
         && !str_contains($policySource, 'CodeConfigGrammar::validate_site_code($p->site,')

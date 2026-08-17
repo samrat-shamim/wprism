@@ -18,7 +18,7 @@ namespace Duo {
 
 namespace {
     $root = dirname(__DIR__, 2);
-    $validatorPath = "$root/agent/src/RepositoryMenuLocationValidator.php";
+    $validatorPath = "$root/agent/src/Repository/RepositoryMenuLocationValidator.php";
     $failures = [];
     $check = static function (bool $ok, string $message) use (&$failures): void {
         echo ($ok ? 'ok: ' : 'FAIL: ') . $message . "\n";
@@ -98,7 +98,7 @@ namespace {
     ]);
     $check($diagnostics === [], 'derived locations remain wholly owned by the manifest and bypass authored uniqueness proof');
 
-    $compiler = (string) file_get_contents("$root/agent/src/RepositoryCompiler.php");
+    $compiler = (string) file_get_contents("$root/agent/src/Repository/RepositoryCompiler.php");
     $source = (string) file_get_contents($validatorPath);
     $natural = strpos($compiler, '$this->identityRegistry->validate_natural_identities($tree);');
     $menu = strpos($compiler, '$this->menuLocationValidator->validate($tree);');

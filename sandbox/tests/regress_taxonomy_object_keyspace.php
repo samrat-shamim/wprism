@@ -52,17 +52,17 @@ if (!function_exists('untrailingslashit')) {
     }
 }
 
-require_once $root . '/agent/src/Canon.php';
-require_once $root . '/agent/src/OptionState.php';
-require_once $root . '/agent/src/Policy.php';
-require_once $root . '/agent/src/Ledger.php';
-require_once $root . '/agent/src/Tokens.php';
-require_once $root . '/agent/src/Capture.php';
-require_once $root . '/agent/src/Lint.php';
-require_once $root . '/agent/src/SidebarState.php';
-require_once $root . '/agent/src/RepositoryCompiler.php';
-require_once $root . '/agent/src/RepositorySchemaValidator.php';
-require_once $root . '/agent/src/Apply.php';
+require_once $root . '/agent/src/Kernel/Canon.php';
+require_once $root . '/agent/src/Kernel/OptionState.php';
+require_once $root . '/agent/src/Policy/Policy.php';
+require_once $root . '/agent/src/Repository/Ledger.php';
+require_once $root . '/agent/src/Grammar/Tokens.php';
+require_once $root . '/agent/src/Capture/Capture.php';
+require_once $root . '/agent/src/Review/Lint.php';
+require_once $root . '/agent/src/Repository/SidebarState.php';
+require_once $root . '/agent/src/Repository/RepositoryCompiler.php';
+require_once $root . '/agent/src/Repository/RepositorySchemaValidator.php';
+require_once $root . '/agent/src/Apply/Apply.php';
 
 use Duo\Apply;
 use Duo\Canon;

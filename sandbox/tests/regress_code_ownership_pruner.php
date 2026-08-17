@@ -17,8 +17,8 @@
 declare(strict_types=1);
 
 $root = dirname(__DIR__, 2);
-$codeSource = file_get_contents($root . '/agent/src/Code.php');
-$prunerSource = file_get_contents($root . '/agent/src/CodeOwnershipPruner.php');
+$codeSource = file_get_contents($root . '/agent/src/Code/Code.php');
+$prunerSource = file_get_contents($root . '/agent/src/Code/CodeOwnershipPruner.php');
 if (!is_string($codeSource) || !is_string($prunerSource)) {
     fwrite(STDERR, "FAIL: could not read Code/CodeOwnershipPruner sources\n");
     exit(1);
@@ -73,7 +73,7 @@ check(
 // pass -- $roots travels explicitly, matching PathSafety::safe_component_root()'s
 // own existing (path, roots) contract since slice 1, rather than reaching
 // back into Code::ROOTS.
-require_once $root . '/agent/src/CodeOwnershipPruner.php';
+require_once $root . '/agent/src/Code/CodeOwnershipPruner.php';
 $pruner = new ReflectionClass(\Duo\CodeOwnershipPruner::class);
 check(
     array_map(static fn(ReflectionParameter $p): string => $p->getName(), $pruner->getMethod('remove_old_owned_files')->getParameters())

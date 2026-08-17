@@ -12,14 +12,14 @@ declare(strict_types=1);
 if (!defined('DUO_SPEC_VERSION')) {
     define('DUO_SPEC_VERSION', 2);
 }
-require_once __DIR__ . '/../../agent/src/Canon.php';
-require_once __DIR__ . '/../../agent/src/OptionState.php';
-require_once __DIR__ . '/../../agent/src/Policy.php';
-require_once __DIR__ . '/../../agent/src/SidebarState.php';
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
-require_once __DIR__ . '/../../agent/src/Apply.php';
-require_once __DIR__ . '/../../cli/src/PlanContract.php';
-require_once __DIR__ . '/../../cli/src/PlanSummary.php';
+require_once __DIR__ . '/../../agent/src/Kernel/Canon.php';
+require_once __DIR__ . '/../../agent/src/Kernel/OptionState.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
+require_once __DIR__ . '/../../agent/src/Repository/SidebarState.php';
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Apply/Apply.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanContract.php';
+require_once __DIR__ . '/../../cli/src/Plan/PlanSummary.php';
 
 use Duo\ApplyPlanner;
 use Duo\PlanCategorySummary;

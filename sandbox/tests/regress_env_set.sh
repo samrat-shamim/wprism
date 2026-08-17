@@ -42,7 +42,7 @@
 #      degradation path instead (a WARN naming exactly that reason,
 #      doctor exit still 0): the check's own git-presence branch is
 #      simple, mirrors the already-proven repo-path-check pattern
-#      immediately above it in cli/src/Doctor.php, and is not re-proven
+#      immediately above it in cli/src/Onboarding/Doctor.php, and is not re-proven
 #      here by installing git into a shared sandbox image.
 #
 # Self-contained: own scratch pair (created and destroyed by this
@@ -245,7 +245,7 @@ if grep -q '\[FAIL\] .duo-env-values.json not git-tracked — .duo-env-values.js
   [ "$DOCTOR_TRACKED_EXIT" -ne 0 ] || fail "doctor exit should be non-zero once .duo-env-values.json is tracked"
   pass "doctor: BLOCKING failure once .duo-env-values.json is git-tracked, non-zero exit ($DOCTOR_TRACKED_EXIT)"
 elif grep -q "could not verify" <<<"$DOCTOR_TRACKED_OUT"; then
-  pass "doctor: still the honest no-git advisory (git unavailable in this environment, so the tracked case genuinely cannot be exercised live here — the check's own git-presence branch mirrors the already-proven repo-path-check pattern immediately above it in cli/src/Doctor.php, not re-proven by this script)"
+  pass "doctor: still the honest no-git advisory (git unavailable in this environment, so the tracked case genuinely cannot be exercised live here — the check's own git-presence branch mirrors the already-proven repo-path-check pattern immediately above it in cli/src/Onboarding/Doctor.php, not re-proven by this script)"
 else
   fail "unexpected .duo-env-values.json doctor line after tracking: $(echo "$DOCTOR_TRACKED_OUT" | grep 'duo-env-values.json')"
 fi

@@ -48,8 +48,8 @@ final class Db {
 }
 
 $root = getenv('DUO_ROOT');
-require_once "$root/agent/src/Canon.php";
-require_once "$root/agent/src/Code.php";
+require_once "$root/agent/src/Kernel/Canon.php";
+require_once "$root/agent/src/Code/Code.php";
 
 $revision = str_repeat('a', 64);
 $descriptor = ['code_revision' => $revision, 'proof' => 'completed descriptor'];

@@ -13,8 +13,8 @@ fail() { printf '\033[1;31mFAIL: %s\033[0m\n' "$*" >&2; exit 1; }
 say "syntax checks"
 for file in \
   regress_adapter_observation.php \
-  ../../agent/src/AdapterObservation.php ../../agent/src/Journal.php ../../agent/src/Pending.php ../../agent/src/Capture.php ../../agent/src/Cli.php \
-  ../../cli/src/AdapterObservation.php ../../cli/src/EnvironmentDriver.php ../../cli/duo; do
+  ../../agent/src/Adapter/AdapterObservation.php ../../agent/src/Review/Journal.php ../../agent/src/Review/Pending.php ../../agent/src/Capture/Capture.php ../../agent/src/Command/Cli.php \
+  ../../cli/src/Adapter/AdapterObservation.php ../../cli/src/Transport/EnvironmentDriver.php ../../cli/duo; do
   php -l "$file" >/dev/null || fail "$file has a syntax error"
 done
 pass "observer, transport, and fixture sources parse"

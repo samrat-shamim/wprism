@@ -6,7 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-php -l ../../agent/src/Db.php >/dev/null
+php -l ../../agent/src/Kernel/Db.php >/dev/null
 php -l regress_fatal_mutations.php >/dev/null
 php regress_fatal_mutations.php
 

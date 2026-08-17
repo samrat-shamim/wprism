@@ -9,7 +9,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/TableGraph.php';
+require_once __DIR__ . '/../../agent/src/Kernel/TableGraph.php';
 
 use Duo\Policy;
 use Duo\Snapshot;
@@ -35,7 +35,7 @@ $check(class_exists(TableGraph::class, false), 'TableGraph loads as a direct off
 $check(!class_exists(Snapshot::class, false), 'TableGraph does not pull in the Snapshot runtime');
 $check(!class_exists(Policy::class, false), 'TableGraph does not pull in the Policy runtime');
 
-require_once __DIR__ . '/../../agent/src/Policy.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 $row = static function (string $kind, array $refs = [], string $mode = 'mapped'): array {
     return [
@@ -131,8 +131,8 @@ $throws(
 
 // Snapshot has a Ledger-backed class constant, so load that narrow runtime
 // dependency only after proving TableGraph stands alone.
-require_once __DIR__ . '/../../agent/src/Ledger.php';
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
+require_once __DIR__ . '/../../agent/src/Repository/Ledger.php';
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
 
 $check(Snapshot::CLASS_ROW === TableGraph::CLASS_ROW && Snapshot::CLASS_META === TableGraph::CLASS_META,
     'Snapshot compatibility constants share TableGraph vocabulary');
@@ -145,7 +145,7 @@ $check(Snapshot::topo_order($rows) === TableGraph::topo_order($rows),
 $check(Snapshot::phase2_rank($policy, 'child') === TableGraph::phase2_rank($rows, 'child'),
     'Snapshot phase2_rank facade preserves exact rank');
 
-$snapshotLines = file(__DIR__ . '/../../agent/src/Snapshot.php');
+$snapshotLines = file(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
 $methodSource = static function (string $name) use ($snapshotLines): string {
     $method = new \ReflectionMethod(Snapshot::class, $name);
     return implode('', array_slice(
@@ -167,8 +167,8 @@ foreach ($delegates as $method => $call) {
     $check(str_contains($source, $call) && !str_contains($source, 'foreach') && !str_contains($source, 'while'),
         "Snapshot::$method remains a thin TableGraph compatibility facade");
 }
-$check(str_contains((string) file_get_contents(__DIR__ . '/../../agent/src/Snapshot.php'),
-    "require_once __DIR__ . '/TableGraph.php';"),
+$check(str_contains((string) file_get_contents(__DIR__ . '/../../agent/src/Repository/Snapshot.php'),
+    "require_once __DIR__ . '/../Kernel/TableGraph.php';"),
     'Snapshot directly requires its graph collaborator');
 
 if ($failures !== []) {

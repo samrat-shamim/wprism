@@ -27,8 +27,8 @@
  * and the script exits 1.
  */
 
-require __DIR__ . '/../../agent/src/Secrets.php';
-require __DIR__ . '/../../agent/src/CaptureSafetyGates.php';
+require __DIR__ . '/../../agent/src/Kernel/Secrets.php';
+require __DIR__ . '/../../agent/src/Capture/CaptureSafetyGates.php';
 
 $failures = 0;
 function check(bool $cond, string $msg): void {

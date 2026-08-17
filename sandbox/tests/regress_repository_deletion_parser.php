@@ -32,7 +32,7 @@ namespace Duo {
 }
 
 namespace {
-    require_once __DIR__ . '/../../agent/src/RepositoryDeletionParser.php';
+    require_once __DIR__ . '/../../agent/src/Repository/RepositoryDeletionParser.php';
 
     use Duo\Policy;
     use Duo\RepositoryDeletionParser;
@@ -46,7 +46,7 @@ namespace {
     };
     $uuid = '11111111-1111-4111-8111-111111111111';
     $hash = str_repeat('a', 64);
-    $validatorPath = realpath(__DIR__ . '/../../agent/src/RepositoryDeletionParser.php');
+    $validatorPath = realpath(__DIR__ . '/../../agent/src/Repository/RepositoryDeletionParser.php');
     $probe = proc_open(
         [PHP_BINARY, '-r', 'require $argv[1]; echo class_exists(\\Duo\\Policy::class, false) && class_exists(\\Duo\\Deletion::class, false) && !class_exists(\\Duo\\RepositoryCompiler::class, false) ? "loaded\\n" : "broken\\n";', (string) $validatorPath],
         [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
@@ -130,7 +130,7 @@ namespace {
     $parser->parse("deletions/$uuid.json", json_encode($unsupported, JSON_THROW_ON_ERROR));
     $check(count($diagnostics) === 1 && $diagnostics[0]['code'] === 'unsupported_deletion' && $diagnostics[0]['locator'] === 'type', 'unsupported destructive capability remains a parser diagnostic rather than a compiler exception');
 
-    $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/RepositoryCompiler.php');
+    $compiler = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/RepositoryCompiler.php');
     $check(
         substr_count($compiler, 'new RepositoryDeletionParser(') === 1
         && substr_count($compiler, '->deletionParser->parse(') === 1

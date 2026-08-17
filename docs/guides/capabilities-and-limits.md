@@ -253,7 +253,7 @@ plugin populates on its own.
 
 Plain warnings are rendered but never flip the exit code. The authoritative
 decision matrix is the comment on `PlanSummary::render()` in
-[cli/src/PlanSummary.php](../../cli/src/PlanSummary.php); the prose contract is
+[cli/src/Plan/PlanSummary.php](../../cli/src/Plan/PlanSummary.php); the prose contract is
 in [cli/README.md](../../cli/README.md).
 
 ### On force flags

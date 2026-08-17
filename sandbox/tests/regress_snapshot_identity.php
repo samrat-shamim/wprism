@@ -9,7 +9,7 @@
  */
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../agent/src/SnapshotIdentity.php';
+require_once __DIR__ . '/../../agent/src/Repository/SnapshotIdentity.php';
 
 use Duo\Canon;
 use Duo\Ledger;
@@ -329,8 +329,8 @@ $identity->adopt($slotUuid, 'acme_slots', 44);
 $check($fixture->sets === [[$slotUuid, 'acme_slots', 'acme_slot', 44]],
     'adoption writes only the declared table identity tuple');
 
-require_once __DIR__ . '/../../agent/src/Snapshot.php';
-$snapshotLines = file(__DIR__ . '/../../agent/src/Snapshot.php');
+require_once __DIR__ . '/../../agent/src/Repository/Snapshot.php';
+$snapshotLines = file(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
 $methodSource = static function (string $name) use ($snapshotLines): string {
     $method = new \ReflectionMethod(Snapshot::class, $name);
     return implode('', array_slice(
@@ -362,8 +362,8 @@ foreach (['Policy::natural_key_columns', 'Ledger::uuid_for', 'Ledger::id_for', '
         "Snapshot identity adapter injects $capability explicitly");
 }
 
-$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Snapshot.php');
-$identitySource = (string) file_get_contents(__DIR__ . '/../../agent/src/SnapshotIdentity.php');
+$snapshotSource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/Snapshot.php');
+$identitySource = (string) file_get_contents(__DIR__ . '/../../agent/src/Repository/SnapshotIdentity.php');
 $check(str_contains($snapshotSource, "require_once __DIR__ . '/SnapshotIdentity.php';"),
     'Snapshot directly requires its identity collaborator');
 $check(!str_contains($identitySource, 'require_once') && !str_contains($identitySource, 'global $wpdb'),
