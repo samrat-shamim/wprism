@@ -8,10 +8,10 @@ declare(strict_types=1);
  *
  * WHY THIS EXISTS
  * ----------------
- * `make regress-offline-all` runs all 238 offline leaf targets and costs
+ * `make regress-offline-all` runs all offline leaf targets (239 today) and costs
  * ~509 s serially / ~97 s at `-j8` (tools/offline.php). Neither number is
  * fast enough to run on every edit while iterating, so this tool answers a
- * narrower question: given a set of changed files, which of those 238
+ * narrower question: given a set of changed files, which of those
  * targets could possibly be affected? `tools/offline.php --changed[=BASE]`
  * shells out to `php tools/affected.php --base=BASE`, treats stdout as the
  * work list (one target name per line), and intersects it with the real

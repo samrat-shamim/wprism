@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/Transport.php';
@@ -119,7 +121,7 @@ final class Doctor {
                     '.duo-env-values.json not git-tracked', false,
                     'could not verify — this environment has no git binary, so tracked-status cannot be '
                         . 'checked from inside it. Verify manually (from a machine with a checkout of this '
-                        . "repo): git -C <checkout> ls-files --error-unmatch .duo-env-values.json (should "
+                        . 'repo): git -C <checkout> ls-files --error-unmatch .duo-env-values.json (should '
                         . 'exit non-zero, meaning untracked/absent).',
                     true
                 );
@@ -158,7 +160,7 @@ final class Doctor {
             $r = $captureWp(['eval', $snippet]);
             $out = trim($r['stdout']);
             $set = $r['exit'] === 0 && $out === 'duo-set';
-            $detail = $set ? '' : "DISALLOW_FILE_MODS is not set (or false) in wp-config.php — wp-admin plugin/theme "
+            $detail = $set ? '' : 'DISALLOW_FILE_MODS is not set (or false) in wp-config.php — wp-admin plugin/theme '
                 . 'install/update/delete UI stays open, so a one-click update can silently drift this '
                 . "environment's code out from under git (docs/proposals/code-half.md risk #1). Recommended: "
                 . "define('DISALLOW_FILE_MODS', true); — `duo deploy`'s code_drift check still catches an update "

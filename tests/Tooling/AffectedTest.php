@@ -40,7 +40,23 @@ use PHPUnit\Framework\TestCase;
  */
 final class AffectedTest extends TestCase
 {
-    private const EXPECTED_OFFLINE_LEAF_COUNT = 238;
+    /**
+     * The expected offline leaf count comes from the Makefile's own
+     * `regress-offline-all: N offline suites green` line (kept truthful by
+     * sandbox/tests/regress_bundle_coverage.sh) so a bundle change is never
+     * mirrored by hand here.
+     */
+    private static function expectedOfflineLeafCount(): int
+    {
+        $makefile = (string) file_get_contents(dirname(__DIR__, 2) . '/Makefile');
+        self::assertSame(
+            1,
+            preg_match('/regress-offline-all:\s+(\d+)\s+offline suites green/', $makefile, $m),
+            'Makefile must carry exactly one regress-offline-all status count'
+        );
+
+        return (int) $m[1];
+    }
 
     private static function repoRoot(): string
     {
@@ -159,7 +175,7 @@ final class AffectedTest extends TestCase
     public function testMakefileSelectsTheWholeOfflineCorpus(): void
     {
         $targets = self::targets(['--paths=Makefile']);
-        self::assertCount(self::EXPECTED_OFFLINE_LEAF_COUNT, $targets);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
         self::assertContains('regress-path-safety', $targets);
     }
 
@@ -168,13 +184,13 @@ final class AffectedTest extends TestCase
         // affected.php cannot trust its own output once its own logic (or
         // its sibling driver's) has changed underneath it.
         $targets = self::targets(['--paths=tools/affected.php']);
-        self::assertCount(self::EXPECTED_OFFLINE_LEAF_COUNT, $targets);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
     }
 
     public function testAllListsTheWholeOfflineCorpus(): void
     {
         $targets = self::targets(['--all']);
-        self::assertCount(self::EXPECTED_OFFLINE_LEAF_COUNT, $targets);
+        self::assertCount(self::expectedOfflineLeafCount(), $targets);
         self::assertSame($targets, array_unique($targets), 'target list must be unique');
         $sorted = $targets;
         sort($sorted, SORT_STRING);

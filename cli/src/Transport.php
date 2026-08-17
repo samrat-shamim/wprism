@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/EnvironmentDriver.php';
@@ -171,7 +173,7 @@ abstract class Transport implements EnvironmentDriver {
         $descriptors = [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']];
         $proc = proc_open($fullCommand, $descriptors, $pipes);
         if (!is_resource($proc)) {
-            return ['exit' => 255, 'stdout' => '', 'stderr' => "failed to start process"];
+            return ['exit' => 255, 'stdout' => '', 'stderr' => 'failed to start process'];
         }
         fclose($pipes[0]);
         $stdout = stream_get_contents($pipes[1]) ?: '';

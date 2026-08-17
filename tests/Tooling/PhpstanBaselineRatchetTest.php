@@ -54,8 +54,22 @@ final class PhpstanBaselineRatchetTest extends TestCase
     private const AUTOLOAD_NEEDLES = [
         'vendor/autoload',
         'Composer\\Autoload',
-        'spl_autoload_register',
         'ComposerAutoloaderInit',
+    ];
+
+    /**
+     * The drop-in's OWN classmap autoloader (owner ruling D3, DUO-3481) is the
+     * one sanctioned `spl_autoload_register` in shipped code: agent/duo.php and
+     * cli/duo register a closure over the committed, generated
+     * duo-classmap.php files (plain project source, not a vendored library;
+     * every existing require_once is retained). Any other registration site
+     * in the drop-in is a new autoloader and fails this test.
+     *
+     * @var list<string>
+     */
+    private const SANCTIONED_SPL_AUTOLOAD_SITES = [
+        'agent/duo.php',
+        'cli/duo',
     ];
 
     public function testBaselineEntryCountIsAtOrBelowTheCommittedCeiling(): void
@@ -139,7 +153,27 @@ final class PhpstanBaselineRatchetTest extends TestCase
     #[DataProvider('dropInFiles')]
     public function testDropInSourceNeverReferencesAnAutoloader(string $relative): void
     {
-        $source = (string) file_get_contents(DUO_REPO_ROOT . '/' . $relative);
+        $source = self::codeWithoutComments((string) file_get_contents(DUO_REPO_ROOT . '/' . $relative));
+
+        // Code, not commentary: the generated maps and the loaders describe the
+        // fallback in docblocks; only a real registration counts.
+        if (str_contains($source, 'spl_autoload_register(')) {
+            $this->assertContains(
+                $relative,
+                self::SANCTIONED_SPL_AUTOLOAD_SITES,
+                sprintf(
+                    '%s registers an autoloader. Only agent/duo.php and cli/duo may (the additive '
+                    . 'classmap over duo-classmap.php, owner ruling D3); anything else is a new loading '
+                    . 'mechanism inside the dependency-free drop-in and needs its own ruling.',
+                    $relative
+                )
+            );
+            $this->assertStringContainsString(
+                'duo-classmap.php',
+                $source,
+                "$relative registers an autoloader that is not the committed classmap"
+            );
+        }
 
         foreach (self::AUTOLOAD_NEEDLES as $needle) {
             $this->assertStringNotContainsString(
@@ -154,6 +188,24 @@ final class PhpstanBaselineRatchetTest extends TestCase
                 )
             );
         }
+    }
+
+    /** Strip comments (and doc-comments) so prose about an invariant never trips it. */
+    private static function codeWithoutComments(string $source): string
+    {
+        $out = '';
+        foreach (token_get_all($source) as $token) {
+            if (is_array($token)) {
+                if ($token[0] === T_COMMENT || $token[0] === T_DOC_COMMENT) {
+                    continue;
+                }
+                $out .= $token[1];
+            } else {
+                $out .= $token;
+            }
+        }
+
+        return $out;
     }
 
     /** @return iterable<string, array{string}> */

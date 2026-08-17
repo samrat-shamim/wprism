@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Duo\Orchestrator;
 
 /** Runs wp-cli directly on this machine: `wp --path=<wp_path> …`. */

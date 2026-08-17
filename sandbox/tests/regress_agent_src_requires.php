@@ -524,3 +524,203 @@ if ($gaps !== []) {
 
 check(count($classFiles) >= 80, 'scanner discovered too few engine declarations');
 fwrite(STDOUT, 'ok: every agent/src engine class reference is self-required or declared locally; ' . count($classFiles) . " declarations checked\n");
+
+// ---------------------------------------------------------------------------
+// DUO-3481 (WP-11): directional layer lint.
+//
+// Everything above answers "does this file load what it names".  It says
+// nothing about direction.  agent/src is 224 flat files with no autoloader and
+// no package boundary, and the reference graph above puts most of them in one
+// strongly connected component, so the boundary doctrine in
+// docs/proposals/engine-adapter-boundary.md ("engine core ships generic
+// mechanisms"; adapters sit outside it) is today a claim nobody can check by
+// reading.  This section makes it mechanical: tools/layers.json puts every
+// agent/src file on exactly one rung of an ordered ladder, and a reference
+// from a lower rung to a higher one is a violation.
+//
+// The violations that exist today are listed one per line in
+// tools/layers-exceptions.json.  That file is a ratchet, not a mute button:
+// a new upward edge fails, an entry that stopped being a violation fails so
+// the list cannot rot into the copy-pasted escape hatch the allowlist above
+// is guarded against, and the count may never exceed the ceiling recorded
+// here.  Adding a violation therefore means editing the baseline in the same
+// change, where review sees it.
+//
+// The graph reuses this file's scanner -- declarations() plus references()
+// with namespace_aliases() -- so the layer lint and the requires check can
+// never disagree about what "A references B" means.  Edges are deduplicated
+// per file pair: two references into the same file are one edge.  A class
+// declared in several files (today only the guarded
+// InitialStateBoundaryException) yields an edge to each declaring file, which
+// is why DurableFilesystem carries two recorded upward edges.
+// ---------------------------------------------------------------------------
+
+// Measured at 40 on the WP-11 baseline.  It only ever moves down: a change
+// that improves the graph deletes exception lines and lowers this number in
+// the same commit.
+const LAYER_UPWARD_EDGE_CEILING = 40;
+
+/** @return list<string> every PHP file under agent/src, as agent-relative paths */
+function layer_source_paths(string $src): array {
+    $paths = [];
+    $walk = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS));
+    foreach ($walk as $entry) {
+        if (!$entry instanceof SplFileInfo || !$entry->isFile() || $entry->getExtension() !== 'php') {
+            continue;
+        }
+        $paths[] = 'src/' . str_replace('\\', '/', substr($entry->getPathname(), strlen($src) + 1));
+    }
+    sort($paths, SORT_STRING);
+    return $paths;
+}
+
+$layersRaw = file_get_contents($root . '/tools/layers.json');
+check(is_string($layersRaw), 'tools/layers.json is unreadable');
+$layers = json_decode($layersRaw, true);
+check(is_array($layers), 'tools/layers.json is not a JSON object');
+check(isset($layers['ladder'], $layers['rule'], $layers['files'], $layers['notes']), 'tools/layers.json must carry ladder, rule, files and notes');
+$ladder = $layers['ladder'];
+check(is_array($ladder) && $ladder !== [] && $ladder === array_values($ladder), 'tools/layers.json ladder must be a non-empty ordered list');
+$rank = array_flip($ladder);
+$assignedLayers = $layers['files'];
+check(is_array($assignedLayers) && $assignedLayers !== [], 'tools/layers.json files must be a non-empty path => layer map');
+check(is_array($layers['notes']), 'tools/layers.json notes must be a path => rationale map');
+
+// (v) The map and the tree agree in both directions.  An unassigned file is a
+// silent hole in the lint; an assignment for a deleted file is stale prose.
+$layerPaths = layer_source_paths($root . '/agent/src');
+check($layerPaths !== [], 'agent/src contains no PHP files for the layer map');
+$unassignedFiles = array_values(array_diff($layerPaths, array_keys($assignedLayers)));
+check($unassignedFiles === [], 'tools/layers.json assigns no layer to ' . implode(', ', $unassignedFiles) . '; every agent/src file names its rung');
+$vanishedFiles = array_values(array_diff(array_keys($assignedLayers), $layerPaths));
+check($vanishedFiles === [], 'tools/layers.json assigns a layer to files that no longer exist: ' . implode(', ', $vanishedFiles));
+foreach ($assignedLayers as $path => $layer) {
+    check(is_string($layer) && isset($rank[$layer]), "tools/layers.json puts $path on the unknown rung " . var_export($layer, true));
+}
+$strayNotes = array_values(array_diff(array_keys($layers['notes']), $layerPaths));
+check($strayNotes === [], 'tools/layers.json notes describe files it does not assign: ' . implode(', ', $strayNotes));
+
+$layerSources = [];
+$layerDeclarations = [];
+foreach ($layerPaths as $path) {
+    $source = file_get_contents($root . '/agent/' . $path);
+    check(is_string($source), "could not read agent/$path");
+    $layerSources[$path] = $source;
+    foreach (declarations($source, $path) as $name => $declaringPath) {
+        $layerDeclarations[$name] ??= [];
+        if (!in_array($declaringPath, $layerDeclarations[$name], true)) {
+            $layerDeclarations[$name][] = $declaringPath;
+        }
+    }
+}
+
+$layerEdges = [];
+$upwardEdges = [];
+foreach ($layerSources as $path => $source) {
+    foreach (references($source, $layerDeclarations, namespace_aliases($source)) as $name => $_) {
+        foreach ($layerDeclarations[$name] as $target) {
+            if ($target === $path) {
+                continue;
+            }
+            $edge = "$path -> $target";
+            $layerEdges[$edge] = true;
+            if ($rank[$assignedLayers[$target]] > $rank[$assignedLayers[$path]]) {
+                $upwardEdges[$edge] = true;
+            }
+        }
+    }
+}
+$actualUpward = array_keys($upwardEdges);
+sort($actualUpward, SORT_STRING);
+
+$describeEdge = static function (string $edge) use ($assignedLayers): string {
+    [$from, $to] = explode(' -> ', $edge, 2);
+    return $edge . ' (' . $assignedLayers[$from] . ' -> ' . $assignedLayers[$to] . ')';
+};
+
+$exceptionsRaw = file_get_contents($root . '/tools/layers-exceptions.json');
+check(is_string($exceptionsRaw), 'tools/layers-exceptions.json is unreadable');
+$layerExceptions = json_decode($exceptionsRaw, true);
+check(is_array($layerExceptions) && $layerExceptions === array_values($layerExceptions), 'tools/layers-exceptions.json must be a JSON list of "A -> B" strings');
+$sortedExceptions = $layerExceptions;
+sort($sortedExceptions, SORT_STRING);
+check($sortedExceptions === $layerExceptions, 'tools/layers-exceptions.json must stay sorted so a review diff is one line per changed edge');
+check(count(array_unique($layerExceptions)) === count($layerExceptions), 'tools/layers-exceptions.json repeats an entry');
+foreach ($layerExceptions as $entry) {
+    check(is_string($entry) && substr_count($entry, ' -> ') === 1, 'tools/layers-exceptions.json entry is not an "A -> B" string: ' . var_export($entry, true));
+    [$from, $to] = explode(' -> ', $entry, 2);
+    check(isset($assignedLayers[$from], $assignedLayers[$to]), "tools/layers-exceptions.json names a file no layer map assigns in '$entry'");
+}
+
+// (i) A new upward edge is the whole point of the check: it fails by name,
+// with both rungs, rather than being absorbed by the baseline.
+$newUpwardEdges = array_values(array_diff($actualUpward, $layerExceptions));
+check($newUpwardEdges === [], 'new upward reference(s); a file may reference only its own or a lower layer: ' . implode('; ', array_map($describeEdge, $newUpwardEdges)));
+
+// (ii) The reverse: an exception that is no longer observed means the edge is
+// gone and the line is dead prose.
+$staleExceptions = array_values(array_diff($layerExceptions, $actualUpward));
+check($staleExceptions === [], 'tools/layers-exceptions.json lists edges that are no longer violations: ' . implode('; ', $staleExceptions) . ' — remove it, the graph improved');
+
+// (iv) src/Kernel/ is the one rung with no grandfathering.  It does not exist
+// yet; the check is here so the first file moved into it cannot arrive with a
+// baselined upward edge.
+$kernelUpward = [];
+foreach ($actualUpward as $edge) {
+    if (str_starts_with($edge, 'src/Kernel/')) {
+        $kernelUpward[] = $describeEdge($edge);
+    }
+}
+check($kernelUpward === [], 'src/Kernel/ must reference nothing above itself: ' . implode('; ', $kernelUpward));
+$kernelExceptions = array_values(array_filter($layerExceptions, static fn (string $entry): bool => str_starts_with($entry, 'src/Kernel/')));
+check($kernelExceptions === [], 'tools/layers-exceptions.json may never baseline a src/Kernel/ edge: ' . implode('; ', $kernelExceptions));
+
+// (iii) Monotonic ratchet.  (i) and (ii) together make the baseline count
+// equal to the observed violation count, so this bound is what stops a change
+// from buying itself room by appending to the baseline.
+check(count($layerExceptions) <= LAYER_UPWARD_EDGE_CEILING, 'tools/layers-exceptions.json holds ' . count($layerExceptions) . ' entries, past the recorded ceiling of ' . LAYER_UPWARD_EDGE_CEILING . '; lower the edge, do not raise the ceiling');
+if (count($layerExceptions) < LAYER_UPWARD_EDGE_CEILING) {
+    fwrite(STDOUT, 'layers: LAYER_UPWARD_EDGE_CEILING can drop to ' . count($layerExceptions) . "\n");
+}
+
+// (vi) Mutation self-tests, in the spirit of the require_once mutations above:
+// prove the check bites before trusting its green.  First, drop a baseline
+// entry in memory and confirm the edge resurfaces as a new violation.
+check(count($layerExceptions) >= 3, 'layer mutation self-test needs at least three baseline entries');
+foreach (array_unique([0, intdiv(count($layerExceptions), 2), count($layerExceptions) - 1]) as $index) {
+    $mutatedExceptions = $layerExceptions;
+    unset($mutatedExceptions[$index]);
+    $wouldFail = array_values(array_diff($actualUpward, $mutatedExceptions));
+    check($wouldFail === [$layerExceptions[$index]], 'layer lint would not have flagged the un-baselined edge ' . $layerExceptions[$index]);
+}
+// Second, demote a file below one of its own dependencies and confirm the
+// direction comparison — not just the baseline diff — is what fails.
+$demotionProbe = null;
+foreach (array_keys($layerEdges) as $edge) {
+    [$from, $to] = explode(' -> ', $edge, 2);
+    if ($rank[$assignedLayers[$to]] > 0 && $rank[$assignedLayers[$to]] < $rank[$assignedLayers[$from]]) {
+        $demotionProbe = $edge;
+        break;
+    }
+}
+check($demotionProbe !== null, 'layer graph has no downward edge to probe the direction comparison with');
+[$probeFrom] = explode(' -> ', $demotionProbe, 2);
+$mutatedLayers = $assignedLayers;
+$mutatedLayers[$probeFrom] = $ladder[0];
+$mutatedUpward = [];
+foreach (array_keys($layerEdges) as $edge) {
+    [$from, $to] = explode(' -> ', $edge, 2);
+    if ($rank[$mutatedLayers[$to]] > $rank[$mutatedLayers[$from]]) {
+        $mutatedUpward[] = $edge;
+    }
+}
+check(in_array($demotionProbe, $mutatedUpward, true), "layer lint would not have caught $probeFrom demoted below its own dependency");
+check(array_diff($mutatedUpward, $layerExceptions) !== [], 'layer lint would not have reported a demoted file as a new violation');
+fwrite(STDOUT, "ok: layer mutations (un-baselined edge, demoted file) are detected\n");
+
+$layerCensus = [];
+foreach ($ladder as $rung) {
+    $layerCensus[] = $rung . ' ' . count(array_keys($assignedLayers, $rung, true));
+}
+fwrite(STDOUT, 'layers: ' . implode(', ', $layerCensus) . "\n");
+fwrite(STDOUT, sprintf("layers: %d edges, %d upward (baselined), %d new\n", count($layerEdges), count($actualUpward), count($newUpwardEdges)));

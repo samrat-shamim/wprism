@@ -104,6 +104,60 @@ require_once __DIR__ . '/src/AdapterObservation.php';
 require_once __DIR__ . '/src/Coverage.php';
 require_once __DIR__ . '/src/Lint.php';
 
+/**
+ * Additive classmap fallback (DUO-3481, owner rulings D3/D4).
+ *
+ * Every require_once above is retained and still does all the loading: after
+ * this bootstrap runs, 237 of the 238 names in duo-classmap.php are already
+ * declared, and the single exception (Duo\AdapterCertification) is
+ * require_once'd at both of its use sites in AdapterSources.php before it is
+ * ever named. An spl_autoload_register() callback is only consulted for a
+ * class that is *still undeclared* at the moment it is referenced, so on the
+ * production path this registration resolves nothing and changes nothing. It
+ * exists for the partially-loaded contexts the drop-in also runs in — an
+ * offline suite that includes three agent/src files by hand, a new file whose
+ * hand-written require chain missed a dependency — where the alternative is a
+ * fatal "Class not found" rather than a working load.
+ *
+ * Why this is not an autoloader in the sense AGENTS.md forbids: duo-classmap.php
+ * is a generated first-party source file that lives in agent/ and ships with
+ * it (cli/src/Adopt.php tars `agent manifests recovery` and cp -R's the whole
+ * agent tree, and the map is inside the certification closure, so
+ * ScopedCertificationBundle::assertRuntimeInputsCurrent() re-verifies its bytes
+ * on every Policy::load()). Nothing is vendored, nothing is fetched, and no
+ * composer artifact is involved.
+ *
+ * Three properties keep it behaviour-neutral, and each is load-bearing:
+ *  - It is appended, never prepended, and it throws nothing. A name it does
+ *    not know is passed straight on to any other registered autoloader.
+ *  - `class_exists(X::class, false)` sites are untouched by construction —
+ *    the `false` argument suppresses autoloading — which is what keeps the
+ *    ~40 guarded top-level require blocks in agent/src and every sandbox
+ *    shadow-block test (which pre-declares a stub so the guard skips the real
+ *    file) behaving exactly as before.
+ *  - The is_file() test keeps a *missing* file a missing class rather than a
+ *    fatal. Without it a stale map entry would turn today's graceful
+ *    "support is not loaded" diagnostics into an uncatchable require failure.
+ *
+ * Duo\Cli is deliberately absent from the map: agent/src/Cli.php's last line
+ * is WP_CLI::add_command('duo', Cli::class), which must keep running only
+ * under the WP_CLI require at the bottom of this file.
+ */
+if (!defined('DUO_CLASSMAP_REGISTERED')) {
+    define('DUO_CLASSMAP_REGISTERED', true);
+    /** @var array<string,string> $duoClassmap */
+    $duoClassmap = require __DIR__ . '/duo-classmap.php';
+    spl_autoload_register(static function (string $class) use ($duoClassmap): void {
+        if (!isset($duoClassmap[$class])) {
+            return;
+        }
+        $file = __DIR__ . '/' . $duoClassmap[$class];
+        if (is_file($file)) {
+            require_once $file;
+        }
+    });
+}
+
 // Provenance journal is opt-in: define('DUO_JOURNAL', true) in wp-config.php
 // (or export DUO_JOURNAL=1 in the environment).
 // The control-plane loader runs at WP-CLI's after_wp_config_load boundary,

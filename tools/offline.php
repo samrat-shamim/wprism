@@ -86,8 +86,24 @@ final class OfflineRunner
     public const DIAGNOSTIC_REGEX =
         '/^(PHP (Deprecated|Warning|Fatal error|Parse error):|((Deprecated|Warning|Fatal error|Parse error):.*( in | on line )))/';
 
-    /** Tripwire for make-database parser drift. See the class docblock. */
-    public const EXPECTED_LEAVES = 238;
+    /**
+     * Tripwire for make-database parser drift: the Makefile's own
+     * `regress-offline-all: N offline suites green` status line (kept truthful
+     * by sandbox/tests/regress_bundle_coverage.sh) is the single source of the
+     * expected leaf count, so a bundle change never has to be mirrored here.
+     */
+    public static function expectedLeaves(string $repoRoot): ?int
+    {
+        $makefile = @file_get_contents($repoRoot . '/Makefile');
+        if (!is_string($makefile)) {
+            return null;
+        }
+        if (preg_match('/regress-offline-all:\s+(\d+)\s+offline suites green/', $makefile, $m) !== 1) {
+            return null;
+        }
+
+        return (int) $m[1];
+    }
 
     public const ROOT_TARGET = 'regress-offline-corpus';
 
@@ -547,12 +563,13 @@ final class OfflineRunnerCli
 
             return 2;
         }
-        if (count($leaves) !== OfflineRunner::EXPECTED_LEAVES) {
+        $expectedLeaves = OfflineRunner::expectedLeaves($this->repoRoot);
+        if ($expectedLeaves !== null && count($leaves) !== $expectedLeaves) {
             fwrite(STDERR, sprintf(
-                'tools/offline.php: NOTICE leaf count is %d, expected %d '
-                . "(the Makefile bundle changed, or this parser drifted)\n",
+                'tools/offline.php: NOTICE leaf count is %d, but the Makefile status line says %d '
+                . "(regress_bundle_coverage.sh will say which is right)\n",
                 count($leaves),
-                OfflineRunner::EXPECTED_LEAVES
+                $expectedLeaves
             ));
         }
 

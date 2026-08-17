@@ -1,0 +1,154 @@
+{
+    "format": "duo-parity-plan-summary/v1",
+    "consumed_by": "sandbox/tests/regress_canonical_json_parity.php",
+    "note": "the shape of `wp duo plan --format=json` (agent/src/Apply.php build_plan()), reduced to the buckets the five cli/src/PlanSummary.php lockstep comments name. `plan` carries ONLY the non-empty buckets; the suite fills every remaining PlanContract::requiredBuckets() entry with [] so the fixture does not have to track that list.",
+    "fields": {
+        "plan": "the non-empty buckets of the plan envelope",
+        "expected_lines": "golden \\Duo\\Orchestrator\\PlanSummary::render($plan)['lines']",
+        "expected_ok": "golden render()['ok']",
+        "label_vectors": "rows fed to the three plan-row label renderers (F4)"
+    },
+    "plan": {
+        "adapter_dispositions": [
+            {
+                "name": "outfitters",
+                "status": "unsupported",
+                "source": "out_of_tree",
+                "trust_tier": "community",
+                "certification": "registry",
+                "code": "not_certified",
+                "reason": "no certification evidence for this revision",
+                "remediation": "certify the adapter or unpin it"
+            }
+        ],
+        "code_drift": [
+            {
+                "issue": "code_drift",
+                "kind": "plugin",
+                "plugin": "acf/acf.php",
+                "message": "installed code differs from the recorded baseline"
+            }
+        ],
+        "code_mismatch": [
+            {
+                "issue": "plugin_version_mismatch",
+                "kind": "plugin",
+                "plugin": "woocommerce/woocommerce.php",
+                "message": "installed 9.1.0, declared 9.0.0"
+            }
+        ],
+        "collision": [
+            {
+                "uuid": "44444444-4444-4444-8444-444444444444",
+                "type": "post",
+                "path": "state/posts/page/cart.md",
+                "env_id": "91"
+            }
+        ],
+        "create": [
+            {
+                "uuid": "11111111-1111-4111-8111-111111111111",
+                "type": "post",
+                "path": "state/posts/page/about.md",
+                "title": "About\tUs"
+            }
+        ],
+        "drift": [
+            {
+                "uuid": "33333333-3333-4333-8333-333333333333",
+                "type": "term",
+                "title": "Hats"
+            }
+        ],
+        "env_missing": [
+            {
+                "name": "outfitters_gateway_key",
+                "required": true
+            }
+        ],
+        "provider_problems": [
+            {
+                "provider": "woocommerce_regen",
+                "manifest": "woocommerce",
+                "plugin": "woocommerce/woocommerce.php",
+                "code": "provider_version_unsupported",
+                "expected": ">=9.0.0",
+                "found": "8.4.0",
+                "remediation": "upgrade WooCommerce on this environment",
+                "message": "provider capability unavailable"
+            }
+        ],
+        "update": [
+            {
+                "uuid": "22222222-2222-4222-8222-222222222222",
+                "type": "post",
+                "path": "state/posts/page/shop.md",
+                "title": "Shop\u0001  \n  Front"
+            }
+        ],
+        "warnings": [
+            "plan observed a stale identity mapping"
+        ]
+    },
+    "expected_lines": [
+        "plan: 1 create, 1 update, 0 adopt, 0 unchanged, 1 drift, 0 conflict, 1 collision, 0 delete, 0 delete_conflict, 0 deleted, 1 code_mismatch, 1 code_drift, 0 incomplete_apply, 0 incomplete_lifecycle, 0 regen_pending, 0 regen_context, 1 env_missing, 0 missing_user, 0 skipped_user_meta, 0 upload_mutations, 0 declared_effects, 1 adapter_dispositions, 1 provider_problems",
+        "drift (environment changed since last capture/apply — capture first):",
+        "  - term 33333333-3333-4333-8333-333333333333 'Hats'",
+        "environment drift detected — capture-first workflow recommended",
+        "COLLISION (unmanaged env entity already has this slug — rerun with --adopt-by-slug or rename):",
+        "  - state/posts/page/cart.md (env id 91)",
+        "CODE_MISMATCH (this environment's installed code does not match what the target state declares active):",
+        "  - PLUGIN_VERSION_MISMATCH woocommerce/woocommerce.php: installed 9.1.0, declared 9.0.0",
+        "code_mismatch findings — duo apply will refuse until resolved (or run with --force-code-mismatch)",
+        "CODE_DRIFT (managed code changed outside Duo since its last trusted observation):",
+        "  - CODE_DRIFT acf/acf.php: installed code differs from the recorded baseline",
+        "code_drift findings — duo apply will refuse until resolved (or run with --force-code-drift)",
+        "WARNING: plan observed a stale identity mapping",
+        "ENV_MISSING (manifest-declared env-bound options not yet provisioned on this environment):",
+        "  - outfitters_gateway_key (required)",
+        "required env value(s) missing — provision with `wp duo env-set --name=<name> --value=<value>` (or --stdin) before promoting",
+        "CAPABILITY_REGISTRY (a pinned manifest/revision/target is not certified for promotion):",
+        "  - outfitters [unsupported] [source=out_of_tree tier=community certification=registry] [not_certified]: no certification evidence for this revision",
+        "    remediation: certify the adapter or unpin it",
+        "experimental, uncertified out-of-tree, unsupported, version-mismatched, or expired-evidence claims cannot make readiness green",
+        "PROVIDER_PROBLEM (a pinned manifest declares a provider capability this environment cannot supply):",
+        "  - woocommerce_regen [manifest=woocommerce plugin=woocommerce/woocommerce.php] [provider_version_unsupported]: expected >=9.0.0, found 8.4.0",
+        "    remediation: upgrade WooCommerce on this environment",
+        "duo apply refuses before target mutation on any of these its own selected work reaches"
+    ],
+    "expected_ok": false,
+    "label_vectors": [
+        {
+            "path": "state/posts/page/about.md",
+            "title": "About\tUs"
+        },
+        {
+            "path": "state/posts/page/shop.md",
+            "title": "Shop\u0001  \n  Front"
+        },
+        {
+            "type": "term",
+            "uuid": "33333333-3333-4333-8333-333333333333"
+        },
+        {
+            "type": "post",
+            "uuid": "u",
+            "title": "  \u0000  "
+        },
+        {
+            "path": "\u0001\u0002",
+            "title": "only the title survives"
+        },
+        {
+            "title": "no path and no type"
+        },
+        {
+            "path": "state/posts/page/a.md",
+            "title": "🚀 emoji title"
+        },
+        {
+            "path": "state/posts/page/b.md",
+            "title": ""
+        }
+    ]
+}

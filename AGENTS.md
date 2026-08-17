@@ -16,7 +16,7 @@ about CI belongs in a PR, an issue, or this file.
 | `recovery/` | the recovery runtime (canonical JSON, atomic store, Ed25519 rollback control) | yes |
 | `manifests/` | adapter manifests + `providers/`, `interpreters/`, `regenerators/` hooks + `capabilities/` evidence & generated registry | yes |
 | `sandbox/` | the test estate: `bin/pair.sh`, `tests/` (204 `regress_*.php` + 111 `regress_*.sh`), `conformance/`, `certification/`, `lib/`, `tmp/` (gitignored scratch) | no |
-| `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `cert-impact.php` | no |
+| `tools/` | dev entry points: `doctor.sh`, `offline.php`, `affected.php`, `cert-impact.php`, `classmap-generate.php`, `api-surface.php`; data: `layers.json` (+ `layers-exceptions.json` ratchet) | no |
 | `tests/` | PHPUnit 11 self-tests for `tools/` (`Duo\Tests\…`, PSR-4) | no |
 | `scripts/` | `capability-registry.php` (the release gate), `agent-bootstrap.sh`, `close-gate-check.sh` | mixed |
 
@@ -82,7 +82,7 @@ make regress-offline-all          # THE merge gate (DUO-3285) — unconditional,
 make release-gate                 # evidence + generated registry + product prose agree
 ```
 
-238 offline leaf targets. `tools/offline.php` runs the same work as
+the offline leaf targets (239 today; the Makefile's own `N offline suites green` line is the count of record). `tools/offline.php` runs the same work as
 `make regress-offline-all` with per-suite logs and the guard's exact
 diagnostic regex applied per suite, so a failure is named rather than merely
 detected — but the PR quotes the canonical gate, not the fast path. Stock macOS
