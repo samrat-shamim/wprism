@@ -1,0 +1,579 @@
+
+[1;36m== boot pair rtwocert5 (rtwocert51 :9310 / rtwocert52 :9311), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    ca94e365a53f7c462169ae3edd5da94df5d8a2a8
+  invoked from:   <source-root>/sandbox
+  expected SHA:   ca94e365a53f7c462169ae3edd5da94df5d8a2a8 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly ca94e365a53f7c462169ae3edd5da94df5d8a2a8, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtwocert5': databases ==[0m
+[1;32mok: wp_rtwocert51, wp_rtwocert52 exist[0m
+
+[1;36m== pair 'rtwocert5': site-repo directories ==[0m
+
+[1;36m== pair 'rtwocert5': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtwocert5_wp2 Creating
+ Volume duo-rtwocert5_wp2 Created
+ Volume duo-rtwocert5_wp1 Creating
+ Volume duo-rtwocert5_wp1 Created
+ Container duo-rtwocert5-wp1-1 Creating
+ Container duo-rtwocert5-wp2-1 Creating
+ Container duo-rtwocert5-wp2-1 Created
+ Container duo-rtwocert5-wp1-1 Created
+ Container duo-rtwocert5-wp1-1 Starting
+ Container duo-rtwocert5-wp2-1 Starting
+ Container duo-rtwocert5-wp1-1 Started
+ Container duo-rtwocert5-wp2-1 Started
+ Container duo-rtwocert5-cli2-1 Creating
+ Container duo-rtwocert5-cli1-1 Creating
+ Container duo-rtwocert5-cli1-1 Created
+ Container duo-rtwocert5-cli2-1 Created
+ Container duo-rtwocert5-cli1-1 Starting
+ Container duo-rtwocert5-cli2-1 Starting
+ Container duo-rtwocert5-cli1-1 Started
+ Container duo-rtwocert5-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtwocert5': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtwocert5': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-rtwocert5-cli1-run-56a31fc5b8da Creating
+ Container duo-rtwocert5-cli1-run-56a31fc5b8da Created
+Success: WordPress installed successfully.
+ Container duo-rtwocert5-cli1-run-1e69b1c82a8a Creating
+ Container duo-rtwocert5-cli1-run-1e69b1c82a8a Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocert5-cli1-run-d348ab03f8a6 Creating
+ Container duo-rtwocert5-cli1-run-d348ab03f8a6 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert5-cli1-run-f1a48abeb874 Creating
+ Container duo-rtwocert5-cli1-run-f1a48abeb874 Created
+ Container duo-rtwocert5-cli1-run-00954bd16d99 Creating
+ Container duo-rtwocert5-cli1-run-00954bd16d99 Created
+ Container duo-rtwocert5-cli1-run-9855303f8af5 Creating
+ Container duo-rtwocert5-cli1-run-9855303f8af5 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtwocert5-cli1-run-fa97d7fd0ff0 Creating
+ Container duo-rtwocert5-cli1-run-fa97d7fd0ff0 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9310)
+ Container duo-rtwocert5-cli2-run-0234563231c1 Creating
+ Container duo-rtwocert5-cli2-run-0234563231c1 Created
+Success: WordPress installed successfully.
+ Container duo-rtwocert5-cli2-run-62a932756883 Creating
+ Container duo-rtwocert5-cli2-run-62a932756883 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocert5-cli2-run-c3476d35124b Creating
+ Container duo-rtwocert5-cli2-run-c3476d35124b Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocert5-cli2-run-3e85e943bd7a Creating
+ Container duo-rtwocert5-cli2-run-3e85e943bd7a Created
+ Container duo-rtwocert5-cli2-run-9dcf21959090 Creating
+ Container duo-rtwocert5-cli2-run-9dcf21959090 Created
+ Container duo-rtwocert5-cli2-run-dd671a2f0b45 Creating
+ Container duo-rtwocert5-cli2-run-dd671a2f0b45 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtwocert5-cli2-run-8b4a24bc5f57 Creating
+ Container duo-rtwocert5-cli2-run-8b4a24bc5f57 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9311)
+
+[1;36m== pair 'rtwocert5' ready ==[0m
+  wp1: http://localhost:9310 (published on host port 9310)
+  wp2: http://localhost:9311 (published on host port 9311)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtwocert5 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtwocert5 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtwocert5 must stay exported, or pass -p duo-rtwocert5 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: polylang 3.5 ==[0m
+ Container duo-rtwocert5-cli1-run-199b9fd4acda Creating
+ Container duo-rtwocert5-cli1-run-199b9fd4acda Created
+ Container duo-rtwocert5-cli1-run-869d8996ac6b Creating
+ Container duo-rtwocert5-cli1-run-869d8996ac6b Created
+ Container duo-rtwocert5-cli1-run-9b993209fdcb Creating
+ Container duo-rtwocert5-cli1-run-9b993209fdcb Created
+ Container duo-rtwocert5-cli1-run-da3a2c07af46 Creating
+ Container duo-rtwocert5-cli1-run-da3a2c07af46 Created
+ Container duo-rtwocert5-cli1-run-ec2cc7186935 Creating
+ Container duo-rtwocert5-cli1-run-ec2cc7186935 Created
+ Container duo-rtwocert5-cli1-run-561964f6d6d3 Creating
+ Container duo-rtwocert5-cli1-run-561964f6d6d3 Created
+ Container duo-rtwocert5-cli2-run-aa62a1248820 Creating
+ Container duo-rtwocert5-cli2-run-aa62a1248820 Created
+ Container duo-rtwocert5-cli2-run-1c12c644df43 Creating
+ Container duo-rtwocert5-cli2-run-1c12c644df43 Created
+ Container duo-rtwocert5-cli2-run-33c2d61c8d77 Creating
+ Container duo-rtwocert5-cli2-run-33c2d61c8d77 Created
+ Container duo-rtwocert5-cli2-run-d4467b14dac7 Creating
+ Container duo-rtwocert5-cli2-run-d4467b14dac7 Created
+ Container duo-rtwocert5-cli2-run-d80339b96450 Creating
+ Container duo-rtwocert5-cli2-run-d80339b96450 Created
+ Container duo-rtwocert5-cli2-run-d742e22cae91 Creating
+ Container duo-rtwocert5-cli2-run-d742e22cae91 Created
+
+[1;36m== fetch + verify polylang 3.5 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtwocert5-cli1-run-5369e8a26e55 Creating
+ Container duo-rtwocert5-cli1-run-5369e8a26e55 Created
+artifact-cache: kind=plugin slug=polylang version=3.5 sha256=3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1 source=network-fetch path=/artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip
+ Container duo-rtwocert5-cli2-run-eb264ce8414b Creating
+ Container duo-rtwocert5-cli2-run-eb264ce8414b Created
+artifact-cache: kind=plugin slug=polylang version=3.5 sha256=3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1 source=cache-hit path=/artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-polylang-3.5-3d8c84a67de48f97fba01a81cffb5bb68644832a12a622724b2ba039ea5adae1.zip[0m
+ Container duo-rtwocert5-cli1-run-1dd5d3f9e70f Creating
+ Container duo-rtwocert5-cli1-run-1dd5d3f9e70f Created
+ Container duo-rtwocert5-cli1-run-d6a9ba5c5c63 Creating
+ Container duo-rtwocert5-cli1-run-d6a9ba5c5c63 Created
+[1;32mok: side 1: polylang 3.5 installed from verified artifact, active[0m
+seeding two languages
+ Container duo-rtwocert5-cli1-run-44cd39a6a703 Creating
+ Container duo-rtwocert5-cli1-run-44cd39a6a703 Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-rtwocert5-cli1-run-d29c12880156 Creating
+ Container duo-rtwocert5-cli1-run-d29c12880156 Created
+ Container duo-rtwocert5-cli1-run-575af6715ee9 Creating
+ Container duo-rtwocert5-cli1-run-575af6715ee9 Created
+ Container duo-rtwocert5-cli1-run-b7040d576281 Creating
+ Container duo-rtwocert5-cli1-run-b7040d576281 Created
+ Container duo-rtwocert5-cli1-run-cb4381c1958b Creating
+ Container duo-rtwocert5-cli1-run-cb4381c1958b Created
+ Container duo-rtwocert5-cli1-run-566a9d953d58 Creating
+ Container duo-rtwocert5-cli1-run-566a9d953d58 Created
+ Container duo-rtwocert5-cli1-run-50a487868aab Creating
+ Container duo-rtwocert5-cli1-run-50a487868aab Created
+ Container duo-rtwocert5-cli1-run-04059935910a Creating
+ Container duo-rtwocert5-cli1-run-04059935910a Created
+ Container duo-rtwocert5-cli1-run-80f67c6a036b Creating
+ Container duo-rtwocert5-cli1-run-80f67c6a036b Created
+ Container duo-rtwocert5-cli1-run-113d889bda20 Creating
+ Container duo-rtwocert5-cli1-run-113d889bda20 Created
+ Container duo-rtwocert5-cli1-run-3ff91f605f1d Creating
+ Container duo-rtwocert5-cli1-run-3ff91f605f1d Created
+ Container duo-rtwocert5-cli1-run-b2448f2f1993 Creating
+ Container duo-rtwocert5-cli1-run-b2448f2f1993 Created
+ Container duo-rtwocert5-cli1-run-0f18d3ed4218 Creating
+ Container duo-rtwocert5-cli1-run-0f18d3ed4218 Created
+ Container duo-rtwocert5-cli1-run-105ded643872 Creating
+ Container duo-rtwocert5-cli1-run-105ded643872 Created
+ Container duo-rtwocert5-cli1-run-2dc5b7ef70d5 Creating
+ Container duo-rtwocert5-cli1-run-2dc5b7ef70d5 Created
+ Container duo-rtwocert5-cli1-run-2595d736fc9c Creating
+ Container duo-rtwocert5-cli1-run-2595d736fc9c Created
+ Container duo-rtwocert5-cli1-run-858bb66e5a70 Creating
+ Container duo-rtwocert5-cli1-run-858bb66e5a70 Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-rtwocert5-cli1-run-17eb02ff79f2 Creating
+ Container duo-rtwocert5-cli1-run-17eb02ff79f2 Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-rtwocert5-cli1-run-803454800c74 Creating
+ Container duo-rtwocert5-cli1-run-803454800c74 Created
+ Container duo-rtwocert5-cli1-run-bd265ad9f440 Creating
+ Container duo-rtwocert5-cli1-run-bd265ad9f440 Created
+ Container duo-rtwocert5-cli1-run-27cb6779f242 Creating
+ Container duo-rtwocert5-cli1-run-27cb6779f242 Created
+tagged Container duo-rtwocert5-cli1-run-06622050cb94 Creating
+ Container duo-rtwocert5-cli1-run-06622050cb94 Created
+ Container duo-rtwocert5-cli1-run-365a88662dd4 Creating
+ Container duo-rtwocert5-cli1-run-365a88662dd4 Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+ Container duo-rtwocert5-cli1-run-2abcf13e9788 Creating
+ Container duo-rtwocert5-cli1-run-2abcf13e9788 Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (polylang 3.5)[0m
+ Container duo-rtwocert5-cli1-run-662fd1dc2b44 Creating
+ Container duo-rtwocert5-cli1-run-662fd1dc2b44 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtwocert5-cli2-run-d21dd52a431f Creating
+ Container duo-rtwocert5-cli2-run-d21dd52a431f Created
+ Container duo-rtwocert5-cli2-run-9ea763eb566f Creating
+ Container duo-rtwocert5-cli2-run-9ea763eb566f Created
+ Container duo-rtwocert5-cli2-run-1fd2d4652a45 Creating
+ Container duo-rtwocert5-cli2-run-1fd2d4652a45 Created
+activated: polylang/polylang.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtwocert5-cli2-run-158df1670bf2 Creating
+ Container duo-rtwocert5-cli2-run-158df1670bf2 Created
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: adopted env term 1 as 01a00e6b-3f40-7e76-bf17-c9297691737e (terms/category/01a00e6b-3f40-7e76-bf17-c9297691737e--uncategorized.json)
+Warning: provider capability fired: polylang-nav-menus@1.0.0 sync_nav_menu_locations (0s, verified)
+Success: applied 16 entities (canary clean) — plan was: {"create":13,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (polylang 3.5, canary clean)[0m
+ Container duo-rtwocert5-cli2-run-6535f755ddd5 Creating
+ Container duo-rtwocert5-cli2-run-6535f755ddd5 Created
+[17-Aug-2026 06:32:09 UTC] PHP Warning:  Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+Warning: Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+ Container duo-rtwocert5-cli2-run-f301096108f2 Creating
+ Container duo-rtwocert5-cli2-run-f301096108f2 Created
+[17-Aug-2026 06:32:13 UTC] PHP Warning:  Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+Warning: Undefined array key "default_lang" in /var/www/html/wp-content/plugins/polylang/include/links-directory.php on line 69
+ Container duo-rtwocert5-cli2-run-6d982b2a3fca Creating
+ Container duo-rtwocert5-cli2-run-6d982b2a3fca Created
+ Container duo-rtwocert5-cli2-run-0ee5a5683297 Creating
+ Container duo-rtwocert5-cli2-run-0ee5a5683297 Created
+conf2 local ids: post_en=1 post_fr=2 news=8 actualites=9
+ Container duo-rtwocert5-cli1-run-d8ac8b94bb81 Creating
+ Container duo-rtwocert5-cli1-run-d8ac8b94bb81 Created
+conf1 local id: post_en=6 (vs conf2's 1)
+ok: post_en's conf1 id (6) and conf2 id (1) genuinely differ — the fillers broke the lucky-coincidence conf1/conf2 would otherwise share
+ Container duo-rtwocert5-cli2-run-a4cffb740d67 Creating
+ Container duo-rtwocert5-cli2-run-a4cffb740d67 Created
+pll_get_post_translations(1) = {"en":1,"fr":2}
+ok: pll_get_post_translations() returns the correct pair using conf2-local ids
+ Container duo-rtwocert5-cli2-run-8b7d15daacf4 Creating
+ Container duo-rtwocert5-cli2-run-8b7d15daacf4 Created
+pll_get_term_translations(8) = {"en":8,"fr":9}
+ok: pll_get_term_translations() returns the correct pair using conf2-local ids (capability 1 + 2 proof)
+ Container duo-rtwocert5-cli2-run-6f2f3f6e203d Creating
+ Container duo-rtwocert5-cli2-run-6f2f3f6e203d Created
+ Container duo-rtwocert5-cli2-run-5c844e785df1 Creating
+ Container duo-rtwocert5-cli2-run-5c844e785df1 Created
+ Container duo-rtwocert5-cli2-run-5418fe3d36ad Creating
+ Container duo-rtwocert5-cli2-run-5418fe3d36ad Created
+ok: term_language relationships (capability 1) correct in both directions
+ Container duo-rtwocert5-cli2-run-6c815ca46b24 Creating
+ Container duo-rtwocert5-cli2-run-6c815ca46b24 Created
+ok: post_en/post_fr's captured relationships never include a term-object taxonomy (no fabrication, despite Uncategorized/Uncategorized-fr coincidentally sharing their numeric ids)
+ Container duo-rtwocert5-cli2-run-4b53b1953362 Creating
+ Container duo-rtwocert5-cli2-run-4b53b1953362 Created
+ Container duo-rtwocert5-cli2-run-feee7ddd84b9 Creating
+ Container duo-rtwocert5-cli2-run-feee7ddd84b9 Created
+ Container duo-rtwocert5-cli2-run-50103b0aceb8 Creating
+ Container duo-rtwocert5-cli2-run-50103b0aceb8 Created
+ Container duo-rtwocert5-cli2-run-5f1b4b3ddbe3 Creating
+ Container duo-rtwocert5-cli2-run-5f1b4b3ddbe3 Created
+post_translations group description: a:2:{s:2:"en";i:1;s:2:"fr";i:2;}
+term_translations group description: a:2:{s:2:"en";i:8;s:2:"fr";i:9;}
+ok: re-serialized descriptions are byte-exact PHP serialize() output with genuine int-typed ids
+ok: conf2 renders post_en's own content, no conf1 host-leak
+polylang conformance checks passed
+ Container duo-rtwocert5-cli2-run-4a80c5c754f7 Creating
+ Container duo-rtwocert5-cli2-run-4a80c5c754f7 Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at polylang 3.5 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: polylang 3.8.6 ==[0m
+ Container duo-rtwocert5-cli1-run-8fc80a4f66cb Creating
+ Container duo-rtwocert5-cli1-run-8fc80a4f66cb Created
+ Container duo-rtwocert5-cli1-run-68b7aeef3031 Creating
+ Container duo-rtwocert5-cli1-run-68b7aeef3031 Created
+ Container duo-rtwocert5-cli1-run-271937847252 Creating
+ Container duo-rtwocert5-cli1-run-271937847252 Created
+ Container duo-rtwocert5-cli1-run-b0a715139273 Creating
+ Container duo-rtwocert5-cli1-run-b0a715139273 Created
+ Container duo-rtwocert5-cli1-run-017093c33582 Creating
+ Container duo-rtwocert5-cli1-run-017093c33582 Created
+ Container duo-rtwocert5-cli1-run-967e92284186 Creating
+ Container duo-rtwocert5-cli1-run-967e92284186 Created
+ Container duo-rtwocert5-cli2-run-ef9983239601 Creating
+ Container duo-rtwocert5-cli2-run-ef9983239601 Created
+ Container duo-rtwocert5-cli2-run-f1f2873b97db Creating
+ Container duo-rtwocert5-cli2-run-f1f2873b97db Created
+ Container duo-rtwocert5-cli2-run-e3290b5ca817 Creating
+ Container duo-rtwocert5-cli2-run-e3290b5ca817 Created
+ Container duo-rtwocert5-cli2-run-0971625a29f7 Creating
+ Container duo-rtwocert5-cli2-run-0971625a29f7 Created
+ Container duo-rtwocert5-cli2-run-a632f3fbcf92 Creating
+ Container duo-rtwocert5-cli2-run-a632f3fbcf92 Created
+ Container duo-rtwocert5-cli2-run-8ae18520ba7c Creating
+ Container duo-rtwocert5-cli2-run-8ae18520ba7c Created
+
+[1;36m== fetch + verify polylang 3.8.6 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtwocert5-cli1-run-ca74eb3ea1ab Creating
+ Container duo-rtwocert5-cli1-run-ca74eb3ea1ab Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+ Container duo-rtwocert5-cli2-run-c6c29cffb032 Creating
+ Container duo-rtwocert5-cli2-run-c6c29cffb032 Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip[0m
+ Container duo-rtwocert5-cli1-run-829976863fa7 Creating
+ Container duo-rtwocert5-cli1-run-829976863fa7 Created
+ Container duo-rtwocert5-cli1-run-80a448712b73 Creating
+ Container duo-rtwocert5-cli1-run-80a448712b73 Created
+[1;32mok: side 1: polylang 3.8.6 installed from verified artifact, active[0m
+seeding two languages
+ Container duo-rtwocert5-cli1-run-c32dc909c744 Creating
+ Container duo-rtwocert5-cli1-run-c32dc909c744 Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-rtwocert5-cli1-run-b6991c7e7f9f Creating
+ Container duo-rtwocert5-cli1-run-b6991c7e7f9f Created
+ Container duo-rtwocert5-cli1-run-52df57d4b6e8 Creating
+ Container duo-rtwocert5-cli1-run-52df57d4b6e8 Created
+ Container duo-rtwocert5-cli1-run-513e204271cd Creating
+ Container duo-rtwocert5-cli1-run-513e204271cd Created
+ Container duo-rtwocert5-cli1-run-307fb82ba143 Creating
+ Container duo-rtwocert5-cli1-run-307fb82ba143 Created
+ Container duo-rtwocert5-cli1-run-39ea5f4e2d86 Creating
+ Container duo-rtwocert5-cli1-run-39ea5f4e2d86 Created
+ Container duo-rtwocert5-cli1-run-4ef1b50181c9 Creating
+ Container duo-rtwocert5-cli1-run-4ef1b50181c9 Created
+ Container duo-rtwocert5-cli1-run-4758784c78a4 Creating
+ Container duo-rtwocert5-cli1-run-4758784c78a4 Created
+ Container duo-rtwocert5-cli1-run-fe46a6d2ac28 Creating
+ Container duo-rtwocert5-cli1-run-fe46a6d2ac28 Created
+ Container duo-rtwocert5-cli1-run-beaca958d482 Creating
+ Container duo-rtwocert5-cli1-run-beaca958d482 Created
+ Container duo-rtwocert5-cli1-run-2e9355c70b26 Creating
+ Container duo-rtwocert5-cli1-run-2e9355c70b26 Created
+ Container duo-rtwocert5-cli1-run-f055e1e56fc8 Creating
+ Container duo-rtwocert5-cli1-run-f055e1e56fc8 Created
+ Container duo-rtwocert5-cli1-run-ae6137ac87bc Creating
+ Container duo-rtwocert5-cli1-run-ae6137ac87bc Created
+ Container duo-rtwocert5-cli1-run-fcec25f0db5a Creating
+ Container duo-rtwocert5-cli1-run-fcec25f0db5a Created
+ Container duo-rtwocert5-cli1-run-e43ade44a614 Creating
+ Container duo-rtwocert5-cli1-run-e43ade44a614 Created
+ Container duo-rtwocert5-cli1-run-2c83a215b0d5 Creating
+ Container duo-rtwocert5-cli1-run-2c83a215b0d5 Created
+ Container duo-rtwocert5-cli1-run-2760eed7aeb8 Creating
+ Container duo-rtwocert5-cli1-run-2760eed7aeb8 Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-rtwocert5-cli1-run-f9b60b4b6973 Creating
+ Container duo-rtwocert5-cli1-run-f9b60b4b6973 Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-rtwocert5-cli1-run-f59bf41b66d7 Creating
+ Container duo-rtwocert5-cli1-run-f59bf41b66d7 Created
+ Container duo-rtwocert5-cli1-run-295bc69d3bcd Creating
+ Container duo-rtwocert5-cli1-run-295bc69d3bcd Created
+ Container duo-rtwocert5-cli1-run-ffa35e2a404c Creating
+ Container duo-rtwocert5-cli1-run-ffa35e2a404c Created
+tagged Container duo-rtwocert5-cli1-run-a204ecd2f3d9 Creating
+ Container duo-rtwocert5-cli1-run-a204ecd2f3d9 Created
+ Container duo-rtwocert5-cli1-run-fccfd5df7b3d Creating
+ Container duo-rtwocert5-cli1-run-fccfd5df7b3d Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+ Container duo-rtwocert5-cli1-run-86f7dfbb756b Creating
+ Container duo-rtwocert5-cli1-run-86f7dfbb756b Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (polylang 3.8.6)[0m
+ Container duo-rtwocert5-cli1-run-cfcfae3ddbd6 Creating
+ Container duo-rtwocert5-cli1-run-cfcfae3ddbd6 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtwocert5-cli2-run-aa59ed16dddb Creating
+ Container duo-rtwocert5-cli2-run-aa59ed16dddb Created
+ Container duo-rtwocert5-cli2-run-2363a7ab99f7 Creating
+ Container duo-rtwocert5-cli2-run-2363a7ab99f7 Created
+ Container duo-rtwocert5-cli2-run-c4fc44dc120f Creating
+ Container duo-rtwocert5-cli2-run-c4fc44dc120f Created
+activated: polylang/polylang.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtwocert5-cli2-run-81f42562b2bb Creating
+ Container duo-rtwocert5-cli2-run-81f42562b2bb Created
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: option 'default_category' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: reclassified: menu field 'locations' is core-classified 'authored' but 'polylang' (pinned) reclassifies it 'derived' on this site — the plugin's declaration governs
+Warning: adopted env term 1 as 01a00e6e-c7b0-7232-ae2e-ce64fd4da9e0 (terms/category/01a00e6e-c7b0-7232-ae2e-ce64fd4da9e0--uncategorized.json)
+Warning: provider capability fired: polylang-nav-menus@1.0.0 sync_nav_menu_locations (0s, verified)
+Success: applied 15 entities (canary clean) — plan was: {"create":13,"update":1,"unchanged":1,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (polylang 3.8.6, canary clean)[0m
+ Container duo-rtwocert5-cli2-run-0e435266cfdd Creating
+ Container duo-rtwocert5-cli2-run-0e435266cfdd Created
+ Container duo-rtwocert5-cli2-run-708676aac442 Creating
+ Container duo-rtwocert5-cli2-run-708676aac442 Created
+ Container duo-rtwocert5-cli2-run-f42687c49f7e Creating
+ Container duo-rtwocert5-cli2-run-f42687c49f7e Created
+ Container duo-rtwocert5-cli2-run-5a09fa64881c Creating
+ Container duo-rtwocert5-cli2-run-5a09fa64881c Created
+conf2 local ids: post_en=1 post_fr=2 news=9 actualites=10
+ Container duo-rtwocert5-cli1-run-018cfcaab22f Creating
+ Container duo-rtwocert5-cli1-run-018cfcaab22f Created
+conf1 local id: post_en=6 (vs conf2's 1)
+ok: post_en's conf1 id (6) and conf2 id (1) genuinely differ — the fillers broke the lucky-coincidence conf1/conf2 would otherwise share
+ Container duo-rtwocert5-cli2-run-29f4e3df862e Creating
+ Container duo-rtwocert5-cli2-run-29f4e3df862e Created
+pll_get_post_translations(1) = {"en":1,"fr":2}
+ok: pll_get_post_translations() returns the correct pair using conf2-local ids
+ Container duo-rtwocert5-cli2-run-d89a4e2218c9 Creating
+ Container duo-rtwocert5-cli2-run-d89a4e2218c9 Created
+pll_get_term_translations(9) = {"en":9,"fr":10}
+ok: pll_get_term_translations() returns the correct pair using conf2-local ids (capability 1 + 2 proof)
+ Container duo-rtwocert5-cli2-run-cc31a0b84489 Creating
+ Container duo-rtwocert5-cli2-run-cc31a0b84489 Created
+ Container duo-rtwocert5-cli2-run-852d7f1550ca Creating
+ Container duo-rtwocert5-cli2-run-852d7f1550ca Created
+ Container duo-rtwocert5-cli2-run-7fc8ac3d6a31 Creating
+ Container duo-rtwocert5-cli2-run-7fc8ac3d6a31 Created
+ok: term_language relationships (capability 1) correct in both directions
+ Container duo-rtwocert5-cli2-run-0e38cebeebc5 Creating
+ Container duo-rtwocert5-cli2-run-0e38cebeebc5 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+ok: post_en/post_fr's captured relationships never include a term-object taxonomy (no fabrication, despite Uncategorized/Uncategorized-fr coincidentally sharing their numeric ids)
+ Container duo-rtwocert5-cli2-run-a8a7c263b74d Creating
+ Container duo-rtwocert5-cli2-run-a8a7c263b74d Created
+ Container duo-rtwocert5-cli2-run-5c4a69e6beea Creating
+ Container duo-rtwocert5-cli2-run-5c4a69e6beea Created
+ Container duo-rtwocert5-cli2-run-ef46ebf1ce5d Creating
+ Container duo-rtwocert5-cli2-run-ef46ebf1ce5d Created
+ Container duo-rtwocert5-cli2-run-b429245bd4be Creating
+ Container duo-rtwocert5-cli2-run-b429245bd4be Created
+post_translations group description: a:2:{s:2:"en";i:1;s:2:"fr";i:2;}
+term_translations group description: a:2:{s:2:"en";i:9;s:2:"fr";i:10;}
+ok: re-serialized descriptions are byte-exact PHP serialize() output with genuine int-typed ids
+ok: conf2 renders post_en's own content, no conf1 host-leak
+polylang conformance checks passed
+ Container duo-rtwocert5-cli2-run-b62ec20821a6 Creating
+ Container duo-rtwocert5-cli2-run-b62ec20821a6 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at polylang 3.8.6 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: polylang 3.4.5 (real wp.org release, genuinely below manifests/polylang.json's corrected min 3.5) must be REFUSED, not silently accepted ==[0m
+ Container duo-rtwocert5-cli1-run-d034c34b3bc6 Creating
+ Container duo-rtwocert5-cli1-run-d034c34b3bc6 Created
+ Container duo-rtwocert5-cli1-run-a0c71633dc7d Creating
+ Container duo-rtwocert5-cli1-run-a0c71633dc7d Created
+ Container duo-rtwocert5-cli1-run-a75f98117f4f Creating
+ Container duo-rtwocert5-cli1-run-a75f98117f4f Created
+ Container duo-rtwocert5-cli1-run-72edb9adedf4 Creating
+ Container duo-rtwocert5-cli1-run-72edb9adedf4 Created
+ Container duo-rtwocert5-cli1-run-ab79e5182ea0 Creating
+ Container duo-rtwocert5-cli1-run-ab79e5182ea0 Created
+ Container duo-rtwocert5-cli1-run-5ddf401c1a6b Creating
+ Container duo-rtwocert5-cli1-run-5ddf401c1a6b Created
+ Container duo-rtwocert5-cli1-run-17ab7ca34112 Creating
+ Container duo-rtwocert5-cli1-run-17ab7ca34112 Created
+artifact-cache: kind=plugin slug=polylang version=3.8.6 sha256=dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa source=cache-hit path=/artifacts-cache/plugin-polylang-3.8.6-dd2a213d407c6d565eb5e246e68b434003f1112c059ee53ca070bf97102010aa.zip
+ Container duo-rtwocert5-cli1-run-f6e34357f1b2 Creating
+ Container duo-rtwocert5-cli1-run-f6e34357f1b2 Created
+ Container duo-rtwocert5-cli1-run-0e891c33a61a Creating
+ Container duo-rtwocert5-cli1-run-0e891c33a61a Created
+seeding two languages
+ Container duo-rtwocert5-cli1-run-a18500a8e81c Creating
+ Container duo-rtwocert5-cli1-run-a18500a8e81c Created
+languages added
+anti-coincidence fillers: consume auto-increment ids on conf1 that conf2 will never replay
+ Container duo-rtwocert5-cli1-run-9e1066758c4f Creating
+ Container duo-rtwocert5-cli1-run-9e1066758c4f Created
+ Container duo-rtwocert5-cli1-run-c74d2afc32de Creating
+ Container duo-rtwocert5-cli1-run-c74d2afc32de Created
+ Container duo-rtwocert5-cli1-run-1082b69a60fa Creating
+ Container duo-rtwocert5-cli1-run-1082b69a60fa Created
+ Container duo-rtwocert5-cli1-run-afa37e5f4226 Creating
+ Container duo-rtwocert5-cli1-run-afa37e5f4226 Created
+ Container duo-rtwocert5-cli1-run-b5f4db62215a Creating
+ Container duo-rtwocert5-cli1-run-b5f4db62215a Created
+ Container duo-rtwocert5-cli1-run-2443243f86df Creating
+ Container duo-rtwocert5-cli1-run-2443243f86df Created
+ Container duo-rtwocert5-cli1-run-91cc432fcaa2 Creating
+ Container duo-rtwocert5-cli1-run-91cc432fcaa2 Created
+ Container duo-rtwocert5-cli1-run-7da1b2110a8d Creating
+ Container duo-rtwocert5-cli1-run-7da1b2110a8d Created
+ Container duo-rtwocert5-cli1-run-af1af4fe09be Creating
+ Container duo-rtwocert5-cli1-run-af1af4fe09be Created
+ Container duo-rtwocert5-cli1-run-611121db99b4 Creating
+ Container duo-rtwocert5-cli1-run-611121db99b4 Created
+ Container duo-rtwocert5-cli1-run-7c3a93060a82 Creating
+ Container duo-rtwocert5-cli1-run-7c3a93060a82 Created
+ Container duo-rtwocert5-cli1-run-bc4769242aa4 Creating
+ Container duo-rtwocert5-cli1-run-bc4769242aa4 Created
+ Container duo-rtwocert5-cli1-run-c9b0ff11bdc0 Creating
+ Container duo-rtwocert5-cli1-run-c9b0ff11bdc0 Created
+ Container duo-rtwocert5-cli1-run-e25220d25d39 Creating
+ Container duo-rtwocert5-cli1-run-e25220d25d39 Created
+ Container duo-rtwocert5-cli1-run-4fc01fe201c2 Creating
+ Container duo-rtwocert5-cli1-run-4fc01fe201c2 Created
+ Container duo-rtwocert5-cli1-run-f8686abde07f Creating
+ Container duo-rtwocert5-cli1-run-f8686abde07f Created
+5 filler posts + 3 filler categories created and hard-deleted on conf1 only
+translated category pair (term-object relationships: term_language + term_translations)
+ Container duo-rtwocert5-cli1-run-ecdbee0af9d9 Creating
+ Container duo-rtwocert5-cli1-run-ecdbee0af9d9 Created
+conf1 categories: news=15 actualites=17
+translated post pair (post-object relationships: language + post_translations, already-working machinery)
+ Container duo-rtwocert5-cli1-run-7bc52b0a6ece Creating
+ Container duo-rtwocert5-cli1-run-7bc52b0a6ece Created
+ Container duo-rtwocert5-cli1-run-8923175e731b Creating
+ Container duo-rtwocert5-cli1-run-8923175e731b Created
+ Container duo-rtwocert5-cli1-run-892326ba90d9 Creating
+ Container duo-rtwocert5-cli1-run-892326ba90d9 Created
+tagged Container duo-rtwocert5-cli1-run-1fc64c5af7f2 Creating
+ Container duo-rtwocert5-cli1-run-1fc64c5af7f2 Created
+ Container duo-rtwocert5-cli1-run-08784594ef5f Creating
+ Container duo-rtwocert5-cli1-run-08784594ef5f Created
+polylang seed: news=15 actualites=17 post_en=6 post_fr=7
+ Container duo-rtwocert5-cli1-run-07f5be660174 Creating
+ Container duo-rtwocert5-cli1-run-07f5be660174 Created
+Success: captured 2 posts, 12 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-rtwocert5-cli1-run-b0a14e2df2f9 Creating
+ Container duo-rtwocert5-cli1-run-b0a14e2df2f9 Created
+ Container duo-rtwocert5-cli1-run-1aae74d4955b Creating
+ Container duo-rtwocert5-cli1-run-1aae74d4955b Created
+ Container duo-rtwocert5-cli1-run-877afaf394e5 Creating
+ Container duo-rtwocert5-cli1-run-877afaf394e5 Created
+artifact-cache: kind=plugin slug=polylang version=3.4.5 sha256=adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab source=network-fetch path=/artifacts-cache/plugin-polylang-3.4.5-adf4ac84fe0f10a326a7e6cad9453075bfe02eb99286f9c8f57259787914c9ab.zip
+ Container duo-rtwocert5-cli1-run-303995652307 Creating
+ Container duo-rtwocert5-cli1-run-303995652307 Created
+ Container duo-rtwocert5-cli1-run-f52587b15d60 Creating
+ Container duo-rtwocert5-cli1-run-f52587b15d60 Created
+ Container duo-rtwocert5-cli1-run-24cbacf535f9 Creating
+ Container duo-rtwocert5-cli1-run-24cbacf535f9 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - polylang/polylang.php 3.4.5 is active in this environment, outside the 'polylang' manifest's declared version_range (>=3.5 <4.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: polylang 3.4.5 (real, installed, genuinely below the corrected 3.5 min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'rtwocert5': destroy ==[0m
+ Container duo-rtwocert5-wp2-1 Stopping
+ Container duo-rtwocert5-cli2-1 Stopping
+ Container duo-rtwocert5-cli1-1 Stopping
+ Container duo-rtwocert5-wp1-1 Stopping
+ Container duo-rtwocert5-cli1-1 Stopped
+ Container duo-rtwocert5-cli1-1 Removing
+ Container duo-rtwocert5-cli2-1 Stopped
+ Container duo-rtwocert5-cli2-1 Removing
+ Container duo-rtwocert5-cli2-1 Removed
+ Container duo-rtwocert5-cli1-1 Removed
+ Container duo-rtwocert5-wp1-1 Stopped
+ Container duo-rtwocert5-wp1-1 Removing
+ Container duo-rtwocert5-wp2-1 Stopped
+ Container duo-rtwocert5-wp2-1 Removing
+ Container duo-rtwocert5-wp1-1 Removed
+ Container duo-rtwocert5-wp2-1 Removed
+ Volume duo-rtwocert5_wp1 Removing
+ Volume duo-rtwocert5_wp2 Removing
+ Volume duo-rtwocert5_wp2 Removed
+ Volume duo-rtwocert5_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_rtwocert51/wp_rtwocert52 dropped[0m
+  siterepo/rtwocert5{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed rtwocert5 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

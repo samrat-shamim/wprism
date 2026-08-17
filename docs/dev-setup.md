@@ -230,7 +230,7 @@ not a macOS-specific artifact, so treat it as inherent rather than as
 something a faster scheduler could hide. Next tier: `regress-adapter-catalog`
 126.7 s, `regress-pair-bootstrap-unit` 87.3 s. `regress_bundle_coverage`
 itself — a member of this same 238-suite gate — dropped from ~37 s to ~0.8 s
-after the single-pass rewrite above. 238 leaf targets either way; zero
+after the single-pass rewrite above. 238 leaf targets at that measurement (239 since DUO-3481 added the parity suite); zero
 parallel flakes on either host.
 
 ## Writing a new offline suite
@@ -267,3 +267,52 @@ Everything above is offline. When a change genuinely needs a real WordPress:
 For the *live* half's host prerequisites (images pre-pulled, compose v2, `gh`
 authenticated), `bash scripts/agent-bootstrap.sh` is the fail-loud one-shot;
 `tools/doctor.sh` is its read-only, offline-first counterpart.
+
+## The classmap autoloader
+
+`agent/duo-classmap.php` and `cli/duo-classmap.php` are **generated** files
+(`php tools/classmap-generate.php`). Each maps every fully-qualified type
+declared under `agent/src` / `cli/src` to its path, and `agent/duo.php` and
+`cli/duo` register a small `spl_autoload_register()` fallback over them.
+
+This does not make the drop-in "an autoloader project" in the sense AGENTS.md
+non-negotiable 1 forbids: nothing is vendored or fetched, the map is a
+first-party source file inside the certification closure, and **every existing
+`require_once` stays** (owner ruling D4). The fallback is additive — an
+autoloader is only consulted for a class that is *still undeclared* when it is
+referenced — so on the production path it resolves nothing at all. Measured:
+after `agent/duo.php` finishes, 237 of the map's 238 names are already
+declared; the single exception, `Duo\AdapterCertification`, is `require_once`d
+at both of its use sites before it is ever named. What the map buys is the
+partially-loaded case — an offline suite that includes three `agent/src` files
+by hand, or a new file whose hand-written require chain missed a dependency —
+where the alternative is a fatal `Class not found`.
+
+Two properties are load-bearing and must survive any edit:
+
+- **`class_exists(X::class, false)` is untouched by construction.** The `false`
+  argument suppresses autoloading, which is what keeps the guarded top-level
+  require blocks in `agent/src` and every sandbox shadow-block test (one that
+  pre-declares a stub so the guard skips the real file) behaving as before.
+- **A missing file stays a missing class, not a fatal.** The closure tests
+  `is_file()` before `require_once`. Without that, a stale entry would turn a
+  graceful "support is not loaded" diagnostic into an uncatchable require
+  failure — `cli/src/RefreshPlan.php` is required under an `is_file()` guard
+  for exactly that reason.
+
+Two types are deliberately excluded, each documented in `CM_EXCLUSIONS` in the
+generator: `Duo\Cli` (its file's last line is `WP_CLI::add_command()`, a
+top-level side effect that must stay behind `duo.php`'s WP-CLI require) and
+`Duo\InitialStateBoundaryException` (declared three times behind
+`class_exists(…, false)` guards, so no single file is its home).
+
+The maps are certification-closure members — `agent/` and `cli/` are walked
+whole — so regenerating one costs a certification round. That is affordable
+only because the output is deterministic: FQCN-sorted with `strcmp()`, LF, no
+timestamp, no host path. `tests/Tooling/ClassmapTest.php` regenerates both in
+memory and byte-compares, so a stale map fails `composer check` rather than
+silently going wrong; `php tools/classmap-generate.php --check` is the same
+question from the command line.
+
+Adding a class to `agent/src` or `cli/src` therefore has one extra step: run
+`php tools/classmap-generate.php` and commit the regenerated map alongside it.

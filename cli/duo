@@ -75,6 +75,67 @@ require_once dirname(__DIR__) . '/agent/src/CanonicalSurfaces.php';
 require_once dirname(__DIR__) . '/agent/src/Deletion.php';
 require_once dirname(__DIR__) . '/agent/src/ScopeContract.php';
 
+/**
+ * Additive classmap fallback for both trees (DUO-3481, owner rulings D3/D4).
+ *
+ * Every require above is retained; nothing here loads anything eagerly. Two
+ * maps are registered because this process legitimately spans both trees:
+ * cli/duo-classmap.php covers the 60 Duo\Orchestrator\* types under cli/src
+ * (all 60 are already declared once the require block above finishes, so that
+ * registration is pure insurance), and agent/duo-classmap.php covers the 238
+ * Duo\* types under agent/src, of which this bootstrap declares only ten —
+ * the seven agent/src files required directly above plus what they pull in.
+ * The remaining 228 arrive later and by hand: RefreshPlan::loadCompiler()
+ * require_once's 39 agent/src files (cli/src/RefreshPlan.php:1028), and
+ * AdapterCatalog/AdapterDraft/ManifestValidate each have their own boot()
+ * that requires the Canon/OptionState/ManifestDispositions/CapabilityRegistry/
+ * Policy set. Those hand-written lists stay exactly as they are — this only
+ * removes the "Class not found" cliff between them.
+ *
+ * The two maps have disjoint key spaces (Duo\Orchestrator\* vs single-segment
+ * Duo\*), so registration order carries no meaning. Manifest-shipped code
+ * (Duo\Interpreters\*, Duo\Providers\*, Duo\Regenerators\*) is in neither
+ * map, which is what keeps Policy.php:1455/1519 and Providers.php:2047 —
+ * the "your manifest's PHP must define this class" diagnostics — reachable.
+ *
+ * The is_file() test is load-bearing here specifically. cli/src/RefreshPlan.php
+ * is required under an `is_file()` guard above because the semantic planner is
+ * a separately-reviewable layer that may be absent, and Refresh::planner()
+ * (cli/src/Refresh.php:673) turns that absence into an actionable
+ * "refresh semantic planner is unavailable" refusal via class_exists(). A bare
+ * require_once through the map would replace that refusal with an uncatchable
+ * failed-to-open fatal in exactly the degraded tree the guard exists for.
+ */
+if (!defined('DUO_ORCHESTRATOR_CLASSMAP_REGISTERED')) {
+    define('DUO_ORCHESTRATOR_CLASSMAP_REGISTERED', true);
+    /** @var array<string,string> $duoOrchestratorClassmap */
+    $duoOrchestratorClassmap = require __DIR__ . '/duo-classmap.php';
+    spl_autoload_register(static function (string $class) use ($duoOrchestratorClassmap): void {
+        if (!isset($duoOrchestratorClassmap[$class])) {
+            return;
+        }
+        $file = __DIR__ . '/' . $duoOrchestratorClassmap[$class];
+        if (is_file($file)) {
+            require_once $file;
+        }
+    });
+}
+if (!defined('DUO_CLASSMAP_REGISTERED')) {
+    define('DUO_CLASSMAP_REGISTERED', true);
+    $duoAgentRoot = dirname(__DIR__) . '/agent';
+    /** @var array<string,string> $duoAgentClassmap */
+    $duoAgentClassmap = require $duoAgentRoot . '/duo-classmap.php';
+    spl_autoload_register(static function (string $class) use ($duoAgentClassmap, $duoAgentRoot): void {
+        if (!isset($duoAgentClassmap[$class])) {
+            return;
+        }
+        $file = $duoAgentRoot . '/' . $duoAgentClassmap[$class];
+        if (is_file($file)) {
+            require_once $file;
+        }
+    });
+}
+
 use Duo\Orchestrator\InitCommand;
 use Duo\Orchestrator\CodeDeploy;
 use Duo\Orchestrator\DeployCommand;

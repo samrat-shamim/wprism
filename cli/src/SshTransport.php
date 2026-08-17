@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Duo\Orchestrator;
 
 /** Runs wp-cli over ssh: `ssh -T <host> 'cd <wp_path> && wp …'`. */

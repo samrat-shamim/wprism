@@ -1,0 +1,326 @@
+
+[1;36m== boot pair rtwocertb0 (rtwocertb01 :9300 / rtwocertb02 :9301), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    ca94e365a53f7c462169ae3edd5da94df5d8a2a8
+  invoked from:   <source-root>/sandbox
+  expected SHA:   ca94e365a53f7c462169ae3edd5da94df5d8a2a8 (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly ca94e365a53f7c462169ae3edd5da94df5d8a2a8, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rtwocertb0': databases ==[0m
+[1;32mok: wp_rtwocertb01, wp_rtwocertb02 exist[0m
+
+[1;36m== pair 'rtwocertb0': site-repo directories ==[0m
+
+[1;36m== pair 'rtwocertb0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rtwocertb0_wp2 Creating
+ Volume duo-rtwocertb0_wp2 Created
+ Volume duo-rtwocertb0_wp1 Creating
+ Volume duo-rtwocertb0_wp1 Created
+ Container duo-rtwocertb0-wp1-1 Creating
+ Container duo-rtwocertb0-wp2-1 Creating
+ Container duo-rtwocertb0-wp1-1 Created
+ Container duo-rtwocertb0-wp2-1 Created
+ Container duo-rtwocertb0-wp1-1 Starting
+ Container duo-rtwocertb0-wp2-1 Starting
+ Container duo-rtwocertb0-wp1-1 Started
+ Container duo-rtwocertb0-wp2-1 Started
+ Container duo-rtwocertb0-cli1-1 Creating
+ Container duo-rtwocertb0-cli2-1 Creating
+ Container duo-rtwocertb0-cli1-1 Created
+ Container duo-rtwocertb0-cli2-1 Created
+ Container duo-rtwocertb0-cli2-1 Starting
+ Container duo-rtwocertb0-cli1-1 Starting
+ Container duo-rtwocertb0-cli2-1 Started
+ Container duo-rtwocertb0-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rtwocertb0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rtwocertb0': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-rtwocertb0-cli1-run-54210a30b0e5 Creating
+ Container duo-rtwocertb0-cli1-run-54210a30b0e5 Created
+Success: WordPress installed successfully.
+ Container duo-rtwocertb0-cli1-run-f106661f9494 Creating
+ Container duo-rtwocertb0-cli1-run-f106661f9494 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocertb0-cli1-run-7b5ceb87efe2 Creating
+ Container duo-rtwocertb0-cli1-run-7b5ceb87efe2 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocertb0-cli1-run-d515ee7fa21f Creating
+ Container duo-rtwocertb0-cli1-run-d515ee7fa21f Created
+ Container duo-rtwocertb0-cli1-run-705ee6a724d5 Creating
+ Container duo-rtwocertb0-cli1-run-705ee6a724d5 Created
+ Container duo-rtwocertb0-cli1-run-2d860ff29d17 Creating
+ Container duo-rtwocertb0-cli1-run-2d860ff29d17 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtwocertb0-cli1-run-ba1ee42b6bc3 Creating
+ Container duo-rtwocertb0-cli1-run-ba1ee42b6bc3 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9300)
+ Container duo-rtwocertb0-cli2-run-a84364a4c111 Creating
+ Container duo-rtwocertb0-cli2-run-a84364a4c111 Created
+Success: WordPress installed successfully.
+ Container duo-rtwocertb0-cli2-run-e2eaa1ffd379 Creating
+ Container duo-rtwocertb0-cli2-run-e2eaa1ffd379 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rtwocertb0-cli2-run-c9c0f6fb0be0 Creating
+ Container duo-rtwocertb0-cli2-run-c9c0f6fb0be0 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rtwocertb0-cli2-run-5078f8c80640 Creating
+ Container duo-rtwocertb0-cli2-run-5078f8c80640 Created
+ Container duo-rtwocertb0-cli2-run-5e1a5a67d9b5 Creating
+ Container duo-rtwocertb0-cli2-run-5e1a5a67d9b5 Created
+ Container duo-rtwocertb0-cli2-run-4fa13f0a3d09 Creating
+ Container duo-rtwocertb0-cli2-run-4fa13f0a3d09 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rtwocertb0-cli2-run-d6f22624a045 Creating
+ Container duo-rtwocertb0-cli2-run-d6f22624a045 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9301)
+
+[1;36m== pair 'rtwocertb0' ready ==[0m
+  wp1: http://localhost:9300 (published on host port 9300)
+  wp2: http://localhost:9301 (published on host port 9301)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rtwocertb0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rtwocertb0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rtwocertb0 must stay exported, or pass -p duo-rtwocertb0 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: contact-form-7 6.0.1 ==[0m
+ Container duo-rtwocertb0-cli1-run-5293488fbe6e Creating
+ Container duo-rtwocertb0-cli1-run-5293488fbe6e Created
+ Container duo-rtwocertb0-cli1-run-463b92a5ce18 Creating
+ Container duo-rtwocertb0-cli1-run-463b92a5ce18 Created
+ Container duo-rtwocertb0-cli1-run-a030f13e4d86 Creating
+ Container duo-rtwocertb0-cli1-run-a030f13e4d86 Created
+ Container duo-rtwocertb0-cli1-run-b720de4ad7be Creating
+ Container duo-rtwocertb0-cli1-run-b720de4ad7be Created
+ Container duo-rtwocertb0-cli1-run-b80101bb8adf Creating
+ Container duo-rtwocertb0-cli1-run-b80101bb8adf Created
+ Container duo-rtwocertb0-cli1-run-1a915f4d05de Creating
+ Container duo-rtwocertb0-cli1-run-1a915f4d05de Created
+ Container duo-rtwocertb0-cli2-run-63b2c2bf97a1 Creating
+ Container duo-rtwocertb0-cli2-run-63b2c2bf97a1 Created
+ Container duo-rtwocertb0-cli2-run-6a932ac28ce0 Creating
+ Container duo-rtwocertb0-cli2-run-6a932ac28ce0 Created
+ Container duo-rtwocertb0-cli2-run-f3d799305da9 Creating
+ Container duo-rtwocertb0-cli2-run-f3d799305da9 Created
+ Container duo-rtwocertb0-cli2-run-d63d9b09ea56 Creating
+ Container duo-rtwocertb0-cli2-run-d63d9b09ea56 Created
+ Container duo-rtwocertb0-cli2-run-efd75cfbe02c Creating
+ Container duo-rtwocertb0-cli2-run-efd75cfbe02c Created
+ Container duo-rtwocertb0-cli2-run-1a8528277862 Creating
+ Container duo-rtwocertb0-cli2-run-1a8528277862 Created
+
+[1;36m== fetch + verify contact-form-7 6.0.1 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtwocertb0-cli1-run-0317cb6730aa Creating
+ Container duo-rtwocertb0-cli1-run-0317cb6730aa Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.0.1 sha256=23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6 source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip
+ Container duo-rtwocertb0-cli2-run-fe18412469bc Creating
+ Container duo-rtwocertb0-cli2-run-fe18412469bc Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.0.1 sha256=23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6 source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-contact-form-7-6.0.1-23ea6ee7c8067f31d88f3533baa6cdf0e205a032b9af7417ceb112fd235182e6.zip[0m
+ Container duo-rtwocertb0-cli1-run-d5aa1e26c10f Creating
+ Container duo-rtwocertb0-cli1-run-d5aa1e26c10f Created
+ Container duo-rtwocertb0-cli1-run-a71c47aad2bc Creating
+ Container duo-rtwocertb0-cli1-run-a71c47aad2bc Created
+[1;32mok: side 1: contact-form-7 6.0.1 installed from verified artifact, active[0m
+ Container duo-rtwocertb0-cli1-run-098967e64969 Creating
+ Container duo-rtwocertb0-cli1-run-098967e64969 Created
+cf7 seed: {"form":2,"page":3,"shortcode":"[contact-form-7 id=\"ec6b9aa\" title=\"Version Matrix Contact Form\"]","old_id":3199001,"legacy_page":4,"legacy_shortcode":"[contact-form 3199001 \"Version Matrix Contact Form\"]"}
+ Container duo-rtwocertb0-cli1-run-ad7ca4e38d2a Creating
+ Container duo-rtwocertb0-cli1-run-ad7ca4e38d2a Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (contact-form-7 6.0.1)[0m
+[1;32mok: capture: contact-form-7 6.0.1 canonicalized legacy positional shortcode 3199001[0m
+ Container duo-rtwocertb0-cli1-run-a0b088c37d24 Creating
+ Container duo-rtwocertb0-cli1-run-a0b088c37d24 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtwocertb0-cli2-run-8f0d4001c2fd Creating
+ Container duo-rtwocertb0-cli2-run-8f0d4001c2fd Created
+ Container duo-rtwocertb0-cli2-run-d3631638d9cc Creating
+ Container duo-rtwocertb0-cli2-run-d3631638d9cc Created
+ Container duo-rtwocertb0-cli2-run-058b0da4c122 Creating
+ Container duo-rtwocertb0-cli2-run-058b0da4c122 Created
+activated: contact-form-7/wp-contact-form-7.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtwocertb0-cli2-run-4edd6afc9045 Creating
+ Container duo-rtwocertb0-cli2-run-4edd6afc9045 Created
+Warning: adopted env post 1 as 01a00e74-b671-76ee-904f-b913595bd3d1 (posts/wpcf7_contact_form/01a00e74-b671-76ee-904f-b913595bd3d1--contact-form-1.md)
+Warning: adopted env term 1 as 01a00e74-b675-7ad1-ab15-9a9ffce7aa49 (terms/category/01a00e74-b675-7ad1-ab15-9a9ffce7aa49--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":3,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":2,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (contact-form-7 6.0.1, canary clean)[0m
+ Container duo-rtwocertb0-cli2-run-80fce4b29e04 Creating
+ Container duo-rtwocertb0-cli2-run-80fce4b29e04 Created
+ Container duo-rtwocertb0-cli2-run-edf07a8da02a Creating
+ Container duo-rtwocertb0-cli2-run-edf07a8da02a Created
+ Container duo-rtwocertb0-cli2-run-8c0552c76bf6 Creating
+ Container duo-rtwocertb0-cli2-run-8c0552c76bf6 Created
+[1;32mok: target: contact-form-7 6.0.1 legacy positional shortcode resolves to target form 2[0m
+ Container duo-rtwocertb0-cli2-run-416f958c3d7b Creating
+ Container duo-rtwocertb0-cli2-run-416f958c3d7b Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at contact-form-7 6.0.1 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: contact-form-7 6.1.6 ==[0m
+ Container duo-rtwocertb0-cli1-run-3196b3c72e0a Creating
+ Container duo-rtwocertb0-cli1-run-3196b3c72e0a Created
+ Container duo-rtwocertb0-cli1-run-d375b303953f Creating
+ Container duo-rtwocertb0-cli1-run-d375b303953f Created
+ Container duo-rtwocertb0-cli1-run-d3a7a1942636 Creating
+ Container duo-rtwocertb0-cli1-run-d3a7a1942636 Created
+ Container duo-rtwocertb0-cli1-run-139510adff4f Creating
+ Container duo-rtwocertb0-cli1-run-139510adff4f Created
+ Container duo-rtwocertb0-cli1-run-b11eb48434f1 Creating
+ Container duo-rtwocertb0-cli1-run-b11eb48434f1 Created
+ Container duo-rtwocertb0-cli1-run-be95085aeb16 Creating
+ Container duo-rtwocertb0-cli1-run-be95085aeb16 Created
+ Container duo-rtwocertb0-cli2-run-4e9f54d27844 Creating
+ Container duo-rtwocertb0-cli2-run-4e9f54d27844 Created
+ Container duo-rtwocertb0-cli2-run-3477bc8d4d2f Creating
+ Container duo-rtwocertb0-cli2-run-3477bc8d4d2f Created
+ Container duo-rtwocertb0-cli2-run-8b973dcf1bd1 Creating
+ Container duo-rtwocertb0-cli2-run-8b973dcf1bd1 Created
+ Container duo-rtwocertb0-cli2-run-9c8c97a3576a Creating
+ Container duo-rtwocertb0-cli2-run-9c8c97a3576a Created
+ Container duo-rtwocertb0-cli2-run-1d4187acab79 Creating
+ Container duo-rtwocertb0-cli2-run-1d4187acab79 Created
+ Container duo-rtwocertb0-cli2-run-ae6808285829 Creating
+ Container duo-rtwocertb0-cli2-run-ae6808285829 Created
+
+[1;36m== fetch + verify contact-form-7 6.1.6 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rtwocertb0-cli1-run-7497efe481c6 Creating
+ Container duo-rtwocertb0-cli1-run-7497efe481c6 Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.1.6 sha256=e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip
+ Container duo-rtwocertb0-cli2-run-7ffbfd1bce23 Creating
+ Container duo-rtwocertb0-cli2-run-7ffbfd1bce23 Created
+artifact-cache: kind=plugin slug=contact-form-7 version=6.1.6 sha256=e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e source=cache-hit path=/artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-contact-form-7-6.1.6-e52abafe8b5fbe900b9243c80b5b68b5a61f609626d29754b88eea93d162b08e.zip[0m
+ Container duo-rtwocertb0-cli1-run-e6504fab814c Creating
+ Container duo-rtwocertb0-cli1-run-e6504fab814c Created
+ Container duo-rtwocertb0-cli1-run-6f6682c62f76 Creating
+ Container duo-rtwocertb0-cli1-run-6f6682c62f76 Created
+[1;32mok: side 1: contact-form-7 6.1.6 installed from verified artifact, active[0m
+ Container duo-rtwocertb0-cli1-run-bef507d008ef Creating
+ Container duo-rtwocertb0-cli1-run-bef507d008ef Created
+cf7 seed: {"form":1,"page":2,"shortcode":"[contact-form-7 id=\"ae17581\" title=\"Version Matrix Contact Form\"]","old_id":3199001,"legacy_page":3,"legacy_shortcode":"[contact-form 3199001 \"Version Matrix Contact Form\"]"}
+ Container duo-rtwocertb0-cli1-run-22402290e5d4 Creating
+ Container duo-rtwocertb0-cli1-run-22402290e5d4 Created
+Success: captured 3 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (contact-form-7 6.1.6)[0m
+[1;32mok: capture: contact-form-7 6.1.6 canonicalized legacy positional shortcode 3199001[0m
+ Container duo-rtwocertb0-cli1-run-a3ad105cee9e Creating
+ Container duo-rtwocertb0-cli1-run-a3ad105cee9e Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rtwocertb0-cli2-run-211eb1f14d34 Creating
+ Container duo-rtwocertb0-cli2-run-211eb1f14d34 Created
+ Container duo-rtwocertb0-cli2-run-5b29e493ad96 Creating
+ Container duo-rtwocertb0-cli2-run-5b29e493ad96 Created
+ Container duo-rtwocertb0-cli2-run-ca8ba99788b4 Creating
+ Container duo-rtwocertb0-cli2-run-ca8ba99788b4 Created
+activated: contact-form-7/wp-contact-form-7.php
+Success: 1 activated, 0 deactivated
+ Container duo-rtwocertb0-cli2-run-db68b3cba517 Creating
+ Container duo-rtwocertb0-cli2-run-db68b3cba517 Created
+Warning: adopted env term 1 as 01a00e75-cc2c-7b79-a36c-9724ff57a833 (terms/category/01a00e75-cc2c-7b79-a36c-9724ff57a833--uncategorized.json)
+Success: applied 6 entities (canary clean) — plan was: {"create":3,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (contact-form-7 6.1.6, canary clean)[0m
+ Container duo-rtwocertb0-cli2-run-a616fe4e13f1 Creating
+ Container duo-rtwocertb0-cli2-run-a616fe4e13f1 Created
+ Container duo-rtwocertb0-cli2-run-1c68c3216ad7 Creating
+ Container duo-rtwocertb0-cli2-run-1c68c3216ad7 Created
+ Container duo-rtwocertb0-cli2-run-a63996762c62 Creating
+ Container duo-rtwocertb0-cli2-run-a63996762c62 Created
+[1;32mok: target: contact-form-7 6.1.6 legacy positional shortcode resolves to target form 1[0m
+ Container duo-rtwocertb0-cli2-run-b60f5189fcef Creating
+ Container duo-rtwocertb0-cli2-run-b60f5189fcef Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 3 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at contact-form-7 6.1.6 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: contact-form-7 5.9.8 (real wp.org release, genuinely below manifests/contact-form-7.json's own declared min 6.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-rtwocertb0-cli1-run-5d87942cf32f Creating
+ Container duo-rtwocertb0-cli1-run-5d87942cf32f Created
+ Container duo-rtwocertb0-cli1-run-08dc7a7fa3bb Creating
+ Container duo-rtwocertb0-cli1-run-08dc7a7fa3bb Created
+ Container duo-rtwocertb0-cli1-run-5627d13f1472 Creating
+ Container duo-rtwocertb0-cli1-run-5627d13f1472 Created
+ Container duo-rtwocertb0-cli1-run-8c7c1b6c7996 Creating
+ Container duo-rtwocertb0-cli1-run-8c7c1b6c7996 Created
+ Container duo-rtwocertb0-cli1-run-80d3e1c74504 Creating
+ Container duo-rtwocertb0-cli1-run-80d3e1c74504 Created
+ Container duo-rtwocertb0-cli1-run-cf9ff5b48600 Creating
+ Container duo-rtwocertb0-cli1-run-cf9ff5b48600 Created
+ Container duo-rtwocertb0-cli1-run-24a538059023 Creating
+ Container duo-rtwocertb0-cli1-run-24a538059023 Created
+artifact-cache: kind=plugin slug=contact-form-7 version=5.9.8 sha256=357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4 source=network-fetch path=/artifacts-cache/plugin-contact-form-7-5.9.8-357b13dab0e2b9996444664c95bd7ee7ca49fb18aced65db4c40c747543afcf4.zip
+ Container duo-rtwocertb0-cli1-run-d8059b32c5f8 Creating
+ Container duo-rtwocertb0-cli1-run-d8059b32c5f8 Created
+ Container duo-rtwocertb0-cli1-run-bb2ee826f074 Creating
+ Container duo-rtwocertb0-cli1-run-bb2ee826f074 Created
+ Container duo-rtwocertb0-cli1-run-b50bac0e23e9 Creating
+ Container duo-rtwocertb0-cli1-run-b50bac0e23e9 Created
+Success: captured 0 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-rtwocertb0-cli1-run-d414f9bb2420 Creating
+ Container duo-rtwocertb0-cli1-run-d414f9bb2420 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - contact-form-7/wp-contact-form-7.php 5.9.8 is active in this environment, outside the 'contact-form-7' manifest's declared version_range (>=6.0.0 <7.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: contact-form-7 5.9.8 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'rtwocertb0': destroy ==[0m
+ Container duo-rtwocertb0-wp2-1 Stopping
+ Container duo-rtwocertb0-cli2-1 Stopping
+ Container duo-rtwocertb0-cli1-1 Stopping
+ Container duo-rtwocertb0-wp1-1 Stopping
+ Container duo-rtwocertb0-cli2-1 Stopped
+ Container duo-rtwocertb0-cli2-1 Removing
+ Container duo-rtwocertb0-cli1-1 Stopped
+ Container duo-rtwocertb0-cli1-1 Removing
+ Container duo-rtwocertb0-cli2-1 Removed
+ Container duo-rtwocertb0-cli1-1 Removed
+ Container duo-rtwocertb0-wp2-1 Stopped
+ Container duo-rtwocertb0-wp2-1 Removing
+ Container duo-rtwocertb0-wp2-1 Removed
+ Container duo-rtwocertb0-wp1-1 Stopped
+ Container duo-rtwocertb0-wp1-1 Removing
+ Container duo-rtwocertb0-wp1-1 Removed
+ Volume duo-rtwocertb0_wp1 Removing
+ Volume duo-rtwocertb0_wp2 Removing
+ Volume duo-rtwocertb0_wp2 Removed
+ Volume duo-rtwocertb0_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_rtwocertb01/wp_rtwocertb02 dropped[0m
+  siterepo/rtwocertb0{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed rtwocertb0 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

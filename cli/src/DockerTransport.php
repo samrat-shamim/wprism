@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Duo\Orchestrator;
 
 /** Runs wp-cli inside a compose service: `docker compose -f … run --rm -T <service> wp …`. */

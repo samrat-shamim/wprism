@@ -1,0 +1,336 @@
+{
+    "format": "duo-parity-canonical-json/v1",
+    "consumed_by": "sandbox/tests/regress_canonical_json_parity.php",
+    "grammar": {
+        "$op": "wrap the value in \\Duo\\OrderPreserved (Canon::normalize_preserving_order())",
+        "$obj": "hydrate the value as a \\stdClass rather than a PHP array"
+    },
+    "fields": {
+        "canon": "F1 golden: \\Duo\\Canon::encode() bytes, trailing newline included",
+        "compact": "F2 golden: \\Duo\\Orchestrator\\EnvironmentLifecycleCanon::encode() bytes, no trailing newline",
+        "f2": "false when the value can never reach an F2 site (an OrderPreserved wrapper)",
+        "f2_skip": "why F2 does not apply",
+        "f2_object_order": "true when the value carries a \\stdClass: F1 sorts its properties, every F2 canonicalize() descends only into PHP arrays and leaves them authored",
+        "reencode": "true when json_decode()+pretty json_encode() of the F2 bytes reproduces the F1 bytes exactly; false where a JSON number does not survive the PHP round trip (-0 decodes to int 0)",
+        "recovery": "recovery/CanonicalJson::encode() on this value: ok | refuses (RuntimeException, its narrowed domain) | type-error (non-array root)"
+    },
+    "vectors": [
+        {
+            "name": "nested-unsorted-keys",
+            "note": "every map level must come back alphabetically ksort(SORT_STRING)ed",
+            "value": {
+                "zeta": 1,
+                "alpha": {
+                    "nested_z": true,
+                    "nested_a": {
+                        "b": 2,
+                        "a": 1
+                    }
+                },
+                "Beta": 3,
+                "beta": 4
+            },
+            "f2": true,
+            "canon": "{\n    \"Beta\": 3,\n    \"alpha\": {\n        \"nested_a\": {\n            \"a\": 1,\n            \"b\": 2\n        },\n        \"nested_z\": true\n    },\n    \"beta\": 4,\n    \"zeta\": 1\n}\n",
+            "compact": "{\"Beta\":3,\"alpha\":{\"nested_a\":{\"a\":1,\"b\":2},\"nested_z\":true},\"beta\":4,\"zeta\":1}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "unicode-emoji-and-separators",
+            "note": "UNESCAPED_UNICODE emits U+1F680/CJK/RTL/combining marks as raw UTF-8, but U+2028/U+2029 stay \\u-escaped: no site sets JSON_UNESCAPED_LINE_TERMINATORS",
+            "value": {
+                "rocket": "🚀",
+                "ls": "a\u2028b",
+                "ps": "a\u2029b",
+                "combining": "é",
+                "cjk": "日本語",
+                "rtl": "شكرا"
+            },
+            "f2": true,
+            "canon": "{\n    \"cjk\": \"日本語\",\n    \"combining\": \"é\",\n    \"ls\": \"a\\u2028b\",\n    \"ps\": \"a\\u2029b\",\n    \"rocket\": \"🚀\",\n    \"rtl\": \"شكرا\"\n}\n",
+            "compact": "{\"cjk\":\"日本語\",\"combining\":\"é\",\"ls\":\"a\\u2028b\",\"ps\":\"a\\u2029b\",\"rocket\":\"🚀\",\"rtl\":\"شكرا\"}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "slashes-and-urls",
+            "note": "UNESCAPED_SLASHES keeps / raw in both values and keys",
+            "value": {
+                "url": "https://example.test/wp-content/uploads/2026/08/a.png",
+                "path/key": "a/b/c",
+                "backslash": "a\\b"
+            },
+            "f2": true,
+            "canon": "{\n    \"backslash\": \"a\\\\b\",\n    \"path/key\": \"a/b/c\",\n    \"url\": \"https://example.test/wp-content/uploads/2026/08/a.png\"\n}\n",
+            "compact": "{\"backslash\":\"a\\\\b\",\"path/key\":\"a/b/c\",\"url\":\"https://example.test/wp-content/uploads/2026/08/a.png\"}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "floats",
+            "note": "1.0 collapses to 1 and -0.0 to -0 (no JSON_PRESERVE_ZERO_FRACTION anywhere); 1e21 renders 1.0e+21; recovery/CanonicalJson refuses every float outright",
+            "value": {
+                "one": 1.0,
+                "huge": 1.0e+21,
+                "negzero": -0.0,
+                "tenth": 0.1,
+                "tiny": 1.0e-7
+            },
+            "f2": true,
+            "canon": "{\n    \"huge\": 1.0e+21,\n    \"negzero\": -0,\n    \"one\": 1,\n    \"tenth\": 0.1,\n    \"tiny\": 1.0e-7\n}\n",
+            "compact": "{\"huge\":1.0e+21,\"negzero\":-0,\"one\":1,\"tenth\":0.1,\"tiny\":1.0e-7}",
+            "reencode": false,
+            "recovery": "refuses"
+        },
+        {
+            "name": "ints-as-strings",
+            "note": "a numeric STRING must not become a number; PHP array keys \"0\"/\"10\" are coerced to int by the language itself",
+            "value": {
+                "n": "42",
+                "neg": "-7",
+                "exp": "1e3",
+                "zero_padded": "007"
+            },
+            "f2": true,
+            "canon": "{\n    \"exp\": \"1e3\",\n    \"n\": \"42\",\n    \"neg\": \"-7\",\n    \"zero_padded\": \"007\"\n}\n",
+            "compact": "{\"exp\":\"1e3\",\"n\":\"42\",\"neg\":\"-7\",\"zero_padded\":\"007\"}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "empty-array-vs-empty-object",
+            "note": "an empty PHP array is a list by array_is_list() and re-encodes []; only a stdClass re-encodes {}",
+            "value": {
+                "empty_list": [],
+                "empty_object": {
+                    "$obj": []
+                },
+                "filled_map": {
+                    "k": "v"
+                }
+            },
+            "f2": true,
+            "f2_object_order": true,
+            "canon": "{\n    \"empty_list\": [],\n    \"empty_object\": {},\n    \"filled_map\": {\n        \"k\": \"v\"\n    }\n}\n",
+            "compact": "{\"empty_list\":[],\"empty_object\":{},\"filled_map\":{\"k\":\"v\"}}",
+            "reencode": false,
+            "recovery": "refuses"
+        },
+        {
+            "name": "list-vs-map",
+            "note": "list element order is data and is never sorted; map key order is not",
+            "value": {
+                "list": [
+                    "z",
+                    "y",
+                    "x"
+                ],
+                "map": {
+                    "z": 1,
+                    "y": 2,
+                    "x": 3
+                },
+                "list_of_maps": [
+                    {
+                        "b": 1,
+                        "a": 2
+                    },
+                    {
+                        "d": 3,
+                        "c": 4
+                    }
+                ]
+            },
+            "f2": true,
+            "canon": "{\n    \"list\": [\n        \"z\",\n        \"y\",\n        \"x\"\n    ],\n    \"list_of_maps\": [\n        {\n            \"a\": 2,\n            \"b\": 1\n        },\n        {\n            \"c\": 4,\n            \"d\": 3\n        }\n    ],\n    \"map\": {\n        \"x\": 3,\n        \"y\": 2,\n        \"z\": 1\n    }\n}\n",
+            "compact": "{\"list\":[\"z\",\"y\",\"x\"],\"list_of_maps\":[{\"a\":2,\"b\":1},{\"c\":4,\"d\":3}],\"map\":{\"x\":3,\"y\":2,\"z\":1}}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "scalars-null-true-false",
+            "note": "JSON literals, not PHP coercions",
+            "value": {
+                "n": null,
+                "t": true,
+                "f": false,
+                "zero": 0,
+                "empty_string": "",
+                "false_string": "false"
+            },
+            "f2": true,
+            "canon": "{\n    \"empty_string\": \"\",\n    \"f\": false,\n    \"false_string\": \"false\",\n    \"n\": null,\n    \"t\": true,\n    \"zero\": 0\n}\n",
+            "compact": "{\"empty_string\":\"\",\"f\":false,\"false_string\":\"false\",\"n\":null,\"t\":true,\"zero\":0}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "deep-nesting",
+            "note": "normalize() recurses to every level; pretty-print indentation grows by 4 spaces per level",
+            "value": {
+                "l1": {
+                    "l2": {
+                        "l3": {
+                            "l4": {
+                                "l5": {
+                                    "l6": {
+                                        "l7": {
+                                            "l8": {
+                                                "z": 1,
+                                                "a": 2
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "f2": true,
+            "canon": "{\n    \"l1\": {\n        \"l2\": {\n            \"l3\": {\n                \"l4\": {\n                    \"l5\": {\n                        \"l6\": {\n                            \"l7\": {\n                                \"l8\": {\n                                    \"a\": 2,\n                                    \"z\": 1\n                                }\n                            }\n                        }\n                    }\n                }\n            }\n        }\n    }\n}\n",
+            "compact": "{\"l1\":{\"l2\":{\"l3\":{\"l4\":{\"l5\":{\"l6\":{\"l7\":{\"l8\":{\"a\":2,\"z\":1}}}}}}}}}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "keys-needing-escaping",
+            "note": "control bytes, quotes, backslashes and unicode inside KEYS are escaped by json_encode, never by the canonicalizer",
+            "value": {
+                "quo\"te": 1,
+                "back\\slash": 2,
+                "tab\tkey": 3,
+                "nl\nkey": 4,
+                "ctl\u0001key": 5,
+                "🚀key": 6,
+                "": 7
+            },
+            "f2": true,
+            "canon": "{\n    \"\": 7,\n    \"back\\\\slash\": 2,\n    \"ctl\\u0001key\": 5,\n    \"nl\\nkey\": 4,\n    \"quo\\\"te\": 1,\n    \"tab\\tkey\": 3,\n    \"🚀key\": 6\n}\n",
+            "compact": "{\"\":7,\"back\\\\slash\":2,\"ctl\\u0001key\":5,\"nl\\nkey\":4,\"quo\\\"te\":1,\"tab\\tkey\":3,\"🚀key\":6}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "ordered-list-not-sorted",
+            "note": "a plan/queue list whose element order is the contract",
+            "value": {
+                "queue": [
+                    {
+                        "id": "c"
+                    },
+                    {
+                        "id": "a"
+                    },
+                    {
+                        "id": "b"
+                    }
+                ],
+                "steps": [
+                    "stage",
+                    "verify",
+                    "finalize"
+                ]
+            },
+            "f2": true,
+            "canon": "{\n    \"queue\": [\n        {\n            \"id\": \"c\"\n        },\n        {\n            \"id\": \"a\"\n        },\n        {\n            \"id\": \"b\"\n        }\n    ],\n    \"steps\": [\n        \"stage\",\n        \"verify\",\n        \"finalize\"\n    ]\n}\n",
+            "compact": "{\"queue\":[{\"id\":\"c\"},{\"id\":\"a\"},{\"id\":\"b\"}],\"steps\":[\"stage\",\"verify\",\"finalize\"]}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "order-preserved-top-level",
+            "note": "OrderPreserved skips ksort() for the WHOLE subtree (DUO-3214(b) / _product_attributes)",
+            "value": {
+                "$op": {
+                    "pa_size": {
+                        "position": 0
+                    },
+                    "pa_color": {
+                        "position": 1
+                    },
+                    "pa_brand": {
+                        "position": 2
+                    }
+                }
+            },
+            "f2": false,
+            "f2_skip": "an OrderPreserved wrapper never reaches an F2 site; json_encode would render it {\"value\":…}",
+            "canon": "{\n    \"pa_size\": {\n        \"position\": 0\n    },\n    \"pa_color\": {\n        \"position\": 1\n    },\n    \"pa_brand\": {\n        \"position\": 2\n    }\n}\n",
+            "recovery": "type-error"
+        },
+        {
+            "name": "order-preserved-nested",
+            "note": "the wrapper is a scoped opt-in: its sibling keys in the SAME document still sort alphabetically",
+            "value": {
+                "zzz": 1,
+                "meta": {
+                    "$op": {
+                        "z": {
+                            "inner_z": 1,
+                            "inner_a": 2
+                        },
+                        "a": 3
+                    }
+                },
+                "aaa": 2
+            },
+            "f2": false,
+            "f2_skip": "an OrderPreserved wrapper never reaches an F2 site; json_encode would render it {\"value\":…}",
+            "canon": "{\n    \"aaa\": 2,\n    \"meta\": {\n        \"z\": {\n            \"inner_z\": 1,\n            \"inner_a\": 2\n        },\n        \"a\": 3\n    },\n    \"zzz\": 1\n}\n",
+            "recovery": "refuses"
+        },
+        {
+            "name": "numeric-string-keys",
+            "note": "PHP coerces \"0\"/\"1\"/\"10\" to int keys; a gap makes the array a non-list, so ksort(SORT_STRING) orders 10 before 2",
+            "value": {
+                "10": "ten",
+                "2": "two",
+                "1": "one"
+            },
+            "f2": true,
+            "canon": "{\n    \"1\": \"one\",\n    \"10\": \"ten\",\n    \"2\": \"two\"\n}\n",
+            "compact": "{\"1\":\"one\",\"10\":\"ten\",\"2\":\"two\"}",
+            "reencode": true,
+            "recovery": "refuses"
+        },
+        {
+            "name": "large-and-negative-ints",
+            "note": "PHP_INT_MAX survives as an integer literal, not a float",
+            "value": {
+                "max": 9223372036854775807,
+                "min": -9223372036854775808,
+                "neg": -1,
+                "big_string": "9223372036854775808"
+            },
+            "f2": true,
+            "canon": "{\n    \"big_string\": \"9223372036854775808\",\n    \"max\": 9223372036854775807,\n    \"min\": -9223372036854775808,\n    \"neg\": -1\n}\n",
+            "compact": "{\"big_string\":\"9223372036854775808\",\"max\":9223372036854775807,\"min\":-9223372036854775808,\"neg\":-1}",
+            "reencode": true,
+            "recovery": "ok"
+        },
+        {
+            "name": "stdclass-vs-array",
+            "note": "Canon sorts stdClass PROPERTIES; every cli-side canonicalize() only descends into PHP arrays and leaves an object untouched",
+            "value": {
+                "$obj": {
+                    "zeta": 1,
+                    "alpha": 2,
+                    "nested": {
+                        "$obj": {
+                            "y": 1,
+                            "x": 2
+                        }
+                    }
+                }
+            },
+            "f2": true,
+            "f2_object_order": true,
+            "canon": "{\n    \"alpha\": 2,\n    \"nested\": {\n        \"x\": 2,\n        \"y\": 1\n    },\n    \"zeta\": 1\n}\n",
+            "compact": "{\"zeta\":1,\"alpha\":2,\"nested\":{\"y\":1,\"x\":2}}",
+            "reencode": false,
+            "recovery": "type-error"
+        }
+    ]
+}

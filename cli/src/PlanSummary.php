@@ -1,4 +1,6 @@
 <?php
+declare(strict_types=1);
+
 namespace Duo\Orchestrator;
 
 require_once __DIR__ . '/PlanContract.php';
