@@ -1,0 +1,314 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    e4ff44b3d3ab8caad8497f093a193114a1e3045c
+  invoked from:   <source-root>/sandbox
+  expected SHA:   e4ff44b3d3ab8caad8497f093a193114a1e3045c (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly e4ff44b3d3ab8caad8497f093a193114a1e3045c, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rthreecert0': reset ==[0m
+[1;32mok: wp_rthreecert01/wp_rthreecert02 dropped + recreated empty; siterepo/rthreecert0{1,2} cleared in place and origin-rthreecert0.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rthreecert0{1,2}, origin-rthreecert0.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rthreecert0 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rthreecert0{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9300) / conf2 (:9301), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    e4ff44b3d3ab8caad8497f093a193114a1e3045c
+  invoked from:   <source-root>/sandbox
+  expected SHA:   e4ff44b3d3ab8caad8497f093a193114a1e3045c (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly e4ff44b3d3ab8caad8497f093a193114a1e3045c, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rthreecert0': databases ==[0m
+[1;32mok: wp_rthreecert01, wp_rthreecert02 exist[0m
+
+[1;36m== pair 'rthreecert0': site-repo directories ==[0m
+
+[1;36m== pair 'rthreecert0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rthreecert0_wp2 Creating
+ Volume duo-rthreecert0_wp2 Created
+ Volume duo-rthreecert0_wp1 Creating
+ Volume duo-rthreecert0_wp1 Created
+ Container duo-rthreecert0-wp2-1 Creating
+ Container duo-rthreecert0-wp1-1 Creating
+ Container duo-rthreecert0-wp2-1 Created
+ Container duo-rthreecert0-wp1-1 Created
+ Container duo-rthreecert0-wp2-1 Starting
+ Container duo-rthreecert0-wp1-1 Starting
+ Container duo-rthreecert0-wp2-1 Started
+ Container duo-rthreecert0-wp1-1 Started
+ Container duo-rthreecert0-cli2-1 Creating
+ Container duo-rthreecert0-cli1-1 Creating
+ Container duo-rthreecert0-cli2-1 Created
+ Container duo-rthreecert0-cli1-1 Created
+ Container duo-rthreecert0-cli2-1 Starting
+ Container duo-rthreecert0-cli1-1 Starting
+ Container duo-rthreecert0-cli2-1 Started
+ Container duo-rthreecert0-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rthreecert0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rthreecert0': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rthreecert01.needs-install present — reset emptied wp_rthreecert01, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rthreecert0-cli1-run-2f2a52fabf35 Creating
+ Container duo-rthreecert0-cli1-run-2f2a52fabf35 Created
+Success: WordPress installed successfully.
+ Container duo-rthreecert0-cli1-run-736e19cfb91b Creating
+ Container duo-rthreecert0-cli1-run-736e19cfb91b Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rthreecert0-cli1-run-1fb4fa900ef1 Creating
+ Container duo-rthreecert0-cli1-run-1fb4fa900ef1 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rthreecert0-cli1-run-b254caf5eec4 Creating
+ Container duo-rthreecert0-cli1-run-b254caf5eec4 Created
+ Container duo-rthreecert0-cli1-run-ef8c35c2f438 Creating
+ Container duo-rthreecert0-cli1-run-ef8c35c2f438 Created
+ Container duo-rthreecert0-cli1-run-d58637a31809 Creating
+ Container duo-rthreecert0-cli1-run-d58637a31809 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rthreecert0-cli1-run-b654b7d52427 Creating
+ Container duo-rthreecert0-cli1-run-b654b7d52427 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9300)
+  side 2: siterepo/.rthreecert02.needs-install present — reset emptied wp_rthreecert02, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rthreecert0-cli2-run-ce30ef745b1f Creating
+ Container duo-rthreecert0-cli2-run-ce30ef745b1f Created
+Success: WordPress installed successfully.
+ Container duo-rthreecert0-cli2-run-df157a38c728 Creating
+ Container duo-rthreecert0-cli2-run-df157a38c728 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rthreecert0-cli2-run-edfedabcfa9a Creating
+ Container duo-rthreecert0-cli2-run-edfedabcfa9a Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rthreecert0-cli2-run-cf55c6544c23 Creating
+ Container duo-rthreecert0-cli2-run-cf55c6544c23 Created
+ Container duo-rthreecert0-cli2-run-59f62bfadc6d Creating
+ Container duo-rthreecert0-cli2-run-59f62bfadc6d Created
+ Container duo-rthreecert0-cli2-run-16a80821d1c4 Creating
+ Container duo-rthreecert0-cli2-run-16a80821d1c4 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rthreecert0-cli2-run-e0a27ed8dd63 Creating
+ Container duo-rthreecert0-cli2-run-e0a27ed8dd63 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9301)
+
+[1;36m== pair 'rthreecert0' ready ==[0m
+  wp1: http://localhost:9300 (published on host port 9300)
+  wp2: http://localhost:9301 (published on host port 9301)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rthreecert0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rthreecert0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rthreecert0 must stay exported, or pass -p duo-rthreecert0 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rthreecert0-cli1-run-86eb28957259 Creating
+ Container duo-rthreecert0-cli1-run-86eb28957259 Created
+Success: Updated 'blogname' option.
+ Container duo-rthreecert0-cli1-run-6fba14bcd445 Creating
+ Container duo-rthreecert0-cli1-run-6fba14bcd445 Created
+Success: The site at 'http://localhost:9300' was emptied.
+ Container duo-rthreecert0-cli1-run-56132ce87f23 Creating
+ Container duo-rthreecert0-cli1-run-56132ce87f23 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-rthreecert0-cli1-run-99401016624a Creating
+ Container duo-rthreecert0-cli1-run-99401016624a Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rthreecert0-cli1-run-cd7e4850e67f Creating
+ Container duo-rthreecert0-cli1-run-cd7e4850e67f Created
+Plugin 'advanced-custom-fields' activated.
+Success: Activated 1 of 1 plugins.
+ Container duo-rthreecert0-cli1-run-6216739fb059 Creating
+ Container duo-rthreecert0-cli1-run-6216739fb059 Created
+ Container duo-rthreecert0-cli1-run-754e88268e2f Creating
+ Container duo-rthreecert0-cli1-run-754e88268e2f Created
+env conf1 installed, role=author (acf: 1 pinned plugins, 0 pinned themes)
+ Container duo-rthreecert0-cli2-run-4e29cd25400c Creating
+ Container duo-rthreecert0-cli2-run-4e29cd25400c Created
+Success: Updated 'blogname' option.
+ Container duo-rthreecert0-cli2-run-4e9f8dfa54ab Creating
+ Container duo-rthreecert0-cli2-run-4e9f8dfa54ab Created
+Success: The site at 'http://localhost:9301' was emptied.
+ Container duo-rthreecert0-cli2-run-58e3a93989c1 Creating
+ Container duo-rthreecert0-cli2-run-58e3a93989c1 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-rthreecert0-cli2-run-4aca91be07a4 Creating
+ Container duo-rthreecert0-cli2-run-4aca91be07a4 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rthreecert0-cli2-run-c168ee041ca4 Creating
+ Container duo-rthreecert0-cli2-run-c168ee041ca4 Created
+ Container duo-rthreecert0-cli2-run-71cca3299ef2 Creating
+ Container duo-rthreecert0-cli2-run-71cca3299ef2 Created
+env conf2 installed, role=target (acf: 1 pinned plugins, 0 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core","acf"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/acf.sh) ==[0m
+ Container duo-rthreecert0-cli1-run-1b408ef1ebc8 Creating
+ Container duo-rthreecert0-cli1-run-1b408ef1ebc8 Created
+acf seed: {"group":1,"attachment":7,"target1":8,"target2":9,"content":10,"cat_one":2,"cat_two":3,"cat_three":4,"admin":1}
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rthreecert0-cli1-run-d3c4b46b7a2c Creating
+ Container duo-rthreecert0-cli1-run-d3c4b46b7a2c Created
+Success: captured 10 posts, 4 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rthreecert0-cli1-run-0cb076b87280 Creating
+ Container duo-rthreecert0-cli1-run-0cb076b87280 Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rthreecert0-cli1-run-298c1bba7164 Creating
+ Container duo-rthreecert0-cli1-run-298c1bba7164 Created
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rthreecert0-cli2-run-d0f75cb5cc7f Creating
+ Container duo-rthreecert0-cli2-run-d0f75cb5cc7f Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "fc69fb551c85085fb2983ad661b021404050de7978bc37be941e18cc0cefdcf8",
+    "revision": "9d70fdfa51ef8a20178cb76d3549d61a620de7490b55aac342247cd0247c8d35",
+    "manifests": "c106442f4a687a287b4ff3f926876945c7e8c15868dd0c80eb856cdcab6b8a1c"
+  },
+  "activated": [
+    "advanced-custom-fields/acf.php"
+  ],
+  "deactivated": [],
+  "theme_switched": null,
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "plugin",
+      "plugin": "advanced-custom-fields/acf.php",
+      "message": "active_plugins in state/options/core.json declares 'advanced-custom-fields/acf.php', and its code is installed, but it is not active in this environment. Run 'duo deploy <env>' before apply so activation hooks and schema migrations complete first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-eeb8515e47c9a66eaba0cf28f8cd7361",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rthreecert0-cli2-run-29be8184977c Creating
+ Container duo-rthreecert0-cli2-run-29be8184977c Created
+ Container duo-rthreecert0-cli2-run-65944ddc56f0 Creating
+ Container duo-rthreecert0-cli2-run-65944ddc56f0 Created
+ Container duo-rthreecert0-cli2-run-d0ef5df93f68 Creating
+ Container duo-rthreecert0-cli2-run-d0ef5df93f68 Created
+[1;32mok: conf2 active plugins (advanced-custom-fields) and theme (template=twentytwentyone, stylesheet=twentytwentyone) match canonical — deploy alone did this[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rthreecert0-cli2-run-fbb473061005 Creating
+ Container duo-rthreecert0-cli2-run-fbb473061005 Created
+{
+  "artifact": {
+    "hash": "fc69fb551c85085fb2983ad661b021404050de7978bc37be941e18cc0cefdcf8",
+    "revision": "9d70fdfa51ef8a20178cb76d3549d61a620de7490b55aac342247cd0247c8d35",
+    "manifests": "c106442f4a687a287b4ff3f926876945c7e8c15868dd0c80eb856cdcab6b8a1c"
+  },
+  "plan": {
+    "create": 13,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 1,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 6,
+    "adapter_dispositions": 2,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 16,
+  "drift": [],
+  "warnings": [
+    "adopted env term 1 as 01a00eea-89d0-7ad5-b6aa-3552abdccb91 (terms/category/01a00eea-89d0-7ad5-b6aa-3552abdccb91--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 16,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-7a3a0629e41cbb7f17f17859890cefc1",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rthreecert0-cli2-run-5bf3192d6e8a Creating
+ Container duo-rthreecert0-cli2-run-5bf3192d6e8a Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/acf.sh) ==[0m
+conf2 ACF field resolution: yes|2|Conformance Related Target One,Conformance Related Target Two|2|Conformance Category One,Conformance Category Two|Conformance Category Three|admin
+[1;32mok: conf2 resolves all five ACF field types (image, multi-relationship, multi/single taxonomy, user) via ACF's own get_field() API, using conf2's own local ids throughout[0m
+
+[1;32m✔ CONFORMANCE PASSED (acf)[0m

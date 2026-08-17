@@ -1,0 +1,379 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    e4ff44b3d3ab8caad8497f093a193114a1e3045c
+  invoked from:   <source-root>/sandbox
+  expected SHA:   e4ff44b3d3ab8caad8497f093a193114a1e3045c (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly e4ff44b3d3ab8caad8497f093a193114a1e3045c, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rthreecert7': reset ==[0m
+[1;32mok: wp_rthreecert71/wp_rthreecert72 dropped + recreated empty; siterepo/rthreecert7{1,2} cleared in place and origin-rthreecert7.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rthreecert7{1,2}, origin-rthreecert7.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rthreecert7 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rthreecert7{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9314) / conf2 (:9315), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    e4ff44b3d3ab8caad8497f093a193114a1e3045c
+  invoked from:   <source-root>/sandbox
+  expected SHA:   e4ff44b3d3ab8caad8497f093a193114a1e3045c (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly e4ff44b3d3ab8caad8497f093a193114a1e3045c, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rthreecert7': databases ==[0m
+[1;32mok: wp_rthreecert71, wp_rthreecert72 exist[0m
+
+[1;36m== pair 'rthreecert7': site-repo directories ==[0m
+
+[1;36m== pair 'rthreecert7': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rthreecert7_wp1 Creating
+ Volume duo-rthreecert7_wp1 Created
+ Volume duo-rthreecert7_wp2 Creating
+ Volume duo-rthreecert7_wp2 Created
+ Container duo-rthreecert7-wp1-1 Creating
+ Container duo-rthreecert7-wp2-1 Creating
+ Container duo-rthreecert7-wp2-1 Created
+ Container duo-rthreecert7-wp1-1 Created
+ Container duo-rthreecert7-wp2-1 Starting
+ Container duo-rthreecert7-wp1-1 Starting
+ Container duo-rthreecert7-wp2-1 Started
+ Container duo-rthreecert7-wp1-1 Started
+ Container duo-rthreecert7-cli2-1 Creating
+ Container duo-rthreecert7-cli1-1 Creating
+ Container duo-rthreecert7-cli2-1 Created
+ Container duo-rthreecert7-cli1-1 Created
+ Container duo-rthreecert7-cli1-1 Starting
+ Container duo-rthreecert7-cli2-1 Starting
+ Container duo-rthreecert7-cli1-1 Started
+ Container duo-rthreecert7-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rthreecert7': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rthreecert7': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rthreecert71.needs-install present — reset emptied wp_rthreecert71, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rthreecert7-cli1-run-993ceeb21657 Creating
+ Container duo-rthreecert7-cli1-run-993ceeb21657 Created
+Success: WordPress installed successfully.
+ Container duo-rthreecert7-cli1-run-cdbd4bb8f56c Creating
+ Container duo-rthreecert7-cli1-run-cdbd4bb8f56c Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rthreecert7-cli1-run-95708447d8ff Creating
+ Container duo-rthreecert7-cli1-run-95708447d8ff Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rthreecert7-cli1-run-02aef6717175 Creating
+ Container duo-rthreecert7-cli1-run-02aef6717175 Created
+ Container duo-rthreecert7-cli1-run-880a6f9dec82 Creating
+ Container duo-rthreecert7-cli1-run-880a6f9dec82 Created
+ Container duo-rthreecert7-cli1-run-5a08c032e407 Creating
+ Container duo-rthreecert7-cli1-run-5a08c032e407 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rthreecert7-cli1-run-b97310c681d1 Creating
+ Container duo-rthreecert7-cli1-run-b97310c681d1 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9314)
+  side 2: siterepo/.rthreecert72.needs-install present — reset emptied wp_rthreecert72, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rthreecert7-cli2-run-5adc3d9420e0 Creating
+ Container duo-rthreecert7-cli2-run-5adc3d9420e0 Created
+Success: WordPress installed successfully.
+ Container duo-rthreecert7-cli2-run-03b686fcea0a Creating
+ Container duo-rthreecert7-cli2-run-03b686fcea0a Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rthreecert7-cli2-run-14c398265c1e Creating
+ Container duo-rthreecert7-cli2-run-14c398265c1e Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rthreecert7-cli2-run-56c8756f1464 Creating
+ Container duo-rthreecert7-cli2-run-56c8756f1464 Created
+ Container duo-rthreecert7-cli2-run-d588a4ec79b1 Creating
+ Container duo-rthreecert7-cli2-run-d588a4ec79b1 Created
+ Container duo-rthreecert7-cli2-run-e73100dd28c0 Creating
+ Container duo-rthreecert7-cli2-run-e73100dd28c0 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rthreecert7-cli2-run-e35b45c8ab13 Creating
+ Container duo-rthreecert7-cli2-run-e35b45c8ab13 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9315)
+
+[1;36m== pair 'rthreecert7' ready ==[0m
+  wp1: http://localhost:9314 (published on host port 9314)
+  wp2: http://localhost:9315 (published on host port 9315)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rthreecert7 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rthreecert7 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rthreecert7 must stay exported, or pass -p duo-rthreecert7 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rthreecert7-cli1-run-4d2213f3de4a Creating
+ Container duo-rthreecert7-cli1-run-4d2213f3de4a Created
+Success: Updated 'blogname' option.
+ Container duo-rthreecert7-cli1-run-ff455039d018 Creating
+ Container duo-rthreecert7-cli1-run-ff455039d018 Created
+Success: The site at 'http://localhost:9314' was emptied.
+ Container duo-rthreecert7-cli1-run-f34981b641c8 Creating
+ Container duo-rthreecert7-cli1-run-f34981b641c8 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.2 sha256=f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip
+ Container duo-rthreecert7-cli1-run-207d918cf183 Creating
+ Container duo-rthreecert7-cli1-run-207d918cf183 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rthreecert7-cli1-run-9283b0e6e8fb Creating
+ Container duo-rthreecert7-cli1-run-9283b0e6e8fb Created
+Plugin 'wordpress-seo' activated.
+Success: Activated 1 of 1 plugins.
+ Container duo-rthreecert7-cli1-run-bad99fe7e7b3 Creating
+ Container duo-rthreecert7-cli1-run-bad99fe7e7b3 Created
+ Container duo-rthreecert7-cli1-run-83ffdf018d18 Creating
+ Container duo-rthreecert7-cli1-run-83ffdf018d18 Created
+env conf1 installed, role=author (yoast: 1 pinned plugins, 0 pinned themes)
+ Container duo-rthreecert7-cli2-run-e69bce9003c5 Creating
+ Container duo-rthreecert7-cli2-run-e69bce9003c5 Created
+Success: Updated 'blogname' option.
+ Container duo-rthreecert7-cli2-run-396843d38088 Creating
+ Container duo-rthreecert7-cli2-run-396843d38088 Created
+Success: The site at 'http://localhost:9315' was emptied.
+ Container duo-rthreecert7-cli2-run-ad82340e6ed0 Creating
+ Container duo-rthreecert7-cli2-run-ad82340e6ed0 Created
+artifact-cache: kind=plugin slug=wordpress-seo version=28.2 sha256=f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23 source=cache-hit path=/artifacts-cache/plugin-wordpress-seo-28.2-f464e509d5f642023dc0a47082b3cdfed6b1fd5d5e4bf6584d6d43e0b53e8e23.zip
+ Container duo-rthreecert7-cli2-run-f56048042db2 Creating
+ Container duo-rthreecert7-cli2-run-f56048042db2 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rthreecert7-cli2-run-310dc212e578 Creating
+ Container duo-rthreecert7-cli2-run-310dc212e578 Created
+ Container duo-rthreecert7-cli2-run-7e28ef73270a Creating
+ Container duo-rthreecert7-cli2-run-7e28ef73270a Created
+env conf2 installed, role=target (yoast: 1 pinned plugins, 0 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core","yoast"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/yoast.sh) ==[0m
+ Container duo-rthreecert7-cli1-run-6e5291552a17 Creating
+ Container duo-rthreecert7-cli1-run-6e5291552a17 Created
+ Container duo-rthreecert7-cli1-run-4604c9a76618 Creating
+ Container duo-rthreecert7-cli1-run-4604c9a76618 Created
+ Container duo-rthreecert7-cli1-run-b0d5fc066865 Creating
+ Container duo-rthreecert7-cli1-run-b0d5fc066865 Created
+ Container duo-rthreecert7-cli1-run-7155bec20b5e Creating
+ Container duo-rthreecert7-cli1-run-7155bec20b5e Created
+Success: Added term.
+ Container duo-rthreecert7-cli1-run-091f4271597d Creating
+ Container duo-rthreecert7-cli1-run-091f4271597d Created
+Success: Added term.
+ Container duo-rthreecert7-cli1-run-f76ffb25badb Creating
+ Container duo-rthreecert7-cli1-run-f76ffb25badb Created
+Success: Updated custom field '_yoast_wpseo_title'.
+ Container duo-rthreecert7-cli1-run-1095b7201d56 Creating
+ Container duo-rthreecert7-cli1-run-1095b7201d56 Created
+Success: Updated custom field '_yoast_wpseo_metadesc'.
+ Container duo-rthreecert7-cli1-run-f35200336fce Creating
+ Container duo-rthreecert7-cli1-run-f35200336fce Created
+Success: Updated custom field '_yoast_wpseo_focuskw'.
+ Container duo-rthreecert7-cli1-run-ba937608934a Creating
+ Container duo-rthreecert7-cli1-run-ba937608934a Created
+Success: Updated custom field '_yoast_wpseo_primary_category'.
+ Container duo-rthreecert7-cli1-run-66311308504c Creating
+ Container duo-rthreecert7-cli1-run-66311308504c Created
+Success: Updated custom field '_yoast_wpseo_is_cornerstone'.
+ Container duo-rthreecert7-cli1-run-54205f530210 Creating
+ Container duo-rthreecert7-cli1-run-54205f530210 Created
+Success: Value passed for custom field '_yoast_wpseo_meta-robots-noindex' is unchanged.
+ Container duo-rthreecert7-cli1-run-1009e8dce707 Creating
+ Container duo-rthreecert7-cli1-run-1009e8dce707 Created
+ Container duo-rthreecert7-cli2-run-95836c298918 Creating
+ Container duo-rthreecert7-cli2-run-95836c298918 Created
+ Container duo-rthreecert7-cli1-run-500572253027 Creating
+ Container duo-rthreecert7-cli1-run-500572253027 Created
+ Container duo-rthreecert7-cli1-run-28bb00c5cddf Creating
+ Container duo-rthreecert7-cli1-run-28bb00c5cddf Created
+taxonomy meta set for term 2
+ Container duo-rthreecert7-cli1-run-0e709a4695fb Creating
+ Container duo-rthreecert7-cli1-run-0e709a4695fb Created
+wpseo_titles/wpseo_social logo+image sub-keys set
+yoast seed: cat_a=2 cat_b=3 post=1 og_image=2 company_logo=3 person_logo=4 og_default=5
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rthreecert7-cli1-run-c00ea7f8e248 Creating
+ Container duo-rthreecert7-cli1-run-c00ea7f8e248 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 5 posts, 3 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rthreecert7-cli1-run-27bd8d52161f Creating
+ Container duo-rthreecert7-cli1-run-27bd8d52161f Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rthreecert7-cli1-run-ff75d9253911 Creating
+ Container duo-rthreecert7-cli1-run-ff75d9253911 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rthreecert7-cli2-run-cd49f049b7fe Creating
+ Container duo-rthreecert7-cli2-run-cd49f049b7fe Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "dd3f4e622513899e491135f6127fa600a9851d46e79e40f2a48e9978e621eb1d",
+    "revision": "ff437ad3d096ccc609eb7e331d049cee48cc531d96feae3b3503ccafbd15a8fd",
+    "manifests": "0de0eef14df2bce8fa9029eb4a594b2dd844b7d239aca51b3f6103538707c2c6"
+  },
+  "activated": [
+    "wordpress-seo/wp-seo.php"
+  ],
+  "deactivated": [],
+  "theme_switched": null,
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "plugin",
+      "plugin": "wordpress-seo/wp-seo.php",
+      "message": "active_plugins in state/options/core.json declares 'wordpress-seo/wp-seo.php', and its code is installed, but it is not active in this environment. Run 'duo deploy <env>' before apply so activation hooks and schema migrations complete first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-291564387da0351db2de03394af4f505",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rthreecert7-cli2-run-a9505bea12b2 Creating
+ Container duo-rthreecert7-cli2-run-a9505bea12b2 Created
+ Container duo-rthreecert7-cli2-run-53781c70b3f2 Creating
+ Container duo-rthreecert7-cli2-run-53781c70b3f2 Created
+ Container duo-rthreecert7-cli2-run-a4ddf9a25121 Creating
+ Container duo-rthreecert7-cli2-run-a4ddf9a25121 Created
+[1;32mok: conf2 active plugins (wordpress-seo) and theme (template=twentytwentyone, stylesheet=twentytwentyone) match canonical — deploy alone did this[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rthreecert7-cli2-run-51b670ac4b91 Creating
+ Container duo-rthreecert7-cli2-run-51b670ac4b91 Created
+{
+  "artifact": {
+    "hash": "dd3f4e622513899e491135f6127fa600a9851d46e79e40f2a48e9978e621eb1d",
+    "revision": "ff437ad3d096ccc609eb7e331d049cee48cc531d96feae3b3503ccafbd15a8fd",
+    "manifests": "0de0eef14df2bce8fa9029eb4a594b2dd844b7d239aca51b3f6103538707c2c6"
+  },
+  "plan": {
+    "create": 7,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 1,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 4,
+    "effects_inventory": 7,
+    "adapter_dispositions": 2,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 10,
+  "drift": [],
+  "warnings": [
+    "adopted env term 1 as 01a00eeb-bf0d-70c2-964a-69696bdec658 (terms/category/01a00eeb-bf0d-70c2-964a-69696bdec658--uncategorized.json)",
+    "provider capability fired: yoast-index@1.0.0 reindex (1.065s, verified)"
+  ],
+  "actions": [
+    {
+      "manifest": "yoast",
+      "source": "provider:yoast-index/reindex",
+      "kind": "provider",
+      "provider_version": "1.0.0",
+      "duration_seconds": 1.065,
+      "before": {
+        "environment_type": "local",
+        "public_posts": 1,
+        "indexables": 0
+      },
+      "after": {
+        "environment_type": "local",
+        "public_posts": 1,
+        "indexables": 0,
+        "outcome": "no-op (Yoast 15.1+ builds indexables only on a production environment type)"
+      },
+      "verified": true
+    }
+  ],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 10,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-127c1c140a6188c8c383b518b1850bfb",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rthreecert7-cli2-run-5e9fc5eaf315 Creating
+ Container duo-rthreecert7-cli2-run-5e9fc5eaf315 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/yoast.sh) ==[0m
+conf2 Yoast API resolution: Conformance Primary|yes|yes|yes|yes
+[1;32mok: conf2 resolves primary-category, per-term OG image, and site-wide logo/default-image refs via Yoast's own runtime APIs, all using conf2's own local ids[0m
+conf2 front-end rendering check: the actual <title>/meta description tag a search engine or social share sees
+[1;32mok: conf2's live front-end rendering carries the authored Yoast SEO title/description with no fatal marker or conf1 host leak[0m
+
+[1;32m✔ CONFORMANCE PASSED (yoast)[0m
