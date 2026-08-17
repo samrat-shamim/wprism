@@ -80,6 +80,17 @@ if (defined('WPMU_PLUGIN_DIR')) {
     define('DUO_CONTROL_PLANE', true);
     define('DUO_CONTROL_WPMU_PLUGIN_DIR', $duoStandardMu);
     define('WPMU_PLUGIN_DIR', $duoWpRoot . '/wp-content/.duo-control-mu-' . bin2hex(random_bytes(16)));
+    /* A control-plane command observes or drives the target; it must not
+       spawn the target's cron. WordPress core hooks wp_cron() on `init`, and
+       spawn_cron() rewrites the doing_cron transient (a database write) and
+       POSTs wp-cron.php, which runs the very plugin code this bootstrap
+       exists to keep out of the window (Action Scheduler included). Found
+       live: refresh-export's nominal read-only observation moved the source
+       between a rehearsal's snapshot-prepare and snapshot-create. Block
+       comment on purpose: this bootstrap is flattened to one line. */
+    if (!defined('DISABLE_WP_CRON')) {
+        define('DISABLE_WP_CRON', true);
+    }
     require_once $duoAgent;
 });
 PHP;

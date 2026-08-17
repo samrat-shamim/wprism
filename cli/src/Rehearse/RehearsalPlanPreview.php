@@ -313,15 +313,26 @@ final class RehearsalPlanPreview {
      * That is what makes a bounds regression a real check rather than a
      * check of a second renderer.
      *
+     * `$withDisclosure` — the report standing alone opens with MUP §2.2's
+     * containment banner. `RehearseCommand::run()` has ALREADY printed that
+     * banner at the top of its output, before the provider was invoked (the
+     * spec wants it read before anything happens), so the command renders
+     * its tail with `false`: the banner is printed once per page, first,
+     * never twice (grind_mup.sh step 5 read it twice before this flag).
+     *
      * @param array<string,mixed> $preview a `build()` result
      * @return list<string>
      */
-    public static function render(array $preview, int $limit = self::DEFAULT_LIMIT): array {
+    public static function render(
+        array $preview,
+        int $limit = self::DEFAULT_LIMIT,
+        bool $withDisclosure = true
+    ): array {
         if ($limit < 1 || $limit > self::MAX_LIMIT) {
             throw self::limitRefusal();
         }
         /** @var list<string> $lines */
-        $lines = RehearsalDisclosure::lines();
+        $lines = $withDisclosure ? RehearsalDisclosure::lines() : [];
         $lines[] = '';
         $lines[] = 'rehearsal: ' . self::safe($preview['env'] ?? '?')
             . ' from ' . self::safe($preview['source_env'] ?? '?')

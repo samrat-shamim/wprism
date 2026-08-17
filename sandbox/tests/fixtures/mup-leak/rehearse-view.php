@@ -25,11 +25,10 @@
  *
  * The build call below mirrors `RehearseCommand::preview()` field for field
  * (branch, env, generated_at, operation, source_env) and the render mirrors
- * `RehearseCommand::run()`'s tail — `RehearsalDisclosure::lines()` first,
- * then the preview lines — so what lands in `rehearse-human.txt` is what an
- * operator reads. `RehearsalPlanPreview::render()` re-emits the disclosure
- * itself; the duplicate below is therefore the COMMAND's, faithfully
- * reproduced, and not an artefact of this script.
+ * `RehearseCommand::run()`'s shape — `RehearsalDisclosure::lines()` first,
+ * then the preview lines rendered WITHOUT the disclosure (the command prints
+ * the banner once, at the top, before the provider runs; T5) — so what lands
+ * in `rehearse-human.txt` is what an operator reads.
  *
  * usage: php rehearse-view.php <out-dir>
  *
@@ -104,7 +103,7 @@ $preview = RehearsalPlanPreview::build(
 );
 
 $lines = RehearsalDisclosure::lines();
-foreach (RehearsalPlanPreview::render($preview) as $line) {
+foreach (RehearsalPlanPreview::render($preview, 50, false) as $line) {
     $lines[] = $line;
 }
 

@@ -26557,6 +26557,14 @@
                             "name": "limit",
                             "type": "int",
                             "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "withDisclosure",
+                            "type": "bool",
+                            "variadic": false
                         }
                     ],
                     "return_type": "array",

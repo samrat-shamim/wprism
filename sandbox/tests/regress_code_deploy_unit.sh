@@ -157,6 +157,44 @@ if (file_exists($root . '/wp-content/mu-plugins/staged.php')) {
 PHP
 pass "control bootstrap proves wp-config MU layout before agent load or stage writes"
 
+# The accepted bootstrap keeps the target's cron out of the control window:
+# spawn_cron() writes the doing_cron transient and POSTs wp-cron.php, which
+# runs plugin code — exactly what a control-plane observation must not do.
+DUO_ROOT="$REPO_ROOT" CONTROL_WP_ROOT="$SITE/control-wp-cron" php <<'PHP'
+<?php
+final class WP_CLI {
+    /** @var array<string,list<callable>> */
+    public static array $hooks = [];
+    public static function get_runner(): object {
+        return (object) ['config' => ['path' => getenv('CONTROL_WP_ROOT')]];
+    }
+    public static function add_hook(string $name, callable $hook): void {
+        self::$hooks[$name][] = $hook;
+    }
+}
+$root = getenv('CONTROL_WP_ROOT');
+@mkdir($root . '/wp-content/mu-plugins/duo', 0777, true);
+file_put_contents($root . '/wp-content/mu-plugins/duo/duo.php', '<?php // fixture agent');
+require getenv('DUO_ROOT') . '/cli/src/Transport/CodeDeploy.php';
+$exec = null;
+foreach (\Duo\Orchestrator\CodeDeploy::controlArgs(['duo', 'refresh-export']) as $arg) {
+    if (str_starts_with($arg, '--exec=')) {
+        $exec = substr($arg, strlen('--exec='));
+    }
+}
+eval($exec);
+foreach (WP_CLI::$hooks['after_wp_config_load'] ?? [] as $hook) {
+    $hook();
+}
+if (!defined('DISABLE_WP_CRON') || DISABLE_WP_CRON !== true) {
+    throw new RuntimeException('FAIL: the control bootstrap left the target cron spawnable');
+}
+if (!defined('DUO_CONTROL_PLANE')) {
+    throw new RuntimeException('FAIL: the accepted bootstrap did not mark the control plane');
+}
+PHP
+pass "control bootstrap disables the target's cron spawn for the whole control-plane window"
+
 # No descriptor preserves lifecycle-only deploy and never receives code flags.
 invoke 0 env
 [ "$CODE" -eq 0 ] || fail "legacy deploy failed: $OUT"
