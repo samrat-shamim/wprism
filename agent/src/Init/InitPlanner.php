@@ -19,8 +19,28 @@ require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
  */
 final class InitPlanner {
     public const FORMAT = InitProtocol::PLAN_FORMAT;
+
+    /**
+     * The operator's explicit decision to initialize a site whose active
+     * plugins Duo does not manage (round-3 T6 §3.4).
+     *
+     * It is a REVIEWED decision rather than a bypass, and the shape enforces
+     * that: an unmanaged plugin moves from `unsupported` to `advisories`, it
+     * is still named with its own reason code on every proposal, none of its
+     * state is selected or written, and the flag rides inside the digest —
+     * so a confirmation that omits it recomputes a different proposal and is
+     * refused by assert_confirmed_proposal() rather than silently applying a
+     * decision the operator did not review.
+     *
+     * It relaxes exactly `active_plugin_without_adapter`. `ambiguous_plugin_
+     * adapter` (two manifests answering for one plugin) is not the same fact:
+     * there IS an adapter, the engine cannot say which, and leaving it
+     * unmanaged is not the remedy.
+     */
+    public const ALLOW_UNMANAGED_PLUGINS = 'allow-unmanaged-plugins';
+
     /** @return array<string,mixed> */
-    public static function proposal(string $repo): array {
+    public static function proposal(string $repo, bool $allowUnmanagedPlugins = false): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);
         $rootBlocker = InitRepositoryBoundary::root_blocker($logicalRepo);
         if ($rootBlocker !== null) {
@@ -28,7 +48,14 @@ final class InitPlanner {
         }
         $binding = InitRepositoryBoundary::bind($logicalRepo);
         try {
-            return self::proposal_bound('.', $logicalRepo, $binding['identity']);
+            return self::proposal_bound(
+                '.',
+                $logicalRepo,
+                $binding['identity'],
+                false,
+                false,
+                $allowUnmanagedPlugins
+            );
         } finally {
             if (!@chdir($binding['previous_cwd'])) {
                 throw new \RuntimeException('duo: init could not restore its process working directory after proposal');
@@ -42,7 +69,8 @@ final class InitPlanner {
         string $logicalRepo,
         string $rootIdentity,
         bool $ownsCaptureLock = false,
-        bool $ownsInitAttempt = false
+        bool $ownsInitAttempt = false,
+        bool $allowUnmanagedPlugins = false
     ): array {
         global $wpdb;
         if (!is_object($wpdb)) {
@@ -83,22 +111,10 @@ final class InitPlanner {
                 $byTheme[(string) $manifest['theme']][] = $name;
             }
         }
-        foreach ($activePlugins as $plugin) {
-            $owners = $byPlugin[$plugin] ?? [];
-            if (count($owners) !== 1) {
-                $unsupported[] = [
-                    'code' => $owners === [] ? 'active_plugin_without_adapter' : 'ambiguous_plugin_adapter',
-                    'extension' => $plugin,
-                    'kind' => 'plugin',
-                    'reason' => $owners === []
-                        ? 'no installed manifest declares this active plugin identity'
-                        : 'multiple installed manifests declare this active plugin identity',
-                    'remediation' => 'install or review one versioned adapter, then rerun duo init',
-                ];
-                continue;
-            }
-            $selected[] = $owners[0];
-        }
+        $plugins = self::plugin_selection($activePlugins, $byPlugin, $allowUnmanagedPlugins);
+        $selected = array_merge($selected, $plugins['selected']);
+        $unsupported = array_merge($unsupported, $plugins['unsupported']);
+        $advisories = array_merge($advisories, $plugins['advisories']);
 
         $template = (string) get_option('template', '');
         $stylesheet = (string) get_option('stylesheet', '');
@@ -173,17 +189,7 @@ final class InitPlanner {
         [$policy, $pins] = self::load_selected_policy($selected, $repo);
         $capabilities = $policy->capability_report(['operation' => 'capture']);
         foreach ($capabilities['blockers'] ?? [] as $blocker) {
-            $unsupported[] = [
-                'code' => (string) ($blocker['code'] ?? 'capability_not_ready'),
-                'extension' => (string) ($blocker['name'] ?? 'registry'),
-                'kind' => 'adapter',
-                'reason' => (string) ($blocker['reason'] ?? 'adapter capability is not ready'),
-                'remediation' => trim((string) ($blocker['remediation'] ?? '')) !== ''
-                    ? (string) $blocker['remediation']
-                    : 'install a certified compatible adapter/runtime or leave the site unmanaged',
-                'source' => (string) ($blocker['source'] ?? AdapterSources::SHIPPED),
-                'trust_tier' => (string) ($blocker['trust_tier'] ?? ''),
-            ];
+            $unsupported[] = self::capability_blocker_row(is_array($blocker) ? $blocker : []);
         }
 
         $postTypes = ['attachment', 'page', 'post'];
@@ -396,6 +402,115 @@ final class InitPlanner {
         }
         return [Policy::load(null, $pins, false, $repo), $pins];
     }
+    /**
+     * One capability blocker as an `unsupported` row.
+     *
+     * AdapterSources::diagnostics() writes one remediation for every consumer
+     * and `wp duo capabilities` keeps it byte-identical, so the init-specific
+     * instruction is applied HERE rather than by widening that string. At init
+     * the honest instruction is narrower and has an order to it: the adapter
+     * is already installed, so the operator signs it or removes it, and only
+     * then does init have anything new to recompute.
+     *
+     * @param array<string,mixed> $blocker
+     * @return array<string,string>
+     */
+    private static function capability_blocker_row(array $blocker): array {
+        $code = (string) ($blocker['code'] ?? 'capability_not_ready');
+        $name = (string) ($blocker['name'] ?? 'registry');
+        $remediation = trim((string) ($blocker['remediation'] ?? '')) !== ''
+            ? (string) $blocker['remediation']
+            : 'install a certified compatible adapter/runtime or leave the site unmanaged';
+        if ($code === 'adapter_source_uncertified') {
+            $remediation = 'certify it with duo adapter certify <site-repo> --name=' . $name
+                . ', or remove it, then rerun duo init';
+        }
+        return [
+            'code' => $code,
+            'extension' => $name,
+            'kind' => 'adapter',
+            'reason' => (string) ($blocker['reason'] ?? 'adapter capability is not ready'),
+            'remediation' => $remediation,
+            'source' => (string) ($blocker['source'] ?? AdapterSources::SHIPPED),
+            'trust_tier' => (string) ($blocker['trust_tier'] ?? ''),
+        ];
+    }
+
+    /**
+     * Which active plugins this proposal manages, and how the rest are
+     * reported. Its own function because it is the ONE decision
+     * `--allow-unmanaged-plugins` changes, and proposal_bound() needs a live
+     * WordPress for everything else it does — so without a seam the flag's
+     * behaviour could only be asserted on a pair.
+     *
+     * A plugin is never "allowed" in the sense of being waved through: an
+     * unmanaged one is reported by name and reason code on every proposal, and
+     * it is absent from `selected`, which is what actually decides that
+     * nothing about its state is published.
+     *
+     * @param list<string> $activePlugins
+     * @param array<string,list<string>> $byPlugin plugin basename => declaring adapter names
+     * @return array{selected:list<string>, unsupported:list<array<string,string>>, advisories:list<array<string,string>>}
+     */
+    private static function plugin_selection(
+        array $activePlugins,
+        array $byPlugin,
+        bool $allowUnmanagedPlugins
+    ): array {
+        $selected = [];
+        $unsupported = [];
+        $advisories = [];
+        foreach ($activePlugins as $plugin) {
+            $plugin = (string) $plugin;
+            $owners = $byPlugin[$plugin] ?? [];
+            if (count($owners) === 1) {
+                $selected[] = (string) $owners[0];
+                continue;
+            }
+            $row = [
+                'code' => $owners === [] ? 'active_plugin_without_adapter' : 'ambiguous_plugin_adapter',
+                'extension' => $plugin,
+                'kind' => 'plugin',
+                'reason' => $owners === []
+                    ? 'no installed manifest declares this active plugin identity'
+                    : 'multiple installed manifests declare this active plugin identity',
+                // The remediation names both exits an operator actually has.
+                // Before T6 it named only "install or review one versioned
+                // adapter", which was the one thing no operator could finish:
+                // certification signs under a key in the agent-owned
+                // authorities file, and that file ships empty.
+                'remediation' => $owners === []
+                    ? 'rerun duo init --' . self::ALLOW_UNMANAGED_PLUGINS
+                        . ' to leave it unmanaged, or install/certify an adapter (duo adapter certify)'
+                    : 'install or review one versioned adapter, then rerun duo init',
+            ];
+            // Only the no-adapter fact is relaxable. `ambiguous_plugin_adapter`
+            // is a different fact — there IS an adapter and the engine cannot
+            // say which — and leaving it unmanaged is not its remedy.
+            if ($owners === [] && $allowUnmanagedPlugins) {
+                $row['remediation'] = 'nothing about this plugin is written by init; decide its state class in '
+                    . 'the contract (assess reports it as plugin:' . self::plugin_slug($plugin) . ')';
+                $advisories[] = $row;
+                continue;
+            }
+            $unsupported[] = $row;
+        }
+        return ['advisories' => $advisories, 'selected' => $selected, 'unsupported' => $unsupported];
+    }
+
+    /**
+     * The directory half of `slug/file.php`, which is the identity assess
+     * builds its `plugin:<slug>` surface row from (T6 §3.6) and the identity a
+     * bundled `duo-adapter.json` anchors to. A single-file plugin has no
+     * directory, so its file name without `.php` is the only identity it has.
+     */
+    private static function plugin_slug(string $plugin): string {
+        $directory = strpos($plugin, '/') === false ? '' : dirname($plugin);
+        return $directory !== '' && $directory !== '.'
+            ? $directory
+            : (string) preg_replace('/\.php$/D', '', basename($plugin));
+    }
+
     /** @return array<string,array<string,mixed>> */
     private static function installed_manifests(string $repo): array {
         $out = [];

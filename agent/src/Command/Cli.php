@@ -682,14 +682,19 @@ final class Cli {
      * ## OPTIONS
      * --repo=<path> : Site repository to propose or initialize.
      * [--confirm=<sha256>] : Recompute and apply exactly this proposal digest.
+     * [--allow-unmanaged-plugins] : Proceed when an active plugin has no owning adapter. Each such plugin
+     *   is reported as an advisory instead of an unsupported capability, is not selected, and has nothing
+     *   written about it; the decision for its state belongs in the contract. The flag is inside the
+     *   proposal digest, so it must be supplied identically to the --confirm run.
      * [--format=<format>] : Output format. Accepts json.
      */
     public function init($args, $assoc) {
         try {
             $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('init', '--repo');
+            $allowUnmanagedPlugins = isset($assoc[InitPlanner::ALLOW_UNMANAGED_PLUGINS]);
             $result = isset($assoc['confirm'])
-                ? Init::confirm((string) $repo, (string) $assoc['confirm'])
-                : Init::proposal((string) $repo);
+                ? Init::confirm((string) $repo, (string) $assoc['confirm'], $allowUnmanagedPlugins)
+                : Init::proposal((string) $repo, $allowUnmanagedPlugins);
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'init');
             WP_CLI::error($t->getMessage());
@@ -702,6 +707,10 @@ final class Cli {
             WP_CLI::line('INIT ' . (!empty($result['ready']) ? 'READY' : 'BLOCKED') . ' ' . $result['digest']);
             WP_CLI::line('  state repository: ' . $result['state']['repository']);
             WP_CLI::line('  code management: ' . $result['code']['management']);
+            // Unsupported only: `advisories` (which is where an
+            // --allow-unmanaged-plugins row lands) is rendered by the host's
+            // own proposal view in cli/src/Onboarding/Init.php, and this human
+            // line stays the target's terse ready/blocked summary.
             foreach ($result['unsupported'] as $row) {
                 WP_CLI::line('  unsupported: ' . $row['kind'] . ' ' . $row['extension'] . ' — ' . $row['reason']);
             }
