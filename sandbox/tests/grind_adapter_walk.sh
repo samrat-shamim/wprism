@@ -1488,8 +1488,21 @@ seed_shop() {
     --post_content='<p>Duo walk landing page, before the release.</p>' --porcelain | tr -d '\r')"
   [ -n "$PRODUCT_ID" ] && [ -n "$LANDING_ID" ] \
     || fail "the shop seed did not produce a product and a page on ${PAIR}1"
+  # The journey URL is the page's own permalink PATH, read from the target as
+  # grind_mup does: WooCommerce turns pretty permalinks on, and WordPress then
+  # answers `/?page_id=N` with a 301 to the pretty form — run 9's verify read
+  # `expected HTTP 200, got 301` on a journey the walk had spelled by query.
+  LANDING_PATH="/?page_id=$LANDING_ID"
+  local url base
+  url="$(wp1 post list --post_type=page --name="$slug" --field=url | tr -d '\r' | head -1)"
+  base="http://127.0.0.1:$PORT1"
+  case "$url" in
+    "$base"*) LANDING_PATH="${url#"$base"}" ;;
+    *) note "the landing page URL '$url' is not under $base; probing by query string instead" ;;
+  esac
   return 0
 }
+LANDING_PATH=""
 
 # seed_repository <scenario>
 #
@@ -1585,13 +1598,13 @@ contract_cycle() {
   say "$scenario — duo contract $env propose -> review -> accept"
   duo_ok "$EVIDENCE/$scenario/contract-propose.txt" "$dir" contract "$env" propose
   if dry; then
-    plan "jq: review .duo/contract/proposed.json — code-lifecycle-window live/provider-state restorable/operator; journeys /?page_id=$landing and /?post_type=product$([ "$extraJourney" = '-' ] || printf ' (+1 scenario journey)')"
+    plan "jq: review .duo/contract/proposed.json — code-lifecycle-window live/provider-state restorable/operator; journeys <landing permalink path> and /?post_type=product$([ "$extraJourney" = '-' ] || printf ' (+1 scenario journey)')"
     plan "jq: review every surface this scenario decides (§3.6)"
     CONTRACT_DIGEST='<contract-digest>'
   else
     [ -f "$proposed" ] || fail "$scenario: duo contract propose wrote no $proposed"
     local journeys
-    journeys="$(jq -n --arg landing "/?page_id=$landing" '
+    journeys="$(jq -n --arg landing "${LANDING_PATH:-/?page_id=$landing}" '
       [
         {id: "landing-page", url: $landing, expect_status: 200,
          expect_contains: "Duo walk landing page", affected_surfaces: ["post_type:page"]},
