@@ -3830,7 +3830,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "e8cc303233201ce3217656c2a90a47fd55c1d9f81637c11be7b48d8808e245fd",
+                "bundle_digest": "cfd149fda8f677c5f89ce59407d6bf412d3b852ff5b204be8470c4cfa0c0ea69",
                 "claims": {
                     "manifests.core": [
                         "conformance-core",
@@ -3838,7 +3838,7 @@
                     ]
                 },
                 "closure": {
-                    "digest": "2f26813ae89f5087dc6692c2e887f2f077f8bfd179342f1cc1881ac74022202e",
+                    "digest": "ed455a8a6b237c814c10792dacb6199f3160146249dae82d318e35a17c6a0baf",
                     "inputs": [
                         {
                             "path": "Makefile",
@@ -4617,8 +4617,8 @@
                         },
                         {
                             "path": "agent/src/Policy/ScopeDiscovery.php",
-                            "sha256": "51aa8f63cff99eec60bc11ac49268e4bfa643f54057f18cd8ee0b43aab64fd31",
-                            "size": 10802
+                            "sha256": "d27359e344ea19700efc89187d3c226ed444e8c9f88424fdfeca69f8516eb790",
+                            "size": 10881
                         },
                         {
                             "path": "agent/src/Policy/ScopeGrammar.php",
@@ -5552,10 +5552,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-17T20:13:36Z",
+                "created_at": "2026-08-17T20:35:13Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "4654b7cc546fbd0553b70e0ea2ee50caa7f687aa",
+                "git_revision": "27935373869e22c4a71af77371a16e5f78cf7c39",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -5668,12 +5668,12 @@
                             "sha256": "3754ca620133d2f2f15ceda854975f9169e771a6d6fefd890d30022338c0551b",
                             "size": 144
                         },
-                        "evidence_sha256": "7ade0e177c236338ea0b34dbc8956ebb8b41b06c8189090cd64c8e5efdccee9b",
+                        "evidence_sha256": "c321a1dd03c550740d3a7a62f2017e8951f7a3a87776d40472b4547c647eee49",
                         "exit_code": 0,
                         "id": "conformance-core",
                         "log": {
                             "path": "logs/conformance-core.txt",
-                            "sha256": "b35925a61118171a18835c594635e5c9445a745bc21dccb432d884e6480ee799",
+                            "sha256": "ca76dc05b02f3acf73f23b22ca96b84ea1e622ea85a1e6bd35d62faeb0e3f253",
                             "size": 35377
                         },
                         "result": {
@@ -5689,12 +5689,12 @@
                             "sha256": "2afafc0541cd3b444c1a4d6971b4d27ae2dc161449e9b114110e16d9844d6d31",
                             "size": 181
                         },
-                        "evidence_sha256": "b9630e0d20182a678c3cb0951a9650cdc701421d6b1399e5b00779aca41eff71",
+                        "evidence_sha256": "ca8d280b1fb979b61870aaed409d504b71697029c2b944258bcd55417cd4ed78",
                         "exit_code": 0,
                         "id": "multisite-refusal",
                         "log": {
                             "path": "logs/multisite-refusal.txt",
-                            "sha256": "f6ce7dfd89348bb0edf67eef9db50a78debe69e476c57ea11bccbf46c3da0d81",
+                            "sha256": "d56cf9dae0c3f2e88488dcd310ca9f9b1828c4c928056a195bfa93e40f3def1c",
                             "size": 9234
                         },
                         "result": {
@@ -5707,7 +5707,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/core/e8cc303233201ce3217656c2a90a47fd55c1d9f81637c11be7b48d8808e245fd"
+            "path": "scoped/manifests/core/cfd149fda8f677c5f89ce59407d6bf412d3b852ff5b204be8470c4cfa0c0ea69"
         },
         "manifests.elementor": {
             "bundle": {
