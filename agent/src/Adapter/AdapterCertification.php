@@ -58,6 +58,42 @@ final class AdapterCertification {
     /** Held by the customer organization, in its own site repository. */
     public const TRUST_ROOT_SITE = 'site';
 
+    /**
+     * The manifest's own top-level vocabulary, partitioned the way a
+     * disposition names it, so sign_site() can DERIVE a ratification instead of
+     * asking an operator to hand-write one.
+     *
+     * Three lists rather than two, and the third is the point: a manifest key
+     * in none of them makes sign_site() refuse by name. Silently dropping an
+     * unrecognised section would mint a certificate that covers less than the
+     * adapter declares — the capability claim's `surfaces` list is built from
+     * exactly these sections (CapabilityRegistry::claim_from_disposition()),
+     * so the uncovered surface would simply be blocked later with nothing
+     * saying why. A new section kind must stop the signer, not narrow the
+     * certificate.
+     *
+     * ManifestDispositions::validate_entry() independently refuses a named
+     * section the manifest does not declare, so these lists can only ever be
+     * too narrow, never too wide.
+     */
+    private const ENTITY_SECTIONS = ['post_types', 'tables', 'taxonomies', 'taxonomy_patterns', 'widgets'];
+    private const FIELD_SECTIONS = [
+        'block_attrs', 'dynamic_options', 'interpreter', 'menu_fields', 'meta_patterns', 'option_name_refs',
+        'option_namespaces', 'option_patterns', 'options', 'post_meta', 'shortcode_attrs', 'term_meta', 'user_meta',
+    ];
+    /** Manifest keys that declare no branchable state surface of their own. */
+    private const NON_SURFACE_KEYS = [
+        'actions', 'deletions', 'lifecycle_effects', 'name', 'note', 'notes', 'option_autoload', 'plugin',
+        'providers', 'spec_version', 'theme', 'version_range',
+    ];
+
+    /**
+     * What a grammar-only certificate may claim. `delete` is absent because
+     * deletion semantics are exactly what a validator run cannot review, and
+     * `render-api`/`test-only` because they are reviewed runtime behaviours.
+     */
+    private const SITE_OPERATIONS = ['apply', 'capture', 'compile', 'deploy', 'plan', 'recapture'];
+
     // This has no production setter.  The offline regression reaches it only
     // through Reflection to deterministically simulate an evidence-directory
     // replacement after an asset's descriptor check.
@@ -311,18 +347,13 @@ final class AdapterCertification {
             $adapterRaw,
             $trustRoot
         );
-        [$platform, ] = self::currentPlatform($manifestDir);
-        $statement = [
-            'adapter' => [
-                'canonical_sha256' => self::canonicalHash($manifest),
-                'name' => $name,
-                'path' => 'adapters/' . $name . '.json',
-                'raw_sha256' => hash('sha256', $adapterRaw),
-                'raw_size' => strlen($adapterRaw),
-                'source' => AdapterSources::SITE,
-                'trust_tier' => $tier,
-            ],
-            'authority' => [
+        return self::signStatement(
+            $manifestDir,
+            $name,
+            $manifest,
+            $adapterRaw,
+            $tier,
+            [
                 'fingerprint' => hash('sha256', $configured),
                 'key_id' => $keyId,
                 // The exact authority record, inside the signature. It is what
@@ -334,12 +365,382 @@ final class AdapterCertification {
                 'record_sha256' => $authorityDigest,
                 'trust_root' => $trustRoot,
             ],
+            $bundle['typed'],
+            $bundle['ratification_typed'],
+            $secret
+        );
+    }
+
+    /**
+     * Certify a site adapter under the operator's OWN trust root, from the one
+     * piece of evidence an operator can actually produce: the loader's own
+     * grammar verdict, plus their stated reason.
+     *
+     * WHY THE BUNDLE IS BUILT HERE rather than by the caller. The bundle
+     * grammar is this file's (verifyBundleManifest() refuses any deviation by
+     * exact key set), and a producer living in the host would be a second copy
+     * of that grammar in a different language of the same repository — drifting
+     * the moment either moved, and drifting SILENTLY on the host side, where
+     * nothing re-verifies. The reviewed-exercise path keeps its external
+     * producer because there the bundle is the OUTPUT of a real conformance
+     * run that this file has no business performing.
+     *
+     * NOTHING IS WRITTEN TO DISK, and nothing is lost by that: an unexercised
+     * bundle's only assets are environment.json and ratification.json, and
+     * both are already inside the signed statement, content-addressed by the
+     * descriptors the signature covers. There is no directory to keep, so
+     * there is no directory to tamper with.
+     *
+     * The grammar verdict is TAKEN, not asserted: the real loader is run
+     * against this repository and this name, and a manifest that does not load
+     * refuses to be signed with the loader's own message. A certificate for
+     * bytes no command can use would be the emptiest possible claim.
+     *
+     * @param string $reason the operator's stated basis, signed and reported
+     * @return string canonical duo-adapter-certification/v1 bytes
+     */
+    public static function sign_site(
+        string $manifestDir,
+        string $repo,
+        string $name,
+        string $authorityId,
+        string $secretKey,
+        string $reason
+    ): string {
+        self::assertSodium();
+        $name = self::adapterName($name);
+        if (trim($reason) === '') {
+            throw new \RuntimeException(
+                'duo: a site adapter certification must state its basis; supply a non-empty reason'
+            );
+        }
+        $root = self::repoRoot($repo, 'site repository');
+        $adapterPath = self::ownedFile($root, 'adapters/' . $name . '.json', 'site adapter');
+        [$adapterRaw, , $manifest] = self::readCanonicalObjectFile($adapterPath, 'site adapter');
+        self::assertSiteManifest($name, $manifest);
+
+        [$authority, $keyId, $authorityDigest, $trustRoot] = self::authority($manifestDir, $authorityId, $root);
+        if ($trustRoot !== self::TRUST_ROOT_SITE) {
+            // The relaxation follows the ROOT, not the caller. An agent-owned
+            // key certifies a reviewed exercise or nothing; routing it through
+            // this entry point would be exactly the downgrade the two words
+            // exist to keep separable.
+            throw new \RuntimeException(
+                "duo: authority key '$keyId' is agent-owned, and an agent-owned key certifies a reviewed "
+                . 'exercise — sign a ' . self::BUNDLE_FORMAT . ' bundle through sign() instead'
+            );
+        }
+        $tier = AdapterSources::trust_tier($manifest);
+        self::assertAuthorityScope($authority, $keyId, $name, $tier);
+
+        $secret = self::secretKey($secretKey);
+        $public = sodium_crypto_sign_publickey_from_secretkey($secret);
+        $configured = self::publicKey($authority);
+        if (!hash_equals($configured, $public)) {
+            throw new \RuntimeException(
+                "duo: private key does not match trusted authority key '$keyId'"
+            );
+        }
+
+        $grammar = self::siteGrammarVerdict($manifestDir, $repo, $name);
+        $ratification = self::siteRatification($name, $manifest, $reason);
+        $ratificationRaw = Canon::encode($ratification);
+        $bundle = self::siteBundle($name, $adapterRaw, $ratificationRaw, $grammar, $reason);
+
+        // Verify the freshly built bundle through the SAME validator that will
+        // re-verify it at every load. A producer that trusted its own output
+        // would be the one place in this file where a certificate's grammar
+        // was never checked.
+        $bundleRaw = Canon::encode($bundle);
+        [, $bundleTyped, $bundleArray] = self::parseCanonicalObject($bundleRaw, 'site certification bundle manifest');
+        $info = self::verifyBundleManifest(
+            $bundleTyped,
+            $bundleArray,
+            'site certification bundle manifest',
+            $name,
+            $trustRoot
+        );
+        self::assertBundleSubjectInput($info['bound_inputs'], $name, [
+            'raw_sha256' => hash('sha256', $adapterRaw),
+            'raw_size' => strlen($adapterRaw),
+        ]);
+        [, $ratificationTyped, $ratificationArray] = self::parseCanonicalObject(
+            $ratificationRaw,
+            'site certification ratification'
+        );
+        self::verifyRatification(
+            $ratificationTyped,
+            $ratificationArray,
+            $name,
+            $manifest,
+            $info,
+            $ratificationRaw
+        );
+
+        return self::signStatement(
+            $manifestDir,
+            $name,
+            $manifest,
+            $adapterRaw,
+            $tier,
+            [
+                'fingerprint' => hash('sha256', $configured),
+                'key_id' => $keyId,
+                'record' => $authority,
+                'record_sha256' => $authorityDigest,
+                'trust_root' => $trustRoot,
+            ],
+            $bundleTyped,
+            $ratificationTyped,
+            $secret
+        );
+    }
+
+    /**
+     * The real loader's verdict for this adapter, in this repository.
+     *
+     * Policy is required HERE rather than at file scope for the reason
+     * AdapterSources gives for its own lazy require of this class: the two
+     * form a cycle through the source/certification integration boundary, and
+     * a file-scope edge would make otherwise independent offline entry points
+     * order-sensitive.
+     *
+     * The manifest directory must be the one this process would load anyway.
+     * A verdict judged against a different library than the verifier will use
+     * is not a verdict about anything.
+     */
+    private static function siteGrammarVerdict(string $manifestDir, string $repo, string $name): string {
+        require_once __DIR__ . '/../Policy/Policy.php';
+        $resolvedDeclared = realpath($manifestDir);
+        $resolvedLoaded = realpath(Policy::manifests_dir());
+        if ($resolvedDeclared === false || $resolvedLoaded === false
+            || !hash_equals($resolvedLoaded, $resolvedDeclared)) {
+            throw new \RuntimeException(
+                'duo: site adapter certification must be signed against the manifest library this process loads ('
+                . ($resolvedLoaded === false ? '(unresolvable)' : $resolvedLoaded) . '), not '
+                . ($resolvedDeclared === false ? '(unresolvable)' : $resolvedDeclared)
+            );
+        }
+        try {
+            Policy::load($repo, [$name]);
+        } catch (\Throwable $t) {
+            throw new \RuntimeException(
+                "duo: site adapter '$name' does not load, so there is no grammar verdict to certify: "
+                . $t->getMessage()
+            );
+        }
+        return AdapterSources::GRAMMAR_OK;
+    }
+
+    /**
+     * A ratification DERIVED from the manifest, never authored beside it.
+     *
+     * Every field is a restatement of something the manifest already declares
+     * or of something a grammar check provably did not review:
+     *
+     *   - the sections are exactly the state surfaces the manifest declares,
+     *     partitioned by the shipped entity/field vocabulary;
+     *   - `deletion_semantics` is unsupported outright, and `operations` omits
+     *     `delete`, because deletion semantics are what a validator run cannot
+     *     review;
+     *   - `lifecycle_phases` is empty for the same reason;
+     *   - every intent-only table is marked unsupported (ManifestDispositions
+     *     requires it, and the requirement is right: an
+     *     authored_typed_snapshot_post_v1 table is a declaration of intent);
+     *   - every open-ended `default_class: authored` keyspace is recorded
+     *     `unsupported` rather than `justified` — justification is a review
+     *     judgement about a plugin-upgrade tripwire, and nobody made one here.
+     *
+     * @return array<string,mixed>
+     */
+    private static function siteRatification(string $name, array $manifest, string $reason): array {
+        $entity = [];
+        $field = [];
+        foreach (array_keys($manifest) as $key) {
+            $key = (string) $key;
+            if (in_array($key, self::ENTITY_SECTIONS, true)) {
+                $entity[] = $key;
+            } elseif (in_array($key, self::FIELD_SECTIONS, true)) {
+                $field[] = $key;
+            } elseif (!in_array($key, self::NON_SURFACE_KEYS, true)) {
+                throw new \RuntimeException(
+                    "duo: site adapter '$name' declares '$key', which this signer cannot classify as an entity "
+                    . 'or field surface — a certificate that silently omitted it would cover less than the '
+                    . 'adapter does. Certify it through a reviewed bundle, or teach the signer this section'
+                );
+            }
+        }
+        sort($entity, SORT_STRING);
+        sort($field, SORT_STRING);
+
+        $unsupported = [[
+            'operation' => 'delete',
+            'reason' => 'A manifest grammar verdict reviews no deletion semantics.',
+            'surface' => 'deletions.*',
+        ]];
+        $keyspaces = [];
+        foreach ((array) ($manifest['tables'] ?? []) as $table => $rule) {
+            $table = (string) $table;
+            if (!is_array($rule)) {
+                continue;
+            }
+            if (($rule['class'] ?? null) === 'authored_typed_snapshot_post_v1') {
+                $unsupported[] = [
+                    'operation' => 'apply',
+                    'reason' => 'An intent-only table is a declaration, not a reviewed convergence surface.',
+                    'surface' => "tables.$table",
+                ];
+            }
+            if (($rule['default_class'] ?? null) === 'authored') {
+                $keyspaces[] = [
+                    'reason' => 'The open-ended authored default was declared by the site operator and reviewed '
+                        . 'by no exercise; a key introduced by a later plugin version is not covered.',
+                    'status' => 'unsupported',
+                    'table' => $table,
+                ];
+            }
+        }
+        usort($unsupported, static fn(array $a, array $b): int => [$a['surface'], $a['operation']]
+            <=> [$b['surface'], $b['operation']]);
+        usort($keyspaces, static fn(array $a, array $b): int => strcmp($a['table'], $b['table']));
+
+        $plugin = $manifest['plugin'] ?? null;
+        $versions = is_string($plugin) && $plugin !== ''
+            // validate_entry() compares both against the manifest itself, so
+            // this is a restatement rather than a claim.
+            ? ['plugin' => $plugin, 'range' => $manifest['version_range'] ?? null]
+            : ['source' => 'site-operator'];
+
+        return [
+            'format' => self::RATIFICATION_FORMAT,
+            'manifests' => [
+                $name => [
+                    'capabilities' => [
+                        'deletion_semantics' => [
+                            'supported' => [],
+                            'unsupported' => ['every declared deletion selector'],
+                        ],
+                        'entity_sections' => $entity,
+                        'field_sections' => $field,
+                        'lifecycle_phases' => [],
+                        'operations' => self::SITE_OPERATIONS,
+                    ],
+                    'default_authored_keyspaces' => $keyspaces,
+                    'evidence' => [
+                        'bundle_schema' => self::BUNDLE_FORMAT,
+                        'tests' => [],
+                    ],
+                    'reason' => $reason,
+                    'status' => 'certified',
+                    'supported_versions' => $versions,
+                    'unsupported' => $unsupported,
+                ],
+            ],
+            'profiles' => [],
+        ];
+    }
+
+    /**
+     * The unexercised bundle, in memory.
+     *
+     * `git_revision` is the nil SHA because this profile binds no evidence
+     * repository at all. Borrowing the site repository's HEAD would read as
+     * provenance for a review that did not happen, and the field is 40-hex by
+     * grammar — so the honest value is the one that means "no commit".
+     *
+     * @return array<string,mixed>
+     */
+    private static function siteBundle(
+        string $name,
+        string $adapterRaw,
+        string $ratificationRaw,
+        string $grammar,
+        string $reason
+    ): array {
+        $environment = [
+            'exercised' => false,
+            'note' => 'no environment was exercised; this certificate binds the manifest grammar only',
+            'php' => PHP_VERSION,
+        ];
+        $environmentRaw = Canon::encode($environment);
+        $bundle = [
+            'artifacts' => [],
+            'bound_inputs' => [[
+                'path' => 'adapters/' . $name . '.json',
+                'sha256' => hash('sha256', $adapterRaw),
+                'size' => strlen($adapterRaw),
+            ]],
+            'created_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'environment' => [
+                'path' => 'environment.json',
+                'sha256' => hash('sha256', $environmentRaw),
+                'size' => strlen($environmentRaw),
+            ],
+            'environment_summary' => $environment,
+            'evidence' => [
+                'exercised' => false,
+                'grammar' => $grammar,
+                'reason' => $reason,
+            ],
+            'force_hatches' => [],
+            'git_revision' => str_repeat('0', 40),
+            'harness' => ['name' => 'duo-adapter-certify', 'version' => 1],
+            'ratification' => [
+                'path' => 'ratification.json',
+                'sha256' => hash('sha256', $ratificationRaw),
+                'size' => strlen($ratificationRaw),
+            ],
+            'ratification_summary' => [
+                'certified_claims' => ['manifests.' . $name],
+                'manifest_count' => 1,
+                'profile_count' => 0,
+            ],
+            'schema_version' => self::BUNDLE_FORMAT,
+            'subject' => ['kind' => 'site_adapter', 'name' => $name],
+            'tests' => [],
+            'verdict' => 'pass',
+        ];
+        $bundle['bundle_digest'] = self::bundleDigest($bundle);
+        return $bundle;
+    }
+
+    /**
+     * The one place a certificate is minted, shared by the reviewed-exercise
+     * path and the site path. Both bind the identical statement shape; a
+     * second builder would be a second thing to keep in step with the
+     * verifier.
+     *
+     * @param array<string,mixed> $authorityBinding
+     */
+    private static function signStatement(
+        string $manifestDir,
+        string $name,
+        array $manifest,
+        string $adapterRaw,
+        string $tier,
+        array $authorityBinding,
+        object $bundleTyped,
+        object $ratificationTyped,
+        string $secret
+    ): string {
+        [$platform, ] = self::currentPlatform($manifestDir);
+        $statement = [
+            'adapter' => [
+                'canonical_sha256' => self::canonicalHash($manifest),
+                'name' => $name,
+                'path' => 'adapters/' . $name . '.json',
+                'raw_sha256' => hash('sha256', $adapterRaw),
+                'raw_size' => strlen($adapterRaw),
+                'source' => AdapterSources::SITE,
+                'trust_tier' => $tier,
+            ],
+            'authority' => $authorityBinding,
             // Keep the exact, verified bundle manifest and ratification as
             // objects.  The signature binds their content-addressed identity,
             // all declared asset descriptors, and all named test claims.
-            'bundle' => $bundle['typed'],
+            'bundle' => $bundleTyped,
             'platform' => $platform,
-            'ratification' => $bundle['ratification_typed'],
+            'ratification' => $ratificationTyped,
         ];
         $signature = sodium_crypto_sign_detached(self::signatureBytes($statement), $secret);
         return Canon::encode([

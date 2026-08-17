@@ -2244,7 +2244,7 @@ cert_check(
     ($orgClaim['status'] ?? null) === 'certified'
         && ($orgClaim['evidence']['status'] ?? null) === 'current',
     'a site-rooted certificate produces status certified with evidence current — the two facts duo promote '
-    . "already gates on, so host promotion needs no second gate"
+    . 'already gates on, so host promotion needs no second gate'
 );
 cert_check(
     $orgClaim['certification'] === [
@@ -2470,6 +2470,293 @@ cert_check(
     'a bundle cannot declare exercised:false and still name artifacts — the projection an operator reads must '
     . 'not assert both halves at once'
 );
+
+// ======================================================================
+echo "\n== T6: sign_site() — the agent owns the unexercised bundle ==\n";
+// ======================================================================
+// The host verb `duo adapter certify` calls ONE entry point and writes what it
+// returns. The bundle grammar and its producer stay in one file, so a host
+// that drifted could not mint a certificate at all rather than minting one
+// nothing re-verifies.
+$autoRoot = $root . '/auto-site';
+$autoAgent = $autoRoot . '/agent-manifests';
+$autoSite = $autoRoot . '/site';
+
+// A manifest with the three shapes the derivation actually has to reason
+// about: a plugin claim (supported_versions is compared against it), an
+// intent-only table (must be marked unsupported), and an open-ended authored
+// default (must be recorded, and cannot be justified by a grammar check).
+$autoManifest = [
+    'name' => 'acme-shop',
+    'option_autoload' => 'preserve',
+    'options' => ['acme_shop_layout' => ['class' => 'authored']],
+    'plugin' => 'acme-shop/acme-shop.php',
+    'post_types' => [],
+    'spec_version' => DUO_SPEC_VERSION,
+    'tables' => [
+        'acme_shop_index' => [
+            'class' => 'authored_typed_snapshot_post_v1',
+            'id' => ['column' => 'id', 'kind' => 'surrogate'],
+            'post_type' => 'acme_shop_index',
+        ],
+    ],
+    'version_range' => ['max' => '3.0.0', 'min' => '1.0.0'],
+];
+cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoManifest);
+cert_copy_tree(dirname(__DIR__, 2) . '/manifests', $autoAgent);
+$autoRegistry = json_decode(
+    (string) file_get_contents($autoAgent . '/capabilities/registry.json'),
+    true,
+    512,
+    JSON_THROW_ON_ERROR
+);
+$autoRegistry['platform'] = $platform;
+foreach ($autoRegistry['manifests'] as &$autoShippedClaim) {
+    $autoShippedClaim['evidence']['status'] = 'candidate';
+}
+unset($autoShippedClaim);
+cert_write_canon($autoAgent . '/capabilities/registry.json', $autoRegistry);
+cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => new stdClass(),
+]);
+$autoKeypair = sodium_crypto_sign_seed_keypair(str_repeat('A', SODIUM_CRYPTO_SIGN_SEEDBYTES));
+$autoKeys = new stdClass();
+$autoKeys->{'acme-ops'} = [
+    'adapter_names' => ['acme-shop'],
+    'algorithm' => 'ed25519',
+    'public_key' => base64_encode(sodium_crypto_sign_publickey($autoKeypair)),
+    'scope' => 'site_adapter_certification',
+    'status' => 'trusted',
+    'trust_tiers' => ['declarative_manifest'],
+];
+cert_write_canon($autoSite . '/adapters/authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => $autoKeys,
+]);
+cert_write($autoRoot . '/acme-ops.key', base64_encode(sodium_crypto_sign_secretkey($autoKeypair)) . "\n");
+chmod($autoRoot . '/acme-ops.key', 0600);
+cert_write_canon($autoSite . '/site.duo.json', [
+    'manifests' => [['name' => 'acme-shop', 'source' => 'site']],
+    'policy' => new stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]);
+
+$autoReason = 'duo manifest-validate reported ok; certified by the site operator, not exercised';
+$autoEnv = 'DUO_MANIFESTS_DIR=' . $autoAgent;
+$autoSign = cert_run([
+    'env',
+    $autoEnv,
+    PHP_BINARY,
+    __DIR__ . '/../../scripts/adapter-certification.php',
+    'sign-site',
+    '--manifest-dir=' . $autoAgent,
+    '--repo=' . $autoSite,
+    '--name=acme-shop',
+    '--authority=acme-ops',
+    '--secret-key-file=' . $autoRoot . '/acme-ops.key',
+    '--reason=' . $autoReason,
+]);
+cert_check(
+    $autoSign['exit'] === 0,
+    'sign-site certifies from repo/name/key/reason alone — no bundle directory and no evidence repository ('
+    . trim($autoSign['stderr']) . ')'
+);
+cert_check(
+    !is_dir($autoSite . '/bundle') && !is_file($autoSite . '/bundle.json'),
+    'nothing was written but the certificate: an unexercised bundle lives entirely inside the signed statement'
+);
+
+putenv('DUO_MANIFESTS_DIR=' . $autoAgent);
+$autoCertPath = $autoSite . '/adapters/certifications/acme-shop.json';
+$autoVerified = AdapterCertification::verifyFile(
+    $autoAgent,
+    $autoSite,
+    'acme-shop',
+    $autoManifest,
+    $autoCertPath
+);
+$autoClaim = $autoVerified['claim'];
+cert_check(
+    ($autoClaim['status'] ?? null) === 'certified'
+        && ($autoClaim['certification']['trust_root'] ?? null) === 'site'
+        && ($autoClaim['certification']['principal'] ?? null) === 'acme-ops'
+        && ($autoClaim['evidence']['exercised'] ?? null) === false,
+    'the produced certificate verifies through the ordinary path and carries the site certification facts'
+);
+
+// The derivation, field by field — this is the part a host producer would
+// have had to reimplement, and every one of these is a restatement of the
+// manifest or of something a grammar check provably did not review.
+$autoCertificate = Canon::decode((string) file_get_contents($autoCertPath));
+$autoDisposition = $autoCertificate['statement']['ratification']['manifests']['acme-shop'];
+cert_check(
+    $autoDisposition['capabilities']['entity_sections'] === ['post_types', 'tables']
+        && $autoDisposition['capabilities']['field_sections'] === ['options'],
+    'sections are exactly the state surfaces the manifest declares, partitioned by the shipped vocabulary — got '
+    . Canon::encode([$autoDisposition['capabilities']['entity_sections'],
+        $autoDisposition['capabilities']['field_sections']])
+);
+cert_check(
+    !in_array('delete', $autoDisposition['capabilities']['operations'], true)
+        && $autoDisposition['capabilities']['deletion_semantics']['supported'] === []
+        && $autoDisposition['capabilities']['lifecycle_phases'] === [],
+    'deletion and lifecycle are claimed by nobody: a validator run reviews neither'
+);
+cert_check(
+    $autoDisposition['supported_versions'] === [
+        'plugin' => 'acme-shop/acme-shop.php',
+        'range' => ['max' => '3.0.0', 'min' => '1.0.0'],
+    ],
+    'supported_versions restates the manifest\'s own plugin/range, which validate_entry() compares'
+);
+$autoSurfaces = array_column($autoDisposition['unsupported'], 'surface');
+cert_check(
+    in_array('tables.acme_shop_index', $autoSurfaces, true) && in_array('deletions.*', $autoSurfaces, true),
+    'the intent-only table and the unreviewed deletion surface are both marked unsupported — got '
+    . implode(',', $autoSurfaces)
+);
+cert_check(
+    $autoDisposition['evidence']['tests'] === []
+        && $autoCertificate['statement']['bundle']['tests'] === []
+        && $autoCertificate['statement']['bundle']['artifacts'] === []
+        && $autoCertificate['statement']['bundle']['evidence'] === [
+            'exercised' => false,
+            'grammar' => 'ok',
+            'reason' => $autoReason,
+        ],
+    'the bundle names no test and no artifact, and says so in one place a reader cannot miss'
+);
+cert_check(
+    $autoCertificate['statement']['bundle']['git_revision'] === str_repeat('0', 40),
+    'the nil SHA binds no evidence repository, rather than borrowing the site repo HEAD as provenance it is not'
+);
+
+// A default_class: authored keyspace cannot be JUSTIFIED by a grammar check.
+$autoDefaultManifest = $autoManifest;
+$autoDefaultManifest['tables']['acme_shop_meta'] = [
+    'attached_to' => ['column' => 'id', 'table' => 'acme_shop_index'],
+    'class' => 'authored_snapshot_meta',
+    'default_class' => 'authored',
+    'key_column' => 'meta_key',
+    'keys' => new stdClass(),
+    'value_column' => 'meta_value',
+];
+cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoDefaultManifest);
+unlink($autoCertPath);
+$autoDefaultSign = cert_run([
+    'env', $autoEnv, PHP_BINARY, __DIR__ . '/../../scripts/adapter-certification.php', 'sign-site',
+    '--manifest-dir=' . $autoAgent, '--repo=' . $autoSite, '--name=acme-shop',
+    '--authority=acme-ops', '--secret-key-file=' . $autoRoot . '/acme-ops.key', '--reason=' . $autoReason,
+]);
+if ($autoDefaultSign['exit'] === 0) {
+    $autoDefaultRows = Canon::decode((string) file_get_contents($autoCertPath))
+        ['statement']['ratification']['manifests']['acme-shop']['default_authored_keyspaces'];
+    cert_check(
+        count($autoDefaultRows) === 1
+            && $autoDefaultRows[0]['table'] === 'acme_shop_meta'
+            && $autoDefaultRows[0]['status'] === 'unsupported',
+        'an open-ended authored default is RECORDED but never justified — justification is a review judgement '
+        . 'about a plugin-upgrade tripwire, and no exercise made one'
+    );
+} else {
+    cert_check(false, 'the default-authored keyspace fixture signs (' . trim($autoDefaultSign['stderr']) . ')');
+}
+cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoManifest);
+
+// The four ways sign_site() must refuse.
+$autoRefusals = [
+    'an agent-owned key cannot take this path' => [
+        ['--authority=review-key'],
+        'agent-owned key',
+        static function () use ($autoAgent, $keys): void {
+            $agentKeys = new stdClass();
+            $agentKeys->{'review-key'} = $keys->{'review-key'};
+            cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
+                'format' => 'duo-adapter-authorities/v1',
+                'keys' => $agentKeys,
+            ]);
+        },
+    ],
+    // Whitespace rather than empty: the tool's own argument grammar refuses an
+    // empty --reason= before the class is reached, so this drives the class's
+    // own rule instead of re-asserting the parser's.
+    'a blank reason is not a basis' => [['--reason=   '], 'must state its basis', null],
+];
+foreach ($autoRefusals as $autoLabel => [$autoExtra, $autoNeedle, $autoSetup]) {
+    if ($autoSetup !== null) {
+        $autoSetup();
+    }
+    $autoArgs = [
+        'env', $autoEnv, PHP_BINARY, __DIR__ . '/../../scripts/adapter-certification.php', 'sign-site',
+        '--manifest-dir=' . $autoAgent, '--repo=' . $autoSite, '--name=acme-shop',
+        '--authority=acme-ops', '--secret-key-file=' . $autoRoot . '/acme-ops.key', '--reason=' . $autoReason,
+    ];
+    foreach ($autoExtra as $autoFlag) {
+        [$autoKey] = explode('=', $autoFlag, 2);
+        $autoArgs = array_values(array_filter(
+            $autoArgs,
+            static fn(string $a): bool => !str_starts_with($a, $autoKey . '=')
+        ));
+        $autoArgs[] = $autoFlag;
+    }
+    $autoRun = cert_run($autoArgs);
+    cert_check(
+        $autoRun['exit'] !== 0 && str_contains($autoRun['stderr'], $autoNeedle),
+        "sign-site refuses: $autoLabel (" . trim($autoRun['stderr']) . ')'
+    );
+}
+cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
+    'format' => 'duo-adapter-authorities/v1',
+    'keys' => new stdClass(),
+]);
+
+// A manifest the loader refuses has no grammar verdict to certify. The
+// certificate written above is removed first, deliberately: leaving it would
+// make discover() refuse the SOURCE over a certificate that no longer binds
+// these bytes, and this check would pass on a message about the wrong thing.
+unlink($autoCertPath);
+// An incompatible spec_version, chosen because it is one of the few things
+// the loader genuinely refuses: a bad option class and an unknown top-level
+// key both LOAD today (verified), which is exactly why the signer's own
+// section classifier below has to exist.
+cert_write_canon($autoSite . '/adapters/acme-shop.json', [
+    'name' => 'acme-shop',
+    'option_autoload' => 'preserve',
+    'options' => ['acme_shop_layout' => ['class' => 'authored']],
+    'spec_version' => DUO_SPEC_VERSION + 97,
+]);
+$autoBroken = cert_run([
+    'env', $autoEnv, PHP_BINARY, __DIR__ . '/../../scripts/adapter-certification.php', 'sign-site',
+    '--manifest-dir=' . $autoAgent, '--repo=' . $autoSite, '--name=acme-shop',
+    '--authority=acme-ops', '--secret-key-file=' . $autoRoot . '/acme-ops.key', '--reason=' . $autoReason,
+]);
+cert_check(
+    $autoBroken['exit'] !== 0 && str_contains($autoBroken['stderr'], 'no grammar verdict to certify'),
+    'a manifest the real loader refuses is not signed — the grammar verdict is TAKEN from the loader, never '
+    . 'asserted by the signer (' . trim($autoBroken['stderr']) . ')'
+);
+
+// An unclassifiable section stops the signer instead of narrowing the claim.
+// Driven at the derivation directly rather than through the tool: a manifest
+// key the LOADER already refuses never reaches the signer, and the condition
+// this guard exists for is the opposite one — a future section kind the loader
+// accepts and this file has not been taught. Reflection is how that future is
+// reachable today.
+$autoDerive = new ReflectionMethod(AdapterCertification::class, 'siteRatification');
+cert_expect_throw(
+    static fn() => $autoDerive->invoke(
+        null,
+        'acme-shop',
+        $autoManifest + ['future_surface' => ['acme_next' => ['class' => 'authored']]],
+        $autoReason
+    ),
+    'cannot classify as an entity or field surface',
+    'a manifest section the signer cannot classify stops it rather than minting a certificate that covers less '
+    . 'than the adapter declares'
+);
+cert_write_canon($autoSite . '/adapters/acme-shop.json', $autoManifest);
+putenv('DUO_MANIFESTS_DIR');
 
 if ($failures !== 0) {
     fwrite(STDERR, "\n$failures site-adapter-certification regression assertion(s) failed\n");

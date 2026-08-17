@@ -763,6 +763,27 @@ separate reviewer operation:
    wp duo manifest-pin --repo=<site-repo> --name=<name>
    ```
 
+### Certifying under your own root
+
+Steps 1 and 3 above are the REVIEWER's path: a real conformance bundle on disk,
+signed with an agent-owned key. Under a site root there is no bundle to
+produce, and no step 1 — one command does the whole thing:
+
+```sh
+php scripts/adapter-certification.php sign-site \
+  --manifest-dir=manifests --repo=<site-repo> --name=<name> \
+  --authority=<key-id> --secret-key-file=<private-key> \
+  --reason='grammar verified by the site operator; not exercised'
+```
+
+(`duo adapter certify` is the host verb over the same entry point.) It derives
+the ratification from your manifest, runs the **real loader** for the grammar
+verdict — an adapter that does not load is refused with the loader's own
+message, because a certificate for bytes no command can use is the emptiest
+possible claim — builds the bundle in memory, and writes only
+`adapters/certifications/<name>.json`. There is no bundle directory to keep:
+an unexercised bundle's assets are already inside the signed statement.
+
 ### What a site-rooted certificate may prove
 
 A reviewer's bundle states a passing exercise. An operator certifying their own
@@ -771,7 +792,13 @@ adapter usually cannot produce one, so the bundle declares what it proves:
 `exercised: false` requires empty `tests` and `artifacts`, is accepted **only**
 under a site trust root, and rides onto the resulting claim — so `certified`
 never reads as "somebody ran it". `exercised: true` is the reviewer's shape and
-the only one an agent-owned key may sign. The full wire contract is
+the only one an agent-owned key may sign; `sign-site` refuses an agent-owned
+key by name.
+
+The derived ratification claims nothing an unexercised check cannot support:
+no `delete` operation, no lifecycle phases, every intent-only table marked
+unsupported, and every open-ended `default_class: authored` keyspace recorded
+`unsupported` rather than justified. The full wire contract is
 [round-3-adapter-walk-bundle.md](../proposals/round-3-adapter-walk-bundle.md).
 
 Every catalog and diagnostic row carries `trust_root` (`platform` for a shipped

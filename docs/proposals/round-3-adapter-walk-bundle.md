@@ -44,7 +44,44 @@ grammar of the shipped `manifests/capabilities/adapter-authorities.json`:
   whole-source refusal (`certification_source`), not one adapter's problem.
 - Both roots may be absent. Private keys never live in the repository.
 
-## 2. The bundle — `duo-site-adapter-certification-bundle/v1`
+## 2. The bundle — built by the agent, not by the host
+
+**`duo adapter certify` does not build a bundle.** It calls one entry point:
+
+```php
+\Duo\AdapterCertification::sign_site(
+    string $manifestDir,   // must resolve to the library this process loads
+    string $repo,          // site repository root
+    string $name,          // adapter name; adapters/<name>.json must exist
+    string $authorityId,   // key id, resolved against BOTH trust roots
+    string $secretKey,     // base64 or hex Ed25519 secret key bytes
+    string $reason         // the operator's stated basis; signed and reported
+): string                  // canonical duo-adapter-certification/v1 bytes
+```
+
+Write the returned bytes to `adapters/certifications/<name>.json`, then call
+`verifyFile()` to confirm and `certificateSummary()` to print. The offline tool
+does exactly that under `php scripts/adapter-certification.php sign-site
+--manifest-dir=… --repo=… --name=… --authority=… --secret-key-file=…
+--reason=…`, which is the reference implementation.
+
+`sign_site()` derives the ratification from the manifest, builds the
+unexercised bundle in memory, **runs the real loader** for the `grammar`
+verdict (a manifest that does not load is refused, with the loader's own
+message), verifies its own output through the same validator that will
+re-verify it at every load, and signs. Nothing is written to disk: an
+unexercised bundle's only assets are `environment.json` and `ratification.json`
+and both are already inside the signed statement, so there is no directory to
+keep and none to tamper with. There is no `--bundle` and no `--evidence-repo`.
+
+It refuses an agent-owned key by name: `exercised: false` follows the trust
+root, so a platform key certifies a reviewed exercise through `sign()` or
+nothing.
+
+The grammar below is therefore what the agent PRODUCES and verifies — read it
+to know what a certificate asserts, not to build one.
+
+## 2a. The bundle grammar — `duo-site-adapter-certification-bundle/v1`
 
 A directory holding `bundle.json` plus its assets. `bundle.json` and the
 `results/*.json` assets use the **four-space pretty** canonical encoding
@@ -106,10 +143,33 @@ inside `--evidence-repo`) and re-hashes them before the private key is used.
 For an unexercised bundle that means exactly `environment.json` and
 `ratification.json` must exist; `results/`, `diffs/`, `logs/` are absent.
 
-## 3. The ratification — `ratification.json`
+## 3. The ratification — derived, never authored
 
-Canonical `duo-manifest-dispositions/v1` naming exactly one manifest and no
-profiles:
+`sign_site()` derives it from the manifest. Every field is a restatement of
+something the manifest already declares, or of something a grammar check
+provably did not review:
+
+- `entity_sections` / `field_sections` — exactly the state surfaces the
+  manifest declares, partitioned by the shipped vocabulary. A manifest key in
+  neither list and not a known non-surface key **stops the signer by name**
+  rather than minting a certificate that covers less than the adapter does.
+- `operations` — `apply, capture, compile, deploy, plan, recapture`. No
+  `delete` (deletion semantics are what a validator run cannot review), no
+  `render-api` or `test-only` (reviewed runtime behaviours).
+- `deletion_semantics` — `supported: []`, and an `unsupported[]` row for
+  `deletions.*`.
+- `lifecycle_phases` — `[]`, for the same reason.
+- every `class: authored_typed_snapshot_post_v1` table gets a `tables.<t>`
+  `unsupported[]` row (ManifestDispositions requires it).
+- every `default_class: authored` table is recorded in
+  `default_authored_keyspaces` with status **`unsupported`**, never
+  `justified`: justification is a review judgement about a plugin-upgrade
+  tripwire, and no exercise made one.
+- `supported_versions` — `{plugin, range}` restating the manifest when it
+  declares a plugin (`validate_entry()` compares them), else
+  `{"source": "site-operator"}`.
+
+The resulting document, for reference:
 
 ```json
 {
@@ -152,7 +212,10 @@ Enforced, and each has bitten a fixture:
   and every cited test must exist as a passing bundle test otherwise.
 - The `ratification.json` asset descriptor must bind these exact bytes.
 
-## 4. Signing
+## 4. Signing a REVIEWED-exercise certificate
+
+This is the pre-existing path, unchanged, for an agent-owned key and a real
+conformance bundle on disk. A site certificate does not use it.
 
 ```
 php scripts/adapter-certification.php sign \
@@ -182,7 +245,9 @@ Output on stdout is canonical JSON:
 ```
 
 `verify` and `verify-frozen` print the same summary without
-`certificate_path`.
+`certificate_path`. `sign-site` prints the identical summary — a site
+certificate's summary carries `trust_root: "site"`, the `principal`, and
+`exercised: false`.
 
 ## 5. What the agent then emits
 
