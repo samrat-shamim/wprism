@@ -1,0 +1,119 @@
+{
+    "assess_digest": "sha256:c98d5666690ace0077053b2259400c2f471b3715eaae60b70e0a702cb3efc24a",
+    "authority": {
+        "read_only": true,
+        "repo": "/siterepo",
+        "transport": "docker"
+    },
+    "env": "awalk1",
+    "evidence": {
+        "bundles": [],
+        "generated_from": {
+            "compatibility_sha256": "sha256:8888888888888888888888888888888888888888888888888888888888888888",
+            "dispositions_sha256": "sha256:9999999999999999999999999999999999999999999999999999999999999999",
+            "evidence_sha256": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+        },
+        "registry_sha256": "sha256:8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f"
+    },
+    "format": "duo-assess-report/v1",
+    "generated_at": "2026-08-17T09:14:02Z",
+    "surfaces": [
+        {
+            "decided_by": "operator",
+            "handling": "manage",
+            "id": "post_type:wpforms",
+            "kind": "post_type",
+            "label": "post_type:wpforms",
+            "meaning": "form definitions the operator authors and Duo manages end to end",
+            "next_action": "nothing — supported",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Platform-certified",
+                    "conditions": [],
+                    "effect_containment": "prevented",
+                    "effect_containment_basis": "no WordPress hooks fire in the apply window",
+                    "effect_recovery_semantics": "provider-state restorable",
+                    "gap_action": "nothing — supported",
+                    "handling": "manage",
+                    "meaning": "form definitions the operator authors and Duo manages end to end",
+                    "principal": null,
+                    "readiness": "Ready",
+                    "remediation": null,
+                    "state_class": "authored",
+                    "trust_root": "platform"
+                }
+            },
+            "state_class": "authored"
+        },
+        {
+            "decided_by": "operator",
+            "handling": "manage",
+            "id": "post_type:acme_item",
+            "kind": "post_type",
+            "label": "post_type:acme_item",
+            "meaning": "catalog items the operator authors and Duo manages end to end",
+            "next_action": "nothing — supported",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Site-certified",
+                    "conditions": [],
+                    "effect_containment": "prevented",
+                    "effect_containment_basis": "no WordPress hooks fire in the apply window",
+                    "effect_recovery_semantics": "provider-state restorable",
+                    "gap_action": "nothing — supported",
+                    "handling": "manage",
+                    "meaning": "catalog items the operator authors and Duo manages end to end",
+                    "principal": "acme-ops-2026",
+                    "readiness": "Ready",
+                    "remediation": null,
+                    "state_class": "authored",
+                    "trust_root": "site"
+                }
+            },
+            "state_class": "authored"
+        },
+        {
+            "decided_by": "operator",
+            "handling": "manage",
+            "id": "post_type:product",
+            "kind": "post_type",
+            "label": "post_type:product",
+            "meaning": "authored catalog content Duo manages end to end",
+            "next_action": "nothing — supported",
+            "operations": {
+                "release": {
+                    "certification_provenance": "Site-certified",
+                    "conditions": [],
+                    "effect_containment": "prevented",
+                    "effect_containment_basis": "no WordPress hooks fire in the apply window",
+                    "effect_recovery_semantics": "provider-state restorable",
+                    "gap_action": "nothing — supported",
+                    "handling": "manage",
+                    "meaning": "authored catalog content Duo manages end to end",
+                    "principal": "acme-ops-2026",
+                    "readiness": "Ready",
+                    "remediation": null,
+                    "state_class": "authored",
+                    "trust_root": "site"
+                }
+            },
+            "state_class": "authored"
+        }
+    ],
+    "target": {
+        "database": {
+            "engine": "MariaDB",
+            "version": "11.8.8"
+        },
+        "home": "http://localhost:9500",
+        "php": "8.3.33",
+        "site_mode": "single-site",
+        "siteurl": "http://localhost:9500",
+        "wordpress": "6.8.2"
+    },
+    "unknown": {
+        "invisible_names_count": 0,
+        "names_sample": [],
+        "pending_count": 0
+    }
+}

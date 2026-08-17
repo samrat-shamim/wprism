@@ -1,0 +1,36 @@
+{
+    "convergence": {
+        "deletions": 0,
+        "entities": 118,
+        "status": "pass",
+        "verifier": "plan-reconciliation/v1"
+    },
+    "disclosures": [],
+    "environment": "awalk2",
+    "format": "duo-verify-report/v1",
+    "journeys": [
+        {
+            "detail": "expected HTTP 200, got 404",
+            "expect_contains": "Duo walk contact form",
+            "expect_status": 200,
+            "http_status": 404,
+            "id": "forms-index",
+            "ok": false,
+            "status": "fail",
+            "url": "/?post_type=wpforms"
+        },
+        {
+            "detail": "",
+            "expect_contains": "Duo walk landing page",
+            "expect_status": 200,
+            "http_status": 200,
+            "id": "landing-page",
+            "ok": true,
+            "status": "pass",
+            "url": "/?page_id=1"
+        }
+    ],
+    "plan_digest": "sha256:db2baef46fa7b631de5a7183e7b5de585883520b895febf1331f93780f2ed586",
+    "uncovered_surfaces": [],
+    "verdict": "fail"
+}

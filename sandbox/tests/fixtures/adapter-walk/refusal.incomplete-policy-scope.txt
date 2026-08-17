@@ -1,0 +1,3 @@
+Error: duo: registered or adapter-declared authored state exists outside policy scope (loud-and-blocking gate):
+  - post_type 'wpforms' has 2 capturable entities but is absent from policy.post_types; include it there, or record a deliberate exclusion with scope:post_type:wpforms=runtime|derived|env
+Run: wp duo pending --repo=/siterepo for evidence, then either add the type/taxonomy to policy scope or run wp duo classify --repo=/siterepo --set='scope:<kind>:<name>=<class>'.

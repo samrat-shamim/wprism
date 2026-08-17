@@ -1,0 +1,100 @@
+{
+    "_provenance": "agent/src/Command/Cli.php::adapter_survey() builds duo-adapter-catalog/v2 from AdapterSources::survey($repo) on the target. A bundled adapter's certification word is `uncertified` ALWAYS (certification binds source \"site\" and adapters/<name>.json inside the signed statement, so no certificate can name a bundled one); the promotion path is the remediation AdapterSources::diagnostics() carries for the plugin source.",
+    "adapters": [
+        {
+            "certification": "registry",
+            "disposition_status": "certified",
+            "grammar": {
+                "message": null,
+                "status": "ok"
+            },
+            "name": "core",
+            "path": "/duo-manifests/core.json",
+            "principal": null,
+            "sha256": "0d45f5fd462b8c70bffb10021ac1bcff3f58f29b1faf7568595095427d42812c",
+            "source": "shipped",
+            "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
+            "trust_root": "platform",
+            "trust_tier": "declarative"
+        },
+        {
+            "certification": "registry",
+            "disposition_status": "certified",
+            "grammar": {
+                "message": null,
+                "status": "ok"
+            },
+            "name": "woocommerce",
+            "path": "/duo-manifests/woocommerce.json",
+            "principal": null,
+            "sha256": "36546d452b5919cee4db4b19fd425246badb64d9fb61e16a1152458632d1d531",
+            "source": "shipped",
+            "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
+            "trust_root": "platform",
+            "trust_tier": "declarative"
+        },
+        {
+            "certification": "site_signed",
+            "disposition_status": null,
+            "grammar": {
+                "message": null,
+                "status": "ok"
+            },
+            "name": "acme-catalog",
+            "path": "/var/www/html/wp-content/plugins/acme-catalog/duo-adapter.json",
+            "principal": null,
+            "remediation": "install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp duo manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:\"site\",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout",
+            "sha256": "e2b28c143a19e5c00e12cd2e6e9341fa1a4b4cb761bdc96b00f31711abae9b7e",
+            "source": "plugin",
+            "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
+            "trust_root": null,
+            "trust_tier": "declarative"
+        }
+    ],
+    "command": "survey",
+    "deferred": [
+        {
+            "check": "CapabilityRegistry::report()",
+            "status": "deferred",
+            "surface": "dispositions.json / capabilities/registry.json against a target",
+            "why": "certification is evidence evaluated against one target revision and its installed versions"
+        }
+    ],
+    "format": "duo-adapter-catalog/v2",
+    "manifests_dir": "/duo-manifests",
+    "not_installed": [],
+    "refusals": [],
+    "repo": "/siterepo",
+    "sources": [
+        {
+            "note": "the agent manifest library that deploys with the agent",
+            "path": "/duo-manifests",
+            "scanned": true,
+            "source": "shipped"
+        },
+        {
+            "note": "the site repository's own adapters/ directory",
+            "path": "/siterepo/adapters",
+            "scanned": true,
+            "source": "site"
+        },
+        {
+            "note": "each active plugin's own duo-adapter.json",
+            "path": "/var/www/html/wp-content/plugins",
+            "scanned": true,
+            "source": "plugin"
+        }
+    ],
+    "spec_version": 2,
+    "status": "ok",
+    "summary": {
+        "adapters": 3,
+        "grammar_error": 0,
+        "grammar_unjudged": 0,
+        "not_installed": 0,
+        "plugin": 1,
+        "refusals": 0,
+        "shipped": 2,
+        "site": 0
+    }
+}

@@ -1,0 +1,89 @@
+{
+    "_provenance": "round-3-adapter-walk.md §3.2: `site_signed` is a valid certificate under a key in the site's adapters/authorities.json with an exact {name,source,digest} pin; every catalog row additionally exposes trust_root and principal. Hand-authored because the catalog is produced by AdapterSources::survey() against a live repository and no host-side builder can mint one offline.",
+    "adapters": [
+        {
+            "certification": "registry",
+            "disposition_status": "certified",
+            "grammar": {
+                "message": null,
+                "status": "ok"
+            },
+            "name": "core",
+            "path": "/duo-manifests/core.json",
+            "principal": null,
+            "sha256": "0d45f5fd462b8c70bffb10021ac1bcff3f58f29b1faf7568595095427d42812c",
+            "source": "shipped",
+            "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
+            "trust_root": "platform",
+            "trust_tier": "declarative"
+        },
+        {
+            "certification": "registry",
+            "disposition_status": "certified",
+            "grammar": {
+                "message": null,
+                "status": "ok"
+            },
+            "name": "woocommerce",
+            "path": "/duo-manifests/woocommerce.json",
+            "principal": null,
+            "sha256": "36546d452b5919cee4db4b19fd425246badb64d9fb61e16a1152458632d1d531",
+            "source": "shipped",
+            "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
+            "trust_root": "platform",
+            "trust_tier": "declarative"
+        },
+        {
+            "certification": "site_signed",
+            "disposition_status": null,
+            "grammar": {
+                "message": null,
+                "status": "ok"
+            },
+            "name": "wpforms",
+            "path": "/siterepo/adapters/wpforms.json",
+            "principal": "acme-ops-2026",
+            "sha256": "31cf705541d64e027847240fa58cf40c73d98698766ca5e456bde717cc7d9217",
+            "source": "site",
+            "tier_basis": "declarative-only: no interpreter, regenerator or manifest-sourced provider",
+            "trust_root": "site",
+            "trust_tier": "declarative"
+        }
+    ],
+    "command": "list",
+    "deferred": [
+        {
+            "check": "CapabilityRegistry::report()",
+            "status": "deferred",
+            "surface": "dispositions.json / capabilities/registry.json against a target",
+            "why": "certification is evidence evaluated against one target revision and its installed versions"
+        }
+    ],
+    "format": "duo-adapter-catalog/v2",
+    "manifests_dir": "/duo-manifests",
+    "not_installed": [],
+    "refusals": [],
+    "repo": "/siterepo",
+    "sources": [
+        {
+            "note": "the agent manifest library that deploys with the agent",
+            "path": "/duo-manifests",
+            "scanned": true,
+            "source": "shipped"
+        },
+        {
+            "note": "the site repository's own adapters/ directory",
+            "path": "/siterepo/adapters",
+            "scanned": true,
+            "source": "site"
+        },
+        {
+            "note": "an active plugin's bundled duo-adapter.json; not reachable from a WordPress-free host process",
+            "path": null,
+            "scanned": false,
+            "source": "plugin"
+        }
+    ],
+    "spec_version": 2,
+    "status": "ok"
+}
