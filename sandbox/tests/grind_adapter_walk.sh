@@ -1493,12 +1493,15 @@ seed_shop() {
   # answers `/?page_id=N` with a 301 to the pretty form — run 9's verify read
   # `expected HTTP 200, got 301` on a journey the walk had spelled by query.
   LANDING_PATH="/?page_id=$LANDING_ID"
-  local url base
+  local url path
   url="$(wp1 post list --post_type=page --name="$slug" --field=url | tr -d '\r' | head -1)"
-  base="http://127.0.0.1:$PORT1"
-  case "$url" in
-    "$base"*) LANDING_PATH="${url#"$base"}" ;;
-    *) note "the landing page URL '$url' is not under $base; probing by query string instead" ;;
+  # The site URL is whatever WordPress was installed with (pair.sh uses
+  # http://localhost:<port>); the journey is probed on 127.0.0.1:<port>, so
+  # only the PATH travels — strip the scheme and host, whatever they were.
+  path="$(printf '%s' "$url" | sed -E 's#^https?://[^/]+##')"
+  case "$path" in
+    /*) LANDING_PATH="$path" ;;
+    *) note "the landing page URL '$url' has no path; probing by query string instead" ;;
   esac
   return 0
 }
