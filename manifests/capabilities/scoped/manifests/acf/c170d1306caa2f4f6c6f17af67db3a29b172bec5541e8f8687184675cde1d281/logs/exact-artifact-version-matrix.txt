@@ -1,0 +1,307 @@
+
+[1;36m== boot pair rttwocert0 (rttwocert01 :9300 / rttwocert02 :9301), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    aad017aa4722c726839042e8e297991caf729fad
+  invoked from:   <source-root>/sandbox
+  expected SHA:   aad017aa4722c726839042e8e297991caf729fad (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly aad017aa4722c726839042e8e297991caf729fad, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rttwocert0': databases ==[0m
+[1;32mok: wp_rttwocert01, wp_rttwocert02 exist[0m
+
+[1;36m== pair 'rttwocert0': site-repo directories ==[0m
+
+[1;36m== pair 'rttwocert0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rttwocert0_wp2 Creating
+ Volume duo-rttwocert0_wp2 Created
+ Volume duo-rttwocert0_wp1 Creating
+ Volume duo-rttwocert0_wp1 Created
+ Container duo-rttwocert0-wp1-1 Creating
+ Container duo-rttwocert0-wp2-1 Creating
+ Container duo-rttwocert0-wp1-1 Created
+ Container duo-rttwocert0-wp2-1 Created
+ Container duo-rttwocert0-wp2-1 Starting
+ Container duo-rttwocert0-wp1-1 Starting
+ Container duo-rttwocert0-wp1-1 Started
+ Container duo-rttwocert0-wp2-1 Started
+ Container duo-rttwocert0-cli2-1 Creating
+ Container duo-rttwocert0-cli1-1 Creating
+ Container duo-rttwocert0-cli1-1 Created
+ Container duo-rttwocert0-cli2-1 Created
+ Container duo-rttwocert0-cli2-1 Starting
+ Container duo-rttwocert0-cli1-1 Starting
+ Container duo-rttwocert0-cli2-1 Started
+ Container duo-rttwocert0-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rttwocert0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rttwocert0': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-rttwocert0-cli1-run-d66243d27c9c Creating
+ Container duo-rttwocert0-cli1-run-d66243d27c9c Created
+Success: WordPress installed successfully.
+ Container duo-rttwocert0-cli1-run-3ca390813198 Creating
+ Container duo-rttwocert0-cli1-run-3ca390813198 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rttwocert0-cli1-run-f2d59b671037 Creating
+ Container duo-rttwocert0-cli1-run-f2d59b671037 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rttwocert0-cli1-run-c1605b14e73e Creating
+ Container duo-rttwocert0-cli1-run-c1605b14e73e Created
+ Container duo-rttwocert0-cli1-run-aa0c309a5853 Creating
+ Container duo-rttwocert0-cli1-run-aa0c309a5853 Created
+ Container duo-rttwocert0-cli1-run-2725b5d9e201 Creating
+ Container duo-rttwocert0-cli1-run-2725b5d9e201 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rttwocert0-cli1-run-31914169db8c Creating
+ Container duo-rttwocert0-cli1-run-31914169db8c Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9300)
+ Container duo-rttwocert0-cli2-run-104de8b6eabb Creating
+ Container duo-rttwocert0-cli2-run-104de8b6eabb Created
+Success: WordPress installed successfully.
+ Container duo-rttwocert0-cli2-run-a6bdedc2d73e Creating
+ Container duo-rttwocert0-cli2-run-a6bdedc2d73e Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rttwocert0-cli2-run-f6ae17ec02fb Creating
+ Container duo-rttwocert0-cli2-run-f6ae17ec02fb Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rttwocert0-cli2-run-58d672611d74 Creating
+ Container duo-rttwocert0-cli2-run-58d672611d74 Created
+ Container duo-rttwocert0-cli2-run-b76b427ae0bf Creating
+ Container duo-rttwocert0-cli2-run-b76b427ae0bf Created
+ Container duo-rttwocert0-cli2-run-828592304e65 Creating
+ Container duo-rttwocert0-cli2-run-828592304e65 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rttwocert0-cli2-run-144aab729b5d Creating
+ Container duo-rttwocert0-cli2-run-144aab729b5d Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9301)
+
+[1;36m== pair 'rttwocert0' ready ==[0m
+  wp1: http://localhost:9300 (published on host port 9300)
+  wp2: http://localhost:9301 (published on host port 9301)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rttwocert0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rttwocert0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rttwocert0 must stay exported, or pass -p duo-rttwocert0 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: acf 6.0.0 ==[0m
+ Container duo-rttwocert0-cli1-run-0768d0376b50 Creating
+ Container duo-rttwocert0-cli1-run-0768d0376b50 Created
+ Container duo-rttwocert0-cli1-run-1b7dbeb3f039 Creating
+ Container duo-rttwocert0-cli1-run-1b7dbeb3f039 Created
+ Container duo-rttwocert0-cli1-run-2dac82321672 Creating
+ Container duo-rttwocert0-cli1-run-2dac82321672 Created
+ Container duo-rttwocert0-cli1-run-9222fb6d62b3 Creating
+ Container duo-rttwocert0-cli1-run-9222fb6d62b3 Created
+ Container duo-rttwocert0-cli1-run-7eddacaa4648 Creating
+ Container duo-rttwocert0-cli1-run-7eddacaa4648 Created
+ Container duo-rttwocert0-cli1-run-3ce24fb13923 Creating
+ Container duo-rttwocert0-cli1-run-3ce24fb13923 Created
+ Container duo-rttwocert0-cli2-run-6fe5b5350faf Creating
+ Container duo-rttwocert0-cli2-run-6fe5b5350faf Created
+ Container duo-rttwocert0-cli2-run-354d282295d8 Creating
+ Container duo-rttwocert0-cli2-run-354d282295d8 Created
+ Container duo-rttwocert0-cli2-run-c1947deaeec7 Creating
+ Container duo-rttwocert0-cli2-run-c1947deaeec7 Created
+ Container duo-rttwocert0-cli2-run-3e908a97726e Creating
+ Container duo-rttwocert0-cli2-run-3e908a97726e Created
+ Container duo-rttwocert0-cli2-run-f56baf3bae24 Creating
+ Container duo-rttwocert0-cli2-run-f56baf3bae24 Created
+ Container duo-rttwocert0-cli2-run-5528bc262705 Creating
+ Container duo-rttwocert0-cli2-run-5528bc262705 Created
+
+[1;36m== fetch + verify acf 6.0.0 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rttwocert0-cli1-run-afaef359dde4 Creating
+ Container duo-rttwocert0-cli1-run-afaef359dde4 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.0.0 sha256=b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip
+ Container duo-rttwocert0-cli2-run-cd7c75964395 Creating
+ Container duo-rttwocert0-cli2-run-cd7c75964395 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.0.0 sha256=b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-advanced-custom-fields-6.0.0-b8732382b05dd4796751343734d8e2e15aef2e93a65b8b6b94b09439e3a40341.zip[0m
+ Container duo-rttwocert0-cli1-run-f9289cd34be5 Creating
+ Container duo-rttwocert0-cli1-run-f9289cd34be5 Created
+ Container duo-rttwocert0-cli1-run-dbaeaa51c9b1 Creating
+ Container duo-rttwocert0-cli1-run-dbaeaa51c9b1 Created
+[1;32mok: side 1: acf 6.0.0 installed from verified artifact, active[0m
+ Container duo-rttwocert0-cli1-run-dd1f52641932 Creating
+ Container duo-rttwocert0-cli1-run-dd1f52641932 Created
+acf seed: {"group":1,"target":3,"content":4}
+ Container duo-rttwocert0-cli1-run-c9cb98372f06 Creating
+ Container duo-rttwocert0-cli1-run-c9cb98372f06 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (acf 6.0.0)[0m
+ Container duo-rttwocert0-cli1-run-c6a8cae136a7 Creating
+ Container duo-rttwocert0-cli1-run-c6a8cae136a7 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rttwocert0-cli2-run-058d2bdc458b Creating
+ Container duo-rttwocert0-cli2-run-058d2bdc458b Created
+ Container duo-rttwocert0-cli2-run-7eaf4f478e41 Creating
+ Container duo-rttwocert0-cli2-run-7eaf4f478e41 Created
+ Container duo-rttwocert0-cli2-run-b669cf9fa7db Creating
+ Container duo-rttwocert0-cli2-run-b669cf9fa7db Created
+activated: advanced-custom-fields/acf.php
+Success: 1 activated, 0 deactivated
+ Container duo-rttwocert0-cli2-run-54cfeb44cd79 Creating
+ Container duo-rttwocert0-cli2-run-54cfeb44cd79 Created
+Success: applied 7 entities (canary clean) — plan was: {"create":4,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":1}
+Warning: adopted env term 1 as 01a00f49-ffb5-732c-93eb-3a1a6d334b89 (terms/category/01a00f49-ffb5-732c-93eb-3a1a6d334b89--uncategorized.json)
+[1;32mok: deploy + apply succeeded on side 2 (acf 6.0.0, canary clean)[0m
+ Container duo-rttwocert0-cli2-run-a9f767785d6d Creating
+ Container duo-rttwocert0-cli2-run-a9f767785d6d Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at acf 6.0.0 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: acf 6.8.7 ==[0m
+ Container duo-rttwocert0-cli1-run-708b04f330b8 Creating
+ Container duo-rttwocert0-cli1-run-708b04f330b8 Created
+ Container duo-rttwocert0-cli1-run-19c40e61c592 Creating
+ Container duo-rttwocert0-cli1-run-19c40e61c592 Created
+ Container duo-rttwocert0-cli1-run-0735230e8b65 Creating
+ Container duo-rttwocert0-cli1-run-0735230e8b65 Created
+ Container duo-rttwocert0-cli1-run-cb5bf78fbe60 Creating
+ Container duo-rttwocert0-cli1-run-cb5bf78fbe60 Created
+ Container duo-rttwocert0-cli1-run-1422ea5f203d Creating
+ Container duo-rttwocert0-cli1-run-1422ea5f203d Created
+ Container duo-rttwocert0-cli1-run-45003f814e60 Creating
+ Container duo-rttwocert0-cli1-run-45003f814e60 Created
+ Container duo-rttwocert0-cli2-run-4d66708fea5c Creating
+ Container duo-rttwocert0-cli2-run-4d66708fea5c Created
+ Container duo-rttwocert0-cli2-run-30e10853c720 Creating
+ Container duo-rttwocert0-cli2-run-30e10853c720 Created
+ Container duo-rttwocert0-cli2-run-dc304455c4c4 Creating
+ Container duo-rttwocert0-cli2-run-dc304455c4c4 Created
+ Container duo-rttwocert0-cli2-run-9bc873affd89 Creating
+ Container duo-rttwocert0-cli2-run-9bc873affd89 Created
+ Container duo-rttwocert0-cli2-run-3b75f8642121 Creating
+ Container duo-rttwocert0-cli2-run-3b75f8642121 Created
+ Container duo-rttwocert0-cli2-run-b05303d398ea Creating
+ Container duo-rttwocert0-cli2-run-b05303d398ea Created
+
+[1;36m== fetch + verify acf 6.8.7 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rttwocert0-cli1-run-e636110700d8 Creating
+ Container duo-rttwocert0-cli1-run-e636110700d8 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-rttwocert0-cli2-run-05b66255629c Creating
+ Container duo-rttwocert0-cli2-run-05b66255629c Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip[0m
+ Container duo-rttwocert0-cli1-run-965805561eb5 Creating
+ Container duo-rttwocert0-cli1-run-965805561eb5 Created
+ Container duo-rttwocert0-cli1-run-e14305992900 Creating
+ Container duo-rttwocert0-cli1-run-e14305992900 Created
+[1;32mok: side 1: acf 6.8.7 installed from verified artifact, active[0m
+ Container duo-rttwocert0-cli1-run-e3a80a04f46f Creating
+ Container duo-rttwocert0-cli1-run-e3a80a04f46f Created
+acf seed: {"group":1,"target":3,"content":4}
+ Container duo-rttwocert0-cli1-run-225b8386c35f Creating
+ Container duo-rttwocert0-cli1-run-225b8386c35f Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (acf 6.8.7)[0m
+ Container duo-rttwocert0-cli1-run-ca95c6447ce7 Creating
+ Container duo-rttwocert0-cli1-run-ca95c6447ce7 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rttwocert0-cli2-run-fea624c143e3 Creating
+ Container duo-rttwocert0-cli2-run-fea624c143e3 Created
+ Container duo-rttwocert0-cli2-run-f8c393629bbd Creating
+ Container duo-rttwocert0-cli2-run-f8c393629bbd Created
+ Container duo-rttwocert0-cli2-run-2c49add2bd60 Creating
+ Container duo-rttwocert0-cli2-run-2c49add2bd60 Created
+activated: advanced-custom-fields/acf.php
+Success: 1 activated, 0 deactivated
+ Container duo-rttwocert0-cli2-run-fcabb074e934 Creating
+ Container duo-rttwocert0-cli2-run-fcabb074e934 Created
+Warning: adopted env term 1 as 01a00f4c-8456-7322-b4bc-a1814022d055 (terms/category/01a00f4c-8456-7322-b4bc-a1814022d055--uncategorized.json)
+Success: applied 7 entities (canary clean) — plan was: {"create":4,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":6,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (acf 6.8.7, canary clean)[0m
+ Container duo-rttwocert0-cli2-run-f0bf48dc7403 Creating
+ Container duo-rttwocert0-cli2-run-f0bf48dc7403 Created
+Success: captured 4 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at acf 6.8.7 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: acf 5.12.6 (real wp.org release, genuinely below manifests/acf.json's own declared min 6.0.0) must be REFUSED, not silently accepted ==[0m
+ Container duo-rttwocert0-cli1-run-abf8c7d61c09 Creating
+ Container duo-rttwocert0-cli1-run-abf8c7d61c09 Created
+ Container duo-rttwocert0-cli1-run-eed4e6d5145d Creating
+ Container duo-rttwocert0-cli1-run-eed4e6d5145d Created
+ Container duo-rttwocert0-cli1-run-dccca9e43d56 Creating
+ Container duo-rttwocert0-cli1-run-dccca9e43d56 Created
+ Container duo-rttwocert0-cli1-run-7508188b3fba Creating
+ Container duo-rttwocert0-cli1-run-7508188b3fba Created
+ Container duo-rttwocert0-cli1-run-aa726b71b946 Creating
+ Container duo-rttwocert0-cli1-run-aa726b71b946 Created
+ Container duo-rttwocert0-cli1-run-ff374fee1d4f Creating
+ Container duo-rttwocert0-cli1-run-ff374fee1d4f Created
+ Container duo-rttwocert0-cli1-run-1c97579fc426 Creating
+ Container duo-rttwocert0-cli1-run-1c97579fc426 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=5.12.6 sha256=66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-5.12.6-66499016b3864e507139be16319ef9c5026a399a4b1e7630c75eee4bfe3122a6.zip
+ Container duo-rttwocert0-cli1-run-12335084166e Creating
+ Container duo-rttwocert0-cli1-run-12335084166e Created
+ Container duo-rttwocert0-cli1-run-81ad9aa9963f Creating
+ Container duo-rttwocert0-cli1-run-81ad9aa9963f Created
+ Container duo-rttwocert0-cli1-run-a222b0501c31 Creating
+ Container duo-rttwocert0-cli1-run-a222b0501c31 Created
+Success: captured 0 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-rttwocert0-cli1-run-b39108220a91 Creating
+ Container duo-rttwocert0-cli1-run-b39108220a91 Created
+Error: duo: deploy refused — code_mismatch:
+
+  - advanced-custom-fields/acf.php 5.12.6 is active in this environment, outside the 'acf' manifest's declared version_range (>=6.0.0 <7.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: acf 5.12.6 (real, installed, genuinely below the declared min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'rttwocert0': destroy ==[0m
+ Container duo-rttwocert0-wp2-1 Stopping
+ Container duo-rttwocert0-wp1-1 Stopping
+ Container duo-rttwocert0-cli1-1 Stopping
+ Container duo-rttwocert0-cli2-1 Stopping
+ Container duo-rttwocert0-cli1-1 Stopped
+ Container duo-rttwocert0-cli1-1 Removing
+ Container duo-rttwocert0-cli2-1 Stopped
+ Container duo-rttwocert0-cli2-1 Removing
+ Container duo-rttwocert0-cli2-1 Removed
+ Container duo-rttwocert0-cli1-1 Removed
+ Container duo-rttwocert0-wp2-1 Stopped
+ Container duo-rttwocert0-wp2-1 Removing
+ Container duo-rttwocert0-wp2-1 Removed
+ Container duo-rttwocert0-wp1-1 Stopped
+ Container duo-rttwocert0-wp1-1 Removing
+ Container duo-rttwocert0-wp1-1 Removed
+ Volume duo-rttwocert0_wp1 Removing
+ Volume duo-rttwocert0_wp2 Removing
+ Volume duo-rttwocert0_wp1 Removed
+ Volume duo-rttwocert0_wp2 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_rttwocert01/wp_rttwocert02 dropped[0m
+  siterepo/rttwocert0{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed rttwocert0 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m
