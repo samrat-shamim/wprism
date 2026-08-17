@@ -1,0 +1,10 @@
+{
+  "status": "clean",
+  "manifest": "polylang",
+  "diffs": [
+    "in-range-recapture"
+  ],
+  "negative_controls": [
+    "below-range-refused"
+  ]
+}
