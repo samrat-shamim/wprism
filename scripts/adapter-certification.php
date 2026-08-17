@@ -10,6 +10,10 @@ declare(strict_types=1);
  *     --manifest-dir=manifests --repo=/site/repository --name=example \
  *     --bundle=/review/bundle --evidence-repo=/review/checkout \
  *     --authority=review-key --secret-key-file=/secure/review-key
+ *   php scripts/adapter-certification.php sign-site \
+ *     --manifest-dir=manifests --repo=/site/repository --name=example \
+ *     --authority=acme-ops --secret-key-file=/secure/acme-ops \
+ *     --reason='grammar verified by the site operator; not exercised'
  *   php scripts/adapter-certification.php verify \
  *     --manifest-dir=manifests --repo=/site/repository --name=example
  *   php scripts/adapter-certification.php verify-frozen \
@@ -215,6 +219,34 @@ try {
             fwrite(STDOUT, Canon::encode($summary));
             break;
 
+        case 'sign-site':
+            // The site profile builds its own bundle (AdapterCertification::
+            // sign_site()), so there is no --bundle and no --evidence-repo to
+            // pass: an unexercised bundle's assets are already inside the
+            // signed statement and never exist as files.
+            cert_cli_require($args, [
+                'manifest-dir', 'repo', 'name', 'authority', 'secret-key-file', 'reason',
+            ]);
+            AdapterCertification::certificatePath($args['repo'], $args['name']);
+            $secret = cert_cli_secret_file($args['secret-key-file']);
+            $certificate = AdapterCertification::sign_site(
+                $args['manifest-dir'],
+                $args['repo'],
+                $args['name'],
+                $args['authority'],
+                $secret,
+                $args['reason']
+            );
+            $path = cert_cli_write_certificate($args['repo'], $args['name'], $certificate);
+            $paths = cert_cli_adapter_paths($args['repo'], $args['name']);
+            $verified = AdapterCertification::verifyFile(
+                $args['manifest-dir'], $args['repo'], $args['name'], cert_cli_manifest($paths['adapter']), $path
+            );
+            $summary = AdapterCertification::certificateSummary($verified);
+            $summary['certificate_path'] = 'adapters/certifications/' . $args['name'] . '.json';
+            fwrite(STDOUT, Canon::encode($summary));
+            break;
+
         case 'verify':
             cert_cli_require($args, ['manifest-dir', 'repo', 'name']);
             $paths = cert_cli_adapter_paths($args['repo'], $args['name']);
@@ -245,7 +277,9 @@ try {
             break;
 
         default:
-            throw new RuntimeException("unknown command '$command'; expected sign, verify, or verify-frozen");
+            throw new RuntimeException(
+                "unknown command '$command'; expected sign, sign-site, verify, or verify-frozen"
+            );
     }
 } catch (Throwable $e) {
     fwrite(STDERR, 'adapter certification: ' . $e->getMessage() . "\n");

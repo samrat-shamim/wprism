@@ -963,15 +963,17 @@ foreach (['certification_source', 'certificate_invalid', 'out_of_tree_privilege'
 // reads the same state rather than inventing a parallel vocabulary.
 $surveySource = (string) file_get_contents($repo . '/agent/src/Adapter/AdapterSources.php');
 check(
-    str_contains($surveySource, "? 'third_party_signed' : 'signed_unpinned'")
+    str_contains($surveySource, "return 'signed_unpinned';")
+    && str_contains($surveySource, "? self::CERTIFICATION_SITE_SIGNED")
+    && str_contains($surveySource, ": 'third_party_signed';")
     && str_contains($surveySource, '$sources->is_certified($name)'),
-    "survey() derives a site row's certification from is_certified() and the explicit-pin state — the same two "
-    . 'facts diagnostics() uses for `wp duo capabilities`, so the two surfaces cannot disagree about whether an '
-    . 'adapter is signed'
+    "survey() derives a site row's certification from is_certified(), the explicit-pin state and the verified "
+    . 'trust root — the same three facts diagnostics() uses for `wp duo capabilities`, so the two surfaces '
+    . 'cannot disagree about whether an adapter is signed or about which root vouched'
 );
 check(
-    str_contains($surveySource, "&& \$grammar['status'] === self::GRAMMAR_OK")
-    && str_contains($surveySource, "? 'third_party_signed'"),
+    str_contains($surveySource, "\$grammar['status'] !== self::GRAMMAR_OK")
+    && str_contains($surveySource, "return 'signed_unpinned';"),
     "ELEVATION IS GATED ON THE ROW'S OWN GRAMMAR. bind_explicit_pins() checks the digest's SHAPE, never its value; "
     . 'the engine compares the value and refuses the repository when it disagrees, so a well-formed but WRONG '
     . '64-hex pin would otherwise read as promotion-ready third-party evidence in a catalog while every real '

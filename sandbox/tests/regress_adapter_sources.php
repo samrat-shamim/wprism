@@ -672,6 +672,95 @@ putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // on the first command that happens to pin it.
 check(true, '(each refusal above fired while the offending adapter was NOT pinned)');
 
+// ======================================================================
+echo "\n== T6 §3.3: an explicit site pin OVERRIDES a shipped adapter ==\n";
+// ======================================================================
+// The refusals above are what an operator hits when they say nothing. This is
+// what they get when they say it: the same colliding file, plus a pin that
+// names the source, selects the site copy — and the shipped copy is reported
+// rather than silently losing.
+$overrideRepo = fresh_site(
+    [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+    ['woocommerce' => site_adapter('woocommerce')]
+);
+$overridePolicy = Policy::load($overrideRepo);
+$overrideSources = $overridePolicy->adapter_sources();
+check(
+    $overrideSources->source('woocommerce') === AdapterSources::SITE
+        && $overrideSources->path('woocommerce') === 'adapters/woocommerce.json',
+    'the explicit {name, source:"site"} pin selects the site copy for a SHIPPED name — got '
+    . $overrideSources->source('woocommerce') . ' at ' . var_export($overrideSources->path('woocommerce'), true)
+);
+$overrideNames = array_map(
+    static fn(array $m): string => (string) ($m['name'] ?? ''),
+    $overridePolicy->manifests
+);
+check(
+    count(array_keys($overrideNames, 'woocommerce', true)) === 1,
+    'exactly ONE definition answers to the overridden name in the loaded set, so CrossManifestGuards see no '
+    . 'manufactured conflict between the shipped and site copies'
+);
+check(
+    ($overrideSources->diagnostics($overridePolicy->manifests)['woocommerce']['certification'] ?? null)
+        === 'uncertified',
+    'the site copy carries the SITE\'s own certification words — an override never inherits the shipped '
+    . "adapter's reviewed registry claim"
+);
+$overrideSurvey = AdapterSources::survey($overrideRepo);
+$shadowRow = null;
+foreach ($overrideSurvey['not_installed'] as $row) {
+    if (($row['name'] ?? null) === 'woocommerce') {
+        $shadowRow = $row;
+    }
+}
+check(
+    is_array($shadowRow)
+        && $shadowRow['reason_code'] === AdapterSources::CERTIFICATION_SHADOWED_BY_SITE
+        && $shadowRow['source'] === AdapterSources::SHIPPED
+        && ($shadowRow['winner']['source'] ?? null) === AdapterSources::SITE
+        && ($shadowRow['winner']['path'] ?? null) === 'adapters/woocommerce.json',
+    'the displaced shipped copy is reported shadowed_by_site, naming the site copy that won — never silently '
+    . 'absent (' . var_export($shadowRow['reason_code'] ?? null, true) . ')'
+);
+$overrideCatalogNames = array_column($overrideSurvey['adapters'], 'source', 'name');
+check(
+    ($overrideCatalogNames['woocommerce'] ?? null) === AdapterSources::SITE,
+    'the catalog lists the site copy once, under the overridden name'
+);
+check(
+    $overrideSurvey['refusals'] === [],
+    'an explicitly pinned override raises NO refusal — got '
+    . implode(',', array_column($overrideSurvey['refusals'], 'code'))
+);
+// The three ways an override must NOT be available, each a separate fail-safe.
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], 'woocommerce'],
+        ['woocommerce' => site_adapter('woocommerce')]
+    )),
+    'shadows the shipped adapter',
+    'a NAME-ONLY pin is not an override: precedence stays shipped > site > plugin and the refusal stands'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'shipped']],
+        ['woocommerce' => site_adapter('woocommerce')]
+    )),
+    'shadows the shipped adapter',
+    'a pin that names the SHIPPED source for a shadowed name is not an override either'
+);
+$brokenPolicyRepo = fresh_site(
+    [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+    ['woocommerce' => site_adapter('woocommerce')]
+);
+file_put_contents($brokenPolicyRepo . '/site.duo.json', "{ not json");
+expect_throw(
+    fn() => Policy::load($brokenPolicyRepo),
+    'invalid JSON',
+    'an unreadable site.duo.json yields NO overrides — the override reader fails closed, so a broken policy '
+    . 'file can never silently swap which definition is in force'
+);
+
 // DUO-3371: PINNING that same shipped manifest is now itself a refusal. Until
 // this issue the shipped side kept the freedom DUO-3314 removed from the site
 // side, so one adapter answered to its file name in the disposition registry's

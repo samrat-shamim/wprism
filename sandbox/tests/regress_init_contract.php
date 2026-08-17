@@ -460,20 +460,31 @@ check(
     $agentInit->getFileName() === realpath(__DIR__ . '/../../agent/src/Init/Init.php')
         && $publicAgentInitMethods === ['confirm', 'proposal']
         && $proposalMethod->isPublic() && $proposalMethod->isStatic()
-        && count($proposalParameters) === 1
+        && count($proposalParameters) === 2
         && $proposalParameters[0]->getName() === 'repo'
         && (string) $proposalParameters[0]->getType() === 'string'
+        && $proposalParameters[1]->getName() === 'allowUnmanagedPlugins'
+        && (string) $proposalParameters[1]->getType() === 'bool'
+        && $proposalParameters[1]->isDefaultValueAvailable()
+        && $proposalParameters[1]->getDefaultValue() === false
         && (string) $proposalMethod->getReturnType() === 'array'
         && $confirmMethod->isPublic() && $confirmMethod->isStatic()
-        && count($confirmParameters) === 2
+        && count($confirmParameters) === 3
         && $confirmParameters[0]->getName() === 'repo'
         && (string) $confirmParameters[0]->getType() === 'string'
         && $confirmParameters[1]->getName() === 'expectedDigest'
         && (string) $confirmParameters[1]->getType() === 'string'
-        && (string) $confirmMethod->getReturnType() === 'array'
-        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo);')
-        && str_contains($initFacadeSource, 'return InitConfirmation::run($repo, $expectedDigest);'),
-    'target Init facade preserves its exact public API and delegates both operations to their owning collaborators'
+        && $confirmParameters[2]->getName() === 'allowUnmanagedPlugins'
+        && (string) $confirmParameters[2]->getType() === 'bool'
+        && $confirmParameters[2]->getDefaultValue() === false
+        && (string) $proposalMethod->getReturnType() === 'array'
+        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo, $allowUnmanagedPlugins);')
+        && str_contains(
+            $initFacadeSource,
+            'return InitConfirmation::run($repo, $expectedDigest, $allowUnmanagedPlugins);'
+        ),
+    'target Init facade preserves its exact public API — now with the reviewed unmanaged-plugin decision, '
+    . 'defaulted off — and delegates both operations to their owning collaborators'
 );
 
 require_once __DIR__ . '/../../agent/src/Init/InitAttemptJournal.php';
@@ -575,7 +586,7 @@ check(
 );
 check(
     str_contains($plannerSource, 'InitRepositoryBoundary::root_blocker($logicalRepo)')
-        && str_contains($plannerSource, "return self::proposal_bound('.', \$logicalRepo, \$binding['identity'])")
+        && str_contains($plannerSource, "return self::proposal_bound(\n                '.',\n                \$logicalRepo,\n                \$binding['identity'],")
         && str_contains($confirmationSource, "\$repo = '.';")
         && str_contains($repositorySource, 'self::freshLstat($repo)'),
     'proposal and confirmation bind a freshly inspected ordinary repository inode before child traversal'
@@ -1785,5 +1796,103 @@ try {
     rmdir($nestedAdapterRepo . '/adapters');
     rmdir($nestedAdapterRepo);
 }
+
+// =====================================================================
+// T6 §3.4 — the reviewed unmanaged-plugin decision.
+//
+// proposal_bound() needs a live WordPress for everything around this
+// (SELECT VERSION(), the ledger probe, the code inventory walk), so the ONE
+// decision the flag changes is its own private seam and is exercised
+// directly. What is asserted here is the whole of it: which plugins are
+// selected, which row each unselected plugin gets, and that the flag relaxes
+// exactly one reason code.
+// =====================================================================
+$pluginSelection = new ReflectionMethod(\Duo\InitPlanner::class, 'plugin_selection');
+$activeFixture = ['acme-catalog/acme-catalog.php', 'wpforms-lite/wpforms.php', 'woocommerce/woocommerce.php'];
+$ownersFixture = [
+    'woocommerce/woocommerce.php' => ['woocommerce'],
+    'acme-catalog/acme-catalog.php' => ['acme-catalog', 'acme-catalog-alt'],
+];
+
+$blocked = $pluginSelection->invoke(null, $activeFixture, $ownersFixture, false);
+check(
+    $blocked['selected'] === ['woocommerce'],
+    'without the flag only a plugin with exactly one declaring adapter is selected'
+);
+check(
+    array_column($blocked['unsupported'], 'code') === ['ambiguous_plugin_adapter', 'active_plugin_without_adapter']
+        && $blocked['advisories'] === [],
+    'an unmanaged plugin still blocks init by default, alongside the ambiguous one'
+);
+$unmanagedRow = $blocked['unsupported'][1];
+check(
+    $unmanagedRow['extension'] === 'wpforms-lite/wpforms.php'
+        && $unmanagedRow['remediation']
+            === 'rerun duo init --allow-unmanaged-plugins to leave it unmanaged, or install/certify an '
+                . 'adapter (duo adapter certify)',
+    'the blocker names the flag AND the certification verb — before T6 it named only "install or review one '
+    . 'versioned adapter", which no operator could finish'
+);
+
+$allowed = $pluginSelection->invoke(null, $activeFixture, $ownersFixture, true);
+check(
+    $allowed['selected'] === ['woocommerce'],
+    'the flag selects nothing extra: an unmanaged plugin is still not managed'
+);
+check(
+    array_column($allowed['unsupported'], 'code') === ['ambiguous_plugin_adapter'],
+    'the flag relaxes exactly active_plugin_without_adapter — an ambiguous adapter is a different fact and '
+    . 'leaving it unmanaged is not its remedy'
+);
+check(
+    count($allowed['advisories']) === 1
+        && $allowed['advisories'][0]['code'] === 'active_plugin_without_adapter'
+        && $allowed['advisories'][0]['kind'] === 'plugin'
+        && $allowed['advisories'][0]['extension'] === 'wpforms-lite/wpforms.php',
+    'the unmanaged plugin is reported by name and reason code as an advisory, never silently dropped'
+);
+check(
+    str_contains($allowed['advisories'][0]['remediation'], 'plugin:wpforms-lite')
+        && str_contains($allowed['advisories'][0]['remediation'], 'nothing about this plugin is written by init'),
+    'the advisory says nothing is written and points at the assess surface that carries the decision'
+);
+check(
+    \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
+        && str_contains(
+            (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php'),
+            '[--allow-unmanaged-plugins]'
+        )
+        && str_contains(
+            (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php'),
+            "\$allowUnmanagedPlugins = isset(\$assoc['allow-unmanaged-plugins']);"
+        ),
+    'the wp-cli assoc key, the documented option and InitPlanner\'s own constant are one spelling — Cli.php '
+    . 'uses the literal so the command surface does not drag the Init loader graph into every process that '
+    . 'opens it, and this check is what keeps the two from drifting'
+);
+
+$blockerRow = new ReflectionMethod(\Duo\InitPlanner::class, 'capability_blocker_row');
+$uncertified = $blockerRow->invoke(null, [
+    'code' => 'adapter_source_uncertified',
+    'name' => 'acme-catalog',
+    'reason' => "'acme-catalog' is installed from the site adapter source and is uncertified by construction",
+    'remediation' => 'obtain an externally signed certificate from an authority trusted by this agent',
+    'source' => 'site',
+    'trust_tier' => 'declarative_manifest',
+]);
+check(
+    $uncertified['remediation']
+        === 'certify it with duo adapter certify <site-repo> --name=acme-catalog, or remove it, then rerun duo init',
+    'an installed-but-uncertified adapter blocks init with the certify-or-remove instruction, in that order'
+);
+$otherBlocker = $blockerRow->invoke(null, [
+    'code' => 'authored_state_not_certified',
+    'name' => 'woocommerce',
+    'remediation' => 'regenerate the reviewed capability registry',
+]);
+check(
+    $otherBlocker['remediation'] === 'regenerate the reviewed capability registry',
+    'every other capability blocker keeps the reviewed registry\'s own remediation byte-for-byte'
+);
 
 echo "REGRESS_INIT_CONTRACT PASSED\n";
