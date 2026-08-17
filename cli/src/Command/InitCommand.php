@@ -25,17 +25,26 @@ final class InitCommand {
         callable $readLine
     ): int {
         $yes = false;
+        $allowUnmanagedPlugins = false;
         foreach ($extra as $arg) {
             if ($arg === '--yes') {
                 $yes = true;
                 continue;
             }
-            fwrite(STDERR, "duo: init accepts only --yes; unsupported argument '$arg'\n");
+            if ($arg === Init::ALLOW_UNMANAGED_PLUGINS) {
+                $allowUnmanagedPlugins = true;
+                continue;
+            }
+            fwrite(
+                STDERR,
+                "duo: init accepts only --yes and " . Init::ALLOW_UNMANAGED_PLUGINS
+                    . "; unsupported argument '$arg'\n"
+            );
             return 1;
         }
 
         try {
-            $proposal = Init::proposal($transport);
+            $proposal = Init::proposal($transport, $allowUnmanagedPlugins);
         } catch (InitRefusalException $e) {
             fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
             $renderRefusal($e->refusal);
@@ -67,7 +76,10 @@ final class InitCommand {
         }
 
         try {
-            $result = Init::confirm($transport, $digest);
+            // The same flag on the confirmation. The proposal digest binds
+            // the plan the flag produced, so the target has to re-plan under
+            // the same rules or the bind fails — see Init::ALLOW_UNMANAGED_PLUGINS.
+            $result = Init::confirm($transport, $digest, $allowUnmanagedPlugins);
         } catch (InitRefusalException $e) {
             fwrite(STDERR, 'duo: ' . $e->getMessage() . "\n");
             $renderRefusal($e->refusal);

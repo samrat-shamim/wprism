@@ -25,6 +25,15 @@ declare(strict_types=1);
  * body.  The class verifies all bundle assets and evidence-repository bound
  * inputs before the private key is used, then this command immediately
  * verifies the written certificate through the live verifier.
+ *
+ * The two mutation-boundary primitives -- the atomic derived-path certificate
+ * write and the mode-checked secret-key read -- now live in
+ * cli/src/Adapter/AdapterCertify.php, which `duo adapter certify` (round-3 T6
+ * SS3.5) is built on.  This script keeps its own reviewer-facing argument
+ * grammar and its `--bundle`/`--evidence-repo` inputs, which the operator verb
+ * deliberately does not expose; it just stopped carrying a second copy of the
+ * hardening.  One copy means a fix to the 0600 check or the atomic rename
+ * lands for both callers at once.
  */
 
 $repoRoot = dirname(__DIR__);
@@ -41,9 +50,11 @@ if (!defined('DUO_AGENT_VERSION') || !defined('DUO_SPEC_VERSION')) {
 }
 
 require_once $repoRoot . '/agent/src/Adapter/AdapterCertification.php';
+require_once $repoRoot . '/cli/src/Adapter/AdapterCertify.php';
 
 use Duo\AdapterCertification;
 use Duo\Canon;
+use Duo\Orchestrator\AdapterCertify;
 
 /** @return array{0:string,1:array<string,string>} */
 function cert_cli_args(array $argv): array {
@@ -128,66 +139,21 @@ function cert_cli_canonical_object(string $path, string $label): array {
     return $decoded;
 }
 
-function cert_cli_certificate_dir(string $repo): string {
-    $root = realpath($repo);
-    if ($root === false || !is_dir($root)) {
-        throw new RuntimeException("site repository is absent or not a directory: $repo");
-    }
-    $adapters = $root . '/adapters';
-    if (!is_dir($adapters) || is_link($adapters) || realpath($adapters) !== $adapters) {
-        throw new RuntimeException('site adapters must be a real adapters directory inside the repository');
-    }
-    $directory = $adapters . '/certifications';
-    if (!file_exists($directory) && !mkdir($directory, 0755)) {
-        throw new RuntimeException("cannot create certification directory: $directory");
-    }
-    if (!is_dir($directory) || is_link($directory) || realpath($directory) !== $directory) {
-        throw new RuntimeException('site adapter certifications must be a real certifications directory inside adapters');
-    }
-    return $directory;
-}
-
+/**
+ * The certificate write and the secret-key read are AdapterCertify's, not this
+ * script's: `duo adapter certify` performs the same two mutations under the
+ * same rules, and a second implementation of an atomic write or a 0600 check is
+ * a second thing to get wrong.  See that class for what each one refuses.
+ */
 function cert_cli_write_certificate(string $repo, string $name, string $certificate): string {
-    $directory = cert_cli_certificate_dir($repo);
-    $root = realpath($repo);
-    if ($root === false) {
-        throw new RuntimeException("site repository became unavailable while writing its certification: $repo");
-    }
-    $path = AdapterCertification::certificatePath($root, $name);
-    if (dirname($path) !== $directory) {
-        throw new RuntimeException('derived certification path escapes the canonical site certification directory');
-    }
-    $temporary = tempnam($directory, '.duo-certification-');
-    if ($temporary === false) {
-        throw new RuntimeException('cannot allocate a temporary certification file');
-    }
-    try {
-        if (file_put_contents($temporary, $certificate, LOCK_EX) === false
-            || !chmod($temporary, 0644)
-            || !rename($temporary, $path)) {
-            throw new RuntimeException("cannot atomically write certification: $path");
-        }
-    } finally {
-        if (is_file($temporary)) {
-            unlink($temporary);
-        }
-    }
-    return $path;
+    return AdapterCertify::writeCertificate($repo, $name, $certificate);
 }
 
 function cert_cli_secret_file(string $path): string {
-    if (!is_file($path) || is_link($path)) {
-        throw new RuntimeException("secret-key-file must be a regular non-symlink file: $path");
-    }
-    $permissions = fileperms($path);
-    if ($permissions === false || (($permissions & 0077) !== 0)) {
-        throw new RuntimeException("secret-key-file must not be group/world accessible: $path");
-    }
-    $secret = file_get_contents($path);
-    if ($secret === false || $secret === '') {
-        throw new RuntimeException("cannot read secret-key-file: $path");
-    }
-    return $secret;
+    // The class returns RAW key bytes; AdapterCertification::sign() takes the
+    // encoded form it decodes itself, so re-encode rather than widening the
+    // signer's input grammar for one caller.
+    return base64_encode(AdapterCertify::readSecretKey($path));
 }
 
 try {

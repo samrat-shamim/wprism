@@ -22,14 +22,27 @@ namespace Duo\Orchestrator;
  * projection rather than merely documented, because each one is a promise
  * MUP makes in prose that a future edit could silently break:
  *
- *   - `Site-certified` is never emitted. The certification gate is deferred
- *     (MUP §7/§8); the contract carries an `unsigned` attestation, so a
- *     site-scoped claim projects `Uncertified`. This is MUP §3.2's "single
- *     most important honesty property of the whole round".
  *   - `sandboxed` is never emitted. MUP has no egress control, so the value
  *     is not structurally provable (MUP §1.5).
  *   - `compensatable` is never emitted. It needs a declared compensation
  *     action, which does not exist (MUP §1.6).
+ *
+ * `Site-certified` was the third of those properties for the whole of MUP,
+ * and round-3 T6 §3.2 is what earned it. It is emitted now, and ONLY on the
+ * exact fact that makes it true: the governing claim is `certified` with
+ * `current` evidence AND its certification came from a site certificate
+ * (`certification.source == "site"`). That certificate is an Ed25519
+ * signature over the adapter's exact bytes under a key in a trust root the
+ * site or the agent owns — a fact, verified by
+ * `AdapterCertification::verifyFile()` before it ever reaches this class,
+ * not a declaration that certified itself.
+ *
+ * What it does NOT mean is stated on the row rather than left to be
+ * inferred: `Site-certified` is customer-organization approval, explicitly
+ * not a Duo endorsement, and the contract's own `attestation.state` is
+ * still `unsigned` (MUP §3.2's honesty property survives, narrowed to the
+ * thing that is still true). `ANNOTATION_SITE_CERTIFIED_PREFIX` is how the
+ * human view says both in one line.
  *
  * The class is pure and static: no I/O, no clock, no globals. A malformed
  * fact vector raises \InvalidArgumentException, not a command refusal —
@@ -85,17 +98,46 @@ final class ProjectionVocabulary {
         'not applicable', 'provider-state restorable', 'compensatable', 'irreversible', 'unknown',
     ];
 
-    /** MUP §2.1 item 4: the closed smallest-safe-next-action set. */
+    /**
+     * MUP §2.1 item 4 + T6 §3.6: the closed smallest-safe-next-action set.
+     *
+     * `certify adapter` is T6's addition and it exists because `install
+     * adapter` was being printed at operators who had ALREADY installed one.
+     * An adapter that is present but uncertified, or signed but not exactly
+     * pinned, is not a missing adapter — it is one signature or one pin away,
+     * and `duo adapter certify` is the literal command. Telling that operator
+     * to install an adapter was telling them to redo the thing they just did.
+     *
+     * `qualify in rehearsal` stays in the set and is NOT emitted by this
+     * profile (T6 §3.6). Rehearsal states it cannot qualify anything, so
+     * every place that used to reach for it now names the action that can
+     * actually close the gap. It stays in the set rather than being deleted
+     * because a stored projection written by an earlier build carries it, and
+     * `GapActions::assertMember()` must keep accepting one.
+     */
     public const GAP_ACTIONS = [
         'classify', 'declare in contract', 'qualify in rehearsal', 'exclude',
-        'provision env value', 'install adapter', 'nothing — supported',
+        'provision env value', 'install adapter', 'certify adapter', 'nothing — supported',
     ];
 
     /**
      * Words this profile structurally cannot earn. Checked on every
      * projection; see the class docblock for why each one is absent.
      */
-    public const NEVER_EMITTED = ['Site-certified', 'sandboxed', 'compensatable'];
+    public const NEVER_EMITTED = ['sandboxed', 'compensatable'];
+
+    /**
+     * Fact-vector keys T6 added that a caller may omit.
+     *
+     * `assertFacts()` is strict on purpose — a silently-defaulted fact is a
+     * silently-wrong projection. These two are the stated exception and the
+     * reason is that their absence is not ambiguous: no `probable_owner` and
+     * no `certification` block both mean exactly "nobody attributed/vouched
+     * for this", which is the same thing an explicit null says. A present
+     * value of the wrong TYPE is still refused.
+     */
+    public const OPTIONAL_FACTS = ['probable_owner'];
+    public const OPTIONAL_REGISTRY_FACTS = ['certification'];
 
     /** MUP §1.5's literal basis string for `prevented`. */
     public const CONTAINMENT_BASIS_PREVENTED = 'no WordPress hooks fire in the apply window';
@@ -119,10 +161,32 @@ final class ProjectionVocabulary {
     public const ANNOTATION_PROVIDER_NEGOTIATION_UNMET =
         'the provider negotiation condition is unmet: it blocks until the named code is resolved';
 
-    /** MUP §1.4 row 2 / §3.2: site certification is deferred, so it projects Uncertified. */
-    public const ANNOTATION_SITE_CERTIFICATION_DEFERRED =
-        'site certification is deferred in this profile: the contract carries an unsigned attestation, '
-        . 'so a site-scoped claim projects Uncertified';
+    /**
+     * MUP §1.4 row 2: signed evidence that is not a CERTIFIED claim.
+     *
+     * Reached only after the `Site-certified` test above has failed, so a
+     * real signature is present and something else is missing: usually the
+     * exact `{name,source,digest}` pin (the engine reports `signed_unpinned`
+     * and the claim never reaches `certified`), sometimes evidence that went
+     * stale. Both are one operator command away, and the gap action says
+     * which. Without this annotation the row would print `Uncertified` beside
+     * a valid certificate with nothing explaining the gap.
+     */
+    public const ANNOTATION_SITE_SIGNED_UNPINNED =
+        'this adapter carries valid signed evidence that is not a certified claim: its repository pin does not '
+        . 'bind both source "site" and the certificate-derived digest, or its evidence is no longer current';
+
+    /**
+     * T6 §3.6's literal sentence, printed once per principal.
+     *
+     * Both halves are load-bearing. The first names WHO approved (an
+     * organization, not Duo). The second keeps MUP §3.2's honesty property
+     * alive in its still-true form: the application contract itself carries
+     * no machine-legible signature, so a certified adapter does not make the
+     * operator's contract a signed document.
+     */
+    public const ANNOTATION_SITE_CERTIFIED_PREFIX = 'certified by ';
+    public const ANNOTATION_SITE_CERTIFIED_SUFFIX = '; contract attestation unsigned';
 
     /** The §1.6 consequence, stated on the row it blocks. */
     public const ANNOTATION_CONTAINMENT_BLOCK =
@@ -169,18 +233,43 @@ final class ProjectionVocabulary {
     ];
 
     /**
+     * T6 §3.6: `Not qualified` causes an OPERATOR can close with a signature.
+     *
+     * `adapter_source_uncertified` is the registry's word for "installed
+     * out-of-tree, carries no reviewed certification evidence".
+     * `adapter_certification_unpinned` is its word for the `signed_unpinned`
+     * catalog state — a valid certificate whose repository pin does not bind
+     * both source and the certificate-derived digest
+     * (agent/src/Adapter/CapabilityRegistry.php:366). Both are one
+     * `duo adapter certify … --pin` away; neither is a missing adapter.
+     */
+    public const BLOCKERS_CERTIFIABLE = [
+        'adapter_source_uncertified', 'adapter_certification_unpinned',
+    ];
+
+    /**
      * Project one surface × operation into the spec's vocabulary.
      *
      * @param array<string,mixed> $facts the exact fact vector documented in
      *        MUP §1 and in this round's shared interface; see assertFacts()
      *        for the closed key set and the per-key types.
      * @return array<string,mixed> keys: state_class, handling, readiness,
-     *         certification_provenance, effect_containment,
+     *         certification_provenance, certification_principal,
+     *         certification_trust_root, effect_containment,
      *         effect_containment_basis, effect_recovery_semantics,
-     *         conditions, remediation, meaning, annotations.
+     *         conditions, blockers, probable_owner, remediation, meaning,
+     *         annotations.
      */
     public static function project(array $facts): array {
         self::assertFacts($facts);
+        // The two T6 additions default rather than being required, so a
+        // caller describing a contract-declared surface (ContractProjection)
+        // is not forced to write down two nulls it has no opinion about.
+        // assertFacts() still refuses a WRONGLY-TYPED one — the strictness
+        // that matters is about a fact that is present and wrong, not about
+        // a fact nobody has.
+        $facts += ['probable_owner' => null];
+        $facts['registry'] += ['certification' => null];
 
         /** @var array<string,mixed> $registry */
         $registry = $facts['registry'];
@@ -259,18 +348,41 @@ final class ProjectionVocabulary {
             $negotiation,
             $conditions,
             $unsupportedReason,
-            (bool) $facts['rebuild_declared']
+            (bool) $facts['rebuild_declared'],
+            array_values($registry['blockers'])
         );
+
+        /** @var array<string,mixed>|null $certification */
+        $certification = is_array($registry['certification'] ?? null) ? $registry['certification'] : null;
 
         $projection = [
             'state_class' => $stateClass,
             'handling' => $handling,
             'readiness' => $readiness,
             'certification_provenance' => $provenance,
+            // T6 §3.6: the projection EXPOSES who vouched and under whose
+            // trust root. Carried whenever the claim has a certification
+            // block, not only when the provenance word came out
+            // `Site-certified` — a `signed_unpinned` row names its principal
+            // too, and that is exactly the operator who needs to know which
+            // key to re-pin against.
+            'certification_principal' => is_string($certification['principal'] ?? null)
+                ? $certification['principal']
+                : null,
+            'certification_trust_root' => is_string($certification['trust_root'] ?? null)
+                ? $certification['trust_root']
+                : null,
             'effect_containment' => $containment,
             'effect_containment_basis' => $containmentBasis,
             'effect_recovery_semantics' => $recovery,
             'conditions' => $conditions,
+            // The registry blocker codes that drove `readiness`. gapAction()
+            // is a pure function OF A PROJECTION (AuthorizationPlan re-derives
+            // one from a stored projection.json, with no fact vector in
+            // reach), so the facts it now needs to tell `certify adapter`
+            // from `install adapter` have to travel on the projection itself.
+            'blockers' => array_values($registry['blockers']),
+            'probable_owner' => $facts['probable_owner'] === null ? null : (string) $facts['probable_owner'],
             'remediation' => $remediation,
             'meaning' => self::meaningFor($stateClass, $handling),
             'annotations' => array_values(array_unique($annotations)),
@@ -282,18 +394,32 @@ final class ProjectionVocabulary {
     }
 
     /**
-     * The smallest safe next action for one projected row (MUP §2.1 item 4).
+     * The smallest safe next action for one projected row (MUP §2.1 item 4,
+     * rewritten by T6 §3.6).
      *
-     * Two of the seven words are close enough to need a stated rule.
-     * `classify` and `qualify in rehearsal` both answer "unclassified", and
-     * MUP's own two worked examples (§2.1's `custom catalog tbl` row and
-     * §3.2's `acme_catalog` declaration) both print `qualify in rehearsal`
-     * for an unclassified *custom table* — a surface whose containment is
-     * unknown. The distinguishing fact is therefore containment: an
-     * unclassified surface Duo can only reach inside the hook-free apply
-     * window is one classification rule away (`classify`, the `duo pending`
-     * remedy), while one whose effects are unknown needs a rehearsal to
-     * learn anything at all.
+     * Every word this returns has to be a command the operator can actually
+     * run today, and T6 found two that were not.
+     *
+     * **`qualify in rehearsal` is gone from the emitted set.** MUP's own
+     * worked examples printed it for an unclassified custom table, and
+     * rehearsal states in its own output that it cannot qualify anything —
+     * so the most urgent row on a real site's assessment named an action
+     * that does not exist. What DOES close that gap depends on why the
+     * surface is unknown: if some active plugin probably owns it, the answer
+     * is an adapter that models it (`install adapter`); if nothing owns it,
+     * the answer is a classification rule (`classify`). `probable_owner` is
+     * the fact that splits them, and it comes from `Coverage`'s own
+     * attribution rather than from anything guessed here.
+     *
+     * **`install adapter` was being printed at operators who had one.** An
+     * adapter that is installed but uncertified (`adapter_source_uncertified`)
+     * or signed but not exactly pinned (`signed_unpinned`) is one signature
+     * or one pin from Ready, and `duo adapter certify` is the command.
+     * `certify adapter` is that row's word. The same word answers
+     * `Requalification required` and `Experimental`, whose registry causes
+     * (`evidence_not_current`, `revision_not_certified`,
+     * `profile_evidence_not_current`, a candidate/experimental claim) all
+     * resolve the same way: get current certification evidence.
      *
      * @param array<string,mixed> $projection a project() result
      */
@@ -310,6 +436,13 @@ final class ProjectionVocabulary {
         $conditions = is_array($projection['conditions'] ?? null)
             ? array_values($projection['conditions'])
             : [];
+        /** @var list<string> $blockers */
+        $blockers = is_array($projection['blockers'] ?? null)
+            ? array_values($projection['blockers'])
+            : [];
+        $probableOwner = is_string($projection['probable_owner'] ?? null) && $projection['probable_owner'] !== ''
+            ? $projection['probable_owner']
+            : null;
 
         if ($handling === 'preserve local') {
             // The handling IS the resolution: the surface stays on the
@@ -323,7 +456,17 @@ final class ProjectionVocabulary {
             return 'exclude';
         }
         if ($stateClass === 'unclassified') {
-            return $containment === 'unknown' ? 'qualify in rehearsal' : 'classify';
+            // T6 §3.6. Unknown containment means nothing modelled this
+            // surface, and the honest remedy depends on whether anything
+            // COULD have: an active plugin that probably owns it is an
+            // adapter waiting to be written, while an unowned surface is a
+            // classification rule. A known-containment unclassified surface
+            // is the ordinary `duo classify` queue either way.
+            if ($containment === 'unknown' && $probableOwner !== null) {
+                return 'install adapter';
+            }
+
+            return 'classify';
         }
         if ($handling === 'block') {
             // Both remaining block causes — an external surface with no
@@ -333,9 +476,20 @@ final class ProjectionVocabulary {
             return 'declare in contract';
         }
         if ($readiness === 'Requalification required' || $readiness === 'Experimental') {
-            return 'qualify in rehearsal';
+            // Evidence that expired, a revision outside what was certified,
+            // or a candidate claim. One remedy: current certification
+            // evidence. Rehearsal cannot produce it and never could.
+            return 'certify adapter';
         }
         if ($readiness === 'Not qualified') {
+            // The adapter EXISTS and is one signature or one pin short —
+            // `duo adapter certify <site-repo> --name=<n> --pin` closes both.
+            // Anything else at `Not qualified` genuinely has no adapter
+            // modelling the surface.
+            if (array_intersect($blockers, self::BLOCKERS_CERTIFIABLE) !== []) {
+                return 'certify adapter';
+            }
+
             return 'install adapter';
         }
         if (in_array(self::ANNOTATION_PROVIDER_NEGOTIATION_UNMET, $annotations, true)) {
@@ -597,15 +751,36 @@ final class ProjectionVocabulary {
      * @param list<string> $annotations
      */
     private static function projectProvenance(array $registry, array &$annotations): string {
+        $certified = (string) ($registry['claim_status'] ?? '') === 'certified'
+            && (string) ($registry['evidence_status'] ?? '') === 'current';
+        /** @var array<string,mixed>|null $certification */
+        $certification = is_array($registry['certification'] ?? null) ? $registry['certification'] : null;
+
+        // T6 §3.2/§3.3. The test is the CLAIM's own certification block, not
+        // the adapter's source: `site_signed` and `third_party_signed` differ
+        // in which trust root vouched, and both are a site certificate, so
+        // both read `Site-certified`. A signed override of a shipped name is
+        // therefore never `Platform-certified` — the platform did not review
+        // the operator's copy, and saying it did would be the one lie this
+        // whole projection exists to prevent.
+        if ($certified && ($certification['source'] ?? null) === 'site') {
+            $principal = is_string($certification['principal'] ?? null) && $certification['principal'] !== ''
+                ? $certification['principal']
+                : 'an unnamed site authority';
+            $trustRoot = is_string($certification['trust_root'] ?? null) && $certification['trust_root'] !== ''
+                ? $certification['trust_root']
+                : 'site';
+            $annotations[] = self::ANNOTATION_SITE_CERTIFIED_PREFIX . $principal
+                . ' (' . $trustRoot . ' trust root)' . self::ANNOTATION_SITE_CERTIFIED_SUFFIX;
+
+            return 'Site-certified';
+        }
         if ((bool) $registry['site_certified']) {
-            $annotations[] = self::ANNOTATION_SITE_CERTIFICATION_DEFERRED;
+            $annotations[] = self::ANNOTATION_SITE_SIGNED_UNPINNED;
 
             return 'Uncertified';
         }
-        if ((string) ($registry['source'] ?? '') === 'shipped'
-            && (string) ($registry['claim_status'] ?? '') === 'certified'
-            && (string) ($registry['evidence_status'] ?? '') === 'current'
-        ) {
+        if ((string) ($registry['source'] ?? '') === 'shipped' && $certified) {
             return 'Platform-certified';
         }
 
@@ -692,6 +867,7 @@ final class ProjectionVocabulary {
      *
      * @param list<string> $negotiation
      * @param list<string> $conditions
+     * @param list<string> $blockers registry blocker codes behind $readiness
      */
     private static function projectRemediation(
         string $stateClass,
@@ -700,15 +876,24 @@ final class ProjectionVocabulary {
         array $negotiation,
         array $conditions,
         ?string $unsupportedReason,
-        bool $rebuildDeclared
+        bool $rebuildDeclared,
+        array $blockers = []
     ): ?string {
         if ($readiness === 'Unsupported') {
             return 'exclude this surface from the operation; Duo refuses it for a stated reason'
                 . ($unsupportedReason === null ? '' : ': ' . $unsupportedReason);
         }
         if ($stateClass === 'unclassified') {
-            // MUP §3.3's literal remediation for the unclassified row.
-            return 'qualify in rehearsal, or declare it out of scope in the contract';
+            // Was MUP §3.3's "qualify in rehearsal, or declare it out of
+            // scope". T6 §3.6 retires the first half everywhere, remediation
+            // prose included: rehearsal states it cannot qualify anything, so
+            // an operator who followed that sentence spent an afternoon
+            // proving it. The two things that DO close an unclassified row
+            // are a rule that classifies it and a declaration that scopes it
+            // out, and where a plugin probably owns it, an adapter is what
+            // writes the rule.
+            return 'install or author an adapter that models this surface, classify it, '
+                . 'or declare it out of scope in the contract';
         }
         if ($stateClass === 'external' && $handling === 'block') {
             return 'declare a re-synchronization action in a manifest, or declare this surface '
@@ -726,11 +911,19 @@ final class ProjectionVocabulary {
             return 're-certify the pinned evidence, then re-run assess';
         }
         if ($readiness === 'Experimental') {
-            return 'qualify in rehearsal; experimental evidence never authorizes production, '
-                . 'including through a conditional path';
+            return 'obtain non-experimental certification evidence; experimental evidence never authorizes '
+                . 'production, including through a conditional path';
         }
         if ($readiness === 'Not qualified') {
-            return 'qualify in rehearsal, or install an adapter that registers this surface';
+            // Same split the gap action makes, in prose. An adapter that is
+            // installed but uncertified/unpinned needs a signature, not
+            // another adapter — see BLOCKERS_CERTIFIABLE.
+            if (array_intersect($blockers, self::BLOCKERS_CERTIFIABLE) !== []) {
+                return 'certify the installed adapter and pin it exactly: '
+                    . 'duo adapter certify <site-repo> --name=<adapter> --secret-key-file=<key> --pin';
+            }
+
+            return 'install or author an adapter that registers this surface';
         }
         if ($negotiation !== []) {
             return 'resolve the provider negotiation problem(s) ' . implode(', ', $negotiation)
@@ -764,6 +957,12 @@ final class ProjectionVocabulary {
             'rebuild_declared' => 'bool',
             'resync_declared' => 'bool',
             'unsupported_reason' => '?string',
+            // T6 §3.6: `Coverage`'s own plugin attribution for this surface,
+            // or null. Optional in the vector (defaulted below) because every
+            // caller outside SurfaceCatalog is describing a surface a
+            // contract declared, where no attribution exists and none is
+            // wanted.
+            'probable_owner' => '?string',
         ];
         $objects = ['registry', 'containment', 'recovery'];
         $known = array_merge(array_keys($scalars), $objects, ['provider_negotiation']);
@@ -775,6 +974,9 @@ final class ProjectionVocabulary {
         }
         foreach ($scalars as $key => $type) {
             if (!array_key_exists($key, $facts)) {
+                if (in_array($key, self::OPTIONAL_FACTS, true)) {
+                    continue;
+                }
                 throw new \InvalidArgumentException("projection facts: missing key '$key'");
             }
             $value = $facts[$key];
@@ -810,8 +1012,8 @@ final class ProjectionVocabulary {
 
         self::assertKeys($facts['registry'], [
             'claim_status', 'evidence_status', 'verdict_status', 'blockers',
-            'conditions', 'source', 'site_certified',
-        ], 'registry');
+            'conditions', 'source', 'site_certified', 'certification',
+        ], 'registry', self::OPTIONAL_REGISTRY_FACTS);
         self::assertKeys($facts['containment'], [
             'apply_window_only', 'lifecycle_touch', 'provider_touch', 'declared_live',
         ], 'containment');
@@ -827,20 +1029,31 @@ final class ProjectionVocabulary {
         if (!is_bool($facts['registry']['site_certified'])) {
             throw new \InvalidArgumentException('projection facts: registry.site_certified must be a bool');
         }
+        $certification = $facts['registry']['certification'] ?? null;
+        if ($certification !== null && (!is_array($certification) || array_is_list($certification))) {
+            throw new \InvalidArgumentException(
+                'projection facts: registry.certification must be null or a claim certification object'
+            );
+        }
     }
 
     /**
      * @param array<string,mixed> $value
      * @param list<string> $keys
      */
-    private static function assertKeys(array $value, array $keys, string $label): void {
+    /**
+     * @param array<string,mixed> $value
+     * @param list<string> $keys
+     * @param list<string> $optional keys a caller may omit; see OPTIONAL_FACTS
+     */
+    private static function assertKeys(array $value, array $keys, string $label, array $optional = []): void {
         foreach (array_keys($value) as $key) {
             if (!in_array($key, $keys, true)) {
                 throw new \InvalidArgumentException("projection facts: unknown key '$label.$key'");
             }
         }
         foreach ($keys as $key) {
-            if (!array_key_exists($key, $value)) {
+            if (!array_key_exists($key, $value) && !in_array($key, $optional, true)) {
                 throw new \InvalidArgumentException("projection facts: missing key '$label.$key'");
             }
         }

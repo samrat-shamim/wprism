@@ -342,10 +342,15 @@ duo_check_same(
     $proposal['contract']['declarations']['surfaces'][1]['operations'],
     'an Unsupported surface proposes no operation'
 );
+// The fixture report hands this row `qualify in rehearsal` verbatim, and the
+// proposal carries it through unchanged. T6 §3.6 stopped EMITTING that word
+// while keeping it in the closed set for exactly this reason: a stored
+// document written by an earlier build must still validate and still round
+// trip, rather than becoming a schema error an operator cannot fix.
 duo_check_same(
     'qualify in rehearsal',
     $proposal['contract']['declarations']['surfaces'][2]['next_action'],
-    'an unresolved surface carries its next action'
+    'a retired-but-valid gap action from an older report round trips unchanged'
 );
 duo_check_same(
     [['surface' => 'orders', 'operation' => 'capture',

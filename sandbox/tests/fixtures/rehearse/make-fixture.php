@@ -211,7 +211,9 @@ $surfaces = [
         'effect_recovery_semantics' => 'unknown',
         'meaning' => 'nothing classified this state, so nothing may write it',
         'annotations' => [ProjectionVocabulary::ANNOTATION_UNCLASSIFIED_NOT_QUALIFIED],
-    ]), 'qualify in rehearsal'),
+        // T6 §3.6: an unclassified surface with no probable owning plugin is
+        // a classification rule away, not a rehearsal away.
+    ]), 'classify'),
     // in scope through the lifecycle window, NOT through an entity kind
     rf_surface('option_group:core:managed', 'option_group', 'Plugins and themes', rf_projection([
         'effect_containment' => 'unknown',
@@ -240,16 +242,24 @@ $surfaces = [
     ]), 'exclude'),
     // OUT of scope: the plan touches no `user_meta`
     rf_surface('user_meta:core:authored', 'user_meta', 'User profile fields', rf_projection([])),
-    // in scope, and Experimental: the disclosure blocks authorizing it here
+    // in scope, and Experimental: the disclosure blocks authorizing it here.
+    // T6 §3.6: the gap action is `certify adapter`, not `qualify in
+    // rehearsal` — which is exactly the point this fixture exists to make.
+    // Rehearsal is where this surface is being LOOKED at and it still cannot
+    // qualify it; naming rehearsal as the remedy on a rehearsal screen was
+    // the sharpest version of the contradiction.
     rf_surface('post_type:tribe_events', 'post_type', 'Events', rf_projection([
         'readiness' => 'Experimental',
         'meaning' => 'proven only against a candidate evidence profile',
-    ]), 'qualify in rehearsal'),
-    // in scope, and Uncertified: the disclosure blocks authorizing it here
+    ]), 'certify adapter'),
+    // in scope, and Uncertified: the disclosure blocks authorizing it here.
+    // The signed-but-unpinned case — a real certificate whose pin does not
+    // bind it — which is the only signed state left projecting `Uncertified`
+    // after T6 §3.2.
     rf_surface('post_type:acme_thing', 'post_type', 'Acme things', rf_projection([
         'certification_provenance' => 'Uncertified',
-        'annotations' => [ProjectionVocabulary::ANNOTATION_SITE_CERTIFICATION_DEFERRED],
-    ]), 'install adapter'),
+        'annotations' => [ProjectionVocabulary::ANNOTATION_SITE_SIGNED_UNPINNED],
+    ]), 'certify adapter'),
 ];
 
 $flags = JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR;

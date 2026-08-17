@@ -23,6 +23,8 @@ final class InitCommandTransport extends Transport {
     /** @var list<array{exit:int,stdout:string,stderr:string}> */
     private array $responses;
     public int $captureCalls = 0;
+    /** @var list<list<string>> every wp argv this transport was handed, in order */
+    public array $requests = [];
 
     /** @param list<array{exit:int,stdout:string,stderr:string}> $responses */
     public function __construct(array $responses, string $repo = '/fixture/repo') {
@@ -36,6 +38,7 @@ final class InitCommandTransport extends Transport {
 
     public function captureWp(array $wpArgs): array {
         ++$this->captureCalls;
+        $this->requests[] = array_values(array_map('strval', $wpArgs));
         return array_shift($this->responses)
             ?? ['exit' => 97, 'stdout' => '', 'stderr' => 'unexpected extra init command request'];
     }
@@ -253,5 +256,114 @@ $statusFailureExit = InitCommand::run(
 $statusFailureOutput = (string) ob_get_clean();
 check_init_command($statusFailureExit === 7, 'post-confirmation status failures propagate their exact exit');
 check_init_command(!str_contains($statusFailureOutput, 'Managed state scope is clean.'), 'status failure stops before init next steps');
+
+// ------------------------------------------------- T6 §3.4: --allow-unmanaged-plugins
+
+$exit = InitCommand::run(
+    new InitCommandTransport([]),
+    ['--allow-unmanaged-plugins', '--unsupported'],
+    $renderRefusal,
+    $statusNever,
+    $readNever
+);
+check_init_command($exit === 1, 'the flag does not widen the argument grammar to anything else');
+
+$plainDriver = new InitCommandTransport([init_command_response($proposal), init_command_response($result)]);
+ob_start();
+InitCommand::run($plainDriver, ['--yes'], $renderRefusal, static fn(EnvironmentDriver $d): int => 0, $readNever);
+ob_end_clean();
+check_init_command(
+    !in_array('--allow-unmanaged-plugins', $plainDriver->requests[0] ?? [], true)
+    && !in_array('--allow-unmanaged-plugins', $plainDriver->requests[1] ?? [], true),
+    'without the flag neither target call carries it'
+);
+
+$allowDriver = new InitCommandTransport([init_command_response($proposal), init_command_response($result)]);
+ob_start();
+$allowExit = InitCommand::run(
+    $allowDriver,
+    ['--yes', '--allow-unmanaged-plugins'],
+    $renderRefusal,
+    static fn(EnvironmentDriver $d): int => 0,
+    $readNever
+);
+ob_end_clean();
+check_init_command($allowExit === 0, 'init succeeds with the flag');
+// BOTH calls, not just the proposal. The proposal digest binds the plan the
+// flag produced, so a confirmation that re-planned without it would fail the
+// digest bind — the right failure, but an unreadable one.
+check_init_command(
+    in_array('--allow-unmanaged-plugins', $allowDriver->requests[0] ?? [], true),
+    'the flag is forwarded to the proposal call'
+);
+check_init_command(
+    in_array('--allow-unmanaged-plugins', $allowDriver->requests[1] ?? [], true),
+    'and to the confirmation call, so both describe the same site'
+);
+
+// T6 §3.4's exact advisory line. The walk greps for it, so it is asserted as a
+// whole line rather than as a substring of a longer sentence.
+$unmanagedProposal = $proposal;
+$unmanagedProposal['advisories'] = [[
+    'code' => 'active_plugin_without_adapter',
+    'extension' => 'wpforms-lite/wpforms.php',
+    'kind' => 'plugin',
+    'reason' => 'no installed manifest declares this active plugin identity',
+    'remediation' => 'install or author one versioned adapter, then rerun duo init',
+]];
+$unmanagedDriver = new InitCommandTransport([
+    init_command_response($unmanagedProposal),
+    init_command_response($result),
+]);
+ob_start();
+InitCommand::run(
+    $unmanagedDriver,
+    ['--yes', '--allow-unmanaged-plugins'],
+    $renderRefusal,
+    static fn(EnvironmentDriver $d): int => 0,
+    $readNever
+);
+$unmanagedOutput = (string) ob_get_clean();
+check_init_command(
+    str_contains(
+        $unmanagedOutput,
+        "\n  UNMANAGED PLUGIN wpforms-lite/wpforms.php [active_plugin_without_adapter]\n"
+    ),
+    'an unmanaged plugin prints T6 §3.4\'s exact line, on its own'
+);
+check_init_command(
+    str_contains($unmanagedOutput, 'advisories (init proceeds'),
+    'under an advisories heading, so the flag visibly did something'
+);
+check_init_command(
+    str_contains($unmanagedOutput, '    no installed manifest declares this active plugin identity'),
+    'with the reason on its own indented line, keeping the identity line greppable'
+);
+check_init_command(
+    !str_contains($unmanagedOutput, 'ADVISORY PLUGIN'),
+    'and never as an ordinary ADVISORY row, which reads as one more caveat in a list'
+);
+
+// An ordinary advisory keeps its shape: T6 changed one code's rendering, not
+// the block's.
+$mixedProposal = $proposal;
+$mixedProposal['advisories'] = [[
+    'code' => 'active_theme_code_only',
+    'extension' => 'shop-theme',
+    'kind' => 'theme',
+    'reason' => 'theme bytes will be inventoried as code',
+    'remediation' => 'install a certified theme adapter',
+]];
+$mixedDriver = new InitCommandTransport([
+    init_command_response($mixedProposal),
+    init_command_response($result),
+]);
+ob_start();
+InitCommand::run($mixedDriver, ['--yes'], $renderRefusal, static fn(EnvironmentDriver $d): int => 0, $readNever);
+$mixedOutput = (string) ob_get_clean();
+check_init_command(
+    str_contains($mixedOutput, 'ADVISORY THEME shop-theme [active_theme_code_only]'),
+    'every other advisory code renders exactly as it did before'
+);
 
 echo "PASS: init command\n";

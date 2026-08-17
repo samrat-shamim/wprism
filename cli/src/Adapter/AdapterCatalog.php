@@ -711,19 +711,18 @@ final class AdapterCatalog {
             echo "\ninstalled adapters (each grammar verdict is an ISOLATED load; see deferred):\n";
             foreach ($report['adapters'] as $row) {
                 echo sprintf(
-                    "  [%s] %-28s %-8s %-21s %-13s %s\n",
+                    "  [%s] %-28s %-8s %-21s %-18s %s\n",
                     $row['grammar']['status'],
                     $row['name'],
                     $row['source'],
                     $row['trust_tier'],
-                    $row['certification'] === 'uncertified'
-                        ? 'uncertified'
-                        : (string) ($row['disposition_status'] ?? ($row['certification'] === null
-                            ? 'no-registry'
-                            : 'unreviewed')),
+                    self::certification_cell($row),
                     AdapterSources::render_untrusted($row['path'])
                 );
                 echo '          tier basis: ' . AdapterSources::render_untrusted($row['tier_basis']) . "\n";
+                foreach (self::certification_detail($row) as $line) {
+                    echo '          ' . $line . "\n";
+                }
                 if ($row['grammar']['message'] !== null) {
                     echo '          ' . AdapterSources::render_untrusted($row['grammar']['message']) . "\n";
                 }
@@ -771,6 +770,71 @@ final class AdapterCatalog {
                 . (isset($s['blockers']) ? ", {$s['blockers']} readiness blocker(s)" : '')
                 . '; ' . count($report['deferred']) . " check(s) NOT performed here (see the deferred list above)\n";
         }
+    }
+
+    /**
+     * The certification column, which after T6 §3.2 has to say more.
+     *
+     * Before this it printed one of three things: `uncertified`, the shipped
+     * disposition status, or the literal word `unreviewed`. That last case
+     * swallowed every signed state — an adapter carrying a VALID Ed25519
+     * certificate under a trusted key printed `unreviewed`, which is the one
+     * word that is not true of it. The catalog is the command an operator
+     * runs to find out why promotion refuses, so the certification WORD the
+     * engine actually derived is what belongs here.
+     *
+     * The words come from `AdapterSources`: `registry` (shipped, reviewed),
+     * `uncertified`, `signed_unpinned`, `third_party_signed`, and T6's
+     * `site_signed`. A shipped row keeps printing its disposition status,
+     * because for those the reviewed registry IS the certification state and
+     * printing `registry` beside it would say the same thing twice.
+     *
+     * @param array<string,mixed> $row
+     */
+    private static function certification_cell(array $row): string {
+        $certification = $row['certification'] ?? null;
+        if ($certification === null) {
+            return 'no-registry';
+        }
+        if ($certification === 'registry') {
+            // A shipped adapter with no reviewed entry is genuinely
+            // unreviewed; one with an entry prints that entry's own status.
+            return (string) ($row['disposition_status'] ?? 'unreviewed');
+        }
+
+        return (string) $certification;
+    }
+
+    /**
+     * The lines under a row that a certification word alone cannot carry.
+     *
+     * `principal` and `trust_root` are T6 §3.2's addition to every catalog
+     * row: WHO vouched, and under whose root. An operator looking at two
+     * signed adapters needs to tell their own organization's key from a
+     * third party's, and the word `site_signed` does not say which key.
+     *
+     * T6 §3.3's `shadowed_by_site` is deliberately NOT here. A shipped
+     * adapter an explicit site pin displaced has no `adapters[]` row at all
+     * — it is not loaded, and minting a row for a definition nothing loads
+     * would contradict what this section means. It is a `not_installed[]`
+     * row carrying `reason_code: shadowed_by_site` and a `winner` naming the
+     * site copy, which `render_not_installed()` already prints in full.
+     *
+     * @param array<string,mixed> $row
+     * @return list<string>
+     */
+    private static function certification_detail(array $row): array {
+        $lines = [];
+        $principal = $row['principal'] ?? null;
+        $trustRoot = $row['trust_root'] ?? null;
+        if (is_string($principal) && $principal !== '') {
+            $lines[] = 'certified by: ' . AdapterSources::render_untrusted($principal)
+                . (is_string($trustRoot) && $trustRoot !== ''
+                    ? ' (' . AdapterSources::render_untrusted($trustRoot) . ' trust root)'
+                    : '');
+        }
+
+        return $lines;
     }
 
     /** @param list<array<string,mixed>> $refusals */

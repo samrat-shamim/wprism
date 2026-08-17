@@ -178,7 +178,10 @@ $surfaces = [
         'kind' => 'table',
         'label' => 'table:acme_catalog',
         'meaning' => 'no installed adapter can see this table',
-        'next_action' => 'qualify in rehearsal',
+        // T6 §3.6: this row's whole point is that no installed adapter can
+        // see the table, and its remedy is one that models it. `qualify in
+        // rehearsal` named an action rehearsal states it cannot perform.
+        'next_action' => 'install adapter',
         'operations' => [
             'release' => $releaseProjection(
                 'unclassified',
@@ -464,7 +467,7 @@ $cleanHuman = "stack: WordPress 6.8.2 · PHP 8.3.33 · MariaDB 11.8.8 · single-
     . "post_type:shop_order runtime      preserve local  Unsupported Platform-certified prevented    not applicable\n"
     . "  meaning: live operational state is never copied\n"
     . "table:acme_catalog  unclassified  block           Not qualified Uncertified      unknown      unknown\n"
-    . "  next action: qualify in rehearsal (release)\n"
+    . "  next action: install adapter (release)\n"
     . "\n"
     . "unknown: 41 option names invisible to every installed adapter (use --format=json)\n"
     . "proposed contract written: .duo/contract/proposed.json\n";

@@ -66,6 +66,13 @@ require $repo . '/agent/src/Kernel/OptionState.php';
 require $repo . '/agent/src/Policy/ManifestDispositions.php';
 require $repo . '/agent/src/Adapter/CapabilityRegistry.php';
 require $repo . '/agent/src/Policy/Policy.php';
+// The catalog class itself, for the two pure renderers asserted directly at
+// the end of this suite. Everything else here drives `php cli/duo` as a
+// subprocess on purpose — that is what proves the verb is wired — but a
+// renderer branch that only fires on a row the AGENT half does not emit yet
+// has no subprocess path to reach it, and asserting it through Reflection is
+// how the CLI's half stays provable before that lands.
+require $repo . '/cli/src/Adapter/AdapterCatalog.php';
 
 use Duo\AdapterSources;
 use Duo\Canon;
@@ -1360,6 +1367,69 @@ check(
     str_contains($text['stdout'], 'deferred — NOT checked here'),
     'and ends with the deferred list, exactly as the document carries it'
 );
+// T6 §3.2/§3.3: the certification COLUMN. Before this it collapsed every
+// signed state into the literal word `unreviewed`, which is the one word that
+// is not true of an adapter carrying a valid certificate under a trusted key —
+// on the command an operator runs precisely to find out why promotion refuses.
+$overlayText = duo(['list', '--repo=' . $overlayRepo]);
+check(
+    preg_match('/\bacme-widget\s+site\s+\S+\s+uncertified\b/', $overlayText['stdout']) === 1,
+    'an uncertified site adapter prints its certification word, not a disposition status it has none of'
+);
+check(
+    preg_match('/\bcore\s+shipped\s+\S+\s+certified\b/', $overlayText['stdout']) === 1,
+    'while a shipped adapter keeps printing its reviewed disposition status — for those the registry '
+    . 'IS the certification state, and printing `registry` beside it would say it twice'
+);
+check(
+    !str_contains($overlayText['stdout'], 'certified by:'),
+    'and nothing claims a principal when no certificate is installed'
+);
+
+// The two T6 additions the agent half puts on every catalog row. Asserted
+// through the renderer with a synthesized row, so the CLI's half is provable
+// before the agent's lands and cannot silently drop them afterwards.
+$renderRow = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'certification_detail');
+$detail = $renderRow->invoke(null, [
+    'certification' => 'site_signed',
+    'principal' => 'site-1a2b3c4d5e6f',
+    'trust_root' => 'site',
+]);
+check(
+    $detail === ['certified by: \'site-1a2b3c4d5e6f\' (\'site\' trust root)'],
+    'a site_signed row names WHO vouched and under whose trust root (got '
+    . json_encode($detail) . ')'
+);
+check(
+    $renderRow->invoke(null, ['certification' => 'registry']) === [],
+    'an ordinary row adds no lines at all'
+);
+// T6 §3.3's shadowed shipped adapter is deliberately NOT an adapters[] row —
+// it is not loaded, and a row for a definition nothing loads would contradict
+// what that section means. render_not_installed() carries it.
+$notInstalled = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'render_not_installed');
+ob_start();
+$notInstalled->invoke(null, [[
+    'name' => 'woocommerce', 'path' => 'manifests/woocommerce.json', 'plugin' => null,
+    'reason_code' => \Duo\AdapterSources::CERTIFICATION_SHADOWED_BY_SITE, 'source' => 'shipped',
+    'winner' => ['path' => 'adapters/woocommerce.json', 'source' => 'site'],
+    'message' => 'the repository explicitly pins the site copy for that name',
+]]);
+$shadowedText = (string) ob_get_clean();
+check(
+    str_contains($shadowedText, "[shadowed_by_site] 'woocommerce'")
+    && str_contains($shadowedText, "site answers to this name ('adapters/woocommerce.json')"),
+    'a site override prints the shipped copy as installed-but-not-loaded, naming the winner (got: '
+    . trim($shadowedText) . ')'
+);
+$cellMethod = new ReflectionMethod(\Duo\Orchestrator\AdapterCatalog::class, 'certification_cell');
+foreach (['site_signed', 'third_party_signed', 'signed_unpinned', 'uncertified'] as $word) {
+    check(
+        $cellMethod->invoke(null, ['certification' => $word, 'disposition_status' => null]) === $word,
+        "the certification column prints `$word` verbatim rather than collapsing it"
+    );
+}
+
 $inspectText = duo(['inspect', 'acf']);
 check(
     str_contains($inspectText['stdout'], 'ADAPTER acf')

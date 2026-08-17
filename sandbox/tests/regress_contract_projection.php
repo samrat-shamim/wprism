@@ -191,8 +191,13 @@ duo_check_same(
     'surfaces are emitted in id order, contract declarations plus observed groups'
 );
 duo_check_same(
-    ['handling', 'readiness', 'certification_provenance', 'effect_containment',
+    // T6 §3.6 adds four: two that EXPOSE who vouched and under whose trust
+    // root, and two that carry the facts gapAction() needs when it is
+    // re-derived from this stored artifact rather than from a fact vector.
+    ['handling', 'readiness', 'certification_provenance', 'certification_principal',
+        'certification_trust_root', 'effect_containment',
         'effect_containment_basis', 'effect_recovery_semantics', 'conditions',
+        'blockers', 'probable_owner',
         'expiry_and_dependencies', 'remediation', 'gap_action', 'annotations'],
     array_keys($rows['products']['operations']['release']),
     'the per-operation object carries the §3.3 keys'
@@ -243,9 +248,16 @@ duo_check_same(
     'no evidence means no certification provenance'
 );
 duo_check_same(
-    'qualify in rehearsal',
+    // T6 §3.6: a contract-declared surface carries no plugin attribution, so
+    // the unclassified answer is the classification rule, not an adapter.
+    'classify',
     $rows['acme_catalog']['operations']['release']['gap_action'],
     'the unclassified row names its gap action'
+);
+duo_check_same(
+    null,
+    $rows['acme_catalog']['operations']['release']['certification_principal'],
+    'an unvouched surface names no principal'
 );
 
 // An observed-but-undeclared surface group is present as the gap it is.
@@ -286,7 +298,9 @@ foreach (['capture', 'release'] as $operation) {
         "a moved registry hash flips products/$operation to Requalification required"
     );
     duo_check_same(
-        'qualify in rehearsal',
+        // T6 §3.6: expired evidence is closed by current certification
+        // evidence, which rehearsal cannot produce and never could.
+        'certify adapter',
         $flippedRows['products']['operations'][$operation]['gap_action'],
         "the flipped products/$operation row names a requalification gap action"
     );

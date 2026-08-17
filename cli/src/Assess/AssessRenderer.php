@@ -306,9 +306,17 @@ final class AssessRenderer {
         $pending = (int) ($unknown['pending_count'] ?? 0);
         $environment = self::safe($report['env'] ?? '?');
 
+        // T6 §3.7 item 2: the third finding MUP §2.1 item 3 always named and
+        // this block never printed. On a site with an unmanaged plugin it is
+        // usually the largest of the three, and its absence here was the
+        // difference between an operator seeing "Duo cannot see this part of
+        // your database" and seeing nothing.
+        $tables = (int) ($unknown['undeclared_tables_count'] ?? 0);
+
         $lines = [];
         $lines[] = 'unknown: ' . $invisible . ' option name(s) invisible to every installed adapter';
         $lines[] = '         ' . $pending . ' pending classification(s) (duo pending ' . $environment . ')';
+        $lines[] = '         ' . $tables . ' undeclared table(s) (no installed adapter declares them)';
         $shown = array_slice($sample, 0, $limit);
         foreach ($shown as $name) {
             $lines[] = '         - ' . self::safe($name);
@@ -332,6 +340,7 @@ final class AssessRenderer {
         $counts = GapActions::summarise($rows, [
             'pending' => (int) ($unknown['pending_count'] ?? 0),
             'invisible_option' => (int) ($unknown['invisible_names_count'] ?? 0),
+            'undeclared_table' => self::uncountedTables($report),
         ]);
 
         $lines = ['next actions:'];
@@ -340,6 +349,51 @@ final class AssessRenderer {
         }
 
         return $lines;
+    }
+
+    /**
+     * Undeclared tables the surface table did NOT already account for.
+     *
+     * The three unknown-section kinds are not alike, and this is where that
+     * matters. A pending classification and an invisible option name are
+     * findings with no surface row — the inventory groups options by
+     * declarant precisely so a row per option name cannot appear (MUP §4.6),
+     * so the roll-up is the only place they can be counted. An undeclared
+     * table is different: `SurfaceCatalog` mints a `table:<name>` ROW for
+     * each one, and that row already contributes its own next action. Adding
+     * the coverage total on top would count the same table twice and print a
+     * number that is not true of the site — in a section whose entire
+     * doctrine is that the count IS the signal.
+     *
+     * So what is passed is the residual: undeclared tables coverage found
+     * that produced no row. That is normally zero, and it is not always: T6
+     * §3.7 item 1 is the live bug where `Coverage::tables_report()` drops
+     * `logical_name`, and a row without it cannot be turned into a surface
+     * id. Those tables exist on the site and would otherwise be counted
+     * nowhere at all, which is the failure this whole section exists to
+     * prevent.
+     *
+     * @param array<string,mixed> $report
+     */
+    private static function uncountedTables(array $report): int {
+        $total = (int) ($report['unknown']['undeclared_tables_count'] ?? 0);
+        $rows = is_array($report['surfaces'] ?? null) ? $report['surfaces'] : [];
+        $counted = 0;
+        foreach ($rows as $row) {
+            // `unclassified` is the discriminator, not the row's source: a
+            // table a manifest declares carries a policy class and is never
+            // unclassified, and a table no manifest declares can never carry
+            // one. So this counts exactly the undeclared tables that became
+            // rows, without the report having to publish where each row
+            // came from.
+            if (is_array($row) && ($row['kind'] ?? null) === 'table'
+                && ($row['state_class'] ?? null) === 'unclassified'
+            ) {
+                $counted++;
+            }
+        }
+
+        return max(0, $total - $counted);
     }
 
     /**
@@ -355,8 +409,59 @@ final class AssessRenderer {
             $lines[] = '          ' . $unpinned . ' subject(s) carry no bundle digest and cannot be pinned; '
                 . 'their surfaces read Requalification required';
         }
+        foreach (self::siteCertifiedPrincipals($report) as $line) {
+            $lines[] = '          ' . $line;
+        }
 
         return $lines;
+    }
+
+    /**
+     * T6 §3.6's `certified by <principal> (<root> trust root); contract
+     * attestation unsigned`, printed ONCE.
+     *
+     * Placement is the evidence section, not the surface rows, and that is
+     * the whole decision. The sentence is a statement about who vouched for
+     * this site's adapters and about what the CONTRACT is — one fact about
+     * the assessment, not a per-surface fact. Repeating it under each of the
+     * eleven surfaces a certified adapter governs would bury the second half,
+     * which is the half that says the contract itself is still unsigned; the
+     * evidence block is already where "what backs these claims" is answered,
+     * and it is three lines long.
+     *
+     * One line per distinct (principal, trust root), sorted, because "once"
+     * means once per statement and a site may legitimately trust two
+     * organizations' keys. The per-surface `certification` column still says
+     * `Site-certified` on every row it applies to, so nothing is hidden by
+     * not repeating the sentence.
+     *
+     * @param array<string,mixed> $report
+     * @return list<string>
+     */
+    private static function siteCertifiedPrincipals(array $report): array {
+        $seen = [];
+        foreach ((is_array($report['surfaces'] ?? null) ? $report['surfaces'] : []) as $row) {
+            $operations = is_array($row['operations'] ?? null) ? $row['operations'] : [];
+            foreach ($operations as $projection) {
+                if (!is_array($projection)
+                    || ($projection['certification_provenance'] ?? null) !== 'Site-certified') {
+                    continue;
+                }
+                $principal = is_string($projection['certification_principal'] ?? null)
+                    && $projection['certification_principal'] !== ''
+                        ? $projection['certification_principal']
+                        : 'an unnamed site authority';
+                $root = is_string($projection['certification_trust_root'] ?? null)
+                    && $projection['certification_trust_root'] !== ''
+                        ? $projection['certification_trust_root']
+                        : 'site';
+                $seen[$principal . "\0" . $root] = 'certified by ' . self::safe($principal)
+                    . ' (' . self::safe($root) . ' trust root); contract attestation unsigned';
+            }
+        }
+        ksort($seen, SORT_STRING);
+
+        return array_values($seen);
     }
 
     /**

@@ -225,11 +225,15 @@ duo_check_same(
 );
 
 // --------------------------------- blocking readiness, one word at a time
+// T6 §3.6: the two readiness words that used to carry `qualify in rehearsal`
+// now carry `certify adapter`. Both are closed by current certification
+// evidence, which rehearsal states it cannot produce — so naming rehearsal
+// here sent an operator to prove that, and then back.
 foreach ([
-    'Experimental' => 'qualify in rehearsal',
+    'Experimental' => 'certify adapter',
     'Not qualified' => 'install adapter',
     'Unsupported' => 'exclude',
-    'Requalification required' => 'qualify in rehearsal',
+    'Requalification required' => 'certify adapter',
 ] as $readiness => $expectedAction) {
     $blocked = $projection;
     $blocked[0]['operations']['release']['readiness'] = $readiness;

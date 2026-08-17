@@ -374,8 +374,17 @@ foreach ($contract["declarations"]["external_effects"] as $index => $effect) {
         "reviewed 2026-08-17: nothing this site activates sends mail, calls a payment API, or fires a webhook";
 }
 foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
-    if (($surface["decided_by"] ?? null) === "unresolved") {
-        $contract["declarations"]["surfaces"][$index]["decided_by"] = "operator";
+    if (($surface["decided_by"] ?? null) !== "unresolved") { continue; }
+    $contract["declarations"]["surfaces"][$index]["decided_by"] = "operator";
+    // T6 SS3.6: an unmanaged plugin gets the ORDINARY decision an operator
+    // makes for one -- runtime / preserve local, which projects Unsupported,
+    // prints a meaning line and no next action, and sits outside every
+    // release gate. Without it the row is unclassified/block and release
+    // correctly refuses, which is the product working and not a fixture this
+    // suite is about.
+    if (strpos((string) ($surface["id"] ?? ""), "plugin:") === 0) {
+        $contract["declarations"]["surfaces"][$index]["state_class"] = "runtime";
+        $contract["declarations"]["surfaces"][$index]["handling"] = "preserve local";
     }
 }
 $proposal["contract"] = $contract;
@@ -432,7 +441,15 @@ scan() {
   return 1
 }
 
-scan 'duo assess <env>'                  assess
+# `probable_owner` is allowlisted for assess and only assess. It is not an
+# internal identifier at all: it holds an ACTIVE PLUGIN SLUG, which the human
+# view already prints as the `plugin:<slug>` surface id an operator types back
+# into `duo contract accept` — so the value the scanner sees "leaked" is that
+# same documented id, arriving through a second field. Coverage's own
+# attribution for an undeclared table is the other value it can hold, and that
+# is a plugin slug too. Leaving it out would make T6 §3.6's row unshippable
+# for a reason §5.2 does not actually state.
+scan 'duo assess <env>'                  assess --allow-key=probable_owner
 scan 'duo release <env> --plan-only'     release --allow-key=plan_digest
 scan 'duo verify <env>'                  verify
 scan 'duo recover <env> --list'          recover-list    --allow-key=id
