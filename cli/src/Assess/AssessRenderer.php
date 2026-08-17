@@ -1,0 +1,425 @@
+<?php
+declare(strict_types=1);
+
+namespace Duo\Orchestrator;
+
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
+require_once __DIR__ . '/GapActions.php';
+
+use Duo\CommandRefusalException;
+
+/**
+ * The human projection of `duo-assess-report/v1` — the five sections MUP
+ * §2.1 prints, bounded per MUP §4.6 (round-3 MUP §2.1, §4.1, §4.6).
+ *
+ * The human view is a *projection of the same document* `--format=json`
+ * emits, never a second computation: every word printed here is read out of
+ * the report, and the only thing this class decides is layout and how much
+ * of a long list to show. That is what makes `regress_assess_bounds.sh` a
+ * real check rather than a check of a second renderer.
+ *
+ * ## The bound
+ *
+ * `DEFAULT_LIMIT` rows per section, `--limit=1..200` (the same closed
+ * grammar `PlanView` already parses for `duo status`, deliberately spelled
+ * the same way so an operator learns one rule), and a
+ * `N more (use --format=json)` tail whenever a section was cut. No new
+ * command may print an unbounded list, and the counts printed beside a
+ * truncated list are always the true totals — a truncated *sample* is
+ * honest, a truncated *count* is a lie about the site.
+ *
+ * ## Two things deliberately not printed
+ *
+ * **Values.** Names and counts only, exactly `Coverage`'s discipline: this
+ * output is read over a shoulder and pasted into tickets.
+ *
+ * **Internal identifiers.** MUP §5.2's rule is that a human view prints an
+ * internal identifier only when a documented command consumes it. Surface
+ * ids qualify — they are the keys of the contract's `surface_labels` map
+ * and the subjects of `duo contract <env> accept` — so they print. Adapter
+ * digests, bundle digests, registry hashes and the assess digest do not:
+ * they are in `--format=json`, which is named on every line that hides one.
+ */
+final class AssessRenderer {
+    /** MUP §4.6: default rows per section. */
+    public const DEFAULT_LIMIT = 50;
+
+    /** MUP §4.6 / `PlanView::MAX_LIMIT`: the same closed ceiling. */
+    public const MAX_LIMIT = 200;
+
+    /** The columns of the per-surface table, in MUP §2.1's own order. */
+    public const COLUMNS = [
+        'surface' => 'surface',
+        'class' => 'state_class',
+        'handling' => 'handling',
+        'readiness' => 'readiness',
+        'certification' => 'certification_provenance',
+        'containment' => 'effect_containment',
+        'recovery' => 'effect_recovery_semantics',
+    ];
+
+    /**
+     * Parse the one flag this renderer owns.
+     *
+     * The grammar is closed and the refusal is typed, because a mistyped
+     * bound must not silently become the default: an operator who asked for
+     * 20 rows and got 50 would read the tail line as "there are no more".
+     *
+     * @param list<string> $args
+     */
+    public static function limitFromArgs(array $args): int {
+        $limit = self::DEFAULT_LIMIT;
+        $seen = false;
+        foreach ($args as $arg) {
+            if (!is_string($arg) || !str_starts_with($arg, '--limit')) {
+                continue;
+            }
+            if ($seen || !str_starts_with($arg, '--limit=')) {
+                throw self::refuse();
+            }
+            $seen = true;
+            $raw = substr($arg, strlen('--limit='));
+            // Exactly `PlanView::parseLimit()`'s grammar: 1..200, decimal,
+            // no leading zeros, no sign, no whitespace.
+            if (preg_match('/^(?:[1-9]|[1-9][0-9]|1[0-9]{2}|200)$/D', $raw) !== 1) {
+                throw self::refuse();
+            }
+            $limit = (int) $raw;
+        }
+
+        return $limit;
+    }
+
+    /**
+     * Render the whole assessment.
+     *
+     * @param array<string,mixed> $report a `duo-assess-report/v1` document
+     * @param array<string,mixed> $context `proposal_path` (the path written,
+     *        relative to the site repository), `contract_present` (bool),
+     *        `unpinned_subjects` (int) and `operation` (the operation whose
+     *        projection the table's columns show)
+     * @return list<string>
+     */
+    public static function render(array $report, int $limit, array $context = []): array {
+        if ($limit < 1 || $limit > self::MAX_LIMIT) {
+            throw self::refuse();
+        }
+        $lines = self::header($report, $context);
+        $lines[] = '';
+        foreach (self::surfaceTable($report, $limit, $context) as $line) {
+            $lines[] = $line;
+        }
+        $lines[] = '';
+        foreach (self::unknownSection($report, $limit) as $line) {
+            $lines[] = $line;
+        }
+        $lines[] = '';
+        foreach (self::gapSection($report) as $line) {
+            $lines[] = $line;
+        }
+        foreach (self::evidenceSection($report, $context) as $line) {
+            $lines[] = $line;
+        }
+        foreach (self::proposalSection($report, $context) as $line) {
+            $lines[] = $line;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $report
+     * @param array<string,mixed> $context
+     * @return list<string>
+     */
+    private static function header(array $report, array $context): array {
+        $target = is_array($report['target'] ?? null) ? $report['target'] : [];
+        $authority = is_array($report['authority'] ?? null) ? $report['authority'] : [];
+        $installed = is_array($authority['installed'] ?? null) ? $authority['installed'] : [];
+        $database = is_array($target['database'] ?? null) ? $target['database'] : [];
+
+        $lines = [];
+        $lines[] = 'stack: WordPress ' . self::safe($target['wordpress'] ?? '?')
+            . ' · PHP ' . self::safe($target['php'] ?? '?')
+            . ' · ' . self::safe($database['engine'] ?? '?') . ' ' . self::safe($database['version'] ?? '?')
+            . ' · ' . self::safe($target['site_mode'] ?? '?');
+        // The driver id, not the driver's full self-description: that
+        // string names both the WordPress root and the repository root, so
+        // printing it beside `repo` would repeat one path and truncate the
+        // line. The full description stays in --format=json.
+        $lines[] = 'authority: ' . self::safe($authority['driver'] ?? '?')
+            . ' · ' . self::safe($authority['access'] ?? '?')
+            . ' · repo ' . self::safe($authority['repo_path'] ?? '?');
+        $lines[] = 'installed: ' . (int) ($installed['plugins'] ?? 0) . ' plugin(s) ('
+            . (int) ($installed['plugins_active'] ?? 0) . ' active), '
+            . (int) ($installed['themes'] ?? 0) . ' theme(s) ('
+            . (int) ($installed['themes_active'] ?? 0) . ' active), '
+            . (int) ($installed['attachments'] ?? 0) . ' attachment(s)'
+            . (($installed['media_bytes'] ?? null) === null ? ' · media storage not measured' : '');
+
+        $doctor = is_array($authority['doctor'] ?? null) ? $authority['doctor'] : [];
+        $failed = is_array($doctor['failed'] ?? null) ? $doctor['failed'] : [];
+        $advisory = is_array($doctor['advisory'] ?? null) ? $doctor['advisory'] : [];
+        $lines[] = 'checks: ' . (int) ($doctor['checks_passed'] ?? 0) . '/'
+            . (int) ($doctor['checks_total'] ?? 0) . ' passed'
+            . ($failed === [] ? '' : ' · failed: ' . implode(', ', array_map(self::safe(...), $failed)))
+            . ($advisory === [] ? '' : ' · advisory: ' . implode(', ', array_map(self::safe(...), $advisory)));
+
+        $operation = (string) ($context['operation'] ?? 'release');
+        $lines[] = 'showing the ' . self::safe($operation)
+            . ' projection; every operation is in --format=json';
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $report
+     * @param array<string,mixed> $context
+     * @return list<string>
+     */
+    private static function surfaceTable(array $report, int $limit, array $context): array {
+        /** @var list<array<string,mixed>> $rows */
+        $rows = is_array($report['surfaces'] ?? null) ? $report['surfaces'] : [];
+        if ($rows === []) {
+            return ['surfaces: none reported'];
+        }
+        $operation = (string) ($context['operation'] ?? 'release');
+        $shown = array_slice($rows, 0, $limit);
+
+        $cells = [];
+        foreach ($shown as $row) {
+            $cells[] = self::cells($row, $operation);
+        }
+        $widths = [];
+        foreach (array_keys(self::COLUMNS) as $index => $heading) {
+            $widths[$index] = strlen($heading);
+        }
+        foreach ($cells as $line) {
+            foreach ($line as $index => $value) {
+                $widths[$index] = max($widths[$index], strlen($value));
+            }
+        }
+
+        $lines = [rtrim(self::row(array_keys(self::COLUMNS), $widths))];
+        foreach ($shown as $position => $row) {
+            $lines[] = rtrim(self::row($cells[$position], $widths));
+            foreach (self::detail($row, $operation) as $detail) {
+                $lines[] = '  ' . $detail;
+            }
+        }
+        $remaining = count($rows) - count($shown);
+        if ($remaining > 0) {
+            $lines[] = $remaining . ' more (use --format=json)';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @return list<string>
+     */
+    private static function cells(array $row, string $operation): array {
+        $projection = self::projection($row, $operation);
+
+        $values = [];
+        foreach (self::COLUMNS as $key) {
+            if ($key === 'surface') {
+                $values[] = self::safe($row['label'] ?? $row['id'] ?? '?');
+                continue;
+            }
+            if ($key === 'state_class' || $key === 'handling') {
+                // The row-level word is the restrictive reduction across
+                // every projected operation; the per-operation word lives
+                // beside it in JSON. Printing the row-level one keeps the
+                // table's summary and the report's own summary identical.
+                $values[] = self::safe($row[$key] ?? '?');
+                continue;
+            }
+            $values[] = $projection === null ? '—' : self::safe($projection[$key] ?? '?');
+        }
+
+        return $values;
+    }
+
+    /**
+     * The indented lines under a surface row: its conditions, why it is
+     * blocked, and what to do next. Bounded to the first two conditions —
+     * a claim can carry one per platform axis and the rest are in JSON.
+     *
+     * @param array<string,mixed> $row
+     * @return list<string>
+     */
+    private static function detail(array $row, string $operation): array {
+        $projection = self::projection($row, $operation);
+        $lines = [];
+        if ($projection !== null) {
+            $conditions = is_array($projection['conditions'] ?? null) ? $projection['conditions'] : [];
+            foreach (array_slice($conditions, 0, 2) as $condition) {
+                $lines[] = 'condition: ' . self::safe($condition);
+            }
+            if (count($conditions) > 2) {
+                $lines[] = (count($conditions) - 2) . ' more condition(s) (use --format=json)';
+            }
+            if (is_string($projection['remediation'] ?? null) && $projection['remediation'] !== '') {
+                $lines[] = 'reason: ' . self::safe($projection['remediation']);
+            }
+        }
+        $lines[] = 'meaning: ' . self::safe($row['meaning'] ?? '');
+        $next = (string) ($row['next_action'] ?? '');
+        if ($next !== '' && $next !== 'nothing — supported') {
+            // Name the operations that produced it. The columns show one
+            // operation; the action reduces over all of them, and without
+            // the attribution a next action beside a `Ready` row reads as a
+            // contradiction rather than as a fact about `delete`.
+            $detailed = GapActions::forSurfaceDetailed(
+                is_array($row['operations'] ?? null) ? $row['operations'] : []
+            );
+            $lines[] = 'next action: ' . self::safe($next)
+                . ($detailed['operations'] === []
+                    ? ''
+                    : ' (' . self::safe(implode(', ', $detailed['operations'])) . ')');
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $row
+     * @return array<string,mixed>|null
+     */
+    private static function projection(array $row, string $operation): ?array {
+        $operations = is_array($row['operations'] ?? null) ? $row['operations'] : [];
+        $projection = $operations[$operation] ?? null;
+
+        return is_array($projection) ? $projection : null;
+    }
+
+    /**
+     * @param array<string,mixed> $report
+     * @return list<string>
+     */
+    private static function unknownSection(array $report, int $limit): array {
+        $unknown = is_array($report['unknown'] ?? null) ? $report['unknown'] : [];
+        $sample = is_array($unknown['names_sample'] ?? null) ? $unknown['names_sample'] : [];
+        $invisible = (int) ($unknown['invisible_names_count'] ?? 0);
+        $pending = (int) ($unknown['pending_count'] ?? 0);
+        $environment = self::safe($report['env'] ?? '?');
+
+        $lines = [];
+        $lines[] = 'unknown: ' . $invisible . ' option name(s) invisible to every installed adapter';
+        $lines[] = '         ' . $pending . ' pending classification(s) (duo pending ' . $environment . ')';
+        $shown = array_slice($sample, 0, $limit);
+        foreach ($shown as $name) {
+            $lines[] = '         - ' . self::safe($name);
+        }
+        $remaining = count($sample) - count($shown);
+        if ($remaining > 0) {
+            $lines[] = '         ' . $remaining . ' more (use --format=json)';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $report
+     * @return list<string>
+     */
+    private static function gapSection(array $report): array {
+        /** @var list<array<string,mixed>> $rows */
+        $rows = is_array($report['surfaces'] ?? null) ? $report['surfaces'] : [];
+        $unknown = is_array($report['unknown'] ?? null) ? $report['unknown'] : [];
+        $counts = GapActions::summarise($rows, [
+            'pending' => (int) ($unknown['pending_count'] ?? 0),
+            'invisible_option' => (int) ($unknown['invisible_names_count'] ?? 0),
+        ]);
+
+        $lines = ['next actions:'];
+        foreach ($counts as $action => $count) {
+            $lines[] = '  ' . str_pad((string) $count, 5, ' ', STR_PAD_LEFT) . '  ' . $action;
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $report
+     * @param array<string,mixed> $context
+     * @return list<string>
+     */
+    private static function evidenceSection(array $report, array $context): array {
+        $bundles = is_array($report['evidence']['bundles'] ?? null) ? $report['evidence']['bundles'] : [];
+        $unpinned = (int) ($context['unpinned_subjects'] ?? 0);
+        $lines = ['evidence: ' . count($bundles) . ' certification subject(s) pinned'];
+        if ($unpinned > 0) {
+            $lines[] = '          ' . $unpinned . ' subject(s) carry no bundle digest and cannot be pinned; '
+                . 'their surfaces read Requalification required';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param array<string,mixed> $report
+     * @param array<string,mixed> $context
+     * @return list<string>
+     */
+    private static function proposalSection(array $report, array $context): array {
+        $path = (string) ($context['proposal_path'] ?? '');
+        if ($path === '') {
+            return [];
+        }
+        $environment = self::safe($report['env'] ?? '?');
+        $lines = ['proposed contract written: ' . self::safe($path)
+            . ' (accept with duo contract ' . $environment . ' accept)'];
+        if (($context['contract_present'] ?? false) === true) {
+            $lines[] = 'projection regenerated from the accepted contract';
+        }
+
+        return $lines;
+    }
+
+    /**
+     * @param list<string> $values
+     * @param array<int,int> $widths
+     */
+    private static function row(array $values, array $widths): string {
+        $out = '';
+        foreach (array_values($values) as $index => $value) {
+            $out .= str_pad($value, ($widths[$index] ?? strlen($value)) + 2);
+        }
+
+        return $out;
+    }
+
+    /**
+     * A terminal-safe rendering of a string this process did not author.
+     *
+     * Surface ids, labels and registry condition sentences all originate on
+     * a target or in a reviewed file, so a control byte or an escape
+     * sequence in one of them would reach the operator's terminal
+     * unmediated. Control bytes become `?` and the value is bounded; unlike
+     * `AdapterSources::render_untrusted()` this does not quote or hex-dump,
+     * because these values are table cells rather than diagnostics and the
+     * table is unreadable with quotes around every word.
+     *
+     * @param mixed $value
+     */
+    private static function safe($value): string {
+        if (!is_string($value)) {
+            return is_scalar($value) ? (string) $value : '?';
+        }
+        $bounded = strlen($value) > 160 ? substr($value, 0, 160) . '…' : $value;
+
+        return (string) preg_replace('/[\x00-\x1f\x7f]/', '?', $bounded);
+    }
+
+    private static function refuse(): CommandRefusalException {
+        return new CommandRefusalException(
+            'invalid_arguments',
+            'assess accepts at most one canonical --limit=<1..200>',
+            'supply a single --limit between 1 and 200, or omit it for the default of '
+                . self::DEFAULT_LIMIT . ' rows per section'
+        );
+    }
+}

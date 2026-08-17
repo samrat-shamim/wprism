@@ -1,5 +1,5 @@
 {
-    "class_count": 309,
+    "class_count": 322,
     "classes": {
         "Duo\\ActionProviderGrammar": {
             "abstract": false,
@@ -3722,6 +3722,102 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\AssessInventory": {
+            "abstract": false,
+            "constants": {
+                "CORE_DECLARANT": {
+                    "value_repr": "core"
+                },
+                "DATABASE_ENGINES": {
+                    "value_repr": [
+                        "MariaDB",
+                        "MySQL"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "duo-assess-inventory/v1"
+                },
+                "PENDING_ROW_LIMIT": {
+                    "value_repr": 50
+                },
+                "SITE_MODES": {
+                    "value_repr": [
+                        "single-site",
+                        "multisite"
+                    ]
+                },
+                "SURFACE_KINDS": {
+                    "value_repr": [
+                        "post_type",
+                        "taxonomy",
+                        "option_group",
+                        "table",
+                        "menu",
+                        "media",
+                        "user_meta",
+                        "widget"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "from_facts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "report": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "policy",
+                            "type": "Duo\\Policy",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\AtomicTreePublisher": {
             "abstract": false,
             "constants": [],
@@ -6875,6 +6971,31 @@
                     "visibility": "public"
                 },
                 "apply": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": null,
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "assoc",
+                            "type": null,
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "assess_inventory": {
                     "abstract": false,
                     "final": false,
                     "parameters": [
@@ -17787,6 +17908,725 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\ApplicationContract": {
+            "abstract": false,
+            "constants": {
+                "ATTESTATION_FORMAT": {
+                    "value_repr": "duo-contract-attestation/v1"
+                },
+                "ATTESTATION_STATES": {
+                    "value_repr": [
+                        "unsigned",
+                        "signed"
+                    ]
+                },
+                "DECIDED_BY": {
+                    "value_repr": [
+                        "operator",
+                        "platform-default",
+                        "unresolved"
+                    ]
+                },
+                "FORMAT": {
+                    "value_repr": "duo-application-contract/v1"
+                },
+                "MANIFEST_SOURCES": {
+                    "value_repr": [
+                        "shipped",
+                        "site",
+                        "plugin"
+                    ]
+                },
+                "SITE_MODES": {
+                    "value_repr": [
+                        "single-site",
+                        "multisite"
+                    ]
+                },
+                "UNREVIEWED_DECIDED_BY": {
+                    "value_repr": "unresolved"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "digest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "parse": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array|string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "requireReviewedExternalEffects",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": true,
+                            "has_default": true,
+                            "name": "requireReviewedExternalEffects",
+                            "type": "bool",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "verifyDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "withDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AssessCommand": {
+            "abstract": false,
+            "constants": {
+                "DEFAULT_VIEW_OPERATION": {
+                    "value_repr": "release"
+                },
+                "PROPOSAL_PATH": {
+                    "value_repr": ".duo/contract/proposed.json"
+                },
+                "STEPS": {
+                    "value_repr": [
+                        "doctor",
+                        "bootstrap",
+                        "init-probe",
+                        "assess-inventory",
+                        "capabilities",
+                        "adapter-catalog"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "assess": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "projection": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "contract",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "registryOperations": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operations",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "renderRefusal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "refusal",
+                            "type": "Duo\\CommandRefusalException",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "json",
+                            "type": "bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": "assess",
+                            "has_default": true,
+                            "name": "command",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "requireGitWorktreeRoot": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hostCatalog",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "siteRepo": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "startDir",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "wantsJson": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "writeLocalArtifacts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AssessRenderer": {
+            "abstract": false,
+            "constants": {
+                "COLUMNS": {
+                    "value_repr": {
+                        "certification": "certification_provenance",
+                        "class": "state_class",
+                        "containment": "effect_containment",
+                        "handling": "handling",
+                        "readiness": "readiness",
+                        "recovery": "effect_recovery_semantics",
+                        "surface": "surface"
+                    }
+                },
+                "DEFAULT_LIMIT": {
+                    "value_repr": 50
+                },
+                "MAX_LIMIT": {
+                    "value_repr": 200
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "limitFromArgs": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "args",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "render": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "limit",
+                            "type": "int",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "context",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\AssessReport": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-assess-report/v1"
+                },
+                "MAX_NAMES_SAMPLE": {
+                    "value_repr": 200
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "build": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "environment",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "generatedAt",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "target",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "authority",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "surfaces",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "unknown",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "evidence",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "evidence": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryReports",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "generatedFrom",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "observedBundles": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryReports",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "proposalSeed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "site",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "rebind": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "generatedAt",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "unknown": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "unpinnedSubjects": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryReports",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\BootstrapEligibilityReport": {
             "abstract": false,
             "constants": {
@@ -18854,6 +19694,460 @@
                     ],
                     "return_type": "bool",
                     "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ContractCommand": {
+            "abstract": false,
+            "constants": {
+                "SUBCOMMANDS": {
+                    "value_repr": [
+                        "show",
+                        "propose",
+                        "accept"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "run": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "driver",
+                            "type": "Duo\\Orchestrator\\EnvironmentDriver",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "extra",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "sourceRoot",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "hostCatalog",
+                            "type": "?callable",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "clock",
+                            "type": "?callable",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ContractProjection": {
+            "abstract": false,
+            "constants": {
+                "FORMAT": {
+                    "value_repr": "duo-site-capability-projection/v1"
+                },
+                "STALE_EVIDENCE_BLOCKER": {
+                    "value_repr": "evidence_not_current"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "encode": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "generate": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contract",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "targetProbe",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "generatedAt",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ContractProposal": {
+            "abstract": false,
+            "constants": {
+                "ASSESS_REPORT_FORMAT": {
+                    "value_repr": "duo-assess-report/v1"
+                },
+                "ATTESTATION_REASON": {
+                    "value_repr": "the certification gate is deferred for the minimum usable platform"
+                },
+                "FORMAT": {
+                    "value_repr": "duo-application-contract-proposal/v1"
+                },
+                "LIFECYCLE_EFFECT_ID": {
+                    "value_repr": "code-lifecycle-window"
+                },
+                "MAX_NAMES_SAMPLE": {
+                    "value_repr": 200
+                },
+                "MAX_REVIEW_ITEMS": {
+                    "value_repr": 50
+                },
+                "UNREVIEWED_REASON": {
+                    "value_repr": "proposed, not reviewed: plugin and theme activation hooks run with normal WordPress semantics in the lifecycle window and this profile enforces no egress control. Replace this reason with a reviewed statement about this site, and decided_by with \"operator\", or exclude the surfaces from release."
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "accept": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposal",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "freshAssessDigest",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "assessDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "fromAssessReport": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "seed",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateAssessReport": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "report",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "validateProposal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "proposal",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ContractStore": {
+            "abstract": false,
+            "constants": {
+                "CONTRACT_FILE": {
+                    "value_repr": "contract.json"
+                },
+                "DIRECTORY": {
+                    "value_repr": ".duo/contract"
+                },
+                "PROJECTION_FILE": {
+                    "value_repr": "projection.json"
+                },
+                "PROPOSAL_FILE": {
+                    "value_repr": "proposed.json"
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "__construct": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "siteRepo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": null,
+                    "static": false,
+                    "visibility": "public"
+                },
+                "contractPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "currentDigest": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "directory": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "projectionPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "proposalPath": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "string",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "readContract": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "readProjection": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "readProposal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [],
+                    "return_type": "?array",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "writeContract": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "expectedDigest",
+                            "type": "?string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "writeProjection": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
+                    "visibility": "public"
+                },
+                "writeProposal": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "document",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "void",
+                    "static": false,
                     "visibility": "public"
                 }
             },
@@ -20355,6 +21649,124 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\GapActions": {
+            "abstract": false,
+            "constants": {
+                "ACTIONS": {
+                    "value_repr": [
+                        "classify",
+                        "declare in contract",
+                        "qualify in rehearsal",
+                        "exclude",
+                        "provision env value",
+                        "install adapter",
+                        "nothing — supported"
+                    ]
+                },
+                "UNKNOWN_KINDS": {
+                    "value_repr": [
+                        "pending",
+                        "invisible_option",
+                        "undeclared_table"
+                    ]
+                },
+                "URGENCY": {
+                    "value_repr": [
+                        "classify",
+                        "declare in contract",
+                        "qualify in rehearsal",
+                        "install adapter",
+                        "provision env value",
+                        "exclude",
+                        "nothing — supported"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "forSurface": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "projections",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "forSurfaceDetailed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "projections",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "forUnknown": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "kind",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "summarise": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "rows",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "unknownCounts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\Init": {
             "abstract": false,
             "constants": [],
@@ -21608,6 +23020,236 @@
                     "visibility": "public"
                 }
             },
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\ProjectionVocabulary": {
+            "abstract": false,
+            "constants": {
+                "ANNOTATION_CONTAINMENT_BLOCK": {
+                    "value_repr": "containment is unknown and an external effect may exist, so an operation able to reach a live system is blocked"
+                },
+                "ANNOTATION_EXTERNAL_NO_RESYNC": {
+                    "value_repr": "re-synchronize requires a declared action and this profile ships no generic one, so this surface blocks until a manifest declares otherwise"
+                },
+                "ANNOTATION_MANAGED": {
+                    "value_repr": "via the code half's lifecycle reconciliation, never the generic state path"
+                },
+                "ANNOTATION_NO_REPAIR_PATH_PREFIX": {
+                    "value_repr": "no declared repair path; the registry states: "
+                },
+                "ANNOTATION_OUT_OF_SCOPE": {
+                    "value_repr": "authored, but outside the captured scope: the target keeps its own copy until the scope is widened"
+                },
+                "ANNOTATION_PROVIDER_NEGOTIATION_UNMET": {
+                    "value_repr": "the provider negotiation condition is unmet: it blocks until the named code is resolved"
+                },
+                "ANNOTATION_RESTORED_BY_PREFIX": {
+                    "value_repr": "restored by: "
+                },
+                "ANNOTATION_SITE_CERTIFICATION_DEFERRED": {
+                    "value_repr": "site certification is deferred in this profile: the contract carries an unsigned attestation, so a site-scoped claim projects Uncertified"
+                },
+                "ANNOTATION_UNCLASSIFIED_NOT_QUALIFIED": {
+                    "value_repr": "an unclassified surface has no registry entry that could make it Ready"
+                },
+                "BLOCKERS_NOT_QUALIFIED": {
+                    "value_repr": [
+                        "adapter_source_uncertified",
+                        "missing_registry_entry",
+                        "surface_not_registered"
+                    ]
+                },
+                "BLOCKERS_REQUALIFICATION": {
+                    "value_repr": [
+                        "evidence_not_current",
+                        "revision_not_certified",
+                        "profile_evidence_not_current"
+                    ]
+                },
+                "BLOCKERS_UNSUPPORTED": {
+                    "value_repr": [
+                        "surface_explicitly_unsupported",
+                        "multisite_unsupported",
+                        "deletion_unsupported"
+                    ]
+                },
+                "CERTIFICATION_PROVENANCE": {
+                    "value_repr": [
+                        "Platform-certified",
+                        "Site-certified",
+                        "Uncertified"
+                    ]
+                },
+                "CONDITION_ENV_MISSING_MARKER": {
+                    "value_repr": "env_missing"
+                },
+                "CONDITION_PROVIDER_NEGOTIATION_PREFIX": {
+                    "value_repr": "unmet: provider negotiation "
+                },
+                "CONTAINMENT_BASIS_PREVENTED": {
+                    "value_repr": "no WordPress hooks fire in the apply window"
+                },
+                "CONTAINMENT_BASIS_UNKNOWN": {
+                    "value_repr": "unknown — not enforced in this profile"
+                },
+                "EFFECT_CONTAINMENT": {
+                    "value_repr": [
+                        "prevented",
+                        "sandboxed",
+                        "live",
+                        "unknown"
+                    ]
+                },
+                "EFFECT_RECOVERY_SEMANTICS": {
+                    "value_repr": [
+                        "not applicable",
+                        "provider-state restorable",
+                        "compensatable",
+                        "irreversible",
+                        "unknown"
+                    ]
+                },
+                "GAP_ACTIONS": {
+                    "value_repr": [
+                        "classify",
+                        "declare in contract",
+                        "qualify in rehearsal",
+                        "exclude",
+                        "provision env value",
+                        "install adapter",
+                        "nothing — supported"
+                    ]
+                },
+                "HANDLINGS": {
+                    "value_repr": [
+                        "manage",
+                        "preserve local",
+                        "rebuild",
+                        "rebind",
+                        "re-synchronize",
+                        "block"
+                    ]
+                },
+                "LIVE_REACHING_OPERATIONS": {
+                    "value_repr": [
+                        "release",
+                        "delete",
+                        "recover"
+                    ]
+                },
+                "NEVER_EMITTED": {
+                    "value_repr": [
+                        "Site-certified",
+                        "sandboxed",
+                        "compensatable"
+                    ]
+                },
+                "OPERATIONS": {
+                    "value_repr": [
+                        "capture",
+                        "merge",
+                        "release",
+                        "verify",
+                        "delete",
+                        "recover"
+                    ]
+                },
+                "POLICY_CLASSES": {
+                    "value_repr": [
+                        "authored",
+                        "runtime",
+                        "derived",
+                        "env",
+                        "managed"
+                    ]
+                },
+                "READINESS": {
+                    "value_repr": [
+                        "Ready",
+                        "Ready with conditions",
+                        "Requalification required",
+                        "Experimental",
+                        "Not qualified",
+                        "Unsupported"
+                    ]
+                },
+                "STATE_CLASSES": {
+                    "value_repr": [
+                        "authored",
+                        "runtime",
+                        "derived",
+                        "environment-bound",
+                        "external",
+                        "unclassified"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "gapAction": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "projection",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "meaningFor": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "stateClass",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "handling",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "string",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "project": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
             "readonly": false
         },
         "Duo\\Orchestrator\\PromoteCommand": {
@@ -24428,6 +26070,81 @@
             "properties": [],
             "readonly": false
         },
+        "Duo\\Orchestrator\\StackInventory": {
+            "abstract": false,
+            "constants": {
+                "ACCESS": {
+                    "value_repr": "read-only for this command"
+                },
+                "DATABASE_KEYS": {
+                    "value_repr": [
+                        "engine",
+                        "version"
+                    ]
+                },
+                "MAX_IDENTITY_ROWS": {
+                    "value_repr": 200
+                },
+                "SITE_MODES": {
+                    "value_repr": [
+                        "single-site",
+                        "multisite"
+                    ]
+                },
+                "TARGET_KEYS": {
+                    "value_repr": [
+                        "wordpress",
+                        "php",
+                        "database",
+                        "site_mode",
+                        "home",
+                        "siteurl"
+                    ]
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "authority": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "facts",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "stack": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
         "Duo\\Orchestrator\\StatusCommand": {
             "abstract": false,
             "constants": [],
@@ -24489,6 +26206,147 @@
                         }
                     ],
                     "return_type": "int",
+                    "static": true,
+                    "visibility": "public"
+                }
+            },
+            "parent": null,
+            "properties": [],
+            "readonly": false
+        },
+        "Duo\\Orchestrator\\SurfaceCatalog": {
+            "abstract": false,
+            "constants": {
+                "CLASS_BUNDLE": {
+                    "value_repr": {
+                        "authored": "database checkpoint",
+                        "managed": "code release"
+                    }
+                },
+                "CONDITION_CODES": {
+                    "value_repr": [
+                        "plugin_version_mismatch",
+                        "plugin_not_active",
+                        "wordpress_version_mismatch",
+                        "php_version_mismatch",
+                        "database_version_mismatch",
+                        "theme_version_mismatch",
+                        "theme_not_active"
+                    ]
+                },
+                "KIND_SECTION": {
+                    "value_repr": {
+                        "post_type": "post_types",
+                        "table": "tables",
+                        "taxonomy": "taxonomies"
+                    }
+                },
+                "LIFECYCLE_SURFACE_ALIAS": {
+                    "value_repr": "plugins/themes"
+                },
+                "REGISTRY_OPERATION": {
+                    "value_repr": {
+                        "capture": "capture",
+                        "delete": "delete",
+                        "merge": "plan",
+                        "recover": "promote",
+                        "release": "promote",
+                        "verify": "plan"
+                    }
+                },
+                "REGISTRY_OPERATION_INCLUDES": {
+                    "value_repr": {
+                        "promote": [
+                            "promote",
+                            "apply",
+                            "deploy"
+                        ]
+                    }
+                }
+            },
+            "final": true,
+            "interfaces": [],
+            "kind": "class",
+            "methods": {
+                "catalog": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "inventory",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registryReports",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "contract",
+                            "type": "?array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": [],
+                            "has_default": true,
+                            "name": "options",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "projectionFacts": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "catalog",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "operations",
+                            "type": "array",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "registrySha256",
+                            "type": "string",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "bundles",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
                     "static": true,
                     "visibility": "public"
                 }

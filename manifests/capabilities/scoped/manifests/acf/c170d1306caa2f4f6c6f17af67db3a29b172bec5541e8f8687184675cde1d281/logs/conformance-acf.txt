@@ -1,0 +1,314 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    aad017aa4722c726839042e8e297991caf729fad
+  invoked from:   <source-root>/sandbox
+  expected SHA:   aad017aa4722c726839042e8e297991caf729fad (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly aad017aa4722c726839042e8e297991caf729fad, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 'rttwocert0': reset ==[0m
+[1;32mok: wp_rttwocert01/wp_rttwocert02 dropped + recreated empty; siterepo/rttwocert0{1,2} cleared in place and origin-rttwocert0.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/rttwocert0{1,2}, origin-rttwocert0.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up rttwocert0 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.rttwocert0{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9300) / conf2 (:9301), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    aad017aa4722c726839042e8e297991caf729fad
+  invoked from:   <source-root>/sandbox
+  expected SHA:   aad017aa4722c726839042e8e297991caf729fad (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly aad017aa4722c726839042e8e297991caf729fad, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rttwocert0': databases ==[0m
+[1;32mok: wp_rttwocert01, wp_rttwocert02 exist[0m
+
+[1;36m== pair 'rttwocert0': site-repo directories ==[0m
+
+[1;36m== pair 'rttwocert0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rttwocert0_wp2 Creating
+ Volume duo-rttwocert0_wp2 Created
+ Volume duo-rttwocert0_wp1 Creating
+ Volume duo-rttwocert0_wp1 Created
+ Container duo-rttwocert0-wp1-1 Creating
+ Container duo-rttwocert0-wp2-1 Creating
+ Container duo-rttwocert0-wp1-1 Created
+ Container duo-rttwocert0-wp2-1 Created
+ Container duo-rttwocert0-wp2-1 Starting
+ Container duo-rttwocert0-wp1-1 Starting
+ Container duo-rttwocert0-wp1-1 Started
+ Container duo-rttwocert0-wp2-1 Started
+ Container duo-rttwocert0-cli1-1 Creating
+ Container duo-rttwocert0-cli2-1 Creating
+ Container duo-rttwocert0-cli2-1 Created
+ Container duo-rttwocert0-cli1-1 Created
+ Container duo-rttwocert0-cli2-1 Starting
+ Container duo-rttwocert0-cli1-1 Starting
+ Container duo-rttwocert0-cli2-1 Started
+ Container duo-rttwocert0-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rttwocert0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rttwocert0': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.rttwocert01.needs-install present — reset emptied wp_rttwocert01, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rttwocert0-cli1-run-b162b24e09a7 Creating
+ Container duo-rttwocert0-cli1-run-b162b24e09a7 Created
+Success: WordPress installed successfully.
+ Container duo-rttwocert0-cli1-run-8c5f03a7bfc3 Creating
+ Container duo-rttwocert0-cli1-run-8c5f03a7bfc3 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rttwocert0-cli1-run-fcd74328f5a6 Creating
+ Container duo-rttwocert0-cli1-run-fcd74328f5a6 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rttwocert0-cli1-run-787af5a6089a Creating
+ Container duo-rttwocert0-cli1-run-787af5a6089a Created
+ Container duo-rttwocert0-cli1-run-644d9851919a Creating
+ Container duo-rttwocert0-cli1-run-644d9851919a Created
+ Container duo-rttwocert0-cli1-run-bf6236f29d5b Creating
+ Container duo-rttwocert0-cli1-run-bf6236f29d5b Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rttwocert0-cli1-run-b97abba131dc Creating
+ Container duo-rttwocert0-cli1-run-b97abba131dc Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9300)
+  side 2: siterepo/.rttwocert02.needs-install present — reset emptied wp_rttwocert02, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-rttwocert0-cli2-run-e934d16b2a6f Creating
+ Container duo-rttwocert0-cli2-run-e934d16b2a6f Created
+Success: WordPress installed successfully.
+ Container duo-rttwocert0-cli2-run-cd8a424e215f Creating
+ Container duo-rttwocert0-cli2-run-cd8a424e215f Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rttwocert0-cli2-run-30f405fcaec5 Creating
+ Container duo-rttwocert0-cli2-run-30f405fcaec5 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rttwocert0-cli2-run-3e3a86bcff55 Creating
+ Container duo-rttwocert0-cli2-run-3e3a86bcff55 Created
+ Container duo-rttwocert0-cli2-run-c3a86e4df04a Creating
+ Container duo-rttwocert0-cli2-run-c3a86e4df04a Created
+ Container duo-rttwocert0-cli2-run-099237f7bf59 Creating
+ Container duo-rttwocert0-cli2-run-099237f7bf59 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rttwocert0-cli2-run-f6b2e7857d31 Creating
+ Container duo-rttwocert0-cli2-run-f6b2e7857d31 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9301)
+
+[1;36m== pair 'rttwocert0' ready ==[0m
+  wp1: http://localhost:9300 (published on host port 9300)
+  wp2: http://localhost:9301 (published on host port 9301)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rttwocert0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rttwocert0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rttwocert0 must stay exported, or pass -p duo-rttwocert0 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-rttwocert0-cli1-run-431072545854 Creating
+ Container duo-rttwocert0-cli1-run-431072545854 Created
+Success: Updated 'blogname' option.
+ Container duo-rttwocert0-cli1-run-5e67100cbdf5 Creating
+ Container duo-rttwocert0-cli1-run-5e67100cbdf5 Created
+Success: The site at 'http://localhost:9300' was emptied.
+ Container duo-rttwocert0-cli1-run-3994ea723eeb Creating
+ Container duo-rttwocert0-cli1-run-3994ea723eeb Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-rttwocert0-cli1-run-c40025d69584 Creating
+ Container duo-rttwocert0-cli1-run-c40025d69584 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rttwocert0-cli1-run-9a42665a77e8 Creating
+ Container duo-rttwocert0-cli1-run-9a42665a77e8 Created
+Plugin 'advanced-custom-fields' activated.
+Success: Activated 1 of 1 plugins.
+ Container duo-rttwocert0-cli1-run-98d1fe99bd0c Creating
+ Container duo-rttwocert0-cli1-run-98d1fe99bd0c Created
+ Container duo-rttwocert0-cli1-run-66081385e3ad Creating
+ Container duo-rttwocert0-cli1-run-66081385e3ad Created
+env conf1 installed, role=author (acf: 1 pinned plugins, 0 pinned themes)
+ Container duo-rttwocert0-cli2-run-f79b67896bfe Creating
+ Container duo-rttwocert0-cli2-run-f79b67896bfe Created
+Success: Updated 'blogname' option.
+ Container duo-rttwocert0-cli2-run-80d1105a8289 Creating
+ Container duo-rttwocert0-cli2-run-80d1105a8289 Created
+Success: The site at 'http://localhost:9301' was emptied.
+ Container duo-rttwocert0-cli2-run-6a11c72d55f1 Creating
+ Container duo-rttwocert0-cli2-run-6a11c72d55f1 Created
+artifact-cache: kind=plugin slug=advanced-custom-fields version=6.8.7 sha256=f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2 source=cache-hit path=/artifacts-cache/plugin-advanced-custom-fields-6.8.7-f877a94871e55cc2f2931052c693705d376da12cb85c9761b6915c037f91cec2.zip
+ Container duo-rttwocert0-cli2-run-0c1a34668032 Creating
+ Container duo-rttwocert0-cli2-run-0c1a34668032 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-rttwocert0-cli2-run-827275d95f13 Creating
+ Container duo-rttwocert0-cli2-run-827275d95f13 Created
+ Container duo-rttwocert0-cli2-run-ef337e25c556 Creating
+ Container duo-rttwocert0-cli2-run-ef337e25c556 Created
+env conf2 installed, role=target (acf: 1 pinned plugins, 0 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core","acf"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/acf.sh) ==[0m
+ Container duo-rttwocert0-cli1-run-2c93cf136616 Creating
+ Container duo-rttwocert0-cli1-run-2c93cf136616 Created
+acf seed: {"group":1,"attachment":7,"target1":8,"target2":9,"content":10,"cat_one":2,"cat_two":3,"cat_three":4,"admin":1}
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-rttwocert0-cli1-run-8a8d5a2cc7b7 Creating
+ Container duo-rttwocert0-cli1-run-8a8d5a2cc7b7 Created
+Success: captured 10 posts, 4 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-rttwocert0-cli1-run-87e748abd3ce Creating
+ Container duo-rttwocert0-cli1-run-87e748abd3ce Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-rttwocert0-cli1-run-b70a24f5b8f4 Creating
+ Container duo-rttwocert0-cli1-run-b70a24f5b8f4 Created
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-rttwocert0-cli2-run-c3de58fc4909 Creating
+ Container duo-rttwocert0-cli2-run-c3de58fc4909 Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "b724a8cb874dfa18f6dbe29961ef84067b9f035d4cbc482f3956e0aa4d8e7201",
+    "revision": "d037023f26ac3b8aada521b27c083b0c7e3267712da1f790753a0ff2774992a5",
+    "manifests": "c106442f4a687a287b4ff3f926876945c7e8c15868dd0c80eb856cdcab6b8a1c"
+  },
+  "activated": [
+    "advanced-custom-fields/acf.php"
+  ],
+  "deactivated": [],
+  "theme_switched": null,
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "plugin",
+      "plugin": "advanced-custom-fields/acf.php",
+      "message": "active_plugins in state/options/core.json declares 'advanced-custom-fields/acf.php', and its code is installed, but it is not active in this environment. Run 'duo deploy <env>' before apply so activation hooks and schema migrations complete first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-96489848e9abf4d85cec310617ffdc04",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-rttwocert0-cli2-run-263cee01cffb Creating
+ Container duo-rttwocert0-cli2-run-263cee01cffb Created
+ Container duo-rttwocert0-cli2-run-f9181aca9156 Creating
+ Container duo-rttwocert0-cli2-run-f9181aca9156 Created
+ Container duo-rttwocert0-cli2-run-5944c1f7bfe6 Creating
+ Container duo-rttwocert0-cli2-run-5944c1f7bfe6 Created
+[1;32mok: conf2 active plugins (advanced-custom-fields) and theme (template=twentytwentyone, stylesheet=twentytwentyone) match canonical — deploy alone did this[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-rttwocert0-cli2-run-2a09e8b84dcc Creating
+ Container duo-rttwocert0-cli2-run-2a09e8b84dcc Created
+{
+  "artifact": {
+    "hash": "b724a8cb874dfa18f6dbe29961ef84067b9f035d4cbc482f3956e0aa4d8e7201",
+    "revision": "d037023f26ac3b8aada521b27c083b0c7e3267712da1f790753a0ff2774992a5",
+    "manifests": "c106442f4a687a287b4ff3f926876945c7e8c15868dd0c80eb856cdcab6b8a1c"
+  },
+  "plan": {
+    "create": 13,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 1,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 6,
+    "adapter_dispositions": 2,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 16,
+  "drift": [],
+  "warnings": [
+    "adopted env term 1 as 01a00f45-b4e2-79a9-af6f-4d039f1c8617 (terms/category/01a00f45-b4e2-79a9-af6f-4d039f1c8617--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 16,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-e3799e1f9012b29646ea9cf902d2f5c4",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-rttwocert0-cli2-run-58528c0aafa7 Creating
+ Container duo-rttwocert0-cli2-run-58528c0aafa7 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/acf.sh) ==[0m
+conf2 ACF field resolution: yes|2|Conformance Related Target One,Conformance Related Target Two|2|Conformance Category One,Conformance Category Two|Conformance Category Three|admin
+[1;32mok: conf2 resolves all five ACF field types (image, multi-relationship, multi/single taxonomy, user) via ACF's own get_field() API, using conf2's own local ids throughout[0m
+
+[1;32m✔ CONFORMANCE PASSED (acf)[0m

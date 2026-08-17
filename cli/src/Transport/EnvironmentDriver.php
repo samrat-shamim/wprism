@@ -192,8 +192,15 @@ final class DriverCapabilityReport {
             'doctor' => [
                 DriverCapability::ATTACH, DriverCapability::RAW_CONTROL, DriverCapability::WP_CONTROL,
             ],
+            // `assess` and `contract` are read-only over WP-CLI: assess runs
+            // `wp duo assess-inventory` and `wp duo capabilities`, and every
+            // contract subcommand that contacts the target does so by
+            // running an assessment. They demand exactly what the other
+            // read-only WP-CLI passthroughs demand and nothing more —
+            // asking for raw control would refuse on drivers that can
+            // legitimately answer the question (DUO-3344).
             'init', 'status', 'capabilities', 'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'env-set',
-            'pending', 'classify', 'coverage', 'scope' => [
+            'pending', 'classify', 'coverage', 'scope', 'assess', 'contract' => [
                 DriverCapability::ATTACH, DriverCapability::WP_CONTROL,
             ],
             'refresh', 'rebase' => [
@@ -223,8 +230,8 @@ final class DriverCapabilityReport {
             'url' => [DriverCapability::URL_DISCOVER, DriverCapability::URL_SET],
             default => throw new \RuntimeException(
                 "unknown driver operation '$operation' (expected attach, doctor, init, status, capabilities, capture, "
-                . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, refresh, rebase, adapter-observe, adopt, deploy, '
-                . 'promote, create, destroy, ttl, media-snapshot, maintenance, or url)'
+                . 'lint, plan, explain, apply, env-set, pending, classify, coverage, scope, assess, contract, refresh, rebase, '
+                . 'adapter-observe, adopt, deploy, promote, create, destroy, ttl, media-snapshot, maintenance, or url)'
             ),
         };
         sort($requirements, SORT_STRING);

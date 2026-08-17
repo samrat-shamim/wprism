@@ -861,10 +861,11 @@ namespace {
     // advertisement (or a handler) fails this count instead of silently
     // shrinking the set the contract sentence claims is closed.
     // 27 with DUO-3326's `code-preflight` plus scoped promotion's two
-    // orchestrator-only handoff commands. Every advertised handler is covered
-    // by the common envelope contract, so this count moves with the set rather
-    // than around it.
-    check(count($advertised) === 27, 'every one of the 27 --format=json commands was scanned (' . count($advertised) . ')');
+    // orchestrator-only handoff commands; 28 with round-3 MUP §4.5's
+    // `assess-inventory`. Every advertised handler is covered by the common
+    // envelope contract, so this count moves with the set rather than around
+    // it.
+    check(count($advertised) === 28, 'every one of the 28 --format=json commands was scanned (' . count($advertised) . ')');
 
     // Each newly enveloped command got a reviewed remediation arm, because the
     // default arm promises to "correct the named blocker" on exactly the path

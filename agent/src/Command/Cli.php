@@ -2949,6 +2949,136 @@ final class Cli {
             : 'evidence bundle: ' . ($report['evidence']['bundle_digest'] ?? 'none'));
         WP_CLI::line('registry sha256: ' . ($report['registry_sha256'] ?? 'none'));
     }
+    /**
+     * MUP §4.5: one read-only pass answering "what is here, and what does the
+     * pinned policy already say about it" — the stack, the installed plugin
+     * and theme set, media, the pinned adapters, the policy's surface groups,
+     * `coverage`, the `pending` queue and the adapter survey, in one
+     * `duo-assess-inventory/v1` document.
+     *
+     * It exists as ONE command rather than as host-side composition of six
+     * because the host would otherwise have to make six round trips to the
+     * target and reconcile six wire formats to answer a question that is
+     * asked before anything is decided. It adds no evidence of its own: every
+     * section is either an existing projection quoted verbatim or a
+     * derivation over declarations `Policy` already exposes.
+     *
+     * Read-only by construction — no locks, no hooks, no DDL, no
+     * `Ledger::ensure()` — and names and counts only, exactly `coverage`'s
+     * discipline: no option value and no table row ever reaches the output.
+     * The human view is a deliberately short bounded summary; JSON is the
+     * primary form and the only one that carries the listings.
+     *
+     * ## OPTIONS
+     * --repo=<path>
+     * [--manifests=<dir>] : Adapter manifest library to resolve the pins
+     *                        against, for a host driving a target whose
+     *                        library is not the agent's default. Must be an
+     *                        existing directory; restored after the command.
+     * [--format=<format>] : Output format. Accepts json (machine-readable,
+     *                        versioned by the document's own "format" field —
+     *                        this is the shape `duo assess` consumes, so treat
+     *                        it as contract, not incidental).
+     *
+     * @subcommand assess-inventory
+     */
+    public function assess_inventory($args, $assoc) {
+        // agent/duo.php loads this projection eagerly with every other
+        // agent/src class; requiring it here as well is the same net every
+        // file in this tree carries for the partially-loaded contexts the
+        // drop-in also runs in, and it keeps this verb's dependency named in
+        // its own source. It is required INSIDE the handler rather than at
+        // the top of the file because the offline refusal suites load
+        // Cli.php against pre-declared \Duo stubs.
+        require_once __DIR__ . '/../Assess/AssessInventory.php';
+        // Restored unconditionally: --manifests is a per-invocation selector,
+        // and Policy::manifests_dir() reads this variable on every call, so a
+        // leaked value would silently repoint every later load in this
+        // process (the same save/restore RefreshPlan and ManifestValidate
+        // already perform around their own library switches).
+        $previousManifests = getenv('DUO_MANIFESTS_DIR');
+        // Definite assignment before the boundary, not after it: every
+        // failure path below leaves this function through WP_CLI, so the
+        // renderer is unreachable with an empty document, and initializing
+        // here keeps that fact checkable instead of baselined.
+        $document = [];
+        try {
+            $repo = $assoc['repo'] ?? throw CommandRefusalException::invalidArgument('assess-inventory', '--repo');
+            if (isset($assoc['manifests'])) {
+                $dir = (string) $assoc['manifests'];
+                if ($dir === '' || !is_dir($dir)) {
+                    throw new CommandRefusalException(
+                        'invalid_arguments',
+                        '--manifests must name an existing adapter manifest directory',
+                        'supply --manifests=<dir> pointing at a readable manifest library, or omit it to use the agent default',
+                        [],
+                        'assess-inventory received a --manifests value that is not a directory'
+                    );
+                }
+                putenv('DUO_MANIFESTS_DIR=' . $dir);
+            }
+            // `true` follows the read-only capability path `capabilities` and
+            // `adapter-observe` already take: an assessment must be able to
+            // REPORT an unsupported topology (it emits site_mode), not refuse
+            // before it can describe it.
+            $document = AssessInventory::report(
+                Policy::load((string) $repo, null, true),
+                ['repo' => (string) $repo]
+            );
+        } catch (\Throwable $t) {
+            self::halt_json_failure($t, $assoc, 'assess-inventory');
+            WP_CLI::error($t->getMessage());
+        } finally {
+            $previousManifests === false
+                ? putenv('DUO_MANIFESTS_DIR')
+                : putenv('DUO_MANIFESTS_DIR=' . $previousManifests);
+        }
+
+        if (($assoc['format'] ?? '') === 'json') {
+            WP_CLI::line(rtrim(Canon::encode($document), "\n"));
+            return;
+        }
+
+        // Counts only, and never a name: plugin, theme and manifest names are
+        // third-party bytes, and a terminal is the one place this command has
+        // no reason to render them. --format=json is the transport form.
+        $target = $document['target'];
+        $counts = [];
+        foreach ($document['policy']['surface_groups'] as $group) {
+            $counts[$group['kind']] = ($counts[$group['kind']] ?? 0) + 1;
+        }
+        ksort($counts, SORT_STRING);
+        WP_CLI::line(sprintf(
+            'stack: WordPress %s · PHP %s · %s %s · %s',
+            $target['wordpress'], $target['php'],
+            $target['database']['engine'], $target['database']['version'], $target['site_mode']
+        ));
+        WP_CLI::line(sprintf(
+            'installed: %d plugin(s) (%d active), %d theme(s), %d attachment(s)',
+            count($document['plugins']),
+            count(array_filter($document['plugins'], static fn(array $p): bool => $p['active'])),
+            count($document['themes']),
+            $document['media']['count']
+        ));
+        WP_CLI::line('pinned adapters: ' . count($document['policy']['manifests']));
+        $rendered = [];
+        foreach ($counts as $kind => $n) {
+            $rendered[] = "$kind=$n";
+        }
+        WP_CLI::line('surface groups: ' . (count($document['policy']['surface_groups']))
+            . ($rendered === [] ? '' : ' (' . implode(' ', $rendered) . ')'));
+        WP_CLI::line(sprintf(
+            'coverage: %d option(s) total, %d captured, %d invisible; %d undeclared table(s)',
+            $document['coverage']['options']['total'], $document['coverage']['options']['captured'],
+            $document['coverage']['options']['invisible_total'], $document['coverage']['tables']['undeclared_total']
+        ));
+        WP_CLI::line('pending: ' . $document['pending']['count'] . ' unclassified item(s)');
+        WP_CLI::line('adapter survey: ' . ($document['adapter_survey'] === null
+            ? 'unavailable (' . ($document['adapter_survey_reason'] ?? 'unknown') . ')'
+            : count($document['adapter_survey']['adapters']) . ' installed, '
+                . count($document['adapter_survey']['refusals']) . ' refusal(s)'));
+        WP_CLI::success('assess inventory complete — read-only; use --format=json for the listings this summary counts');
+    }
 }
 
 WP_CLI::add_command('duo', Cli::class);

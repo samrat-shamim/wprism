@@ -10,6 +10,14 @@ final class EnvironmentCommandPreflight {
         'doctor', 'driver-capabilities', 'adopt', 'init', 'status', 'capabilities',
         'adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'deploy', 'env-set',
         'promote', 'pending', 'classify', 'coverage', 'scope', 'refresh', 'rebase',
+        // Round-3 MUP §2.1/§2.6. Both are environment-bound because both
+        // take <env>: assess reads that target, and every contract
+        // subcommand except `show` re-runs an assessment against it. `show`
+        // reads only committed files, but registering the verb per-
+        // subcommand would make one word of `duo contract` resolve its
+        // environment and another not — a difference an operator would
+        // discover as an inconsistent error message rather than a feature.
+        'assess', 'contract',
     ];
 
     public static function requiresEnvironment(string $verb): bool {

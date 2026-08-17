@@ -26,9 +26,22 @@ final class CommandOutput {
         }
     }
 
-    /** Commands whose host preflight can emit the agent refusal envelope. */
+    /**
+     * Commands whose host preflight can emit the agent refusal envelope.
+     *
+     * `assess` and `contract` join the list (round-3 MUP §2.1) because both
+     * publish a canonical document under `--format=json` and both can be
+     * refused by the host before the target is contacted — an unresolvable
+     * environment, a driver missing a required capability. A caller parsing
+     * this command's stdout must get one envelope for every outcome, or the
+     * first host-side refusal becomes an unparseable line in a pipeline.
+     */
     public static function wantsAgentRefusalJson(string $verb, array $extra): bool {
-        if (!in_array($verb, ['adapter-observe', 'capture', 'lint', 'plan', 'explain', 'apply', 'refresh'], true)) {
+        if (!in_array(
+            $verb,
+            ['adapter-observe', 'assess', 'capture', 'contract', 'lint', 'plan', 'explain', 'apply', 'refresh'],
+            true
+        )) {
             return false;
         }
         foreach ($extra as $index => $arg) {

@@ -65,6 +65,24 @@ if (is_file(__DIR__ . '/src/Refresh/RefreshPlan.php')) {
 require __DIR__ . '/src/Refresh/Refresh.php';
 require __DIR__ . '/src/Command/RefreshCommand.php';
 require __DIR__ . '/src/Command/RebaseCommand.php';
+// Round-3 MUP §2.1/§2.6. Deliberately last in this block: every class
+// below `require_once`s its own dependencies by path, and this file's
+// convention is a bare `require`, so a leaf loaded early here would be
+// redeclared when its own dependant pulled it in. Ordering within the
+// block follows the same rule — the Contract module before Assess, and
+// GapActions before SurfaceCatalog, which requires it.
+require __DIR__ . '/src/Contract/ProjectionVocabulary.php';
+require __DIR__ . '/src/Contract/ApplicationContract.php';
+require __DIR__ . '/src/Contract/ContractStore.php';
+require __DIR__ . '/src/Contract/ContractProposal.php';
+require __DIR__ . '/src/Contract/ContractProjection.php';
+require __DIR__ . '/src/Assess/StackInventory.php';
+require __DIR__ . '/src/Assess/GapActions.php';
+require __DIR__ . '/src/Assess/SurfaceCatalog.php';
+require __DIR__ . '/src/Assess/AssessReport.php';
+require __DIR__ . '/src/Assess/AssessRenderer.php';
+require __DIR__ . '/src/Command/AssessCommand.php';
+require __DIR__ . '/src/Command/ContractCommand.php';
 // Pure immutable-contract validation for host-local --scope-contract files.
 // These classes perform no WordPress bootstrap or target access here.
 require_once dirname(__DIR__) . '/agent/src/Kernel/Canon.php';
@@ -146,6 +164,8 @@ use Duo\Orchestrator\EnvironmentLifecycleJournal;
 use Duo\Orchestrator\PendingCommand;
 use Duo\Orchestrator\ClassifyCommand;
 use Duo\Orchestrator\StatusCommand;
+use Duo\Orchestrator\AssessCommand;
+use Duo\Orchestrator\ContractCommand;
 use Duo\Orchestrator\PlanContract;
 use Duo\Orchestrator\PlanSummary;
 use Duo\Orchestrator\RollbackAuthority;
@@ -196,6 +216,8 @@ Usage:
   duo adopt  <env>
   duo init   <env> [--yes]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
+  duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
+  duo contract <env> show|propose|accept [--format=json]
   duo capabilities <env> [--operation=<op>] [--surface=<surface>] [--revision=<sha>] [--format=json]
   duo capture <env> [--scope-contract=<local-path>] [extra wp-cli flags...]
   duo lint    <env> [extra wp-cli flags...]
@@ -390,6 +412,56 @@ Verbs:
                           See cli/src/Plan/PlanSummary.php's decision-matrix
                           comment. Underlying plan failure/unparseable JSON is
                           also non-zero. Warnings alone never flip this.
+  assess <env>            Decision-first, READ-ONLY assessment of one
+    [--operation=<ops>]   environment: the stack and the authority Duo
+    [--limit=<1..200>]    actually has, one row per WordPress-language
+    [--format=json]       surface carrying its state class, handling,
+                          technical readiness, certification provenance,
+                          effect containment and effect recovery semantics,
+                          the unknown/unclassified queue counted and named,
+                          and the smallest safe next action per gap from a
+                          closed set. Composes doctor, the adoption and
+                          initialization probes, `wp duo assess-inventory`,
+                          `wp duo capabilities` per operation, and the host
+                          adapter catalog; it writes nothing to the target.
+                          Surface rows are derived from data — the target's
+                          policy surface groups, the registry claim's own
+                          surfaces, and the contract's surface_labels map —
+                          never from a plugin name.
+                          Containment is reported as `unknown — not enforced
+                          in this profile` wherever it is not structurally
+                          prevented; nothing here is a capability claim.
+                          Writes .duo/contract/proposed.json in the LOCAL
+                          site repository (never authoritative), and
+                          regenerates .duo/contract/projection.json when a
+                          contract has already been accepted.
+                          --operation narrows the projected product
+                          operations (capture, merge, release, verify,
+                          delete, recover; default all six); --limit bounds
+                          every human listing (default 50, `N more (use
+                          --format=json)` tail). Exit 0 for a bounded
+                          assessment INCLUDING one where every surface is
+                          blocked — assessment is not a completeness claim —
+                          and 1 only when the assessment itself refuses
+                          (unreachable target, unsupported topology).
+  contract <env>          The per-site application contract as one reviewed
+    show|propose|accept   object under .duo/contract/.
+    [--format=json]       propose regenerates proposed.json from a fresh
+                          assessment; a proposal is never authority and the
+                          generated external-effect entry is deliberately
+                          unreviewed, so accepting it unread is refused by
+                          the schema rather than by advice.
+                          show renders the accepted contract and its
+                          generated projection from disk and contacts
+                          nothing — they are committed review artifacts.
+                          accept re-runs the assessment, refuses a stale
+                          proposal rather than reconciling it, writes
+                          contract.json + projection.json canonically under
+                          compare-and-swap, and STAGES them. It never
+                          commits: the commit is the reviewer's signature.
+                          The attestation this profile writes is always
+                          `unsigned`, so every site-scoped claim projects
+                          Uncertified.
   capabilities <env>      Evaluate the evidence-bound generated registry for
                           this exact target/revision/operation/surface. Reports
                           plugin execution separately from branchable authored
@@ -749,6 +821,8 @@ function main(array $argv): int {
         'adopt' => cmd_adopt($transport, $extra),
         'init' => cmd_init($transport, $extra, $envsFileOverride),
         'status' => cmd_status($transport, $extra, $envsFileOverride),
+        'assess' => cmd_assess($transport, $extra),
+        'contract' => cmd_contract($transport, $extra),
         'adapter-observe' => cmd_adapter_observe($transport, $extra),
         'capabilities', 'lint', 'plan', 'explain', 'apply', 'coverage' => cmd_passthrough($transport, $verb, $extra),
         'env-set' => PassthroughCommand::runEnvSet($transport, $extra),
@@ -761,6 +835,20 @@ function main(array $argv): int {
         'refresh' => cmd_refresh($transport, $extra),
         'rebase' => cmd_rebase($transport, $extra),
     };
+}
+
+/**
+ * Read-only assessment. `dirname(__DIR__)` is this checkout's root, which the
+ * adoption probe needs to compare against the target's control-plane artifact
+ * — the same argument `cmd_adopt()` passes for the same reason.
+ */
+function cmd_assess(EnvironmentDriver $driver, array $extra): int {
+    return AssessCommand::run($driver, $extra, dirname(__DIR__));
+}
+
+/** The reviewed application contract: show from disk, propose/accept from a fresh assessment. */
+function cmd_contract(EnvironmentDriver $driver, array $extra): int {
+    return ContractCommand::run($driver, $extra, dirname(__DIR__));
 }
 
 /** One target call, closed response validation, optional create-only evidence. */

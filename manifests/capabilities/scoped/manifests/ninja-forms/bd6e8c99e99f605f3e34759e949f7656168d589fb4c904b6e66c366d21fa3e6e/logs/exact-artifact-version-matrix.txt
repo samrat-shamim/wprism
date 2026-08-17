@@ -1,0 +1,359 @@
+
+[1;36m== boot pair rttwocert4 (rttwocert41 :9308 / rttwocert42 :9309), idempotent ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    aad017aa4722c726839042e8e297991caf729fad
+  invoked from:   <source-root>/sandbox
+  expected SHA:   aad017aa4722c726839042e8e297991caf729fad (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly aad017aa4722c726839042e8e297991caf729fad, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 'rttwocert4': databases ==[0m
+[1;32mok: wp_rttwocert41, wp_rttwocert42 exist[0m
+
+[1;36m== pair 'rttwocert4': site-repo directories ==[0m
+
+[1;36m== pair 'rttwocert4': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-rttwocert4_wp2 Creating
+ Volume duo-rttwocert4_wp2 Created
+ Volume duo-rttwocert4_wp1 Creating
+ Volume duo-rttwocert4_wp1 Created
+ Container duo-rttwocert4-wp2-1 Creating
+ Container duo-rttwocert4-wp1-1 Creating
+ Container duo-rttwocert4-wp2-1 Created
+ Container duo-rttwocert4-wp1-1 Created
+ Container duo-rttwocert4-wp1-1 Starting
+ Container duo-rttwocert4-wp2-1 Starting
+ Container duo-rttwocert4-wp2-1 Started
+ Container duo-rttwocert4-wp1-1 Started
+ Container duo-rttwocert4-cli2-1 Creating
+ Container duo-rttwocert4-cli1-1 Creating
+ Container duo-rttwocert4-cli1-1 Created
+ Container duo-rttwocert4-cli2-1 Created
+ Container duo-rttwocert4-cli1-1 Starting
+ Container duo-rttwocert4-cli2-1 Starting
+ Container duo-rttwocert4-cli1-1 Started
+ Container duo-rttwocert4-cli2-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 'rttwocert4': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 'rttwocert4': generic WordPress bootstrap (idempotent) ==[0m
+ Container duo-rttwocert4-cli1-run-48e9b184051e Creating
+ Container duo-rttwocert4-cli1-run-48e9b184051e Created
+Success: WordPress installed successfully.
+ Container duo-rttwocert4-cli1-run-66fa8388896e Creating
+ Container duo-rttwocert4-cli1-run-66fa8388896e Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rttwocert4-cli1-run-7b73589a31b8 Creating
+ Container duo-rttwocert4-cli1-run-7b73589a31b8 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rttwocert4-cli1-run-732e9e9f6ab4 Creating
+ Container duo-rttwocert4-cli1-run-732e9e9f6ab4 Created
+ Container duo-rttwocert4-cli1-run-c0b7459f7470 Creating
+ Container duo-rttwocert4-cli1-run-c0b7459f7470 Created
+ Container duo-rttwocert4-cli1-run-c230156bac93 Creating
+ Container duo-rttwocert4-cli1-run-c230156bac93 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rttwocert4-cli1-run-c16613524494 Creating
+ Container duo-rttwocert4-cli1-run-c16613524494 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9308)
+ Container duo-rttwocert4-cli2-run-440a3f934353 Creating
+ Container duo-rttwocert4-cli2-run-440a3f934353 Created
+Success: WordPress installed successfully.
+ Container duo-rttwocert4-cli2-run-5dc76a710f23 Creating
+ Container duo-rttwocert4-cli2-run-5dc76a710f23 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-rttwocert4-cli2-run-a29b58eae043 Creating
+ Container duo-rttwocert4-cli2-run-a29b58eae043 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-rttwocert4-cli2-run-81585b535592 Creating
+ Container duo-rttwocert4-cli2-run-81585b535592 Created
+ Container duo-rttwocert4-cli2-run-e4888c64e744 Creating
+ Container duo-rttwocert4-cli2-run-e4888c64e744 Created
+ Container duo-rttwocert4-cli2-run-b4414753baf1 Creating
+ Container duo-rttwocert4-cli2-run-b4414753baf1 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-rttwocert4-cli2-run-ece7af6a13e6 Creating
+ Container duo-rttwocert4-cli2-run-ece7af6a13e6 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9309)
+
+[1;36m== pair 'rttwocert4' ready ==[0m
+  wp1: http://localhost:9308 (published on host port 9308)
+  wp2: http://localhost:9309 (published on host port 9309)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-rttwocert4 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-rttwocert4 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=rttwocert4 must stay exported, or pass -p duo-rttwocert4 and set WORDPRESS_DB_NAME/etc. yourself)
+[1;32mok: pair up[0m
+
+[1;36m== boundary: ninja-forms 3.4.34.2 ==[0m
+ Container duo-rttwocert4-cli1-run-96b23afd4e7f Creating
+ Container duo-rttwocert4-cli1-run-96b23afd4e7f Created
+ Container duo-rttwocert4-cli1-run-40b7549a55a2 Creating
+ Container duo-rttwocert4-cli1-run-40b7549a55a2 Created
+ Container duo-rttwocert4-cli1-run-9137084372d4 Creating
+ Container duo-rttwocert4-cli1-run-9137084372d4 Created
+ Container duo-rttwocert4-cli1-run-3022616786a3 Creating
+ Container duo-rttwocert4-cli1-run-3022616786a3 Created
+ Container duo-rttwocert4-cli1-run-1d886b557d88 Creating
+ Container duo-rttwocert4-cli1-run-1d886b557d88 Created
+ Container duo-rttwocert4-cli1-run-d0b8b79a70ef Creating
+ Container duo-rttwocert4-cli1-run-d0b8b79a70ef Created
+ Container duo-rttwocert4-cli2-run-66516dfb08c3 Creating
+ Container duo-rttwocert4-cli2-run-66516dfb08c3 Created
+ Container duo-rttwocert4-cli2-run-301d5b81b275 Creating
+ Container duo-rttwocert4-cli2-run-301d5b81b275 Created
+ Container duo-rttwocert4-cli2-run-cf1b1a2ccf77 Creating
+ Container duo-rttwocert4-cli2-run-cf1b1a2ccf77 Created
+ Container duo-rttwocert4-cli2-run-7ae7d5892efd Creating
+ Container duo-rttwocert4-cli2-run-7ae7d5892efd Created
+ Container duo-rttwocert4-cli2-run-194fbc180ee0 Creating
+ Container duo-rttwocert4-cli2-run-194fbc180ee0 Created
+ Container duo-rttwocert4-cli2-run-8032221c6b45 Creating
+ Container duo-rttwocert4-cli2-run-8032221c6b45 Created
+
+[1;36m== fetch + verify ninja-forms 3.4.34.2 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rttwocert4-cli1-run-cdbb306627ac Creating
+ Container duo-rttwocert4-cli1-run-cdbb306627ac Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.4.34.2 sha256=a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip
+ Container duo-rttwocert4-cli2-run-7ea19ede2194 Creating
+ Container duo-rttwocert4-cli2-run-7ea19ede2194 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.4.34.2 sha256=a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-ninja-forms-3.4.34.2-a22b05b058de53586c20e543fc2efa9d8863486da097f1152ec06f68ee28e687.zip[0m
+ Container duo-rttwocert4-cli1-run-fc83dac91661 Creating
+ Container duo-rttwocert4-cli1-run-fc83dac91661 Created
+ Container duo-rttwocert4-cli1-run-b3e4847a6aa5 Creating
+ Container duo-rttwocert4-cli1-run-b3e4847a6aa5 Created
+[1;32mok: side 1: ninja-forms 3.4.34.2 installed from verified artifact, active[0m
+ Container duo-rttwocert4-cli1-run-1dc17724d70b Creating
+ Container duo-rttwocert4-cli1-run-1dc17724d70b Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-rttwocert4-cli1-run-b07739e33d53 Creating
+ Container duo-rttwocert4-cli1-run-b07739e33d53 Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-rttwocert4-cli1-run-82546826ab46 Creating
+ Container duo-rttwocert4-cli1-run-82546826ab46 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (ninja-forms 3.4.34.2)[0m
+ Container duo-rttwocert4-cli1-run-e5e16c191897 Creating
+ Container duo-rttwocert4-cli1-run-e5e16c191897 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rttwocert4-cli2-run-78ebdbc7e8d2 Creating
+ Container duo-rttwocert4-cli2-run-78ebdbc7e8d2 Created
+ Container duo-rttwocert4-cli2-run-863e3fad24b1 Creating
+ Container duo-rttwocert4-cli2-run-863e3fad24b1 Created
+ Container duo-rttwocert4-cli2-run-dcfc6319a9ad Creating
+ Container duo-rttwocert4-cli2-run-dcfc6319a9ad Created
+activated: ninja-forms/ninja-forms.php
+Success: 1 activated, 0 deactivated
+Warning: deploy-window observation: http request attempted: http://localhost:9309/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=86fa94a705
+Warning: deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons
+ Container duo-rttwocert4-cli2-run-ae3ea1befddc Creating
+ Container duo-rttwocert4-cli2-run-ae3ea1befddc Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-rttwocert4-cli2-run-4c8cbaf9c6a4 Creating
+ Container duo-rttwocert4-cli2-run-4c8cbaf9c6a4 Created
+Warning: adopted env term 1 as 01a00f4c-96f4-79ea-9039-3bc6a0a9c4bd (terms/category/01a00f4c-96f4-79ea-9039-3bc6a0a9c4bd--uncategorized.json)
+Warning: provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.028s, verified)
+Success: applied 31 entities (canary clean) — plan was: {"create":28,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (ninja-forms 3.4.34.2, canary clean)[0m
+ Container duo-rttwocert4-cli2-run-6ff5989b8e64 Creating
+ Container duo-rttwocert4-cli2-run-6ff5989b8e64 Created
+ Container duo-rttwocert4-cli2-run-4a7071249e54 Creating
+ Container duo-rttwocert4-cli2-run-4a7071249e54 Created
+[1;32mok: side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions[0m
+ Container duo-rttwocert4-cli2-run-d4c906ca1d4a Creating
+ Container duo-rttwocert4-cli2-run-d4c906ca1d4a Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: byte-identical recapture at ninja-forms 3.4.34.2 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== boundary: ninja-forms 3.14.11 ==[0m
+ Container duo-rttwocert4-cli1-run-c6f5f46ef6c8 Creating
+ Container duo-rttwocert4-cli1-run-c6f5f46ef6c8 Created
+ Container duo-rttwocert4-cli1-run-0b4a2ce9eaa1 Creating
+ Container duo-rttwocert4-cli1-run-0b4a2ce9eaa1 Created
+ Container duo-rttwocert4-cli1-run-76a1c2182d8a Creating
+ Container duo-rttwocert4-cli1-run-76a1c2182d8a Created
+ Container duo-rttwocert4-cli1-run-a86ff3e05192 Creating
+ Container duo-rttwocert4-cli1-run-a86ff3e05192 Created
+ Container duo-rttwocert4-cli1-run-7fa6704b875c Creating
+ Container duo-rttwocert4-cli1-run-7fa6704b875c Created
+ Container duo-rttwocert4-cli1-run-a0312c8b92a6 Creating
+ Container duo-rttwocert4-cli1-run-a0312c8b92a6 Created
+ Container duo-rttwocert4-cli2-run-3f9515fba23d Creating
+ Container duo-rttwocert4-cli2-run-3f9515fba23d Created
+ Container duo-rttwocert4-cli2-run-7578de8c399c Creating
+ Container duo-rttwocert4-cli2-run-7578de8c399c Created
+ Container duo-rttwocert4-cli2-run-1be4914d65d9 Creating
+ Container duo-rttwocert4-cli2-run-1be4914d65d9 Created
+ Container duo-rttwocert4-cli2-run-a9fe219a0040 Creating
+ Container duo-rttwocert4-cli2-run-a9fe219a0040 Created
+ Container duo-rttwocert4-cli2-run-e47d3509bcfd Creating
+ Container duo-rttwocert4-cli2-run-e47d3509bcfd Created
+ Container duo-rttwocert4-cli2-run-6a8f8e0b658b Creating
+ Container duo-rttwocert4-cli2-run-6a8f8e0b658b Created
+
+[1;36m== fetch + verify ninja-forms 3.14.11 (never a bare slug install — always a digest-checked artifact) ==[0m
+ Container duo-rttwocert4-cli1-run-ef0749727ca5 Creating
+ Container duo-rttwocert4-cli1-run-ef0749727ca5 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-rttwocert4-cli2-run-53ea900e936b Creating
+ Container duo-rttwocert4-cli2-run-53ea900e936b Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+[1;32mok: verified sha256-pinned artifact resolved for both sides: /artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip[0m
+ Container duo-rttwocert4-cli1-run-4c8a0d4e6e06 Creating
+ Container duo-rttwocert4-cli1-run-4c8a0d4e6e06 Created
+ Container duo-rttwocert4-cli1-run-0aa5339b76eb Creating
+ Container duo-rttwocert4-cli1-run-0aa5339b76eb Created
+[1;32mok: side 1: ninja-forms 3.14.11 installed from verified artifact, active[0m
+ Container duo-rttwocert4-cli1-run-643808fbd675 Creating
+ Container duo-rttwocert4-cli1-run-643808fbd675 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-rttwocert4-cli1-run-65b0b5f5e4c6 Creating
+ Container duo-rttwocert4-cli1-run-65b0b5f5e4c6 Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-rttwocert4-cli1-run-00767eee42f8 Creating
+ Container duo-rttwocert4-cli1-run-00767eee42f8 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+[1;32mok: captured on side 1 (ninja-forms 3.14.11)[0m
+ Container duo-rttwocert4-cli1-run-ede9e9df83d0 Creating
+ Container duo-rttwocert4-cli1-run-ede9e9df83d0 Created
+Success: no findings — captured state is clean
+[1;32mok: lint: 0 findings[0m
+ Container duo-rttwocert4-cli2-run-8fc70642f5dc Creating
+ Container duo-rttwocert4-cli2-run-8fc70642f5dc Created
+ Container duo-rttwocert4-cli2-run-be78cd547624 Creating
+ Container duo-rttwocert4-cli2-run-be78cd547624 Created
+ Container duo-rttwocert4-cli2-run-9db3a6394fb4 Creating
+ Container duo-rttwocert4-cli2-run-9db3a6394fb4 Created
+Warning: deploy-window observation: http request attempted: http://localhost:9309/wp-admin/admin-ajax.php?action=wp_nf_update_fields&nonce=86fa94a705
+Warning: deploy-window observation: http request attempted: http://api.ninjaforms.com/feeds/?fetch=addons
+activated: ninja-forms/ninja-forms.php
+Success: 1 activated, 0 deactivated
+ Container duo-rttwocert4-cli2-run-dd1b16f56d44 Creating
+ Container duo-rttwocert4-cli2-run-dd1b16f56d44 Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-rttwocert4-cli2-run-367e67148fec Creating
+ Container duo-rttwocert4-cli2-run-367e67148fec Created
+Warning: adopted env term 1 as 01a00f4f-7788-7d17-bd14-b8a70184ae02 (terms/category/01a00f4f-7788-7d17-bd14-b8a70184ae02--uncategorized.json)
+Warning: provider capability fired: ninja-forms-form-cache@1.0.0 rebuild_form_caches (0.019s, verified)
+Success: applied 31 entities (canary clean) — plan was: {"create":28,"update":2,"unchanged":0,"drift":0,"conflict":0,"adopt":1,"collision":0,"delete":0,"delete_conflict":0,"deleted":0,"code_mismatch":0,"code_drift":0,"incomplete_apply":0,"incomplete_lifecycle":0,"missing_user":0,"skipped_user_meta":0,"uploads_inventory":0,"effects_inventory":7,"adapter_dispositions":2,"regen_pending":0,"regen_context":0,"env_missing":0}
+[1;32mok: deploy + apply succeeded on side 2 (ninja-forms 3.14.11, canary clean)[0m
+ Container duo-rttwocert4-cli2-run-83960f59a2d3 Creating
+ Container duo-rttwocert4-cli2-run-83960f59a2d3 Created
+ Container duo-rttwocert4-cli2-run-e8ab27000cbe Creating
+ Container duo-rttwocert4-cli2-run-e8ab27000cbe Created
+[1;32mok: side 2 renders the real Job Application and Ninja Forms' model API resolves 23 fields and 3 actions[0m
+ Container duo-rttwocert4-cli2-run-be29c940836a Creating
+ Container duo-rttwocert4-cli2-run-be29c940836a Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/.tmp-final
+[1;32mok: byte-identical recapture at ninja-forms 3.14.11 — the manifest's own declared version_range boundary is proven, not just its currently-installed version[0m
+
+[1;36m== negative control: ninja-forms 3.3.21.4 (real wp.org release, genuinely below manifests/ninja-forms.json's corrected min 3.4.34.2) must be REFUSED, not silently accepted ==[0m
+ Container duo-rttwocert4-cli1-run-e1113a436ddf Creating
+ Container duo-rttwocert4-cli1-run-e1113a436ddf Created
+ Container duo-rttwocert4-cli1-run-25adc8129fe6 Creating
+ Container duo-rttwocert4-cli1-run-25adc8129fe6 Created
+ Container duo-rttwocert4-cli1-run-47edf1f911b2 Creating
+ Container duo-rttwocert4-cli1-run-47edf1f911b2 Created
+ Container duo-rttwocert4-cli1-run-91505b915567 Creating
+ Container duo-rttwocert4-cli1-run-91505b915567 Created
+ Container duo-rttwocert4-cli1-run-1c825ae8afdb Creating
+ Container duo-rttwocert4-cli1-run-1c825ae8afdb Created
+ Container duo-rttwocert4-cli1-run-ba7770e5600f Creating
+ Container duo-rttwocert4-cli1-run-ba7770e5600f Created
+ Container duo-rttwocert4-cli1-run-076350969519 Creating
+ Container duo-rttwocert4-cli1-run-076350969519 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.14.11 sha256=82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73 source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.14.11-82dfb05166efeeeed9301c1e62f7838232f751d3cdc1acfb02daed028de33c73.zip
+ Container duo-rttwocert4-cli1-run-bf2b1fd62bb8 Creating
+ Container duo-rttwocert4-cli1-run-bf2b1fd62bb8 Created
+ Container duo-rttwocert4-cli1-run-9eae61ca3a06 Creating
+ Container duo-rttwocert4-cli1-run-9eae61ca3a06 Created
+ Container duo-rttwocert4-cli1-run-dfe988cd04eb Creating
+ Container duo-rttwocert4-cli1-run-dfe988cd04eb Created
+removed this environment's own activation-created 'Contact Me' form (id=1)
+contact_me_remaining=0
+ Container duo-rttwocert4-cli1-run-6950eddad365 Creating
+ Container duo-rttwocert4-cli1-run-6950eddad365 Created
+ninja-forms seed: page=1 form_id=2 (23 fields, 3 actions)
+ Container duo-rttwocert4-cli1-run-b77aaf86e095 Creating
+ Container duo-rttwocert4-cli1-run-b77aaf86e095 Created
+Success: captured 1 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 0 media blob(s) -> /siterepo/state
+ Container duo-rttwocert4-cli1-run-28d3544ff267 Creating
+ Container duo-rttwocert4-cli1-run-28d3544ff267 Created
+ Container duo-rttwocert4-cli1-run-b9b5f4ff8326 Creating
+ Container duo-rttwocert4-cli1-run-b9b5f4ff8326 Created
+ Container duo-rttwocert4-cli1-run-d205558c0eb2 Creating
+ Container duo-rttwocert4-cli1-run-d205558c0eb2 Created
+artifact-cache: kind=plugin slug=ninja-forms version=3.3.21.4 sha256=54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f source=cache-hit path=/artifacts-cache/plugin-ninja-forms-3.3.21.4-54fc48a030a85d4929fe4c3dc364affdd996e1add175f42a5d1f90c08a43682f.zip
+ Container duo-rttwocert4-cli1-run-8dfc42562330 Creating
+ Container duo-rttwocert4-cli1-run-8dfc42562330 Created
+ Container duo-rttwocert4-cli1-run-46f35372f76b Creating
+ Container duo-rttwocert4-cli1-run-46f35372f76b Created
+ Container duo-rttwocert4-cli1-run-4ba80a28f0bf Creating
+ Container duo-rttwocert4-cli1-run-4ba80a28f0bf Created
+Error: duo: deploy refused — code_mismatch:
+
+  - ninja-forms/ninja-forms.php 3.3.21.4 is active in this environment, outside the 'ninja-forms' manifest's declared version_range (>=3.4.34.2 <4.0.0, pinned by site.duo.json). Classification guarantees for this plugin are NOT validated against this version — apply may silently misclassify fields. Update the plugin, pin an older manifest, or pass --force-code-mismatch to proceed at your own risk.
+
+Install/vendor whatever is missing (or update code/) in this environment first, or pass --force-code-mismatch to proceed anyway.
+[1;32mok: confirmed: ninja-forms 3.3.21.4 (real, installed, genuinely below the corrected min) is loudly refused by Deploy::code_mismatch() — the version_range pin is honest, not just decorative[0m
+
+[1;36m== cleanup ==[0m
+
+[1;36m== pair 'rttwocert4': destroy ==[0m
+ Container duo-rttwocert4-cli1-1 Stopping
+ Container duo-rttwocert4-wp2-1 Stopping
+ Container duo-rttwocert4-cli2-1 Stopping
+ Container duo-rttwocert4-wp1-1 Stopping
+ Container duo-rttwocert4-cli1-1 Stopped
+ Container duo-rttwocert4-cli1-1 Removing
+ Container duo-rttwocert4-cli2-1 Stopped
+ Container duo-rttwocert4-cli2-1 Removing
+ Container duo-rttwocert4-cli1-1 Removed
+ Container duo-rttwocert4-cli2-1 Removed
+ Container duo-rttwocert4-wp2-1 Stopped
+ Container duo-rttwocert4-wp2-1 Removing
+ Container duo-rttwocert4-wp2-1 Removed
+ Container duo-rttwocert4-wp1-1 Stopped
+ Container duo-rttwocert4-wp1-1 Removing
+ Container duo-rttwocert4-wp1-1 Removed
+ Volume duo-rttwocert4_wp1 Removing
+ Volume duo-rttwocert4_wp2 Removing
+ Volume duo-rttwocert4_wp2 Removed
+ Volume duo-rttwocert4_wp1 Removed
+ Container duo-shared-db Running
+[1;32mok: containers + webroot volumes removed; wp_rttwocert41/wp_rttwocert42 dropped[0m
+  siterepo/rttwocert4{1,2} left on disk untouched — remove by hand if you want it gone too.
+[1;32mok: destroyed rttwocert4 (every assertion above passed)[0m
+
+[1;32m✔ CERTIFY_VERSION_MATRIX PASSED[0m

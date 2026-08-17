@@ -1,0 +1,415 @@
+<?php
+declare(strict_types=1);
+
+namespace Duo\Orchestrator;
+
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/Canon.php';
+require_once dirname(__DIR__, 3) . '/agent/src/Kernel/CommandRefusal.php';
+require_once dirname(__DIR__) . '/Contract/ContractProposal.php';
+require_once __DIR__ . '/GapActions.php';
+
+use Duo\Canon;
+use Duo\CommandRefusalException;
+
+/**
+ * The `duo-assess-report/v1` document — the machine form of everything
+ * `duo assess` prints, and the only input `duo contract propose` takes
+ * (round-3 MUP §2.1, §3.4, §4.1).
+ *
+ * The document's schema is owned by its consumer,
+ * `\Duo\Orchestrator\ContractProposal`, which validates it as a closed key
+ * set at every level. That is deliberate and it is why this class does not
+ * re-declare the schema: two copies of a closed key set drift, and the copy
+ * that matters is the one the contract refuses on. What lives here is the
+ * *assembly* — the four blocks assess derives that nothing else can — plus
+ * the two digest mechanics below.
+ *
+ * ## The digest, and why `rebind()` exists
+ *
+ * `assess_digest` is `sha256:` + the SHA-256 of the canonical encoding of
+ * the report minus that one key (`ContractProposal::assessDigest()`), and
+ * the proposal binds it so that `accept` can refuse a review that was
+ * written about a different site.
+ *
+ * The digest therefore covers `generated_at`, because the digest covers
+ * everything. Taken literally that would make every accept stale — two
+ * assessments of an unchanged site differ by a timestamp and by nothing
+ * else, and "the clock moved" is not "the site moved". `rebind()` is the
+ * fix, and it belongs here rather than in the contract module: it restamps
+ * a fresh report with the timestamp of the report being compared against
+ * and recomputes the digest, so the comparison is over the *facts*. The
+ * report stays internally consistent (its stated digest still matches its
+ * own bytes), so the contract's own verification is untouched — it is the
+ * choice of which two documents to compare that moved, and that choice is
+ * the assessing command's.
+ *
+ * ## What the four blocks are
+ *
+ * `target` is the inventory's stack block verbatim (`StackInventory`).
+ * `authority` is assess's own account of the access it had
+ * (`StackInventory::authority()`); the contract reads none of it.
+ * `surfaces` is `SurfaceCatalog`'s rows. `unknown` and `evidence` are
+ * assembled here because both are pure re-shapings of documents assess
+ * already holds and neither is worth its own class.
+ */
+final class AssessReport {
+    public const FORMAT = ContractProposal::ASSESS_REPORT_FORMAT;
+
+    /**
+     * MUP §4.6 binds the machine document too: the human renderer is a
+     * projection of this one, so an unbounded sample here would make the
+     * human bound unreachable. The consumer refuses anything larger.
+     */
+    public const MAX_NAMES_SAMPLE = ContractProposal::MAX_NAMES_SAMPLE;
+
+    /**
+     * Build the document and bind its digest.
+     *
+     * @param array<string,mixed> $target `StackInventory::stack()`
+     * @param array<string,mixed> $authority `StackInventory::authority()`
+     * @param list<array<string,mixed>> $surfaces `SurfaceCatalog` rows
+     * @param array<string,mixed> $unknown `unknown()`
+     * @param array<string,mixed> $evidence `evidence()`
+     * @return array<string,mixed>
+     */
+    public static function build(
+        string $environment,
+        string $generatedAt,
+        array $target,
+        array $authority,
+        array $surfaces,
+        array $unknown,
+        array $evidence
+    ): array {
+        if ($environment === '' || $generatedAt === '') {
+            throw self::refuse('an assess report needs an environment name and a generation timestamp');
+        }
+        $report = [
+            'format' => self::FORMAT,
+            'generated_at' => $generatedAt,
+            'env' => $environment,
+            'target' => $target,
+            'authority' => $authority,
+            'surfaces' => array_values($surfaces),
+            'unknown' => $unknown,
+            'evidence' => $evidence,
+            'assess_digest' => '',
+        ];
+        $report['assess_digest'] = ContractProposal::assessDigest($report);
+        // Structural self-check against the consumer's own closed schema. A
+        // report that cannot be proposed from is a defect worth finding on
+        // the machine that produced it, not on the one that reviews it.
+        ContractProposal::validateAssessReport($report);
+
+        return $report;
+    }
+
+    /**
+     * Restamp a report with another report's `generated_at` and rebind its
+     * digest, so two assessments can be compared on their facts.
+     *
+     * @param array<string,mixed> $report
+     * @return array<string,mixed>
+     */
+    public static function rebind(array $report, string $generatedAt): array {
+        if ($generatedAt === '') {
+            throw self::refuse('an assess report cannot be rebound to an empty timestamp');
+        }
+        $report['generated_at'] = $generatedAt;
+        $report['assess_digest'] = ContractProposal::assessDigest($report);
+
+        return $report;
+    }
+
+    /** Canonical bytes, exactly as `--format=json` emits them. */
+    public static function encode(array $report): string {
+        return Canon::encode($report);
+    }
+
+    /**
+     * Section 3 — the unknown / unclassified block (MUP §2.1 item 3).
+     *
+     * Names and counts only, never values: `Coverage` already reads every
+     * option value to classify it and publishes none of them, and this
+     * document is committed into a git repository. The sample is a list of
+     * *origin-tagged names* so an operator can tell an invisible option
+     * prefix from an undeclared table from a queued classification without
+     * a second lookup, and it is bounded while the counts are exact — a
+     * truncated sample beside a true count is honest; a truncated count is
+     * not.
+     *
+     * @param array<string,mixed> $inventory a `duo-assess-inventory/v1` document
+     * @return array{pending_count:int,invisible_names_count:int,names_sample:list<string>}
+     */
+    public static function unknown(array $inventory): array {
+        $coverage = is_array($inventory['coverage'] ?? null) ? $inventory['coverage'] : [];
+        $pending = is_array($inventory['pending'] ?? null) ? $inventory['pending'] : [];
+
+        $names = [];
+        foreach (($coverage['options']['invisible_groups'] ?? []) as $group) {
+            if (is_array($group) && is_string($group['prefix'] ?? null)) {
+                $names[] = 'option-prefix:' . $group['prefix'];
+            }
+        }
+        foreach (($coverage['tables']['undeclared'] ?? []) as $table) {
+            if (is_array($table) && is_string($table['logical_name'] ?? null)) {
+                $names[] = 'table:' . $table['logical_name'];
+            }
+        }
+        foreach (($pending['rows'] ?? []) as $row) {
+            if (!is_array($row) || !is_string($row['section'] ?? null) || !is_string($row['key'] ?? null)) {
+                continue;
+            }
+            $names[] = 'pending:' . $row['section'] . ':' . $row['key'];
+        }
+        $names = array_values(array_unique($names));
+        sort($names, SORT_STRING);
+
+        return [
+            'pending_count' => is_int($pending['count'] ?? null) ? $pending['count'] : 0,
+            'invisible_names_count' => is_int($coverage['options']['invisible_total'] ?? null)
+                ? $coverage['options']['invisible_total']
+                : 0,
+            'names_sample' => array_slice($names, 0, self::MAX_NAMES_SAMPLE),
+        ];
+    }
+
+    /**
+     * The evidence pins this assessment observed (MUP §3.2's
+     * `evidence_pins`, §3.4's refresh rule).
+     *
+     * `registry_sha256` is the TARGET's number, read out of the capability
+     * report the target produced. `generated_from` is the host's own
+     * `manifests/capabilities/registry.json` provenance triple — the
+     * generator inputs, which only exist beside the generator. The two are
+     * from different machines on purpose: the pin that must flip when the
+     * site changes is the target's hash, and it is the one
+     * `ContractProjection` compares.
+     *
+     * A subject whose evidence carries no bundle digest is **not a pin** and
+     * is left out: pinning a null would create a pin nothing can ever
+     * invalidate. Nothing is hidden by the omission — every surface
+     * belonging to that subject already carries the registry's own
+     * `evidence_not_current` blocker and therefore projects
+     * `Requalification required`, and the human renderer states the count.
+     *
+     * @param array<string,array<string,mixed>> $registryReports
+     * @param array<string,mixed> $generatedFrom the host registry's own
+     *        `generated_from` block
+     * @return array{registry_sha256:string,generated_from:array<string,mixed>,bundles:list<array<string,mixed>>}
+     */
+    public static function evidence(array $registryReports, array $generatedFrom): array {
+        $registrySha = null;
+        $bundles = [];
+        foreach ($registryReports as $report) {
+            if ($registrySha === null && is_string($report['registry_sha256'] ?? null)) {
+                $registrySha = $report['registry_sha256'];
+            }
+            foreach (($report['manifests'] ?? []) as $manifest) {
+                if (!is_array($manifest)) {
+                    continue;
+                }
+                $row = self::bundleRow($manifest);
+                if ($row !== null) {
+                    $bundles[$row['subject']] = $row;
+                }
+            }
+        }
+        if ($registrySha === null || $registrySha === '') {
+            throw self::refuse('the target capability report carries no registry hash');
+        }
+        foreach (['dispositions_sha256', 'evidence_sha256', 'compatibility_sha256'] as $key) {
+            if (!is_string($generatedFrom[$key] ?? null) || $generatedFrom[$key] === '') {
+                throw self::refuse("the shipped capability registry has no $key provenance");
+            }
+        }
+        ksort($bundles, SORT_STRING);
+
+        return [
+            'registry_sha256' => $registrySha,
+            'generated_from' => [
+                'dispositions_sha256' => (string) $generatedFrom['dispositions_sha256'],
+                'evidence_sha256' => (string) $generatedFrom['evidence_sha256'],
+                'compatibility_sha256' => (string) $generatedFrom['compatibility_sha256'],
+            ],
+            'bundles' => array_values($bundles),
+        ];
+    }
+
+    /**
+     * Every certification subject the reports named, digested or not — the
+     * *observed* set `ContractProjection` compares a contract's pins
+     * against. A pinned subject missing from this list, or present with a
+     * moved digest or a non-current status, is what flips its surfaces to
+     * `Requalification required`.
+     *
+     * @param array<string,array<string,mixed>> $registryReports
+     * @return list<array{subject:string,bundle_digest:string,status:string}>
+     */
+    public static function observedBundles(array $registryReports): array {
+        $observed = [];
+        foreach ($registryReports as $report) {
+            foreach (($report['manifests'] ?? []) as $manifest) {
+                if (!is_array($manifest) || !is_string($manifest['evidence']['subject'] ?? null)) {
+                    continue;
+                }
+                $evidence = $manifest['evidence'];
+                $observed[(string) $evidence['subject']] = [
+                    'subject' => (string) $evidence['subject'],
+                    'bundle_digest' => is_string($evidence['bundle_digest'] ?? null)
+                        ? $evidence['bundle_digest']
+                        : '',
+                    'status' => is_string($evidence['status'] ?? null) ? $evidence['status'] : 'unknown',
+                ];
+            }
+        }
+        ksort($observed, SORT_STRING);
+
+        return array_values($observed);
+    }
+
+    /**
+     * How many certification subjects this assessment saw with no bundle
+     * digest to pin. Reported, never silently dropped.
+     *
+     * @param array<string,array<string,mixed>> $registryReports
+     */
+    public static function unpinnedSubjects(array $registryReports): int {
+        $count = 0;
+        foreach (self::observedBundles($registryReports) as $bundle) {
+            if ($bundle['bundle_digest'] === '') {
+                $count++;
+            }
+        }
+
+        return $count;
+    }
+
+    /**
+     * The four contract facts the report has no field for
+     * (`ContractProposal::fromAssessReport()`'s `$seed`).
+     *
+     * All four are read from `duo-assess-inventory/v1`, which the assessing
+     * command already holds — inventing report keys for them would put
+     * contract inputs into a document whose job is to describe a site.
+     *
+     * `environment_bindings.required` is deliberately empty in this
+     * profile. The env-class option NAMES are not in the inventory: option
+     * groups are grouped by declarant and class precisely because listing
+     * them per name would be a listing bounded by the site's plugin set
+     * (§4.6). `duo status`'s `env_missing` checklist is the surface that
+     * names them, and the review step in §3.4 is where they land in the
+     * contract.
+     *
+     * @param array<string,mixed> $inventory
+     * @param array{name:string,spec_version:int} $site
+     * @return array<string,mixed>
+     */
+    public static function proposalSeed(array $inventory, array $site): array {
+        $pins = [];
+        foreach (($inventory['policy']['manifests'] ?? []) as $manifest) {
+            if (!is_array($manifest) || !is_string($manifest['name'] ?? null)) {
+                continue;
+            }
+            $digest = $manifest['adapter_digest'] ?? null;
+            if (!is_string($digest) || $digest === '') {
+                // A pin with no digest is not a pin. Refusing is loud on
+                // purpose: silently dropping it would produce a contract
+                // that pins fewer adapters than the site actually loads,
+                // and the operator would review a shorter list than the one
+                // in force.
+                throw self::refuse(
+                    'a pinned adapter reports no content digest, so it cannot be pinned in a contract'
+                );
+            }
+            $pins[] = [
+                'name' => $manifest['name'],
+                'source' => is_string($manifest['source'] ?? null) ? $manifest['source'] : 'shipped',
+                'adapter_digest' => $digest,
+            ];
+        }
+        usort($pins, static fn (array $a, array $b): int => strcmp($a['name'], $b['name']));
+
+        $plugins = [];
+        foreach (($inventory['plugins'] ?? []) as $plugin) {
+            if (!is_array($plugin) || ($plugin['active'] ?? false) !== true) {
+                continue;
+            }
+            $basename = (string) ($plugin['basename'] ?? '');
+            if ($basename === '') {
+                continue;
+            }
+            $plugins[] = [
+                'slug' => str_contains($basename, '/')
+                    ? explode('/', $basename, 2)[0]
+                    : basename($basename, '.php'),
+                'version' => (string) ($plugin['version'] ?? ''),
+            ];
+        }
+
+        return [
+            'site' => ['name' => $site['name'], 'spec_version' => $site['spec_version']],
+            'manifest_pins' => $pins,
+            'plugins' => $plugins,
+            'environment_bindings' => ['required' => []],
+        ];
+    }
+
+    /**
+     * @param array<string,mixed> $manifest
+     * @return array<string,mixed>|null
+     */
+    private static function bundleRow(array $manifest): ?array {
+        $evidence = $manifest['evidence'] ?? null;
+        if (!is_array($evidence)) {
+            return null;
+        }
+        foreach (['subject', 'bundle_digest', 'bundle_schema', 'status', 'git_revision'] as $key) {
+            if (!is_string($evidence[$key] ?? null) || $evidence[$key] === '') {
+                return null;
+            }
+        }
+
+        return [
+            'subject' => (string) $evidence['subject'],
+            'bundle_digest' => (string) $evidence['bundle_digest'],
+            'bundle_schema' => (string) $evidence['bundle_schema'],
+            'status' => (string) $evidence['status'],
+            'git_revision' => (string) $evidence['git_revision'],
+            'expires_with' => self::expiresWith($manifest),
+        ];
+    }
+
+    /**
+     * What re-expires this subject's evidence: the platform axes every
+     * claim is bound to, plus the plugin or theme this one carries a
+     * version window for. Read from the claim, so a widened window moves
+     * this list without an edit here.
+     *
+     * @param array<string,mixed> $manifest
+     * @return list<string>
+     */
+    private static function expiresWith(array $manifest): array {
+        $axes = [];
+        $supported = is_array($manifest['supported_versions'] ?? null) ? $manifest['supported_versions'] : [];
+        foreach (['plugin', 'theme'] as $key) {
+            $value = $supported[$key] ?? null;
+            if (is_string($value) && $value !== '' && $value !== 'unbound') {
+                $axes[] = $value;
+            }
+        }
+        foreach (['wordpress', 'php', 'database'] as $axis) {
+            $axes[] = $axis;
+        }
+
+        return array_values(array_unique($axes));
+    }
+
+    private static function refuse(string $message): CommandRefusalException {
+        return new CommandRefusalException(
+            'assess_report_unbuildable',
+            $message,
+            'rerun assess after repairing the target inventory or regenerating the capability registry'
+        );
+    }
+}

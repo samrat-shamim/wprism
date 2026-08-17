@@ -1,0 +1,338 @@
+#!/usr/bin/env bash
+# Regression — round-3 MUP §2.1, §4.1, §4.6: `duo assess <env>` composes the
+# whole read-only assessment in one fixed order, refuses (rather than
+# partially succeeding) when the target is unreachable or unsupported, and
+# succeeds with an exit status of 0 even when every surface is blocked.
+#
+# This drives the real `php cli/duo` over a `local` transport with a fake
+# `wp` on PATH, not the command class in isolation. Three of the things
+# under test live outside `AssessCommand` — the verb reaching the dispatch
+# match arm, `EnvironmentCommandPreflight::ENVIRONMENT_VERBS` admitting it,
+# and `DriverCapabilityReport::requirements()` knowing the operation — and a
+# suite that constructed the command by hand would pass with all three
+# broken. That is exactly how `duo scope` shipped broken (DUO-3344).
+#
+# Also carries the engine-adapter grep gate for the host side: no plugin
+# slug may appear in cli/src/Assess, cli/src/Contract or agent/src/Assess.
+#
+# Offline: no docker, no WordPress, no network, no target.
+set -uo pipefail
+
+ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/duo-assess-composition.XXXXXX")"
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+FAILURES=0
+pass() { printf 'ok: %s\n' "$*"; }
+fail() { printf 'FAIL: %s\n' "$*" >&2; FAILURES=$((FAILURES + 1)); }
+check() { if [ "$1" = 0 ]; then pass "$2"; else fail "$2"; fi; }
+
+# assert_contains <haystack-file> <needle> <message>
+assert_contains() {
+  if grep -Fq -- "$2" "$1"; then pass "$3"; else
+    fail "$3 (missing: $2)"
+    sed -n '1,20p' "$1" >&2
+  fi
+}
+
+assert_absent() {
+  if grep -Fq -- "$2" "$1"; then fail "$3 (unexpectedly present: $2)"; else pass "$3"; fi
+}
+
+php "$ROOT/sandbox/tests/fixtures/assess/make-fixture.php" "$TMP/site" >/dev/null \
+  || { echo "FAIL: could not build the assess fixture" >&2; exit 1; }
+
+export DUO_FIXTURES="$TMP/site/fixtures"
+export DUO_SITE_REPO="$TMP/site/repo"
+PATH="$TMP/site/bin:$PATH"
+export PATH
+
+# run_assess <calls-file> <stdout-file> <stderr-file> [args...] -> exit code
+run_assess() {
+  local calls="$1" out="$2" err="$3"; shift 3
+  : > "$calls"
+  DUO_CALLS="$calls" \
+    php "$ROOT/cli/duo" --envs-file="$TMP/site/envs.json" "$@" \
+    > "$out" 2> "$err"
+}
+
+say() { printf '\n== %s ==\n' "$*"; }
+
+# ---------------------------------------------------------------- composition
+say 'composition order'
+( cd "$TMP/site/repo" && run_assess "$TMP/calls.txt" "$TMP/out.json" "$TMP/err.txt" \
+    assess fixture --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "a bounded assessment exits 0 (got $STATUS)"
+[ -s "$TMP/err.txt" ] && { fail "assess wrote to stderr on success"; cat "$TMP/err.txt" >&2; } \
+  || pass 'a successful assessment writes nothing to stderr'
+
+# MUP §2.1's order, read off the calls the fake `wp` recorded. Doctor's
+# checks come first (they gate everything), then the read-only init probe,
+# then the inventory, then one capabilities call per DISTINCT registry
+# operation — four for all six product operations, never six.
+# The bootstrap rule runs FIRST and on the raw line: the eligibility probe
+# wraps its own `core is-installed` in an isolated control-plane --exec, so a
+# doctor rule applied first would swallow it.
+ORDER=$(sed -e 's/.*bootstrap eligibility.*/bootstrap/' "$TMP/calls.txt" \
+  | sed -e 's/.*--path=[^ ]* //' \
+  | sed -e 's/^\(core is-installed\).*/doctor/' \
+        -e 's/^eval.*class_exists.*/doctor/' \
+        -e 's/^eval.*DISALLOW_FILE_MODS.*/doctor/' \
+        -e 's/^eval.*db_server_info.*/doctor/' \
+        -e 's/^duo init .*/init-probe/' \
+        -e 's/^duo assess-inventory .*/assess-inventory/' \
+        -e 's/^duo capabilities .*--operation=\([a-z]*\).*/capabilities:\1/' \
+  | uniq)
+EXPECTED=$'doctor\nbootstrap\ninit-probe\nassess-inventory\ncapabilities:capture\ncapabilities:delete\ncapabilities:plan\ncapabilities:promote'
+if [ "$ORDER" = "$EXPECTED" ]; then
+  pass 'assess composes doctor -> bootstrap probe -> init probe -> inventory -> one capabilities call per registry operation'
+else
+  fail "composition order changed; got:"; printf '%s\n' "$ORDER" >&2
+fi
+
+CAP_CALLS=$(grep -c 'duo capabilities ' "$TMP/calls.txt")
+check "$([ "$CAP_CALLS" = 4 ] && echo 0 || echo 1)" \
+  "six product operations collapse to four registry operations (got $CAP_CALLS calls)"
+
+assert_contains "$TMP/calls.txt" 'duo assess-inventory --repo=' \
+  'the inventory is read with the TARGET repo path, not the local one'
+assert_absent "$TMP/calls.txt" 'duo coverage' \
+  'coverage is not a separate call: the agent composes it into the inventory'
+assert_absent "$TMP/calls.txt" 'duo pending' \
+  'pending is not a separate call: the agent composes it into the inventory'
+
+# ------------------------------------------------------------------- document
+say 'the assess report document'
+php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+$fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
+if (!is_array($d)) { $fail("assess --format=json did not emit a JSON object"); }
+$keys = array_keys($d); sort($keys);
+$want = ["assess_digest","authority","env","evidence","format","generated_at","surfaces","target","unknown"];
+if ($keys !== $want) { $fail("top-level key set moved: " . implode(",", $keys)); }
+if ($d["format"] !== "duo-assess-report/v1") { $fail("wrong format key"); }
+if ($d["env"] !== "fixture") { $fail("the report does not name its environment"); }
+if (($d["target"]["site_mode"] ?? null) !== "single-site") { $fail("target block is not the inventory verbatim"); }
+if (($d["authority"]["access"] ?? null) !== "read-only for this command") { $fail("authority does not state its access"); }
+if (($d["authority"]["init_probe"]["reason_code"] ?? null) !== "repository_owned") {
+    $fail("the read-only init probe refusal was not recorded as a fact");
+}
+if (($d["authority"]["bootstrap"]["probed"] ?? null) !== true) { $fail("the bootstrap probe did not run"); }
+$rows = [];
+foreach ($d["surfaces"] as $row) { $rows[$row["id"]] = $row; }
+$expect = [
+  // id => [state_class, handling, release readiness, containment, recovery, next action]
+  "post_type:page"                => ["authored","manage","Ready","prevented","provider-state restorable"],
+  "table:sample_ledger"           => ["runtime","preserve local","Ready with conditions","prevented","not applicable"],
+  "table:sample_lookup"           => ["derived","rebuild","Unsupported","unknown","not applicable"],
+  "option_group:sample-adapter:env" => ["environment-bound","rebind","Ready with conditions","unknown","not applicable"],
+  "option_group:core:managed"     => ["authored","block","Ready","unknown","unknown"],
+  "table:sample_log"              => ["unclassified","block","Not qualified","unknown","unknown"],
+];
+foreach ($expect as $id => [$class, $handling, $readiness, $containment, $recovery]) {
+    if (!isset($rows[$id])) { $fail("surface row $id is missing from the catalog"); }
+    $row = $rows[$id]; $p = $row["operations"]["release"];
+    if ($row["state_class"] !== $class) { $fail("$id state_class is {$row["state_class"]}, expected $class"); }
+    if ($row["handling"] !== $handling) { $fail("$id handling is {$row["handling"]}, expected $handling"); }
+    if ($p["readiness"] !== $readiness) { $fail("$id release readiness is {$p["readiness"]}, expected $readiness"); }
+    if ($p["effect_containment"] !== $containment) { $fail("$id containment is {$p["effect_containment"]}"); }
+    if ($p["effect_recovery_semantics"] !== $recovery) { $fail("$id recovery is {$p["effect_recovery_semantics"]}"); }
+}
+// §1.5: the only structurally provable containment carries its literal basis.
+foreach ($d["surfaces"] as $row) {
+    foreach ($row["operations"] as $operation => $p) {
+        $basis = $p["effect_containment_basis"];
+        $want = $p["effect_containment"] === "prevented"
+            ? "no WordPress hooks fire in the apply window"
+            : "unknown — not enforced in this profile";
+        if ($basis !== $want) { $fail("{$row["id"]}/$operation carries the wrong containment basis"); }
+        foreach (["Site-certified","sandboxed","compensatable"] as $never) {
+            if (in_array($never, [$p["certification_provenance"], $p["effect_containment"],
+                                  $p["effect_recovery_semantics"]], true)) {
+                $fail("$never was emitted, and this profile can never earn it");
+            }
+        }
+    }
+}
+// §1.6 consequence: an undeclared code lifecycle window blocks a release and
+// its next action is a contract declaration, not a release action.
+$managed = $rows["option_group:core:managed"];
+if ($managed["operations"]["release"]["handling"] !== "block") { $fail("the lifecycle window does not block a release"); }
+if ($managed["operations"]["capture"]["handling"] === "block") { $fail("the lifecycle window blocks capture, which reaches nothing live"); }
+if ($managed["next_action"] !== "declare in contract") { $fail("the lifecycle window next action is {$managed["next_action"]}"); }
+if ($managed["decided_by"] !== "platform-default") { $fail("a classified surface is not platform-default"); }
+if ($rows["table:sample_log"]["decided_by"] !== "unresolved") { $fail("an unclassified surface must be unresolved"); }
+// The unknown block: names and counts, never values, and bounded.
+if ($d["unknown"]["invisible_names_count"] !== 41) { $fail("invisible option count is not the true total"); }
+if ($d["unknown"]["pending_count"] !== 3) { $fail("pending count is not the true total"); }
+if (count($d["unknown"]["names_sample"]) > 200) { $fail("the names sample is unbounded"); }
+// The evidence pins, and the digest binding the whole document.
+if (count($d["evidence"]["bundles"]) !== 2) { $fail("both certification subjects should be pinned"); }
+foreach (["dispositions_sha256","evidence_sha256","compatibility_sha256"] as $k) {
+    if (!is_string($d["evidence"]["generated_from"][$k] ?? null)) { $fail("evidence provenance $k is missing"); }
+}
+$stated = $d["assess_digest"]; unset($d["assess_digest"]);
+require $argv[2] . "/agent/src/Kernel/Canon.php";
+if ($stated !== "sha256:" . hash("sha256", \Duo\Canon::encode($d))) { $fail("assess_digest does not bind its own document"); }
+echo "ok: the report document validates, and every §1 projection matches\n";
+' "$TMP/out.json" "$ROOT" || fail 'the assess report document is wrong'
+
+# --------------------------------------------------------------- the proposal
+say 'the proposed contract'
+if [ -f "$TMP/site/repo/.duo/contract/proposed.json" ]; then
+  pass 'assess writes .duo/contract/proposed.json into the LOCAL site repository'
+else
+  fail 'assess did not write the proposed contract'
+fi
+php -r '
+$p = json_decode(file_get_contents($argv[1]), true);
+$fail = static function (string $m): void { fwrite(STDERR, "FAIL: $m\n"); exit(1); };
+if (($p["format"] ?? null) !== "duo-application-contract-proposal/v1") { $fail("wrong proposal format"); }
+if (($p["contract"]["attestation"]["state"] ?? null) !== "unsigned") { $fail("this profile writes only unsigned attestations"); }
+$effects = $p["contract"]["declarations"]["external_effects"];
+if (count($effects) !== 1 || $effects[0]["decided_by"] !== "unresolved") {
+    $fail("the lifecycle effect must be proposed UNREVIEWED so accepting it unread is refused by the schema");
+}
+if (($p["review_required_count"] ?? 0) < 1) { $fail("a generated proposal with an unreviewed effect must require review"); }
+if (!isset($p["contract"]["declarations"]["surface_labels"])) { $fail("the surface_labels map is missing"); }
+echo "ok: the proposal is a proposal — unsigned, unreviewed where it must be, and never authority\n";
+' "$TMP/site/repo/.duo/contract/proposed.json" || fail 'the generated proposal is wrong'
+
+# ------------------------------------------------------------------- refusals
+say 'structured refusals'
+( cd "$TMP/site/repo" && DUO_DOCTOR_FAIL=1 run_assess "$TMP/calls2.txt" "$TMP/out2.json" "$TMP/err2.txt" \
+    assess fixture --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 1 ] && echo 0 || echo 1)" "an unreachable target is a refusal, exit 1 (got $STATUS)"
+assert_contains "$TMP/out2.json" '"format":"duo-command-refusal/v1"' \
+  'the refusal is the common machine envelope on stdout'
+assert_contains "$TMP/out2.json" '"reason_code":"assess_target_unreachable"' \
+  'the refusal names why the assessment could not run'
+DOCTOR_CAPS=$(grep -c 'duo capabilities ' "$TMP/calls2.txt" || true)
+check "$([ "$DOCTOR_CAPS" = 0 ] && echo 0 || echo 1)" \
+  'a failed doctor gate stops the composition rather than partially succeeding'
+
+( cd "$TMP/site/repo" && DUO_MULTISITE=1 run_assess "$TMP/calls3.txt" "$TMP/out3.json" "$TMP/err3.txt" \
+    assess fixture --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 1 ] && echo 0 || echo 1)" "an unsupported topology is a refusal, exit 1 (got $STATUS)"
+assert_contains "$TMP/out3.json" '"reason_code":"assess_topology_unsupported"' \
+  'multisite refuses by name instead of producing a page of identical blockers'
+
+# A host-side preflight failure must also produce the envelope, or the first
+# unresolvable environment becomes an unparseable line in a pipeline.
+( cd "$TMP/site/repo" && run_assess "$TMP/calls4.txt" "$TMP/out4.json" "$TMP/err4.txt" \
+    assess no-such-env --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 1 ] && echo 0 || echo 1)" "an unknown environment refuses, exit 1 (got $STATUS)"
+assert_contains "$TMP/out4.json" '"reason_code":"host_preflight_failed"' \
+  'a host preflight failure emits the same refusal envelope'
+
+# ------------------------------------------------------- blocked but bounded
+say 'blocked surfaces are still a successful assessment'
+BLOCKED=$(php -r '
+$d = json_decode(file_get_contents($argv[1]), true);
+$n = 0;
+foreach ($d["surfaces"] as $row) { if ($row["handling"] === "block") { $n++; } }
+echo $n;
+' "$TMP/out.json")
+check "$([ "$BLOCKED" -ge 2 ] && echo 0 || echo 1)" \
+  "the successful run reported $BLOCKED blocked surface(s) and still exited 0"
+
+# ------------------------------------------------------- flag grammar closure
+say 'flag grammar'
+( cd "$TMP/site/repo" && run_assess "$TMP/calls5.txt" "$TMP/out5.json" "$TMP/err5.txt" \
+    assess fixture --operation=release --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 0 ] && echo 0 || echo 1)" "--operation narrows the projection (exit $STATUS)"
+NARROW_CAPS=$(grep -c 'duo capabilities ' "$TMP/calls5.txt")
+check "$([ "$NARROW_CAPS" = 1 ] && echo 0 || echo 1)" \
+  "one product operation costs one registry call (got $NARROW_CAPS)"
+
+( cd "$TMP/site/repo" && run_assess "$TMP/calls6.txt" "$TMP/out6.json" "$TMP/err6.txt" \
+    assess fixture --operation=teleport --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 1 ] && echo 0 || echo 1)" "an unknown operation refuses (exit $STATUS)"
+assert_contains "$TMP/out6.json" '"reason_code":"invalid_arguments"' \
+  'an operation outside the closed set is a typed refusal, never a silent default'
+
+( cd "$TMP/site/repo" && run_assess "$TMP/calls7.txt" "$TMP/out7.json" "$TMP/err7.txt" \
+    assess fixture --not-a-flag --format=json )
+STATUS=$?
+check "$([ "$STATUS" = 1 ] && echo 0 || echo 1)" "an undefined flag refuses (exit $STATUS)"
+
+# ------------------------------------------------------------ the grep gate
+say 'engine-adapter boundary'
+# The forbidden set is DERIVED from the shipped manifest library, so a new
+# adapter joins it automatically and this gate cannot rot into a hand list.
+TOKENS=$(php -r '
+$out = [];
+foreach (glob($argv[1] . "/manifests/*.json") ?: [] as $file) {
+    $name = basename($file, ".json");
+    if (in_array($name, ["dispositions", "core"], true)) { continue; }
+    $manifest = json_decode((string) file_get_contents($file), true);
+    if (!is_array($manifest)) { continue; }
+    $out[] = $name;
+    foreach (["plugin", "theme"] as $key) {
+        if (is_string($manifest[$key] ?? null) && $manifest[$key] !== "") { $out[] = $manifest[$key]; }
+    }
+}
+$out = array_values(array_unique(array_filter($out, static fn (string $v): bool => strlen($v) > 3)));
+sort($out);
+echo implode("\n", $out);
+' "$ROOT")
+SCANNED=0
+BOUNDARY_OK=1
+for dir in cli/src/Assess cli/src/Contract agent/src/Assess; do
+  [ -d "$ROOT/$dir" ] || continue
+  while IFS= read -r file; do
+    SCANNED=$((SCANNED + 1))
+    while IFS= read -r token; do
+      [ -n "$token" ] || continue
+      if grep -Fqi -- "$token" "$file"; then
+        fail "engine-adapter boundary: '$token' appears in $file"
+        BOUNDARY_OK=0
+      fi
+    done <<< "$TOKENS"
+  done < <(find "$ROOT/$dir" -name '*.php' -type f)
+done
+if [ "$SCANNED" -eq 0 ]; then
+  fail 'the boundary gate scanned zero files, so it proved nothing'
+elif [ "$BOUNDARY_OK" = 1 ]; then
+  pass "no plugin slug appears in any of the $SCANNED engine-side assess/contract files"
+fi
+
+# The verb must also be reachable and documented through cli/duo itself.
+say 'cli/duo wiring'
+grep -Fq "'assess' => cmd_assess(\$transport, \$extra)" "$ROOT/cli/duo" \
+  && pass 'assess is registered in the dispatch match' \
+  || fail 'assess is not registered in cli/duo dispatch'
+grep -Fq 'duo assess <env>' "$ROOT/cli/duo" \
+  && pass 'assess appears in the public usage text' \
+  || fail 'assess is missing from duo_usage()'
+php -r '
+require $argv[1] . "/cli/src/Command/EnvironmentCommandPreflight.php";
+require $argv[1] . "/cli/src/Transport/EnvironmentDriver.php";
+$verbs = \Duo\Orchestrator\EnvironmentCommandPreflight::environmentVerbs();
+foreach (["assess", "contract"] as $verb) {
+    if (!in_array($verb, $verbs, true)) { fwrite(STDERR, "FAIL: $verb is not an environment verb\n"); exit(1); }
+    $method = new ReflectionMethod(\Duo\Orchestrator\DriverCapabilityReport::class, "requirements");
+    $method->invoke(null, $verb);
+}
+$method = new ReflectionMethod(\Duo\Orchestrator\DriverCapabilityReport::class, "requirements");
+if ($method->invoke(null, "assess") !== $method->invoke(null, "coverage")) {
+    fwrite(STDERR, "FAIL: assess must demand exactly what the other read-only passthroughs demand\n"); exit(1);
+}
+if ($method->invoke(null, "contract") !== $method->invoke(null, "coverage")) {
+    fwrite(STDERR, "FAIL: contract must demand exactly what the other read-only passthroughs demand\n"); exit(1);
+}
+echo "ok: both verbs are environment-bound and resolve through requirements()\n";
+' "$ROOT" || fail 'the new verbs are not wired through the preflight and driver tables'
+
+printf '\n'
+if [ "$FAILURES" -ne 0 ]; then
+  printf 'REGRESS_ASSESS_COMPOSITION FAILED (%d)\n' "$FAILURES" >&2
+  exit 1
+fi
+printf 'REGRESS_ASSESS_COMPOSITION PASSED\n'
