@@ -40,6 +40,18 @@ namespace Duo;
  *    refusal. Shadowing a shipped adapter is never silent replacement — pin
  *    order must never be what decides which adapter definition wins.
  *
+ *    The ONE exception, added in round-3 T6 §3.3, changes who decides rather
+ *    than whether anybody does: an explicit `{name, source: "site", digest}`
+ *    pin in site.duo.json selects the site copy for that shipped name. The
+ *    shipped copy is then reported `shadowed_by_site` in `not_installed` and
+ *    excluded from the loaded set, so exactly one definition answers to the
+ *    name and CrossManifestGuards see no manufactured conflict. Everything
+ *    that made the old rule safe is intact: a name-only pin still overrides
+ *    nothing, an unreadable site.duo.json yields no overrides and the refusal
+ *    stands, the digest's VALUE is still compared by the engine, and a site
+ *    copy never inherits the shipped adapter's certification — it carries the
+ *    site's own words and can never read Platform-certified.
+ *
  * 2. **PRECEDENCE is `shipped > site > plugin`, and it is derived from the walk
  *    order below rather than declared anywhere.** A plugin-bundled adapter
  *    whose name a shipped or site definition already answers to is not refused:
@@ -264,6 +276,43 @@ final class AdapterSources {
      */
     public const CERTIFICATION_UNJUDGED = 'certification_unjudged';
 
+    /**
+     * The word for a certificate verified under a key in the SITE's own
+     * `adapters/authorities.json` with an exact pin (round-3 T6 §3.2).
+     *
+     * A separate word from `third_party_signed` because the two answer
+     * different questions about the same valid signature: `third_party_signed`
+     * means a root this AGENT reviews vouched for the adapter, and
+     * `site_signed` means the customer organization vouched for its own — the
+     * product spec's `Site-certified`, "explicitly not a Duo endorsement".
+     * Collapsing them would let a projection print a Duo endorsement for an
+     * adapter Duo never saw, which is the one claim this vocabulary exists to
+     * keep separable.
+     */
+    public const CERTIFICATION_SITE_SIGNED = 'site_signed';
+
+    /**
+     * A SHIPPED adapter deliberately displaced by an explicit site override
+     * pin (T6 §3.3). Not a refusal and not `uncertified`: the shipped manifest
+     * is exactly as reviewed as it always was, the repository simply pinned
+     * the site copy for that name, and the row exists so the operator can see
+     * WHICH definition is in force rather than inferring it from a silence.
+     */
+    public const CERTIFICATION_SHADOWED_BY_SITE = 'shadowed_by_site';
+
+    /** Reviewed by this project and shipped with the agent. */
+    public const TRUST_ROOT_PLATFORM = 'platform';
+    /** Held by the customer organization, in its own site repository. */
+    public const TRUST_ROOT_SITE = 'site';
+
+    /**
+     * The operator's own trust root, and therefore a RESERVED name inside
+     * `adapters/`: without this the file would be globbed as a site adapter
+     * called `authorities` and refused for declaring no name, which describes
+     * neither the file nor its problem.
+     */
+    public const SITE_AUTHORITIES_FILE = 'authorities.json';
+
     public const GRAMMAR_OK = 'ok';
     public const GRAMMAR_ERROR = 'error';
     public const GRAMMAR_BLOCKED = 'blocked_by_source_refusal';
@@ -478,6 +527,7 @@ final class AdapterSources {
             $provenance,
             $certificates,
             $claims,
+            $notInstalled,
             $sources
         );
         self::scan_plugin_source(
@@ -534,6 +584,7 @@ final class AdapterSources {
         array &$provenance,
         array &$certificates,
         array &$claims,
+        array &$notInstalled,
         array &$sources
     ): void {
         if ($repo === null) {
@@ -675,6 +726,24 @@ final class AdapterSources {
         self::assert_flat_json_source($siteDir, $collect, $refusals);
 
         $shippedNames = $declaredNames();
+        // THE OVERRIDE SET, and the one place this scan reads site.duo.json.
+        //
+        // discover() otherwise never opens that file (Policy::load() does, and
+        // throws its own message), and the reason to make an exception here is
+        // that shadowing a shipped adapter is precisely the decision a
+        // repository has to be able to STATE. Without it the rule was
+        // whole-source refusal with no override available at all, so an
+        // operator who needed one authored option on top of a shipped adapter
+        // had no path that did not fork the shipped manifest library.
+        //
+        // Read through surveyed_pins(), which fails CLOSED: an unreadable or
+        // malformed site.duo.json yields no overrides, so the existing
+        // shadows_shipped refusal stands and a broken policy file can never
+        // silently swap a definition. Only a pin object that NAMES the source
+        // counts; a name-only pin is not a review (see override_pins() for why
+        // the digest is the second review rather than part of this one).
+        $overridePins = self::override_pins($repo);
+        $overridden = [];
         $siteFiles = glob($siteDir . '/*.json');
         if ($siteFiles === false) {
             self::refuse(
@@ -700,6 +769,30 @@ final class AdapterSources {
             $siteFiles,
             static fn(string $file): bool => basename($file, '.json') !== 'dispositions'
         ));
+        // The SITE trust root is not an adapter (T6 §3.1). Filtered here for
+        // exactly the reason `dispositions.json` is filtered above — otherwise
+        // it is judged AS an adapter and draws an `ambiguous_identity` refusal
+        // about a manifest nobody claimed it was — and then VALIDATED, whole,
+        // because inert authority bytes an operator believes in are the
+        // failure mode this source refuses everywhere else. A malformed trust
+        // root is a whole-source refusal: every certificate in this repository
+        // is judged against it.
+        $siteFiles = array_values(array_filter(
+            $siteFiles,
+            static fn(string $file): bool => basename($file) !== self::SITE_AUTHORITIES_FILE
+        ));
+        if (is_file($siteDir . '/' . self::SITE_AUTHORITIES_FILE)) {
+            require_once __DIR__ . '/AdapterCertification.php';
+            self::guarded(
+                $collect,
+                $refusals,
+                self::SITE,
+                self::REFUSAL_CERTIFICATION_SOURCE,
+                [self::SITE_DIR . '/' . self::SITE_AUTHORITIES_FILE],
+                'repair the site trust root, or remove it and keep these adapters as uncertified support',
+                static fn() => AdapterCertification::assert_site_authorities($repo)
+            );
+        }
         sort($siteFiles, SORT_STRING);
         $certificateFiles = [];
         self::guarded(
@@ -733,7 +826,7 @@ final class AdapterSources {
             // here, so a symlinked README or subdirectory is caught too, and
             // so nothing in this source is read before the check runs.
             $collision = $origins[$name] ?? null;
-            if ($collision !== null) {
+            if ($collision !== null && !(isset($overridePins[$name]) && $collision['source'] === self::SHIPPED)) {
                 self::refuse(
                     $collect,
                     $refusals,
@@ -751,6 +844,33 @@ final class AdapterSources {
                 // refusal row and no adapter row, and the walk continues so
                 // one broken file cannot hide the rest of the source.
                 continue;
+            }
+            if ($collision !== null) {
+                // The reviewed override. The shipped copy leaves $origins here
+                // rather than losing later by precedence, which is what makes
+                // the rest of this loop — and every consumer after it — see
+                // exactly ONE definition for the name: CrossManifestGuards run
+                // over the loaded set, so a shipped and a site manifest both
+                // claiming one post type would otherwise refuse the load for a
+                // conflict the operator explicitly resolved.
+                $notInstalled[] = [
+                    'message' => "adapter '$name' is shipped at " . (string) $collision['path']
+                        . ', but this repository explicitly pins the site copy for that name '
+                        . '({name, source: "site", digest} in site.duo.json), so the shipped definition is not '
+                        . 'loaded. Remove that pin to go back to the reviewed adapter; the site copy carries the '
+                        . "site's own certification words and is never Platform-certified",
+                    'name' => $name,
+                    'path' => (string) $collision['path'],
+                    'plugin' => null,
+                    'reason_code' => self::CERTIFICATION_SHADOWED_BY_SITE,
+                    'source' => self::SHIPPED,
+                    'winner' => [
+                        'path' => $relative,
+                        'source' => self::SITE,
+                    ],
+                ];
+                unset($origins[$name], $manifests[$name]);
+                $overridden[$name] = true;
             }
             // TWO BEHAVIORAL DELTAS, stated rather than buried (DUO-3339).
             // Both live at this call, and every OTHER refusal message in this
@@ -800,7 +920,13 @@ final class AdapterSources {
                 );
                 continue;
             }
-            if (isset($shippedNames[$name])) {
+            // An overridden name is the ONE case where the shipped library
+            // legitimately declares this name too, and only when the declaring
+            // shipped adapter is exactly the one the pin displaced. A
+            // different shipped file declaring the same name is still two
+            // adapters answering to one name, and still refuses.
+            if (isset($shippedNames[$name])
+                && !(isset($overridden[$name]) && $shippedNames[$name] === $name)) {
                 self::refuse(
                     $collect,
                     $refusals,
@@ -2016,6 +2142,12 @@ final class AdapterSources {
                 'grammar' => $grammar,
                 'name' => $name,
                 'path' => (string) $origin['path'],
+                // The same two facts diagnostics() carries, on the inventory
+                // row too: `duo adapter list` is where an operator answers
+                // "who says this adapter is certified", and before T6 the only
+                // available answer was the word `third_party_signed` with no
+                // principal attached to it.
+                'principal' => $outOfTree ? $bound->principal($name) : null,
                 'required_providers' => self::required_providers($manifest),
                 // The canonical manifest hash, exactly the basis
                 // provenance_record() uses — so a survey row and a frozen
@@ -2024,6 +2156,7 @@ final class AdapterSources {
                 'sha256' => hash('sha256', Canon::encode($manifest)),
                 'source' => $source,
                 'tier_basis' => $tier['tier_basis'],
+                'trust_root' => $outOfTree ? $bound->trust_root($name) : self::TRUST_ROOT_PLATFORM,
                 'trust_tier' => $tier['trust_tier'],
             ];
         }
@@ -2131,9 +2264,17 @@ final class AdapterSources {
         if (!$sources->is_certified($name)) {
             return 'uncertified';
         }
-        return !empty($sources->explicitPins[$name]) && $grammar['status'] === self::GRAMMAR_OK
-            ? 'third_party_signed'
-            : 'signed_unpinned';
+        if (empty($sources->explicitPins[$name]) || $grammar['status'] !== self::GRAMMAR_OK) {
+            return 'signed_unpinned';
+        }
+        // Which ROOT vouched decides the word, and it is read off the verified
+        // provenance rather than re-derived: the trust root is inside the
+        // signed statement and folded into the adapter digest, so a second
+        // derivation here could disagree with the certificate the engine
+        // actually verified.
+        return $sources->trust_root($name) === self::TRUST_ROOT_SITE
+            ? self::CERTIFICATION_SITE_SIGNED
+            : 'third_party_signed';
     }
 
     /**
@@ -2173,6 +2314,37 @@ final class AdapterSources {
             }
         }
         return $pins;
+    }
+
+    /**
+     * The names this repository explicitly pins to its own site copy.
+     *
+     * The predicate is `source: "site"`, and the DIGEST is deliberately not
+     * part of it, which is a bootstrap fact rather than a looseness: the pin's
+     * digest is the final certificate-derived adapter digest, and the only way
+     * to obtain it is to load the adapter (`wp duo manifest-pin`) — which
+     * cannot happen while the source refuses to load for want of the pin. So
+     * the override is the SOURCE statement, and the digest remains the second,
+     * separate review that bind_explicit_pins() gates certification elevation
+     * on. That is the identical two-step the signed path already uses: a pin
+     * that names the source loads the adapter, `manifest-pin` prints the exact
+     * {name, source, digest} object, and committing it is what elevates.
+     *
+     * A name-only pin still overrides nothing — it is a request for whatever
+     * answers to that name, which is precedence's job — and precedence stays
+     * `shipped > site > plugin` for every one of them.
+     *
+     * @return array<string,true>
+     */
+    private static function override_pins(?string $repo): array {
+        $names = [];
+        foreach (self::surveyed_pins($repo) as $pin) {
+            $name = (string) ($pin['name'] ?? '');
+            if ($name !== '' && ($pin['source'] ?? null) === self::SITE) {
+                $names[$name] = true;
+            }
+        }
+        return $names;
     }
 
     /**
@@ -3182,6 +3354,29 @@ final class AdapterSources {
     }
 
     /**
+     * Which root vouched for this adapter, and who under it.
+     *
+     * Projected from the verified provenance the certificate produced, never
+     * recomputed: the authority key id and trust root are inside the signed
+     * statement and folded into the adapter digest a repository pin binds, so
+     * a second derivation would be a second, unsigned copy of the same claim.
+     *
+     * `null` for anything with no verified certificate — a SHIPPED row's
+     * platform root is the registry's fact, not this scan's, and diagnostics()
+     * states it there.
+     */
+    public function trust_root(string $name): ?string {
+        $root = $this->provenance[$name]['provenance']['proof']['authority']['trust_root'] ?? null;
+        return is_string($root) && $root !== '' ? $root : null;
+    }
+
+    /** The authority key id that signed, or null when nothing signed. */
+    public function principal(string $name): ?string {
+        $principal = $this->provenance[$name]['provenance']['proof']['authority']['key_id'] ?? null;
+        return is_string($principal) && $principal !== '' ? $principal : null;
+    }
+
+    /**
      * Certification is an elevation of authority, so a valid signature alone
      * is not enough: the repository must explicitly review both the source and
      * the final certificate-derived digest in its pin.
@@ -3255,11 +3450,26 @@ final class AdapterSources {
             $signed = $this->is_certified($name);
             $explicit = !empty($this->explicitPins[$name]);
             $source = $this->source($name);
+            $trustRoot = $this->trust_root($name);
             $rows[$name] = [
                 'certification' => $record === null
                     ? 'registry'
-                    : ($signed ? ($explicit ? 'third_party_signed' : 'signed_unpinned') : 'uncertified'),
+                    : ($signed
+                        ? ($explicit
+                            ? ($trustRoot === self::TRUST_ROOT_SITE
+                                ? self::CERTIFICATION_SITE_SIGNED
+                                : 'third_party_signed')
+                            : 'signed_unpinned')
+                        : 'uncertified'),
                 'path' => $this->path($name),
+                // On EVERY row, including the ones where both are trivially
+                // known: a projection that printed `trust_root` only when it
+                // was interesting would make its absence mean two different
+                // things (shipped, versus a site row nobody signed). A shipped
+                // adapter's root IS the platform; an unsigned out-of-tree row
+                // has no root at all, and null says so.
+                'principal' => $record === null ? null : $this->principal($name),
+                'trust_root' => $record === null ? self::TRUST_ROOT_PLATFORM : $trustRoot,
                 // A bundled adapter's remediation is not "get it signed" —
                 // that is impossible where it lives, and telling an operator
                 // to try would waste their afternoon proving it. It is the

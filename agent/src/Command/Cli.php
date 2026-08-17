@@ -2,6 +2,10 @@
 namespace Duo;
 
 require_once __DIR__ . '/../Kernel/CommandRefusal.php';
+// The verb reads InitPlanner::ALLOW_UNMANAGED_PLUGINS so the wp-cli assoc
+// key and the planner's own flag cannot drift into two spellings; the
+// drop-in has no autoloader, so the reference brings its own file.
+require_once __DIR__ . '/../Init/InitPlanner.php';
 require_once __DIR__ . '/../Review/PlanExplanation.php';
 require_once __DIR__ . '/../Review/PlanCategorySummary.php';
 require_once __DIR__ . '/../Review/PlanView.php';

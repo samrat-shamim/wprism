@@ -223,6 +223,7 @@ function cert_write_bundle(
     );
     cert_write_canon($dir . '/diffs/site-conformance.json', ['changed' => [], 'status' => 'clean']);
     cert_write($dir . '/logs/site-conformance.txt', "site adapter conformance passed\n");
+    $exercised = ($options['evidence']['exercised'] ?? true) === true;
 
     $adapterPath = $site . '/adapters/' . $name . '.json';
     $boundInputs = $options['bound_inputs'] ?? [
@@ -235,17 +236,26 @@ function cert_write_bundle(
         // `certification_evidence` has to decode the retained envelope to
         // recover. A fixture that always shipped an empty list could not tell
         // "this bundle exercised nothing" from "the projection dropped it".
-        'artifacts' => $options['artifacts'] ?? [[
+        'artifacts' => $options['artifacts'] ?? ($exercised ? [[
             'name' => 'site-demo-boundary',
             'role' => 'certified-boundary',
             'sha256' => str_repeat('c', 64),
             'url' => 'https://example.invalid/site-demo-boundary-1.2.3.zip',
             'version' => '1.2.3',
-        ]],
+        ]] : []),
         'bound_inputs' => $boundInputs,
         'created_at' => '2026-08-09T00:00:00Z',
         'environment' => cert_descriptor($dir . '/environment.json', 'environment.json'),
         'environment_summary' => $environment,
+        // What the bundle actually proves, declared rather than implied
+        // (round-3 T6). The default is the reviewed-exercise shape every
+        // platform-rooted certificate must take; a site-rooted fixture passes
+        // `exercised: false` with empty tests/artifacts.
+        'evidence' => $options['evidence'] ?? [
+            'exercised' => true,
+            'grammar' => 'ok',
+            'reason' => 'the external review exercised this adapter against a live conformance target',
+        ],
         'force_hatches' => $options['force_hatches'] ?? [],
         'git_revision' => $options['git_revision'] ?? str_repeat('a', 40),
         'harness' => ['name' => 'site-adapter-certification-regression', 'version' => 1],
@@ -260,13 +270,13 @@ function cert_write_bundle(
             'kind' => 'site_adapter',
             'name' => $name,
         ],
-        'tests' => [[
+        'tests' => $exercised ? [[
             'diff' => cert_descriptor($dir . '/diffs/site-conformance.json', 'diffs/site-conformance.json'),
             'id' => 'site-conformance',
             'log' => cert_descriptor($dir . '/logs/site-conformance.txt', 'logs/site-conformance.txt'),
             'result' => cert_descriptor($dir . '/results/site-conformance.json', 'results/site-conformance.json'),
             'verdict' => 'pass',
-        ]],
+        ]] : [],
         'verdict' => 'pass',
     ];
     $bundle['bundle_digest'] = cert_bundle_digest($bundle);
@@ -1886,8 +1896,8 @@ $keys->{'review-key'}['status'] = 'revoked';
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);
 cert_expect_throw(
     static fn() => AdapterCertification::verifyFrozen($agent, 'site-demo', $manifest, $envelope),
-    'current agent-owned authority record',
-    'a current revoked authority invalidates frozen certification'
+    'does not match the current platform authority record',
+    'a current revoked platform authority invalidates frozen certification, naming the root it disagreed with'
 );
 $keys->{'review-key'}['status'] = 'trusted';
 cert_write_canon($agent . '/capabilities/adapter-authorities.json', $authorities);

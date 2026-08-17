@@ -35,8 +35,28 @@ final class AdapterCertification {
     public const SIGNATURE_DOMAIN = "duo-site-adapter-certification-signature/v1\0";
 
     private const AUTHORITIES_RELATIVE = 'capabilities/adapter-authorities.json';
+    /**
+     * The SITE trust root (round-3 T6 §3.1): the operator's own authority
+     * file, in the operator's own repository, travelling with it.
+     *
+     * It exists because the shipped authorities file is empty and only
+     * Anthropic-side review could ever fill it — so before T6 every operator's
+     * own adapter was permanently `uncertified` and `Site-certified` was
+     * NEVER_EMITTED, despite the product spec defining it as "customer-
+     * organization approval ... explicitly not a Duo endorsement". A key here
+     * is trusted ONLY for adapters in this repository, which is the whole of
+     * its authority: the certificate binds `adapter.path:
+     * adapters/<name>.json` inside the signed statement, so a site key cannot
+     * reach a shipped manifest or another repository's adapter.
+     */
+    private const SITE_AUTHORITIES_RELATIVE = AdapterSources::SITE_DIR . '/' . AdapterSources::SITE_AUTHORITIES_FILE;
     private const PLATFORM_RELATIVE = 'capabilities/registry.json';
     private const CERTIFICATE_DIR = 'adapters/certifications';
+
+    /** Reviewed by this project and shipped with the agent. */
+    public const TRUST_ROOT_PLATFORM = 'platform';
+    /** Held by the customer organization, in its own site repository. */
+    public const TRUST_ROOT_SITE = 'site';
 
     // This has no production setter.  The offline regression reaches it only
     // through Reflection to deterministically simulate an evidence-directory
@@ -56,6 +76,25 @@ final class AdapterCertification {
     /** Agent-owned roots are optional; an absent file means no external trust. */
     public static function hasAuthorities(string $manifestDir): bool {
         return is_file(rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE);
+    }
+
+    /**
+     * Validate the SITE trust root whole, selecting no key.
+     *
+     * The adapter scan calls this the moment the file EXISTS, before any
+     * certificate is paired, because a broken trust root is not one adapter's
+     * problem: every certificate in the repository is judged against it, and
+     * an operator who wrote an authorities file believes their adapters are
+     * certifiable. Reporting that belief as an ordinary `uncertified` row
+     * would be the silence this source refuses everywhere else. Absent is
+     * fine and means exactly "this repository certifies nothing".
+     */
+    public static function assert_site_authorities(string $repo): void {
+        $root = self::repoRoot($repo, 'site repository');
+        self::authorityKeys(
+            $root . '/' . self::SITE_AUTHORITIES_RELATIVE,
+            'site adapter certification authorities'
+        );
     }
 
     /**
@@ -99,7 +138,8 @@ final class AdapterCertification {
             $certificateRaw,
             $certificateTyped,
             $certificate,
-            ['raw' => $adapterRaw, 'size' => strlen($adapterRaw)]
+            ['raw' => $adapterRaw, 'size' => strlen($adapterRaw)],
+            $root
         );
         $result['envelope'] = self::envelope($certificateRaw);
         return $result;
@@ -163,6 +203,7 @@ final class AdapterCertification {
             $raw,
             $certificateTyped,
             $certificate,
+            null,
             null
         );
         $result['envelope'] = $envelope;
@@ -249,7 +290,7 @@ final class AdapterCertification {
         [$adapterRaw, , $manifest] = self::readCanonicalObjectFile($adapterPath, 'site adapter');
         self::assertSiteManifest($name, $manifest);
 
-        [$authority, $keyId, $authorityDigest] = self::authority($manifestDir, $authorityId);
+        [$authority, $keyId, $authorityDigest, $trustRoot] = self::authority($manifestDir, $authorityId, $root);
         $tier = AdapterSources::trust_tier($manifest);
         self::assertAuthorityScope($authority, $keyId, $name, $tier);
 
@@ -262,7 +303,14 @@ final class AdapterCertification {
             );
         }
 
-        $bundle = self::verifyBundleForImport($bundleInput, $evidenceRepo, $name, $manifest, $adapterRaw);
+        $bundle = self::verifyBundleForImport(
+            $bundleInput,
+            $evidenceRepo,
+            $name,
+            $manifest,
+            $adapterRaw,
+            $trustRoot
+        );
         [$platform, ] = self::currentPlatform($manifestDir);
         $statement = [
             'adapter' => [
@@ -277,7 +325,14 @@ final class AdapterCertification {
             'authority' => [
                 'fingerprint' => hash('sha256', $configured),
                 'key_id' => $keyId,
+                // The exact authority record, inside the signature. It is what
+                // makes a SITE-rooted certificate re-verifiable on the frozen
+                // path, which reopens no mutable site file and therefore has no
+                // adapters/authorities.json to consult (verifyCertificate()
+                // states the trust consequence at its own site).
+                'record' => $authority,
                 'record_sha256' => $authorityDigest,
+                'trust_root' => $trustRoot,
             ],
             // Keep the exact, verified bundle manifest and ratification as
             // objects.  The signature binds their content-addressed identity,
@@ -298,11 +353,21 @@ final class AdapterCertification {
     public static function certificateSummary(array $verified): array {
         $provenance = is_array($verified['provenance'] ?? null) ? $verified['provenance'] : [];
         $proof = is_array($provenance['proof'] ?? null) ? $provenance['proof'] : [];
+        $certification = is_array($verified['claim']['certification'] ?? null)
+            ? $verified['claim']['certification']
+            : [];
         return [
             'authority' => $proof['authority'] ?? null,
             'bundle_digest' => $proof['bundle']['digest'] ?? null,
+            'exercised' => $proof['bundle']['exercised'] ?? null,
             'name' => $verified['claim']['name'] ?? null,
+            // The two words a host prints beside `Site-certified`: WHO
+            // certified, and under WHICH root. Projected from the verified
+            // claim rather than re-derived, so the printed line cannot drift
+            // from the claim `duo promote` gates on.
+            'principal' => $certification['principal'] ?? null,
             'status' => $verified['claim']['status'] ?? null,
+            'trust_root' => $certification['trust_root'] ?? null,
             'trust_tier' => $verified['disposition']['trust_tier'] ?? null,
         ];
     }
@@ -327,7 +392,8 @@ final class AdapterCertification {
         string $certificateRaw,
         object $certificateTyped,
         array $certificate,
-        ?array $rawAdapter
+        ?array $rawAdapter,
+        ?string $repoRoot
     ): array {
         self::assertCertificateShape($certificateTyped, $certificate);
         $statementTyped = $certificateTyped->statement;
@@ -338,14 +404,76 @@ final class AdapterCertification {
         $tier = AdapterSources::trust_tier($manifest);
         self::assertAdapterBinding($name, $manifest, $adapter, $tier, $rawAdapter);
 
-        $selectedAuthority = $statement['authority']['key_id'] ?? null;
+        $statementAuthority = $statement['authority'];
+        self::assertExactKeys(
+            $statementAuthority,
+            ['fingerprint', 'key_id', 'record', 'record_sha256', 'trust_root'],
+            'certification authority binding'
+        );
+        $selectedAuthority = $statementAuthority['key_id'] ?? null;
         if (!is_string($selectedAuthority)) {
             throw new \RuntimeException(
                 "duo: site adapter '$name' certification authority key_id must be a canonical string selector"
             );
         }
-        [$authority, $keyId, $authorityDigest] = self::authority($manifestDir, $selectedAuthority);
-        self::assertAuthorityBinding($authority, $keyId, $authorityDigest, $statement['authority'], $name, $tier);
+        $claimedRoot = $statementAuthority['trust_root'] ?? null;
+        if (!in_array($claimedRoot, [self::TRUST_ROOT_PLATFORM, self::TRUST_ROOT_SITE], true)) {
+            throw new \RuntimeException(
+                "duo: site adapter '$name' certification must name trust root "
+                . self::TRUST_ROOT_PLATFORM . ' or ' . self::TRUST_ROOT_SITE
+            );
+        }
+        $embeddedRecord = $statementAuthority['record'] ?? null;
+        if (!is_array($embeddedRecord) || array_is_list($embeddedRecord)
+            || !isset($statementTyped->authority->record) || !is_object($statementTyped->authority->record)) {
+            throw new \RuntimeException(
+                "duo: site adapter '$name' certification authority binding must carry its exact authority record"
+            );
+        }
+        if ($claimedRoot === self::TRUST_ROOT_SITE && $repoRoot === null) {
+            // THE ONE ASYMMETRY BETWEEN THE TWO ROOTS, and it is a property of
+            // where each root LIVES rather than a weaker rule.
+            //
+            // Frozen verification deliberately reopens no mutable site file
+            // (see verifyFrozen()), so a site-rooted certificate has no
+            // adapters/authorities.json to consult here. It is re-bound to the
+            // authority record the SIGNATURE covers instead. Concretely: a
+            // platform key revoked in the shipped file stops verifying frozen
+            // snapshots immediately, while a site key revoked in the
+            // operator's repository stops verifying on every live scan
+            // (discover() reopens the file each run) but not inside an already
+            // frozen snapshot. That is the operator's own root, revoked by the
+            // operator, in a document the same operator produced; treating it
+            // as a platform revocation would be claiming a custody property
+            // this profile explicitly defers (T6 §2).
+            //
+            // What is NOT relaxed: the shipped library still wins the key-id
+            // namespace, and that check needs no repository at all.
+            self::validateAuthorityRecord(
+                $embeddedRecord,
+                "site adapter certification key '$selectedAuthority'"
+            );
+            self::assertKeyIdNotPlatformOwned($manifestDir, self::keyId($selectedAuthority));
+            $authority = $embeddedRecord;
+            $keyId = self::keyId($selectedAuthority);
+            $authorityDigest = self::canonicalHash($embeddedRecord);
+            $trustRoot = self::TRUST_ROOT_SITE;
+        } else {
+            [$authority, $keyId, $authorityDigest, $trustRoot] = self::authority(
+                $manifestDir,
+                $selectedAuthority,
+                $repoRoot
+            );
+        }
+        self::assertAuthorityBinding(
+            $authority,
+            $keyId,
+            $authorityDigest,
+            $trustRoot,
+            $statementAuthority,
+            $name,
+            $tier
+        );
         $signature = base64_decode((string) $certificate['signature'], true);
         if ($signature === false || strlen($signature) !== SODIUM_CRYPTO_SIGN_BYTES
             || !sodium_crypto_sign_verify_detached(
@@ -363,7 +491,7 @@ final class AdapterCertification {
             );
         }
 
-        $bundle = self::verifyEmbeddedBundle($statementTyped->bundle, $statement['bundle'], $name);
+        $bundle = self::verifyEmbeddedBundle($statementTyped->bundle, $statement['bundle'], $name, $trustRoot);
         self::assertBundleSubjectInput($bundle['bound_inputs'], $name, $adapter);
         [$ratification, $disposition, $ratificationRaw] = self::verifyEmbeddedRatification(
             $statementTyped->ratification,
@@ -381,7 +509,7 @@ final class AdapterCertification {
             $adapter,
             $tier,
             $disposition,
-            $statement['authority'],
+            $statementAuthority,
             $authorityDigest,
             $bundle,
             $platformDigest,
@@ -609,24 +737,85 @@ final class AdapterCertification {
         }
     }
 
-    /** @return array{0:array,1:string,2:string} [record, key id, canonical record digest] */
-    private static function authority(string $manifestDir, string $id): array {
+    /**
+     * Resolve one authority key across the two trust roots.
+     *
+     * THE PRECEDENCE IS SHIPPED-WINS, and it is the reason a site trust root
+     * can exist at all: the operator writes their own authorities file, so
+     * without this rule an operator could re-point a key id the agent library
+     * reviews and have a certificate signed under it read as platform-rooted.
+     * The shipped record is therefore consulted first, and a site record for
+     * the same key id is never reached — not merged, not preferred, and not
+     * silently ignored either, because a certificate that CLAIMED
+     * `trust_root: site` for such a key then fails its binding check by name
+     * (assertAuthorityBinding()) instead of quietly downgrading.
+     *
+     * Both files are validated WHOLE whenever they are opened, exactly as the
+     * agent-owned file always was: an authority record nobody selected is
+     * still authority-bearing bytes an operator believes in, and a malformed
+     * sibling is a broken trust root rather than an unrelated file.
+     *
+     * @param ?string $repoRoot resolved site repository, or null where the
+     *        caller reopens no mutable site file (frozen verification)
+     * @return array{0:array,1:string,2:string,3:string} [record, key id, canonical record digest, trust root]
+     */
+    private static function authority(string $manifestDir, string $id, ?string $repoRoot): array {
         $id = self::keyId($id);
-        $file = rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE;
-        if (!is_file($file)) {
+        $platform = self::authorityKeys(
+            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            'adapter certification authorities'
+        );
+        if (isset($platform[$id])) {
+            return [$platform[$id], $id, self::canonicalHash($platform[$id]), self::TRUST_ROOT_PLATFORM];
+        }
+        $site = $repoRoot === null
+            ? []
+            : self::authorityKeys(
+                rtrim($repoRoot, '/') . '/' . self::SITE_AUTHORITIES_RELATIVE,
+                'site adapter certification authorities'
+            );
+        if (isset($site[$id])) {
+            return [$site[$id], $id, self::canonicalHash($site[$id]), self::TRUST_ROOT_SITE];
+        }
+        if ($platform === [] && $site === []) {
             throw new \RuntimeException(
-                'duo: no agent-owned adapter certification authorities are installed at '
-                . self::AUTHORITIES_RELATIVE
+                'duo: no adapter certification authorities are installed at ' . self::AUTHORITIES_RELATIVE
+                . ($repoRoot === null ? '' : ' or ' . self::SITE_AUTHORITIES_RELATIVE)
             );
         }
-        [, $typed, $data] = self::readCanonicalObjectFile($file, 'adapter certification authorities');
-        self::assertExactKeys($data, ['format', 'keys'], 'adapter certification authorities');
+        throw new \RuntimeException(
+            "duo: authority key '$id' is not installed in " . self::AUTHORITIES_RELATIVE
+            . ($repoRoot === null ? '' : ' or ' . self::SITE_AUTHORITIES_RELATIVE)
+        );
+    }
+
+    /**
+     * One authorities file's validated key map, or [] when the file is absent.
+     *
+     * Absence is a legitimate answer for BOTH roots — the shipped file may not
+     * exist in a custom manifest directory, and a repository that certifies
+     * nothing has no adapters/authorities.json — but a file that EXISTS and is
+     * not an ordinary readable canonical document is a refusal, never an
+     * absence. Laundering unreadable authority bytes into "no trust root" is
+     * the exact failure mode the certificate-source rules already refuse.
+     *
+     * @return array<string,array<string,mixed>>
+     */
+    private static function authorityKeys(string $file, string $label): array {
+        if (!file_exists($file) && !is_link($file)) {
+            return [];
+        }
+        if (!is_file($file) || is_link($file)) {
+            throw new \RuntimeException("duo: $label must be an ordinary regular file: $file");
+        }
+        [, $typed, $data] = self::readCanonicalObjectFile($file, $label);
+        self::assertExactKeys($data, ['format', 'keys'], $label);
         if (($data['format'] ?? null) !== self::AUTHORITIES_FORMAT
             || !is_array($data['keys'] ?? null)
             || !isset($typed->keys) || !is_object($typed->keys)) {
-            throw new \RuntimeException('duo: adapter certification authorities have an unsupported or malformed root');
+            throw new \RuntimeException("duo: $label have an unsupported or malformed root");
         }
-        $found = null;
+        $keys = [];
         foreach ($data['keys'] as $keyId => $record) {
             if (!is_string($keyId)) {
                 throw new \RuntimeException(
@@ -642,14 +831,30 @@ final class AdapterCertification {
                 throw new \RuntimeException("duo: adapter certification key '$keyId' must be a JSON object");
             }
             self::validateAuthorityRecord($record, "adapter certification key '$keyId'");
-            if ($keyId === $id) {
-                $found = $record;
-            }
+            $keys[$keyId] = $record;
         }
-        if ($found === null) {
-            throw new \RuntimeException("duo: agent-owned authority key '$id' is not installed");
+        return $keys;
+    }
+
+    /**
+     * The shipped-wins rule, asked without a repository.
+     *
+     * The frozen path re-binds a site-rooted certificate to its own signed
+     * authority record, so this is what stops that record from claiming a key
+     * id the agent library reviews: the shipped file is agent-owned and
+     * readable there, and a certificate naming one of its ids is not a site
+     * certificate at all.
+     */
+    private static function assertKeyIdNotPlatformOwned(string $manifestDir, string $id): void {
+        $platform = self::authorityKeys(
+            rtrim($manifestDir, '/') . '/' . self::AUTHORITIES_RELATIVE,
+            'adapter certification authorities'
+        );
+        if (isset($platform[$id])) {
+            throw new \RuntimeException(
+                "duo: authority key '$id' is reviewed and shipped by this agent, so a site trust root cannot claim it"
+            );
         }
-        return [$found, $id, self::canonicalHash($found)];
     }
 
     private static function validateAuthorityRecord(array $record, string $label): void {
@@ -721,17 +926,24 @@ final class AdapterCertification {
         array $authority,
         string $keyId,
         string $authorityDigest,
+        string $trustRoot,
         array $statementAuthority,
         string $name,
         string $tier
     ): void {
-        self::assertExactKeys($statementAuthority, ['fingerprint', 'key_id', 'record_sha256'], 'certification authority binding');
         if (($statementAuthority['key_id'] ?? null) !== $keyId
+            || ($statementAuthority['trust_root'] ?? null) !== $trustRoot
             || ($statementAuthority['fingerprint'] ?? null) !== hash('sha256', self::publicKey($authority))
             || !self::sha($statementAuthority['record_sha256'] ?? null)
-            || !hash_equals((string) $statementAuthority['record_sha256'], $authorityDigest)) {
+            || !hash_equals((string) $statementAuthority['record_sha256'], $authorityDigest)
+            // The embedded record is compared canonically, not by digest
+            // alone: record_sha256 is what the frozen path re-derives FROM the
+            // embedded bytes, so a digest-only check would let those two agree
+            // with each other while disagreeing with the installed root.
+            || !hash_equals(Canon::encode($authority), Canon::encode($statementAuthority['record']))) {
             throw new \RuntimeException(
-                "duo: site adapter '$name' certification authority/key/fingerprint does not match the current agent-owned authority record"
+                "duo: site adapter '$name' certification authority/key/fingerprint/trust root does not match the "
+                . "current $trustRoot authority record"
             );
         }
         self::assertAuthorityScope($authority, $keyId, $name, $tier);
@@ -827,12 +1039,13 @@ final class AdapterCertification {
         string $evidenceRepo,
         string $name,
         array $manifest,
-        string $adapterRaw
+        string $adapterRaw,
+        string $trustRoot
     ): array {
         [$bundleDir, $bundleFile] = self::bundleFile($bundleInput);
         [$bundleRaw, $bundleTyped, $bundle] = self::readBundleObjectFile($bundleFile, 'certification bundle manifest');
         unset($bundleRaw);
-        $info = self::verifyBundleManifest($bundleTyped, $bundle, 'certification bundle manifest', $name);
+        $info = self::verifyBundleManifest($bundleTyped, $bundle, 'certification bundle manifest', $name, $trustRoot);
         self::assertBundleSubjectInput($info['bound_inputs'], $name, [
             'raw_sha256' => hash('sha256', $adapterRaw),
             'raw_size' => strlen($adapterRaw),
@@ -884,20 +1097,21 @@ final class AdapterCertification {
      * signed descriptors and content-addressed bundle manifest without finding
      * an arbitrary external evidence directory.
      *
-     * @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string}
+     * @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string,exercised:bool,created_at:string}
      */
     private static function verifyBundleManifest(
         object $typed,
         array $bundle,
         string $label,
-        string $name
+        string $name,
+        string $trustRoot
     ): array {
         self::assertExactKeys($bundle, [
             'artifacts', 'bound_inputs', 'bundle_digest', 'created_at', 'environment', 'environment_summary',
-            'force_hatches', 'git_revision', 'harness', 'ratification', 'ratification_summary', 'schema_version',
-            'subject', 'tests', 'verdict',
+            'evidence', 'force_hatches', 'git_revision', 'harness', 'ratification', 'ratification_summary',
+            'schema_version', 'subject', 'tests', 'verdict',
         ], $label);
-        foreach (['environment', 'environment_summary', 'harness', 'ratification', 'ratification_summary'] as $key) {
+        foreach (['environment', 'environment_summary', 'evidence', 'harness', 'ratification', 'ratification_summary'] as $key) {
             if (!isset($typed->$key) || !is_object($typed->$key)
                 || !is_array($bundle[$key] ?? null) || array_is_list($bundle[$key])) {
                 throw new \RuntimeException("duo: $label.$key must be an object");
@@ -932,6 +1146,7 @@ final class AdapterCertification {
             throw new \RuntimeException("duo: $label is not an intact passing " . self::BUNDLE_FORMAT . ' manifest');
         }
         self::assertExactKeys($bundle['harness'], ['name', 'version'], "$label.harness");
+        $exercised = self::bundleEvidence($bundle['evidence'], $label, $trustRoot);
         // An external certificate is not a vehicle for force-flag approval.
         // Binding a non-empty list would make it visible, but still turns an
         // override into a green site claim, which this source never permits.
@@ -999,18 +1214,77 @@ final class AdapterCertification {
             }
             $tests[$id] = true;
         }
-        if ($tests === []) {
+        if ($exercised && $tests === []) {
             throw new \RuntimeException("duo: $label has no named tests");
+        }
+        if (!$exercised && ($tests !== [] || $bundle['artifacts'] !== [])) {
+            // `exercised: false` is a claim about what was NOT done. A bundle
+            // that also carried tests or artifacts would be asserting both
+            // halves at once, and the projection an operator reads
+            // (`exercised: false` beside a named artifact list) would be the
+            // exact ambiguity this key exists to remove.
+            throw new \RuntimeException(
+                "duo: $label declares evidence.exercised false but names tests or artifacts"
+            );
         }
         return [
             'tests' => $tests,
             'assets' => $assets,
             'bound_inputs' => $bound,
+            'created_at' => (string) $bundle['created_at'],
+            'exercised' => $exercised,
             'ratification_asset' => $ratification,
             'summary' => $bundle['ratification_summary'],
             'bundle_digest' => $bundle['bundle_digest'],
             'git_revision' => $bundle['git_revision'],
         ];
+    }
+
+    /**
+     * What this bundle actually proves, stated by the bundle itself.
+     *
+     * Before T6 the grammar had exactly one admissible shape — a passing
+     * exercise with named tests and result/diff/log assets — and every
+     * certificate silently meant that. An operator certifying their OWN
+     * adapter cannot produce it: there is no reviewed conformance harness for
+     * an adapter that was authored ten minutes ago, and the honest evidence is
+     * the grammar verdict plus the operator's stated reason. So the fact is
+     * now DECLARED rather than implied, in one grammar with two admissible
+     * shapes, and the weaker one is admissible only under the SITE root:
+     *
+     *   exercised: true  — today's rule, unchanged, and the only shape a
+     *                      platform-rooted certificate may take.
+     *   exercised: false — no exercise proof; `tests` and `artifacts` must
+     *                      both be empty, and the claim carries the fact
+     *                      forward so `duo assess` prints it rather than
+     *                      letting `certified` imply an exercise nobody ran.
+     *
+     * `grammar` must be `ok`: a certificate for a manifest the loader itself
+     * refuses would be certifying bytes no command can use.
+     *
+     * @param mixed $evidence
+     */
+    private static function bundleEvidence($evidence, string $label, string $trustRoot): bool {
+        if (!is_array($evidence) || array_is_list($evidence)) {
+            throw new \RuntimeException("duo: $label.evidence must be an object");
+        }
+        self::assertExactKeys($evidence, ['exercised', 'grammar', 'reason'], "$label.evidence");
+        $exercised = $evidence['exercised'] ?? null;
+        if (!is_bool($exercised)
+            || ($evidence['grammar'] ?? null) !== AdapterSources::GRAMMAR_OK
+            || !is_string($evidence['reason'] ?? null) || trim((string) $evidence['reason']) === '') {
+            throw new \RuntimeException(
+                "duo: $label.evidence must declare a boolean exercised, grammar '" . AdapterSources::GRAMMAR_OK
+                . "', and a non-empty reason"
+            );
+        }
+        if (!$exercised && $trustRoot !== self::TRUST_ROOT_SITE) {
+            throw new \RuntimeException(
+                "duo: $label declares no exercise proof, which only a " . self::TRUST_ROOT_SITE
+                . ' trust root may certify — a platform-rooted certificate states a reviewed exercise'
+            );
+        }
+        return $exercised;
     }
 
     /** @return array{path:string,sha256:string,size:int} */
@@ -1182,13 +1456,19 @@ final class AdapterCertification {
         return [$data, $disposition, $raw];
     }
 
-    /** @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string} */
-    private static function verifyEmbeddedBundle(object $bundleTyped, array $bundle, string $name): array {
+    /** @return array{tests:array<string,bool>,assets:array<string,array>,bound_inputs:list<array>,ratification_asset:array,summary:array,bundle_digest:string,git_revision:string,exercised:bool} */
+    private static function verifyEmbeddedBundle(
+        object $bundleTyped,
+        array $bundle,
+        string $name,
+        string $trustRoot
+    ): array {
         return self::verifyBundleManifest(
             $bundleTyped,
             $bundle,
             'signed certification bundle manifest',
-            $name
+            $name,
+            $trustRoot
         );
     }
 
@@ -1339,12 +1619,20 @@ final class AdapterCertification {
                         'fingerprint' => $authority['fingerprint'],
                         'key_id' => $authority['key_id'],
                         'record_sha256' => $authorityDigest,
+                        // Identity-bearing, like every other proof fact: the
+                        // disposition is folded into the adapter digest and a
+                        // repository pin binds that digest, so the same adapter
+                        // re-certified under a different root is a different
+                        // identity and every pin naming the old one refuses.
+                        'trust_root' => $authority['trust_root'],
                     ],
                     'bundle' => [
                         'digest' => $bundle['bundle_digest'],
+                        'exercised' => $bundle['exercised'],
                         'force_hatches' => [],
                         'git_revision' => $bundle['git_revision'],
                         'schema' => self::BUNDLE_FORMAT,
+                        'signed_at' => $bundle['created_at'],
                         'tests' => $ratifiedDisposition['evidence']['tests'],
                     ],
                     'certificate_sha256' => $certificateDigest,
@@ -1381,6 +1669,12 @@ final class AdapterCertification {
             'bundle_digest' => $proof['bundle']['digest'],
             'bundle_schema' => $proof['bundle']['schema'],
             'certificate_sha256' => $proof['certificate_sha256'],
+            // Carried onto the claim so a reader of `status: certified` can
+            // see what was and was not proved. A site certificate with no
+            // exercise proof is still a certified claim — the customer
+            // organization is the authority for its own site — but `certified`
+            // must not be readable as "somebody ran it".
+            'exercised' => $proof['bundle']['exercised'],
             'force_hatches' => $proof['bundle']['force_hatches'],
             'git_revision' => $proof['bundle']['git_revision'],
             'platform_sha256' => $proof['platform_sha256'],
@@ -1404,6 +1698,19 @@ final class AdapterCertification {
         // caller computes that after it installs this disposition into the
         // normal adapter identity row.
         $claim['name'] = $name;
+        // The four facts the host projection needs to print `Site-certified`
+        // with a principal (T6 §3.6) and nothing else: WHO certified, under
+        // WHICH root, from WHICH adapter source, and WHEN. Every one is a
+        // projection of the signed statement — `principal` is the authority
+        // key id, `signed_at` is the bundle's own created_at, both inside the
+        // signature — so the human line cannot drift from the claim that
+        // `duo promote` gates on.
+        $claim['certification'] = [
+            'principal' => $derived['provenance']['proof']['authority']['key_id'],
+            'signed_at' => $derived['provenance']['proof']['bundle']['signed_at'],
+            'source' => AdapterSources::SITE,
+            'trust_root' => $derived['provenance']['proof']['authority']['trust_root'],
+        ];
         $claim['provenance'] = $derived['provenance'];
         $claim['trust_tier'] = $derived['trust_tier'];
         $claim['provider_code'] = [
