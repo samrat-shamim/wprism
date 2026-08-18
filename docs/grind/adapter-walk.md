@@ -178,7 +178,7 @@ object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
 | 5 | `duo coverage <env> --format=json` | Every undeclared table row publishes `logical_name` (§3.7 bug 1). Without it, assess's `table:<name>` identities — which are built from `logical_name` — can never appear on a live site, so this is checked by key name rather than by counting rows. |
 | 6 | `duo assess <env> --format=json`, then `duo assess <env>` | `plugin:wpforms-lite` exists and projects `unclassified / block / Not qualified / Uncertified / unknown / unknown` with next action `install adapter`; `table:wpforms_*` rows exist; the unknown block names `option-prefix:wpforms` and counts a non-zero invisible-option total; the human view prints `N undeclared table(s)` (§3.6 / §3.7 bug 2) and its next-actions roll-up counts at least two `install adapter` findings; **no** unclassified row answers `nothing — supported`; and the human view leaks no UUID and no 32-or-more-hex identifier. |
 | 7 | `duo contract <env> propose` → jq review → `accept` | The plugin surface and its tables are decided `state_class: runtime`, `handling: preserve local`, `decided_by: operator`, with the next action removed — §3.6's ordinary operator decision, which projects `Unsupported` and puts the surface outside every release gate. The accepted contract is then checked to carry **no** remaining `unresolved` surface: a leftover is a surface this walk did not anticipate, and §4 says such a stop is the work list. |
-| 8 | `duo rehearse preview --from <env> --branch main` | Containment banner is the **first** line and appears **once**, byte for byte; "what a release would touch" is present; side 2 carries a materialized site repository. |
+| 8 | `duo rehearse <pair>2 --from <env> --branch main` | Containment banner is the **first** line and appears **once**, byte for byte; "what a release would touch" is present; side 2 carries a materialized site repository. |
 | 9 | Edit the landing page on the preview; `duo capture preview` twice | Capture is deterministic: two captures of the same converged environment differ by zero bytes. |
 | 10 | `git commit` + `git push origin HEAD:main`; then revert the live page body on side 2 and capture once | The revert is `grind_mup.sh`'s step 7b, here for the same reason: side 2 is both the preview and the release target, so the authored edit is already live the moment it is captured, and a release with nothing to apply proves nothing. The one capture that follows the revert is what puts the target's ledger back in agreement with its live rows, which is the capture-first workflow `release_target_not_clean` names. |
 | 11 | `duo release <target> --from=<sha> --plan-only --format=json`, then `--yes` | The plan validates as `duo-authorization-plan/v1`, cites the **accepted** `contract_digest`, embeds a literal recovery claim, names the profile **with the reason it was selected**, authorizes at least one entity change, and wrote nothing to `.duo/releases/`. The release then prints `authorization frozen: <path>` and promote's own receipts in the order `promotion-begin → checkpoint → lifecycle-retire → lifecycle-activate → apply`. |
@@ -186,7 +186,7 @@ object (the walk reads the pin out of `site.duo.json`, which §3.1 does fix).
 | 13 | Write a row into `wp_wpforms_tasks_meta` and set a `wpforms_*` option on the target, **after** the checkpoint | **The gate.** Both writes belong to the plugin the contract excluded. They are ordinary target state inside the database checkpoint's boundary. |
 | 14 | `duo recover <target> --list --format=json` → `--restore=<id> --writers-excluded` | (a) The claim is printed *before* the first driven step — asserted by line number, because a claim printed after recovery started was read too late to stop. (b) The `maximum_loss_boundary` printed at recovery is byte-identical to the frozen plan's. (c) The post-checkpoint table row **and** the post-checkpoint option are **gone**. (d) The page body is back at its pre-release value. |
 | 15 | `duo assess <target> --format=json` | The projection of every surface the frozen plan named in scope is byte-identical to the pre-release one, and `plugin:wpforms-lite` still projects `runtime / preserve local / Unsupported` — the operator's decision survived the loop it was made for. |
-| 16 | `duo rehearse preview --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. |
+| 16 | `duo rehearse <pair>2 --reap`, twice | The first receipt says `destroyed` or `detached`; the second says the same and exits 0. |
 
 ## S2 — the operator authors and certifies an adapter
 
@@ -399,9 +399,10 @@ at rather than rediscovering it; each is annotated with what the runs found.
    Mac; host-side `git add` after container-side capture works.)*
 
 8. **The `preview` and `<pair>2` registry entries name the same physical side.**
-   They must stay pointed at the same service and repo path, or the walk
-   captures one environment and releases another. Nothing in the registry
-   enforces that; only this document does.
+   *(retired by construction: since the reusable preview slot,
+   `tools/reference-env-provider.php` requires every configured environment to
+   use pair.sh's canonical logical name, so side 2 is `<pair>2` for both the
+   rehearsal and the release — one registry entry, nothing to keep aligned.)*
 
 9. **Wall time and pair budget.** *(measured above: ~2 h 10 min for all four;
    `WALK_SCENARIOS` was used throughout to iterate one scenario at a time.)*

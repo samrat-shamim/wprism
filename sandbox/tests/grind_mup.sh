@@ -386,8 +386,7 @@ mup_write_registry() {
         transport: "docker", compose_file: $compose, service: "cli1", repo_path: "/siterepo",
         environment_provider: {command: [$php, $provider, $config], timeout_seconds: 60}
       },
-      ($two): {transport: "docker", compose_file: $compose, service: "cli2", repo_path: "/siterepo"},
-      preview: {
+      ($two): {
         transport: "docker", compose_file: $compose, service: "cli2", repo_path: "/siterepo",
         environment_provider: {command: [$php, $provider, $config], timeout_seconds: 60}
       }
@@ -409,7 +408,8 @@ mup_validate_registry() {
     require $argv[2] . "/cli/src/Environment/EnvironmentLifecycle.php";
     $envs = \Duo\Orchestrator\Registry::load($argv[1], dirname($argv[1]));
     $source = $argv[3];
-    foreach (["preview", $source] as $name) {
+    $target = $argv[4];
+    foreach ([$target, $source] as $name) {
         if (!is_array($envs[$name] ?? null)) {
             fwrite(STDERR, "the registry has no $name environment\n");
             exit(1);
@@ -417,10 +417,10 @@ mup_validate_registry() {
     }
     // The materializer builds a provider client for BOTH ends of a
     // rehearsal, so both entries must be loadable as provider-bearing.
-    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment("preview", $envs["preview"]);
+    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($target, $envs[$target]);
     \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($source, $envs[$source]);
-    echo "preview and source provider config accepted by EnvironmentLifecycle\n";
-  ' "$1" "$REPO_ROOT" "$2"
+    echo "target and source provider config accepted by EnvironmentLifecycle\n";
+  ' "$1" "$REPO_ROOT" "$2" "$3"
 }
 
 # ---------------------------------------------------------------------------
@@ -587,21 +587,23 @@ self_check() {
   tmp="$(mktemp -d "${TMPDIR:-/tmp}/grind-mup-selfcheck.XXXXXX")"
   mup_write_registry "$tmp/.duo-envs.json" "$SANDBOX/pair.yml" mup1 mup2 \
     "$(command -v php)" "$REPO_ROOT/tools/reference-env-provider.php" "$tmp/config.json"
-  if mup_validate_registry "$tmp/.duo-envs.json" mup1 >/dev/null 2>&1; then
-    pass "the registry this grind writes is accepted by EnvironmentLifecycle's provider-config schema, source and preview"
+  if mup_validate_registry "$tmp/.duo-envs.json" mup1 mup2 >/dev/null 2>&1; then
+    pass "the registry this grind writes is accepted by EnvironmentLifecycle's provider-config schema, source and target"
   else
-    soft_fail "the registry this grind writes is rejected by EnvironmentLifecycle: $(mup_validate_registry "$tmp/.duo-envs.json" mup1 2>&1)"
+    soft_fail "the registry this grind writes is rejected by EnvironmentLifecycle: $(mup_validate_registry "$tmp/.duo-envs.json" mup1 mup2 2>&1)"
   fi
-  # The release target carries no provider: it needs none, and a provider
-  # block is privileged host configuration nothing else should carry.
-  if jq -e '.envs.mup2 | has("environment_provider") | not' "$tmp/.duo-envs.json" >/dev/null; then
-    pass "the release target carries no provider block"
+  # The reference provider (tools/reference-env-provider.php, since the
+  # reusable preview slot) requires every environment it is configured for to
+  # use pair.sh's canonical logical name `<pair><side>`; side 2 is at once the
+  # rehearsal target and the release target under that one name.
+  if jq -e '(.envs | keys | sort) == ["mup1", "mup2"]' "$tmp/.duo-envs.json" >/dev/null; then
+    pass "the registry names exactly the pair's two canonical logical environments"
   else
-    soft_fail "the release target carries a provider block it does not need"
+    soft_fail "the registry names environments other than mup1/mup2: $(jq -c '.envs | keys' "$tmp/.duo-envs.json")"
   fi
   # A relative provider executable is the mistake this schema exists to catch.
-  jq '.envs.preview.environment_provider.command[0] = "php"' "$tmp/.duo-envs.json" > "$tmp/relative.json"
-  if mup_validate_registry "$tmp/relative.json" mup1 >/dev/null 2>&1; then
+  jq '.envs.mup2.environment_provider.command[0] = "php"' "$tmp/.duo-envs.json" > "$tmp/relative.json"
+  if mup_validate_registry "$tmp/relative.json" mup1 mup2 >/dev/null 2>&1; then
     soft_fail "EnvironmentLifecycle accepted a relative provider executable"
   else
     pass "a relative provider executable is refused before any provider call"
@@ -886,27 +888,26 @@ fi
 pass "pair up; woocommerce $WOO_VERSION + $THEME_SLUG $THEME_VERSION installed; 3 products and a page on ${PAIR}1"
 
 # ---------------------------------------------------------------------------
-# Registry: the two sides plus the preview environment the provider drives.
+# Registry: the two sides, both carrying the provider block.
 # ---------------------------------------------------------------------------
-say "registry — .duo-envs.json for ${PAIR}1, ${PAIR}2 and preview"
-# `preview` and `${PAIR}2` are the SAME physical side: MUP §6.1 makes side 2
-# both the rehearsal preview and the release target, and the pair has two
-# sides. They are two registry entries because only one of them carries the
-# privileged `environment_provider` block — a provider config is machine-local
-# authority (EnvironmentLifecycle refuses it anywhere but .duo-envs.json), and
-# `duo release`/`duo verify`/`duo recover` need none of it. `${PAIR}1`, the
-# rehearsal SOURCE, carries the block too (see mup_write_registry).
+say "registry — .duo-envs.json for ${PAIR}1 and ${PAIR}2"
+# `${PAIR}2` is at once the rehearsal target and the release target: MUP §6.1
+# makes side 2 both, and the reference provider (tools/reference-env-provider.php,
+# since the reusable preview slot) requires every environment it is configured
+# for to use pair.sh's canonical logical name `<pair><side>` — so the former
+# separate `preview` alias for side 2 is gone. `${PAIR}1`, the rehearsal
+# SOURCE, carries the provider block too (see mup_write_registry).
 if dry; then
-  plan "write $ENVS_FILE (docker cli1/cli2; preview carries environment_provider -> php $PROVIDER $PROVIDER_CONFIG)"
+  plan "write $ENVS_FILE (docker cli1/cli2; both carry environment_provider -> php $PROVIDER $PROVIDER_CONFIG)"
   plan "write $PROVIDER_CONFIG (duo-reference-env-provider-config/v1, pair $PAIR)"
 else
   mup_write_registry "$ENVS_FILE" "${COMPOSE_FILES[0]}" "${PAIR}1" "${PAIR}2" \
     "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG"
-  mup_validate_registry "$ENVS_FILE" "${PAIR}1" \
+  mup_validate_registry "$ENVS_FILE" "${PAIR}1" "${PAIR}2" \
     || fail "the .duo-envs.json this grind wrote is not loadable as a machine-local provider registry"
   jq -n \
     --arg pair "$PAIR" --arg script "$SANDBOX/bin/pair.sh" --arg dir "$SANDBOX" \
-    --arg origin "$ORIGIN" --arg state "$PROVIDER_STATE" --arg source "${PAIR}1" \
+    --arg origin "$ORIGIN" --arg state "$PROVIDER_STATE" --arg source "${PAIR}1" --arg target "${PAIR}2" \
     --argjson port1 "$PORT1" --argjson port2 "$PORT2" \
     --arg repo1 "$HOST_R1" --arg repo2 "$HOST_R2" \
     --argjson files "$(printf '%s\n' "${COMPOSE_FILES[@]}" | jq -R . | jq -sc .)" '
@@ -919,7 +920,7 @@ else
         ($source): {role: "source", side: 1, port: $port1,
                     container: ("duo-" + $pair + "-wp1-1"), service: "cli1",
                     database: ("wp_" + $pair + "1"), repo: $repo1},
-        preview:    {role: "target", side: 2, port: $port2,
+        ($target):  {role: "target", side: 2, port: $port2,
                      container: ("duo-" + $pair + "-wp2-1"), service: "cli2",
                      database: ("wp_" + $pair + "2"), repo: $repo2}
       }
@@ -930,7 +931,7 @@ fi
 # malformed provider config discovered at materialization time has already
 # cost a snapshot.
 if ! dry; then
-  printf '{"action":"capabilities","environment":"preview","format":"duo-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' \
+  printf '{"action":"capabilities","environment":"%s","format":"duo-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
     | php "$PROVIDER" --print-plan "$PROVIDER_CONFIG" > "$EVIDENCE/provider-plan.json" \
     || fail "the reference provider refused the config this grind wrote; see $EVIDENCE/provider-plan.json"
   jq -e '
@@ -1125,12 +1126,12 @@ pass "step 4 — contract.json + projection.json accepted, digest stable, attest
 # ---------------------------------------------------------------------------
 # Step 5 — rehearse the preview from side 1.
 # ---------------------------------------------------------------------------
-say "step 5/13 — duo rehearse preview --from ${PAIR}1 --branch main"
+say "step 5/13 — duo rehearse ${PAIR}2 --from ${PAIR}1 --branch main"
 REHEARSE_OUT="$EVIDENCE/rehearse.txt"
 BANNER='containment: unknown — not enforced in this profile; do not point this environment at live payment or mail credentials.'
 if ! dry; then
-  duo_in "$HOST_R1" rehearse preview --from "${PAIR}1" --branch main > "$REHEARSE_OUT" 2>&1 \
-    || fail "duo rehearse preview refused or failed; see $REHEARSE_OUT"
+  duo_in "$HOST_R1" rehearse "${PAIR}2" --from "${PAIR}1" --branch main > "$REHEARSE_OUT" 2>&1 \
+    || fail "duo rehearse ${PAIR}2 refused or failed; see $REHEARSE_OUT"
   [ "$(head -n 1 "$REHEARSE_OUT")" = "$BANNER" ] \
     || fail "step 5: the containment banner is not the first line of the rehearsal report; see $REHEARSE_OUT"
   [ "$(grep -cF "$BANNER" "$REHEARSE_OUT")" = 1 ] \
@@ -1142,7 +1143,7 @@ if ! dry; then
   [ -f "$HOST_R2/site.duo.json" ] \
     || fail "step 5: the preview converged but $HOST_R2 carries no materialized site repository"
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE rehearse preview --from ${PAIR}1 --branch main)"
+  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE rehearse ${PAIR}2 --from ${PAIR}1 --branch main)"
 fi
 pass "step 5 — preview converged; banner present and printed once; release preview present"
 
@@ -1167,8 +1168,8 @@ else
   plan "wp2 post meta update <product> _regular_price $NEW_PRICE  # and _price"
   plan "wp2 post update <page> --post_content=..."
 fi
-duo_in "$HOST_R2" capture preview
-duo_in "$HOST_R2" capture preview --out=/siterepo/.tmp-state2
+duo_in "$HOST_R2" capture "${PAIR}2"
+duo_in "$HOST_R2" capture "${PAIR}2" --out=/siterepo/.tmp-state2
 if ! dry; then
   diff -r "$HOST_R2/state" "$HOST_R2/.tmp-state2" \
     || fail "step 6: capture is not deterministic on the preview"
@@ -1500,21 +1501,21 @@ fi
 # ---------------------------------------------------------------------------
 # Step 13 — reap, twice.
 # ---------------------------------------------------------------------------
-say "step 13/13 — duo rehearse preview --reap, then again"
+say "step 13/13 — duo rehearse ${PAIR}2 --reap, then again"
 REAP1="$EVIDENCE/reap-1.txt"
 REAP2="$EVIDENCE/reap-2.txt"
 if ! dry; then
-  duo_in "$HOST_R1" rehearse preview --reap > "$REAP1" 2>&1 \
+  duo_in "$HOST_R1" rehearse "${PAIR}2" --reap > "$REAP1" 2>&1 \
     || { cat "$REAP1" >&2; fail "step 13: the first reap failed"; }
   grep -Eq 'destroyed|detached' "$REAP1" \
     || fail "step 13: the first reap receipt says neither destroyed nor detached; see $REAP1"
-  duo_in "$HOST_R1" rehearse preview --reap > "$REAP2" 2>&1 \
+  duo_in "$HOST_R1" rehearse "${PAIR}2" --reap > "$REAP2" 2>&1 \
     || { cat "$REAP2" >&2; fail "step 13: the repeated reap was not idempotent"; }
   grep -Eq 'destroyed|detached' "$REAP2" \
     || fail "step 13: the repeated reap printed no receipt; see $REAP2"
   pass "step 13 — reap receipt: $(grep -Eom1 'destroyed|detached' "$REAP1"); repeating it is idempotent"
 else
-  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE rehearse preview --reap)  # twice"
+  plan "(cd $HOST_R1 && php $DUO --envs-file=$ENVS_FILE rehearse ${PAIR}2 --reap)  # twice"
 fi
 
 # ---------------------------------------------------------------------------

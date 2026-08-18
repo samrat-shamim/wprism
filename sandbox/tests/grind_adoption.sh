@@ -246,7 +246,7 @@ loop_to_recovery() {
   rehearse_preview "$label"
   say "$label — author a page-body edit on the preview, then capture twice"
   preview_page_edit "$label" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$label" preview
+  capture_twice "$label" "${PAIR}2"
   merge_preview "$label"
   revert_target "$label" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
   release_cycle "$label" "$MAIN_SHA"
@@ -351,7 +351,7 @@ situation_a2() {
     wp2 post update "$previewFooter" --post_content='<!-- wp:paragraph --><p>Duo adoption footer, released through duo release.</p><!-- /wp:paragraph -->'
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local targetFooter
@@ -436,7 +436,7 @@ situation_a3() {
       --status=publish --user=admin --porcelain >/dev/null
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local previewPoster
@@ -568,7 +568,7 @@ situation_a4() {
     wp2 post meta update "$previewForm" _form '<label> Your name [text* your-name] </label> <label> Your email [email* your-email] </label> <label> Message [textarea your-message] </label> [submit "Send"]' >/dev/null
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   # Put the target back so the release has all four changes to apply.
   if ! dry; then
@@ -686,7 +686,7 @@ situation_a5() {
     wp2 wc product update "$previewFr" --description='<p>Tasse Duo, publiée par duo release.</p>' --user=admin >/dev/null
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local targetFr
@@ -851,7 +851,7 @@ echo 'edited';
 " >/dev/null || fail "$S: the preview design edit failed"
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local targetBuilder targetLanding
@@ -973,7 +973,7 @@ situation_a7() {
       --post_content='{"id":"3","settings":{"form_title":"Duo adoption quote form"},"fields":{"1":{"id":"1","type":"text","label":"Company"}}}' --porcelain >/dev/null
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if ! dry; then
     local previewFormId
@@ -1099,7 +1099,7 @@ situation_a8() {
     pass "$S — the preview runs 1.1.0 with the new option, from the same revision"
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
   # The target still runs 1.0.0 with no banner option: put it back to that

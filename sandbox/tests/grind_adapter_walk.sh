@@ -29,7 +29,7 @@
 # the same one-dedicated-pair model with the pair NAME and both ports
 # parameterized, the same Git-enabled cli image built from
 # `sandbox/init-cli.Dockerfile` and handed to pair.sh through DUO_CLI_IMAGE,
-# the same machine-local registry whose SOURCE and `preview` entries both carry
+# the same machine-local registry whose SOURCE and TARGET entries both carry
 # the reference provider block, the same `DUO_EXPECTED_SOURCE_SHA` candidate
 # gate, and the same exit trap that destroys exactly this pair and verifies the
 # destruction.
@@ -490,7 +490,7 @@ scenario_s1() {
   rehearse_preview "$S"
   say "$S — author one page-body edit on the preview, then capture twice"
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"
@@ -775,7 +775,7 @@ scenario_s2() {
       --porcelain >/dev/null
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   # The new form is on the preview and therefore already on the target; the
   # release has to have something to apply, so the target's copy goes away and
@@ -946,7 +946,7 @@ scenario_s3() {
       --post_content='<p>The second catalog item.</p>' --porcelain >/dev/null
   fi
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   if dry; then
     plan "wp2 post delete <second item> --force   # so the release has the item to apply"
@@ -1136,7 +1136,7 @@ A signed override is Site-certified, never Platform-certified: the customer orga
   rehearse_preview "$S"
   say "$S — author a page-body edit on the preview, then capture twice"
   preview_page_edit "$S" duo-walk-landing '<p>Duo walk landing page, released through duo release.</p>'
-  capture_twice "$S" preview
+  capture_twice "$S" "${PAIR}2"
   merge_preview "$S"
   revert_target "$S" "$PREVIEW_PAGE_ID" '<p>Duo walk landing page, before the release.</p>'
   release_cycle "$S" "$MAIN_SHA"

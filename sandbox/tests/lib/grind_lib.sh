@@ -475,14 +475,17 @@ walk_projection_subset() {
 }
 
 # walk_write_registry <envs-file> <compose-file> <one> <two> <php> <provider> <config>
-# The machine-local overlay: the two pair sides, plus the `preview` entry that
-# carries the privileged provider block. The SOURCE side carries the same
-# block — `EnvironmentCommand` builds a provider client for `--from <env>` as
-# well as for the target, and the reference provider's config names ${PAIR}1 as
-# its `source_environment`. Only the release target `${PAIR}2` carries none:
-# `duo release`/`verify`/`recover` need no provider, and a provider config is
-# privileged host configuration nothing else should carry. Extracted so the run
-# path and --self-check write the SAME bytes.
+# The machine-local overlay: the two pair sides, both carrying the privileged
+# provider block. `${PAIR}2` is at once the rehearsal target and the release
+# target — the reference provider (tools/reference-env-provider.php, since the
+# reusable preview slot) requires every environment it is configured for to
+# use pair.sh's canonical logical name `<pair><side>`, so the former separate
+# `preview` alias for side 2 is gone: `duo rehearse ${PAIR}2 --from ${PAIR}1`
+# materializes it, `duo release ${PAIR}2` releases to it. The SOURCE side
+# carries the same block because `EnvironmentCommand` builds a provider client
+# for `--from <env>` as well as for the target, and the provider's config names
+# ${PAIR}1 as its `source_environment`. Extracted so the run path and
+# --self-check write the SAME bytes.
 walk_write_registry() {
   jq -n --arg compose "$2" --arg one "$3" --arg two "$4" \
         --arg php "$5" --arg provider "$6" --arg config "$7" '
@@ -491,8 +494,7 @@ walk_write_registry() {
         transport: "docker", compose_file: $compose, service: "cli1", repo_path: "/siterepo",
         environment_provider: {command: [$php, $provider, $config], timeout_seconds: 60}
       },
-      ($two): {transport: "docker", compose_file: $compose, service: "cli2", repo_path: "/siterepo"},
-      preview: {
+      ($two): {
         transport: "docker", compose_file: $compose, service: "cli2", repo_path: "/siterepo",
         environment_provider: {command: [$php, $provider, $config], timeout_seconds: 60}
       }
@@ -511,16 +513,17 @@ walk_validate_registry() {
     require $argv[2] . "/cli/src/Environment/EnvironmentLifecycle.php";
     $envs = \Duo\Orchestrator\Registry::load($argv[1], dirname($argv[1]));
     $source = $argv[3];
-    foreach (["preview", $source] as $name) {
+    $target = $argv[4];
+    foreach ([$target, $source] as $name) {
         if (!is_array($envs[$name] ?? null)) {
             fwrite(STDERR, "the registry has no $name environment\n");
             exit(1);
         }
     }
-    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment("preview", $envs["preview"]);
+    \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($target, $envs[$target]);
     \Duo\Orchestrator\CommandEnvironmentProvider::fromEnvironment($source, $envs[$source]);
-    echo "preview and source provider config accepted by EnvironmentLifecycle\n";
-  ' "$1" "$REPO_ROOT" "$2"
+    echo "target and source provider config accepted by EnvironmentLifecycle\n";
+  ' "$1" "$REPO_ROOT" "$2" "$3"
 }
 
 cleanup() {
@@ -755,24 +758,23 @@ scenario_pair() {
   pass "$scenario — pair up; woocommerce $WOO_VERSION + $THEME_SLUG $THEME_VERSION on both sides"
 }
 
-# write_registry — the two pair sides plus the preview environment the provider
-# drives. `preview` and `${PAIR}2` are the SAME physical side (side 2 is both
-# the rehearsal preview and the release target); they are two registry entries
-# because only one of them carries the privileged `environment_provider` block.
+# write_registry — the two pair sides, both carrying the provider block. Side 2
+# (`${PAIR}2`) is both the rehearsal target and the release target under its
+# one canonical name (see walk_write_registry).
 write_registry() {
-  say "registry — .duo-envs.json for ${PAIR}1, ${PAIR}2 and preview"
+  say "registry — .duo-envs.json for ${PAIR}1 and ${PAIR}2"
   if dry; then
-    plan "write $ENVS_FILE (docker cli1/cli2; preview and ${PAIR}1 carry environment_provider -> php $PROVIDER $PROVIDER_CONFIG)"
+    plan "write $ENVS_FILE (docker cli1/cli2; both carry environment_provider -> php $PROVIDER $PROVIDER_CONFIG)"
     plan "write $PROVIDER_CONFIG (duo-reference-env-provider-config/v1, pair $PAIR)"
     return 0
   fi
   walk_write_registry "$ENVS_FILE" "${COMPOSE_FILES[0]}" "${PAIR}1" "${PAIR}2" \
     "$PHP_BIN" "$PROVIDER" "$PROVIDER_CONFIG"
-  walk_validate_registry "$ENVS_FILE" "${PAIR}1" \
+  walk_validate_registry "$ENVS_FILE" "${PAIR}1" "${PAIR}2" \
     || fail "the .duo-envs.json this walk wrote is not loadable as a machine-local provider registry"
   jq -n \
     --arg pair "$PAIR" --arg script "$SANDBOX/bin/pair.sh" --arg dir "$SANDBOX" \
-    --arg origin "$ORIGIN" --arg state "$PROVIDER_STATE" --arg source "${PAIR}1" \
+    --arg origin "$ORIGIN" --arg state "$PROVIDER_STATE" --arg source "${PAIR}1" --arg target "${PAIR}2" \
     --argjson port1 "$PORT1" --argjson port2 "$PORT2" \
     --arg repo1 "$HOST_R1" --arg repo2 "$HOST_R2" \
     --argjson files "$(printf '%s\n' "${COMPOSE_FILES[@]}" | jq -R . | jq -sc .)" '
@@ -785,12 +787,12 @@ write_registry() {
         ($source): {role: "source", side: 1, port: $port1,
                     container: ("duo-" + $pair + "-wp1-1"), service: "cli1",
                     database: ("wp_" + $pair + "1"), repo: $repo1},
-        preview:    {role: "target", side: 2, port: $port2,
+        ($target):  {role: "target", side: 2, port: $port2,
                      container: ("duo-" + $pair + "-wp2-1"), service: "cli2",
                      database: ("wp_" + $pair + "2"), repo: $repo2}
       }
     }' > "$PROVIDER_CONFIG"
-  printf '{"action":"capabilities","environment":"preview","format":"duo-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' \
+  printf '{"action":"capabilities","environment":"%s","format":"duo-branch-environment-provider-request/v1","input":[],"operation_id":"20260817-090000-0000000000000000abcdefab"}\n' "${PAIR}2" \
     | php "$PROVIDER" --print-plan "$PROVIDER_CONFIG" > "$EVIDENCE/provider-plan.json" \
     || fail "the reference provider refused the config this walk wrote; see $EVIDENCE/provider-plan.json"
   jq -e '
@@ -1147,12 +1149,12 @@ recovery: $(grep -i 'maximum loss' "$EVIDENCE/$scenario/recover.txt" || echo '(n
   pass "$scenario — recovery restored checkpoint $RECEIPT_ID and printed the plan's own boundary"
 }
 
-# reap_cycle <scenario> — reap the preview twice; the second must be idempotent.
+# reap_cycle <scenario> — reap the rehearsal target twice; the second must be idempotent.
 reap_cycle() {
   local scenario="$1"
-  say "$scenario — duo rehearse preview --reap, then again"
-  duo_ok "$EVIDENCE/$scenario/reap-1.txt" "$HOST_R1" rehearse preview --reap
-  duo_ok "$EVIDENCE/$scenario/reap-2.txt" "$HOST_R1" rehearse preview --reap
+  say "$scenario — duo rehearse ${PAIR}2 --reap, then again"
+  duo_ok "$EVIDENCE/$scenario/reap-1.txt" "$HOST_R1" rehearse "${PAIR}2" --reap
+  duo_ok "$EVIDENCE/$scenario/reap-2.txt" "$HOST_R1" rehearse "${PAIR}2" --reap
   if ! dry; then
     grep -Eq 'destroyed|detached' "$EVIDENCE/$scenario/reap-1.txt" \
       || fail "$scenario: the first reap receipt says neither destroyed nor detached"
@@ -1165,10 +1167,10 @@ reap_cycle() {
 # rehearse_preview <scenario> — materialize side 2 from side 1's main.
 rehearse_preview() {
   local scenario="$1"
-  say "$scenario — duo rehearse preview --from ${PAIR}1 --branch main"
+  say "$scenario — duo rehearse ${PAIR}2 --from ${PAIR}1 --branch main"
   local out="$EVIDENCE/$scenario/rehearse.txt"
   local banner='containment: unknown — not enforced in this profile; do not point this environment at live payment or mail credentials.'
-  duo_ok "$out" "$HOST_R1" rehearse preview --from "${PAIR}1" --branch main
+  duo_ok "$out" "$HOST_R1" rehearse "${PAIR}2" --from "${PAIR}1" --branch main
   if ! dry; then
     [ "$(head -n 1 "$out")" = "$banner" ] \
       || fail "$scenario: the containment banner is not the first line of the rehearsal report; see $out"
@@ -1681,18 +1683,18 @@ self_check() {
   # ---- registry shape + EnvironmentLifecycle's provider-config schema, offline
   walk_write_registry "$tmp/.duo-envs.json" "$SANDBOX/pair.yml" "${PAIR}1" "${PAIR}2" \
     "$(command -v php)" "$REPO_ROOT/tools/reference-env-provider.php" "$tmp/config.json"
-  if walk_validate_registry "$tmp/.duo-envs.json" "${PAIR}1" >/dev/null 2>&1; then
-    pass "the registry this walk writes is accepted by EnvironmentLifecycle's provider-config schema, source and preview"
+  if walk_validate_registry "$tmp/.duo-envs.json" "${PAIR}1" "${PAIR}2" >/dev/null 2>&1; then
+    pass "the registry this walk writes is accepted by EnvironmentLifecycle's provider-config schema, source and target"
   else
-    soft_fail "the registry this walk writes is rejected by EnvironmentLifecycle: $(walk_validate_registry "$tmp/.duo-envs.json" "${PAIR}1" 2>&1)"
+    soft_fail "the registry this walk writes is rejected by EnvironmentLifecycle: $(walk_validate_registry "$tmp/.duo-envs.json" "${PAIR}1" "${PAIR}2" 2>&1)"
   fi
-  if jq -e --arg two "${PAIR}2" '.envs[$two] | has("environment_provider") | not' "$tmp/.duo-envs.json" >/dev/null; then
-    pass "the release target carries no provider block"
+  if jq -e --arg one "${PAIR}1" --arg two "${PAIR}2" '(.envs | keys | sort) == ([$one, $two] | sort)' "$tmp/.duo-envs.json" >/dev/null; then
+    pass "the registry names exactly the pair's two canonical logical environments (the reference provider's own rule)"
   else
-    soft_fail "the release target carries a provider block it does not need"
+    soft_fail "the registry names environments other than ${PAIR}1/${PAIR}2: $(jq -c '.envs | keys' "$tmp/.duo-envs.json")"
   fi
-  jq '.envs.preview.environment_provider.command[0] = "php"' "$tmp/.duo-envs.json" > "$tmp/relative.json"
-  if walk_validate_registry "$tmp/relative.json" "${PAIR}1" >/dev/null 2>&1; then
+  jq --arg two "${PAIR}2" '.envs[$two].environment_provider.command[0] = "php"' "$tmp/.duo-envs.json" > "$tmp/relative.json"
+  if walk_validate_registry "$tmp/relative.json" "${PAIR}1" "${PAIR}2" >/dev/null 2>&1; then
     soft_fail "EnvironmentLifecycle accepted a relative provider executable"
   else
     pass "a relative provider executable is refused before any provider call"
