@@ -1756,6 +1756,11 @@ check(
 $scanBlockers = [];
 \Duo\InitCodeInventory::inventory(['plugins' => $scanRoot . '/plugins'], ['plugins' => ['acme']], $scanBlockers);
 check(count($scanBlockers) === 1, 'the confirm-time re-walk (no advisories channel) sees the same one blocker and never a JWT');
+check(
+    \Duo\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/statement.php') === null
+        && \Duo\InitCodeInventory::blockingSecretLabel($scanRoot . '/plugins/acme/key.pem') === 'private key',
+    'blockingSecretLabel() — the staged-code gate\'s reading — draws the same line: a JWT is advisory, a private key blocks'
+);
 foreach (['bundle.js', 'statement.php', 'key.pem'] as $scanFile) {
     @unlink($scanRoot . '/plugins/acme/' . $scanFile);
 }

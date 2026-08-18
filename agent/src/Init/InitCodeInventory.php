@@ -116,6 +116,22 @@ final class InitCodeInventory {
         return ['files' => $files, 'bytes' => $bytes];
     }
 
+    /**
+     * The credential shapes that are STATED rather than blocking when found
+     * inside shipped code (see inventoryFile()): a complete JWT is a public
+     * software statement or a fixture far more often than a live credential.
+     * One list, so the proposal's inventory and the confirm-time staged-code
+     * gate (InitCodeBaseline) draw the same line.
+     */
+    public const ADVISORY_SECRET_LABELS = ['jwt'];
+
+    /** secretLabel(), or null when the only finding is an advisory-tier shape. */
+    public static function blockingSecretLabel(string $path): ?string {
+        $label = self::secretLabel($path);
+
+        return $label !== null && in_array($label, self::ADVISORY_SECRET_LABELS, true) ? null : $label;
+    }
+
     /** Scan every byte without returning a credential value. */
     public static function secretLabel(string $path): ?string {
         $handle = @fopen($path, 'rb');
@@ -209,7 +225,7 @@ final class InitCodeInventory {
         }
         $base = strtolower(basename($relative));
         $secretLabel = self::secretLabel($path);
-        if ($secretLabel === 'jwt') {
+        if ($secretLabel !== null && in_array($secretLabel, self::ADVISORY_SECRET_LABELS, true)) {
             // A complete JWT inside SHIPPED code is, far more often than not, a
             // public artifact rather than a live credential — Yoast SEO's
             // OIDC software statement (`issuer-config.php`), id-token fixtures

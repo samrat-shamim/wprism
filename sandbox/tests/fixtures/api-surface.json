@@ -13316,11 +13316,34 @@
         },
         "Duo\\InitCodeInventory": {
             "abstract": false,
-            "constants": [],
+            "constants": {
+                "ADVISORY_SECRET_LABELS": {
+                    "value_repr": [
+                        "jwt"
+                    ]
+                }
+            },
             "final": true,
             "interfaces": [],
             "kind": "class",
             "methods": {
+                "blockingSecretLabel": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "path",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "inventory": {
                     "abstract": false,
                     "final": false,

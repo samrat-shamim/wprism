@@ -260,7 +260,10 @@ final class InitCodeBaseline {
             if (!$item->isFile() || $item->isLink()) {
                 continue;
             }
-            $label = InitCodeInventory::secretLabel($item->getPathname());
+            // The same line the proposal drew: an advisory-tier shape (a JWT
+            // in shipped code) was stated in the proposal and is not a reason
+            // to refuse the confirmed baseline it was stated for.
+            $label = InitCodeInventory::blockingSecretLabel($item->getPathname());
             if ($label !== null) {
                 throw new \RuntimeException(
                     "duo: captured code contains a high-confidence $label; the value is redacted and was not published"
