@@ -1955,7 +1955,7 @@ keygen_and_certify() {
     [ -f "$HOST_R1/adapters/certifications/$name.json" ] \
       || fail "$scenario: certify wrote no adapters/certifications/$name.json (§3.1)"
     jq -e --arg n "$name" '
-      [.manifests[] | select(.name == $n and .source == "site" and (.digest | type == "string"))] | length == 1
+      [.manifests[] | select(type == "object" and .name == $n and .source == "site" and (.digest | type == "string"))] | length == 1
     ' "$HOST_R1/site.duo.json" >/dev/null \
       || fail "$scenario: --pin did not write the exact {name,source:\"site\",digest} pin into site.duo.json (§3.1)"
     # §3.1's other half: the private key never enters the repository. Scoped to
