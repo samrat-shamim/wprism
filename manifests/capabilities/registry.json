@@ -1090,7 +1090,7 @@
             ]
         },
         "polylang": {
-            "adapter_digest": "31e47fb664bd89d649a51b7dfd3374fc876c363bd327bbf5b3db920645a5eba4",
+            "adapter_digest": "ead6431774d4bc4402308709612f6f5c1d26086ffa9c48ccd1ae4c4cd1beb132",
             "authored_state": {
                 "scope": "only the exact registered surfaces and operations below",
                 "status": "certified"
@@ -1120,14 +1120,14 @@
                 }
             },
             "evidence": {
-                "bundle_digest": "1c44aba88841bd8c1b1469b8527e11584f238c20103807e36869b9e266d4b650",
+                "bundle_digest": null,
                 "bundle_schema": "duo-subject-certification-bundle/v1",
-                "closure_digest": "52bfd68f49e382ae2b35015acc849ad6cf02d94dd09a5ea99c9b9657363a057a",
+                "closure_digest": null,
                 "force_hatches": [],
-                "git_revision": "cf1b6ddaa9a77565852cc432c26477a6af09017f",
-                "status": "current",
+                "git_revision": null,
+                "status": "candidate",
                 "subject": "manifests.polylang",
-                "subject_digest": "31e47fb664bd89d649a51b7dfd3374fc876c363bd327bbf5b3db920645a5eba4",
+                "subject_digest": null,
                 "tests": [
                     "conformance-polylang",
                     "exact-artifact-version-matrix"

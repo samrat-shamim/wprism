@@ -131,4 +131,12 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   refused `release_surface_not_releasable` for the unclassified table.
   Declared `runtime` (an adapter gap fixed at the root, like WooCommerce's
   operational post types in T6).
+- A5 (rehearse): `duo rehearse` materializes the preview through
+  refresh-export under the isolated control bootstrap, where no plugin is
+  loaded; Polylang's four taxonomies were in scope (init proposes them now)
+  but `manifests/polylang.json` declared no static `object_type` for them
+  (only the additive option-derived one), so the export refused. The manifest
+  now declares the plugin's own registration object types (verified live:
+  language/post_translations on post, page, wp_block; term_language/
+  term_translations on term).
 
