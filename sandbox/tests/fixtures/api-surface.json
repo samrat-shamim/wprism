@@ -20606,6 +20606,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "redactedRefusalEvidenceHint": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "result",
+                            "type": "array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?string",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "renderRefusalJson": {
                     "abstract": false,
                     "final": false,
