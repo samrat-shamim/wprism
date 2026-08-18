@@ -144,10 +144,25 @@ final class Tokens {
      *  reason. */
     public bool $forceUnresolvedRefs = false;
 
-    public function __construct() {
-        $this->home = untrailingslashit((string) get_option('home'));
-        $up = wp_upload_dir(null, false);
-        $this->uploadsUrl = untrailingslashit((string) $up['baseurl']);
+    /**
+     * The binding is this environment's own `home` option and uploads base
+     * URL — unless a caller observes AS ANOTHER environment. Plan does that
+     * for a target whose database was just restored from a source snapshot
+     * (`duo rehearse` materialization): the restored bytes and the restored
+     * ledger are the source's binding of the same authored content, and
+     * without a foreign-bound observation every `{{home}}`-bearing entity
+     * reads as drift on the target (grind_adoption A6, wp_navigation links).
+     * The override is observation-only: apply's own Tokens (detokenize
+     * direction) is always constructed bare, so writes bind to this
+     * environment. See ApplyPlanBuilder::build() `rebind_from`.
+     */
+    public function __construct(?string $home = null, ?string $uploadsUrl = null) {
+        $this->home = untrailingslashit($home ?? (string) get_option('home'));
+        if ($uploadsUrl === null) {
+            $up = wp_upload_dir(null, false);
+            $uploadsUrl = (string) $up['baseurl'];
+        }
+        $this->uploadsUrl = untrailingslashit($uploadsUrl);
         $this->textTokenizer = new TextTokenizer($this->home, $this->uploadsUrl);
     }
 

@@ -54,9 +54,16 @@ final class CaptureCandidateBuilder {
     /** @var array{menus_by_term_id:array} */
     private array $planObservations = ['menus_by_term_id' => []];
 
-    public function __construct(string $repo, private Policy $policy) {
+    /**
+     * @param array{home:string,uploads:string}|null $binding observe AS this
+     *        environment binding instead of the live one (Tokens' docblock);
+     *        plan's foreign-bound comparison observation is the only caller.
+     */
+    public function __construct(string $repo, private Policy $policy, ?array $binding = null) {
         $this->repo = rtrim($repo, '/');
-        $this->tokens = new Tokens();
+        $this->tokens = $binding === null
+            ? new Tokens()
+            : new Tokens((string) $binding['home'], (string) $binding['uploads']);
         $this->tokens->policy = $policy;
         $this->safetyGates = new CaptureSafetyGates($this->repo);
         $this->captureIdentity = new CaptureIdentity();

@@ -1344,4 +1344,66 @@ final class ApplyPlanner {
         }
         return $environmentHash;
     }
+
+    /**
+     * The binding a materialized target's restored bytes and ledger belong
+     * to, from `--rebind-from-home` / `--rebind-from-uploads` (plan/apply
+     * opts `rebind_from_home` / `rebind_from_uploads`). Both or neither: a
+     * lone URL cannot describe a binding, and both must be absolute http(s)
+     * URLs — the tokenizer matches literal prefixes, so anything else could
+     * only ever fail to excuse drift, silently. Null when absent.
+     *
+     * @return array{home:string,uploads:string}|null
+     */
+    public static function rebind_binding(array $opts): ?array {
+        $home = $opts['rebind_from_home'] ?? null;
+        $uploads = $opts['rebind_from_uploads'] ?? null;
+        if ($home === null && $uploads === null) {
+            return null;
+        }
+        foreach ([$home, $uploads] as $value) {
+            if (!is_string($value) || preg_match('~^https?://[^\s/?#]+(?:/[^\s?#]*)?$~', $value) !== 1) {
+                throw new CommandRefusalException(
+                    'invalid_arguments',
+                    'the restored environment binding is incomplete or malformed',
+                    'pass both --rebind-from-home and --rebind-from-uploads, each an absolute http(s) URL, or neither'
+                );
+            }
+        }
+        return ['home' => rtrim((string) $home, '/'), 'uploads' => rtrim((string) $uploads, '/')];
+    }
+
+    /**
+     * Compare a materialized target's entity as if unchanged since base when
+     * its foreign-bound observation IS the repository's or the base's content
+     * (ApplyPlanBuilder::build() explains why that observation exists). The
+     * returned comparison hash is the base hash — the ordinary "target equals
+     * base" input to classify_observed(), which then yields `update`; the
+     * caller marks the row `rebind`. Null leaves the ordinary comparison in
+     * place: no foreign observation, an entity that already observes as the
+     * repository under this environment's binding, or a foreign-bound
+     * observation that matches neither (genuine target authorship).
+     */
+    public static function rebind_comparison_hash(
+        string $repositoryHash,
+        string $environmentHash,
+        ?string $baseHash,
+        ?string $comparisonEnvironmentHash,
+        ?string $foreignHash
+    ): ?string {
+        if ($foreignHash === null || hash_equals($repositoryHash, $environmentHash)) {
+            return null;
+        }
+        if ($baseHash === null) {
+            // First sync already classifies as update; nothing to excuse.
+            return null;
+        }
+        if ($comparisonEnvironmentHash !== null && hash_equals($baseHash, $comparisonEnvironmentHash)) {
+            return null;
+        }
+        if (hash_equals($repositoryHash, $foreignHash) || hash_equals($baseHash, $foreignHash)) {
+            return $baseHash;
+        }
+        return null;
+    }
 }

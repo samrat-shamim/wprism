@@ -2317,12 +2317,28 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
     // The lifecycle materializer needs a machine-readable result bound to
     // the same frozen artifact and owner. Keep normal promote's streaming
     // output/exit behavior above unchanged.
+    //
+    // A materialized target holds the SOURCE snapshot's literal home/uploads
+    // URLs (database and ledger); apply rebinds a `{{home}}`/`{{uploads}}`-
+    // bearing entity from that binding so it converges as an update rather
+    // than reading as drift and failing post-apply convergence (agent
+    // ApplyPlanner::rebind_binding; grind_adoption A6). Only the frozen
+    // (materializer) path carries a source binding; ordinary promote never
+    // does. normalize_frozen_promotion_context validated both URLs.
+    $rebindArgs = [];
+    if (($frozen['rebind_from_home'] ?? null) !== null) {
+        $rebindArgs = [
+            '--rebind-from-home=' . $frozen['rebind_from_home'],
+            '--rebind-from-uploads=' . $frozen['rebind_from_uploads'],
+        ];
+    }
     $applyResult = $t->captureWp(array_merge(
         [
             'duo', 'apply', '--repo=' . $repo, '--compiled=' . $artifact,
             '--promotion-owner=' . $runId, '--artifact-hash=' . $artifactHash,
             '--format=json',
         ],
+        $rebindArgs,
         $extra
     ));
     if (($applyResult['exit'] ?? 1) !== 0) {
@@ -2371,6 +2387,22 @@ function cmd_promote_internal(EnvironmentDriver $t, array $extra, ?array $frozen
  * @return array<string,mixed>
  */
 function normalize_frozen_promotion_context(array $context, string $repo): array {
+    // The two rebind fields are optional: they are present only for a
+    // materialization from a source snapshot (EnvironmentLifecycle::
+    // readSourceBinding), and both-or-neither. They carry the source's
+    // home/uploads binding to the target apply so a snapshot's literal URLs
+    // are rebound rather than read as drift (grind_adoption A6).
+    $rebindHome = $context['rebind_from_home'] ?? null;
+    $rebindUploads = $context['rebind_from_uploads'] ?? null;
+    unset($context['rebind_from_home'], $context['rebind_from_uploads']);
+    if (($rebindHome === null) !== ($rebindUploads === null)) {
+        throw new \InvalidArgumentException('frozen promotion rebind binding must supply both home and uploads or neither');
+    }
+    if ($rebindHome !== null && (
+        !is_string($rebindHome) || preg_match('~^https?://[^\s/?#]+(?:/[^\s?#]*)?$~', $rebindHome) !== 1
+        || !is_string($rebindUploads) || preg_match('~^https?://[^\s/?#]+(?:/[^\s?#]*)?$~', $rebindUploads) !== 1)) {
+        throw new \InvalidArgumentException('frozen promotion rebind binding is malformed');
+    }
     $expectedKeys = ['artifact_path', 'checkpoint_path', 'compiled_summary', 'operation_id', 'promotion_owner'];
     $actualKeys = array_keys($context);
     sort($actualKeys, SORT_STRING);
@@ -2418,6 +2450,8 @@ function normalize_frozen_promotion_context(array $context, string $repo): array
         'artifact_path' => $artifact,
         'checkpoint_path' => $checkpoint,
         'compiled_summary' => $summary,
+        'rebind_from_home' => $rebindHome,
+        'rebind_from_uploads' => $rebindUploads,
     ];
 }
 

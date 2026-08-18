@@ -155,8 +155,15 @@ file_put_contents($repo . '/tracked.txt', "branch\n");
 ec_run(['git', 'add', 'tracked.txt'], $repo);
 ec_run(['git', 'commit', '-m', 'feature'], $repo);
 
-// A `wp` that answers the one command branch convergence runs.
-file_put_contents($bin . '/wp', "#!/usr/bin/env bash\ncat " . escapeshellarg($scratch . '/plan.json') . "\n");
+// A `wp` that answers branch convergence (`duo plan --format=json`) and the
+// source URL-binding read (`eval echo home … uploads …`) the materializer
+// now performs to rebind a rehearsal target off its restored snapshot.
+$wpShim = "#!/usr/bin/env bash\n"
+    . 'for a in "$@"; do case "$a" in *get_option*home*) printf '
+    . "'http://source.example:9600\\nhttp://source.example:9600/wp-content/uploads\\n'"
+    . '; exit 0;; esac; done' . "\n"
+    . "cat " . escapeshellarg($scratch . '/plan.json') . "\n";
+file_put_contents($bin . '/wp', $wpShim);
 chmod($bin . '/wp', 0755);
 file_put_contents($scratch . '/plan.json', json_encode(ec_plan(), JSON_UNESCAPED_SLASHES) . "\n");
 putenv('PATH=' . $bin . ':' . getenv('PATH'));

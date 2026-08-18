@@ -209,6 +209,23 @@ final class Cli {
     }
 
     /**
+     * `--rebind-from-home` / `--rebind-from-uploads` as plan/apply opts, only
+     * when given (an absent flag must not become an empty string, which
+     * ApplyPlanner::rebind_binding() would refuse as malformed).
+     *
+     * @return array{rebind_from_home?:string,rebind_from_uploads?:string}
+     */
+    private static function rebind_from_options(array $assoc): array {
+        $out = [];
+        foreach (['rebind-from-home' => 'rebind_from_home', 'rebind-from-uploads' => 'rebind_from_uploads'] as $flag => $opt) {
+            if (array_key_exists($flag, $assoc)) {
+                $out[$opt] = is_string($assoc[$flag]) ? $assoc[$flag] : '';
+            }
+        }
+        return $out;
+    }
+
+    /**
      * May this Throwable's message be published verbatim in the JSON
      * refusal envelope?
      *
@@ -1000,6 +1017,10 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--artifact-hash=<sha256>] : Internal host-observed artifact hash; required with orchestrated promotion-owner.
+     * [--rebind-from-home=<url>] : Internal materializer flag: this target's database (ledger included) was
+     *   restored from a snapshot bound to <url>; an entity that observes as repository or base content under
+     *   that binding is an update marked `rebind`, not drift. Requires --rebind-from-uploads.
+     * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
      * [--category=<ids>] : Comma-separated closed plan-view categories; requests a bounded display view.
      * [--action=<buckets>] : Comma-separated closed plan-view action buckets; requests a bounded display view.
      * [--entity=<kinds>] : Comma-separated closed plan-view entity kinds; requests a bounded display view.
@@ -1016,7 +1037,7 @@ final class Cli {
                 'compiled' => $assoc['compiled'] ?? '',
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'scoped_promotion' => isset($assoc['scoped-promotion']),
-            ];
+            ] + self::rebind_from_options($assoc);
             if ($viewRequest !== null) {
                 $options['plan_view'] = $viewRequest;
             }
@@ -1600,6 +1621,9 @@ final class Cli {
      * [--compiled=<path>] : Consume a previously emitted compiler artifact; active policy/manifest hashes must match.
      * [--promotion-owner=<token>] : Internal orchestrator lease token shared with deploy.
      * [--scoped-promotion-receipt=<sha256>] : Internal external-checkpoint receipt payload hash supplied only by the SSH scoped-promotion orchestrator.
+     * [--rebind-from-home=<url>] : Internal materializer flag (see `duo plan`): the restored snapshot's home URL;
+     *   foreign-bound entities are converged as updates marked `rebind` instead of being left as drift.
+     * [--rebind-from-uploads=<url>] : The restored snapshot's uploads base URL; requires --rebind-from-home.
      * [--json]           : JSON output (wp-cli rewrites this to --format=json).
      * [--format=<format>] : Output format. Accepts json.
      */
@@ -1619,7 +1643,7 @@ final class Cli {
                 'promotion_owner' => $assoc['promotion-owner'] ?? '',
                 'artifact_hash' => $assoc['artifact-hash'] ?? '',
                 'scoped_promotion_receipt' => $assoc['scoped-promotion-receipt'] ?? '',
-            ];
+            ] + self::rebind_from_options($assoc);
             if ((string) ($assoc['scoped-promotion-receipt'] ?? '') !== ''
                 && !array_key_exists('scope-request-b64', $assoc)) {
                 throw CommandRefusalException::applyRefused(

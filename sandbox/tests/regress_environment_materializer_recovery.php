@@ -244,6 +244,11 @@ namespace {
             if (($args[0] ?? null) === 'duo' && ($args[1] ?? null) === 'plan') {
                 return ['exit' => 0, 'stdout' => rr_plan() . "\n", 'stderr' => ''];
             }
+            // The materializer reads the source URL binding (home + uploads)
+            // to rebind a rehearsal target off its restored snapshot.
+            if (($args[0] ?? null) === 'eval' && str_contains((string) ($args[1] ?? ''), 'get_option')) {
+                return ['exit' => 0, 'stdout' => "http://source.example:9600\nhttp://source.example:9600/wp-content/uploads\n", 'stderr' => ''];
+            }
             return ['exit' => 0, 'stdout' => '', 'stderr' => ''];
         }
         public function streamWp(array $args): int { $this->calls[] = ['kind' => 'stream', 'args' => $args]; return 0; }

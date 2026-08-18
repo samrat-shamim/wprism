@@ -118,6 +118,12 @@ final class MaterializerDriver implements EnvironmentDriver {
     }
     public function captureWp(array $args): array {
         $this->calls[] = ['wp', $args];
+        // The materializer reads the source URL binding (home + uploads) to
+        // rebind a rehearsal target off its restored snapshot; every other
+        // wp call in this fixture is `duo plan`.
+        if (($args[0] ?? null) === 'eval' && str_contains((string) ($args[1] ?? ''), 'get_option')) {
+            return ['exit' => 0, 'stdout' => "http://source.example:9600\nhttp://source.example:9600/wp-content/uploads\n", 'stderr' => ''];
+        }
         return ['exit' => 0, 'stdout' => $this->planJson . "\n", 'stderr' => ''];
     }
     public function streamWp(array $args): int { $this->calls[] = ['stream', $args]; return 0; }

@@ -1013,6 +1013,19 @@ final class EnvironmentMaterializer {
                 self::assertSnapshotPrepared($prepared, $sourceIdentity, $session, $sourceCapabilities->pin());
             }
 
+            // The snapshot restore carries the SOURCE's literal home/uploads
+            // URLs into the target's database and ledger. plan/apply must
+            // observe the target AS that binding to recognise a `{{home}}`/
+            // `{{uploads}}`-bearing entity as the source's content rather than
+            // target drift (agent ApplyPlanner::rebind_binding; grind_adoption
+            // A6, a wp_navigation post). Read the source's exact binding once,
+            // while the source is frozen by snapshot-prepare, and journal it.
+            $sourceBinding = self::phaseData($journal, $operationId, 'source-binding');
+            if ($sourceBinding === null) {
+                $sourceBinding = self::readSourceBinding($sourceDriver);
+                self::recordPhase($journal, $operationId, 'source-binding', $sourceBinding);
+            }
+
             $candidateRef = 'duo/materialize/' . $operationId;
             $semantic = self::phaseData($journal, $operationId, 'semantic-candidate');
             if ($semantic === null) {
@@ -1246,6 +1259,8 @@ final class EnvironmentMaterializer {
                     'compiled_summary' => $compiled['summary'],
                     'operation_id' => $operationId,
                     'promotion_owner' => $promotionOwner,
+                    'rebind_from_home' => (string) $sourceBinding['home'],
+                    'rebind_from_uploads' => (string) $sourceBinding['uploads'],
                 ], $release);
                 self::recordPhase($journal, $operationId, 'promotion-applied', $promotionReceipt);
             }
@@ -1815,6 +1830,30 @@ final class EnvironmentMaterializer {
     private static function phaseData(EnvironmentLifecycleJournal $journal, string $operationId, string $event): ?array {
         $match = self::lastEvent($journal->events($operationId), $event);
         return $match === null ? null : $match['data'];
+    }
+
+    /**
+     * The source's exact `home` and uploads base URL, read live while the
+     * source is frozen. This is the binding the snapshot's literal URLs
+     * belong to, and what the target's promotion apply rebinds from.
+     *
+     * @return array{home:string,uploads:string}
+     */
+    private static function readSourceBinding(EnvironmentDriver $sourceDriver): array {
+        $binding = $sourceDriver->captureWp([
+            'eval',
+            'echo rtrim((string) get_option("home"), "/"), "\n", rtrim((string) (wp_upload_dir(null, false)["baseurl"] ?? ""), "/"), "\n";',
+        ]);
+        if (($binding['exit'] ?? 1) !== 0) {
+            throw new \RuntimeException('could not read the source environment URL binding for rehearsal rebinding');
+        }
+        $lines = preg_split('/\R/', trim((string) ($binding['stdout'] ?? ''))) ?: [];
+        $home = (string) ($lines[0] ?? '');
+        $uploads = (string) ($lines[1] ?? '');
+        if (preg_match('~^https?://~', $home) !== 1 || preg_match('~^https?://~', $uploads) !== 1) {
+            throw new \RuntimeException('source environment URL binding is malformed');
+        }
+        return ['home' => $home, 'uploads' => $uploads];
     }
 
     /** A released target fence can never be used to replay a write phase. */

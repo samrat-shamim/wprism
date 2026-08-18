@@ -108,6 +108,32 @@ final class ApplyPlanBuilder {
                 $planObservations
             );
         }
+        // A target materialized from another environment's snapshot (`duo
+        // rehearse`) holds that environment's bytes AND its ledger: every
+        // `{{home}}`/`{{uploads}}`-bearing entity then observes as "target
+        // changed since base" here, because the source's literal URLs are
+        // not this environment's binding and never tokenize back. That is
+        // rebinding work, not authorship — grind_adoption A6's rehearsal
+        // failed post-apply verification on exactly one wp_navigation post
+        // for it. When the caller names the restored binding, observe once
+        // more AS that environment; an entity whose foreign-bound hash equals
+        // the repository or the base is that content foreign-bound, and is
+        // compared as if unchanged since base (an update, marked `rebind`).
+        // Anything else stays drift/conflict: only the named binding is
+        // excused, never target authorship.
+        $rebindFrom = ApplyPlanner::rebind_binding($opts);
+        $foreign = [];
+        if ($rebindFrom !== null && !$strictObservation) {
+            $foreignObservations = null;
+            $foreign = Capture::snapshot(
+                $this->repo,
+                !empty($opts['force_unresolved_refs']),
+                $compiled,
+                $this->policy,
+                $foreignObservations,
+                $rebindFrom
+            );
+        }
         $base = Ledger::all_state();
         $adopt = array_fill_keys(array_filter(explode(',', $opts['adopt_by_slug'] ?? '')), true);
         $lifecycleTransition = null;
@@ -225,6 +251,17 @@ final class ApplyPlanBuilder {
                 $row = $optionDeletion['row'];
             }
             if ($envE !== null) {
+                $rebind = ApplyPlanner::rebind_comparison_hash(
+                    (string) $fileH,
+                    (string) $envE['hash'],
+                    $baseH,
+                    $comparisonEnvH,
+                    $foreign[$uuid]['hash'] ?? null
+                );
+                if ($rebind !== null) {
+                    $comparisonEnvH = $rebind;
+                    $row['rebind'] = true;
+                }
                 $comparison = $this->apply_planner()->classify_observed(
                     $row,
                     (string) $fileH,

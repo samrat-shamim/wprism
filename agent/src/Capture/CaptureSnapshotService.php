@@ -30,7 +30,8 @@ final class CaptureSnapshotService {
         bool $forceUnresolvedRefs = false,
         ?CompiledRepository $compiled = null,
         ?Policy $policy = null,
-        ?array &$planObservations = null
+        ?array &$planObservations = null,
+        ?array $binding = null
     ): array {
         Canary::suppress_cron_spawn();
         Ledger::ensure();
@@ -38,7 +39,7 @@ final class CaptureSnapshotService {
         Ledger::prune_dead_map();
         $policy ??= Policy::load($repo);
         SidebarState::prune_dead_map($policy);
-        $capture = new CaptureCandidateBuilder($repo, $policy);
+        $capture = new CaptureCandidateBuilder($repo, $policy, $binding);
         CaptureTransaction::assert_engine_support($policy);
         $repository = $compiled ?? RepositoryCompiler::compile_for_diff($repo, Policy::load($repo));
         $repositoryOptions = self::repositoryOptions($repo, $policy, $repository);

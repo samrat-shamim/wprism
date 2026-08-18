@@ -140,7 +140,13 @@ rpc_run(['git', 'clone', '--bare', $site, $origin]);
 
 $planPath = $scratch . '/plan.json';
 file_put_contents($planPath, json_encode(rpc_plan(), JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n");
-$wp = "#!/bin/sh\ncat " . escapeshellarg($planPath) . "\n";
+// Answer the materializer's source URL-binding read (`eval echo home …
+// uploads …`) with two URLs; every other invocation is `duo plan` (cat).
+$wp = "#!/bin/sh\n"
+    . 'for a in "$@"; do case "$a" in *get_option*home*) printf '
+    . "'http://source.example:9600\\nhttp://source.example:9600/wp-content/uploads\\n'"
+    . '; exit 0;; esac; done' . "\n"
+    . "cat " . escapeshellarg($planPath) . "\n";
 file_put_contents($bin . '/wp', $wp);
 chmod($bin . '/wp', 0700);
 
