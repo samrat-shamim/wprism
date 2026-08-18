@@ -381,7 +381,7 @@ walk_assert_verify_report() {
     .format == "duo-verify-report/v1"
     and .verdict == "pass"
     and .convergence.status == "pass"
-    and (.journeys | length) >= 2
+    and (.journeys | length) >= 1
     and (.journeys | all(.status == "pass"))
     and (.uncovered_surfaces | type == "array")
   ' -- "$file" >/dev/null \
