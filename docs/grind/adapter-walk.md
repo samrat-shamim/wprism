@@ -348,60 +348,60 @@ because §3.7 bugs 1 and 2 say they are.
 
 ---
 
+## The runs (round-3 T6)
+
+Twenty-five live runs on the `awalk` pair drove the four scenarios to PASS,
+each stop becoming a product fix or a walk correction (the branch's commit log
+is the run-by-run record). The acceptance run on the certified tip
+`d6d09ba` (9/9 subjects re-certified) ended:
+
+```
+✔ GRIND_ADAPTER_WALK PASSED (S1,S2,S3,S4)
+```
+
+Wall time for all four scenarios on the reference machine (10 cores, Docker
+Desktop): ~2 h 10 min — S1 ≈ 30 min (the shop plus the unmanaged plugin's
+post-checkpoint proof), S2 ≈ 35 min, S3 ≈ 30 min, S4 ≈ 25 min; a fresh pair
+`reset` + `up` with WooCommerce and the theme installed on both sides is
+≈ 4 min of each. `duo init` on the shop (a ~10,800-file code baseline) is
+≈ 3–4 min of each scenario.
+
 ## Risks a machine without docker cannot retire
 
-Everything below is reachable only on a live pair. Each is stated so the first
-live run knows what to look at rather than rediscovering it.
+Everything below was stated before the first live run so it knew what to look
+at rather than rediscovering it; each is annotated with what the runs found.
 
-1. **Almost every product word this walk asserts does not exist yet.**
-   `--allow-unmanaged-plugins`, `duo adapter keygen|certify|pin`,
-   `adapter-draft --seed|--out`, the `plugin:<slug>` surface, `Site-certified`,
-   `certify adapter`, `site_signed`, `shadowed_by_site` and `logical_name` on a
-   coverage row are all being built in parallel. Until they land, the walk's
-   first live run is a work list, which is what §4 says it is for.
+1. **Almost every product word this walk asserts does not exist yet.** *(retired:
+   every word landed and is asserted live; the run-by-run stops are the T6
+   commit log.)*
 
-2. **`duo init` on a repository that carries an adapter and a pin.** §3.4's own
-   remediation ("certify it …, then rerun `duo init`") requires it, and S2 and
-   S3 are where it is exercised. If `existing_configuration` fires there, that
-   is the finding, and the failure names the code.
+2. **`duo init` on a repository that carries an adapter and a pin.** *(found
+   exactly as feared in run 18 — `existing_configuration` — and fixed: an
+   adoption seed carrying explicit `{name, source, digest}` pins is still the
+   seed; init republishes them.)*
 
-3. **`duo coverage` before init.** S2 and S3 run it against the adoption seed.
-   If coverage's `Ledger::ensure()` creates ledger *tables* and init reads
-   their existence (rather than rows) as "already initialized", the subsequent
-   init blocks. The blocker's own text says "rows", so this should read as a
-   pass; it is unverified.
+3. **`duo coverage` before init.** *(passes: coverage's ledger tables do not
+   read as "already initialized"; S2 runs coverage, draft, certify and then
+   init on the same seed.)*
 
-4. **The bundled adapter's discovery depends on activation.** Only ACTIVE
-   plugins are scanned for `duo-adapter.json`. `install_acme` activates the
-   fixture on side 1 before the survey; on side 2 the plugin arrives as files
-   and is activated by the release's own lifecycle phase, which is also when
-   its activation hook creates `acme_catalog_index`. If the lifecycle phase
-   does not run the activation hook, that table never exists on the target and
-   S3's undeclared-table row is a side-1-only fact.
+4. **The bundled adapter's discovery depends on activation.** *(passes: the
+   release's lifecycle phase activates the fixture on the target and its
+   activation hook creates the table there.)*
 
-5. **WPForms Lite's tables appear on activation.** Side 2 gets the plugin as
-   files only, so its `wpforms_*` tables arrive when the release activates it.
-   S1's post-checkpoint `INSERT` runs after the release, so the table exists by
-   then — but if a future WPForms defers table creation to first use, the
-   `INSERT` fails and S1 stops at that step rather than at the gate.
+5. **WPForms Lite's tables appear on activation.** *(passes; the S1
+   post-checkpoint `INSERT` uses `wp_wpforms_tasks_meta`'s real columns.)*
 
-6. **`/?post_type=product` depends on the theme's archive template.** The
-   catalog journey expects HTTP 200 containing a product name. A query-string
-   URL is used rather than `/shop/` precisely to avoid a permalink dependency,
-   but the theme still has to render titles on a post-type archive.
+6. **`/?post_type=product` depends on the theme's archive template.** *(passes
+   with Twenty Twenty-One; the landing journey, by contrast, had to become the
+   page's permalink PATH — pretty permalinks answer `/?page_id=N` with a 301.)*
 
-7. **File ownership across the bind mount.** Capture publishes as uid 33 inside
-   the container while the host runs `git add`. The cleanup trap chmods both
-   site repos before removing them, but whether host-side `git commit` succeeds
-   after a container-side capture is platform-dependent and unverified here.
+7. **File ownership across the bind mount.** *(passes on Docker Desktop for
+   Mac; host-side `git add` after container-side capture works.)*
 
 8. **The `preview` and `<pair>2` registry entries name the same physical side.**
    They must stay pointed at the same service and repo path, or the walk
    captures one environment and releases another. Nothing in the registry
    enforces that; only this document does.
 
-9. **Wall time and pair budget.** Unmeasured, and four times a `grind_mup` run
-   by construction: four resets, four `up`s, three artifact installs per side
-   per scenario, four materializations, four promotions, four recoveries and
-   eight reaps. `WALK_SCENARIOS` exists so a single scenario can be iterated
-   without paying for the other three.
+9. **Wall time and pair budget.** *(measured above: ~2 h 10 min for all four;
+   `WALK_SCENARIOS` was used throughout to iterate one scenario at a time.)*
