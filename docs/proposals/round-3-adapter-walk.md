@@ -60,7 +60,7 @@ site.duo.json  manifests[]: {name, source:"site"|"plugin", digest}   # existing 
 
 - `adapters/authorities.json` uses exactly the shipped `duo-adapter-authorities/v1`
   shape (`keys.<key-id>` records: Ed25519, scope `site_adapter_certification`,
-  status `trusted|revoked`, `adapters: [<name>...]`, canonical public key). Keys
+  status `trusted|revoked`, `adapter_names: [<name>...]`, `trust_tiers: [<tier>...]`, canonical public key). Keys
   here are trusted **only** for adapters in this repository. A key present in
   both the shipped file and the site file: shipped record wins.
 - Private keys never live in the repository. `duo adapter keygen` writes the

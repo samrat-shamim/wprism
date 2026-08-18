@@ -1949,7 +1949,7 @@ keygen_and_certify() {
       .format == "duo-adapter-authorities/v1"
       and (.keys[$id].scope == "site_adapter_certification")
       and (.keys[$id].status == "trusted")
-      and ([.keys[$id].adapters[]] | index($n) != null)
+      and ([.keys[$id].adapter_names[]] | index($n) != null)
     ' "$HOST_R1/adapters/authorities.json" >/dev/null \
       || fail "$scenario: adapters/authorities.json is not a duo-adapter-authorities/v1 record trusting $WALK_KEY_ID for $name (§3.1)"
     [ -f "$HOST_R1/adapters/certifications/$name.json" ] \
@@ -2672,24 +2672,49 @@ scenario_s4() {
   else
     jq -e --arg o "$newOption" '.options[$o] == null' "$REPO_ROOT/manifests/woocommerce.json" >/dev/null \
       || fail "$S: manifests/woocommerce.json already declares $newOption, so adding it proves nothing; pick another undeclared option"
+    # `notes` is free-form in the grammar and the shipped copy carries it as
+    # an object (keyed rationale), so the override adds a key rather than
+    # assuming a list.
     jq --arg o "$newOption" '
       .options[$o] = {class: "authored", autoload: "preserve"}
-      | .notes = ((.notes // []) + ["round-3 T6 S4: site override. This copy is the shipped manifest plus one authored option the shipped copy does not declare (\($o), the second store-address line WooCommerce writes), so which copy answered to the name is observable rather than asserted."])
+      | .notes = ((if (.notes | type) == "object" then .notes else {} end)
+          + {"round-3 T6 S4: site override": "This copy is the shipped manifest plus one authored option the shipped copy does not declare (\($o), the second store-address line WooCommerce writes), so which copy answered to the name is observable rather than asserted."})
     ' "$REPO_ROOT/manifests/woocommerce.json" > "$override" \
       || fail "$S: could not build the site override manifest"
   fi
-  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
+
+  # Before the override is STATED, the site copy of a shipped name is a
+  # shadow, and every loader-backed verb refuses it — including
+  # manifest-validate --site. That is the documented stop, and its remediation
+  # must name the override verb rather than only "rename or remove".
+  say "$S — duo manifest-validate refuses the unstated override (shadows_shipped) and names the pin"
+  duo_refused "$EVIDENCE/$S/manifest-validate-shadow.txt" shadows_shipped "$HOST_R1" \
     manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  if ! dry; then
+    grep -Fq 'duo adapter pin' "$EVIDENCE/$S/manifest-validate-shadow.txt" \
+      || fail "$S: §3.3 — the shadow refusal does not name the override verb (duo adapter pin … --source=site)"
+  fi
 
   say "$S — duo adapter pin ${PAIR}1 --name=woocommerce --source=site (the override)"
   duo_ok "$EVIDENCE/$S/adapter-pin.txt" "$HOST_R1" \
     adapter pin "$HOST_R1" --name=woocommerce --source=site
   if ! dry; then
+    grep -Fq "override: site.duo.json now names the site copy of shipped adapter 'woocommerce'" \
+      "$EVIDENCE/$S/adapter-pin.txt" \
+      || fail "$S: §3.3 — adapter pin --source=site did not report bootstrapping the override statement"
     jq -e '
       [.manifests[] | select(type == "object" and .name == "woocommerce" and .source == "site"
         and (.digest | type == "string"))] | length == 1
+      and ([.manifests[] | select(. == "woocommerce")] | length == 0)
     ' "$HOST_R1/site.duo.json" >/dev/null \
-      || fail "$S: §3.3 — adapter pin did not write the explicit {name,source:\"site\",digest} override into site.duo.json"
+      || fail "$S: §3.3 — adapter pin did not replace the name-only pin with the explicit {name,source:\"site\",digest} override in site.duo.json"
+  fi
+  duo_ok "$EVIDENCE/$S/manifest-validate.txt" "$HOST_R1" \
+    manifest-validate "$HOST_R1/adapters" --site="$HOST_R1"
+  if ! dry; then
+    grep -Fq '[ok] woocommerce' "$EVIDENCE/$S/manifest-validate.txt" \
+      || fail "$S: manifest-validate did not accept the stated override; see $EVIDENCE/$S/manifest-validate.txt"
+    pass "$S — the override validates once stated, with the shipped provider grant inherited"
   fi
   adapter_catalog "$S" override
   if ! dry; then
