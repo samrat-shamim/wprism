@@ -230,8 +230,23 @@ doctor_and_first_look() {
 # adoption step after the first look: init, capture, commit the baseline.
 init_capture_baseline() {
   local label="$1" env="$2"; shift 2
-  say "$label — duo init $env --yes $*"
-  duo_ok "$EVIDENCE/$label/init.txt" "$HOST_R1" init "$env" --yes "$@"
+  if [ "${ADOPT_INIT_HUMAN:-0}" = 1 ] && ! dry; then
+    # Debugging aid, never the product path: the host's `duo init` talks to
+    # the agent in JSON mode, where a confirmation failure is redacted to
+    # `init refused at an unclassified safety gate`. Running the agent's own
+    # proposal and confirmation in HUMAN mode prints the primary sentence.
+    say "$label — (ADOPT_INIT_HUMAN) wp duo init --repo=/siterepo, then --confirm=<digest>, in human mode"
+    local flags=() a
+    for a in "$@"; do flags+=("$a"); done
+    wp_ok "$EVIDENCE/$label/init-human-proposal.txt" 1 duo init --repo=/siterepo --format=json "${flags[@]}"
+    local digest
+    digest="$(walk_agent_json "$EVIDENCE/$label/init-human-proposal.txt" | jq -r '.digest')"
+    [ -n "$digest" ] && [ "$digest" != null ] || fail "$label: the human-mode proposal printed no digest"
+    wp_ok "$EVIDENCE/$label/init.txt" 1 duo init --repo=/siterepo --confirm="$digest" "${flags[@]}"
+  else
+    say "$label — duo init $env --yes $*"
+    duo_ok "$EVIDENCE/$label/init.txt" "$HOST_R1" init "$env" --yes "$@"
+  fi
   duo_ok "$EVIDENCE/$label/capture.txt" "$HOST_R1" capture "$env"
   baseline_commit "$label"
 }
