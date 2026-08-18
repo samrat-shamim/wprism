@@ -146,6 +146,12 @@ final class StackInventory {
             'installed' => self::installed($inventory),
             'code' => self::code($inventory),
             'adapters' => self::adapters($inventory, is_array($facts['catalog']) ? $facts['catalog'] : null),
+            // The agent's `adoption` block, present only when the repository
+            // is an adoption seed and the inventory was projected against the
+            // init proposal (T7 grind A3): a reader of the report — human or
+            // machine — must be able to tell that preview from a repository
+            // in force. Null for an init-owned repository.
+            'adoption' => is_array($inventory['adoption'] ?? null) ? $inventory['adoption'] : null,
         ];
     }
 

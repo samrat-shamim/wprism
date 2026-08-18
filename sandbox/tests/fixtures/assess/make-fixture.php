@@ -200,6 +200,29 @@ file_put_contents("$dir/fixtures/inventory.json", json_encode($inventory, JSON_U
 $multisite = $inventory;
 $multisite['target']['site_mode'] = 'multisite';
 file_put_contents("$dir/fixtures/inventory-multisite.json", json_encode($multisite, JSON_UNESCAPED_SLASHES));
+// The adoption-seed variant (T7 grind A3): the agent projected the inventory
+// against the init proposal and says so in an `adoption` block. Selected at
+// `wp` invocation like the multisite variant (DUO_ADOPTION_SEED=1).
+$seed = $inventory;
+$seed['adoption'] = [
+    'mode' => 'seed',
+    'preview' => 'init-proposal',
+    'reason' => 'the repository is an adoption seed; surfaces are projected against the policy duo init would propose',
+    'adapters' => ['core', 'fixture-shop'],
+    'scope' => [
+        'post_types' => ['attachment', 'page', 'post', 'fixture_item'],
+        'taxonomies' => ['category', 'post_tag'],
+        'left_local' => ['post_type:fixture_log'],
+    ],
+    'advisories' => [[
+        'code' => 'unmanaged_scope_left_local', 'extension' => 'post_type:fixture_log', 'kind' => 'scope',
+        'reason' => 'registered by no selected adapter and holding 3 row(s); left local (class runtime) until an adapter declares it or duo classify decides it',
+        'remediation' => 'to manage it later, run duo classify and decide scope:post_type:fixture_log, or install an adapter that declares it',
+    ]],
+    'unsupported' => [],
+    'ready' => true,
+];
+file_put_contents("$dir/fixtures/inventory-adoption-seed.json", json_encode($seed, JSON_UNESCAPED_SLASHES));
 
 /**
  * One `CapabilityRegistry::report()['manifests'][]` row.
@@ -329,6 +352,8 @@ case " $* " in
   *" duo assess-inventory "*)
       if [ "${DUO_MULTISITE:-0}" = 1 ]; then
         cat "$DUO_FIXTURES/inventory-multisite.json"
+      elif [ "${DUO_ADOPTION_SEED:-0}" = 1 ]; then
+        cat "$DUO_FIXTURES/inventory-adoption-seed.json"
       else
         cat "$DUO_FIXTURES/inventory.json"
       fi

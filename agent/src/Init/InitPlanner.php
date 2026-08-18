@@ -748,6 +748,20 @@ final class InitPlanner {
         return $out;
     }
 
+    /**
+     * Whether the repository's site.duo.json is exactly the adoption seed
+     * (possibly carrying explicit out-of-tree pins) — the state in which
+     * `duo assess` previews the init proposal instead of the seed's own
+     * `core`-only pin set (T7 grind A3).
+     */
+    public static function is_adoption_seed(string $repo): bool {
+        try {
+            return self::existing_config($repo)['mode'] === 'adoption-seed';
+        } catch (\Throwable $t) {
+            return false;
+        }
+    }
+
     /** @return array{mode:string,identity:string} */
     private static function existing_config(string $repo): array {
         $file = $repo . '/site.duo.json';

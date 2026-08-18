@@ -426,6 +426,38 @@ duo_check(
     . var_export($siteRows['acme-storefront']['adapter_digest'] ?? null, true)
 );
 duo_check_same('uncertified', $siteRows['acme-storefront']['status'] ?? null, 'its status is the site source\'s own word');
+
+// T7 grind A3: on an adoption seed the inventory is projected against the
+// init proposal and says so in an `adoption` block; an init-owned repository's
+// document keeps the contract's key set exactly. The seed detection is
+// InitPlanner's own (is_adoption_seed), and the fact rides in through
+// from_facts() like the survey reason.
+$adoptionFact = [
+    'mode' => 'seed', 'preview' => 'init-proposal', 'reason' => 'the repository is an adoption seed',
+    'adapters' => ['core', 'acme-storefront'],
+    'scope' => ['post_types' => ['attachment', 'page', 'post'], 'taxonomies' => ['category', 'post_tag'], 'left_local' => []],
+    'advisories' => [], 'unsupported' => [], 'ready' => true,
+];
+$seedDocument = AssessInventory::from_facts($policy, $facts + ['adoption' => $adoptionFact]);
+duo_check_same($adoptionFact, $seedDocument['adoption'] ?? null, 'an adoption fact is carried verbatim as the document\'s adoption block');
+duo_check(!array_key_exists('adoption', $document), 'without the fact the document carries no adoption key (the healthy contract key set)');
+$adoptionSeedRepo = $scratch . '/seedrepo';
+mkdir($adoptionSeedRepo, 0777, true);
+Canon::write_file($adoptionSeedRepo . '/site.duo.json', Canon::encode([
+    'manifests' => ['core'],
+    'policy' => ['options' => new stdClass(), 'post_meta' => new stdClass(), 'term_meta' => new stdClass(),
+        'post_types' => ['post', 'page', 'attachment'], 'taxonomies' => ['category', 'post_tag']],
+    'spec_version' => DUO_SPEC_VERSION,
+]));
+register_shutdown_function(static function () use ($adoptionSeedRepo): void {
+    @unlink($adoptionSeedRepo . '/site.duo.json');
+    @rmdir($adoptionSeedRepo);
+});
+duo_check(\Duo\InitPlanner::is_adoption_seed($adoptionSeedRepo), 'the adoption seed (manifests [core], core policy scope) reads as an adoption seed');
+duo_check(!\Duo\InitPlanner::is_adoption_seed($repo), 'the scratch repository with an empty policy object is not the seed');
+duo_check(!\Duo\InitPlanner::is_adoption_seed($siteRepo), 'a repository pinning a site adapter by name is not the seed');
+[$seedPolicy, $seedAdoption] = AssessInventory::policy_for_assessment($siteRepo);
+duo_check($seedAdoption === null && $seedPolicy instanceof Policy, 'policy_for_assessment() on an init-owned repository returns its own policy and no adoption block');
 duo_check_same(
     (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/dispositions.json'), true)['manifests']['core']['status'] ?? ''),
     $manifestRow['status'],

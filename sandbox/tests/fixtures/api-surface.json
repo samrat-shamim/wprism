@@ -3870,6 +3870,23 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "policy_for_assessment": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "report": {
                     "abstract": false,
                     "final": false,
@@ -13937,6 +13954,23 @@
                         }
                     ],
                     "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
+                "is_adoption_seed": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": false,
+                            "name": "repo",
+                            "type": "string",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "bool",
                     "static": true,
                     "visibility": "public"
                 },

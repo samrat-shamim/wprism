@@ -3039,9 +3039,23 @@ final class Cli {
             // `adapter-observe` already take: an assessment must be able to
             // REPORT an unsupported topology (it emits site_mode), not refuse
             // before it can describe it.
+            //
+            // On an ADOPTION SEED (a site.duo.json init has not yet owned —
+            // T7 grind A3), the seed's own pin set is `core` alone, so an
+            // assessment against it read every active plugin as `plugin:<slug>
+            // install adapter` and every WooCommerce table as unclassified on
+            // a shop the library ships a certified adapter for. The honest
+            // first look is the site as `duo init` would propose it: the same
+            // read-only proposal `duo assess` already probes for readiness
+            // (with the unmanaged-plugins allowance, so an unowned plugin
+            // reads as its advisory rather than aborting the preview), loaded
+            // as the policy the surfaces are projected against, and named as
+            // such in the document (`adoption`) so the reader knows this is a
+            // preview of adoption, not a repository in force.
+            [$policy, $adoption] = AssessInventory::policy_for_assessment((string) $repo);
             $document = AssessInventory::report(
-                Policy::load((string) $repo, null, true),
-                ['repo' => (string) $repo]
+                $policy,
+                ['repo' => (string) $repo, 'adoption' => $adoption]
             );
         } catch (\Throwable $t) {
             self::halt_json_failure($t, $assoc, 'assess-inventory');
