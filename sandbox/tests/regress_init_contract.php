@@ -1955,6 +1955,38 @@ check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed
 @unlink($seedRoot . '/site.duo.json');
 @rmdir($seedRoot);
 
+// T7 grind A2: a block theme's site-editor customisations live in core's
+// non-public, _builtin FSE types, which the scope gate never names. Init
+// proposes the certified core FSE profile's scope for a block theme and says
+// so; a classic theme proposes nothing; an uncertified/absent profile is
+// named as such and proposes nothing.
+$fseProfiles = ['fse' => ['status' => 'certified', 'scope' => [
+    'post_types' => ['wp_block', 'wp_navigation', 'wp_template', 'wp_template_part'],
+    'taxonomies' => ['wp_pattern_category', 'wp_template_part_area', 'wp_theme'],
+]]];
+check(\Duo\InitPlanner::fse_profile_scope(false, $fseProfiles) === null, 'a classic theme proposes no FSE scope and says nothing');
+$fseSelected = \Duo\InitPlanner::fse_profile_scope(true, $fseProfiles);
+check(
+    is_array($fseSelected)
+        && $fseSelected['scope'] === $fseProfiles['fse']['scope']
+        && $fseSelected['advisory']['code'] === 'fse_profile_scope_selected'
+        && $fseSelected['advisory']['extension'] === 'profile:fse'
+        && str_contains($fseSelected['advisory']['reason'], 'wp_template_part'),
+    'a block theme proposes the certified FSE profile scope and prints which types it selected'
+);
+$fseMissing = \Duo\InitPlanner::fse_profile_scope(true, []);
+check(
+    is_array($fseMissing) && $fseMissing['scope'] === null
+        && $fseMissing['advisory']['code'] === 'fse_profile_not_certified',
+    'a block theme with no certified FSE profile proposes nothing and names the gap'
+);
+$fseUncertified = \Duo\InitPlanner::fse_profile_scope(true, ['fse' => ['status' => 'candidate', 'scope' => $fseProfiles['fse']['scope']]]);
+check(
+    is_array($fseUncertified) && $fseUncertified['scope'] === null
+        && $fseUncertified['advisory']['code'] === 'fse_profile_not_certified',
+    'an uncertified FSE profile is not proposed either'
+);
+
 check(
     \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
         && str_contains(

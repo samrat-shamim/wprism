@@ -13915,6 +13915,31 @@
                     "static": true,
                     "visibility": "public"
                 },
+                "fse_profile_scope": {
+                    "abstract": false,
+                    "final": false,
+                    "parameters": [
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "blockTheme",
+                            "type": "?bool",
+                            "variadic": false
+                        },
+                        {
+                            "by_ref": false,
+                            "default": null,
+                            "has_default": true,
+                            "name": "profiles",
+                            "type": "?array",
+                            "variadic": false
+                        }
+                    ],
+                    "return_type": "?array",
+                    "static": true,
+                    "visibility": "public"
+                },
                 "proposal": {
                     "abstract": false,
                     "final": false,

@@ -11,6 +11,7 @@ require_once __DIR__ . '/InitProtocol.php';
 require_once __DIR__ . '/InitRecovery.php';
 require_once __DIR__ . '/InitRepositoryBoundary.php';
 require_once __DIR__ . '/InitSiteProbe.php';
+require_once __DIR__ . '/../Policy/ManifestDispositions.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 
@@ -209,6 +210,25 @@ final class InitPlanner {
                     $taxonomies[] = (string) $taxonomy;
                 }
             }
+        }
+        // A block theme keeps its site-editor customisations in core's FSE
+        // post types (wp_template, wp_template_part, wp_navigation, wp_block)
+        // and taxonomies (wp_theme, wp_template_part_area, wp_pattern_category).
+        // They are core-registered, non-public and _builtin, so the scope
+        // gate never names them — a proposal that left them out would let a
+        // customised footer stay behind SILENTLY, which T7 grind A2 exists to
+        // catch. The certified core FSE profile (manifests/dispositions.json
+        // profiles.fse) declares exactly that scope: propose it whenever the
+        // active theme is a block theme, and say so; when the profile is not
+        // certified or the registry is unreadable, say that instead and leave
+        // the types to `duo classify`.
+        $fse = self::fse_profile_scope();
+        if ($fse !== null) {
+            if ($fse['scope'] !== null) {
+                $postTypes = array_merge($postTypes, $fse['scope']['post_types']);
+                $taxonomies = array_merge($taxonomies, $fse['scope']['taxonomies']);
+            }
+            $advisories[] = $fse['advisory'];
         }
         $postTypes = array_values(array_unique($postTypes));
         $taxonomies = array_values(array_unique($taxonomies));
@@ -642,6 +662,60 @@ final class InitPlanner {
             }
         }
         return ['advisories' => $advisories, 'scope' => $scope];
+    }
+
+    /**
+     * The certified core FSE profile's scope for a block theme, or null when
+     * the active theme is classic (nothing to propose, nothing to say).
+     *
+     * @return ?array{scope:?array{post_types:list<string>,taxonomies:list<string>},advisory:array<string,string>}
+     */
+    public static function fse_profile_scope(?bool $blockTheme = null, ?array $profiles = null): ?array {
+        $blockTheme ??= function_exists('wp_is_block_theme') && wp_is_block_theme();
+        if (!$blockTheme) {
+            return null;
+        }
+        $stylesheet = function_exists('get_option') ? (string) get_option('stylesheet', '') : '';
+        if ($profiles === null) {
+            try {
+                $dispositions = ManifestDispositions::load(Policy::manifests_dir());
+                $profiles = $dispositions === null ? [] : $dispositions->profiles();
+            } catch (\Throwable $t) {
+                $profiles = [];
+            }
+        }
+        $fse = is_array($profiles['fse'] ?? null) ? $profiles['fse'] : null;
+        $scope = is_array($fse['scope'] ?? null) ? $fse['scope'] : null;
+        if ($fse === null || ($fse['status'] ?? null) !== 'certified' || $scope === null) {
+            return [
+                'scope' => null,
+                'advisory' => [
+                    'code' => 'fse_profile_not_certified',
+                    'extension' => 'profile:fse',
+                    'kind' => 'profile',
+                    'reason' => "the active theme '$stylesheet' is a block theme, but this library carries no certified "
+                        . 'core FSE profile; site-editor customisations (templates, template parts, navigation, '
+                        . 'patterns) are left out of the proposed scope',
+                    'remediation' => 'install a library whose dispositions certify profiles.fse, or decide those types '
+                        . 'with duo classify after init',
+                ],
+            ];
+        }
+        $postTypes = array_values(array_map('strval', (array) ($scope['post_types'] ?? [])));
+        $taxonomies = array_values(array_map('strval', (array) ($scope['taxonomies'] ?? [])));
+
+        return [
+            'scope' => ['post_types' => $postTypes, 'taxonomies' => $taxonomies],
+            'advisory' => [
+                'code' => 'fse_profile_scope_selected',
+                'extension' => 'profile:fse',
+                'kind' => 'profile',
+                'reason' => "the active theme '$stylesheet' is a block theme; the certified core FSE profile's scope "
+                    . '(' . implode(', ', $postTypes) . '; ' . implode(', ', $taxonomies) . ') is proposed so '
+                    . 'site-editor customisations are managed rather than left behind silently',
+                'remediation' => 'to leave any of these types local, run duo classify after init and decide it',
+            ],
+        ];
     }
 
     /**

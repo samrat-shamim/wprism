@@ -315,18 +315,29 @@ situation_a2() {
   fi
   doctor_and_first_look "$S" "${PAIR}1"
   init_capture_baseline "$S" "${PAIR}1"
-  assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
   if ! dry; then
     # The FSE profile is core's certified profile for exactly these types
-    # (manifests/dispositions.json profiles.fse.scope). The point of this
-    # situation is what an operator SEES about them after init: in scope and
-    # certified, or a named gap with a next action — never silence.
-    jq -e '[.surfaces[] | select(.id | test("post_type:wp_template_part"))] | length >= 1' "$ASSESS_JSON" >/dev/null \
+    # (manifests/dispositions.json profiles.fse.scope). A block theme's
+    # site-editor customisations live in non-public _builtin types the scope
+    # gate never names, so init proposes the profile's scope itself and SAYS so
+    # — the alternative was a customised footer left behind silently.
+    grep -Fq '[fse_profile_scope_selected]' "$EVIDENCE/$S/init.txt" \
+      || fail "$S: init did not print the FSE profile scope advisory for a block theme; see $EVIDENCE/$S/init.txt"
+    jq -e '([.policy.post_types[]] | index("wp_template_part") != null) and ([.policy.taxonomies[]] | index("wp_theme") != null)' \
+      "$HOST_R1/site.duo.json" >/dev/null \
+      || fail "$S: init did not take the FSE profile's types (wp_template_part, wp_theme) into policy scope"
+    pass "$S — init proposed the certified FSE profile scope for the block theme and printed it"
+  fi
+  assess_both "$S" "${PAIR}1" "$HOST_R1" adopted
+  if ! dry; then
+    jq -e '[.surfaces[] | select(.id == "post_type:wp_template_part")] | length == 1' "$ASSESS_JSON" >/dev/null \
       || fail "$S: the customised template part is not a surface the assessment names (post_type:wp_template_part)"
     local got
     got="$(walk_assess_projection "$ASSESS_JSON" post_type:wp_template_part release)"
     note "$S — post_type:wp_template_part release projection: $got"
-    pass "$S — the block theme's customised template part is visible to the assessment"
+    [ "$(printf '%s' "$got" | cut -f3-4)" = $'Ready\tPlatform-certified' ] \
+      || fail "$S: post_type:wp_template_part read '$got', expected Ready / Platform-certified under the certified FSE profile"
+    pass "$S — the block theme's customised template part is a Ready, Platform-certified surface"
   fi
   CONTRACT_JOURNEYS_JSON="$(journeys_json "$LANDING_PATH")"
   CONTRACT_LIFECYCLE_REASON="a block-theme site with no plugins: the only external effect in the lifecycle window is WordPress' own theme switch, reviewed against $BLOCK_THEME_SLUG $BLOCK_THEME_VERSION"
