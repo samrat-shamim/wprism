@@ -1,0 +1,351 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    5b3299a8e2d0a58f5bb36aff3e07589c677966bd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   5b3299a8e2d0a58f5bb36aff3e07589c677966bd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 5b3299a8e2d0a58f5bb36aff3e07589c677966bd, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 't7f3': reset ==[0m
+[1;32mok: wp_t7f31/wp_t7f32 dropped + recreated empty; siterepo/t7f3{1,2} cleared in place and origin-t7f3.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/t7f3{1,2}, origin-t7f3.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up t7f3 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.t7f3{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9706) / conf2 (:9707), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    5b3299a8e2d0a58f5bb36aff3e07589c677966bd
+  invoked from:   <source-root>/sandbox
+  expected SHA:   5b3299a8e2d0a58f5bb36aff3e07589c677966bd (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly 5b3299a8e2d0a58f5bb36aff3e07589c677966bd, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't7f3': databases ==[0m
+[1;32mok: wp_t7f31, wp_t7f32 exist[0m
+
+[1;36m== pair 't7f3': site-repo directories ==[0m
+
+[1;36m== pair 't7f3': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t7f3_wp2 Creating
+ Volume duo-t7f3_wp2 Created
+ Volume duo-t7f3_wp1 Creating
+ Volume duo-t7f3_wp1 Created
+ Container duo-t7f3-wp1-1 Creating
+ Container duo-t7f3-wp2-1 Creating
+ Container duo-t7f3-wp2-1 Created
+ Container duo-t7f3-wp1-1 Created
+ Container duo-t7f3-wp1-1 Starting
+ Container duo-t7f3-wp2-1 Starting
+ Container duo-t7f3-wp1-1 Started
+ Container duo-t7f3-wp2-1 Started
+ Container duo-t7f3-cli2-1 Creating
+ Container duo-t7f3-cli1-1 Creating
+ Container duo-t7f3-cli1-1 Created
+ Container duo-t7f3-cli2-1 Created
+ Container duo-t7f3-cli2-1 Starting
+ Container duo-t7f3-cli1-1 Starting
+ Container duo-t7f3-cli2-1 Started
+ Container duo-t7f3-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't7f3': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't7f3': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.t7f31.needs-install present — reset emptied wp_t7f31, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-t7f3-cli1-run-d83ceae1b520 Creating
+ Container duo-t7f3-cli1-run-d83ceae1b520 Created
+Success: WordPress installed successfully.
+ Container duo-t7f3-cli1-run-ef3317d4a767 Creating
+ Container duo-t7f3-cli1-run-ef3317d4a767 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f3-cli1-run-6bfaa383baf1 Creating
+ Container duo-t7f3-cli1-run-6bfaa383baf1 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f3-cli1-run-0f1dc3d20b61 Creating
+ Container duo-t7f3-cli1-run-0f1dc3d20b61 Created
+ Container duo-t7f3-cli1-run-19f9dc039639 Creating
+ Container duo-t7f3-cli1-run-19f9dc039639 Created
+ Container duo-t7f3-cli1-run-29b87ae4f229 Creating
+ Container duo-t7f3-cli1-run-29b87ae4f229 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f3-cli1-run-24bf132de972 Creating
+ Container duo-t7f3-cli1-run-24bf132de972 Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9706)
+  side 2: siterepo/.t7f32.needs-install present — reset emptied wp_t7f32, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-t7f3-cli2-run-fba95e8e2a0a Creating
+ Container duo-t7f3-cli2-run-fba95e8e2a0a Created
+Success: WordPress installed successfully.
+ Container duo-t7f3-cli2-run-07b114354966 Creating
+ Container duo-t7f3-cli2-run-07b114354966 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t7f3-cli2-run-a8aa08688fb6 Creating
+ Container duo-t7f3-cli2-run-a8aa08688fb6 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t7f3-cli2-run-642970d40de7 Creating
+ Container duo-t7f3-cli2-run-642970d40de7 Created
+ Container duo-t7f3-cli2-run-bfbadf952a29 Creating
+ Container duo-t7f3-cli2-run-bfbadf952a29 Created
+ Container duo-t7f3-cli2-run-d40810bbfa01 Creating
+ Container duo-t7f3-cli2-run-d40810bbfa01 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t7f3-cli2-run-bac5b68aa2d5 Creating
+ Container duo-t7f3-cli2-run-bac5b68aa2d5 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9707)
+
+[1;36m== pair 't7f3' ready ==[0m
+  wp1: http://localhost:9706 (published on host port 9706)
+  wp2: http://localhost:9707 (published on host port 9707)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t7f3 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t7f3 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t7f3 must stay exported, or pass -p duo-t7f3 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-t7f3-cli1-run-fe6bec42f807 Creating
+ Container duo-t7f3-cli1-run-fe6bec42f807 Created
+Success: Updated 'blogname' option.
+ Container duo-t7f3-cli1-run-1e160a693138 Creating
+ Container duo-t7f3-cli1-run-1e160a693138 Created
+Success: The site at 'http://localhost:9706' was emptied.
+ Container duo-t7f3-cli1-run-aaccedd75fb9 Creating
+ Container duo-t7f3-cli1-run-aaccedd75fb9 Created
+artifact-cache: kind=plugin slug=elementor version=4.2.2 sha256=4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db source=cache-hit path=/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip
+ Container duo-t7f3-cli1-run-62b3d35ca43c Creating
+ Container duo-t7f3-cli1-run-62b3d35ca43c Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-t7f3-cli1-run-f5bd69b246a2 Creating
+ Container duo-t7f3-cli1-run-f5bd69b246a2 Created
+Plugin 'elementor' activated.
+Success: Activated 1 of 1 plugins.
+ Container duo-t7f3-cli1-run-72176e4889ed Creating
+ Container duo-t7f3-cli1-run-72176e4889ed Created
+ Container duo-t7f3-cli1-run-5f93ffe204b4 Creating
+ Container duo-t7f3-cli1-run-5f93ffe204b4 Created
+env conf1 installed, role=author (elementor: 1 pinned plugins, 0 pinned themes)
+ Container duo-t7f3-cli2-run-51cc0f0277c1 Creating
+ Container duo-t7f3-cli2-run-51cc0f0277c1 Created
+Success: Updated 'blogname' option.
+ Container duo-t7f3-cli2-run-71cd90c35a30 Creating
+ Container duo-t7f3-cli2-run-71cd90c35a30 Created
+Success: The site at 'http://localhost:9707' was emptied.
+ Container duo-t7f3-cli2-run-b4b6ea588c5b Creating
+ Container duo-t7f3-cli2-run-b4b6ea588c5b Created
+artifact-cache: kind=plugin slug=elementor version=4.2.2 sha256=4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db source=cache-hit path=/artifacts-cache/plugin-elementor-4.2.2-4638f58c4cc476bc714941c34679e9284493a2fe7233d7923e7e834d42d653db.zip
+ Container duo-t7f3-cli2-run-be5a59beaa78 Creating
+ Container duo-t7f3-cli2-run-be5a59beaa78 Created
+Unpacking the package...
+Installing the plugin...
+Removing the old version of the plugin...
+Plugin updated successfully.
+Success: Installed 1 of 1 plugins.
+ Container duo-t7f3-cli2-run-4cd8d4fb893e Creating
+ Container duo-t7f3-cli2-run-4cd8d4fb893e Created
+ Container duo-t7f3-cli2-run-eba4ec83f4a9 Creating
+ Container duo-t7f3-cli2-run-eba4ec83f4a9 Created
+env conf2 installed, role=target (elementor: 1 pinned plugins, 0 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core","elementor"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/elementor.sh) ==[0m
+ Container duo-t7f3-cli1-run-583857a71196 Creating
+ Container duo-t7f3-cli1-run-583857a71196 Created
+ Container duo-t7f3-cli1-run-726025f1dd8e Creating
+ Container duo-t7f3-cli1-run-726025f1dd8e Created
+ Container duo-t7f3-cli1-run-b97dfe6925aa Creating
+ Container duo-t7f3-cli1-run-b97dfe6925aa Created
+elementor seed: target=2 page=7 hero=3 galA=4 galB=5 bg=6
+elementor seed: target page + hero/gallery/background images + kit (elementor_active_kit already set by activation), rendered once on conf1
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-t7f3-cli1-run-dc917e5b4601 Creating
+ Container duo-t7f3-cli1-run-dc917e5b4601 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+Success: captured 7 posts, 1 terms, 0 menus, 1 options file(s), 0 deletion tombstone(s), 4 media blob(s) -> /siterepo/state
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-t7f3-cli1-run-90708ff4085a Creating
+ Container duo-t7f3-cli1-run-90708ff4085a Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-t7f3-cli1-run-a52c05cd2dc8 Creating
+ Container duo-t7f3-cli1-run-a52c05cd2dc8 Created
+Warning: option theme_mods_twentytwentyone.custom_css_post_id: unmanaged post id -1 — key skipped
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-t7f3-cli2-run-084c5780ae05 Creating
+ Container duo-t7f3-cli2-run-084c5780ae05 Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "3d1dd5e01cf19d6046e146ce9f7eeaf1116c720ed153d1d1b374af9cb2036394",
+    "revision": "493c6cff276ba3dff395cb96b59f3c22da0a140076a390e3ea1ec42aa33b843d",
+    "manifests": "cabe8ad1d1ca45f7a461ac3d5091fbe8cf55b4f8b8fba914d4a07c2601aee254"
+  },
+  "activated": [
+    "elementor/elementor.php"
+  ],
+  "deactivated": [],
+  "theme_switched": null,
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "plugin",
+      "plugin": "elementor/elementor.php",
+      "message": "active_plugins in state/options/core.json declares 'elementor/elementor.php', and its code is installed, but it is not active in this environment. Run 'duo deploy <env>' before apply so activation hooks and schema migrations complete first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-6252ac3206957f50531d396a2fd0aa9e",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-t7f3-cli2-run-e4086b2b4269 Creating
+ Container duo-t7f3-cli2-run-e4086b2b4269 Created
+ Container duo-t7f3-cli2-run-75c3c019f7c4 Creating
+ Container duo-t7f3-cli2-run-75c3c019f7c4 Created
+ Container duo-t7f3-cli2-run-b37b0735f877 Creating
+ Container duo-t7f3-cli2-run-b37b0735f877 Created
+[1;32mok: conf2 active plugins (elementor) and theme (template=twentytwentyone, stylesheet=twentytwentyone) match canonical — deploy alone did this[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-t7f3-cli2-run-d4b77dfa7a89 Creating
+ Container duo-t7f3-cli2-run-d4b77dfa7a89 Created
+{
+  "artifact": {
+    "hash": "3d1dd5e01cf19d6046e146ce9f7eeaf1116c720ed153d1d1b374af9cb2036394",
+    "revision": "493c6cff276ba3dff395cb96b59f3c22da0a140076a390e3ea1ec42aa33b843d",
+    "manifests": "cabe8ad1d1ca45f7a461ac3d5091fbe8cf55b4f8b8fba914d4a07c2601aee254"
+  },
+  "plan": {
+    "create": 6,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 2,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 4,
+    "effects_inventory": 7,
+    "adapter_dispositions": 2,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 10,
+  "drift": [],
+  "warnings": [
+    "adopted env post 1 as 01a0143f-6a3c-78e5-8f54-5b3d851186e7 (posts/elementor_library/01a0143f-6a3c-78e5-8f54-5b3d851186e7--default-kit.md)",
+    "adopted env term 1 as 01a0143f-6a40-7e9b-aafe-ab676e024aed (terms/category/01a0143f-6a40-7e9b-aafe-ab676e024aed--uncategorized.json)",
+    "provider capability fired: elementor-css@1.0.0 regenerate_css (1.104s, verified)"
+  ],
+  "actions": [
+    {
+      "manifest": "elementor",
+      "source": "provider:elementor-css/regenerate_css",
+      "kind": "provider",
+      "provider_version": "1.0.0",
+      "duration_seconds": 1.104,
+      "before": {
+        "builder_documents": 2,
+        "css_files": []
+      },
+      "after": {
+        "builder_documents": 2,
+        "css_files": {
+          "post-1.css": {
+            "bytes": 1168,
+            "mtime": 1787046111
+          },
+          "post-7.css": {
+            "bytes": 1380,
+            "mtime": 1787046111
+          }
+        },
+        "outcome": "regenerated"
+      },
+      "verified": true
+    }
+  ],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 10,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-855f2fb31d44a108c2d6c55b6ba3f068",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-t7f3-cli2-run-b221bc598817 Creating
+ Container duo-t7f3-cli2-run-b221bc598817 Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/elementor.sh) ==[0m
+ Container duo-t7f3-cli2-run-001a1a44f180 Creating
+ Container duo-t7f3-cli2-run-001a1a44f180 Created
+[1;32mok: conf2 renders its own image/gallery/background-image (json_refs, incl. the array case) and internal link (plain-URL tokenize) — none point at conf1[0m
+
+[1;32m✔ CONFORMANCE PASSED (elementor)[0m
