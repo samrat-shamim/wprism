@@ -835,9 +835,12 @@ final class AdapterSources {
                     [$relative, (string) $collision['path']],
                     'duo: site adapter ' . self::render($relative) . " shadows the shipped adapter '$name' "
                     . "({$collision['file']}) — "
-                    . 'an out-of-tree adapter overlays the shipped set, it never replaces a member of it. Rename the '
-                    . 'site adapter, or remove it and pin the shipped adapter',
-                    "rename the site adapter, or remove it and pin the shipped '$name'"
+                    . 'an out-of-tree adapter overlays the shipped set; it replaces a member of it only when '
+                    . 'site.duo.json says so with an explicit {name, source: "site"} pin (the override). Rename the '
+                    . 'site adapter, remove it and pin the shipped adapter, or state the override: '
+                    . "duo adapter pin <site-repo> --name=$name --source=site",
+                    "rename the site adapter, remove it and pin the shipped '$name', or state the override "
+                    . "(duo adapter pin <site-repo> --name=$name --source=site)"
                 );
                 // Every per-file refusal below ends the same way in collect
                 // mode: the file is not an installable adapter, so it gets a

@@ -1049,6 +1049,22 @@ echo "\n== 8b. secret screen: heuristic (suspicious) tier fires on the REAL key;
         count($targets($unscoped, 'option_namespaces')) === 3 && count($targets($unscoped, 'tables')) === 2,
         'an unscoped seed still proposes every invisible prefix and undeclared table'
     );
+
+    // T6 §3.5: --out refuses to overwrite without --force, and the refusal is
+    // TYPED (`[draft_output_exists]`) so a script — the walk, an operator's
+    // own — keys on the code rather than on the sentence.
+    @mkdir("$t/repo/adapters", 0777, true);
+    $out = "$t/repo/adapters/wpforms.json";
+    $first = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out], $lib);
+    check($first['exit'] === 0 && is_file($out), '--out writes the draft (exit ' . $first['exit'] . ')');
+    $again = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out], $lib);
+    check(
+        $again['exit'] === 2 && str_contains($again['stderr'], '[draft_output_exists]')
+            && str_contains($again['stderr'], 'never replaces a reviewed draft silently'),
+        'a second --out to the same path refuses under its typed reason code (got: ' . trim($again['stderr']) . ')'
+    );
+    $forced = duo(['adapter-draft', "$t/repo", '--name=wpforms', '--seed=' . $seed, '--out=' . $out, '--force'], $lib);
+    check($forced['exit'] === 0, '--force regenerates over it (exit ' . $forced['exit'] . ': ' . substr($forced['stderr'], 0, 200) . ')');
 }
 
 echo "\n";

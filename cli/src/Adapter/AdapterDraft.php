@@ -244,9 +244,9 @@ final class AdapterDraft {
                 // design: preserve_human_edits() reads the prior artifact and
                 // carries ratified candidates forward.)
                 return self::fail(
-                    "--out '$outPath' already exists; adapter-draft never replaces a reviewed draft silently. "
-                    . 're-run with --force to regenerate over it (human edits in the prior draft are preserved), '
-                    . 'or name a different path'
+                    "[draft_output_exists] --out '$outPath' already exists; adapter-draft never replaces a "
+                    . 'reviewed draft silently. re-run with --force to regenerate over it (human edits in the '
+                    . 'prior draft are preserved), or name a different path'
                 );
             }
             if (is_link($outPath)) {

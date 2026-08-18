@@ -158,9 +158,12 @@ final class AdapterCertify {
         // `duo init`'s own next-steps block tells them to do.
         $inside = self::enclosingSiteRepo($resolvedDir);
         if ($inside !== null) {
+            // Typed, like every refusal a walk or an operator's script keys
+            // on: the bracketed code is the contract (T6 §3.1 names it), the
+            // sentence is for the human.
             return self::fail(
-                "--out '$path' is inside the duo site repository $inside — private keys never live in a "
-                . 'repository that gets committed and published; name a path outside it'
+                "[secret_key_inside_repository] --out '$path' is inside the duo site repository $inside — "
+                . 'private keys never live in a repository that gets committed and published; name a path outside it'
             );
         }
 

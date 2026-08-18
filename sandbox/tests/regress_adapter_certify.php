@@ -247,8 +247,9 @@ foreach (['org.key', 'secrets/deep/org.key'] as $inside) {
     $refusal = cert_run_cli(['keygen', '--out=' . $keyRepo . '/' . $inside]);
     duo_check_same(2, $refusal['exit'], "keygen refuses a secret path inside a site repository ($inside)");
     duo_check(
-        str_contains($refusal['err'], 'inside the duo site repository'),
-        "and names the repository it found ($inside) — the walk is up the ancestors, not one level"
+        str_contains($refusal['err'], '[secret_key_inside_repository]')
+            && str_contains($refusal['err'], 'inside the duo site repository'),
+        "and names the repository it found ($inside) under its typed reason code — the walk is up the ancestors, not one level"
     );
     duo_check(!is_file($keyRepo . '/' . $inside), "and writes nothing ($inside)");
 }
