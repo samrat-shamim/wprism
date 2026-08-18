@@ -2288,8 +2288,11 @@ scenario_s2() {
     # applies a proposal); the operator ratifies them by hand below. Scoped by
     # --match, the seed must propose the wpforms family and its tables, and
     # NOT the core-option prefixes coverage cannot attribute either.
+    # Every clause parenthesised: jq's `|` binds looser than `and`, so an
+    # unparenthesised first clause would feed its ARRAY into the next
+    # clause's `._draft` (seen: "Cannot index array with string _draft").
     jq -e --arg p "$WPFORMS_OPTION_PREFIX" '
-      [(._draft.proposals.option_namespaces // [])[] | select(.candidate.match | test($p))] | length >= 1
+      ([(._draft.proposals.option_namespaces // [])[] | select(.candidate.match | test($p))] | length >= 1)
       and ([(._draft.proposals.tables // [])[] | select(.target | test("tables\\." + $p))] | length >= 1)
       and ([(._draft.proposals.option_namespaces // [])[] | select(.candidate.match | test("admin|blog|avatar"))] | length == 0)
     ' "$draft" >/dev/null \
@@ -2703,8 +2706,8 @@ scenario_s4() {
       "$EVIDENCE/$S/adapter-pin.txt" \
       || fail "$S: §3.3 — adapter pin --source=site did not report bootstrapping the override statement"
     jq -e '
-      [.manifests[] | select(type == "object" and .name == "woocommerce" and .source == "site"
-        and (.digest | type == "string"))] | length == 1
+      ([.manifests[] | select(type == "object" and .name == "woocommerce" and .source == "site"
+        and (.digest | type == "string"))] | length == 1)
       and ([.manifests[] | select(. == "woocommerce")] | length == 0)
     ' "$HOST_R1/site.duo.json" >/dev/null \
       || fail "$S: §3.3 — adapter pin did not replace the name-only pin with the explicit {name,source:\"site\",digest} override in site.duo.json"
