@@ -757,7 +757,13 @@ final class AuthorizationPlan {
             unset($unreadable);
         }
 
-        return 'qualify in rehearsal';
+        // T6 §3.6 retires `qualify in rehearsal` from the emitted set, and
+        // this catch-all was its last emitter. `classify` is the honest
+        // replacement for exactly the case that reaches here: a projection
+        // row too malformed to read is a surface nobody has established
+        // anything about, which is what `classify` means — and unlike
+        // rehearsal, it is a command that can move the row.
+        return 'classify';
     }
 
     /**

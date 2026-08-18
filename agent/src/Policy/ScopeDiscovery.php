@@ -89,14 +89,28 @@ final class ScopeDiscovery {
      * silently omit. Explicit non-authored whole-type rules are exclusions;
      * missing dispositions remain blocking gaps.
      *
+     * A candidate is a registered type that is `public`, OR any type a
+     * plugin registered at all (`_builtin` false), plus every declared type.
+     * `public` alone was the original rule and it missed the commonest
+     * authored plugin store: WPForms keeps its forms in `wpforms`
+     * (public:false, show_ui:false — its UI is a custom admin page), and the
+     * T6 adapter walk found capture accepting a site with two forms in it and
+     * no gap (grind_adapter_walk.sh S1). Whether a plugin type is authored is
+     * exactly what Duo does not know until a rule names it, so it is a gap
+     * until one does; a manifest or site policy that classes it `runtime`
+     * excludes it in one line. Core's own non-public types (revisions,
+     * changesets, oembed caches…) are `_builtin` and stay out of the gate.
+     *
      * @return array<string,array{entities:int}> keyed post_type:<name> or taxonomy:<name>
      */
     public function gaps(): array {
         global $wpdb;
 
         $publicPostTypes = array_values(get_post_types(['public' => true], 'names'));
+        $pluginPostTypes = array_values(get_post_types(['_builtin' => false], 'names'));
         $postCandidates = array_fill_keys(array_unique(array_merge(
             $publicPostTypes,
+            $pluginPostTypes,
             $this->policy->declared_post_types()
         )), true);
         $scopedPostTypes = array_fill_keys($this->policy->post_types(), true);
@@ -123,8 +137,10 @@ final class ScopeDiscovery {
         }
 
         $publicTaxonomies = array_values(get_taxonomies(['public' => true], 'names'));
+        $pluginTaxonomies = array_values(get_taxonomies(['_builtin' => false], 'names'));
         $taxCandidates = array_fill_keys(array_unique(array_merge(
             $publicTaxonomies,
+            $pluginTaxonomies,
             $this->policy->declared_taxonomies()
         )), true);
         $scopedTaxonomies = array_fill_keys($this->policy->taxonomies(), true);

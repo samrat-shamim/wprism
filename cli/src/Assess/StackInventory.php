@@ -192,6 +192,89 @@ final class StackInventory {
     }
 
     /**
+     * The installed-plugin rows of a `duo-assess-inventory/v1` document.
+     *
+     * `plugins` is a bare list of `{basename,name,version,active}` rows and
+     * stays one: two of this method's three consumers feed the assess_digest
+     * (`code()`'s identity rows) or the proposed contract's stack ranges
+     * (`AssessReport::proposalSeed()`), and T6 deliberately did not move a
+     * shape those depend on. The unmanaged-plugin list T6 §3.6 adds is a
+     * SIBLING top-level key instead — see pluginsWithoutAdapter().
+     *
+     * One reader all the same, so the three call sites share one definition
+     * of "a plugin row" and a malformed entry is skipped in one place.
+     *
+     * @param array<string,mixed> $inventory
+     * @return list<array<string,mixed>>
+     */
+    public static function pluginRows(array $inventory): array {
+        $plugins = $inventory['plugins'] ?? null;
+        if (!is_array($plugins) || !array_is_list($plugins)) {
+            return [];
+        }
+        $out = [];
+        foreach ($plugins as $row) {
+            if (is_array($row)) {
+                $out[] = $row;
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Active plugins no PINNED manifest declares (T6 §3.6).
+     *
+     * The target decides this, not the host: only the target can see
+     * WP_PLUGIN_DIR and the active list, and only the engine knows which
+     * manifests its pins resolved. So this reads a published list rather than
+     * deriving one — a host-side derivation would be a second, weaker answer
+     * that disagreed with `duo init`'s refusal on exactly the sites where it
+     * mattered.
+     *
+     * `plugins_without_adapter[]` rows are `{basename, file, slug}` — all
+     * three identity parts published, so nothing is split or guessed here,
+     * and `basename` carries the same meaning it does on an ordinary
+     * `plugins[]` row. Note the judgement is against PINNED manifests: an
+     * adapter that is installed but unpinned leaves the plugin on this list,
+     * which is correct (an unpinned adapter governs nothing) and is reported
+     * separately by `adapter_survey` with its own certification word.
+     *
+     * A row missing `slug` is skipped rather than reconstructed. The agent
+     * publishes all three parts; a row without them is a malformed document,
+     * and inventing a slug from a basename that was not published would put a
+     * surface id into the assessment that no target ever named.
+     *
+     * @param array<string,mixed> $inventory
+     * @return list<array{slug:string,file:string,basename:string}>
+     */
+    public static function pluginsWithoutAdapter(array $inventory): array {
+        $raw = $inventory['plugins_without_adapter'] ?? null;
+        if (!is_array($raw) || !array_is_list($raw)) {
+            return [];
+        }
+
+        $out = [];
+        $seen = [];
+        foreach ($raw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $slug = is_string($row['slug'] ?? null) ? $row['slug'] : '';
+            $file = is_string($row['file'] ?? null) ? $row['file'] : '';
+            $basename = is_string($row['basename'] ?? null) ? $row['basename'] : '';
+            if ($slug === '' || $file === '' || $basename === '' || isset($seen[$slug])) {
+                continue;
+            }
+            $seen[$slug] = true;
+            $out[] = ['slug' => $slug, 'file' => $file, 'basename' => $basename];
+        }
+        usort($out, static fn (array $a, array $b): int => strcmp($a['basename'], $b['basename']));
+
+        return $out;
+    }
+
+    /**
      * What this environment holds, in counts.
      *
      * `media_bytes` is reported exactly as the inventory reports it, which
@@ -205,7 +288,7 @@ final class StackInventory {
      * @return array<string,mixed>
      */
     private static function installed(array $inventory): array {
-        $plugins = is_array($inventory['plugins'] ?? null) ? $inventory['plugins'] : [];
+        $plugins = self::pluginRows($inventory);
         $themes = is_array($inventory['themes'] ?? null) ? $inventory['themes'] : [];
         $media = is_array($inventory['media'] ?? null) ? $inventory['media'] : [];
 
@@ -244,8 +327,8 @@ final class StackInventory {
      */
     private static function code(array $inventory): array {
         $plugins = [];
-        foreach (($inventory['plugins'] ?? []) as $plugin) {
-            if (!is_array($plugin) || !is_string($plugin['basename'] ?? null)) {
+        foreach (self::pluginRows($inventory) as $plugin) {
+            if (!is_string($plugin['basename'] ?? null)) {
                 continue;
             }
             $plugins[] = [

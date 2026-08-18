@@ -7,6 +7,7 @@ require_once __DIR__ . '/../Kernel/CommandRefusal.php';
 require_once __DIR__ . '/../Policy/Policy.php';
 require_once __DIR__ . '/../Adapter/AdapterSources.php';
 require_once __DIR__ . '/../Adapter/CapabilityRegistry.php';
+require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
 require_once __DIR__ . '/../Review/Coverage.php';
 require_once __DIR__ . '/../Review/Pending.php';
 
@@ -162,6 +163,14 @@ final class AssessInventory {
             'agent_version' => defined('DUO_AGENT_VERSION') ? (string) DUO_AGENT_VERSION : 'unknown',
             'target' => self::target($probe),
             'plugins' => self::plugins($probe),
+            // The `plugin:<slug>` surface rows `duo assess` mints (round-3 T6
+            // §3.6). A sibling top-level key rather than a member nested under
+            // `plugins`, which is a JSON LIST every host consumer already
+            // iterates (cli/src/Assess/StackInventory.php:208,247 and
+            // AssessReport.php:334) and two of those feed the assess digest;
+            // turning it into an object would silently change what those loops
+            // walk.
+            'plugins_without_adapter' => self::plugins_without_adapter($policy, $probe),
             'themes' => self::themes($probe),
             'media' => [
                 'count' => $liveCounts['post_types']['attachment'] ?? 0,
@@ -306,6 +315,66 @@ final class AssessInventory {
     }
 
     /**
+     * Every ACTIVE plugin no pinned adapter declares — the inventory half of
+     * the `plugin:<slug>` assess surface (round-3 T6 §3.6), whose projection
+     * is `unclassified / block / Not qualified` with next action `install
+     * adapter`.
+     *
+     * Judged against the PINNED manifests, not the installed library, and the
+     * distinction is the whole point of the row: an adapter sitting in
+     * `adapters/` that no pin selects is not managing anything on this site,
+     * and reporting the plugin as managed because a file exists would be the
+     * silence this document exists to remove. `adapter_survey` is where the
+     * installed-but-unpinned adapter is already visible with its own
+     * certification word and remediation.
+     *
+     * Names only, exactly like every other row here, and all three parts of
+     * the identity rather than one the reader has to split:
+     *
+     *   - `basename` is WordPress's own `<dir>/<file>.php`, the same key and
+     *     the same meaning the `plugins` rows above already use;
+     *   - `slug` is the directory, which is what the host builds
+     *     `plugin:<slug>` from and what a bundled `duo-adapter.json` anchors
+     *     to;
+     *   - `file` is the entry file.
+     *
+     * A single-file plugin has no directory, so its slug is the file name
+     * without `.php` (`hello.php` -> slug `hello`, file `hello.php`).
+     *
+     * @param array<string,mixed> $probe
+     * @return list<array{basename:string,file:string,slug:string}>
+     */
+    private static function plugins_without_adapter(Policy $policy, array $probe): array {
+        $owned = [];
+        foreach ($policy->manifests as $manifest) {
+            $plugin = is_array($manifest) ? ($manifest['plugin'] ?? null) : null;
+            if (is_string($plugin) && $plugin !== '') {
+                $owned[$plugin] = true;
+            }
+        }
+        $rows = [];
+        $seen = [];
+        foreach ((array) ($probe['active_plugins'] ?? []) as $basename) {
+            $basename = (string) $basename;
+            if ($basename === '' || isset($owned[$basename]) || isset($seen[$basename])) {
+                continue;
+            }
+            $seen[$basename] = true;
+            $directory = strpos($basename, '/') === false ? '' : dirname($basename);
+            $file = basename($basename);
+            $rows[] = [
+                'basename' => $basename,
+                'file' => $file,
+                'slug' => $directory !== '' && $directory !== '.'
+                    ? $directory
+                    : (string) preg_replace('/\.php$/D', '', $file),
+            ];
+        }
+        usort($rows, static fn(array $a, array $b): int => strcmp($a['basename'], $b['basename']));
+        return $rows;
+    }
+
+    /**
      * Every installed theme. Both the stylesheet and the template count as
      * active, because a child theme makes them different rows and a report
      * that marked only one of them would misdescribe every child-theme site.
@@ -354,15 +423,27 @@ final class AssessInventory {
      */
     private static function manifest_rows(Policy $policy): array {
         $sources = $policy->adapter_sources();
+        // The content digest every repository pin binds, from the one place
+        // that derives it for EVERY source (RepositoryCompiler::resolved_adapters,
+        // via ArtifactPolicyIdentity). The reviewed registry's claim carries
+        // the same value for a shipped adapter, but a site-certified claim is
+        // projected before its final digest exists (AdapterCertification::
+        // derivedDisposition says so), so reading the claim left every
+        // Site-certified adapter without a digest and `duo assess` refusing
+        // `assess_report_unbuildable` on exactly the repositories T6 exists
+        // for (grind_adapter_walk.sh S2).
+        $resolvedDigests = [];
+        foreach (RepositoryCompiler::resolved_adapters($policy) as $row) {
+            $resolvedDigests[(string) ($row['name'] ?? '')] = (string) ($row['digest'] ?? '');
+        }
         $rows = [];
         foreach ($policy->manifests as $manifest) {
             $name = (string) ($manifest['name'] ?? '');
             if ($name === '') {
                 continue;
             }
-            $claim = $policy->capability_claim($name);
             $disposition = $policy->manifest_disposition($name);
-            $digest = is_array($claim) ? ($claim['adapter_digest'] ?? null) : null;
+            $digest = $resolvedDigests[$name] ?? null;
             $status = is_array($disposition) ? ($disposition['status'] ?? null) : null;
             $rows[] = [
                 'name' => $name,

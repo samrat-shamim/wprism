@@ -91,6 +91,13 @@ rehearsal here **cannot** qualify anything. "I rehearsed it" is not "I
 qualified it", and a surface reading `Experimental` or `Uncertified` still
 reads that way afterwards.
 
+`duo assess` now says the same thing in its next actions rather than
+contradicting it: `qualify in rehearsal` is never printed, and the rows that
+used to carry it name what actually closes them — `certify adapter` for
+evidence that expired or was never obtained, `install adapter` or `classify`
+for a surface nothing models. See
+[assess.md](assess.md#what-the-next-actions-mean).
+
 ## Change, capture, merge
 
 Author the change on the preview environment, in WordPress, the way it is
@@ -301,7 +308,7 @@ a different document with the same name.
 ## When release refuses before it freezes anything
 
 A refusal *before* the plan is frozen is an assessment problem, and it carries
-one of the seven gap actions from [assess.md](assess.md#what-the-next-actions-mean)
+one of the eight gap actions from [assess.md](assess.md#what-the-next-actions-mean)
 — never a release next action. The two closed sets are not interchangeable,
 and the reason is practical: nothing was written, so there is nothing to
 resume, reconcile or recover.

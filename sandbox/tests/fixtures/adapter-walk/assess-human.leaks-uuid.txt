@@ -1,0 +1,43 @@
+stack: WordPress 6.8.2 · PHP 8.3.33 · MariaDB 11.8.8 · single-site
+authority: ? · ? · repo ?
+installed: 0 plugin(s) (0 active), 0 theme(s) (0 active), 0 attachment(s) · media storage not measured
+checks: 0/0 passed
+showing the release projection; every operation is in --format=json
+
+surface                   class         handling        readiness      certification       containment  recovery
+post_type:product         authored      manage          Ready          Platform-certified  prevented    provider-state restorable
+  meaning: authored catalog content Duo manages end to end
+post_type:shop_order      runtime       preserve local  Unsupported    Platform-certified  prevented    not applicable
+  meaning: live operational state is never copied
+plugin:wpforms-lite       unclassified  block           Not qualified  Uncertified         unknown      unknown
+  meaning: no installed adapter declares this active plugin
+  next action: install adapter (release)
+table:wpforms_tasks_meta  unclassified  block           Not qualified  Uncertified         unknown      unknown
+  meaning: no installed adapter can see this table
+  next action: install adapter (release)
+table:wpforms_logs        unclassified  block           Not qualified  Uncertified         unknown      unknown
+  meaning: no installed adapter can see this table
+  next action: install adapter (release)
+table:wpforms_payments    unclassified  block           Not qualified  Uncertified         unknown      unknown
+  meaning: no installed adapter can see this table
+  next action: install adapter (release)
+
+unknown: 37 option name(s) invisible to every installed adapter
+         3 undeclared table(s) (no installed adapter declares them)
+         0 pending classification(s) (duo pending awalk1)
+         - option-prefix:wpforms
+         - table:wpforms_logs
+         - table:wpforms_payments
+         - table:wpforms_tasks_meta
+
+next actions:
+     37  classify
+      0  declare in contract
+      0  qualify in rehearsal
+      0  exclude
+      0  provision env value
+      4  install adapter
+      2  nothing — supported
+evidence: 0 certification subject(s) pinned
+proposed contract written: .duo/contract/proposed.json (accept with duo contract awalk1 accept)
+operation: 7b1c9a02-4f6d-4c3e-9b21-0a5d3e8c7f14

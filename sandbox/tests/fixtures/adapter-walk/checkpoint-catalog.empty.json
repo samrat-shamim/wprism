@@ -1,0 +1,7 @@
+{
+    "disclosures": [
+        "the target publishes no rollback authority runtime, so it holds no checkpoint this command can list"
+    ],
+    "format": "duo-checkpoint-catalog/v1",
+    "rows": []
+}

@@ -7,7 +7,7 @@ post_type:product   authored      manage          Ready      Platform-certified 
 post_type:shop_order runtime      preserve local  Unsupported Platform-certified prevented    not applicable
   meaning: live operational state is never copied
 table:acme_catalog  unclassified  block           Not qualified Uncertified      unknown      unknown
-  next action: qualify in rehearsal (release)
+  next action: install adapter (release)
 
 unknown: 41 option names invisible to every installed adapter (use --format=json)
 proposed contract written: .duo/contract/proposed.json

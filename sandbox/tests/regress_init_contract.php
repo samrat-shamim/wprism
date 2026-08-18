@@ -460,20 +460,31 @@ check(
     $agentInit->getFileName() === realpath(__DIR__ . '/../../agent/src/Init/Init.php')
         && $publicAgentInitMethods === ['confirm', 'proposal']
         && $proposalMethod->isPublic() && $proposalMethod->isStatic()
-        && count($proposalParameters) === 1
+        && count($proposalParameters) === 2
         && $proposalParameters[0]->getName() === 'repo'
         && (string) $proposalParameters[0]->getType() === 'string'
+        && $proposalParameters[1]->getName() === 'allowUnmanagedPlugins'
+        && (string) $proposalParameters[1]->getType() === 'bool'
+        && $proposalParameters[1]->isDefaultValueAvailable()
+        && $proposalParameters[1]->getDefaultValue() === false
         && (string) $proposalMethod->getReturnType() === 'array'
         && $confirmMethod->isPublic() && $confirmMethod->isStatic()
-        && count($confirmParameters) === 2
+        && count($confirmParameters) === 3
         && $confirmParameters[0]->getName() === 'repo'
         && (string) $confirmParameters[0]->getType() === 'string'
         && $confirmParameters[1]->getName() === 'expectedDigest'
         && (string) $confirmParameters[1]->getType() === 'string'
-        && (string) $confirmMethod->getReturnType() === 'array'
-        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo);')
-        && str_contains($initFacadeSource, 'return InitConfirmation::run($repo, $expectedDigest);'),
-    'target Init facade preserves its exact public API and delegates both operations to their owning collaborators'
+        && $confirmParameters[2]->getName() === 'allowUnmanagedPlugins'
+        && (string) $confirmParameters[2]->getType() === 'bool'
+        && $confirmParameters[2]->getDefaultValue() === false
+        && (string) $proposalMethod->getReturnType() === 'array'
+        && str_contains($initFacadeSource, 'return InitPlanner::proposal($repo, $allowUnmanagedPlugins);')
+        && str_contains(
+            $initFacadeSource,
+            'return InitConfirmation::run($repo, $expectedDigest, $allowUnmanagedPlugins);'
+        ),
+    'target Init facade preserves its exact public API — now with the reviewed unmanaged-plugin decision, '
+    . 'defaulted off — and delegates both operations to their owning collaborators'
 );
 
 require_once __DIR__ . '/../../agent/src/Init/InitAttemptJournal.php';
@@ -575,7 +586,7 @@ check(
 );
 check(
     str_contains($plannerSource, 'InitRepositoryBoundary::root_blocker($logicalRepo)')
-        && str_contains($plannerSource, "return self::proposal_bound('.', \$logicalRepo, \$binding['identity'])")
+        && str_contains($plannerSource, "return self::proposal_bound(\n                '.',\n                \$logicalRepo,\n                \$binding['identity'],")
         && str_contains($confirmationSource, "\$repo = '.';")
         && str_contains($repositorySource, 'self::freshLstat($repo)'),
     'proposal and confirmation bind a freshly inspected ordinary repository inode before child traversal'
@@ -1785,5 +1796,220 @@ try {
     rmdir($nestedAdapterRepo . '/adapters');
     rmdir($nestedAdapterRepo);
 }
+
+// =====================================================================
+// T6 §3.4 — the reviewed unmanaged-plugin decision.
+//
+// proposal_bound() needs a live WordPress for everything around this
+// (SELECT VERSION(), the ledger probe, the code inventory walk), so the ONE
+// decision the flag changes is its own private seam and is exercised
+// directly. What is asserted here is the whole of it: which plugins are
+// selected, which row each unselected plugin gets, and that the flag relaxes
+// exactly one reason code.
+// =====================================================================
+$pluginSelection = new ReflectionMethod(\Duo\InitPlanner::class, 'plugin_selection');
+$activeFixture = ['acme-catalog/acme-catalog.php', 'wpforms-lite/wpforms.php', 'woocommerce/woocommerce.php'];
+$ownersFixture = [
+    'woocommerce/woocommerce.php' => ['woocommerce'],
+    'acme-catalog/acme-catalog.php' => ['acme-catalog', 'acme-catalog-alt'],
+];
+
+$blocked = $pluginSelection->invoke(null, $activeFixture, $ownersFixture, false);
+check(
+    $blocked['selected'] === ['woocommerce'],
+    'without the flag only a plugin with exactly one declaring adapter is selected'
+);
+check(
+    array_column($blocked['unsupported'], 'code') === ['ambiguous_plugin_adapter', 'active_plugin_without_adapter']
+        && $blocked['advisories'] === [],
+    'an unmanaged plugin still blocks init by default, alongside the ambiguous one'
+);
+$unmanagedRow = $blocked['unsupported'][1];
+check(
+    $unmanagedRow['extension'] === 'wpforms-lite/wpforms.php'
+        && $unmanagedRow['remediation']
+            === 'rerun duo init --allow-unmanaged-plugins to leave it unmanaged, or install/certify an '
+                . 'adapter (duo adapter certify)',
+    'the blocker names the flag AND the certification verb — before T6 it named only "install or review one '
+    . 'versioned adapter", which no operator could finish'
+);
+
+$allowed = $pluginSelection->invoke(null, $activeFixture, $ownersFixture, true);
+check(
+    $allowed['selected'] === ['woocommerce'],
+    'the flag selects nothing extra: an unmanaged plugin is still not managed'
+);
+check(
+    array_column($allowed['unsupported'], 'code') === ['ambiguous_plugin_adapter'],
+    'the flag relaxes exactly active_plugin_without_adapter — an ambiguous adapter is a different fact and '
+    . 'leaving it unmanaged is not its remedy'
+);
+check(
+    count($allowed['advisories']) === 1
+        && $allowed['advisories'][0]['code'] === 'active_plugin_without_adapter'
+        && $allowed['advisories'][0]['kind'] === 'plugin'
+        && $allowed['advisories'][0]['extension'] === 'wpforms-lite/wpforms.php',
+    'the unmanaged plugin is reported by name and reason code as an advisory, never silently dropped'
+);
+check(
+    str_contains($allowed['advisories'][0]['remediation'], 'plugin:wpforms-lite')
+        && str_contains($allowed['advisories'][0]['remediation'], 'left local (see UNMANAGED SCOPE)'),
+    'the advisory says what init selects (nothing) and leaves local (its typed rows), and points at the assess surface that carries the decision'
+);
+// The same decision, carried through to the types those plugins register:
+// init's own confirmation runs the baseline capture, and capture's scope gate
+// refuses any plugin-registered type with rows that no rule names, so
+// "leave the plugin unmanaged" must mean "its types stay local" or init
+// cannot finish (grind_adapter_walk.sh S1 found exactly that).
+$left = \Duo\InitPlanner::unmanaged_scope(
+    ['post', 'page', 'attachment', 'product', 'wpforms', 'wpforms-template', 'scheduled-action'],
+    ['category', 'post_tag', 'product_cat', 'form_group'],
+    ['attachment', 'page', 'post', 'product'],
+    ['category', 'post_tag', 'product_cat'],
+    ['product', 'product_variation', 'shop_order', 'scheduled-action'],
+    ['product_cat', 'product_visibility'],
+    ['post' => 3, 'page' => 2, 'product' => 4, 'wpforms' => 2, 'scheduled-action' => 9],
+    ['category' => 1, 'product_cat' => 2, 'form_group' => 1]
+);
+check(
+    $left['scope'] === [
+        'post_type' => ['wpforms' => ['class' => 'runtime']],
+        'taxonomy' => ['form_group' => ['class' => 'runtime']],
+    ],
+    'a registered type with rows outside the proposed scope and undeclared by every selected adapter is left local as runtime; '
+    . 'proposed, declared (any class) and empty types are not touched'
+);
+check(
+    array_column($left['advisories'], 'extension') === ['post_type:wpforms', 'taxonomy:form_group']
+        && $left['advisories'][0]['code'] === 'unmanaged_scope_left_local'
+        && $left['advisories'][0]['kind'] === 'scope'
+        && str_contains($left['advisories'][0]['reason'], 'holding 2 row(s)')
+        && str_contains($left['advisories'][0]['remediation'], 'scope:post_type:wpforms'),
+    'each left-local type is an advisory naming the type, its row count and the classify decision that re-manages it'
+);
+check(
+    \Duo\InitPlanner::unmanaged_scope(['wpforms'], [], [], [], [], [], ['wpforms' => 0], [])
+        === ['advisories' => [], 'scope' => ['post_type' => [], 'taxonomy' => []]],
+    'a type with no rows is left alone: nothing is decided about a type that holds nothing yet'
+);
+
+// T6 §3.4's order — install, certify (--pin), rerun init — hands init an
+// adoption seed that already carries the operator's explicit out-of-tree
+// pins. Those pins are what init recomputes and republishes exactly, so
+// they do not make the repository init-owned; a hand-added name-only pin or
+// any policy edit still does. (grind_adapter_walk.sh S2 found `certify --pin`
+// then `init` refusing existing_configuration.)
+if (!defined('DUO_SPEC_VERSION')) {
+    // existing_config() spells the seed with the engine's spec version; this
+    // suite runs InitPlanner without duo.php, so the constant is the engine's
+    // current value here (agent/duo.php defines it as 2).
+    define('DUO_SPEC_VERSION', 2);
+}
+$seedRoot = sys_get_temp_dir() . '/duo_init_seed_' . bin2hex(random_bytes(4));
+mkdir($seedRoot, 0777, true);
+$existingConfig = new \ReflectionMethod(\Duo\InitPlanner::class, 'existing_config');
+$seedBody = [
+    'manifests' => ['core'],
+    'policy' => [
+        'options' => new \stdClass(), 'post_meta' => new \stdClass(), 'term_meta' => new \stdClass(),
+        'post_types' => ['post', 'page', 'attachment'],
+        'taxonomies' => ['category', 'post_tag'],
+    ],
+    'spec_version' => DUO_SPEC_VERSION,
+];
+$seedMode = static function (array $manifests, ?callable $edit = null) use ($seedRoot, $seedBody, $existingConfig): string {
+    $body = $seedBody;
+    $body['manifests'] = $manifests;
+    if ($edit !== null) {
+        $body = $edit($body);
+    }
+    \Duo\Canon::write_file($seedRoot . '/site.duo.json', \Duo\Canon::encode($body));
+
+    return (string) $existingConfig->invoke(null, $seedRoot)['mode'];
+};
+$sitePin = ['digest' => str_repeat('a', 64), 'name' => 'wpforms', 'source' => 'site'];
+$pluginPin = ['digest' => str_repeat('b', 64), 'name' => 'acme-catalog', 'source' => 'plugin'];
+check($seedMode(['core']) === 'adoption-seed', 'the bare adoption seed reads adoption-seed');
+check(
+    $seedMode(['core', $sitePin]) === 'adoption-seed',
+    'a seed carrying a certified site adapter pin ({name, source:"site", digest}) is still the adoption seed'
+);
+check(
+    $seedMode(['core', $sitePin, $pluginPin]) === 'adoption-seed',
+    'and so is one carrying an explicit plugin-source pin beside it'
+);
+check(
+    $seedMode(['core', ['name' => 'woocommerce', 'source' => 'site', 'digest' => str_repeat('c', 64)]]) === 'adoption-seed',
+    'an explicit override pin for a shipped name is set aside the same way — init republishes it exactly'
+);
+check($seedMode(['core', 'wpforms']) === 'owned', 'a hand-added NAME-ONLY pin is not a seed: it is an owned configuration');
+check(
+    $seedMode(['core', $sitePin], static function (array $b): array {
+        $b['policy']['post_types'][] = 'product';
+
+        return $b;
+    }) === 'owned',
+    'and any policy edit beside the pins still reads owned'
+);
+check($seedMode([$sitePin]) === 'owned', 'a pin set without core is not the seed either');
+@unlink($seedRoot . '/site.duo.json');
+@rmdir($seedRoot);
+
+check(
+    \Duo\InitPlanner::ALLOW_UNMANAGED_PLUGINS === 'allow-unmanaged-plugins'
+        && str_contains(
+            (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php'),
+            '[--allow-unmanaged-plugins]'
+        )
+        && str_contains(
+            (string) file_get_contents(__DIR__ . '/../../agent/src/Command/Cli.php'),
+            "\$allowUnmanagedPlugins = isset(\$assoc['allow-unmanaged-plugins']);"
+        ),
+    'the wp-cli assoc key, the documented option and InitPlanner\'s own constant are one spelling — Cli.php '
+    . 'uses the literal so the command surface does not drag the Init loader graph into every process that '
+    . 'opens it, and this check is what keeps the two from drifting'
+);
+
+$blockerRow = new ReflectionMethod(\Duo\InitPlanner::class, 'capability_blocker_row');
+$uncertified = $blockerRow->invoke(null, [
+    'code' => 'adapter_source_uncertified',
+    'name' => 'acme-catalog',
+    'reason' => "'acme-catalog' is installed from the site adapter source and is uncertified by construction",
+    'remediation' => 'obtain an externally signed certificate from an authority trusted by this agent',
+    'source' => 'site',
+    'trust_tier' => 'declarative_manifest',
+]);
+check(
+    $uncertified['remediation']
+        === 'certify it with duo adapter certify <site-repo> --name=acme-catalog, or remove it, then rerun duo init',
+    'an installed-but-uncertified adapter blocks init with the certify-or-remove instruction, in that order'
+);
+// A PLUGIN-bundled adapter cannot be certified in place (the certificate
+// binds source "site" and adapters/<name>.json), so its row keeps the
+// registry's promotion-path remediation and only appends the rerun (walk S3
+// read "certify it with duo adapter certify" against a bundled copy the verb
+// would refuse).
+$bundled = $blockerRow->invoke(null, [
+    'code' => 'adapter_source_uncertified',
+    'name' => 'acme-catalog',
+    'reason' => "'acme-catalog' is installed from the plugin adapter source (plugins/acme-catalog/duo-adapter.json) and is uncertified by construction",
+    'remediation' => 'install this adapter as a repository package at adapters/acme-catalog.json, obtain a certificate signed by an authority this agent trusts at adapters/certifications/acme-catalog.json, then run `wp duo manifest-pin --repo=... --name=acme-catalog` and commit the emitted {name,source:"site",digest} pin. The site copy wins by precedence and the bundled copy reports as not installed; the plugin stays active throughout',
+    'source' => 'plugin',
+    'trust_tier' => 'declarative_manifest',
+]);
+check(
+    str_starts_with((string) $bundled['remediation'], 'install this adapter as a repository package at adapters/acme-catalog.json')
+        && str_ends_with((string) $bundled['remediation'], ' — then rerun duo init (duo adapter certify <site-repo> --name=acme-catalog --pin signs and pins the promoted copy)'),
+    'a plugin-bundled uncertified adapter keeps the promotion path as its remediation and appends the rerun'
+);
+$otherBlocker = $blockerRow->invoke(null, [
+    'code' => 'authored_state_not_certified',
+    'name' => 'woocommerce',
+    'remediation' => 'regenerate the reviewed capability registry',
+]);
+check(
+    $otherBlocker['remediation'] === 'regenerate the reviewed capability registry',
+    'every other capability blocker keeps the reviewed registry\'s own remediation byte-for-byte'
+);
 
 echo "REGRESS_INIT_CONTRACT PASSED\n";

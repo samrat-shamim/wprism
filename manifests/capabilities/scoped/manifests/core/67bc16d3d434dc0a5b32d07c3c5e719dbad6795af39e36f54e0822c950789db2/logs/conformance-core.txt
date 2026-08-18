@@ -1,0 +1,644 @@
+
+[1;36m== clean-room via pair.sh (DROP/CREATE beats volume rm + InnoDB re-init — conformance never trusts leftover state from a previous manifest's run) ==[0m
+
+[1;36m== candidate source for 'reset' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    b1b3263c764ed5e9d20dc4f51e2815ca01fd82ad
+  invoked from:   <source-root>/sandbox
+  expected SHA:   b1b3263c764ed5e9d20dc4f51e2815ca01fd82ad (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly b1b3263c764ed5e9d20dc4f51e2815ca01fd82ad, clean — this run's evidence is bound to that commit[0m
+ Container duo-shared-db Running
+
+[1;36m== pair 't6c0': reset ==[0m
+[1;32mok: wp_t6c01/wp_t6c02 dropped + recreated empty; siterepo/t6c0{1,2} cleared in place and origin-t6c0.git removed[0m
+  reset covers: both databases (DROP/CREATE) and the site-repo contents
+  (siterepo/t6c0{1,2}, origin-t6c0.git). The two ordinary site-repo
+  root inodes are preserved; reset refuses while a codebind mount exists
+  because its nested plugin inode is independently pinned. It does NOT touch the wp1/wp2
+  webroot volumes and does NOT restart containers or reinstall WordPress —
+  the next wp-cli call against this pair sees an empty, uninstalled site.
+  Re-run 'pair.sh up t6c0 <port1> <port2> ...' (or your script's own
+  install_env) before using it again.
+  reset also recorded siterepo/.t6c0{1,2}.needs-install: that 'up' will
+  reinstall both sides unconditionally rather than trust an is-installed
+  probe against the databases just dropped here (DUO-3412).
+
+[1;36m== pair.sh up: boot conf1 (:9300) / conf2 (:9301), DB-level readiness, generic WordPress bootstrap ==[0m
+
+[1;36m== candidate source for 'up' (DUO-3377): agent/manifests bind mounts ==[0m
+  mounted source: <source-root>/{agent,manifests}
+  source HEAD:    b1b3263c764ed5e9d20dc4f51e2815ca01fd82ad
+  invoked from:   <source-root>/sandbox
+  expected SHA:   b1b3263c764ed5e9d20dc4f51e2815ca01fd82ad (DUO_EXPECTED_SOURCE_SHA)
+[1;32mok: mounted source is exactly b1b3263c764ed5e9d20dc4f51e2815ca01fd82ad, clean — this run's evidence is bound to that commit[0m
+
+[1;36m== shared infra: MariaDB (duo-db) + duo-shared network ==[0m
+ Container duo-shared-db Running
+[1;32mok: shared db up, healthy, wordpress user granted on wp\_%[0m
+
+[1;36m== pair 't6c0': databases ==[0m
+[1;32mok: wp_t6c01, wp_t6c02 exist[0m
+
+[1;36m== pair 't6c0': site-repo directories ==[0m
+
+[1;36m== pair 't6c0': web containers up ==[0m
+  (bind-mount source: <source-root> -- this pair.sh copy is running from <source-root>/sandbox)
+ Volume duo-t6c0_wp1 Creating
+ Volume duo-t6c0_wp1 Created
+ Volume duo-t6c0_wp2 Creating
+ Volume duo-t6c0_wp2 Created
+ Container duo-t6c0-wp2-1 Creating
+ Container duo-t6c0-wp1-1 Creating
+ Container duo-t6c0-wp1-1 Created
+ Container duo-t6c0-wp2-1 Created
+ Container duo-t6c0-wp2-1 Starting
+ Container duo-t6c0-wp1-1 Starting
+ Container duo-t6c0-wp2-1 Started
+ Container duo-t6c0-wp1-1 Started
+ Container duo-t6c0-cli2-1 Creating
+ Container duo-t6c0-cli1-1 Creating
+ Container duo-t6c0-cli1-1 Created
+ Container duo-t6c0-cli2-1 Created
+ Container duo-t6c0-cli1-1 Starting
+ Container duo-t6c0-cli2-1 Starting
+ Container duo-t6c0-cli2-1 Started
+ Container duo-t6c0-cli1-1 Started
+[1;32mok: web mountpoints established; CLI containers up[0m
+
+[1;36m== pair 't6c0': waiting for DB-level readiness (both sides) ==[0m
+[1;32mok: both sides reach their database[0m
+
+[1;36m== pair 't6c0': generic WordPress bootstrap (idempotent) ==[0m
+  side 1: siterepo/.t6c01.needs-install present — reset emptied wp_t6c01, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-t6c0-cli1-run-8bfda2305a83 Creating
+ Container duo-t6c0-cli1-run-8bfda2305a83 Created
+Success: WordPress installed successfully.
+ Container duo-t6c0-cli1-run-0b8e32901003 Creating
+ Container duo-t6c0-cli1-run-0b8e32901003 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6c0-cli1-run-f18bce7436cd Creating
+ Container duo-t6c0-cli1-run-f18bce7436cd Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t6c0-cli1-run-75581dda08b0 Creating
+ Container duo-t6c0-cli1-run-75581dda08b0 Created
+ Container duo-t6c0-cli1-run-4eda735ebed9 Creating
+ Container duo-t6c0-cli1-run-4eda735ebed9 Created
+ Container duo-t6c0-cli1-run-72f838251266 Creating
+ Container duo-t6c0-cli1-run-72f838251266 Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t6c0-cli1-run-4f8c871704df Creating
+ Container duo-t6c0-cli1-run-4f8c871704df Created
+Success: Rewrite rules flushed.
+  side 1 installed (http://localhost:9300)
+  side 2: siterepo/.t6c02.needs-install present — reset emptied wp_t6c02, so installing unconditionally (is-installed is not consulted across our own DROP)
+ Container duo-t6c0-cli2-run-55871f459eef Creating
+ Container duo-t6c0-cli2-run-55871f459eef Created
+Success: WordPress installed successfully.
+ Container duo-t6c0-cli2-run-4fe22e6a580c Creating
+ Container duo-t6c0-cli2-run-4fe22e6a580c Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6c0-cli2-run-1950f8979077 Creating
+ Container duo-t6c0-cli2-run-1950f8979077 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Activating 'twentytwentyone'...
+Success: Switched to 'Twenty Twenty-One' theme.
+Success: Installed 1 of 1 themes.
+ Container duo-t6c0-cli2-run-968556858d1e Creating
+ Container duo-t6c0-cli2-run-968556858d1e Created
+ Container duo-t6c0-cli2-run-2026e2ee0daa Creating
+ Container duo-t6c0-cli2-run-2026e2ee0daa Created
+ Container duo-t6c0-cli2-run-24314fb4e92e Creating
+ Container duo-t6c0-cli2-run-24314fb4e92e Created
+Success: Updated 'permalink_structure' option.
+ Container duo-t6c0-cli2-run-1848a70a0af2 Creating
+ Container duo-t6c0-cli2-run-1848a70a0af2 Created
+Success: Rewrite rules flushed.
+  side 2 installed (http://localhost:9301)
+
+[1;36m== pair 't6c0' ready ==[0m
+  wp1: http://localhost:9300 (published on host port 9300)
+  wp2: http://localhost:9301 (published on host port 9301)
+
+  wp-cli invocation pattern for this pair (run from sandbox/):
+    docker compose -p duo-t6c0 -f pair.yml -f pair.artifacts.yml run --rm cli1 wp <command...>
+    docker compose -p duo-t6c0 -f pair.yml -f pair.artifacts.yml run --rm cli2 wp <command...>
+  (the journal/codebind -f flags only matter if the command you're running cares about DUO_JOURNAL or the bound plugin dir; DUO_PAIR=t6c0 must stay exported, or pass -p duo-t6c0 and set WORDPRESS_DB_NAME/etc. yourself)
+ Container duo-t6c0-cli1-run-ddd6aaa365e3 Creating
+ Container duo-t6c0-cli1-run-ddd6aaa365e3 Created
+Success: Updated 'blogname' option.
+ Container duo-t6c0-cli1-run-31f2617df9a0 Creating
+ Container duo-t6c0-cli1-run-31f2617df9a0 Created
+Success: The site at 'http://localhost:9300' was emptied.
+ Container duo-t6c0-cli1-run-a42a9a2ab9d1 Creating
+ Container duo-t6c0-cli1-run-a42a9a2ab9d1 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6c0-cli1-run-563763e84173 Creating
+ Container duo-t6c0-cli1-run-563763e84173 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-t6c0-cli1-run-c01d09442242 Creating
+ Container duo-t6c0-cli1-run-c01d09442242 Created
+ Container duo-t6c0-cli1-run-28f0944c2514 Creating
+ Container duo-t6c0-cli1-run-28f0944c2514 Created
+ Container duo-t6c0-cli1-run-1f38f8288175 Creating
+ Container duo-t6c0-cli1-run-1f38f8288175 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-t6c0-cli1-run-d54a697c17f5 Creating
+ Container duo-t6c0-cli1-run-d54a697c17f5 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-t6c0-cli1-run-27fb5fb8b400 Creating
+ Container duo-t6c0-cli1-run-27fb5fb8b400 Created
+ Container duo-t6c0-cli1-run-bff138b0bfc8 Creating
+ Container duo-t6c0-cli1-run-bff138b0bfc8 Created
+env conf1 installed, role=author (core: 0 pinned plugins, 2 pinned themes)
+ Container duo-t6c0-cli2-run-d97847600bdd Creating
+ Container duo-t6c0-cli2-run-d97847600bdd Created
+Success: Updated 'blogname' option.
+ Container duo-t6c0-cli2-run-25ce0902eeb5 Creating
+ Container duo-t6c0-cli2-run-25ce0902eeb5 Created
+Success: The site at 'http://localhost:9301' was emptied.
+ Container duo-t6c0-cli2-run-fa6d1db57881 Creating
+ Container duo-t6c0-cli2-run-fa6d1db57881 Created
+artifact-cache: kind=theme slug=twentytwentyone version=2.8 sha256=6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e source=cache-hit path=/artifacts-cache/theme-twentytwentyone-2.8-6ff2fbf396f878eba4c2997c931b36476407c9da5f73d9f36a1b3995237afd1e.zip
+ Container duo-t6c0-cli2-run-e990ed991aba Creating
+ Container duo-t6c0-cli2-run-e990ed991aba Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-t6c0-cli2-run-75b2ce52f230 Creating
+ Container duo-t6c0-cli2-run-75b2ce52f230 Created
+ Container duo-t6c0-cli2-run-ddabc0685e03 Creating
+ Container duo-t6c0-cli2-run-ddabc0685e03 Created
+ Container duo-t6c0-cli2-run-22106df784f1 Creating
+ Container duo-t6c0-cli2-run-22106df784f1 Created
+artifact-cache: kind=theme slug=twentytwentyfive version=1.5 sha256=f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4 source=cache-hit path=/artifacts-cache/theme-twentytwentyfive-1.5-f333ce53aaa4049639298247d03480a4bd9b56fa8f0fea0440da262d7d595ba4.zip
+ Container duo-t6c0-cli2-run-7cf8e7ab2368 Creating
+ Container duo-t6c0-cli2-run-7cf8e7ab2368 Created
+Unpacking the package...
+Installing the theme...
+Removing the old version of the theme...
+Theme updated successfully.
+Success: Installed 1 of 1 themes.
+ Container duo-t6c0-cli2-run-af142cfc75b0 Creating
+ Container duo-t6c0-cli2-run-af142cfc75b0 Created
+ Container duo-t6c0-cli2-run-57d5295db9e5 Creating
+ Container duo-t6c0-cli2-run-57d5295db9e5 Created
+env conf2 installed, role=target (core: 0 pinned plugins, 2 pinned themes)
+[1;32mok: conf1 fully authored (activated + setup); conf2 has plugin files only — deploy (below) reconciles the rest[0m
+
+[1;36m== init the site repo (own origin, own clones — pins: ["core"]) ==[0m
+
+[1;36m== seed representative authored content on conf1 (conformance/seeds/core.sh) ==[0m
+ Container duo-t6c0-cli1-run-ea077de88a0a Creating
+ Container duo-t6c0-cli1-run-ea077de88a0a Created
+ Container duo-t6c0-cli1-run-bf548e86df73 Creating
+ Container duo-t6c0-cli1-run-bf548e86df73 Created
+ Container duo-t6c0-cli1-run-a704c464a30d Creating
+ Container duo-t6c0-cli1-run-a704c464a30d Created
+ Container duo-t6c0-cli1-run-1062f79716b7 Creating
+ Container duo-t6c0-cli1-run-1062f79716b7 Created
+ Container duo-t6c0-cli1-run-22b29d9ea22a Creating
+ Container duo-t6c0-cli1-run-22b29d9ea22a Created
+ Container duo-t6c0-cli1-run-55a93e2c28a7 Creating
+ Container duo-t6c0-cli1-run-55a93e2c28a7 Created
+ Container duo-t6c0-cli1-run-cd797f91d696 Creating
+ Container duo-t6c0-cli1-run-cd797f91d696 Created
+ Container duo-t6c0-cli2-run-5aba1be09867 Creating
+ Container duo-t6c0-cli2-run-5aba1be09867 Created
+ Container duo-t6c0-cli1-run-0887b500cb07 Creating
+ Container duo-t6c0-cli1-run-0887b500cb07 Created
+ Container duo-t6c0-cli1-run-7b3b78949d69 Creating
+ Container duo-t6c0-cli1-run-7b3b78949d69 Created
+ Container duo-t6c0-cli1-run-10caa59c9270 Creating
+ Container duo-t6c0-cli1-run-10caa59c9270 Created
+ Container duo-t6c0-cli1-run-34b036feb503 Creating
+ Container duo-t6c0-cli1-run-34b036feb503 Created
+ Container duo-t6c0-cli1-run-8cc91389b1a7 Creating
+ Container duo-t6c0-cli1-run-8cc91389b1a7 Created
+ Container duo-t6c0-cli1-run-6da3d9a94d86 Creating
+ Container duo-t6c0-cli1-run-6da3d9a94d86 Created
+ Container duo-t6c0-cli1-run-b6846e5d802c Creating
+ Container duo-t6c0-cli1-run-b6846e5d802c Created
+ Container duo-t6c0-cli1-run-0793422b9b2f Creating
+ Container duo-t6c0-cli1-run-0793422b9b2f Created
+ Container duo-t6c0-cli1-run-a6864538e713 Creating
+ Container duo-t6c0-cli1-run-a6864538e713 Created
+Warning: The 'Twenty Twenty-One' theme is already active.
+ Container duo-t6c0-cli1-run-c64ed03b3b13 Creating
+ Container duo-t6c0-cli1-run-c64ed03b3b13 Created
+ Container duo-t6c0-cli1-run-a277f0a07d07 Creating
+ Container duo-t6c0-cli1-run-a277f0a07d07 Created
+ Container duo-t6c0-cli1-run-606f0d450386 Creating
+ Container duo-t6c0-cli1-run-606f0d450386 Created
+ Container duo-t6c0-cli1-run-902984af3502 Creating
+ Container duo-t6c0-cli1-run-902984af3502 Created
+ Container duo-t6c0-cli1-run-3cfc40af200a Creating
+ Container duo-t6c0-cli1-run-3cfc40af200a Created
+ Container duo-t6c0-cli1-run-33d7134261ab Creating
+ Container duo-t6c0-cli1-run-33d7134261ab Created
+core seed: news=2 home=1 att=6 hello=7 widget-menu=3 hierarchy=2/4,3/5 theme_mods: twentytwentyone(residue)+twentytwentyfive(active)
+
+[1;36m== capture conf1 into the site repo ==[0m
+ Container duo-t6c0-cli1-run-5b85c120b86d Creating
+ Container duo-t6c0-cli1-run-5b85c120b86d Created
+Success: captured 8 posts, 2 terms, 1 menus, 1 options file(s), 0 deletion tombstone(s), 1 media blob(s) -> /siterepo/state
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+
+[1;36m== lint conf1's captured state (hard gate) ==[0m
+ Container duo-t6c0-cli1-run-21fb3ca417ae Creating
+ Container duo-t6c0-cli1-run-21fb3ca417ae Created
+lint: clean, 0 findings
+
+[1;36m== acceptance: capture is deterministic (capture twice, zero diff) ==[0m
+ Container duo-t6c0-cli1-run-2cdfa9dc8875 Creating
+ Container duo-t6c0-cli1-run-2cdfa9dc8875 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: capture-twice diff is empty[0m
+
+[1;36m== clone the repo for conf2 ==[0m
+
+[1;36m== deploy conf2 from canonical (wp duo deploy) — the real promotion path ==[0m
+ Container duo-t6c0-cli2-run-2aba0ffad36d Creating
+ Container duo-t6c0-cli2-run-2aba0ffad36d Created
+{
+  "lifecycle_phase": "all",
+  "artifact": {
+    "hash": "cb94cf45cc06e80959ec6757b3561666340f675e855bab1d8711864261122b4d",
+    "revision": "0daba9e494dac5d3fb9eb7e1f46e80efd76dcfc1a61d42a53524bd2407e3cb42",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "activated": [],
+  "deactivated": [],
+  "theme_switched": "twentytwentyfive",
+  "active_plugins_order_corrected": false,
+  "code_mismatch": [],
+  "reconciled_code_mismatch": [
+    {
+      "issue": "inactive_in_environment",
+      "kind": "theme",
+      "theme": "twentytwentyfive",
+      "message": "stylesheet in state/options/core.json declares 'twentytwentyfive', and its code is installed, but this environment has theme 'twentytwentyone' active. Run 'duo deploy <env>' before apply so the theme lifecycle completes first."
+    }
+  ],
+  "code_drift": [],
+  "external_side_effects": [],
+  "warnings": [],
+  "promotion_lock": {
+    "owner": "direct-60b1c92cf07a8439d659de5a89b37c18",
+    "held_for_apply": false
+  }
+}
+[1;32mok: deploy succeeded on conf2[0m
+
+[1;36m== acceptance: conf2's activation/theme state matches canonical, from deploy alone ==[0m
+ Container duo-t6c0-cli2-run-1d6121c507c4 Creating
+ Container duo-t6c0-cli2-run-1d6121c507c4 Created
+ Container duo-t6c0-cli2-run-28645d7cbad3 Creating
+ Container duo-t6c0-cli2-run-28645d7cbad3 Created
+ Container duo-t6c0-cli2-run-1be9ec532cea Creating
+ Container duo-t6c0-cli2-run-1be9ec532cea Created
+[1;32mok: conf2 active plugins (none) and theme (template=twentytwentyfive, stylesheet=twentytwentyfive) match canonical — deploy alone did this[0m
+
+[1;36m== post-deploy conf2 fixup (conformance/postdeploy/core.sh) ==[0m
+ Container duo-t6c0-cli2-run-a639e923e7c4 Creating
+ Container duo-t6c0-cli2-run-a639e923e7c4 Created
+ Container duo-t6c0-cli2-run-8fc829e17dea Creating
+ Container duo-t6c0-cli2-run-8fc829e17dea Created
+ Container duo-t6c0-cli2-run-4ecce8981bcd Creating
+ Container duo-t6c0-cli2-run-4ecce8981bcd Created
+ Container duo-t6c0-cli2-run-e6fd375170be Creating
+ Container duo-t6c0-cli2-run-e6fd375170be Created
+ Container duo-t6c0-cli2-run-3ce5e8766291 Creating
+ Container duo-t6c0-cli2-run-3ce5e8766291 Created
+ Container duo-t6c0-cli2-run-748ab4cec8df Creating
+ Container duo-t6c0-cli2-run-748ab4cec8df Created
+ Container duo-t6c0-cli2-run-7f08fd969466 Creating
+ Container duo-t6c0-cli2-run-7f08fd969466 Created
+ Container duo-t6c0-cli2-run-5a2aff86c467 Creating
+ Container duo-t6c0-cli2-run-5a2aff86c467 Created
+ Container duo-t6c0-cli2-run-c4880424bbf3 Creating
+ Container duo-t6c0-cli2-run-c4880424bbf3 Created
+target hierarchy and colliding widget defaults seeded; ambiguous-key refusal verified
+[1;32mok: post-deploy fixup applied[0m
+
+[1;36m== apply conf2 (content only — activation/theme were deploy's job, above) ==[0m
+ Container duo-t6c0-cli2-run-a92ea7f8c0a7 Creating
+ Container duo-t6c0-cli2-run-a92ea7f8c0a7 Created
+{
+  "artifact": {
+    "hash": "cb94cf45cc06e80959ec6757b3561666340f675e855bab1d8711864261122b4d",
+    "revision": "0daba9e494dac5d3fb9eb7e1f46e80efd76dcfc1a61d42a53524bd2407e3cb42",
+    "manifests": "9c0fd685deca4d49b90102323a506039dad6a3ecab5ef00203c8fcaec6be80fb"
+  },
+  "plan": {
+    "create": 6,
+    "update": 2,
+    "unchanged": 0,
+    "drift": 0,
+    "conflict": 0,
+    "adopt": 5,
+    "collision": 0,
+    "delete": 0,
+    "delete_conflict": 0,
+    "deleted": 0,
+    "code_mismatch": 0,
+    "code_drift": 0,
+    "incomplete_apply": 0,
+    "incomplete_lifecycle": 0,
+    "missing_user": 0,
+    "skipped_user_meta": 0,
+    "uploads_inventory": 1,
+    "effects_inventory": 5,
+    "adapter_dispositions": 1,
+    "regen_pending": 0,
+    "regen_context": 0,
+    "env_missing": 0
+  },
+  "applied": 13,
+  "drift": [],
+  "warnings": [
+    "adopted env post 1 as 01a0127f-31bd-7683-83a5-cbae810a3d65 (posts/page/01a0127f-31bd-7683-83a5-cbae810a3d65--branch-b.md)",
+    "adopted env post 3 as 01a0127f-31bd-7942-abb6-50d4b2c98a32 (posts/page/01a0127f-31bd-7942-abb6-50d4b2c98a32--branch-a.md)",
+    "adopted env post 4 as 01a0127f-31be-7619-9720-f3616367eab4 (posts/page/01a0127f-31be-7619-9720-f3616367eab4--shared-child.md)",
+    "adopted env post 2 as 01a0127f-31be-7723-b46e-790dd22028e2 (posts/page/01a0127f-31be-7723-b46e-790dd22028e2--shared-child.md)",
+    "adopted env term 1 as 01a0127f-31bf-7888-87fe-13ea7c41fd20 (terms/category/01a0127f-31bf-7888-87fe-13ea7c41fd20--uncategorized.json)"
+  ],
+  "actions": [],
+  "canary": "clean",
+  "verification": {
+    "verifier": "canonical-recapture/v1",
+    "result": "pass",
+    "live_entities": 13,
+    "deletions": 0,
+    "skipped_user_meta": 0
+  },
+  "promotion_lock": {
+    "owner": "direct-8a0d9af9b4caa816d96432de9e968e94",
+    "released": true
+  }
+}
+[1;32mok: apply succeeded, side-effect canary clean[0m
+
+[1;36m== acceptance: canonical(conf2) == canonical(conf1), byte for byte ==[0m
+ Container duo-t6c0-cli2-run-3c2ffa248dcf Creating
+ Container duo-t6c0-cli2-run-3c2ffa248dcf Created
+[1;32mok: canonical state identical across environments[0m
+
+[1;36m== manifest-specific render acceptance (conformance/checks/core.sh) ==[0m
+ Container duo-t6c0-cli2-run-d7ac8c8c4f73 Creating
+ Container duo-t6c0-cli2-run-d7ac8c8c4f73 Created
+[1;32mok: theme_mods_twentytwentyfive's declared authored sub-keys (background_color, custom_logo, header_image, header_image_data, custom_css_post_id) all apply correctly on conf2, ref-typed fields re-resolved to conf2's own local ids[0m
+[1;32mok: conf2's own runtime-excluded sub-keys (sidebars_widgets, wp_classic_sidebars) survived the merge into the live blob untouched -- sub_keys apply is a merge, never a whole-value replace[0m
+[1;32mok: theme_mods_twentytwentyone (residue: a previously-active, now-inactive theme's own row) never entered captured state, exactly as declared[0m
+ Container duo-t6c0-cli2-run-a584389c5eff Creating
+ Container duo-t6c0-cli2-run-a584389c5eff Created
+[1;32mok: wp duo pending remains empty post-apply -- empty, auto-registered widget_<type> rows (every core type not covered by widgets{}) stay unscanned by design (contentless scaffolding, never captured before this issue, not captured now); DUO-3278's own declared block/nav_menu/text content applied cleanly[0m
+
+[1;36m== (DUO-3264 <-> DUO-3278) live probe: an unknown, non-core widget type gates loudly (SidebarState's own guard), names a remedy that actually works, then classifies clean ==[0m
+ Container duo-t6c0-cli1-run-5187b2024100 Creating
+ Container duo-t6c0-cli1-run-5187b2024100 Created
+ Container duo-t6c0-cli1-run-aac9cd759f9a Creating
+ Container duo-t6c0-cli1-run-aac9cd759f9a Created
+ Container duo-t6c0-cli1-run-6f56d137556c Creating
+ Container duo-t6c0-cli1-run-6f56d137556c Created
+ Container duo-t6c0-cli1-run-71327444014b Creating
+ Container duo-t6c0-cli1-run-71327444014b Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: unknown widget type: SidebarState's own guard refuses naming BOTH remedies, the deliberate-exclusion remedy it names actually works (verified, not assumed -- the operator-path-dishonesty class this project refuses to ship), clean again once the fake type is fully removed[0m
+ Container duo-t6c0-cli1-run-451b2984c453 Creating
+ Container duo-t6c0-cli1-run-451b2984c453 Created
+ Container duo-t6c0-cli2-run-82e4f1fc6078 Creating
+ Container duo-t6c0-cli2-run-82e4f1fc6078 Created
+ Container duo-t6c0-cli1-run-1df2cc8fb267 Creating
+ Container duo-t6c0-cli1-run-1df2cc8fb267 Created
+ Container duo-t6c0-cli2-run-528a67a9a300 Creating
+ Container duo-t6c0-cli2-run-528a67a9a300 Created
+ Container duo-t6c0-cli1-run-5a2b506e0908 Creating
+ Container duo-t6c0-cli1-run-5a2b506e0908 Created
+ Container duo-t6c0-cli2-run-2cb482c32b78 Creating
+ Container duo-t6c0-cli2-run-2cb482c32b78 Created
+ Container duo-t6c0-cli2-run-8957ff3d8604 Creating
+ Container duo-t6c0-cli2-run-8957ff3d8604 Created
+ Container duo-t6c0-cli2-run-1eadb5901fde Creating
+ Container duo-t6c0-cli2-run-1eadb5901fde Created
+[1;32mok: block/text/nav-menu widgets use portable refs, ledger-only identity, free target counters, and replace target defaults[0m
+ Container duo-t6c0-cli1-run-27078ef01578 Creating
+ Container duo-t6c0-cli1-run-27078ef01578 Created
+ Container duo-t6c0-cli1-run-4f6a262a04bf Creating
+ Container duo-t6c0-cli1-run-4f6a262a04bf Created
+ Container duo-t6c0-cli1-run-3d14aa96b834 Creating
+ Container duo-t6c0-cli1-run-3d14aa96b834 Created
+ Container duo-t6c0-cli1-run-9caa1e512c1d Creating
+ Container duo-t6c0-cli1-run-9caa1e512c1d Created
+ Container duo-t6c0-cli1-run-e0107bb42367 Creating
+ Container duo-t6c0-cli1-run-e0107bb42367 Created
+ Container duo-t6c0-cli1-run-f89d542cfa51 Creating
+ Container duo-t6c0-cli1-run-f89d542cfa51 Created
+ Container duo-t6c0-cli1-run-746e40255b06 Creating
+ Container duo-t6c0-cli1-run-746e40255b06 Created
+ Container duo-t6c0-cli1-run-31ac97f429e8 Creating
+ Container duo-t6c0-cli1-run-31ac97f429e8 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+[1;32mok: copied and invalid _duo_uuid metadata block before atomic state publication; original identities recover deterministically[0m
+ Container duo-t6c0-cli2-run-6306502698a4 Creating
+ Container duo-t6c0-cli2-run-6306502698a4 Created
+ Container duo-t6c0-cli2-run-2734dcd8da4b Creating
+ Container duo-t6c0-cli2-run-2734dcd8da4b Created
+ Container duo-t6c0-cli1-run-45e6770e3fc4 Creating
+ Container duo-t6c0-cli1-run-45e6770e3fc4 Created
+ Container duo-t6c0-cli1-run-5c1087a519dc Creating
+ Container duo-t6c0-cli1-run-5c1087a519dc Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-t6c0-cli2-run-66edfd5c0144 Creating
+ Container duo-t6c0-cli2-run-66edfd5c0144 Created
+ Container duo-t6c0-cli2-run-90649fd5402c Creating
+ Container duo-t6c0-cli2-run-90649fd5402c Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-t6c0-cli2-run-73fe55b5829c Creating
+ Container duo-t6c0-cli2-run-73fe55b5829c Created
+ Container duo-t6c0-cli2-run-d267767f3248 Creating
+ Container duo-t6c0-cli2-run-d267767f3248 Created
+ Container duo-t6c0-cli2-run-def6422554b8 Creating
+ Container duo-t6c0-cli2-run-def6422554b8 Created
+[1;32mok: public duo explain traces one current row through a deterministic value-free contract with zero database/repository/provider/action mutation (DUO-3410: WP-Cron/expired-transient churn quiesced across the window; whole-database mutation tooth verified live under that same quiescing)[0m
+ Container duo-t6c0-cli2-run-ad0cdb2fa763 Creating
+ Container duo-t6c0-cli2-run-ad0cdb2fa763 Created
+ Container duo-t6c0-cli2-run-556a3fc01fbd Creating
+ Container duo-t6c0-cli2-run-556a3fc01fbd Created
+ Container duo-t6c0-cli2-run-ebafad857621 Creating
+ Container duo-t6c0-cli2-run-ebafad857621 Created
+ Container duo-t6c0-cli2-run-f2ea5fe51c46 Creating
+ Container duo-t6c0-cli2-run-f2ea5fe51c46 Created
+ Container duo-t6c0-cli2-run-6a4794cda26e Creating
+ Container duo-t6c0-cli2-run-6a4794cda26e Created
+ Container duo-t6c0-cli2-run-66702bd609c7 Creating
+ Container duo-t6c0-cli2-run-66702bd609c7 Created
+[1;32mok: plan conflicts speak WordPress names, expose hash-only base/repository/target intent, recommend reconciliation, and report destructive override (DUO-3345)[0m
+ Container duo-t6c0-cli1-run-003a73f68368 Creating
+ Container duo-t6c0-cli1-run-003a73f68368 Created
+ Container duo-t6c0-cli2-run-b72abf127185 Creating
+ Container duo-t6c0-cli2-run-b72abf127185 Created
+ Container duo-t6c0-cli2-run-2b8af8ce01ef Creating
+ Container duo-t6c0-cli2-run-2b8af8ce01ef Created
+ Container duo-t6c0-cli1-run-7eda63391677 Creating
+ Container duo-t6c0-cli1-run-7eda63391677 Created
+ Container duo-t6c0-cli1-run-5f2986b214cd Creating
+ Container duo-t6c0-cli1-run-5f2986b214cd Created
+ Container duo-t6c0-cli2-run-09d9376534c8 Creating
+ Container duo-t6c0-cli2-run-09d9376534c8 Created
+ Container duo-t6c0-cli2-run-ca981adbc9bc Creating
+ Container duo-t6c0-cli2-run-ca981adbc9bc Created
+ Container duo-t6c0-cli2-run-3362c8e749d7 Creating
+ Container duo-t6c0-cli2-run-3362c8e749d7 Created
+ Container duo-t6c0-cli2-run-f1a1303fd9c8 Creating
+ Container duo-t6c0-cli2-run-f1a1303fd9c8 Created
+[1;32mok: explicit page tombstone guards and preserves comments, verifies exact deletion, and retries idempotently[0m
+ Container duo-t6c0-cli1-run-990031117895 Creating
+ Container duo-t6c0-cli1-run-990031117895 Created
+ Container duo-t6c0-cli2-run-dd237b275429 Creating
+ Container duo-t6c0-cli2-run-dd237b275429 Created
+ Container duo-t6c0-cli2-run-726ead1058ca Creating
+ Container duo-t6c0-cli2-run-726ead1058ca Created
+ Container duo-t6c0-cli2-run-454102efbbfb Creating
+ Container duo-t6c0-cli2-run-454102efbbfb Created
+ Container duo-t6c0-cli1-run-150f4d3675bf Creating
+ Container duo-t6c0-cli1-run-150f4d3675bf Created
+ Container duo-t6c0-cli1-run-eb88a06b6b5a Creating
+ Container duo-t6c0-cli1-run-eb88a06b6b5a Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-t6c0-cli2-run-cdc647286137 Creating
+ Container duo-t6c0-cli2-run-cdc647286137 Created
+ Container duo-t6c0-cli2-run-2eb45a59e11c Creating
+ Container duo-t6c0-cli2-run-2eb45a59e11c Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-t6c0-cli2-run-ec4bb90316b1 Creating
+ Container duo-t6c0-cli2-run-ec4bb90316b1 Created
+ Container duo-t6c0-cli2-run-74a9269a383e Creating
+ Container duo-t6c0-cli2-run-74a9269a383e Created
+ Container duo-t6c0-cli2-run-9e9b4660cc99 Creating
+ Container duo-t6c0-cli2-run-9e9b4660cc99 Created
+[1;32mok: guard-blocked deletion conflict refuses incomplete force authorization with truthful typed evidence and zero target/ledger mutation[0m
+ Container duo-t6c0-cli2-run-0a9af395cc5b Creating
+ Container duo-t6c0-cli2-run-0a9af395cc5b Created
+ Container duo-t6c0-cli2-run-c873c527ce95 Creating
+ Container duo-t6c0-cli2-run-c873c527ce95 Created
+ Container duo-t6c0-cli2-run-6452e0e498a8 Creating
+ Container duo-t6c0-cli2-run-6452e0e498a8 Created
+Warning: capability registry blocker(s) selected — readiness is not green and host promotion will refuse
+ Container duo-t6c0-cli2-run-c323c5e13e77 Creating
+ Container duo-t6c0-cli2-run-c323c5e13e77 Created
+ Container duo-t6c0-cli2-run-4f21639ed453 Creating
+ Container duo-t6c0-cli2-run-4f21639ed453 Created
+ Container duo-t6c0-cli2-run-daadde038a06 Creating
+ Container duo-t6c0-cli2-run-daadde038a06 Created
+[1;32mok: entity tombstone conflicts require both advertised flags and refuse incomplete authorization without mutation[0m
+ Container duo-t6c0-cli2-run-1cd377d98da9 Creating
+ Container duo-t6c0-cli2-run-1cd377d98da9 Created
+ Container duo-t6c0-cli2-run-d4bee9225713 Creating
+ Container duo-t6c0-cli2-run-d4bee9225713 Created
+[1;32mok: delete-vs-local-edit conflicts; force-theirs is loud and revision children cascade exactly[0m
+ Container duo-t6c0-cli1-run-02a07f666920 Creating
+ Container duo-t6c0-cli1-run-02a07f666920 Created
+ Container duo-t6c0-cli1-run-4af45b6d9410 Creating
+ Container duo-t6c0-cli1-run-4af45b6d9410 Created
+ Container duo-t6c0-cli1-run-f8a36f9bd9f5 Creating
+ Container duo-t6c0-cli1-run-f8a36f9bd9f5 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+ Container duo-t6c0-cli1-run-6f2e93cb8cec Creating
+ Container duo-t6c0-cli1-run-6f2e93cb8cec Created
+ Container duo-t6c0-cli1-run-e8c0568503d9 Creating
+ Container duo-t6c0-cli1-run-e8c0568503d9 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-t6c0-cli2-run-8fd87ec7b780 Creating
+ Container duo-t6c0-cli2-run-8fd87ec7b780 Created
+ Container duo-t6c0-cli2-run-c6515ebb81fb Creating
+ Container duo-t6c0-cli2-run-c6515ebb81fb Created
+ Container duo-t6c0-cli2-run-5d710fb8978d Creating
+ Container duo-t6c0-cli2-run-5d710fb8978d Created
+[1;32mok: delete-vs-branch-edit conflicts on the tombstone expected base[0m
+ Container duo-t6c0-cli1-run-94abdfeb7fe4 Creating
+ Container duo-t6c0-cli1-run-94abdfeb7fe4 Created
+ Container duo-t6c0-cli1-run-bcb9fc0a496e Creating
+ Container duo-t6c0-cli1-run-bcb9fc0a496e Created
+ Container duo-t6c0-cli1-run-c51dfdf73908 Creating
+ Container duo-t6c0-cli1-run-c51dfdf73908 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-t6c0-cli2-run-d7f1c4b14d63 Creating
+ Container duo-t6c0-cli2-run-d7f1c4b14d63 Created
+ Container duo-t6c0-cli2-run-de73f8b2e164 Creating
+ Container duo-t6c0-cli2-run-de73f8b2e164 Created
+ Container duo-t6c0-cli2-run-25fd27ef0f8b Creating
+ Container duo-t6c0-cli2-run-25fd27ef0f8b Created
+ Container duo-t6c0-cli2-run-c7b2ebd9cc71 Creating
+ Container duo-t6c0-cli2-run-c7b2ebd9cc71 Created
+[1;32mok: missing reverse-reference guard infrastructure fails closed[0m
+ Container duo-t6c0-cli1-run-c0479018450d Creating
+ Container duo-t6c0-cli1-run-c0479018450d Created
+ Container duo-t6c0-cli1-run-234b49c284da Creating
+ Container duo-t6c0-cli1-run-234b49c284da Created
+ Container duo-t6c0-cli1-run-e69ab19f7abb Creating
+ Container duo-t6c0-cli1-run-e69ab19f7abb Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-t6c0-cli2-run-9c1d1eca12a6 Creating
+ Container duo-t6c0-cli2-run-9c1d1eca12a6 Created
+ Container duo-t6c0-cli2-run-6a752b12f5d6 Creating
+ Container duo-t6c0-cli2-run-6a752b12f5d6 Created
+ Container duo-t6c0-cli2-run-bd55ea74540a Creating
+ Container duo-t6c0-cli2-run-bd55ea74540a Created
+ Container duo-t6c0-cli1-run-525e3a7492e6 Creating
+ Container duo-t6c0-cli1-run-525e3a7492e6 Created
+ Container duo-t6c0-cli1-run-a917fe738fd4 Creating
+ Container duo-t6c0-cli1-run-a917fe738fd4 Created
+Warning: wp_inactive_widgets is excluded from sidebar portability v1; parked widget content will not propagate
+Warning: block 'core/image' attribute 'id': unmapped post id 6 dropped (dangling reference)
+Warning: block 'core/image' wp-image-6 class: unmapped post id 6 dropped (dangling reference)
+ Container duo-t6c0-cli2-run-873c22da3140 Creating
+ Container duo-t6c0-cli2-run-873c22da3140 Created
+ Container duo-t6c0-cli2-run-965f80551d24 Creating
+ Container duo-t6c0-cli2-run-965f80551d24 Created
+ Container duo-t6c0-cli2-run-2e1766ea3c57 Creating
+ Container duo-t6c0-cli2-run-2e1766ea3c57 Created
+ Container duo-t6c0-cli2-run-5605541cd336 Creating
+ Container duo-t6c0-cli2-run-5605541cd336 Created
+ Container duo-t6c0-cli2-run-705d81b39acd Creating
+ Container duo-t6c0-cli2-run-705d81b39acd Created
+ Container duo-t6c0-cli2-run-4c9f0ad94cb0 Creating
+ Container duo-t6c0-cli2-run-4c9f0ad94cb0 Created
+ Container duo-t6c0-cli2-run-4b32936f71cf Creating
+ Container duo-t6c0-cli2-run-4b32936f71cf Created
+ Container duo-t6c0-cli2-run-090190f3feee Creating
+ Container duo-t6c0-cli2-run-090190f3feee Created
+ Container duo-t6c0-cli2-run-70667ca0fc63 Creating
+ Container duo-t6c0-cli2-run-70667ca0fc63 Created
+[1;32mok: partial delete failure rolls the transaction back; retry completes exactly[0m
+ Container duo-t6c0-cli2-run-eb6328de623a Creating
+ Container duo-t6c0-cli2-run-eb6328de623a Created
+ Container duo-t6c0-cli2-run-f3074d299130 Creating
+ Container duo-t6c0-cli2-run-f3074d299130 Created
+[1;32mok: fresh and previously mapped targets make the same repository-level deletion decision[0m
+
+[1;32m✔ CONFORMANCE PASSED (core)[0m

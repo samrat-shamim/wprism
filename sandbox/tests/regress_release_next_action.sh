@@ -7,7 +7,9 @@
 # The two sets are deliberately not interchangeable. A refusal BEFORE the
 # authorization plan is frozen is an assessment gap and carries a §2.1 gap
 # action (`classify`, `declare in contract`, `qualify in rehearsal`,
-# `exclude`, `install adapter`, `provision env value`, `nothing — supported`);
+# `exclude`, `install adapter`, `certify adapter`, `provision env value`,
+# `nothing — supported` — T6 §3.6 added the sixth and stopped EMITTING the
+# third, which stays in the set so an older stored projection still validates);
 # only a failure AFTER the freeze carries a release next action. Mixing them
 # would tell an operator to `retry` a site that needs a contract declaration,
 # or to `declare in contract` a target that is mid-rollback.
@@ -88,8 +90,17 @@ foreach ($contract["declarations"]["external_effects"] as $index => $effect) {
         "reviewed 2026-08-17: nothing this site activates sends mail, calls a payment API, or fires a webhook";
 }
 foreach ($contract["declarations"]["surfaces"] as $index => $surface) {
-    if (($surface["decided_by"] ?? null) === "unresolved") {
-        $contract["declarations"]["surfaces"][$index]["decided_by"] = "operator";
+    if (($surface["decided_by"] ?? null) !== "unresolved") { continue; }
+    $contract["declarations"]["surfaces"][$index]["decided_by"] = "operator";
+    // T6 SS3.6: an unmanaged plugin gets the ORDINARY decision an operator
+    // makes for one -- runtime / preserve local, which projects Unsupported,
+    // prints a meaning line and no next action, and sits outside every
+    // release gate. Without it the row is unclassified/block and release
+    // correctly refuses, which is the product working and not a fixture this
+    // suite is about.
+    if (strpos((string) ($surface["id"] ?? ""), "plugin:") === 0) {
+        $contract["declarations"]["surfaces"][$index]["state_class"] = "runtime";
+        $contract["declarations"]["surfaces"][$index]["handling"] = "preserve local";
     }
 }
 $proposal["contract"] = $contract;

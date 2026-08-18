@@ -18,7 +18,24 @@
  * and the script exits 1.
  */
 
+require_once __DIR__ . '/lib/wp_stubs.php';
+require_once __DIR__ . '/lib/FakeWpdb.php';
 require __DIR__ . '/../../agent/src/Review/Coverage.php';
+
+// The product path below is Coverage::report(), which loads a real Policy and
+// therefore needs the two constants the drop-in binds at load. Read from
+// agent/duo.php rather than restated, so a version bump does not edit this file.
+$duo_coverage_bootstrap = (string) file_get_contents(__DIR__ . '/../../agent/duo.php');
+if (!defined('DUO_SPEC_VERSION')) {
+    define('DUO_SPEC_VERSION', preg_match("/define\('DUO_SPEC_VERSION',\s*(\d+)\)/", $duo_coverage_bootstrap, $m) === 1
+        ? (int) $m[1] : 2);
+}
+if (!defined('DUO_AGENT_VERSION')) {
+    define('DUO_AGENT_VERSION', preg_match("/define\('DUO_AGENT_VERSION',\s*'([^']+)'\)/", $duo_coverage_bootstrap, $m) === 1
+        ? $m[1] : '0.0.0');
+}
+require_once __DIR__ . '/../../agent/src/Policy/ManifestDispositions.php';
+require_once __DIR__ . '/../../agent/src/Policy/Policy.php';
 
 $failures = 0;
 function check(bool $cond, string $msg): void {
@@ -84,6 +101,18 @@ check(call_private('attribute', ['woocommerce_checkout', $slugs]) === 'woocommer
     'a needle that starts with an active slug attributes to that slug');
 check(call_private('attribute', ['rank_math', $slugs]) === null,
     'no active plugin matches -> null (the explicit "unattributed" case), never a wrong guess');
+// T6 adapter walk: an edition-suffixed slug (`wpforms-lite`) prefixes its
+// options and tables with the family name alone; the family token attributes
+// when it is a name (>= 4 chars) and unambiguous, and two edition slugs of one
+// family say nothing rather than guess.
+check(call_private('attribute', ['wpforms_tasks_meta', ['woocommerce', 'wpforms-lite']]) === 'wpforms-lite',
+    'a table/option prefixed with the family name of an edition-suffixed slug attributes to that slug');
+check(call_private('attribute', ['wpforms', ['wpforms-lite']]) === 'wpforms-lite',
+    'the bare family name attributes too');
+check(call_private('attribute', ['wpforms_settings', ['wpforms-lite', 'wpforms-pro']]) === null,
+    'two active editions of one family: ambiguous, left unattributed rather than guessed');
+check(call_private('attribute', ['wp_rocket_cache', ['wp-super-cache']]) === null,
+    'a family token shorter than a name (wp) never attributes');
 check(call_private('attribute', ['wpcf7', $slugs]) === null,
     "CF7's own option prefix (wpcf7) does not match its slug (contact-form-7) under simple prefix matching -- "
     . 'documenting this as a KNOWN heuristic limitation (DUO-3290\'s own design doc named this exact risk), not '
@@ -112,6 +141,77 @@ check($groups[0]['probable_owner'] === 'woocommerce',
     'a feature-area sub-group (woocommerce_email) still attributes correctly to the shorter active slug (woocommerce) via the needle-starts-with-slug direction');
 check($groups[1]['probable_owner'] === null && $groups[2]['probable_owner'] === null,
     'groups with no matching active plugin attribute to null, not a wrong guess');
+
+// ======================================================================
+// tables_report(), through the PUBLIC product path (Coverage::report()).
+//
+// This half used to exist only in the live pair suite (regress_coverage.sh),
+// which is why the published-row shape could drift unnoticed: the row is
+// consumed by `duo assess`, and both consumers
+// (cli/src/Assess/SurfaceCatalog.php:326 and AssessReport.php:156) SKIP any
+// undeclared-table row that carries no `logical_name`. The report built the
+// name, used it for attribution, and then dropped it, so the `table:` surface
+// rows assess is designed to mint never appeared on a real site. The row keys
+// are asserted exactly here so the next drop is a failing suite rather than a
+// silently empty section of somebody's assessment.
+// ======================================================================
+echo "\n== tables_report() published row shape (product path) ==\n";
+
+$coverageScratch = sys_get_temp_dir() . '/duo_regress_coverage_offline_' . getmypid() . '_' . bin2hex(random_bytes(4));
+mkdir($coverageScratch . '/repo', 0777, true);
+register_shutdown_function(static function () use ($coverageScratch): void {
+    @unlink($coverageScratch . '/repo/site.duo.json');
+    @rmdir($coverageScratch . '/repo');
+    @rmdir($coverageScratch);
+});
+file_put_contents($coverageScratch . '/repo/site.duo.json', json_encode([
+    'manifests' => ['core'],
+    'policy' => new stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
+$store = DuoTest\WpStore::reset();
+$store->seedOptions(['active_plugins' => ['acme-catalog/acme-catalog.php']]);
+$wpdb = DuoTest\FakeWpdb::install();
+$wpdb->seedTable('wp_options', [
+    ['option_id' => 1, 'option_name' => 'blogname', 'option_value' => 'Fixture', 'autoload' => 'yes'],
+]);
+// wp_comments/wp_commentmeta are WordPress core tables ($wpdb->tables()), so
+// they must be filtered out; wp_acme_catalog_index is the undeclared one an
+// unmanifested plugin owns, with two real rows to count.
+$wpdb->seedTable('wp_comments', []);
+$wpdb->seedTable('wp_commentmeta', []);
+$wpdb->seedTable('wp_acme_catalog_index', [
+    ['id' => 1, 'label' => 'first'],
+    ['id' => 2, 'label' => 'second'],
+]);
+// Duo's own ledger tables are neither core nor adapter-declared; before T6 the
+// walk read `table:duo_journal … unclassified` in its own assessment. They are
+// Ledger::OWN_TABLES and must never be reported as undeclared.
+foreach (Duo\Ledger::OWN_TABLES as $own) {
+    $wpdb->seedTable('wp_' . $own, [['k' => 'x']]);
+}
+
+$report = Duo\Coverage::report($coverageScratch . '/repo');
+check($report['format'] === Duo\Coverage::FORMAT, 'the product path emits the versioned coverage format');
+check(($report['tables']['undeclared_total'] ?? null) === 1,
+    'exactly one undeclared table is counted (core tables are excluded) — got '
+    . var_export($report['tables']['undeclared_total'] ?? null, true));
+$undeclared = $report['tables']['undeclared'];
+check(count($undeclared) === 1, 'one published undeclared row — got ' . count($undeclared));
+$rowKeys = array_keys($undeclared[0]);
+sort($rowKeys, SORT_STRING);
+check($rowKeys === ['logical_name', 'probable_owner', 'row_count', 'table'],
+    'a published undeclared-table row carries exactly table, logical_name, row_count, probable_owner — got '
+    . implode(',', $rowKeys));
+check(($undeclared[0]['logical_name'] ?? null) === 'acme_catalog_index',
+    'logical_name is the UNPREFIXED name `duo assess` builds `table:<name>` from — got '
+    . var_export($undeclared[0]['logical_name'] ?? null, true));
+check(($undeclared[0]['table'] ?? null) === 'wp_acme_catalog_index',
+    'table stays the physical, prefixed name');
+check((int) ($undeclared[0]['row_count'] ?? -1) === 2, 'row_count is the real COUNT(*)');
+check(($undeclared[0]['probable_owner'] ?? null) === 'acme-catalog',
+    'attribution still resolves the owning active plugin slug');
 
 if ($failures > 0) {
     fwrite(STDERR, "\n$failures check(s) FAILED\n");

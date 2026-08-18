@@ -101,14 +101,15 @@ final class ManifestDispositions {
         string $name,
         array $entry,
         array $manifest,
-        string $evidenceSchema
+        string $evidenceSchema,
+        bool $requireExerciseTests = true
     ): void {
         if ($name === '' || ($entry['status'] ?? null) !== 'certified') {
             throw new \RuntimeException(
                 "duo: external manifest disposition '$name' must be a certified entry"
             );
         }
-        self::validate_entry($name, $entry, $manifest, $evidenceSchema);
+        self::validate_entry($name, $entry, $manifest, $evidenceSchema, $requireExerciseTests);
     }
 
     /** @return list<array{name:string,status:string,reason:string}> */
@@ -236,11 +237,21 @@ final class ManifestDispositions {
         }
     }
 
+    /**
+     * $requireExerciseTests is false ONLY for an external site-adapter entry
+     * whose bundle declares `evidence.exercised: false` (round-3 T6). The
+     * caller has already proved that shape is admissible — a site trust root,
+     * an empty bundle test set, no artifacts — so requiring a citation here
+     * would force the certificate to name a test that provably does not exist.
+     * Every SHIPPED registry row keeps the default: a reviewed certified claim
+     * with no named evidence is the thing this validator exists to refuse.
+     */
     private static function validate_entry(
         string $name,
         $entry,
         array $manifest,
-        string $evidenceSchema = self::EVIDENCE_SCHEMA
+        string $evidenceSchema = self::EVIDENCE_SCHEMA,
+        bool $requireExerciseTests = true
     ): void {
         if (!is_array($entry) || array_is_list($entry)) {
             throw new \RuntimeException("duo: manifest disposition '$name' must be an object");
@@ -329,7 +340,7 @@ final class ManifestDispositions {
         if ($status === 'certified') {
             if (!is_array($evidence) || array_is_list($evidence)
                 || ($evidence['bundle_schema'] ?? null) !== $evidenceSchema
-                || !self::string_list($evidence['tests'] ?? null, false, true)) {
+                || !self::string_list($evidence['tests'] ?? null, !$requireExerciseTests, true)) {
                 throw new \RuntimeException("duo: certified manifest disposition '$name' lacks current bundle evidence");
             }
             $plugin = $manifest['plugin'] ?? null;

@@ -191,8 +191,13 @@ duo_check_same(
     'surfaces are emitted in id order, contract declarations plus observed groups'
 );
 duo_check_same(
-    ['handling', 'readiness', 'certification_provenance', 'effect_containment',
+    // T6 §3.6 adds four: two that EXPOSE who vouched and under whose trust
+    // root, and two that carry the facts gapAction() needs when it is
+    // re-derived from this stored artifact rather than from a fact vector.
+    ['handling', 'readiness', 'certification_provenance', 'certification_principal',
+        'certification_trust_root', 'effect_containment',
         'effect_containment_basis', 'effect_recovery_semantics', 'conditions',
+        'blockers', 'probable_owner',
         'expiry_and_dependencies', 'remediation', 'gap_action', 'annotations'],
     array_keys($rows['products']['operations']['release']),
     'the per-operation object carries the §3.3 keys'
@@ -243,10 +248,65 @@ duo_check_same(
     'no evidence means no certification provenance'
 );
 duo_check_same(
-    'qualify in rehearsal',
+    // T6 §3.6: a contract-declared surface carries no plugin attribution, so
+    // the unclassified answer is the classification rule, not an adapter.
+    'classify',
     $rows['acme_catalog']['operations']['release']['gap_action'],
     'the unclassified row names its gap action'
 );
+duo_check_same(
+    null,
+    $rows['acme_catalog']['operations']['release']['certification_principal'],
+    'an unvouched surface names no principal'
+);
+
+// ------------------------------------------ T6: the operator's leave-local decision
+// The one direction a declaration may move an unclassified surface: an
+// OPERATOR decision of runtime / preserve local ("declare it out of scope in
+// the contract" — the remediation every unclassified row prints) is honoured
+// over the site's own unclassified facts, so the row projects Unsupported
+// (never copied) and stays outside every release gate. Anything else — an
+// authored declaration, a platform-default decision, a runtime decision that
+// is not preserve local — keeps deferring to the site facts.
+$decidedContract = $contract;
+foreach ($decidedContract['declarations']['surfaces'] as $i => $surface) {
+    if ($surface['id'] === 'acme_catalog') {
+        $decidedContract['declarations']['surfaces'][$i] = [
+            'state_class' => 'runtime', 'handling' => 'preserve local', 'decided_by' => 'operator',
+        ] + $surface;
+    }
+}
+$decidedContract = ApplicationContract::withDigest($decidedContract);
+// The site's own facts for acme_catalog say unclassified (no adapter declares
+// the table); the decision must win over THOSE, not only fill a fact vacuum.
+$unclassifiedFacts = duo_projection_facts();
+$unclassifiedFacts['surfaces']['acme_catalog'] = [
+    'evidence_subjects' => [],
+    'operations' => [
+        'capture' => ['facts' => duo_vector('capture', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+        'release' => ['facts' => duo_vector('release', ['policy_class' => null, 'unclassified' => true, 'registry' => ['claim_status' => null, 'evidence_status' => null, 'verdict_status' => null, 'blockers' => ['missing_registry_entry'], 'source' => null]])],
+    ],
+];
+$decided = ContractProjection::generate($decidedContract, $unclassifiedFacts, $probe, duo_inventory(), DUO_GENERATED_AT);
+$decidedRows = duo_rows_by_id($decided);
+duo_check_same('runtime', $decidedRows['acme_catalog']['state_class'], 'an operator runtime/preserve local decision on an unclassified surface is honoured: state class runtime');
+duo_check_same('preserve local', $decidedRows['acme_catalog']['handling'], '… handling preserve local');
+duo_check_same('Unsupported', $decidedRows['acme_catalog']['operations']['release']['readiness'], '… readiness Unsupported (never copied), never Ready');
+duo_check_same('nothing — supported', $decidedRows['acme_catalog']['operations']['release']['gap_action'], '… and no next action: the decision IS the resolution');
+foreach ([
+    ['authored', 'manage', 'operator', 'an authored declaration cannot make an unclassified surface anything but unclassified'],
+    ['runtime', 'preserve local', 'platform-default', 'a platform-default runtime decision is not an operator review and does not override the site facts'],
+    ['runtime', 'block', 'operator', 'a runtime decision that is not preserve local is not the leave-local decision'],
+] as [$class, $handling, $by, $why]) {
+    $other = $contract;
+    foreach ($other['declarations']['surfaces'] as $i => $surface) {
+        if ($surface['id'] === 'acme_catalog') {
+            $other['declarations']['surfaces'][$i] = ['state_class' => $class, 'handling' => $handling, 'decided_by' => $by] + $surface;
+        }
+    }
+    $otherRows = duo_rows_by_id(ContractProjection::generate(ApplicationContract::withDigest($other), $unclassifiedFacts, $probe, duo_inventory(), DUO_GENERATED_AT));
+    duo_check_same('unclassified', $otherRows['acme_catalog']['state_class'], $why);
+}
 
 // An observed-but-undeclared surface group is present as the gap it is.
 duo_check_same(false, $rows['site_toolkit_queue']['declared'], 'an undeclared observed group is marked undeclared');
@@ -286,7 +346,9 @@ foreach (['capture', 'release'] as $operation) {
         "a moved registry hash flips products/$operation to Requalification required"
     );
     duo_check_same(
-        'qualify in rehearsal',
+        // T6 §3.6: expired evidence is closed by current certification
+        // evidence, which rehearsal cannot produce and never could.
+        'certify adapter',
         $flippedRows['products']['operations'][$operation]['gap_action'],
         "the flipped products/$operation row names a requalification gap action"
     );

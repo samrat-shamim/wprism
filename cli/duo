@@ -56,6 +56,7 @@ require __DIR__ . '/src/Adapter/ManifestValidate.php';
 require __DIR__ . '/src/Adapter/AdapterDraft.php';
 require __DIR__ . '/src/Adapter/AdapterCatalog.php';
 require __DIR__ . '/src/Adapter/AdapterObservation.php';
+require __DIR__ . '/src/Adapter/AdapterCertify.php';
 // RefreshPlan lands as a separately-reviewable semantic layer. Keep this
 // host shell loadable while that contract is unavailable; Refresh itself
 // fails closed with an actionable diagnostic before any candidate ref exists.
@@ -198,6 +199,7 @@ use Duo\Orchestrator\ManifestValidate;
 use Duo\Orchestrator\AdapterDraft;
 use Duo\Orchestrator\AdapterCatalog;
 use Duo\Orchestrator\AdapterObservation;
+use Duo\Orchestrator\AdapterCertify;
 use Duo\Orchestrator\CommandOutput;
 use Duo\Orchestrator\EnvironmentCommandPreflight;
 use Duo\Orchestrator\PassthroughCommand;
@@ -229,15 +231,20 @@ Usage:
                         [--no-code] [--format=json]
   duo manifest-validate --emit-schema
   duo adapter-draft <site-repo> --name=<n> [--match=<regex>]
-                    [--evidence=<live-evidence.json>] [--format=json] [--check-proposals]
+                    [--evidence=<live-evidence.json>] [--seed=<coverage.json>]
+                    [--out=<path> [--force]] [--format=json] [--check-proposals]
   duo adapter list [--repo=<site-repo>] [--format=json]
   duo adapter inspect <name> [--repo=<site-repo>] [--format=json]
   duo adapter doctor [--repo=<site-repo>] [--format=json]
+  duo adapter keygen --out=<secret-key-file> [--key-id=<id>]
+  duo adapter certify <site-repo> --name=<n> --secret-key-file=<f>
+                      [--key-id=<id>] [--reason=<text>] [--pin]
+  duo adapter pin <site-repo> --name=<n> [--source=site|plugin]
   duo adapter-observe <env> [--out=<local-file>|--format=json]
   duo doctor <env>
   duo driver-capabilities <env> [--operation=<workflow>] [--format=json]
   duo adopt  <env>
-  duo init   <env> [--yes]
+  duo init   <env> [--yes] [--allow-unmanaged-plugins]
   duo status <env> [--category=<ids>] [--action=<buckets>] [--entity=<kinds>] [--limit=<1..200>]
   duo assess <env> [--operation=<ops>] [--limit=<1..200>] [--format=json]
   duo contract <env> show|propose|accept [--format=json]
@@ -321,9 +328,11 @@ Verbs:
     --name=<n>            proposers over the site repo's captured state/**, emitting
     [--match=<regex>]     grammar-shaped CANDIDATES a human ratifies by hand. Facts
     [--evidence=<file>]   land in real classification sections; proposals and
-    [--format=json]       unsupported surfaces nest INERT under a `_draft` sidecar
-    [--check-proposals]   (trigger keys renamed so no validator mis-collects them),
-                          each carrying status/confidence/evidence/questions. Every
+    [--seed=<file>]       unsupported surfaces nest INERT under a `_draft` sidecar
+    [--out=<path>]        (trigger keys renamed so no validator mis-collects them),
+    [--force]             each carrying status/confidence/evidence/questions. Every
+    [--format=json]
+    [--check-proposals]
                           fact needing a live target (column types, real PK, id
                           resolution, natural-key uniqueness) stays a proposal with a
                           question; --evidence is the deferred live seam, accepted and
@@ -332,6 +341,27 @@ Verbs:
                           validators, writing nothing live. WordPress-free, no
                           environment, no transport; the generator never applies or
                           promotes a proposal and never emits PHP.
+                          --seed takes a `duo coverage <env> --format=json`
+                          document (or the richer `wp duo assess-inventory
+                          --format=json`) and proposes the surfaces the OFFLINE
+                          proposers structurally cannot see, because Duo never
+                          captured them: an option prefix invisible to every
+                          installed adapter becomes an option_namespaces +
+                          option_patterns candidate, an undeclared live table
+                          becomes a tables candidate, and — from an inventory
+                          seed only, since coverage reports no post types — a
+                          scope-gate-refused post type becomes a post_types
+                          candidate. Names and counts only, never values, and
+                          every one lands as a low-confidence proposal whose
+                          safe `runtime` class is stated as a default rather
+                          than an observation.
+                          --out writes the draft (canonical bytes, the form
+                          manifest-validate and Policy::load both read) and
+                          REFUSES to replace an existing file without --force,
+                          because a draft is reviewed by hand and the file it
+                          would replace holds the author's ratifications.
+                          Re-running with --force is safe: human edits in the
+                          prior draft are carried forward.
   adapter list            The installed adapter catalog, from the two sources
     [--repo=<site-repo>]  this WordPress-free process can reach: the agent's own
     [--format=json]       manifest library and, with --repo, that site
@@ -382,6 +412,45 @@ Verbs:
                           target, the manifest-shipped PHP it deliberately does
                           not load, and the cross-manifest guards that belong to
                           a pin set.
+  adapter keygen          Mint the CUSTOMER-ORGANIZATION Ed25519 key that
+    --out=<secret-file>   certifies this repository's own adapters. The secret
+    [--key-id=<id>]       is written to the path you name at mode 0600 and
+                          NEVER inside a site repository — a site repo is
+                          committed and published, so a key in one is a
+                          published key. Prints the key id and the public key;
+                          `adapter certify` registers that public key in the
+                          repository's own adapters/authorities.json. This is
+                          a customer-organization trust root, explicitly not a
+                          Duo endorsement: what it signs reads `Site-certified`,
+                          never `Platform-certified`.
+  adapter certify         Sign one installed site adapter under that key.
+    <site-repo>           Registers the public key in adapters/authorities.json
+    --name=<n>            if absent, runs the engine's REAL manifest validators
+    --secret-key-file=<f> over the adapter, builds a
+    [--key-id=<id>]       duo-site-adapter-certification-bundle/v1 whose
+    [--reason=<text>]     evidence is exactly {grammar: <validator verdict>,
+    [--pin]               exercised: false, reason}, signs
+                          adapters/certifications/<n>.json, verifies what it
+                          just wrote through the live verifier, and prints the
+                          {name,source,digest} pin object. --pin writes or
+                          replaces that exact object in site.duo.json.
+                          The certificate binds the adapter's exact bytes: any
+                          edit moves the digest and the pin refuses until both
+                          are redone. NOTHING here claims the adapter was
+                          exercised — the signed bundle records
+                          `exercised: false` and the stated reason, and
+                          deletion semantics are declared unsupported because
+                          a validator run cannot review them.
+  adapter pin             Write or replace one exact {name,source,digest} pin
+    <site-repo>           in site.duo.json, offline. The digest comes from the
+    --name=<n>            engine's own resolution, so it is the number the
+    [--source=site|plugin] engine will check rather than a second hash of the
+                          same file. For a name a shipped adapter also answers
+                          to, --source=site is the OVERRIDE: precedence stays
+                          shipped > site > plugin for a name-only pin, and the
+                          explicit site pin is how you select your own copy.
+                          The shipped copy is then reported `shadowed_by_site`
+                          on every `duo adapter list` row.
   adapter-observe <env>   Ask exactly one configured target for its closed,
     [--out=<local-file>]  value-redacted adapter proposal-evidence document.
     [--format=json]       The host supplies only that environment's configured
@@ -421,6 +490,19 @@ Verbs:
                           the selected managed scope clean. This does not
                           fabricate a promotion rollback checkpoint.
     --yes                 Confirm the displayed proposal non-interactively.
+    --allow-unmanaged     Proceed when active plugins have no owning adapter.
+      -plugins            Each is printed under `advisories` as
+                          `UNMANAGED PLUGIN <slug>/<file>.php
+                          [active_plugin_without_adapter]` instead of blocking,
+                          and NOTHING is written about it: the plugin's options,
+                          tables and post types stay outside every baseline.
+                          `duo assess` carries the consequence as a
+                          `plugin:<slug>` row and the contract records the
+                          decision; this flag is the operator saying that is a
+                          known, accepted limit of this site rather than a defect
+                          to fix first. It does not weaken any other refusal —
+                          an installed but UNCERTIFIED adapter still blocks init
+                          (certify it with `duo adapter certify`).
   status <env>            Run `wp duo plan --format=json` and print counts per
                           plan bucket (incl. deletion conflicts,
                           code_mismatch, and code_drift), drift paths,
@@ -891,6 +973,16 @@ function main(array $argv): int {
     // repository is in a state that makes every environment-bound command
     // refuse, and requiring an <env> would put the answer behind the problem.
     if ($verb === 'adapter') {
+        // Same process, two owners. `list|inspect|doctor` REPORT what is
+        // installed; `keygen|certify|pin` MUTATE — a private key, the site
+        // trust root, a certificate, a pin. Splitting on the sub-verb rather
+        // than widening AdapterCatalog's parser keeps the read-only catalog
+        // free of every write path, which is what lets `duo adapter doctor`
+        // stay the command an operator can run when the repository is in a
+        // state that makes the writing ones refuse.
+        if (in_array($rest[0] ?? '', AdapterCertify::VERBS, true)) {
+            return AdapterCertify::run($rest);
+        }
         return AdapterCatalog::run($rest);
     }
 

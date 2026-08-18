@@ -63,9 +63,23 @@ final class AdapterRegistry {
         return $this->policy->adapter_sources()->provenance($name) ?? $this->manifestDispositions?->entry($name);
     }
 
-    /** The generated evidence-bound claim for one pinned adapter. */
+    /**
+     * The generated evidence-bound claim for one pinned adapter.
+     *
+     * An out-of-tree adapter (site or plugin source, including a site copy
+     * that overrides a shipped name) has exactly the claim its own verified
+     * certificate projects, or none: it never borrows the registry's entry
+     * for the same NAME. That fallback made an uncertified override read the
+     * shipped adapter's certified claim (walk S4: `Ready` beside
+     * `Uncertified` on post_type:product).
+     */
     public function capability_claim(string $name): ?array {
-        return $this->policy->adapter_sources()->claim($name) ?? $this->capabilityRegistry?->claim($name);
+        $sources = $this->policy->adapter_sources();
+        if ($sources->is_out_of_tree($name)) {
+            return $sources->claim($name);
+        }
+
+        return $this->capabilityRegistry?->claim($name);
     }
 
     /**

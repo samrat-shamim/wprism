@@ -22,10 +22,20 @@ require_once __DIR__ . '/../Repository/RepositoryCompiler.php';
  * Runs the reviewed initialization transaction and its compensation paths.
  */
 final class InitConfirmation {
-    /** @return array<string,mixed> */
-    public static function run(string $repo, string $expectedDigest): array {
+    /**
+     * $allowUnmanagedPlugins rides all the way to BOTH recomputations rather
+     * than being consumed here. The flag changes which rows are `unsupported`,
+     * `unsupported` is inside the proposal, and the proposal digest is what
+     * the operator confirmed — so a confirmation run with a different flag
+     * recomputes a different digest and is refused by
+     * assert_confirmed_proposal(), which is the reviewed-decision property the
+     * whole digest protocol exists for.
+     *
+     * @return array<string,mixed>
+     */
+    public static function run(string $repo, string $expectedDigest, bool $allowUnmanagedPlugins = false): array {
         $logicalRepo = InitRepositoryBoundary::normalize($repo);
-        $proposal = InitPlanner::proposal($logicalRepo);
+        $proposal = InitPlanner::proposal($logicalRepo, $allowUnmanagedPlugins);
         InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);
 
         // A connection-scoped database advisory lease is non-durable and
@@ -224,7 +234,14 @@ final class InitConfirmation {
             // state publication lock are held. The operator confirms facts,
             // never a mutable config payload; neither a second init nor an
             // ordinary capture can publish between this recheck and commit.
-            $proposal = InitPlanner::proposal_bound($repo, $logicalRepo, $binding['identity'], true, true);
+            $proposal = InitPlanner::proposal_bound(
+                $repo,
+                $logicalRepo,
+                $binding['identity'],
+                true,
+                true,
+                $allowUnmanagedPlugins
+            );
             InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);
 
             if (($proposal['state']['git']['mode'] ?? null) === 'initialize-on-confirm') {

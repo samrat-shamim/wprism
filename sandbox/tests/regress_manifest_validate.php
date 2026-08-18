@@ -1806,6 +1806,88 @@ $result = duo([$repo . '/manifests', '--format=json']);
 check($result['exit'] === 0 && $result['stderr'] === '', 'a clean run writes nothing to stderr and exits 0');
 
 // ======================================================================
+echo "\n== the site's own adapters/ with --site validates as the SITE source (T6 walk S2) ==\n";
+// `manifest-validate <repo>/adapters --site=<repo>` is the authoring guide's
+// own spelling. Before T6 the directory handed in became the shipped dir for
+// every load, so AdapterSources saw each site adapter twice and refused it as
+// "shadows the shipped adapter <name>". Now that directory is recognised as
+// the site source: the shipped library stays what the agent ships and the
+// site adapters load through the site source, exactly as the engine will.
+$siteAuthored = site_repo([], ['core']);
+mkdir($siteAuthored . '/adapters', 0777, true);
+Canon::write_file($siteAuthored . '/adapters/acme-widgets.json', Canon::encode([
+    'name' => 'acme-widgets',
+    'option_autoload' => 'preserve',
+    'option_namespaces' => [['match' => '^acme_widgets_']],
+    'options' => ['acme_widgets_layout' => ['class' => 'authored']],
+    'plugin' => 'acme-widgets/acme-widgets.php',
+    'spec_version' => DUO_SPEC_VERSION,
+    'version_range' => ['max' => '2.0.0', 'min' => '1.0.0'],
+]));
+register_shutdown_function(function () use ($siteAuthored) {
+    @unlink($siteAuthored . '/adapters/acme-widgets.json');
+    @rmdir($siteAuthored . '/adapters');
+});
+$siteRun = duo([$siteAuthored . '/adapters', '--site=' . $siteAuthored, '--format=json']);
+$siteReport = json_decode($siteRun['stdout'], true);
+check($siteRun['exit'] === 0, 'a site adapter directory validated with --site exits 0 (got ' . $siteRun['exit'] . ': ' . substr($siteRun['stderr'], 0, 200) . ')');
+check(
+    !str_contains($siteRun['stdout'] . $siteRun['stderr'], 'shadows the shipped adapter'),
+    'the site adapter is never reported as shadowing itself'
+);
+check(
+    is_array($siteReport) && ($siteReport['summary']['ok'] ?? null) === 1,
+    'the one site adapter reads ok'
+);
+
+echo "\n== the site copy of a SHIPPED name: an unstated override is a typed stop naming the pin verb (T6 walk S4) ==\n";
+// An operator building an override copies manifests/woocommerce.json into
+// adapters/, edits it, and validates — before stating the override in
+// site.duo.json. That is the shadow refusal, and it is the documented stop:
+// the loader refuses the whole site source, so no manifest is judged. What
+// this command owes the author is the reason CODE and the remediation that
+// names `duo adapter pin … --source=site`, not only "rename or remove".
+$shipped = json_decode((string) file_get_contents($repo . '/manifests/woocommerce.json'), true);
+$shipped['options']['woocommerce_store_address_2'] = ['autoload' => 'preserve', 'class' => 'authored'];
+$overrideSite = site_repo([], ['core', 'woocommerce']);
+mkdir($overrideSite . '/adapters', 0777, true);
+Canon::write_file($overrideSite . '/adapters/woocommerce.json', Canon::encode($shipped));
+register_shutdown_function(function () use ($overrideSite) {
+    @unlink($overrideSite . '/adapters/woocommerce.json');
+    @rmdir($overrideSite . '/adapters');
+});
+$unstated = duo([$overrideSite . '/adapters', '--site=' . $overrideSite]);
+check($unstated['exit'] === 2, 'the unstated override refuses (exit ' . $unstated['exit'] . ')');
+check(
+    str_contains($unstated['stderr'], '[shadows_shipped] duo: site adapter \'adapters/woocommerce.json\' shadows the shipped adapter \'woocommerce\''),
+    'and the refusal carries the loader\'s own sentence under its bracketed reason code (got: ' . substr($unstated['stderr'], 0, 240) . ')'
+);
+check(
+    str_contains($unstated['stderr'], 'duo adapter pin <site-repo> --name=woocommerce --source=site')
+        && str_contains($unstated['stderr'], 'remediation:'),
+    'the remediation names the override verb'
+);
+// Stated (the pin verb writes {name, source:"site", digest}; the shape is what
+// the loader reads), the same directory validates: the shipped provider grant
+// is inherited, so the copy is not refused as out-of-tree code either.
+Canon::write_file($overrideSite . '/site.duo.json', Canon::encode([
+    'manifests' => ['core', ['name' => 'woocommerce', 'source' => 'site']],
+    'policy' => new \stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]));
+$stated = duo([$overrideSite . '/adapters', '--site=' . $overrideSite, '--format=json']);
+$statedReport = json_decode($stated['stdout'], true);
+check(
+    $stated['exit'] === 0 && is_array($statedReport) && ($statedReport['summary']['ok'] ?? null) === 1,
+    'the stated override validates ok through the site source (exit ' . $stated['exit'] . ': ' . substr($stated['stderr'], 0, 200) . ')'
+);
+check(
+    !str_contains($stated['stdout'] . $stated['stderr'], 'acquires no executable privileges')
+        && !str_contains($stated['stdout'] . $stated['stderr'], 'source "manifest"'),
+    'and the inherited provider declaration is not refused as out-of-tree code'
+);
+
+// ======================================================================
 echo "\n";
 if ($failures > 0) {
     echo "FAIL: $failures check(s) failed\n";

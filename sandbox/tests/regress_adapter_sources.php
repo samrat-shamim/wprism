@@ -672,6 +672,195 @@ putenv("DUO_MANIFESTS_DIR=$shippedDir");
 // on the first command that happens to pin it.
 check(true, '(each refusal above fired while the offending adapter was NOT pinned)');
 
+// ======================================================================
+echo "\n== T6 §3.3: an explicit site pin OVERRIDES a shipped adapter ==\n";
+// ======================================================================
+// The refusals above are what an operator hits when they say nothing. This is
+// what they get when they say it: the same colliding file, plus a pin that
+// names the source, selects the site copy — and the shipped copy is reported
+// rather than silently losing.
+$overrideRepo = fresh_site(
+    [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+    ['woocommerce' => site_adapter('woocommerce')]
+);
+$overridePolicy = Policy::load($overrideRepo);
+$overrideSources = $overridePolicy->adapter_sources();
+check(
+    $overrideSources->source('woocommerce') === AdapterSources::SITE
+        && $overrideSources->path('woocommerce') === 'adapters/woocommerce.json',
+    'the explicit {name, source:"site"} pin selects the site copy for a SHIPPED name — got '
+    . $overrideSources->source('woocommerce') . ' at ' . var_export($overrideSources->path('woocommerce'), true)
+);
+$overrideNames = array_map(
+    static fn(array $m): string => (string) ($m['name'] ?? ''),
+    $overridePolicy->manifests
+);
+check(
+    count(array_keys($overrideNames, 'woocommerce', true)) === 1,
+    'exactly ONE definition answers to the overridden name in the loaded set, so CrossManifestGuards see no '
+    . 'manufactured conflict between the shipped and site copies'
+);
+check(
+    ($overrideSources->diagnostics($overridePolicy->manifests)['woocommerce']['certification'] ?? null)
+        === 'uncertified',
+    'the site copy carries the SITE\'s own certification words — an override never inherits the shipped '
+    . "adapter's reviewed registry claim"
+);
+$overrideSurvey = AdapterSources::survey($overrideRepo);
+$shadowRow = null;
+foreach ($overrideSurvey['not_installed'] as $row) {
+    if (($row['name'] ?? null) === 'woocommerce') {
+        $shadowRow = $row;
+    }
+}
+check(
+    is_array($shadowRow)
+        && $shadowRow['reason_code'] === AdapterSources::CERTIFICATION_SHADOWED_BY_SITE
+        && $shadowRow['source'] === AdapterSources::SHIPPED
+        && ($shadowRow['winner']['source'] ?? null) === AdapterSources::SITE
+        && ($shadowRow['winner']['path'] ?? null) === 'adapters/woocommerce.json',
+    'the displaced shipped copy is reported shadowed_by_site, naming the site copy that won — never silently '
+    . 'absent (' . var_export($shadowRow['reason_code'] ?? null, true) . ')'
+);
+$overrideCatalogNames = array_column($overrideSurvey['adapters'], 'source', 'name');
+check(
+    ($overrideCatalogNames['woocommerce'] ?? null) === AdapterSources::SITE,
+    'the catalog lists the site copy once, under the overridden name'
+);
+check(
+    $overrideSurvey['refusals'] === [],
+    'an explicitly pinned override raises NO refusal — got '
+    . implode(',', array_column($overrideSurvey['refusals'], 'code'))
+);
+// T6 §3.3, as the walk's S4 met it: an override is a COPY of the shipped
+// adapter with an edit, and the shipped woocommerce adapter declares
+// executable grants (a manifest-sourced provider). The out-of-tree rule
+// refuses those for an unrelated site adapter (below, "acquires no executable
+// privileges"); for an override they are the shipped grant repeated, and the
+// site copy inherits exactly them — no more.
+$shippedWoo = json_decode((string) file_get_contents(Policy::manifests_dir() . '/woocommerce.json'), true);
+$grants = AdapterSources::shipped_executable_grants(Policy::manifests_dir(), 'woocommerce');
+check(
+    is_array($grants)
+        && array_keys($grants) === ['interpreter', 'regenerators', 'providers']
+        && isset($grants['providers']['woocommerce-cache'])
+        && $grants['providers']['woocommerce-cache'] === $shippedWoo['providers'][0],
+    'shipped_executable_grants() returns the shipped interpreter / regenerators / providers by id, verbatim'
+);
+check(
+    AdapterSources::shipped_executable_grants(Policy::manifests_dir(), 'acme-widget') === null,
+    'and null for a name the library does not ship — an unrelated site adapter inherits nothing'
+);
+$overrideCopy = $shippedWoo;
+$overrideCopy['options']['woocommerce_walk_banner'] = ['class' => 'authored'];
+$inheritedRepo = fresh_site(
+    [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+    ['woocommerce' => $overrideCopy]
+);
+$inheritedPolicy = Policy::load($inheritedRepo);
+$inheritedManifest = null;
+foreach ($inheritedPolicy->manifests as $m) {
+    if (($m['name'] ?? null) === 'woocommerce') {
+        $inheritedManifest = $m;
+    }
+}
+check(
+    is_array($inheritedManifest)
+        && ($inheritedManifest['providers'][0]['id'] ?? null) === 'woocommerce-cache'
+        && ($inheritedManifest['providers'][0]['source'] ?? null) === 'manifest'
+        && ($inheritedManifest['options']['woocommerce_walk_banner']['class'] ?? null) === 'authored',
+    'an override that repeats the shipped provider declaration verbatim LOADS with it, plus its own edit'
+);
+check(
+    ($inheritedPolicy->adapter_sources()->diagnostics($inheritedPolicy->manifests)['woocommerce']['trust_tier'] ?? null)
+        === AdapterSources::TIER_COMPATIBILITY_SHIM,
+    'and carries the shipped tier the inherited code implies — the site copy is not laundered into declarative'
+);
+$widenedCopy = $overrideCopy;
+$widenedCopy['providers'][] = [
+    'capabilities' => ['flush'],
+    'id' => 'walk-rogue',
+    'plugin' => 'woocommerce/woocommerce.php',
+    'source' => 'manifest',
+    'version' => '1.0.0',
+];
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+        ['woocommerce' => $widenedCopy]
+    )),
+    'source "manifest"',
+    'an override that ADDS a manifest-sourced provider the shipped adapter does not grant is refused — '
+    . 'inheritance is the shipped grant, never a widening of it'
+);
+$editedGrant = $overrideCopy;
+$editedGrant['providers'][0]['capabilities'][] = 'walk-extra';
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+        ['woocommerce' => $editedGrant]
+    )),
+    'source "manifest"',
+    'an override that EDITS the inherited provider row (one more capability) is refused: identical or nothing'
+);
+$borrowedInterpreter = $overrideCopy;
+$borrowedInterpreter['interpreter'] = 'acf';
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+        ['woocommerce' => $borrowedInterpreter]
+    )),
+    'acquires no executable privileges',
+    'an override cannot borrow ANOTHER shipped adapter\'s interpreter under the shipped name it overrides'
+);
+
+// The uncertified override has NO capability claim: it never borrows the
+// registry's entry for the shipped name it displaced (walk S4 read `Ready`
+// beside `Uncertified` on post_type:product from exactly that borrowing).
+check(
+    $overridePolicy->capability_claim('woocommerce') === null,
+    'an uncertified override answers with no capability claim — the shipped claim for the same name is not borrowed'
+);
+$overrideBlockers = array_column(
+    $overridePolicy->capability_report(['operation' => 'promote'])['blockers'] ?? [],
+    'code',
+    'name'
+);
+check(
+    ($overrideBlockers['woocommerce'] ?? null) === 'adapter_source_uncertified',
+    'and the capability report blocks it as adapter_source_uncertified, not as the certified shipped adapter (got '
+    . var_export($overrideBlockers['woocommerce'] ?? null, true) . ')'
+);
+
+// The three ways an override must NOT be available, each a separate fail-safe.
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], 'woocommerce'],
+        ['woocommerce' => site_adapter('woocommerce')]
+    )),
+    'shadows the shipped adapter',
+    'a NAME-ONLY pin is not an override: precedence stays shipped > site > plugin and the refusal stands'
+);
+expect_throw(
+    fn() => Policy::load(fresh_site(
+        [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'shipped']],
+        ['woocommerce' => site_adapter('woocommerce')]
+    )),
+    'shadows the shipped adapter',
+    'a pin that names the SHIPPED source for a shadowed name is not an override either'
+);
+$brokenPolicyRepo = fresh_site(
+    [['name' => 'core'], ['name' => 'woocommerce', 'source' => 'site']],
+    ['woocommerce' => site_adapter('woocommerce')]
+);
+file_put_contents($brokenPolicyRepo . '/site.duo.json', "{ not json");
+expect_throw(
+    fn() => Policy::load($brokenPolicyRepo),
+    'invalid JSON',
+    'an unreadable site.duo.json yields NO overrides — the override reader fails closed, so a broken policy '
+    . 'file can never silently swap which definition is in force'
+);
+
 // DUO-3371: PINNING that same shipped manifest is now itself a refusal. Until
 // this issue the shipped side kept the freedom DUO-3314 removed from the site
 // side, so one adapter answered to its file name in the disposition registry's

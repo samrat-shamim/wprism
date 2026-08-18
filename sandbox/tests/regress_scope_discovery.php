@@ -22,6 +22,12 @@ namespace {
 namespace Duo {
     /** @var string[] */
     $scopeDiscoveryPublicPostTypes = ['page', 'book', 'runtime_type'];
+    // Registered by a plugin (`_builtin` false) but public:false — the
+    // WPForms `wpforms` shape (T6 walk S1). Any plugin-registered type is a
+    // gap candidate until a rule names it; core's own non-public types are
+    // builtin and are not.
+    $scopeDiscoveryPluginPostTypes = ['form_store'];
+    $scopeDiscoveryPluginTaxonomies = ['form_group'];
     /** @var string[] */
     $scopeDiscoveryPublicTaxonomies = ['category', 'genre', 'runtime_tax'];
     /** @var array<string,object> */
@@ -31,13 +37,17 @@ namespace Duo {
     ];
 
     /** @return string[] */
-    function get_post_types(array $_args, string $_output): array {
-        return $GLOBALS['scopeDiscoveryPublicPostTypes'];
+    function get_post_types(array $args, string $_output): array {
+        return array_key_exists('_builtin', $args) && $args['_builtin'] === false
+            ? $GLOBALS['scopeDiscoveryPluginPostTypes']
+            : $GLOBALS['scopeDiscoveryPublicPostTypes'];
     }
 
     /** @return string[] */
-    function get_taxonomies(array $_args, string $_output): array {
-        return $GLOBALS['scopeDiscoveryPublicTaxonomies'];
+    function get_taxonomies(array $args, string $_output): array {
+        return array_key_exists('_builtin', $args) && $args['_builtin'] === false
+            ? $GLOBALS['scopeDiscoveryPluginTaxonomies']
+            : $GLOBALS['scopeDiscoveryPublicTaxonomies'];
     }
 
     function get_taxonomy(string $taxonomy): object|false {
@@ -147,6 +157,7 @@ namespace Duo {
                     ['post_type' => 'book', 'entities' => '3'],
                     ['post_type' => 'runtime_type', 'entities' => '4'],
                     ['post_type' => 'not_a_candidate', 'entities' => '5'],
+                    ['post_type' => 'form_store', 'entities' => '2'],
                 ];
             }
             if (str_contains($sql, 'SELECT taxonomy, COUNT(*) AS entities')) {
@@ -157,6 +168,7 @@ namespace Duo {
                     ['taxonomy' => 'genre', 'entities' => '6'],
                     ['taxonomy' => 'runtime_tax', 'entities' => '7'],
                     ['taxonomy' => 'not_a_candidate', 'entities' => '8'],
+                    ['taxonomy' => 'form_group', 'entities' => '1'],
                 ];
             }
             if (str_contains($sql, 'SELECT * FROM')) {
@@ -198,9 +210,11 @@ namespace Duo {
     $check(
         $scope['gaps'] === [
             'post_type:book' => ['entities' => 3],
+            'post_type:form_store' => ['entities' => 2],
+            'taxonomy:form_group' => ['entities' => 1],
             'taxonomy:genre' => ['entities' => 6],
         ],
-        'scope gaps retain absent authored dispositions and exclude scoped, explicit-runtime, and unrelated rows'
+        'scope gaps retain absent authored dispositions — public OR plugin-registered types — and exclude scoped, explicit-runtime, and unrelated rows'
     );
     $check(
         array_map(static fn(object $row): int => (int) $row->ID, $scope['posts']) === [2, 9],

@@ -255,7 +255,8 @@ duo_check_same(DUO_AGENT_VERSION, $document['agent_version'], 'the document bind
 $topLevel = array_keys($document);
 sort($topLevel, SORT_STRING);
 duo_check_same(
-    ['adapter_survey', 'agent_version', 'coverage', 'format', 'media', 'pending', 'plugins', 'policy', 'spec_version', 'target', 'themes'],
+    ['adapter_survey', 'agent_version', 'coverage', 'format', 'media', 'pending', 'plugins',
+        'plugins_without_adapter', 'policy', 'spec_version', 'target', 'themes'],
     $topLevel,
     'a healthy document carries exactly the shared contract key set'
 );
@@ -316,6 +317,45 @@ duo_check_same(
     'a child theme makes BOTH stylesheet and template active; the third theme is not'
 );
 
+// ---------------------------------------------------------------------------
+echo "\n== the active plugins no pinned adapter declares ==\n";
+// ---------------------------------------------------------------------------
+// The fixture pins `core` alone, which declares no plugin, so the one active
+// plugin is unmanaged. Without this list the host has no bounded, name-only
+// source for the `plugin:<slug>` assess surface (round-3 T6 §3.6) and has to
+// re-derive plugin ownership from manifest bytes it does not hold.
+duo_check_same(
+    [[
+        'basename' => 'acme-storefront/acme-storefront.php',
+        'file' => 'acme-storefront.php',
+        'slug' => 'acme-storefront',
+    ]],
+    $document['plugins_without_adapter'],
+    'the one active plugin no pinned adapter declares is published with all three parts of its identity, '
+    . 'so the host splits nothing: basename (the same key the plugins rows use), file, and slug'
+);
+duo_check(
+    !in_array(
+        'zeta-tools/zeta-tools.php',
+        array_column($document['plugins_without_adapter'], 'basename'),
+        true
+    ),
+    'an INACTIVE plugin is not an unmanaged-plugin row — activation is what puts a plugin in scope'
+);
+$singleFile = AssessInventory::from_facts(
+    $policy,
+    ['probe' => ['active_plugins' => ['hello.php', 'acme-storefront/acme-storefront.php']] + $probe] + $facts
+);
+duo_check_same(
+    [
+        ['basename' => 'acme-storefront/acme-storefront.php', 'file' => 'acme-storefront.php',
+            'slug' => 'acme-storefront'],
+        ['basename' => 'hello.php', 'file' => 'hello.php', 'slug' => 'hello'],
+    ],
+    $singleFile['plugins_without_adapter'],
+    'a single-file plugin has no directory, so its slug is the file name without .php; rows sort by basename'
+);
+
 duo_check_same(2, $document['media']['count'], 'media counts the attachment rows and nothing else');
 duo_check_same(null, $document['media']['bytes'], 'stored bytes are declared unknown rather than guessed');
 
@@ -339,8 +379,53 @@ duo_check(
 duo_check_same(
     (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/capabilities/registry.json'), true)['manifests']['core']['adapter_digest'] ?? ''),
     $manifestRow['adapter_digest'],
-    'the digest is READ from the generated registry, not recomputed here'
+    'the digest agrees with the generated registry: the resolved content digest IS what the registry binds for a shipped adapter'
 );
+// A SITE adapter has no registry claim to read a digest from, and a
+// site-certified claim is projected before its final digest exists — so the
+// row's digest is the resolved content digest for every source, or `duo
+// assess` refuses assess_report_unbuildable on exactly the repositories T6
+// exists for (grind_adapter_walk.sh S2).
+$siteRepo = $scratch . '/siterepo';
+mkdir($siteRepo . '/adapters', 0777, true);
+Canon::write_file($siteRepo . '/adapters/acme-storefront.json', Canon::encode([
+    'name' => 'acme-storefront',
+    'option_autoload' => 'preserve',
+    'option_namespaces' => [['match' => '^acme_storefront_']],
+    'options' => ['acme_storefront_layout' => ['class' => 'authored']],
+    'plugin' => 'acme-storefront/acme-storefront.php',
+    'spec_version' => DUO_SPEC_VERSION,
+    'version_range' => ['max' => '5.0.0', 'min' => '4.0.0'],
+]));
+Canon::write_file($siteRepo . '/site.duo.json', Canon::encode([
+    'manifests' => ['core', 'acme-storefront'],
+    'policy' => new stdClass(),
+    'spec_version' => DUO_SPEC_VERSION,
+]));
+register_shutdown_function(static function () use ($siteRepo): void {
+    @unlink($siteRepo . '/adapters/acme-storefront.json');
+    @unlink($siteRepo . '/site.duo.json');
+    @rmdir($siteRepo . '/adapters');
+    @rmdir($siteRepo);
+});
+$sitePolicy = Policy::load($siteRepo);
+$siteDocument = AssessInventory::from_facts($sitePolicy, $facts);
+$siteRows = array_column($siteDocument['policy']['manifests'], null, 'name');
+$resolvedSite = array_column(\Duo\RepositoryCompiler::resolved_adapters($sitePolicy), 'digest', 'name');
+duo_check_same(
+    ['acme-storefront', 'core'],
+    array_keys($siteRows),
+    'a repository pinning a site adapter reports both rows'
+);
+duo_check_same('site', $siteRows['acme-storefront']['source'] ?? null, 'the site adapter row names its source');
+duo_check(
+    is_string($siteRows['acme-storefront']['adapter_digest'] ?? null)
+        && preg_match('/^[0-9a-f]{64}$/D', (string) $siteRows['acme-storefront']['adapter_digest']) === 1
+        && $siteRows['acme-storefront']['adapter_digest'] === ($resolvedSite['acme-storefront'] ?? null),
+    'and carries the RESOLVED content digest (a site adapter has no registry claim to read one from) — got '
+    . var_export($siteRows['acme-storefront']['adapter_digest'] ?? null, true)
+);
+duo_check_same('uncertified', $siteRows['acme-storefront']['status'] ?? null, 'its status is the site source\'s own word');
 duo_check_same(
     (string) (json_decode((string) file_get_contents($repoRoot . '/manifests/dispositions.json'), true)['manifests']['core']['status'] ?? ''),
     $manifestRow['status'],

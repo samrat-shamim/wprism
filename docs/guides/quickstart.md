@@ -297,7 +297,12 @@ layout, and a writable, pre-existing ordinary `repo_path` with no symbolic-link
 ancestor. Init may create the Git worktree and Duo contracts inside that empty
 or adoption-seed directory, but it does not create the directory, install
 WordPress, or deliver the agent. It refuses before confirmation when those
-prerequisites or the certified managed boundary are not present.
+prerequisites or the certified managed boundary are not present. An adoption
+seed that already carries explicit `{name, source: "site"|"plugin", digest}`
+pins — what `duo adapter certify --pin` and `duo adapter pin` write for an
+operator-authored or overriding adapter — is still the seed: init recomputes
+and republishes those pins exactly, so certifying first and initializing
+second is the intended order.
 
 Hand-author `site.duo.json` only when you intentionally need a policy that the
 discovered initializer cannot propose. The minimal manual shape remains the

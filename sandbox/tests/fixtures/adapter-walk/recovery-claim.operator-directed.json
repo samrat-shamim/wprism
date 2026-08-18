@@ -1,0 +1,27 @@
+{
+    "claim_digest": "sha256:ec73f4575e66713575d35b59371bc1a51cbcae862f310535d752c8e43e191c73",
+    "covered_resources": [
+        "database checkpoint /siterepo/.duo/checkpoints/promote-1.sql"
+    ],
+    "does_not_restore": [
+        "emails already sent",
+        "payment captures or refunds already made",
+        "webhooks already delivered",
+        "third-party systems that observed the change",
+        "orders and sessions written by live traffic after the checkpoint",
+        "code releases — reconcile code by hand to the pre-release revision before importing the checkpoint",
+        "uploaded media bundles — the target keeps whatever the release wrote",
+        "provider effect bundles — no inverse effect operation is authorized in this profile",
+        "declared external effect \"code-lifecycle-window\" — restored by \"code release\", which the operator-directed profile does not restore"
+    ],
+    "format": "duo-recovery-claim/v1",
+    "maximum_loss_boundary": "writes committed after the checkpoint this release takes immediately before mutation; the instant that checkpoint pins is printed beside this claim",
+    "profile": "operator-directed",
+    "restores": [
+        "database checkpoint"
+    ],
+    "writer_exclusion": {
+        "mechanism": "an external maintenance window: exclude every other writer, then assert it with --writers-excluded (a lock inside the database being imported cannot protect the window)",
+        "required": true
+    }
+}

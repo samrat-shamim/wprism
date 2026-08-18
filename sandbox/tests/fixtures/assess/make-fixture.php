@@ -151,6 +151,17 @@ $inventory = [
         ['basename' => 'sample-adapter/sample-adapter.php', 'name' => 'Sample Adapter',
             'version' => '10.4.2', 'active' => true],
         ['basename' => 'inactive-thing.php', 'name' => 'Inactive Thing', 'version' => '1.0', 'active' => false],
+        ['basename' => 'unmanaged-widget/unmanaged-widget.php', 'name' => 'Unmanaged Widget',
+            'version' => '3.1.0', 'active' => true],
+    ],
+    // T6 §3.6. An ACTIVE plugin no pinned manifest declares — the single
+    // largest thing Duo cannot version on a real site, and the thing assess
+    // said nothing at all about before this. The agent publishes all three
+    // identity parts (AssessInventory::plugins_without_adapter()), so the
+    // host splits nothing.
+    'plugins_without_adapter' => [
+        ['basename' => 'unmanaged-widget/unmanaged-widget.php', 'file' => 'unmanaged-widget.php',
+            'slug' => 'unmanaged-widget'],
     ],
     'themes' => [['stylesheet' => 'sample-theme', 'name' => 'Sample Theme', 'version' => '2.0.1', 'active' => true]],
     'media' => ['count' => 2, 'bytes' => null],

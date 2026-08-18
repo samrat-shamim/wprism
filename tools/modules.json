@@ -1344,10 +1344,11 @@
       },
       "Adapter": {
         "layer": "adapter",
-        "purpose": "Authoring-side adapter tooling: catalog, draft, observation and manifest validation against the agent's policy.",
+        "purpose": "Authoring-side adapter tooling: catalog, draft, observation, manifest validation against the agent's policy, and the operator's own Ed25519 certification authority (keygen/certify/pin).",
         "status": "populated",
         "entry_points": [
           "AdapterCatalog",
+          "AdapterCertify",
           "AdapterDraft",
           "AdapterObservation",
           "ManifestValidate"
@@ -1359,12 +1360,14 @@
           "agent:Delete",
           "agent:Kernel",
           "agent:Policy",
-          "agent:Rebuild"
+          "agent:Rebuild",
+          "agent:Repository"
         ],
         "exceptions": [],
-        "file_count": 4,
+        "file_count": 5,
         "files": [
           "AdapterCatalog.php",
+          "AdapterCertify.php",
           "AdapterDraft.php",
           "AdapterObservation.php",
           "ManifestValidate.php"

@@ -120,16 +120,50 @@ as small as a real adapter gets. Stripped of its notes, it is six keys:
 
 ### The caveat that catches everyone
 
-CF7's own notes carry it: `wpcf7_contact_form` **must** be added to the site's
+CF7's own notes carry it: `wpcf7_contact_form` **must** be in the site's
 `policy.post_types` in `site.duo.json` for any of these rules to take effect.
-**Manifests cannot declare post-type scope.** A manifest classifies keys within
+**A manifest classifies; the site scopes.** A manifest classifies keys within
 entities that are already in scope; the scope list itself is site-local policy.
-Ship a manifest for a plugin with a custom post type and you have shipped half
-the answer — the site still has to opt its entities into management.
+`duo init` proposes that scope for you — every `post_types`/`taxonomies` entry
+of class `authored` in a selected adapter goes into the proposal — so on an
+init-owned repository a manifest with `"post_types": {"wpcf7_contact_form":
+{"class": "authored"}}` does carry its own scope. A hand-authored
+`site.duo.json`, or a scope you narrowed afterwards, still has to name the
+entity, and `duo classify` is how a type left local is re-decided later.
 
 For an interpreter-shaped adapter, where meta semantics live in data rather
 than in a static key list, [`manifests/acf.json`](../../manifests/acf.json) is
 the reference.
+
+### Deleting what you author
+
+Authoring a post type does not make its rows deletable through Duo. A capture
+that finds an authored row gone mints a *deletion intent*, and the engine
+refuses that intent — loudly, at capture — unless a pinned adapter declares the
+destructive effects the kind needs: `duo: deletion intent for post:<type> is
+unsupported — no pinned adapter declares its reverse-reference checks and
+cascade effects`. WordPress's own cascade behaviour is never inferred. Declare
+it:
+
+```json
+"deletions": {
+  "post:wpforms": {
+    "cascades": ["postmeta", "post_revisions", "term_relationships"],
+    "guards": []
+  }
+}
+```
+
+`cascades` is the closed required set per kind (`post`: postmeta,
+post_revisions, term_relationships; `term`: termmeta, term_taxonomy,
+term_relationships; `menu`: those plus menu_items); `guards` lists the
+reverse references that must be empty before a delete is allowed (`{table,
+column, id_kind, reason}` — `manifests/core.json`'s `post:attachment` shows a
+comments guard and a child-posts guard). An empty guard list is a claim that
+nothing references the row: make it only when it is true. The T6 walk's
+WPForms adapter declares exactly the block above, because a WPForms Lite form
+is referenced by nothing Duo manages; without it S2 stopped at the first
+target-side capture after a form was deleted.
 
 ## Precedence, in one sentence each
 
@@ -591,14 +625,67 @@ site-local rules from `site.duo.json`. Run
 further — see [Checking the grammar offline](#checking-the-grammar-offline);
 the hand-added parts are exactly the ones no export path checked.
 
+### 4b. Or start from a draft, when there are no site-local rules yet
+
+`policy-to-manifest` promotes rules you have *already classified*. For a plugin
+nothing knows about yet, there are none — so `duo adapter-draft` proposes them
+instead, from the repository's captured `state/**` plus, with `--seed`, from
+what `duo coverage` saw on the live site:
+
+```sh
+duo coverage prod --format=json > coverage.json
+duo adapter-draft <site-repo> --name=wpforms \
+  --seed=coverage.json --out=<site-repo>/adapters/wpforms.json
+```
+
+Why `--seed` earns its place: the offline proposers read `state/**`, so they
+can only see surfaces Duo **already captures** — and the surfaces you are
+writing an adapter *for* are exactly the ones it does not. An option prefix
+invisible to every installed adapter, and a live table no manifest declares,
+are invisible to the draft generator and plainly visible to `duo coverage`.
+`--seed` turns each into a candidate with coverage's own observation quoted:
+
+| coverage finding | proposed as |
+|---|---|
+| `options.invisible_groups[].prefix` | an `option_namespaces` match **and** an `option_patterns` rule |
+| `tables.undeclared[]` | a `tables.<logical_name>` declaration |
+| a scope-gate-refused post type | a `post_types.<name>` declaration |
+
+The third one needs the richer seed: `duo coverage` reports options and tables
+and nothing else, so pass a `wp duo assess-inventory --format=json` document
+instead when you want post types too. The draft records which families its seed
+actually supplied in `_draft.seed`, so a short draft is never a silent one.
+
+**Every seeded candidate is `runtime`, and that is a default, not an
+observation.** An undeclared table is one Duo has never read a row of; calling
+it `authored` on that evidence would put live operational rows into your
+repository. What `runtime` buys is honest: the surface becomes *declared and
+excluded* instead of reading `unclassified / block` in assess. Promote the
+parts that really are authored configuration by hand — and then their columns,
+primary key and identity are live facts an offline draft cannot supply, which
+is what each candidate's `questions` say.
+
+Everything under `_draft` is inert: `Policy::load()` never applies a proposal,
+and the trigger keys are renamed so no validator mis-collects one. Ratify by
+hand, delete the rest, then `duo adapter inspect <name> --repo=<site-repo>`.
+`--out` refuses to overwrite an existing draft without `--force`, because that
+file holds your ratifications; re-running with `--force` is safe, since human
+edits in the prior draft are carried forward.
+
 ### 5. Pin it
 
 ```sh
 wp duo manifest-pin --name=contact-form-7
 ```
 
-This prints the exact canonical `{"name": …, "digest": …}` object to paste into
-`site.duo.json`'s `manifests` array. The digest is content-addressed against
+This prints the exact canonical `{"digest": …, "name": …, "source": …}` object
+to paste into `site.duo.json`'s `manifests` array (keys are canonical, so they
+print in alphabetical order). `source` is always present and always the source
+the adapter actually resolved from — `shipped` here, `site` for one installed
+at `adapters/<name>.json`, `plugin` for one a plugin bundles — because a pin
+that named only a name and a digest could not say WHICH definition it
+reviewed, and a pin that names a source refuses loudly the day a different
+source starts answering to that name. The digest is content-addressed against
 the same per-manifest digest compiled artifacts record in `resolved_adapters`,
 including a declared interpreter's name and bytes, and load refuses a mismatch
 before any policy consumer or target contact.
@@ -703,25 +790,132 @@ A site may install an additional, data-only adapter at
 `adapters/<name>.json`. Names are canonical lowercase ASCII slugs; the file
 basename and manifest `name` must be identical, refused at load with the same
 ambiguous-identity sentence the shipped library gets. This source overlays the
-shipped library but can never shadow it. It cannot supply an interpreter,
+shipped library, and shadows a shipped name only when the repository says so
+explicitly (see [Overriding a shipped adapter](#overriding-a-shipped-adapter)).
+It cannot supply an interpreter,
 regenerator, manifest-owned provider, trust root, disposition, or other PHP.
 Plugin-owned providers remain valid because their executable identity is the
 installed, active, version-bounded plugin and the ordinary provider
 negotiation/receipt contract—not the site manifest.
 
 Without a certificate, the adapter is usable for plan/apply but is visibly
-`uncertified`; readiness and host promotion remain blocked. Certification is a
-separate reviewer operation:
+`uncertified`; readiness and host promotion remain blocked.
+
+There are two ways to certify one, and which you want depends on **whose
+approval the certificate represents**.
+
+### Your organization's own approval (`duo adapter certify`)
+
+This is the path for an adapter you authored for your own site. The product
+spec calls the result *Site-certified*: "customer-organization approval through
+Duo's certification protocol, explicitly not a Duo endorsement". You hold the
+key, you sign your own adapters, and the projection names you.
+
+```sh
+# 1. Mint the organization key. ONCE, and never inside a site repository —
+#    a site repo is committed and published, so a key in one is a published key.
+duo adapter keygen --out=~/.duo-keys/acme-org.key
+#    key-id:     site-1a2b3c4d5e6f
+#    public-key: <base64>
+
+# 2. Certify the installed adapter and write the pin in one step.
+duo adapter certify <site-repo> --name=<name> \
+  --secret-key-file=~/.duo-keys/acme-org.key \
+  --reason='Acme reviewed this adapter against its own catalog schema.' --pin
+```
+
+`certify` does five things and prints what each one produced:
+
+1. Registers the public key in the site's own
+   `adapters/authorities.json` — the **site trust root**, in exactly the
+   shipped `duo-adapter-authorities/v1` grammar. Keys there are trusted only
+   for adapters in that repository. A key present in both the shipped file and
+   the site file: the shipped record wins.
+2. Runs the engine's real manifest validators over the adapter. A manifest the
+   engine will not load is never signed.
+3. Signs `adapters/certifications/<name>.json` — the bundle is derived and
+   built by the engine, never by hand, and never reaches disk. What it may
+   claim is [What a site-rooted certificate may
+   prove](#what-a-site-rooted-certificate-may-prove).
+4. Immediately verifies what it just wrote, through the live verifier.
+5. Prints the `{digest, name, source}` pin object; `--pin` writes it into
+   `site.duo.json`.
+
+**What this certificate says, and what it does not.** It says: this
+organization's key approves *these exact bytes*, and the engine's validators
+accept the manifest's grammar. It does not say the adapter was exercised
+against a live site — the signed bundle records `exercised: false` and carries
+it onto the claim, so nobody downstream can read `certified` as "somebody ran
+it" — and it declares deletion semantics **unsupported**, because a validator
+run reviews none. Assess reads `Site-certified` for the surfaces it governs,
+prints `certified by <key-id> (site trust root); contract attestation unsigned`
+once, and `duo release`/`duo promote` admit the adapter through their existing
+"certified and evidence current" gate.
+
+**The certificate binds bytes, so an edit breaks it.** Any change to
+`adapters/<name>.json` moves the digest; the pin then refuses and the claim
+drops back to uncertified. Re-run `duo adapter certify … --pin` after every
+edit. That is the mechanism working, not a bug to route around.
+
+**Key custody is yours.** A lost key cannot re-sign. A leaked key can certify
+any adapter in a repository whose `adapters/authorities.json` names it. Back it
+up where you back up deploy keys; production-grade custody (HSMs, rotation,
+revocation workflow) is out of scope for this profile.
+
+### Promoting a plugin-bundled adapter
+
+An adapter a plugin bundles (`<plugin>/duo-adapter.json`) can never be
+certified where it lives: certification binds `adapters/<name>.json` inside the
+signed statement, so no certificate can name a bundled file at all. The
+promotion path is to install it as a repository package first — copy it to
+`adapters/<name>.json`, run `duo adapter pin <site-repo> --name=<n>`, then
+`duo adapter certify`. The site copy wins by precedence and the bundled copy
+reports as not installed; the plugin stays active throughout and nothing breaks
+in between. (Replacing a *shipped* name is a different act with its own rules —
+see [Overriding a shipped adapter](#overriding-a-shipped-adapter).)
+
+### A reviewer's approval under the agent-owned trust root
+
+This is the original path and it is unchanged. It is for a reviewer who
+exercised the adapter and holds a key the *agent* trusts, and it produces a
+richer bundle — real tests, real artifacts, a real evidence repository:
 
 1. Produce a passing `duo-site-adapter-certification-bundle/v1` scoped exactly
    to `{"kind":"site_adapter","name":"<name>"}` whose bound inputs contain
    exactly the raw `adapters/<name>.json` bytes and whose ratification contains
    exactly one certified disposition for that name.
-2. Install the reviewer's public-key record under the agent-owned
-   `manifests/capabilities/adapter-authorities.json`. The site repository never
-   supplies a public key. Each `keys.<key-id>` record fixes Ed25519, the
+2. Install the signing public-key record under **one of the two trust roots**.
+   Each `keys.<key-id>` record fixes Ed25519, the
    `site_adapter_certification` scope, `trusted` or `revoked` status, exact
-   adapter names and permitted trust tiers, and the canonical public key.
+   `adapter_names` and permitted `trust_tiers`, and the canonical public key —
+   the same six-key grammar in both files:
+
+   - the agent-owned `manifests/capabilities/adapter-authorities.json`, which
+     only this project can fill. A certificate under one of its keys is
+     `third_party_signed`, trust root `platform`.
+   - **the site's own `adapters/authorities.json`**, held by the customer
+     organization. A certificate under one of its keys is `site_signed`, trust
+     root `site` — the product's *Site-certified*, which is customer-
+     organization approval and explicitly **not** a Duo endorsement.
+
+   The site record is a living registry: `duo adapter certify` appends each
+   newly certified name (and its tier) to the key's record. A certificate under
+   the site root binds the key's *identity* — id, algorithm, public key,
+   scope, status, fingerprint, trust root — and the record it was signed over;
+   the record's `adapter_names`/`trust_tiers` and its `revoked` status are
+   enforced live against the current file on every verification. So certifying
+   a second adapter under the same key leaves the first certificate (and the
+   digest its pin binds) intact, while rotating the public key under the same
+   id or revoking the key invalidates every certificate under it at once. The
+   platform record binds whole: that file is reviewed and shipped, and never
+   grows under an operator's hand.
+
+   A key id present in both files resolves to the shipped record, always: a
+   certificate that claimed the site root for such an id is refused by name.
+   `adapters/authorities.json` is reserved inside `adapters/` — it is never an
+   adapter, and a malformed one refuses the whole site source, because every
+   certificate in the repository is judged against it. Private keys never live
+   in the repository.
 3. With a mode-0600 private-key file, sign and immediately verify the evidence:
 
    ```sh
@@ -743,6 +937,49 @@ separate reviewer operation:
    wp duo manifest-pin --repo=<site-repo> --name=<name>
    ```
 
+### Certifying under your own root
+
+Steps 1 and 3 above are the REVIEWER's path: a real conformance bundle on disk,
+signed with an agent-owned key. Under a site root there is no bundle to
+produce, and no step 1 — one command does the whole thing:
+
+```sh
+php scripts/adapter-certification.php sign-site \
+  --manifest-dir=manifests --repo=<site-repo> --name=<name> \
+  --authority=<key-id> --secret-key-file=<private-key> \
+  --reason='grammar verified by the site operator; not exercised'
+```
+
+(`duo adapter certify` is the host verb over the same entry point.) It derives
+the ratification from your manifest, runs the **real loader** for the grammar
+verdict — an adapter that does not load is refused with the loader's own
+message, because a certificate for bytes no command can use is the emptiest
+possible claim — builds the bundle in memory, and writes only
+`adapters/certifications/<name>.json`. There is no bundle directory to keep:
+an unexercised bundle's assets are already inside the signed statement.
+
+### What a site-rooted certificate may prove
+
+A reviewer's bundle states a passing exercise. An operator certifying their own
+adapter usually cannot produce one, so the bundle declares what it proves:
+`evidence` is `{"exercised": <bool>, "grammar": "ok", "reason": "<text>"}`.
+`exercised: false` requires empty `tests` and `artifacts`, is accepted **only**
+under a site trust root, and rides onto the resulting claim — so `certified`
+never reads as "somebody ran it". `exercised: true` is the reviewer's shape and
+the only one an agent-owned key may sign; `sign-site` refuses an agent-owned
+key by name.
+
+The derived ratification claims nothing an unexercised check cannot support:
+no `delete` operation, no lifecycle phases, every intent-only table marked
+unsupported, and every open-ended `default_class: authored` keyspace recorded
+`unsupported` rather than justified. The full wire contract is
+[round-3-adapter-walk-bundle.md](../proposals/round-3-adapter-walk-bundle.md).
+
+Every catalog and diagnostic row carries `trust_root` (`platform` for a shipped
+row, `site` or `platform` for a signed out-of-tree one, `null` when nothing
+signed) and `principal` (the authority key id), so "certified" always comes
+with the name of whoever said so.
+
 A valid signature without that exact `{name,source:"site",digest}` pin is
 reported as `signed_unpinned` and remains blocked. A present malformed,
 tampered, stale-platform, unknown-key, or revoked-key certificate is a policy
@@ -750,6 +987,53 @@ load refusal; it never falls back to unsigned support. The final adapter digest
 binds the source manifest plus authority, signed statement, envelope, bundle,
 ratification, and platform proof facts, while unrelated shipped adapter
 digests and `duo capabilities --all` remain unchanged.
+
+## Overriding a shipped adapter
+
+A site adapter whose name collides with a shipped one is refused — silently
+replacing a reviewed definition is never on offer. The repository can *state*
+the replacement instead: pin the name with its source.
+
+```json
+{"manifests": ["core", {"name": "woocommerce", "source": "site"}]}
+```
+
+That pin selects `adapters/woocommerce.json` for the name. The shipped copy
+leaves the loaded set and is reported on every run as `not_installed` with
+reason code `shadowed_by_site`, naming the site copy that won; exactly one
+definition answers to the name, so the cross-manifest guards see no conflict.
+
+The host verb does both halves in one command: `duo adapter pin <site-repo>
+--name=woocommerce --source=site` writes the `{name, source:"site"}` statement
+first (printing `override: site.duo.json now names the site copy of shipped
+adapter 'woocommerce'`), loads the repository with the site copy in force, and
+completes the pin with the digest — the same `{name,source:"site",digest}`
+object `wp duo manifest-pin --repo=<site-repo> --name=woocommerce` prints once
+the override statement exists. Commit the object it writes.
+
+**An override inherits exactly the shipped executable grants.** The usual
+out-of-tree rule refuses an `interpreter`, a `regen_dependency.regenerator`
+or a `providers[]` row with `source: "manifest"` in a site adapter, because
+that code lives in the agent's own tree. A copy of a shipped adapter carries
+those declarations already, and they are the shipped grant repeated: an
+override keeps every one that is byte-for-byte what `manifests/<name>.json`
+declares, and may add or edit none. Widening (a second manifest-sourced
+provider, one more capability on the inherited one, another adapter's
+interpreter) is refused with the override's own remediation — repeat the
+shipped declaration verbatim or drop the change. The override therefore
+carries the shipped tier its inherited code implies (a `compatibility_shim`
+adapter stays `compatibility_shim`; it is not laundered into declarative), and
+a site key may certify that tier.
+
+Three things the override deliberately is not:
+
+- A **name-only** pin is not an override. Precedence stays
+  `shipped > site > plugin` for every one of them, and the refusal stands.
+- An **unreadable** `site.duo.json` yields no overrides, so a broken policy
+  file can never silently swap which definition is in force.
+- The site copy never inherits the shipped adapter's reviewed claim. It carries
+  the site's own certification words; a signed override reads `Site-certified`,
+  never `Platform-certified`.
 
 ## Adapters a plugin bundles
 

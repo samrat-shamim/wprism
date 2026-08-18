@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Duo\Orchestrator;
 
+use Duo\AdapterSources;
 use Duo\Canon;
 use Duo\NativeActions;
 use Duo\Policy;
@@ -346,7 +347,21 @@ final class ManifestValidate {
         } catch (\Throwable $t) {
             return self::fail($t->getMessage());
         }
-        putenv('DUO_MANIFESTS_DIR=' . $resolved);
+        // The directory handed in is normally a MANIFEST LIBRARY (the shipped
+        // set, or a candidate library) and becomes the shipped dir for every
+        // load below. When it is the site's own `adapters/` and --site names
+        // that site, it is the SITE source, not a second shipped library:
+        // pointing the shipped dir at it too made AdapterSources see every
+        // file twice and refuse each as "shadows the shipped adapter <name>"
+        // (grind_adapter_walk.sh S2, `manifest-validate <repo>/adapters
+        // --site=<repo>` — the guide's own spelling for authoring). In that
+        // case the shipped library stays what the agent ships and the site
+        // adapters load through the site source, exactly as the engine will.
+        $siteAdaptersDir = $site === null ? false : realpath($site . '/' . AdapterSources::SITE_DIR);
+        $validatingSiteSource = $siteAdaptersDir !== false && $siteAdaptersDir === $resolved;
+        if (!$validatingSiteSource) {
+            putenv('DUO_MANIFESTS_DIR=' . $resolved);
+        }
 
         // Pre-flight the site half ALONE, before any manifest is judged against
         // it. A malformed site.duo.json is an input this command was handed, not
@@ -364,6 +379,15 @@ final class ManifestValidate {
                 // THERE also surfaces here. Blame --site only when the engine
                 // names the site file; anything else is the input dir's own
                 // problem and gets the message unprefixed.
+                // A refusal the adapter-source scan knows by code (a site
+                // copy shadowing a shipped name, a malformed trust root…) is
+                // reported typed, whatever words it contains — its sentence
+                // may well mention site.duo.json, since that file is where
+                // the remedy lives.
+                $typed = self::typedSourceRefusal($site, $t->getMessage());
+                if ($typed !== null) {
+                    return self::fail($typed);
+                }
                 if (str_contains($t->getMessage(), 'site.duo.json')) {
                     return self::fail(
                         "--site '$site' has a site.duo.json this command cannot load, so no manifest was judged "
@@ -792,6 +816,37 @@ final class ManifestValidate {
     }
 
     /** Fail closed on this command's own paths: usage, a bad dir, an unreadable file. */
+    /**
+     * A site-source refusal, typed. `Policy::load()` throws the loader's
+     * sentence and nothing else; the catalog scan (`AdapterSources::survey()`)
+     * collects the SAME refusal as a row that carries its reason code and
+     * remediation. When the row exists, the sentence is prefixed with the
+     * bracketed code every other host refusal prints (`[shadows_shipped] …`)
+     * and followed by the remediation — an author who validates the site
+     * copy of a shipped name before stating the override reads the verb that
+     * states it, not only "rename or remove" (T6 walk S4). Null when the
+     * survey has no row for this sentence — the caller prints it as it was.
+     */
+    private static function typedSourceRefusal(string $site, string $message): ?string {
+        try {
+            $survey = AdapterSources::survey($site);
+        } catch (\Throwable $t) {
+            return null;
+        }
+        foreach ((array) ($survey['refusals'] ?? []) as $row) {
+            if (!is_array($row) || (string) ($row['message'] ?? '') !== $message) {
+                continue;
+            }
+            $code = (string) ($row['code'] ?? '');
+            $remediation = (string) ($row['remediation'] ?? '');
+
+            return ($code !== '' ? "[$code] " : '') . $message
+                . ($remediation !== '' ? "\n       remediation: $remediation" : '');
+        }
+
+        return null;
+    }
+
     private static function fail(string $message): int {
         fwrite(STDERR, "duo: manifest-validate: $message\n");
         return 2;
