@@ -1931,7 +1931,7 @@ keygen_and_certify() {
   duo_ok "$EVIDENCE/$scenario/keygen.txt" "$HOST_R1" \
     adapter keygen --out="$key" --key-id="$WALK_KEY_ID"
   if ! dry; then
-    grep -Eq "^key-id: $WALK_KEY_ID\$" "$EVIDENCE/$scenario/keygen.txt" \
+    grep -Eq "^key-id:[[:space:]]+$WALK_KEY_ID\$" "$EVIDENCE/$scenario/keygen.txt" \
       || fail "$scenario: duo adapter keygen printed no 'key-id: $WALK_KEY_ID' line; see $EVIDENCE/$scenario/keygen.txt"
     [ -f "$key" ] || fail "$scenario: duo adapter keygen wrote no secret key at $key"
     [ "$(stat -f '%Lp' "$key" 2>/dev/null || stat -c '%a' "$key")" = 600 ] \
