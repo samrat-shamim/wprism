@@ -2511,10 +2511,27 @@ $autoRegistry = json_decode(
     JSON_THROW_ON_ERROR
 );
 $autoRegistry['platform'] = $platform;
+// Same neutralisation as the integration and org copies above: a copied
+// registry that still names current scoped evidence would have the runtime
+// re-verify closure inputs against this scratch library's parent (which is
+// no deployed layout), and refuse — seen the moment the real registry became
+// fully current (T6 round 2).
 foreach ($autoRegistry['manifests'] as &$autoShippedClaim) {
+    $autoShippedClaim['evidence']['bundle_digest'] = null;
+    $autoShippedClaim['evidence']['closure_digest'] = null;
+    $autoShippedClaim['evidence']['git_revision'] = null;
+    $autoShippedClaim['evidence']['subject_digest'] = null;
     $autoShippedClaim['evidence']['status'] = 'candidate';
 }
 unset($autoShippedClaim);
+foreach ($autoRegistry['profiles'] as &$autoProfileClaim) {
+    $autoProfileClaim['evidence']['bundle_digest'] = null;
+    $autoProfileClaim['evidence']['closure_digest'] = null;
+    $autoProfileClaim['evidence']['git_revision'] = null;
+    $autoProfileClaim['evidence']['subject_digest'] = null;
+    $autoProfileClaim['evidence']['status'] = 'candidate';
+}
+unset($autoProfileClaim);
 cert_write_canon($autoAgent . '/capabilities/registry.json', $autoRegistry);
 cert_write_canon($autoAgent . '/capabilities/adapter-authorities.json', [
     'format' => 'duo-adapter-authorities/v1',
