@@ -41,7 +41,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "13a239db93e5f86732a900ecf89a6c43308c894c2e1b58365f0d0a003579eeac",
+                "bundle_digest": "dda426ce582a1cd0b078e5308d9bafcffa71a5fd144ceb09701b754c3712857d",
                 "claims": {
                     "manifests.acf": [
                         "conformance-acf",
@@ -1763,10 +1763,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:32:54Z",
+                "created_at": "2026-08-18T12:07:37Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -1864,12 +1864,12 @@
                             "sha256": "cabb0826e1195db3cd4c2a19f7ae20ffa62c432af50fdf9c8848fd983fac7012",
                             "size": 143
                         },
-                        "evidence_sha256": "b5a91ae24f7083d701412aa7efa4dd5a12642b5be0c14f507b2197efa862e267",
+                        "evidence_sha256": "6ea1d06370f3b37c0498dc5fa662b574a78aea019b6ec7fcff15701fab0e71ca",
                         "exit_code": 0,
                         "id": "conformance-acf",
                         "log": {
                             "path": "logs/conformance-acf.txt",
-                            "sha256": "437b96a3089c0b42a50cdff64b703905c9ffed254d1dc8de6cb8fb3c0ff90990",
+                            "sha256": "f455f7426d5f24121c9dc7c98fdaa944bd5e1669cad8324f85e7a1db0f9438f4",
                             "size": 15228
                         },
                         "result": {
@@ -1885,12 +1885,12 @@
                             "sha256": "5dc7302694afe05dafd5a994c0c1cd802efc029b699aea35f83f4eeb73f9e9ec",
                             "size": 144
                         },
-                        "evidence_sha256": "7202a82f4f2c162d1dab7c0749b813d99f4e596735cb5dbd26d8123b38228664",
+                        "evidence_sha256": "599881c01cf2c9040b16af15f01a4384f11a371313515f6f7c4499f07e77ad7a",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "7b6bd4bdb01188fa80486495795ead893912bfa7ed524841bb622c87a8ddcd59",
+                            "sha256": "0cb089836a6c96edc6b2c5dbb691fffec91aa7bdb2ebcdade1db9677e9c202aa",
                             "size": 18237
                         },
                         "result": {
@@ -1903,7 +1903,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/acf/13a239db93e5f86732a900ecf89a6c43308c894c2e1b58365f0d0a003579eeac"
+            "path": "scoped/manifests/acf/dda426ce582a1cd0b078e5308d9bafcffa71a5fd144ceb09701b754c3712857d"
         },
         "manifests.contact-form-7": {
             "bundle": {
@@ -1945,7 +1945,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "820cd4ee96db38fa811f556f1fdf0b78ce5dd324d0cf89f028557ac6d7724f8e",
+                "bundle_digest": "751eac4a8b2c0dd3dec2f148a859e8fd996f2d402033ccc17f268d053b41e3b8",
                 "claims": {
                     "manifests.contact-form-7": [
                         "conformance-contact-form-7",
@@ -3667,10 +3667,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:33:37Z",
+                "created_at": "2026-08-18T12:08:12Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -3767,12 +3767,12 @@
                             "sha256": "4dbf24e9b9ddde891bf66bc2a2376eec7edd265e995dccd5ec4092d738ddc447",
                             "size": 154
                         },
-                        "evidence_sha256": "715f6f203d4a1a209120e7683234e57b169b024863fbeb21597b949abcd1c809",
+                        "evidence_sha256": "c9d1f985a35d7f30dd6bb6c2061d31429d786233abf25243c20db4dffaf48d1c",
                         "exit_code": 0,
                         "id": "conformance-contact-form-7",
                         "log": {
                             "path": "logs/conformance-contact-form-7.txt",
-                            "sha256": "f6ac4654ea3a8376b95e555fa11fdd20c876939a99fcd1f0c8ead80df9455d4a",
+                            "sha256": "60b74d66ce73af32969a3a923ec5aaf35810cbe435e37d4646bfc55920b6659d",
                             "size": 16616
                         },
                         "result": {
@@ -3788,12 +3788,12 @@
                             "sha256": "2ca1cbf22eeb3cccfcb1677f95ed16fff512e115a23ef83476754fe9c082f942",
                             "size": 155
                         },
-                        "evidence_sha256": "a8c672c58b18c924223daa25323f7edc1a419d93b7602978d2e346685626d7fd",
+                        "evidence_sha256": "e6c7dfa545f388e99eb3af06e39b799957b82ff606101d49564fe894afc23e43",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "7b0b1838b06c62c0bf2671457270e87d0956f4a12512d9f2e4ad451e226a8f2c",
+                            "sha256": "7942dd7a8f4052215d13b9a2957ff083a7d801a791f99961e7b80d5a09d05d97",
                             "size": 20029
                         },
                         "result": {
@@ -3806,7 +3806,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/contact-form-7/820cd4ee96db38fa811f556f1fdf0b78ce5dd324d0cf89f028557ac6d7724f8e"
+            "path": "scoped/manifests/contact-form-7/751eac4a8b2c0dd3dec2f148a859e8fd996f2d402033ccc17f268d053b41e3b8"
         },
         "manifests.core": {
             "bundle": {
@@ -3830,7 +3830,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "4d67b498e687a4c27972bdb358c5cc88f403673c13516b3fdfb7846a8890f0d0",
+                "bundle_digest": "e7ac107e006ee172aea568473610c755e150082b3ef7edb3b3a864c33fba3200",
                 "claims": {
                     "manifests.core": [
                         "conformance-core",
@@ -5552,10 +5552,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:33:35Z",
+                "created_at": "2026-08-18T12:07:56Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -5668,12 +5668,12 @@
                             "sha256": "3754ca620133d2f2f15ceda854975f9169e771a6d6fefd890d30022338c0551b",
                             "size": 144
                         },
-                        "evidence_sha256": "db6fc47f761625ca34a10ee0be1ac7de59a96edd4a8fa697b7df0231005bc1b8",
+                        "evidence_sha256": "52f604499657f2a9f6f1529192218c704968648d619420205fdd22d09ef7c710",
                         "exit_code": 0,
                         "id": "conformance-core",
                         "log": {
                             "path": "logs/conformance-core.txt",
-                            "sha256": "3ba9d2c1115f5bbc80913c2a11cd22e1f1d8ac3908859245882eb55f41146b57",
+                            "sha256": "5cb89bc45c719fb31051c47945d201aa63d7b7666c601b79ca0211e84116589d",
                             "size": 35056
                         },
                         "result": {
@@ -5689,12 +5689,12 @@
                             "sha256": "2afafc0541cd3b444c1a4d6971b4d27ae2dc161449e9b114110e16d9844d6d31",
                             "size": 181
                         },
-                        "evidence_sha256": "ab8275ddf3dda875be240e39a3799bdf19b749e7f20bd474dc8749dc23767331",
+                        "evidence_sha256": "9756e6af5c0370d5112d012178f880ae19a9e162319482de6a84dacb29e10a9f",
                         "exit_code": 0,
                         "id": "multisite-refusal",
                         "log": {
                             "path": "logs/multisite-refusal.txt",
-                            "sha256": "5e049d34d38cfa2ac833ee8b9c882e645d562d5e47a1445cdd7a27afcf415fa3",
+                            "sha256": "ab138556d96b6ff2c3ba62483d58f87e22ac2a03c6a78b1def15d7eb7dba042c",
                             "size": 9298
                         },
                         "result": {
@@ -5707,7 +5707,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/core/4d67b498e687a4c27972bdb358c5cc88f403673c13516b3fdfb7846a8890f0d0"
+            "path": "scoped/manifests/core/e7ac107e006ee172aea568473610c755e150082b3ef7edb3b3a864c33fba3200"
         },
         "manifests.elementor": {
             "bundle": {
@@ -5749,7 +5749,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "8e84f75fa7e89e531dfd0e2c74b380974f06a5a78fbdc23cd9c569de80c01c61",
+                "bundle_digest": "7953bd4b37a903ffbdeef8a161ec9adbf4799a2840bba5da615f361e47839b2e",
                 "claims": {
                     "manifests.elementor": [
                         "conformance-elementor",
@@ -5757,7 +5757,7 @@
                     ]
                 },
                 "closure": {
-                    "digest": "57ce8e7e596e84e4a3eda2d14df98e7c842713261d4c98f9cc2c7e17345c633b",
+                    "digest": "ca4efc944b1cf45f19874f26b5e0390ffd0306a38971f78247af3c9f4e546032",
                     "inputs": [
                         {
                             "path": "Makefile",
@@ -7306,8 +7306,8 @@
                         },
                         {
                             "path": "manifests/elementor.json",
-                            "sha256": "063f40b91002deb599f32533eaf1f12de7df0753d1082cf56176d13b56ff4ea7",
-                            "size": 8086
+                            "sha256": "380c8b033b9fd4a794f0d93c906491131b23f64a154a95859dddd2f9529b4d98",
+                            "size": 8989
                         },
                         {
                             "path": "manifests/providers/elementor-css.php",
@@ -7471,10 +7471,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:33:53Z",
+                "created_at": "2026-08-18T12:08:10Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -7562,7 +7562,7 @@
                     "kind": "manifest",
                     "name": "elementor"
                 },
-                "subject_digest": "191e30b98171392ce6c65d9b79aaeced4c35f26ffa94b8b0106d3f5b7f046278",
+                "subject_digest": "b61756d49965b5bb0bed948ae5e34ab707758623b37f28951fc62d22c96060b0",
                 "tests": [
                     {
                         "diff": {
@@ -7570,12 +7570,12 @@
                             "sha256": "6cd273d1a78881dbf3715a44db53595cbd75065b2b4bbb24bae59cfff7fe2c34",
                             "size": 149
                         },
-                        "evidence_sha256": "005894ecda133820a4cf1ba4c233ba876c0c4a285e1a42d7079af72fb364d437",
+                        "evidence_sha256": "018ebb7fb7973943874f6cc53e177a323b5a97a4980231ef4947e90b5f33f4a7",
                         "exit_code": 0,
                         "id": "conformance-elementor",
                         "log": {
                             "path": "logs/conformance-elementor.txt",
-                            "sha256": "1236c68d0e62c68f847f32392312c9431ceed152ea12c9c68b798f16d0980daa",
+                            "sha256": "0b55a8f8119ac366e2c23d91fe89b1fbde100a87289c1e966e7bf3dc91b12795",
                             "size": 16400
                         },
                         "result": {
@@ -7591,12 +7591,12 @@
                             "sha256": "618d4a35f68d010dc27c630311453133b766ab09721b3cf2b01b73acbc5940d2",
                             "size": 150
                         },
-                        "evidence_sha256": "0713ada219d93535ef321c581b66dbc59b3818cda81b14dee9523622745c4cc1",
+                        "evidence_sha256": "9272ded8ef5dca76628bfc936ac07614f57c94fd2ded577d6aa925bb812f780f",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "1127d3efc0d569d62c8b87229c2e1fe2cdb33570892da4784deaa42332e165dd",
+                            "sha256": "ddbd77204918e45f88f59ca76057f14179a47c5533d90c3976ed9ab5ca9dda44",
                             "size": 20374
                         },
                         "result": {
@@ -7609,7 +7609,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/elementor/8e84f75fa7e89e531dfd0e2c74b380974f06a5a78fbdc23cd9c569de80c01c61"
+            "path": "scoped/manifests/elementor/7953bd4b37a903ffbdeef8a161ec9adbf4799a2840bba5da615f361e47839b2e"
         },
         "manifests.ninja-forms": {
             "bundle": {
@@ -7651,7 +7651,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "c7cdb76f1f9be981e7da938a92d9a55125d59c2bdc98e4bfba2d76e7ccf0cf4a",
+                "bundle_digest": "1a8362e12ff3ef3223642b12b54c00b4afcc7ab77f64891991b456ae18c88006",
                 "claims": {
                     "manifests.ninja-forms": [
                         "conformance-ninja-forms",
@@ -9378,10 +9378,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:35:03Z",
+                "created_at": "2026-08-18T12:09:43Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -9505,12 +9505,12 @@
                             "sha256": "9382579a06d5d108e8159e0542d83dcd174b079ec759f65087f6ff1f7c97dd76",
                             "size": 151
                         },
-                        "evidence_sha256": "75eb32e8d1eff619973e90ec0a65dbfc653ad4180b6ee51b4844c5d59b7493cb",
+                        "evidence_sha256": "812adfbadaa7112c372393dd1a798a548c107ed07accc67287e961629a147e6b",
                         "exit_code": 0,
                         "id": "conformance-ninja-forms",
                         "log": {
                             "path": "logs/conformance-ninja-forms.txt",
-                            "sha256": "e7b3e0d3d15e093eff9a0dba70239fa9ddb2865fa8e144749108d5e9d3334da8",
+                            "sha256": "e4f74efd59658a7d778386ea71393c86210d7867e76b0b55e412851a62cf541e",
                             "size": 19395
                         },
                         "result": {
@@ -9526,12 +9526,12 @@
                             "sha256": "7bc8649835fc3efe1d2c54a9950fa9c0d4cac69bc6ded64ebd10e88bc03f3324",
                             "size": 152
                         },
-                        "evidence_sha256": "3462877d4fab31d8c0917335ba7697e5087c0ab44cceeeb73261bd6070082083",
+                        "evidence_sha256": "7fe29101f9d2fd38e70d973cef2ffb8467cda49bf89230d55f9468029d8d6292",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "e74821ba93c340917b445f57dc4c999acd7dce7b09cafd2bdb85d8cb7ef810fe",
+                            "sha256": "c955d62a22e0d7a5ce21f1f279e873faddfdd7cd97c13eb4e2fc827ec451f250",
                             "size": 21804
                         },
                         "result": {
@@ -9544,7 +9544,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/ninja-forms/c7cdb76f1f9be981e7da938a92d9a55125d59c2bdc98e4bfba2d76e7ccf0cf4a"
+            "path": "scoped/manifests/ninja-forms/1a8362e12ff3ef3223642b12b54c00b4afcc7ab77f64891991b456ae18c88006"
         },
         "manifests.polylang": {
             "bundle": {
@@ -9586,7 +9586,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "1def7c367289c5d54359f33459a5596369feb26015bbf4fb2ac151f648f07ea7",
+                "bundle_digest": "58db4295c60be7acb7453b42f9cc5d8a736091deed6f759d8779e0b42177f304",
                 "claims": {
                     "manifests.polylang": [
                         "conformance-polylang",
@@ -11308,10 +11308,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:36:03Z",
+                "created_at": "2026-08-18T12:10:42Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -11408,13 +11408,13 @@
                             "sha256": "a9178ade5252802bf95ba75428841ea06e4bb0234a0dcdbc200ab1448fac86cd",
                             "size": 148
                         },
-                        "evidence_sha256": "288009c5874298797c655187760bac17ae23541bf36982d0b0ce2ac723762af7",
+                        "evidence_sha256": "a8c0fe6e115a12e64743e814c46f5496fddd70700ae3e79adeb8035f463291fe",
                         "exit_code": 0,
                         "id": "conformance-polylang",
                         "log": {
                             "path": "logs/conformance-polylang.txt",
-                            "sha256": "fe8bc4a5681fac0f171c5492cb9de814c1ef2a809e8fc494075afa3a13c76f46",
-                            "size": 21290
+                            "sha256": "6fac983232d349e25386f62c993af6aa12b1b0e898a339f80e37b8b87eb62736",
+                            "size": 21293
                         },
                         "result": {
                             "path": "results/conformance-polylang.json",
@@ -11429,12 +11429,12 @@
                             "sha256": "efb9baa660ec25ef2bf7d79c852ad42b5535e6bd7ceb355ddba5b0431847e98f",
                             "size": 149
                         },
-                        "evidence_sha256": "713f87a5d8cdc145082a804f5acb2b24d16033a1d2f56a7cb3d62f081d5f9164",
+                        "evidence_sha256": "7c0c107f0dd7111b47f17e26891daa48bbb09cc73930f7a101ad09ca6ce6fd87",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "744813bacf522c4eedf310daff734d3a6b67a89eabe9e617bd23eb8fc4935c25",
+                            "sha256": "19075b4f38fce875d522fa906e8c592dbf926d60940935427d85893c31a0d23b",
                             "size": 34778
                         },
                         "result": {
@@ -11447,7 +11447,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/polylang/1def7c367289c5d54359f33459a5596369feb26015bbf4fb2ac151f648f07ea7"
+            "path": "scoped/manifests/polylang/58db4295c60be7acb7453b42f9cc5d8a736091deed6f759d8779e0b42177f304"
         },
         "manifests.woocommerce": {
             "bundle": {
@@ -11480,7 +11480,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "7b81a4fd608de5410bd59ff2a552a2f42bc8513923f774f3a64e106aa27e604a",
+                "bundle_digest": "f9b9354e28bdfe0442bd9feb8dd091802c37180f331237175ef10d698e3ccbd7",
                 "claims": {
                     "manifests.woocommerce": [
                         "conformance-woocommerce",
@@ -13212,10 +13212,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:36:30Z",
+                "created_at": "2026-08-18T12:10:41Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -13357,13 +13357,13 @@
                             "sha256": "7d6d73ec8d2572c84ef732ae011b831e52a1beff1c0863755bba42129844da8b",
                             "size": 151
                         },
-                        "evidence_sha256": "a97e6fb3e6e9c78a3bd396a10ace412457ba6c7ac7a468b96d6854ff5e497933",
+                        "evidence_sha256": "226eceea9a96c13ee229bfef8ff5624e8617c7d9d698f766f86bdfa53f0fd4c7",
                         "exit_code": 0,
                         "id": "conformance-woocommerce",
                         "log": {
                             "path": "logs/conformance-woocommerce.txt",
-                            "sha256": "60d8cdd112827ae1e8cfe9ad3aca3dfa107144b63055e787c78a8b378eb7d041",
-                            "size": 24555
+                            "sha256": "f664c447f042f1ac87e87e466df0cbc6d87f619fd08f4345a9289676e70219b9",
+                            "size": 24556
                         },
                         "result": {
                             "path": "results/conformance-woocommerce.json",
@@ -13378,12 +13378,12 @@
                             "sha256": "62bcd846fdab049f65fd512ec6e790a17a84fe3cc34f38c91ab28f3a3852acce",
                             "size": 152
                         },
-                        "evidence_sha256": "26ca00103a754c3e44779449efc22db7fb791f7650d028c7380b65bf8bc8596d",
+                        "evidence_sha256": "8fba63beb5418fcf9d0d1d17fdbd4cd8477cfbe7de4551921e3833070307d523",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "f9790f8d15c7629982cbe3cba2581d57b64a87499294a9f0e2583d97d8723acc",
+                            "sha256": "b108b72a5403b18be7bcd0572efa5e9ec1d018aea46c5290aa143bc416d0c5ee",
                             "size": 26015
                         },
                         "result": {
@@ -13396,7 +13396,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/woocommerce/7b81a4fd608de5410bd59ff2a552a2f42bc8513923f774f3a64e106aa27e604a"
+            "path": "scoped/manifests/woocommerce/f9b9354e28bdfe0442bd9feb8dd091802c37180f331237175ef10d698e3ccbd7"
         },
         "manifests.yoast": {
             "bundle": {
@@ -13438,7 +13438,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "4120e5aace82d98814dc852f514a032fd013362ec570fd850b1b625e174a4143",
+                "bundle_digest": "8d58e63c4f900f3a6b282686532fad69810ae9e929018c8bb920ccba6683d9db",
                 "claims": {
                     "manifests.yoast": [
                         "conformance-yoast",
@@ -15160,10 +15160,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:35:34Z",
+                "created_at": "2026-08-18T12:09:56Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -15260,12 +15260,12 @@
                             "sha256": "4e5f518064a300e4d4c05d229c9fe2d5f8d744f04525151e79f4ed6320d3af17",
                             "size": 145
                         },
-                        "evidence_sha256": "35771426914b38dda408f1b170fcae26679a2fd13f7a276cb959faa499031539",
+                        "evidence_sha256": "244cbf93296bcc0bd3b2f5a01cb23abf86e40ed98fc770eeee20e7d71cd1ad93",
                         "exit_code": 0,
                         "id": "conformance-yoast",
                         "log": {
                             "path": "logs/conformance-yoast.txt",
-                            "sha256": "67ff9c0d14dcee31c8f28740a1f31f143d8b36e1e974da266a974fdad226948c",
+                            "sha256": "344c48abfa8f96713d9b51a7aafacd5149564d3241dc60346db6087babb9751f",
                             "size": 18065
                         },
                         "result": {
@@ -15281,13 +15281,13 @@
                             "sha256": "cfe1dd2352445809f5cbe474d551441d0bfb431fec741f227e2e030d98c1bcfb",
                             "size": 146
                         },
-                        "evidence_sha256": "28c3e0001dd4ac7652c13647e976214c40484833a9db742d30adbf13a8e2dfdd",
+                        "evidence_sha256": "f4dd1bffddc5e9546103ab21a32bc9a18e7f01a4180e0587057331f5119de3a7",
                         "exit_code": 0,
                         "id": "exact-artifact-version-matrix",
                         "log": {
                             "path": "logs/exact-artifact-version-matrix.txt",
-                            "sha256": "0c0bf6817a1f7970b3008424205b431a1fe158f1a4f5ae0e33625ab00fc579eb",
-                            "size": 26907
+                            "sha256": "a35110b145f4554b901243d5146ad1c146dfa5ef34ca7568a69aa5fbc19a2917",
+                            "size": 26906
                         },
                         "result": {
                             "path": "results/exact-artifact-version-matrix.json",
@@ -15299,7 +15299,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/manifests/yoast/4120e5aace82d98814dc852f514a032fd013362ec570fd850b1b625e174a4143"
+            "path": "scoped/manifests/yoast/8d58e63c4f900f3a6b282686532fad69810ae9e929018c8bb920ccba6683d9db"
         },
         "profiles.fse": {
             "bundle": {
@@ -15323,7 +15323,7 @@
                         "version": "2.8"
                     }
                 ],
-                "bundle_digest": "170d60267b4fe9e990574f848a7527eae73296241e51d3cd347b81306c8c10a3",
+                "bundle_digest": "f554b6b154b67e601d1f6296e6cc92698cd7a51e35a1e2804f39aeee49fe6725",
                 "claims": {
                     "profiles.fse": [
                         "conformance-fse"
@@ -17034,10 +17034,10 @@
                         }
                     ]
                 },
-                "created_at": "2026-08-18T11:38:07Z",
+                "created_at": "2026-08-18T12:12:20Z",
                 "force_hatches": [],
                 "format": "duo-subject-certification-bundle/v1",
-                "git_revision": "ed2c9f5a28cc724faf9342c80c2aa2e2ce1d0605",
+                "git_revision": "4a9c7a02eba42279ee53318e9bc0ab8f799998e6",
                 "platform": {
                     "agent_version": "0.5.0",
                     "branchable_state": "only exact certified registry surfaces and operations",
@@ -17108,12 +17108,12 @@
                             "sha256": "a8654992822d94a361993372f33d5b736d26be1353ac15922b2aabbf3b90599e",
                             "size": 143
                         },
-                        "evidence_sha256": "4500111ca6c303404268ac30f2d53aca914d1e5a859e3986e988daf569aa5f81",
+                        "evidence_sha256": "f7c9d705e51c64ef8bcb0629f28ecba56a14b5b7dc71f8961f4f64c09e4067a3",
                         "exit_code": 0,
                         "id": "conformance-fse",
                         "log": {
                             "path": "logs/conformance-fse.txt",
-                            "sha256": "e2b8261e78f9ded4b3fa315fd71fd537afbdf7f9e553b0e4259ab9a7c819476d",
+                            "sha256": "89cc8a304582ef7c3233feddf9e9143855105281ff5805fd131076865d655c87",
                             "size": 17977
                         },
                         "result": {
@@ -17126,7 +17126,7 @@
                 ],
                 "verdict": "pass"
             },
-            "path": "scoped/profiles/fse/170d60267b4fe9e990574f848a7527eae73296241e51d3cd347b81306c8c10a3"
+            "path": "scoped/profiles/fse/f554b6b154b67e601d1f6296e6cc92698cd7a51e35a1e2804f39aeee49fe6725"
         }
     }
 }
