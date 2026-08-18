@@ -109,4 +109,21 @@ Kept as the grind runs; each entry names the situation, the stop, and the fix.
   is an advisory (`jwt_in_code_file`, named and redacted), never a blocker;
   private keys, cloud/API tokens and environment-owned config files stay
   blocking.
+- A4 (init): Contact Form 7 declares `wpcf7_contact_form: {}` and Polylang
+  its four taxonomies structurally (no class — which the policy reads as
+  authored, site opts in); init proposed neither and left neither local (a
+  declared type is not "unmanaged"), so its own baseline capture refused
+  `incomplete_policy_scope`. Init now proposes structural declarations into
+  scope like explicit authored ones (`InitPlanner::adapter_scope`).
+- A4 (init compensation): a failed confirmation on an adoption seed restores
+  the seed's bytes, then re-enters recovery to prove the rollback — which
+  refused "preserved a replacement site.duo.json instead of deleting external
+  bytes" because the proof pass only recognised the no-prior-version shape,
+  turning every failed init on a seed into a retained journal and lock.
+  `owned_file_already_compensated()` now recognises the restored prior
+  version.
+- Debugging aid: `ADOPT_INIT_HUMAN=1` runs the agent's init proposal and
+  confirmation in human mode — the host's JSON-mode init redacts the
+  confirmation's primary sentence to `init refused at an unclassified safety
+  gate` and writes it nowhere else.
 

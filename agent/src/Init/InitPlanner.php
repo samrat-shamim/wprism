@@ -194,24 +194,9 @@ final class InitPlanner {
             $unsupported[] = self::capability_blocker_row(is_array($blocker) ? $blocker : []);
         }
 
-        $postTypes = ['attachment', 'page', 'post'];
-        $taxonomies = ['category', 'post_tag'];
-        foreach ($selected as $name) {
-            $manifest = $manifests[$name] ?? null;
-            if (!is_array($manifest)) {
-                continue;
-            }
-            foreach (($manifest['post_types'] ?? []) as $postType => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? null) === 'authored') {
-                    $postTypes[] = (string) $postType;
-                }
-            }
-            foreach (($manifest['taxonomies'] ?? []) as $taxonomy => $rule) {
-                if (is_array($rule) && ($rule['class'] ?? null) === 'authored') {
-                    $taxonomies[] = (string) $taxonomy;
-                }
-            }
-        }
+        $adapterScope = self::adapter_scope($selected, $manifests);
+        $postTypes = array_merge(['attachment', 'page', 'post'], $adapterScope['post_types']);
+        $taxonomies = array_merge(['category', 'post_tag'], $adapterScope['taxonomies']);
         // A block theme keeps its site-editor customisations in core's FSE
         // post types (wp_template, wp_template_part, wp_navigation, wp_block)
         // and taxonomies (wp_theme, wp_template_part_area, wp_pattern_category).
@@ -663,6 +648,49 @@ final class InitPlanner {
             }
         }
         return ['advisories' => $advisories, 'scope' => $scope];
+    }
+
+    /**
+     * The post types and taxonomies the selected adapters put into the
+     * proposed scope: every declaration of class `authored`, and every
+     * STRUCTURAL declaration — one with no class at all, which the policy
+     * reads as authored (Policy::post_type_rule_details() /
+     * taxonomy_rule_details(): "portable data the adapter understands; the
+     * site opts it in"). Contact Form 7 declares `wpcf7_contact_form: {}` and
+     * Polylang its four taxonomies that way; leaving them out proposed a scope
+     * whose own baseline capture then refused incomplete_policy_scope for
+     * exactly those types (T7 grind A4), because a DECLARED type is not left
+     * local either. Init is the site's opt-in.
+     *
+     * @param list<string> $selected
+     * @param array<string,array<string,mixed>> $manifests
+     * @return array{post_types:list<string>,taxonomies:list<string>}
+     */
+    public static function adapter_scope(array $selected, array $manifests): array {
+        $postTypes = [];
+        $taxonomies = [];
+        foreach ($selected as $name) {
+            $manifest = $manifests[$name] ?? null;
+            if (!is_array($manifest)) {
+                continue;
+            }
+            foreach (($manifest['post_types'] ?? []) as $postType => $rule) {
+                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
+                    $postTypes[] = (string) $postType;
+                }
+            }
+            foreach (($manifest['taxonomies'] ?? []) as $taxonomy => $rule) {
+                if (is_array($rule) && ($rule['class'] ?? 'authored') === 'authored') {
+                    $taxonomies[] = (string) $taxonomy;
+                }
+            }
+        }
+        $postTypes = array_values(array_unique($postTypes));
+        $taxonomies = array_values(array_unique($taxonomies));
+        sort($postTypes, SORT_STRING);
+        sort($taxonomies, SORT_STRING);
+
+        return ['post_types' => $postTypes, 'taxonomies' => $taxonomies];
     }
 
     /**

@@ -539,8 +539,8 @@ check(
     ),
     'generic target init has no plugin-name branch'
 );
-check(str_contains($plannerSource, "(\$rule['class'] ?? null) === 'authored'"), 'post-type scope expands only from authored manifest rulings');
-check(substr_count($plannerSource, "(\$rule['class'] ?? null) === 'authored'") >= 2, 'post-type and taxonomy scope expand only from explicit authored manifest rulings');
+check(str_contains($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'"), 'post-type scope expands only from authored manifest rulings — explicit, or structural (classless, which the policy reads as authored)');
+check(substr_count($plannerSource, "(\$rule['class'] ?? 'authored') === 'authored'") >= 2, 'post-type and taxonomy scope expand from authored manifest rulings — explicit or structural — and from nothing else');
 $lockedRecheck = strrpos($confirmationSource, 'InitPlanner::assert_confirmed_proposal($proposal, $expectedDigest);');
 $siteWrite = $lockedRecheck === false ? false : strpos($confirmationSource, '$sitePublication = InitOwnedArtifacts::publish_owned_file(', $lockedRecheck);
 check($lockedRecheck !== false && $siteWrite !== false && $lockedRecheck < $siteWrite, 'under-lock digest recheck precedes the site-config write');
@@ -1541,7 +1541,17 @@ check(
             $presentFile,
             ['previous' => "prior\n", 'published' => 'x']
         ) === false,
-    'a present owned file is never skipped, whatever its record says'
+    'a present owned file whose bytes are neither the publication nor the prior version is never skipped'
+);
+// T7 grind A4: an adoption seed HAS a prior version, and the confirm-time
+// catch restores it before the proof pass; the restored bytes must read as
+// already compensated, or every failed init on a seed retains its journal.
+check(
+    \Duo\InitOwnedArtifacts::owned_file_already_compensated(
+        $presentFile,
+        ['previous' => "published\n", 'published' => 'x']
+    ) === true,
+    'a present owned file holding exactly the prior version reads as already compensated (the seed was put back)'
 );
 check(
     substr_count($recoverySource, 'InitOwnedArtifacts::owned_file_already_compensated(') === 2
@@ -2030,6 +2040,31 @@ check(
     is_array($fseUncertified) && $fseUncertified['scope'] === null
         && $fseUncertified['advisory']['code'] === 'fse_profile_not_certified',
     'an uncertified FSE profile is not proposed either'
+);
+
+// T7 grind A4: a STRUCTURAL declaration (no class) is authored data the
+// adapter understands — Contact Form 7's `wpcf7_contact_form: {}`, Polylang's
+// four taxonomies — and init proposes it into scope exactly like an explicit
+// authored one; runtime/derived/env declarations stay out; a shipped adapter
+// not selected contributes nothing.
+$adapterScope = \Duo\InitPlanner::adapter_scope(['core', 'contact-form-7', 'polylang', 'wpforms'], [
+    'core' => ['name' => 'core'],
+    'contact-form-7' => ['name' => 'contact-form-7', 'post_types' => ['wpcf7_contact_form' => []]],
+    'polylang' => ['name' => 'polylang', 'taxonomies' => [
+        'language' => [], 'post_translations' => [], 'term_language' => ['class' => 'authored'],
+        'pll_runtime' => ['class' => 'runtime'],
+    ]],
+    'wpforms' => ['name' => 'wpforms', 'post_types' => [
+        'wpforms' => ['class' => 'authored', 'body' => 'verbatim'], 'wpforms-template' => ['class' => 'runtime'],
+    ]],
+    'woocommerce' => ['name' => 'woocommerce', 'post_types' => ['product' => ['class' => 'authored']]],
+]);
+check(
+    $adapterScope === [
+        'post_types' => ['wpcf7_contact_form', 'wpforms'],
+        'taxonomies' => ['language', 'post_translations', 'term_language'],
+    ],
+    'adapter_scope() proposes explicit AND structural (classless) authored declarations of the selected adapters, sorted, and nothing else (got ' . json_encode($adapterScope) . ')'
 );
 
 check(
