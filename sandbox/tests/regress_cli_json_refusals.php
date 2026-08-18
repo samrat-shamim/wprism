@@ -690,6 +690,49 @@ namespace {
         check(($redacted['message'] ?? null) === 'capture refused at an unclassified safety gate', "$shape gets the constant safe message");
     }
 
+    echo "\n== a redacted refusal writes its sentence privately under <repo>/.duo/refusals/ ==\n";
+    // "inspect private operator evidence" has to point somewhere: the host
+    // runs the agent in --format=json for a rehearsal's promotion apply, so
+    // the operator never had a human-mode sentence to reread (grind_adoption
+    // A6 lost two rehearsals to a bare `apply_failed`). The envelope stays
+    // byte-identical; the record lives beside the promotion checkpoints.
+    $evidenceRepo = sys_get_temp_dir() . '/duo-cli-json-refusal-evidence-' . bin2hex(random_bytes(6));
+    mkdir($evidenceRepo, 0700, true);
+    $evidenceCause = new RuntimeException('provider capability failed: X-Amz-Signature=EVIDENCECAUSE');
+    \Duo\Capture::$failure = new RuntimeException(
+        'duo: required manifest action failed with sk_live_EVIDENCESENTENCE',
+        0,
+        $evidenceCause
+    );
+    $withEvidence = invoke_json(static fn() => $cli->capture([], ['repo' => $evidenceRepo, 'format' => 'json']));
+    check(($withEvidence['details_redacted'] ?? null) === true, 'the redacted envelope is unchanged by evidence recording');
+    check(!str_contains((string) json_encode($withEvidence), 'EVIDENCE'), 'evidence recording publishes nothing new in the envelope');
+    check(!array_key_exists('private_evidence', $withEvidence), 'the envelope carries no evidence path (byte-identical contract)');
+    $evidenceFiles = glob($evidenceRepo . '/.duo/refusals/*-capture-*.json') ?: [];
+    check(count($evidenceFiles) === 1, 'exactly one private evidence record is written under <repo>/.duo/refusals/');
+    $evidenceRecord = json_decode((string) file_get_contents($evidenceFiles[0] ?? ''), true);
+    check(($evidenceRecord['format'] ?? null) === 'duo-private-refusal-evidence/v1', 'the record names its private format');
+    check(($evidenceRecord['command'] ?? null) === 'capture' && ($evidenceRecord['reason_code'] ?? null) === 'capture_failed', 'the record binds command and reason code');
+    check(($evidenceRecord['throwable'][0]['message'] ?? null) === 'duo: required manifest action failed with sk_live_EVIDENCESENTENCE', 'the record carries the primary sentence verbatim');
+    check(($evidenceRecord['throwable'][1]['message'] ?? null) === 'provider capability failed: X-Amz-Signature=EVIDENCECAUSE', 'the record carries the cause chain');
+    check(($evidenceRecord['throwable'][0]['class'] ?? null) === 'RuntimeException' && is_int($evidenceRecord['throwable'][0]['line'] ?? null), 'the record names class and origin line');
+    check((fileperms($evidenceFiles[0]) & 0777) === 0600, 'the record is private (0600) like every other .duo/ artifact');
+    // The typed-diagnostic redaction and the final defense pass are the same
+    // contract: any details_redacted envelope leaves a record.
+    \Duo\Apply::$planFailure = new \Duo\RepositoryCompilationException([[
+        'severity' => 'error', 'code' => 'malformed_reference', 'path' => 'state/options/core.json',
+        'locator' => 'records.fixture', 'message' => "reviewed\tTYPEDEVIDENCE",
+    ]]);
+    invoke_json(static fn() => $cli->plan([], ['repo' => $evidenceRepo, 'format' => 'json']));
+    check(count(glob($evidenceRepo . '/.duo/refusals/*-plan-*.json') ?: []) === 1, 'a redacted typed-diagnostic refusal also leaves a private record');
+    // No repository, no record — and never a second failure.
+    \Duo\Capture::$failure = new RuntimeException('duo: refused with sk_live_NOREPO');
+    $withoutRepo = invoke_json(static fn() => $cli->capture([], ['repo' => '/fixture-does-not-exist', 'format' => 'json']));
+    check(($withoutRepo['details_redacted'] ?? null) === true, 'a missing repository still yields the redacted envelope');
+    check(!is_dir('/fixture-does-not-exist'), 'no repository is conjured to hold evidence');
+    foreach (glob($evidenceRepo . '/.duo/refusals/*') ?: [] as $f) unlink($f);
+    @rmdir($evidenceRepo . '/.duo/refusals'); @rmdir($evidenceRepo . '/.duo'); @rmdir($evidenceRepo);
+
     echo "\n== DUO-3397: refresh-export and scope answer machines with the same envelope ==\n";
     $productLeakShapes = [
         'hard token' => 'sk_live_1234567890PRODUCTLEAK',

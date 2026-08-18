@@ -24,6 +24,41 @@ final class CommandOutput {
             $seen[$detail] = true;
             fwrite(STDERR, $detail . "\n");
         }
+        $hint = self::redactedRefusalEvidenceHint($result);
+        if ($hint !== null) {
+            fwrite(STDERR, $hint . "\n");
+        }
+    }
+
+    /**
+     * Name where a redacted agent refusal's sentence went.
+     *
+     * The host runs the agent in --format=json wherever it needs a
+     * structured receipt (a rehearsal's promotion apply, deploy preflight,
+     * assess), so an unclassified Throwable arrives as `details_redacted:
+     * true` and nothing else (DUO-3404) — the operator never ran a human-mode
+     * command they could reread. The agent writes that sentence privately
+     * under the target repository's `.duo/refusals/` (agent/src/Command/
+     * Cli.php record_private_refusal_evidence); this one stderr line, emitted
+     * only when a stream is such an envelope, tells the operator so. The
+     * envelope on stdout is untouched.
+     */
+    public static function redactedRefusalEvidenceHint(array $result): ?string {
+        foreach ([$result['stdout'] ?? '', $result['stderr'] ?? ''] as $stream) {
+            $decoded = json_decode(trim((string) $stream), true);
+            if (!is_array($decoded)
+                || ($decoded['format'] ?? null) !== 'duo-command-refusal/v1'
+                || ($decoded['details_redacted'] ?? null) !== true) {
+                continue;
+            }
+            $command = is_string($decoded['command'] ?? null) && $decoded['command'] !== ''
+                ? $decoded['command']
+                : 'agent';
+            return "duo: the target's $command refusal was redacted for machine output;"
+                . " its private operator evidence is under the target site repository's .duo/refusals/"
+                . ' (a JSON record per redacted refusal: reason code, throwable class, message, cause chain)';
+        }
+        return null;
     }
 
     /**

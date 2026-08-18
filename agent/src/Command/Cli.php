@@ -144,8 +144,68 @@ final class Cli {
                 . '","error":"refusal_serialization_failed","reason_code":"refusal_serialization_failed",'
                 . '"message":"structured refusal serialization failed","remediation":"inspect private operator evidence before another attempt","details_redacted":true}';
         }
+        if (($payload['details_redacted'] ?? false) === true) {
+            self::record_private_refusal_evidence($t, $assoc, $command, (string) $payload['error']);
+        }
         WP_CLI::line($encoded);
         WP_CLI::halt(1);
+    }
+
+    /**
+     * Where "inspect private operator evidence" points.
+     *
+     * A redacted envelope is the whole machine answer, and the doctrine
+     * (DUO-3404) is that the operator reruns in human mode to read the
+     * sentence — but the orchestrator itself is a machine caller: a
+     * rehearsal's promotion runs the target's apply in --format=json, so an
+     * unclassified Throwable there reached nobody. grind_adoption A6
+     * (docs/grind/adoption.md) lost a rehearsal to `apply_failed` twice
+     * before the sentence could be read on a kept pair. So the redacted
+     * chain (class, message, file:line, causes) is written under the
+     * repository's private, gitignored `.duo/` — next to the promotion
+     * checkpoints — as `.duo/refusals/<utc>-<command>-<pid>.json`. The
+     * envelope stays byte-identical; the record is best-effort (no repo, no
+     * writable directory → nothing written, never a second failure), carries
+     * no trace, and is 0600 like every other private artifact there.
+     */
+    private static function record_private_refusal_evidence(
+        \Throwable $t,
+        array $assoc,
+        string $command,
+        string $reasonCode
+    ): void {
+        $repo = $assoc['repo'] ?? null;
+        if (!is_string($repo) || $repo === '' || !is_dir($repo)) {
+            return;
+        }
+        $dir = rtrim($repo, '/') . '/.duo/refusals';
+        if (!is_dir($dir) && !@mkdir($dir, 0700, true) && !is_dir($dir)) {
+            return;
+        }
+        $chain = [];
+        for ($cause = $t, $depth = 0; $cause !== null && $depth < 8; $cause = $cause->getPrevious(), $depth++) {
+            $chain[] = [
+                'class' => get_class($cause),
+                'message' => $cause->getMessage(),
+                'file' => $cause->getFile(),
+                'line' => $cause->getLine(),
+            ];
+        }
+        $record = json_encode([
+            'format' => 'duo-private-refusal-evidence/v1',
+            'recorded_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'command' => $command,
+            'reason_code' => $reasonCode,
+            'throwable' => $chain,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+        if ($record === false) {
+            return;
+        }
+        $path = $dir . '/' . gmdate('Ymd-His') . '-' . preg_replace('/[^a-z0-9_-]+/', '-', $command)
+            . '-' . getmypid() . '.json';
+        if (@file_put_contents($path, $record . "\n", LOCK_EX) !== false) {
+            @chmod($path, 0600);
+        }
     }
 
     /**
