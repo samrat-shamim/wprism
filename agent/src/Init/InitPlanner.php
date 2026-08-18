@@ -115,7 +115,6 @@ final class InitPlanner {
         $selected = array_merge($selected, $plugins['selected']);
         $unsupported = array_merge($unsupported, $plugins['unsupported']);
         $advisories = array_merge($advisories, $plugins['advisories']);
-        $unmanagedPluginsPresent = $plugins['advisories'] !== [];
 
         $template = (string) get_option('template', '');
         $stylesheet = (string) get_option('stylesheet', '');
@@ -227,8 +226,16 @@ final class InitPlanner {
         // `duo classify` would write — and is printed as an advisory so the
         // operator sees what was left local; `duo classify` re-decides it in
         // one line when an adapter arrives.
+        // T7 grind A6 widened this from "when unmanaged plugins are present"
+        // to always: an ADAPTER-owned plugin can register a rowful type its
+        // adapter deliberately leaves to the site (Elementor's
+        // elementor_library — manifests/elementor.json says the site opts
+        // it in), and init refusing incomplete_policy_scope at confirmation
+        // gave the operator no way to adopt at all. Left local and printed,
+        // the decision is one `duo classify` line, exactly as for a type an
+        // unmanaged plugin registers.
         $scope = ['post_type' => [], 'taxonomy' => []];
-        if ($unmanagedPluginsPresent) {
+        {
             $declaredPostTypes = [];
             $declaredTaxonomies = [];
             foreach ($selected as $name) {
@@ -629,7 +636,7 @@ final class InitPlanner {
                     'extension' => "$kind:$name",
                     'kind' => 'scope',
                     'reason' => 'registered by no selected adapter and holding ' . (int) $counts[$name] . " $unit; "
-                        . 'left local (class runtime) by the unmanaged-plugins decision',
+                        . 'left local (class runtime) until an adapter declares it or duo classify decides it',
                     'remediation' => "to manage it later, run duo classify and decide scope:$kind:$name, or install an adapter that declares it",
                 ];
             }

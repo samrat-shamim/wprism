@@ -117,7 +117,11 @@ under the same key keeps the first certificate and its pinned digest intact.
   proposed scope and undeclared by every selected adapter is left local with
   `policy.scope.<kind>.<name>: {class: runtime}` (the rule `duo classify` would
   write) and printed as `UNMANAGED SCOPE <kind>:<name>
-  [unmanaged_scope_left_local]`. Assess and the contract carry the plugin
+  [unmanaged_scope_left_local]`. (Round-3 T7 A6 widened this to every such
+  type, whether or not the registering plugin has an adapter — an adapter may
+  deliberately leave a type to the site, as `manifests/elementor.json` does
+  with `elementor_library` — so `duo init` always finishes and the operator's
+  decision is one `duo classify` line.) Assess and the contract carry the plugin
   decision (§3.6). Without the flag the refusal is unchanged but its
   remediation now names the flag and `duo adapter certify`.
 - An installed but uncertified adapter still blocks init; the blocker's
